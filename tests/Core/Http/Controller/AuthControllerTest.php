@@ -186,17 +186,19 @@ class AuthControllerTest extends TestCase
     {
         $this->startTestSession();
 
+        $superAdmin = new \Core\Security\UserAccount(
+            id: 5,
+            email: 'poll@test.com',
+            firstName: null,
+            lastName: null,
+            passwordHash: null,
+            isSuperAdmin: true,
+            lastLoginAt: null
+        );
+
         $this->authService->method('isMagicLinkConfirmed')->willReturn(true);
-        $this->authService->method('getUserForConfirmedLink')
-            ->willReturn(new \Core\Security\UserAccount(
-                id: 5,
-                email: 'poll@test.com',
-                firstName: null,
-                lastName: null,
-                passwordHash: null,
-                isSuperAdmin: true,
-                lastLoginAt: null
-            ));
+        $this->authService->method('getUserForConfirmedLink')->willReturn($superAdmin);
+        $this->authService->method('getUserById')->willReturn($superAdmin);
 
         $request = new Request('GET', '/auth/poll/1', [], [], [], []);
         $response = $this->controller->pollMagicLink($request, ['id' => '1']);

@@ -67,4 +67,24 @@ class AuthSession
     {
         return $_SESSION[self::SESSION_KEY]['role'] ?? 'public';
     }
+
+    /**
+     * Store linked member year IDs in session.
+     *
+     * @param int[] $memberYearIds
+     */
+    public static function setLinkedMembers(array $memberYearIds): void
+    {
+        $_SESSION[self::SESSION_KEY]['linked_members'] = $memberYearIds;
+    }
+
+    /**
+     * Get linked member year IDs from session.
+     *
+     * @return int[]
+     */
+    public static function getLinkedMembers(): array
+    {
+        return $_SESSION[self::SESSION_KEY]['linked_members'] ?? [];
+    }
 }

@@ -11,7 +11,6 @@ class PlaceholderController extends AbstractController
 {
     /** @var array<string, string> */
     private const PAGE_TITLES = [
-        '/admin/import' => 'Import Desk',
         '/admin/journal' => 'Journal',
         '/config/functions' => 'Fonctions',
         '/config/settings' => 'Paramètres',

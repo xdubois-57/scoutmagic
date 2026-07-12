@@ -1,0 +1,97 @@
+{% extends 'base.html.twig' %}
+{% block title %}Import Desk — {{ site_name }}{% endblock %}
+{% block content %}
+<div class="mx-auto" style="max-width:720px;">
+    <h1>Import Desk</h1>
+
+    {# Scout year selector #}
+    <div class="card mb-3">
+        <div class="card-body">
+            <h2 class="h5">Année scoute</h2>
+            <p class="text-body-secondary small">
+                L'import ajoutera ou mettra à jour les données pour l'année sélectionnée.
+            </p>
+            <div class="d-flex align-items-center gap-2">
+                <span class="fw-semibold">{{ current_year.label }}</span>
+                {% if years|length > 1 %}
+                    <select class="form-select form-select-sm w-auto" id="year-select">
+                        {% for y in years %}
+                            <option value="{{ y.id }}" {% if y.id == current_year.id %}selected{% endif %}>
+                                {{ y.label }}
+                            </option>
+                        {% endfor %}
+                    </select>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    {# Unconfirmed functions warning #}
+    {% if unconfirmed_count > 0 %}
+        <div class="alert alert-warning">
+            <i class="bi bi-exclamation-triangle"></i>
+            {{ unconfirmed_count }} fonction(s) importée(s) n'ont pas encore de rôle confirmé.
+            Les membres avec ces fonctions ont le rôle « Animé » par défaut.
+            <a href="/config/functions">Configurer les fonctions</a>
+        </div>
+    {% endif %}
+
+    {# Upload form #}
+    <div class="card mb-3">
+        <div class="card-body">
+            <h2 class="h5">Importer un fichier CSV</h2>
+            <p class="text-body-secondary small">
+                Exportez la liste des membres depuis Desk, puis téléchargez le fichier CSV ici.
+                Les données existantes pour l'année sélectionnée seront mises à jour.
+            </p>
+            <form method="post" action="/admin/import" enctype="multipart/form-data">
+                {{ csrf_field()|raw }}
+                <input type="hidden" name="scout_year_id" value="{{ current_year.id }}">
+                <div class="mb-3">
+                    <input type="file" name="csv_file" accept=".csv" class="form-control" required>
+                </div>
+                <button type="submit" class="btn btn-primary">Importer</button>
+            </form>
+        </div>
+    </div>
+
+    {# Last import info #}
+    {% if last_import %}
+        <div class="card mb-3">
+            <div class="card-body">
+                <h2 class="h5">Dernier import</h2>
+                <p class="small text-body-secondary mb-0">
+                    {{ last_import.imported_at|date('d/m/Y à H:i') }}
+                    — {{ last_import.member_count }} membres,
+                    {{ last_import.line_count }} lignes
+                    {% if last_import.new_functions_count > 0 %}
+                        , {{ last_import.new_functions_count }} nouvelle(s) fonction(s)
+                    {% endif %}
+                </p>
+            </div>
+        </div>
+    {% endif %}
+
+    {# Import result (shown after successful import) #}
+    {% if import_result %}
+        <div class="alert alert-success">
+            <strong>Import réussi.</strong>
+            {{ import_result.memberCount }} membres importés ({{ import_result.lineCount }} lignes).
+            {% if import_result.newFunctionsCount > 0 %}
+                {{ import_result.newFunctionsCount }} nouvelle(s) fonction(s) créée(s)
+                — <a href="/config/functions">configurer les rôles</a>.
+            {% endif %}
+        </div>
+        {% if import_result.warnings|length > 0 %}
+            <div class="alert alert-warning">
+                <strong>Avertissements :</strong>
+                <ul class="mb-0">
+                    {% for warning in import_result.warnings %}
+                        <li>{{ warning }}</li>
+                    {% endfor %}
+                </ul>
+            </div>
+        {% endif %}
+    {% endif %}
+</div>
+{% endblock %}

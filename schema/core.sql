@@ -74,6 +74,23 @@ CREATE TABLE files (
     CONSTRAINT fk_file_created_by FOREIGN KEY (created_by) REFERENCES user_accounts(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE functions (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    desk_code VARCHAR(100) NOT NULL,
+    label VARCHAR(100) NOT NULL,
+    role VARCHAR(20) NOT NULL DEFAULT 'identified',
+    confirmed BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE INDEX idx_desk_code (desk_code)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE fee_categories (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    desk_code VARCHAR(100) NOT NULL,
+    label VARCHAR(100) NOT NULL,
+    UNIQUE INDEX idx_desk_code (desk_code)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE age_branches (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     desk_code VARCHAR(50) NOT NULL,
@@ -91,4 +108,75 @@ CREATE TABLE sections (
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE INDEX idx_desk_code (desk_code),
     CONSTRAINT fk_section_branch FOREIGN KEY (age_branch_id) REFERENCES age_branches(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE member_years (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    member_id INT UNSIGNED NOT NULL,
+    scout_year_id INT UNSIGNED NOT NULL,
+    first_name_encrypted BLOB NOT NULL,
+    last_name_encrypted BLOB NOT NULL,
+    gender_encrypted BLOB,
+    birth_date_encrypted BLOB,
+    phone_encrypted BLOB,
+    mobile_encrypted BLOB,
+    email_encrypted BLOB,
+    email_blind_index CHAR(64),
+    totem_encrypted BLOB,
+    quali_encrypted BLOB,
+    patrol_encrypted BLOB,
+    formation_level VARCHAR(100),
+    federation_mail_consent BOOLEAN NOT NULL DEFAULT FALSE,
+    unit_mail_consent BOOLEAN NOT NULL DEFAULT FALSE,
+    fee_category_id INT UNSIGNED,
+    unit_code VARCHAR(50),
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE INDEX idx_member_year (member_id, scout_year_id),
+    INDEX idx_scout_year (scout_year_id),
+    INDEX idx_email_blind (email_blind_index),
+    CONSTRAINT fk_my_member FOREIGN KEY (member_id) REFERENCES members(id),
+    CONSTRAINT fk_my_year FOREIGN KEY (scout_year_id) REFERENCES scout_years(id),
+    CONSTRAINT fk_my_fee FOREIGN KEY (fee_category_id) REFERENCES fee_categories(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE member_addresses (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    member_year_id INT UNSIGNED NOT NULL,
+    address_type VARCHAR(50) NOT NULL,
+    street_encrypted BLOB,
+    number_encrypted BLOB,
+    box_encrypted BLOB,
+    complement_encrypted BLOB,
+    postal_code_encrypted BLOB,
+    city_encrypted BLOB,
+    country_encrypted BLOB,
+    CONSTRAINT fk_ma_member_year FOREIGN KEY (member_year_id) REFERENCES member_years(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE member_functions (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    member_year_id INT UNSIGNED NOT NULL,
+    function_id INT UNSIGNED NOT NULL,
+    section_id INT UNSIGNED,
+    age_branch_id INT UNSIGNED,
+    start_date DATE,
+    end_date DATE,
+    mandate_end DATE,
+    is_main_function BOOLEAN NOT NULL DEFAULT FALSE,
+    CONSTRAINT fk_mf_member_year FOREIGN KEY (member_year_id) REFERENCES member_years(id) ON DELETE CASCADE,
+    CONSTRAINT fk_mf_function FOREIGN KEY (function_id) REFERENCES functions(id),
+    CONSTRAINT fk_mf_section FOREIGN KEY (section_id) REFERENCES sections(id),
+    CONSTRAINT fk_mf_branch FOREIGN KEY (age_branch_id) REFERENCES age_branches(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE import_journal (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    scout_year_id INT UNSIGNED NOT NULL,
+    user_account_id INT UNSIGNED,
+    line_count INT UNSIGNED NOT NULL,
+    member_count INT UNSIGNED NOT NULL,
+    new_functions_count INT UNSIGNED NOT NULL DEFAULT 0,
+    imported_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_ij_year FOREIGN KEY (scout_year_id) REFERENCES scout_years(id),
+    CONSTRAINT fk_ij_user FOREIGN KEY (user_account_id) REFERENCES user_accounts(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

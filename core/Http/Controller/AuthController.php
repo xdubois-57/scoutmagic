@@ -4,19 +4,23 @@ declare(strict_types=1);
 
 namespace Core\Http\Controller;
 
+use Core\Config\ScoutYearService;
 use Core\Http\FlashMessage;
 use Core\Http\Request;
 use Core\Http\Response;
 use Core\Security\AuthService;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
+use Core\Security\RoleResolver;
 use Twig\Environment;
 
 class AuthController extends AbstractController
 {
     public function __construct(
         protected Environment $twig,
-        private AuthService $authService
+        private AuthService $authService,
+        private ?RoleResolver $roleResolver = null,
+        private ?ScoutYearService $scoutYearService = null
     ) {
     }
 
@@ -87,9 +91,9 @@ class AuthController extends AbstractController
         }
 
         // Create session on this device (Device B)
-        $user = $this->authService->getUserById($verified->userAccountId);
-        $role = ($user !== null && $user->isSuperAdmin) ? 'admin' : 'identified';
+        $role = $this->resolveRole($verified->email, $verified->userAccountId);
         AuthSession::login($verified->userAccountId, $verified->email, $role);
+        $this->storeLinkedMembers($verified->email);
 
         return $this->render('auth/verify.html.twig', [
             'valid' => true,
@@ -120,8 +124,9 @@ class AuthController extends AbstractController
         if (!AuthSession::isAuthenticated()) {
             $user = $this->authService->getUserForConfirmedLink($id);
             if ($user !== null) {
-                $role = $user->isSuperAdmin ? 'admin' : 'identified';
+                $role = $this->resolveRole($user->email, $user->id);
                 AuthSession::login($user->id, $user->email, $role);
+                $this->storeLinkedMembers($user->email);
             }
         }
 
@@ -145,5 +150,36 @@ class AuthController extends AbstractController
         FlashMessage::set('success', 'Vous avez été déconnecté.');
 
         return $this->redirect('/');
+    }
+
+    /**
+     * Resolve role using RoleResolver if available, fallback to is_super_admin check.
+     */
+    private function resolveRole(string $email, ?int $userAccountId = null): string
+    {
+        if ($this->roleResolver !== null && $this->scoutYearService !== null) {
+            $currentYear = $this->scoutYearService->getCurrentYear();
+            return $this->roleResolver->resolve($email, $currentYear['id']);
+        }
+
+        // Fallback for cases without role resolver
+        if ($userAccountId !== null) {
+            $user = $this->authService->getUserById($userAccountId);
+            return ($user !== null && $user->isSuperAdmin) ? 'admin' : 'identified';
+        }
+
+        return 'identified';
+    }
+
+    /**
+     * Store linked member years in session.
+     */
+    private function storeLinkedMembers(string $email): void
+    {
+        if ($this->roleResolver !== null && $this->scoutYearService !== null) {
+            $currentYear = $this->scoutYearService->getCurrentYear();
+            $linked = $this->roleResolver->getLinkedMemberYears($email, $currentYear['id']);
+            AuthSession::setLinkedMembers($linked);
+        }
     }
 }

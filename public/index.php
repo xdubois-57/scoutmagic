@@ -14,15 +14,28 @@ use Core\Database\SqlParser;
 use Core\File\FileAccessGuard;
 use Core\File\FileRepository;
 use Core\File\UploadHandler;
+use Core\Config\ScoutYearService;
 use Core\Http\Controller\AuthController;
 use Core\Http\Controller\CookieController;
 use Core\Http\Controller\ConfigModeController;
 use Core\Http\Controller\EditableContentController;
 use Core\Http\Controller\FileController;
+use Core\Http\Controller\ImportController;
 use Core\Http\Controller\PageController;
 use Core\Http\Controller\PlaceholderController;
 use Core\Http\Controller\SetupController;
 use Core\Http\Controller\UploadController;
+use Core\Import\AgeBranchRepository;
+use Core\Import\DeskCsvParser;
+use Core\Import\DeskImportService;
+use Core\Import\FeeCategoryRepository;
+use Core\Import\FunctionRepository;
+use Core\Import\ImportJournalRepository;
+use Core\Import\ImportSectionRepository;
+use Core\Import\MappingResolver;
+use Core\Import\MemberRepository;
+use Core\Import\MemberYearRepository;
+use Core\Security\RoleResolver;
 use Core\Http\FrontController;
 use Core\Http\Request;
 use Core\Http\Response;
@@ -170,6 +183,24 @@ $editableContentRepo = new EditableContentRepository($pdo);
 $editableContentService = new EditableContentService($editableContentRepo);
 $sectionRepository = new SectionRepository($pdo);
 
+// Create import-related services
+$scoutYearService = new ScoutYearService($pdo);
+$functionRepo = new FunctionRepository($pdo);
+$ageBranchRepo = new AgeBranchRepository($pdo);
+$importSectionRepo = new ImportSectionRepository($pdo);
+$feeCategoryRepo = new FeeCategoryRepository($pdo);
+$memberRepo = new MemberRepository($pdo);
+$memberYearRepo = new MemberYearRepository($pdo);
+$importJournalRepo = new ImportJournalRepository($pdo);
+$userAccountRepo = new UserAccountRepository($pdo, $encryptionService);
+$mappingResolver = new MappingResolver($functionRepo, $ageBranchRepo, $importSectionRepo, $feeCategoryRepo);
+$csvParser = new DeskCsvParser();
+$importService = new DeskImportService(
+    $pdo, $encryptionService, $csvParser, $mappingResolver,
+    $memberRepo, $memberYearRepo, $importJournalRepo, $userAccountRepo
+);
+$roleResolver = new RoleResolver($memberYearRepo, $encryptionService, $pdo);
+
 // Create file services
 $storagePath = dirname(__DIR__) . '/storage';
 $fileRepository = new FileRepository($pdo);
@@ -273,7 +304,9 @@ $router->addRoute('GET', '/setup/dns', SetupController::class, 'checkDns', 'admi
 $router->addRoute('POST', '/setup/test-email', SetupController::class, 'testEmail', 'admin');
 
 // Placeholder routes for pages not yet built
-$router->addRoute('GET', '/admin/import', PlaceholderController::class, 'show', 'chief');
+// Import
+$router->addRoute('GET', '/admin/import', ImportController::class, 'index', 'chief');
+$router->addRoute('POST', '/admin/import', ImportController::class, 'import', 'chief');
 $router->addRoute('GET', '/admin/journal', PlaceholderController::class, 'show', 'chief');
 $router->addRoute('GET', '/config/functions', PlaceholderController::class, 'show', 'admin');
 $router->addRoute('GET', '/config/settings', PlaceholderController::class, 'show', 'admin');
@@ -287,7 +320,8 @@ $frontController = new FrontController($router, $twig, $config);
 $frontController->registerController(PageController::class, new PageController($twig, $editableContentService, $sectionRepository, $cookieConsentService));
 $frontController->registerController(CookieController::class, new CookieController($twig, $cookieConsentService));
 $frontController->registerController(SetupController::class, new SetupController($twig, $secretManager, $dkimManager, $schemaPath));
-$frontController->registerController(AuthController::class, new AuthController($twig, $authService));
+$frontController->registerController(AuthController::class, new AuthController($twig, $authService, $roleResolver, $scoutYearService));
+$frontController->registerController(ImportController::class, new ImportController($twig, $importService, $scoutYearService, $importJournalRepo, $functionRepo, $storagePath));
 $frontController->registerController(ConfigModeController::class, new ConfigModeController($twig));
 $frontController->registerController(EditableContentController::class, new EditableContentController($twig, $editableContentService));
 $frontController->registerController(FileController::class, new FileController($twig, $fileAccessGuard, $storagePath));
