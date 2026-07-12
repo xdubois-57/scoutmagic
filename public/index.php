@@ -586,6 +586,11 @@ $frontController->registerController(ScheduledActionsController::class, new Sche
 $frontController->registerController(ConfigGeneralController::class, new ConfigGeneralController($twig, $moduleManager));
 $frontController->registerController(PlaceholderController::class, new PlaceholderController($twig));
 
+// Bypass RBAC for /setup routes when site is not initialized
+if (!$secretManager->isInitialized()) {
+    $frontController->setRbacBypassPrefix('/setup');
+}
+
 $response = $frontController->handle($request);
 $response->send();
 
