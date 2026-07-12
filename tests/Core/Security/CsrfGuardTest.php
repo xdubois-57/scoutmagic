@@ -67,4 +67,47 @@ class CsrfGuardTest extends TestCase
 
         $this->assertFalse(CsrfGuard::validateToken(''));
     }
+
+    public function testValidateRequestReturnsTrueFromPostBody(): void
+    {
+        $token = CsrfGuard::generateToken();
+        $_POST['_csrf_token'] = $token;
+        $_SERVER['HTTP_X_CSRF_TOKEN'] = '';
+
+        $this->assertTrue(CsrfGuard::validateRequest());
+
+        unset($_POST['_csrf_token']);
+    }
+
+    public function testValidateRequestReturnsTrueFromHeader(): void
+    {
+        $token = CsrfGuard::generateToken();
+        $_POST = [];
+        $_SERVER['HTTP_X_CSRF_TOKEN'] = $token;
+
+        $this->assertTrue(CsrfGuard::validateRequest());
+
+        unset($_SERVER['HTTP_X_CSRF_TOKEN']);
+    }
+
+    public function testValidateRequestReturnsFalseWithNoTokenAnywhere(): void
+    {
+        CsrfGuard::generateToken();
+        $_POST = [];
+        $_SERVER['HTTP_X_CSRF_TOKEN'] = '';
+
+        $this->assertFalse(CsrfGuard::validateRequest());
+    }
+
+    public function testValidateRequestPrefersBodyOverHeader(): void
+    {
+        $token = CsrfGuard::generateToken();
+        $_POST['_csrf_token'] = $token;
+        $_SERVER['HTTP_X_CSRF_TOKEN'] = 'wrong';
+
+        $this->assertTrue(CsrfGuard::validateRequest());
+
+        unset($_POST['_csrf_token']);
+        unset($_SERVER['HTTP_X_CSRF_TOKEN']);
+    }
 }

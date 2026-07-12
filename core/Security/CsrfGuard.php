@@ -49,4 +49,25 @@ class CsrfGuard
 
         return hash_equals($sessionToken, $submittedToken);
     }
+
+    /**
+     * Validate CSRF token from either form body or X-CSRF-Token header.
+     * Checks body field first, then header.
+     */
+    public static function validateRequest(): bool
+    {
+        // Check form body
+        $bodyToken = $_POST[self::TOKEN_KEY] ?? null;
+        if (is_string($bodyToken) && self::validateToken($bodyToken)) {
+            return true;
+        }
+
+        // Check X-CSRF-Token header
+        $headerToken = $_SERVER['HTTP_X_CSRF_TOKEN'] ?? null;
+        if (is_string($headerToken) && self::validateToken($headerToken)) {
+            return true;
+        }
+
+        return false;
+    }
 }

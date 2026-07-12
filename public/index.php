@@ -5,6 +5,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../vendor/autoload.php';
 
 use Core\Config\AppConfig;
+use Core\Cookie\CookieConsentService;
 use Core\Database\Connection;
 use Core\Database\MigrationRunner;
 use Core\Database\SchemaComparator;
@@ -14,6 +15,7 @@ use Core\File\FileAccessGuard;
 use Core\File\FileRepository;
 use Core\File\UploadHandler;
 use Core\Http\Controller\AuthController;
+use Core\Http\Controller\CookieController;
 use Core\Http\Controller\ConfigModeController;
 use Core\Http\Controller\EditableContentController;
 use Core\Http\Controller\FileController;
@@ -159,6 +161,9 @@ $authService = new AuthService(
     $secrets['site_name'] ?? ''
 );
 
+// Create cookie consent service
+$cookieConsentService = new CookieConsentService();
+
 // Create editable content service
 $pdo = $connection->getPdo();
 $editableContentRepo = new EditableContentRepository($pdo);
@@ -191,6 +196,7 @@ $twig->addGlobal('current_path', $request->getPath());
 $twig->addGlobal('config_mode', ConfigurationMode::isActive());
 $twig->addGlobal('_editable_content_service', $editableContentService);
 $twig->addGlobal('contact_email', $secrets['mail_from_address'] ?? '');
+$twig->addGlobal('cookie_consent_given', $cookieConsentService->hasConsented());
 
 // Build menu
 $menuBuilder = new MenuBuilder(Role::fromString($currentRole));
@@ -246,6 +252,12 @@ $router->addRoute('POST', '/config-mode/deactivate', ConfigModeController::class
 // Editable content API
 $router->addRoute('POST', '/api/editable-content', EditableContentController::class, 'update', 'admin');
 
+// Cookie consent
+$router->addRoute('GET', '/cookies', CookieController::class, 'preferences', 'public');
+$router->addRoute('POST', '/cookies/save', CookieController::class, 'save', 'public');
+$router->addRoute('POST', '/cookies/accept-all', CookieController::class, 'acceptAll', 'public');
+$router->addRoute('POST', '/cookies/reject-all', CookieController::class, 'rejectAll', 'public');
+
 // File serving
 $router->addRoute('GET', '/files/{id}', FileController::class, 'serve', 'public');
 
@@ -272,7 +284,8 @@ $router->addRoute('GET', '/chefs/staffs', PlaceholderController::class, 'show', 
 $frontController = new FrontController($router, $twig, $config);
 
 // Register controllers with dependencies
-$frontController->registerController(PageController::class, new PageController($twig, $editableContentService, $sectionRepository));
+$frontController->registerController(PageController::class, new PageController($twig, $editableContentService, $sectionRepository, $cookieConsentService));
+$frontController->registerController(CookieController::class, new CookieController($twig, $cookieConsentService));
 $frontController->registerController(SetupController::class, new SetupController($twig, $secretManager, $dkimManager, $schemaPath));
 $frontController->registerController(AuthController::class, new AuthController($twig, $authService));
 $frontController->registerController(ConfigModeController::class, new ConfigModeController($twig));

@@ -39,6 +39,7 @@ class AuthControllerTest extends TestCase
         $this->twig->addGlobal('is_authenticated', false);
         $this->twig->addGlobal('current_user_email', null);
         $this->twig->addGlobal('current_user_role', 'public');
+        $this->twig->addGlobal('cookie_consent_given', true);
 
         // Register csrf_field function
         $this->twig->addFunction(new \Twig\TwigFunction('csrf_field', function (): string {

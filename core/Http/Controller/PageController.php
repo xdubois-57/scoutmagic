@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Core\Http\Controller;
 
+use Core\Cookie\CookieConsentService;
 use Core\Http\Request;
 use Core\Http\Response;
 use Core\View\EditableContentService;
@@ -15,7 +16,8 @@ class PageController extends AbstractController
     public function __construct(
         protected Environment $twig,
         private EditableContentService $editableContentService, // @phpstan-ignore property.onlyWritten
-        private SectionRepository $sectionRepository
+        private SectionRepository $sectionRepository,
+        private CookieConsentService $cookieConsentService
     ) {
     }
 
@@ -60,6 +62,10 @@ class PageController extends AbstractController
      */
     public function rgpd(Request $request, array $params): Response
     {
-        return $this->render('pages/rgpd.html.twig');
+        $categories = $this->cookieConsentService->getAllDeclaredCookies();
+
+        return $this->render('pages/rgpd.html.twig', [
+            'cookie_categories' => $categories,
+        ]);
     }
 }

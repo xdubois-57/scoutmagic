@@ -1,0 +1,65 @@
+{% extends 'base.html.twig' %}
+{% block title %}Préférences cookies — {{ site_name }}{% endblock %}
+{% block content %}
+<div class="mx-auto" style="max-width:720px;">
+    <h1>Préférences cookies</h1>
+    <p class="text-body-secondary">
+        Choisissez les catégories de cookies que vous acceptez. Les cookies strictement nécessaires
+        ne peuvent pas être désactivés car ils sont indispensables au fonctionnement du site.
+        Vous pouvez modifier vos choix à tout moment depuis cette page.
+    </p>
+
+    <form method="post" action="/cookies/save">
+        {{ csrf_field()|raw }}
+
+        {% for category_id, category in cookie_categories %}
+            <div class="card mb-3">
+                <div class="card-body">
+                    <div class="d-flex align-items-center justify-content-between mb-2">
+                        <h2 class="h5 mb-0">{{ category.label }}</h2>
+                        {% if category_id == 'necessary' %}
+                            <span class="badge bg-secondary">Toujours actif</span>
+                        {% else %}
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox"
+                                       name="{{ category_id }}" id="cookie-{{ category_id }}"
+                                       {% if category.accepted %}checked{% endif %}>
+                            </div>
+                        {% endif %}
+                    </div>
+                    <p class="text-body-secondary small mb-3">{{ category.description }}</p>
+
+                    {% if category.cookies|length > 0 %}
+                        <table class="table table-sm small mb-0">
+                            <thead>
+                                <tr>
+                                    <th>Cookie</th>
+                                    <th>Finalité</th>
+                                    <th>Durée</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for cookie in category.cookies %}
+                                    <tr>
+                                        <td><code>{{ cookie.name }}</code></td>
+                                        <td>{{ cookie.purpose }}</td>
+                                        <td>{{ cookie.duration }}</td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    {% else %}
+                        <p class="text-body-secondary small fst-italic mb-0">
+                            Aucun cookie dans cette catégorie actuellement.
+                        </p>
+                    {% endif %}
+                </div>
+            </div>
+        {% endfor %}
+
+        <div class="d-flex gap-2 justify-content-end">
+            <button type="submit" class="btn btn-primary">Enregistrer mes choix</button>
+        </div>
+    </form>
+</div>
+{% endblock %}

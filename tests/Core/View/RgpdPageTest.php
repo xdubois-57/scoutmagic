@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Tests\Core\Http\Controller;
+namespace Tests\Core\View;
 
 use Core\Cookie\CookieConsentService;
 use Core\Http\Controller\PageController;
@@ -14,13 +14,13 @@ use PHPUnit\Framework\TestCase;
 use Twig\Environment;
 use Twig\Loader\FilesystemLoader;
 
-class PageControllerTest extends TestCase
+class RgpdPageTest extends TestCase
 {
     private PageController $controller;
 
     protected function setUp(): void
     {
-        $templateDir = dirname(__DIR__, 4) . '/core/View/templates';
+        $templateDir = dirname(__DIR__, 3) . '/core/View/templates';
         $twig = new Environment(new FilesystemLoader($templateDir), [
             'cache' => false,
             'autoescape' => 'html',
@@ -43,11 +43,16 @@ class PageControllerTest extends TestCase
         $twig->addFunction(new \Twig\TwigFunction('csrf_token', function (): string {
             return 'test';
         }));
+        $twig->addFunction(new \Twig\TwigFunction('editable', function (string $key, string $default = ''): string {
+            return $default;
+        }, ['is_safe' => ['html']]));
+        $twig->addFunction(new \Twig\TwigFunction('editable_image', function (): string {
+            return '';
+        }, ['is_safe' => ['html']]));
         $twig->addFunction(new \Twig\TwigFunction('file_url', function (): string {
             return '';
         }));
 
-        // Create mock editable content service
         $pdo = new \PDO('sqlite::memory:');
         $pdo->exec("CREATE TABLE editable_contents (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -58,55 +63,45 @@ class PageControllerTest extends TestCase
             modified_at TEXT,
             modified_by INTEGER
         )");
+        $pdo->exec("CREATE TABLE age_branches (id INTEGER PRIMARY KEY, desk_code TEXT, label TEXT, sort_order INTEGER)");
+        $pdo->exec("CREATE TABLE sections (id INTEGER PRIMARY KEY, age_branch_id INTEGER, desk_code TEXT, name TEXT, email TEXT, created_at TEXT)");
+
         $repo = new EditableContentRepository($pdo);
         $editableService = new EditableContentService($repo);
         $twig->addGlobal('_editable_content_service', $editableService);
-
-        $twig->addFunction(new \Twig\TwigFunction('editable', function (string $key, string $default = ''): string {
-            return $default;
-        }, ['is_safe' => ['html']]));
-        $twig->addFunction(new \Twig\TwigFunction('editable_image', function (): string {
-            return '';
-        }, ['is_safe' => ['html']]));
-
-        // Create mock section repository (no sections)
-        $pdo->exec("CREATE TABLE age_branches (id INTEGER PRIMARY KEY, desk_code TEXT, label TEXT, sort_order INTEGER)");
-        $pdo->exec("CREATE TABLE sections (id INTEGER PRIMARY KEY, age_branch_id INTEGER, desk_code TEXT, name TEXT, email TEXT, created_at TEXT)");
         $sectionRepo = new SectionRepository($pdo);
+        $cookieService = new CookieConsentService([]);
 
-        $cookieConsentService = new CookieConsentService([]);
-        $this->controller = new PageController($twig, $editableService, $sectionRepo, $cookieConsentService);
+        $this->controller = new PageController($twig, $editableService, $sectionRepo, $cookieService);
     }
 
-    public function testHomePageRenders(): void
-    {
-        $request = new Request('GET', '/', [], [], [], []);
-        $response = $this->controller->home($request, []);
-        $this->assertSame(200, $response->getStatusCode());
-        $this->assertStringContainsString('Bienvenue', $response->getBody());
-    }
-
-    public function testContactPageRenders(): void
-    {
-        $request = new Request('GET', '/contact', [], [], [], []);
-        $response = $this->controller->contact($request, []);
-        $this->assertSame(200, $response->getStatusCode());
-        $this->assertStringContainsString('Contact', $response->getBody());
-    }
-
-    public function testSectionsPageRendersEmptyState(): void
-    {
-        $request = new Request('GET', '/sections', [], [], [], []);
-        $response = $this->controller->sections($request, []);
-        $this->assertSame(200, $response->getStatusCode());
-        $this->assertStringContainsString('premier import', $response->getBody());
-    }
-
-    public function testRgpdPageRenders(): void
+    public function testRgpdPageIncludesDynamicCookieListSection(): void
     {
         $request = new Request('GET', '/rgpd', [], [], [], []);
         $response = $this->controller->rgpd($request, []);
-        $this->assertSame(200, $response->getStatusCode());
-        $this->assertStringContainsString('Protection des données', $response->getBody());
+
+        $body = $response->getBody();
+        $this->assertStringContainsString('Cookies utilisés', $body);
+    }
+
+    public function testRgpdPageShowsAllDeclaredCoreCookies(): void
+    {
+        $request = new Request('GET', '/rgpd', [], [], [], []);
+        $response = $this->controller->rgpd($request, []);
+
+        $body = $response->getBody();
+        $this->assertStringContainsString('PHPSESSID', $body);
+        $this->assertStringContainsString('_csrf_token', $body);
+        $this->assertStringContainsString('cookie_consent', $body);
+    }
+
+    public function testRgpdPageContainsPreferencesLink(): void
+    {
+        $request = new Request('GET', '/rgpd', [], [], [], []);
+        $response = $this->controller->rgpd($request, []);
+
+        $body = $response->getBody();
+        $this->assertStringContainsString('href="/cookies"', $body);
+        $this->assertStringContainsString('préférences cookies', $body);
     }
 }

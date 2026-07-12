@@ -50,7 +50,15 @@
     </main>
 
     {% block footer %}
-    {# TODO: Footer with cookie preferences link will be added in iteration 7 #}
+    <footer class="border-top py-3 mt-4">
+        <div class="container d-flex flex-wrap justify-content-between align-items-center small text-body-secondary">
+            <span>{{ site_name }}</span>
+            <div class="d-flex gap-3">
+                <a href="/rgpd" class="text-body-secondary text-decoration-none">Protection des données</a>
+                <a href="/cookies" class="text-body-secondary text-decoration-none">Préférences cookies</a>
+            </div>
+        </div>
+    </footer>
     {% endblock %}
 
     <script src="/assets/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
@@ -59,6 +67,11 @@
     {% include 'partials/rich_text_editor.html.twig' %}
     <script src="/assets/js/editable.js" defer></script>
     {% endif %}
+    <script src="/assets/js/cookie-consent.js" defer></script>
     {% block scripts %}{% endblock %}
+
+    {% if cookie_consent_given is defined and not cookie_consent_given %}
+        {% include 'partials/cookie_banner.html.twig' %}
+    {% endif %}
 </body>
 </html>

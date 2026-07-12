@@ -37,6 +37,7 @@ class FrontControllerTest extends TestCase
         $this->twig->addGlobal('current_user_email', null);
         $this->twig->addGlobal('current_user_role', 'public');
         $this->twig->addGlobal('menus', null);
+        $this->twig->addGlobal('cookie_consent_given', true);
 
         $this->twig->addFunction(new \Twig\TwigFunction('csrf_field', function (): string {
             return '<input type="hidden" name="_csrf_token" value="test">';
