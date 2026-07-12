@@ -58,24 +58,33 @@ class SetupController extends AbstractController
 
         if ($isInitialized) {
             $secrets = $this->secretManager->readSecrets();
+
+            // Non-secret settings may have been migrated to the settings table
+            $setting = fn(string $key): string =>
+                $this->settingService !== null
+                    ? ($this->settingService->get($key) ?? ($secrets[$key] ?? ''))
+                    : ($secrets[$key] ?? '');
+
             $currentValues = [
                 'db_host' => $secrets['db_host'] ?? 'localhost',
                 'db_port' => $secrets['db_port'] ?? 3306,
                 'db_name' => $secrets['db_name'] ?? '',
                 'db_user' => $secrets['db_user'] ?? '',
                 'db_password' => '',
-                'site_name' => $secrets['site_name'] ?? '',
-                'short_name' => $secrets['short_name'] ?? '',
-                'base_url' => $secrets['base_url'] ?? '',
+                'site_name' => $setting('site_name'),
+                'short_name' => $setting('short_name'),
+                'base_url' => $setting('base_url'),
                 'mail_mode' => $secrets['mail_mode'] ?? 'smtp',
                 'smtp_host' => $secrets['smtp_host'] ?? '',
                 'smtp_port' => $secrets['smtp_port'] ?? 587,
                 'smtp_user' => $secrets['smtp_user'] ?? '',
                 'smtp_password' => '',
-                'mail_from_address' => $secrets['mail_from_address'] ?? '',
-                'mail_from_name' => $secrets['mail_from_name'] ?? '',
-                'dkim_selector' => $secrets['dkim_selector'] ?? '',
-                'dmarc_report_email' => $secrets['dmarc_report_email'] ?? '',
+                'mail_from_address' => $setting('mail_from_address'),
+                'mail_from_name' => $setting('mail_from_name'),
+                'dkim_selector' => $setting('dkim_selector'),
+                'dmarc_report_email' => $setting('dmarc_report_email'),
+                'admin_email' => $secrets['admin_email'] ?? '',
+                'admin_password' => '',
             ];
         }
 
