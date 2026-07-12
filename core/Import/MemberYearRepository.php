@@ -112,21 +112,20 @@ class MemberYearRepository
     }
 
     /**
-     * Find all member_year IDs for a given email blind index and scout year.
+     * Find all member_year rows for a given email blind index and scout year.
      *
-     * @return array<int, array{id: int, member_id: int}>
+     * @return array<int, array<string, mixed>>
      */
     public function findAllByEmail(string $emailBlindIndex, int $scoutYearId): array
     {
         $stmt = $this->pdo->prepare(
-            'SELECT id, member_id FROM member_years WHERE email_blind_index = ? AND scout_year_id = ?'
+            'SELECT my.*, m.desk_id
+             FROM member_years my
+             JOIN members m ON my.member_id = m.id
+             WHERE my.email_blind_index = ? AND my.scout_year_id = ?'
         );
         $stmt->execute([$emailBlindIndex, $scoutYearId]);
-        $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
-        return array_map(fn(array $row) => [
-            'id' => (int) $row['id'],
-            'member_id' => (int) $row['member_id'],
-        ], $rows);
+        return $stmt->fetchAll(\PDO::FETCH_ASSOC);
     }
 
     /**
@@ -201,7 +200,12 @@ class MemberYearRepository
      */
     public function findById(int $id): ?array
     {
-        $stmt = $this->pdo->prepare('SELECT * FROM member_years WHERE id = ?');
+        $stmt = $this->pdo->prepare(
+            'SELECT my.*, m.desk_id
+             FROM member_years my
+             JOIN members m ON my.member_id = m.id
+             WHERE my.id = ?'
+        );
         $stmt->execute([$id]);
         $row = $stmt->fetch(\PDO::FETCH_ASSOC);
         return $row ?: null;
