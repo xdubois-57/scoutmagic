@@ -20,6 +20,7 @@ use Core\Config\ScoutYearService;
 use Core\Http\Controller\AccountController;
 use Core\Http\Controller\AuthController;
 use Core\Http\Controller\ConfigGeneralController;
+use Core\Http\Controller\FunctionsController;
 use Core\Http\Controller\CookieController;
 use Core\Http\Controller\ConfigModeController;
 use Core\Http\Controller\EditableContentController;
@@ -511,8 +512,9 @@ $router->addRoute('POST', '/config/general/module-toggle', ConfigGeneralControll
 $router->addRoute('GET', '/chefs/staffs', StaffsController::class, 'index', 'intendant');
 $router->addRoute('POST', '/chefs/staffs/update-section', StaffsController::class, 'updateSection', 'chief');
 
-// Placeholder routes for pages not yet built
-$router->addRoute('GET', '/config/functions', PlaceholderController::class, 'show', 'admin');
+// Functions configuration
+$router->addRoute('GET', '/config/functions', FunctionsController::class, 'index', 'admin');
+$router->addRoute('POST', '/config/functions/update', FunctionsController::class, 'update', 'admin');
 
 // Load enabled modules (routes registered AFTER core routes so core takes priority)
 $moduleManager->loadEnabledModules();
@@ -589,6 +591,7 @@ $frontController->registerController(JournalController::class, new JournalContro
 $frontController->registerController(SettingsController::class, new SettingsController($twig, $settingService, $journalService));
 $frontController->registerController(ScheduledActionsController::class, new ScheduledActionsController($twig, $schedulerRepo));
 $frontController->registerController(ConfigGeneralController::class, new ConfigGeneralController($twig, $moduleManager));
+$frontController->registerController(FunctionsController::class, new FunctionsController($twig, $functionRepo, $journalService));
 $frontController->registerController(PlaceholderController::class, new PlaceholderController($twig));
 
 // Bypass RBAC for /setup routes when site is not initialized or explicitly allowed

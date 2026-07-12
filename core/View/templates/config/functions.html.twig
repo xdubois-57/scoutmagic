@@ -1,0 +1,118 @@
+{% extends 'base.html.twig' %}
+{% block title %}Fonctions — {{ site_name }}{% endblock %}
+{% block content %}
+<div class="mx-auto" style="max-width:720px;">
+    <h1>Fonctions</h1>
+    <p class="text-body-secondary mb-4">
+        Associez chaque fonction importée depuis Desk à un rôle sur le site.
+        Les fonctions non confirmées ont le rôle "Animé" par défaut —
+        aucun accès élevé n'est accordé automatiquement.
+    </p>
+    <p class="text-body-secondary small">
+        Les changements de rôle prennent effet à la prochaine connexion des membres concernés.
+    </p>
+
+    {# Unconfirmed functions #}
+    {% if unconfirmed|length > 0 %}
+        <div class="alert alert-warning mb-4">
+            <h2 class="h6 mb-2">
+                <i class="bi bi-exclamation-triangle"></i>
+                {{ unconfirmed|length }} fonction(s) à confirmer
+            </h2>
+            <p class="small mb-0">
+                Ces fonctions ont été créées automatiquement lors d'un import Desk.
+                Veuillez vérifier et confirmer le rôle approprié pour chacune.
+            </p>
+        </div>
+
+        <div class="border rounded-3 overflow-hidden mb-4">
+            {% for func in unconfirmed %}
+                <div class="d-flex align-items-center justify-content-between p-3 border-bottom function-row"
+                     data-id="{{ func.id }}">
+                    <div>
+                        <span class="fw-semibold">{{ func.desk_code }}</span>
+                        <span class="badge bg-warning-subtle text-warning-emphasis ms-2">Non confirmée</span>
+                    </div>
+                    <select class="form-select form-select-sm w-auto role-select" data-id="{{ func.id }}">
+                        {% for role in roles %}
+                            <option value="{{ role.value }}"
+                                    {{ func.role == role.value ? 'selected' : '' }}>
+                                {{ role.label }}
+                            </option>
+                        {% endfor %}
+                    </select>
+                </div>
+            {% endfor %}
+        </div>
+    {% endif %}
+
+    {# Confirmed functions grouped by role #}
+    {% for role_value, role_group in confirmed_by_role %}
+        <div class="mb-4">
+            <h2 class="h6 d-flex align-items-center gap-2 mb-2">
+                <span class="badge {{ role_group.badge_class }}">{{ role_group.label }}</span>
+                <span class="text-body-secondary small">{{ role_group.functions|length }} fonction(s)</span>
+            </h2>
+            <div class="border rounded-3 overflow-hidden">
+                {% for func in role_group.functions %}
+                    <div class="d-flex align-items-center justify-content-between p-3 border-bottom function-row"
+                         data-id="{{ func.id }}">
+                        <div>
+                            <span class="fw-semibold">{{ func.desk_code }}</span>
+                            {% if func.label != func.desk_code %}
+                                <span class="text-body-secondary small ms-1">({{ func.label }})</span>
+                            {% endif %}
+                        </div>
+                        <select class="form-select form-select-sm w-auto role-select" data-id="{{ func.id }}">
+                            {% for role in roles %}
+                                <option value="{{ role.value }}"
+                                        {{ func.role == role.value ? 'selected' : '' }}>
+                                    {{ role.label }}
+                                </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                {% endfor %}
+            </div>
+        </div>
+    {% endfor %}
+
+    {% if unconfirmed is empty and confirmed_by_role is empty %}
+        <p class="text-body-secondary fst-italic">
+            Aucune fonction importée. Les fonctions apparaîtront après le premier import Desk.
+        </p>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script nonce="{{ csp_nonce }}">
+document.querySelectorAll('.role-select').forEach(select => {
+    select.addEventListener('change', async () => {
+        const functionId = select.dataset.id;
+        const role = select.value;
+        const csrf = document.querySelector('meta[name="csrf-token"]')?.content;
+
+        select.disabled = true;
+        const res = await fetch('/config/functions/update', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ function_id: parseInt(functionId), role, _csrf_token: csrf })
+        });
+        const data = await res.json();
+        select.disabled = false;
+
+        if (data.success) {
+            // Remove "Non confirmée" badge if present
+            const row = select.closest('.function-row');
+            row.querySelector('.badge.bg-warning-subtle')?.remove();
+            // Brief visual feedback
+            row.style.backgroundColor = 'var(--bs-success-bg-subtle)';
+            setTimeout(() => row.style.backgroundColor = '', 1000);
+        } else {
+            alert(data.error);
+        }
+    });
+});
+</script>
+{% endblock %}

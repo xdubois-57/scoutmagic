@@ -59,6 +59,36 @@ class FunctionRepository
     }
 
     /**
+     * @return array{id: int, desk_code: string, label: string, role: string, confirmed: bool}|null
+     */
+    public function findById(int $id): ?array
+    {
+        $stmt = $this->pdo->prepare('SELECT * FROM functions WHERE id = ?');
+        $stmt->execute([$id]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+        return $row !== false ? $this->hydrate($row) : null;
+    }
+
+    /**
+     * Return all confirmed functions grouped by role.
+     *
+     * @return array<string, array<int, array{id: int, desk_code: string, label: string, role: string, confirmed: bool}>>
+     */
+    public function findAllGroupedByRole(): array
+    {
+        $stmt = $this->pdo->query('SELECT * FROM functions WHERE confirmed = 1 ORDER BY label');
+        if ($stmt === false) {
+            return [];
+        }
+        $grouped = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $hydrated = $this->hydrate($row);
+            $grouped[$hydrated['role']][] = $hydrated;
+        }
+        return $grouped;
+    }
+
+    /**
      * @param array<string, mixed> $row
      * @return array{id: int, desk_code: string, label: string, role: string, confirmed: bool}
      */
