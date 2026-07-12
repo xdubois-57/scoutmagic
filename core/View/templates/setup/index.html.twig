@@ -239,28 +239,30 @@
         </div>
     </div>
 
-    {# Section 5: Initial admin (first-time only) #}
-    {% if not is_initialized %}
+    {# Section 5: Admin account #}
     <div class="card mb-4">
         <div class="card-body">
-            <h2 class="card-title h5 mb-3">Administrateur initial</h2>
+            <h2 class="card-title h5 mb-3">{% if not is_initialized %}Administrateur initial{% else %}Compte administrateur{% endif %}</h2>
 
             <div class="mb-3">
                 <label for="admin_email" class="form-label">Email administrateur</label>
-                <input type="email" class="form-control{% if errors.admin_email is defined %} is-invalid{% endif %}" id="admin_email" name="admin_email" value="{{ values.admin_email ?? '' }}" required>
+                <input type="email" class="form-control{% if errors.admin_email is defined %} is-invalid{% endif %}" id="admin_email" name="admin_email" value="{{ values.admin_email ?? '' }}" {% if not is_initialized %}required{% endif %}>
+                {% if not is_initialized %}
                 <div class="form-text">Adresse email de la première personne administratrice. Un compte sera créé avec le rôle administrateur.</div>
+                {% else %}
+                <div class="form-text">Remplissez pour créer ou mettre à jour le compte administrateur. Laissez vide pour ne rien changer.</div>
+                {% endif %}
                 {% if errors.admin_email is defined %}<div class="invalid-feedback">{{ errors.admin_email }}</div>{% endif %}
             </div>
 
             <div class="mb-3">
                 <label for="admin_password" class="form-label">Mot de passe administrateur</label>
-                <input type="password" class="form-control{% if errors.admin_password is defined %} is-invalid{% endif %}" id="admin_password" name="admin_password" minlength="8" required>
+                <input type="password" class="form-control{% if errors.admin_password is defined %} is-invalid{% endif %}" id="admin_password" name="admin_password" minlength="8" {% if not is_initialized %}required{% endif %}>
                 <div class="form-text">Ce mot de passe permet de se connecter sans attendre un import Desk. Minimum 8 caractères.</div>
                 {% if errors.admin_password is defined %}<div class="invalid-feedback">{{ errors.admin_password }}</div>{% endif %}
             </div>
         </div>
     </div>
-    {% endif %}
 
     {# Save button #}
     <div class="d-grid mb-4">

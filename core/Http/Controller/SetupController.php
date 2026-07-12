@@ -366,6 +366,11 @@ class SetupController extends AbstractController
                 $runner->migrate([$this->schemaPath]);
             }
 
+            // Create or update admin account if provided
+            if ($data['admin_email'] !== '' && $data['admin_password'] !== '') {
+                $this->upsertAdminAccount($connection, $currentSecrets, $data['admin_email'], $data['admin_password']);
+            }
+
             $this->journalService?->log(
                 'core', 'setup_completed', 'security', 'Site configuration saved',
                 ['ip' => $_SERVER['REMOTE_ADDR'] ?? ''],
@@ -485,8 +490,9 @@ class SetupController extends AbstractController
             $errors['dmarc_report_email'] = 'L\'email pour les rapports DMARC n\'est pas valide.';
         }
 
-        // Admin email and password (first-time only)
+        // Admin email and password
         if ($isFirstTime) {
+            // Required on first-time setup
             if ($data['admin_email'] === '') {
                 $errors['admin_email'] = 'L\'email administrateur est requis.';
             } elseif (!filter_var($data['admin_email'], FILTER_VALIDATE_EMAIL)) {
@@ -496,6 +502,19 @@ class SetupController extends AbstractController
                 $errors['admin_password'] = 'Le mot de passe administrateur est requis.';
             } elseif (strlen($data['admin_password']) < 8) {
                 $errors['admin_password'] = 'Le mot de passe doit contenir au moins 8 caractères.';
+            }
+        } else {
+            // Optional on config update — validate only if provided
+            if ($data['admin_email'] !== '' && !filter_var($data['admin_email'], FILTER_VALIDATE_EMAIL)) {
+                $errors['admin_email'] = 'L\'email administrateur n\'est pas valide.';
+            }
+            if ($data['admin_email'] !== '' && $data['admin_password'] === '') {
+                $errors['admin_password'] = 'Le mot de passe est requis pour créer ou mettre à jour le compte.';
+            } elseif ($data['admin_password'] !== '' && strlen($data['admin_password']) < 8) {
+                $errors['admin_password'] = 'Le mot de passe doit contenir au moins 8 caractères.';
+            }
+            if ($data['admin_password'] !== '' && $data['admin_email'] === '') {
+                $errors['admin_email'] = 'L\'email administrateur est requis.';
             }
         }
 
@@ -516,6 +535,46 @@ class SetupController extends AbstractController
             'INSERT INTO user_accounts (email_encrypted, email_blind_index, password_hash, is_super_admin, created_at) VALUES (?, ?, ?, TRUE, NOW())'
         );
         $stmt->execute([$emailEncrypted, $emailBlindIndex, $passwordHash]);
+    }
+
+    /**
+     * Create or update the admin account during config update.
+     *
+     * @param array<string, mixed> $secrets
+     */
+    private function upsertAdminAccount(Connection $connection, array $secrets, string $email, string $password): void
+    {
+        $encryptionService = new EncryptionService(
+            (string) $secrets['encryption_key'],
+            (string) $secrets['blind_index_key']
+        );
+        $normalizedEmail = strtolower(trim($email));
+        $blindIndex = $encryptionService->blindIndex($normalizedEmail);
+        $passwordHash = password_hash($password, PASSWORD_DEFAULT);
+
+        $pdo = $connection->getPdo();
+
+        // Check if account already exists
+        $stmt = $pdo->prepare('SELECT id FROM user_accounts WHERE email_blind_index = ?');
+        $stmt->execute([$blindIndex]);
+        $existing = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+        if ($existing !== false) {
+            // Update password and ensure super admin
+            $stmt = $pdo->prepare('UPDATE user_accounts SET password_hash = ?, is_super_admin = TRUE WHERE id = ?');
+            $stmt->execute([$passwordHash, $existing['id']]);
+        } else {
+            // Create new admin account
+            $emailEncrypted = $encryptionService->encrypt($normalizedEmail);
+            $stmt = $pdo->prepare(
+                'INSERT INTO user_accounts (email_encrypted, email_blind_index, password_hash, is_super_admin, created_at) VALUES (?, ?, ?, TRUE, NOW())'
+            );
+            $stmt->execute([$emailEncrypted, $blindIndex, $passwordHash]);
+        }
+
+        // Store admin email in secrets
+        $secrets['admin_email'] = $normalizedEmail;
+        $this->secretManager->writeSecrets($secrets);
     }
 
     private function cleanupFailedSetup(): void

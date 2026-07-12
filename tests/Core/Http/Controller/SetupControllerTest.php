@@ -97,8 +97,9 @@ class SetupControllerTest extends TestCase
         $body = $response->getBody();
         $this->assertStringContainsString('Configuration du site', $body);
         $this->assertStringContainsString('Mon Unité', $body);
-        // Admin section should not appear
-        $this->assertStringNotContainsString('admin_email', $body);
+        // Admin section should appear with update wording
+        $this->assertStringContainsString('admin_email', $body);
+        $this->assertStringContainsString('Compte administrateur', $body);
     }
 
     public function testTestDatabaseReturnsJsonErrorWithInvalidCredentials(): void
