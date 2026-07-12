@@ -14,6 +14,7 @@ use Core\Http\Request;
 use Core\Http\Response;
 use Core\Mail\DkimManager;
 use Core\Mail\DnsVerifier;
+use Core\Mail\MailServiceFactory;
 use Core\Security\CsrfGuard;
 use Core\Security\EncryptionService;
 use Core\Security\SecretManager;
@@ -166,6 +167,39 @@ class SetupController extends AbstractController
     }
 
     /**
+     * POST /setup/test-email — AJAX: send a test email.
+     *
+     * @param array<string, string> $params
+     */
+    public function testEmail(Request $request, array $params): Response
+    {
+        if (!$this->secretManager->isInitialized()) {
+            return $this->json(['success' => false, 'message' => 'Le site n\'est pas encore initialisé.'], 400);
+        }
+
+        $secrets = $this->secretManager->readSecrets();
+        $recipient = trim((string) $request->getBody('recipient', ''));
+
+        if ($recipient === '' || !filter_var($recipient, FILTER_VALIDATE_EMAIL)) {
+            return $this->json(['success' => false, 'message' => 'Adresse email invalide.']);
+        }
+
+        try {
+            $mailService = MailServiceFactory::create($secrets, $this->dkimManager);
+            $mailService->send(
+                to: $recipient,
+                subject: 'Email de test',
+                bodyHtml: '<p>Ceci est un email de test envoyé depuis la page de configuration.</p><p>Si vous lisez ceci, votre configuration SMTP fonctionne correctement.</p>',
+                bodyText: "Ceci est un email de test envoyé depuis la page de configuration.\n\nSi vous lisez ceci, votre configuration SMTP fonctionne correctement."
+            );
+
+            return $this->json(['success' => true, 'message' => 'Email envoyé avec succès.']);
+        } catch (\Throwable $e) {
+            return $this->json(['success' => false, 'message' => $e->getMessage()]);
+        }
+    }
+
+    /**
      * @param array<string, string> $data
      */
     private function handleFirstTimeSetup(array $data): Response
@@ -233,8 +267,12 @@ class SetupController extends AbstractController
             );
             $runner->migrate([$this->schemaPath]);
 
-            // Create initial admin account
-            $this->createAdminAccount($connection, $encryptionKey, $blindIndexKey, $data['admin_email']);
+            // Store admin email in secrets for auto-repair
+            $secrets['admin_email'] = strtolower(trim($data['admin_email']));
+            $this->secretManager->writeSecrets($secrets);
+
+            // Create initial admin account (use base64 keys to match boot sequence)
+            $this->createAdminAccount($connection, $secrets['encryption_key'], $secrets['blind_index_key'], $data['admin_email']);
 
             FlashMessage::set('success', 'Installation terminée avec succès. Bienvenue !');
             return $this->redirect('/');
@@ -433,9 +471,10 @@ class SetupController extends AbstractController
     private function createAdminAccount(Connection $connection, string $encryptionKey, string $blindIndexKey, string $email): void
     {
         $encryptionService = new EncryptionService($encryptionKey, $blindIndexKey);
+        $normalizedEmail = strtolower(trim($email));
 
-        $emailEncrypted = $encryptionService->encrypt($email);
-        $emailBlindIndex = $encryptionService->blindIndex($email);
+        $emailEncrypted = $encryptionService->encrypt($normalizedEmail);
+        $emailBlindIndex = $encryptionService->blindIndex($normalizedEmail);
 
         $pdo = $connection->getPdo();
         $stmt = $pdo->prepare(

@@ -24,6 +24,7 @@ use Core\Security\AuthSession;
 use Core\Security\EncryptionService;
 use Core\Security\SecretManager;
 use Core\Security\SessionManager;
+use Core\Security\UserAccountRepository;
 use Core\View\TwigFactory;
 
 // Load configuration
@@ -120,6 +121,17 @@ $migrationRunner = new MigrationRunner(
 );
 $migrationRunner->migrate([$schemaPath]);
 
+// Auto-repair admin account if broken (e.g. created with wrong key format)
+if (!empty($secrets['admin_email'])) {
+    $userAccountRepo = new UserAccountRepository($connection->getPdo(), $encryptionService);
+    $adminUser = $userAccountRepo->findByEmail($secrets['admin_email']);
+    if ($adminUser === null) {
+        // Delete any broken admin rows and recreate with correct keys
+        $connection->getPdo()->exec('DELETE FROM user_accounts WHERE is_super_admin = TRUE');
+        $userAccountRepo->create($secrets['admin_email'], true);
+    }
+}
+
 // Create MailService
 $mailService = MailServiceFactory::create($secrets, $dkimManager);
 
@@ -150,6 +162,7 @@ $router->addRoute('GET', '/setup', SetupController::class, 'index', 'admin');
 $router->addRoute('POST', '/setup/test-db', SetupController::class, 'testDatabase', 'admin');
 $router->addRoute('POST', '/setup/save', SetupController::class, 'save', 'admin');
 $router->addRoute('GET', '/setup/dns', SetupController::class, 'checkDns', 'admin');
+$router->addRoute('POST', '/setup/test-email', SetupController::class, 'testEmail', 'admin');
 
 // Handle the request
 $frontController = new FrontController($router, $twig, $config);

@@ -58,6 +58,41 @@
             });
     });
 
+    // Test email
+    var btnTestEmail = document.getElementById('btn-test-email');
+    var emailSpinner = document.getElementById('email-spinner');
+    var emailResult = document.getElementById('email-test-result');
+
+    if (btnTestEmail) {
+        btnTestEmail.addEventListener('click', function() {
+            var recipient = document.getElementById('test_email_recipient').value.trim();
+            if (!recipient) {
+                emailResult.innerHTML = '<span class="text-danger">\u2717 Veuillez entrer une adresse email.</span>';
+                return;
+            }
+            emailSpinner.classList.remove('d-none');
+            emailResult.textContent = '';
+
+            var data = new FormData();
+            data.append('recipient', recipient);
+
+            fetch('/setup/test-email', { method: 'POST', body: data })
+                .then(function(r) { return r.json(); })
+                .then(function(json) {
+                    emailSpinner.classList.add('d-none');
+                    if (json.success) {
+                        emailResult.innerHTML = '<span class="text-success">\u2713 ' + json.message + '</span>';
+                    } else {
+                        emailResult.innerHTML = '<span class="text-danger">\u2717 ' + json.message + '</span>';
+                    }
+                })
+                .catch(function() {
+                    emailSpinner.classList.add('d-none');
+                    emailResult.innerHTML = '<span class="text-danger">\u2717 Erreur r\u00e9seau</span>';
+                });
+        });
+    }
+
     // Check DNS
     btnCheckDns.addEventListener('click', function() {
         dnsSpinner.classList.remove('d-none');

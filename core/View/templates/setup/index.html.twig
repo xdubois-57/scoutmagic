@@ -162,6 +162,21 @@
                 {% if errors.dmarc_report_email is defined %}<div class="invalid-feedback">{{ errors.dmarc_report_email }}</div>{% endif %}
             </div>
 
+            {# SMTP test (only when initialized) #}
+            {% if is_initialized %}
+            <div class="mt-3 mb-3">
+                <label for="test_email_recipient" class="form-label">Tester l'envoi d'email</label>
+                <div class="input-group">
+                    <input type="email" class="form-control" id="test_email_recipient" placeholder="destinataire@exemple.be">
+                    <button type="button" class="btn btn-outline-secondary" id="btn-test-email">
+                        <span class="spinner-border spinner-border-sm d-none" id="email-spinner" role="status"></span>
+                        Envoyer un test
+                    </button>
+                </div>
+                <span id="email-test-result" class="small"></span>
+            </div>
+            {% endif %}
+
             {# DNS records panel #}
             <div class="card bg-light mt-3">
                 <div class="card-body">

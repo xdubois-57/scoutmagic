@@ -64,7 +64,15 @@ class AuthService
         if ($user !== null) {
             // Send the magic link email
             $magicLinkUrl = rtrim($this->baseUrl, '/') . "/auth/verify?token={$rawToken}&id={$magicLinkId}";
-            $this->sendMagicLinkEmail($normalizedEmail, $magicLinkUrl);
+            try {
+                $this->sendMagicLinkEmail($normalizedEmail, $magicLinkUrl);
+            } catch (\Throwable $e) {
+                return new MagicLinkResult(
+                    success: false,
+                    magicLinkId: null,
+                    error: 'Impossible d\'envoyer l\'email. Vérifiez la configuration SMTP.'
+                );
+            }
         }
 
         return new MagicLinkResult(
