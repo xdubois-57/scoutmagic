@@ -359,6 +359,11 @@ class SqlParser
 
     private function extractType(string $definition): string
     {
+        // Match ENUM/SET types with quoted string values: ENUM('a', 'b', 'c')
+        if (preg_match('/^((?:enum|set)\s*\([^)]+\))/i', $definition, $m)) {
+            return strtolower(trim($m[1]));
+        }
+
         // Match type with optional size/precision and UNSIGNED
         $pattern = '/^(\w+(?:\s+UNSIGNED)?(?:\(\s*[\d,\s]+\s*\))?(?:\s+UNSIGNED)?)/i';
 
