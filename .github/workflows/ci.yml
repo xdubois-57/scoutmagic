@@ -29,6 +29,43 @@ jobs:
       - name: Run tests
         run: vendor/bin/phpunit
 
+  database-tests:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: test_password
+          MYSQL_DATABASE: test_db
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=3
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.1'
+          extensions: mbstring, pdo, pdo_mysql, openssl
+
+      - name: Install dependencies
+        run: composer install --prefer-dist --no-progress
+
+      - name: Run database tests
+        env:
+          TEST_DB_HOST: 127.0.0.1
+          TEST_DB_PORT: 3306
+          TEST_DB_NAME: test_db
+          TEST_DB_USER: root
+          TEST_DB_PASSWORD: test_password
+        run: vendor/bin/phpunit --group=database
+
   security:
     runs-on: ubuntu-latest
 

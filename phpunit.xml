@@ -11,4 +11,9 @@
             <directory>tests/Modules</directory>
         </testsuite>
     </testsuites>
+    <groups>
+        <exclude>
+            <group>database</group>
+        </exclude>
+    </groups>
 </phpunit>
