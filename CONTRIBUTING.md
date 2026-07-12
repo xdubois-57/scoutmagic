@@ -24,6 +24,10 @@ Thank you for considering contributing to this project.
 4. Ensure static analysis passes: `vendor/bin/phpstan analyse core/ --level=6`
 5. Open a PR against `main` and fill in the PR template checklist.
 
+## Security issues
+
+Report security vulnerabilities privately — not via public issues. Contact the maintainer directly.
+
 ## Development setup
 
 ```bash

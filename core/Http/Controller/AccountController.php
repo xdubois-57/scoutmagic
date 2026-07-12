@@ -191,6 +191,15 @@ class AccountController extends AbstractController
         }
 
         $body = json_decode((string) $request->getRawBody(), true);
+        if (!is_array($body)) {
+            return $this->json(['success' => false, 'error' => 'Données invalides.']);
+        }
+
+        $csrfToken = (string) ($body['_csrf_token'] ?? '');
+        if (!CsrfGuard::validateToken($csrfToken)) {
+            return $this->json(['success' => false, 'error' => 'Jeton CSRF invalide.'], 403);
+        }
+
         $id = (int) ($body['id'] ?? 0);
 
         if ($id === 0) {

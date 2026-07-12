@@ -7,6 +7,7 @@ namespace Core\Http;
 class Response
 {
     private string $cspNonce = '';
+    private ?bool $forceHttps = null;
 
     /**
      * @param array<string, string> $headers
@@ -21,6 +22,12 @@ class Response
     public function setCspNonce(string $nonce): self
     {
         $this->cspNonce = $nonce;
+        return $this;
+    }
+
+    public function setHttps(bool $isHttps): self
+    {
+        $this->forceHttps = $isHttps;
         return $this;
     }
 
@@ -66,22 +73,35 @@ class Response
             ? "script-src 'self' 'nonce-{$this->cspNonce}'"
             : "script-src 'self'";
 
-        return "default-src 'self'; {$scriptSrc}; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; frame-ancestors 'none';";
+        return "default-src 'self'; {$scriptSrc}; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'";
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    public function getSecurityHeaders(): array
+    {
+        $headers = [
+            'X-Content-Type-Options' => 'nosniff',
+            'X-Frame-Options' => 'DENY',
+            'Referrer-Policy' => 'strict-origin-when-cross-origin',
+            'Content-Security-Policy' => $this->buildCsp(),
+            'Permissions-Policy' => 'camera=(), microphone=(), geolocation=()',
+        ];
+
+        $isHttps = $this->forceHttps ?? (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off');
+        if ($isHttps) {
+            $headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains';
+        }
+
+        return $headers;
     }
 
     public function send(): void
     {
         http_response_code($this->statusCode);
 
-        // Security headers (SECURITY.md §9)
-        $securityHeaders = [
-            'X-Content-Type-Options' => 'nosniff',
-            'X-Frame-Options' => 'DENY',
-            'Referrer-Policy' => 'strict-origin-when-cross-origin',
-            'Content-Security-Policy' => $this->buildCsp(),
-        ];
-
-        foreach ($securityHeaders as $name => $value) {
+        foreach ($this->getSecurityHeaders() as $name => $value) {
             header("{$name}: {$value}");
         }
 

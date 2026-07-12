@@ -20,6 +20,9 @@ jobs:
           extensions: mbstring, pdo, pdo_mysql, openssl
           coverage: none
 
+      - name: PHP syntax check
+        run: find core/ public/ -name '*.php' -exec php -l {} \; | grep -v 'No syntax errors' | head -20 && find core/ public/ -name '*.php' -exec php -l {} \; | grep -q 'Parse error' && exit 1 || true
+
       - name: Install dependencies
         run: composer install --prefer-dist --no-progress
 

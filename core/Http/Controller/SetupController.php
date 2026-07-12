@@ -107,6 +107,10 @@ class SetupController extends AbstractController
      */
     public function testDatabase(Request $request, array $params): Response
     {
+        if (!CsrfGuard::validateRequest()) {
+            return $this->json(['success' => false, 'message' => 'Jeton CSRF invalide.'], 403);
+        }
+
         $host = (string) $request->getBody('db_host', 'localhost');
         $port = (int) $request->getBody('db_port', 3306);
         $dbName = (string) $request->getBody('db_name', '');
@@ -198,6 +202,10 @@ class SetupController extends AbstractController
      */
     public function testEmail(Request $request, array $params): Response
     {
+        if (!CsrfGuard::validateRequest()) {
+            return $this->json(['success' => false, 'message' => 'Jeton CSRF invalide.'], 403);
+        }
+
         if (!$this->secretManager->isInitialized()) {
             return $this->json(['success' => false, 'message' => 'Le site n\'est pas encore initialisé.'], 400);
         }
