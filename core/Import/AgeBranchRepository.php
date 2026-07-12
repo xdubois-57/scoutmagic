@@ -41,6 +41,7 @@ class AgeBranchRepository
 
     /**
      * Return canonical sort order for known Les Scouts branches.
+     * Order: Baladins → Louveteaux → Éclaireurs → Pionniers → Staff d'U → Route → Iama.
      * Unknown branches get sort_order 99 (displayed last).
      */
     public static function canonicalSortOrder(string $label): int
@@ -51,8 +52,9 @@ class AgeBranchRepository
             str_contains($normalized, 'louveteau') => 20,
             str_contains($normalized, 'eclaireur'), str_contains($normalized, 'éclaireur') => 30,
             str_contains($normalized, 'pionnier') => 40,
-            str_contains($normalized, 'routier') => 50,
-            str_contains($normalized, 'staff'), str_contains($normalized, 'unité') => 60,
+            str_contains($normalized, 'staff'), str_contains($normalized, 'unité') => 50,
+            str_contains($normalized, 'route'), str_contains($normalized, 'routier') => 60,
+            str_contains($normalized, 'iama') => 70,
             default => 99,
         };
     }

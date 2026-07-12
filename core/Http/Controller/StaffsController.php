@@ -59,7 +59,7 @@ class StaffsController extends AbstractController
                 'email' => null,
                 'age_branch_id' => 0,
                 'branch_name' => "Staff d'unité",
-                'branch_sort_order' => 60,
+                'branch_sort_order' => 50,
             ];
         }
 

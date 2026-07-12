@@ -16,7 +16,7 @@ class SectionService
     }
 
     /**
-     * Get all sections with their branch info, ordered by branch sort_order then section name.
+     * Get all sections with their branch info, ordered by branch sort_order then desk_code.
      *
      * @return array<int, array{id: int, desk_code: string, name: ?string, email: ?string, age_branch_id: int, branch_name: string, branch_sort_order: int}>
      */
@@ -28,7 +28,7 @@ class SectionService
                     ab.label AS branch_name, ab.sort_order AS branch_sort_order
              FROM sections s
              JOIN age_branches ab ON s.age_branch_id = ab.id
-             ORDER BY ab.sort_order, s.name, s.desk_code'
+             ORDER BY ab.sort_order, s.desk_code'
         );
 
         if ($stmt === false) {
