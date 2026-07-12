@@ -1,0 +1,75 @@
+{% extends "base.html.twig" %}
+
+{% block title %}Se connecter — {{ site_name }}{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+<div class="col-12" style="max-width: 420px;">
+
+    <h1 class="mb-4 text-center">Se connecter</h1>
+
+    {# Tabs #}
+    <ul class="nav nav-pills nav-fill mb-4" role="tablist">
+        <li class="nav-item" role="presentation">
+            <button class="nav-link active" type="button" role="tab">Lien magique</button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link disabled" type="button" role="tab" title="Bientôt disponible" data-bs-toggle="tooltip">Mot de passe</button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link disabled" type="button" role="tab" title="Bientôt disponible" data-bs-toggle="tooltip">Clé numérique</button>
+        </li>
+    </ul>
+
+    {# State 1: Email input #}
+    <div id="state-email">
+        <div class="card">
+            <div class="card-body">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                <div class="mb-3">
+                    <label for="email" class="form-label">Adresse email</label>
+                    <input type="email" class="form-control" id="email" name="email" placeholder="nom@exemple.be" required autocomplete="email">
+                </div>
+                <div id="email-error" class="text-danger small mb-2 d-none"></div>
+                <button type="button" class="btn btn-primary w-100" id="send-magic-link">
+                    Envoyer le lien de connexion
+                </button>
+            </div>
+        </div>
+    </div>
+
+    {# State 2: Waiting for confirmation #}
+    <div id="state-waiting" class="d-none">
+        <div class="card">
+            <div class="card-body text-center py-4">
+                <div style="font-size: 3rem;" class="mb-3">✉</div>
+                <h3 class="h5 mb-3">Vérifiez vos emails</h3>
+                <p>Un lien de connexion a été envoyé à <strong id="sent-email"></strong>.<br>
+                   Cliquez dessus pour vous connecter — même depuis un autre appareil.</p>
+                <div class="my-3">
+                    <div class="spinner-border spinner-border-sm text-primary" role="status"></div>
+                    <span class="text-muted small ms-2">En attente de confirmation…</span>
+                </div>
+                <button type="button" class="btn btn-outline-secondary btn-sm mt-2" id="back-btn">Utiliser une autre adresse</button>
+            </div>
+        </div>
+    </div>
+
+    {# State 3: Confirmed #}
+    <div id="state-confirmed" class="d-none">
+        <div class="card">
+            <div class="card-body text-center py-4">
+                <div style="font-size: 3rem; color: #198754;" class="mb-3">✓</div>
+                <h3 class="h5 mb-3">Connecté</h3>
+                <p>Bienvenue ! Redirection en cours…</p>
+            </div>
+        </div>
+    </div>
+
+</div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/assets/js/auth.js"></script>
+{% endblock %}

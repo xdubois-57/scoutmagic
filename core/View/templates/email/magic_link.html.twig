@@ -1,0 +1,13 @@
+{% extends 'email/base.html.twig' %}
+{% block content %}
+    <h2 style="margin:0 0 16px;font-size:20px;">Connexion à {{ site_name }}</h2>
+    <p>Cliquez sur le bouton ci-dessous pour vous connecter. Ce lien est valable {{ expiry_minutes }} minutes et ne peut être utilisé qu'une seule fois.</p>
+    <p style="text-align:center;margin:24px 0;">
+        <a href="{{ magic_link_url }}"
+           style="display:inline-block;padding:12px 32px;background-color:#0d6efd;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:bold;">
+            Se connecter
+        </a>
+    </p>
+    <p style="font-size:13px;color:#666;">Si vous n'avez pas demandé ce lien, ignorez cet email.</p>
+    <p style="font-size:12px;color:#999;word-break:break-all;">{{ magic_link_url }}</p>
+{% endblock %}

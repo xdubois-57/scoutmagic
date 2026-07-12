@@ -31,3 +31,16 @@ CREATE TABLE user_accounts (
     last_login_at DATETIME,
     UNIQUE INDEX idx_email_blind (email_blind_index)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE magic_links (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    email_blind_index CHAR(64) NOT NULL,
+    token_hash VARCHAR(255) NOT NULL,
+    expires_at DATETIME NOT NULL,
+    used BOOLEAN NOT NULL DEFAULT FALSE,
+    confirmed_at DATETIME,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_token_hash (token_hash),
+    INDEX idx_email_blind (email_blind_index),
+    INDEX idx_expires (expires_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

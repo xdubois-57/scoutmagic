@@ -7,6 +7,21 @@
     <div class="col-12 col-md-8 col-lg-6">
         <h1 class="mb-4">Bienvenue</h1>
         <p class="lead">Bienvenue sur le site de <strong>{{ site_name }}</strong>.</p>
+
+        {% if is_authenticated %}
+        <div class="d-flex align-items-center gap-2 mb-4">
+            <span class="text-muted small">Connecté en tant que <strong>{{ current_user_email }}</strong></span>
+            <form method="post" action="/logout" class="d-inline">
+                {{ csrf_field()|raw }}
+                <button type="submit" class="btn btn-outline-secondary btn-sm">Se déconnecter</button>
+            </form>
+        </div>
+        {% else %}
+        <div class="mb-4">
+            <a href="/login" class="btn btn-primary btn-sm">Se connecter</a>
+        </div>
+        {% endif %}
+
         <div class="card mt-4">
             <div class="card-body">
                 <h5 class="card-title">Notre unité</h5>

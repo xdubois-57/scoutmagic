@@ -1,0 +1,31 @@
+{% extends "base.html.twig" %}
+
+{% block title %}Vérification — {{ site_name }}{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+<div class="col-12" style="max-width: 420px;">
+
+    {% if valid %}
+        <div class="card">
+            <div class="card-body text-center py-4">
+                <div style="font-size: 3rem; color: #198754;" class="mb-3">✓</div>
+                <h3 class="h5 mb-3">Connexion confirmée</h3>
+                <p>Vous pouvez fermer cette page ou continuer sur ce navigateur.</p>
+                <a href="/" class="btn btn-primary">Accéder au site</a>
+            </div>
+        </div>
+    {% else %}
+        <div class="card">
+            <div class="card-body text-center py-4">
+                <div style="font-size: 3rem; color: #dc3545;" class="mb-3">✗</div>
+                <h3 class="h5 mb-3">Lien invalide</h3>
+                <p>Ce lien de connexion n'est plus valide. Il a peut-être expiré ou a déjà été utilisé.</p>
+                <a href="/login" class="btn btn-outline-primary">Retour à la connexion</a>
+            </div>
+        </div>
+    {% endif %}
+
+</div>
+</div>
+{% endblock %}

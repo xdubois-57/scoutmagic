@@ -6,6 +6,7 @@ require_once __DIR__ . '/../vendor/autoload.php';
 
 use Core\Config\AppConfig;
 use Core\Database\Connection;
+use Core\Http\Controller\AuthController;
 use Core\Http\Controller\HomeController;
 use Core\Http\Controller\SetupController;
 use Core\Http\FrontController;
@@ -13,6 +14,9 @@ use Core\Http\Request;
 use Core\Http\Response;
 use Core\Http\Router;
 use Core\Mail\DkimManager;
+use Core\Mail\MailServiceFactory;
+use Core\Security\AuthService;
+use Core\Security\AuthSession;
 use Core\Security\EncryptionService;
 use Core\Security\SecretManager;
 use Core\Security\SessionManager;
@@ -103,9 +107,32 @@ $encryptionService = new EncryptionService(
     $secrets['blind_index_key'] ?? ''
 );
 
+// Create MailService
+$mailService = MailServiceFactory::create($secrets, $dkimManager);
+
+// Create AuthService
+$authService = new AuthService(
+    $connection,
+    $encryptionService,
+    $mailService,
+    $twig,
+    $secrets['base_url'] ?? '',
+    $secrets['site_name'] ?? ''
+);
+
+// Set Twig globals for auth state (after session is started)
+$twig->addGlobal('is_authenticated', AuthSession::isAuthenticated());
+$twig->addGlobal('current_user_email', AuthSession::getEmail());
+$twig->addGlobal('current_user_role', AuthSession::getRole());
+
 // Create router and register routes
 $router = new Router();
 $router->addRoute('GET', '/', HomeController::class, 'index', 'public');
+$router->addRoute('GET', '/login', AuthController::class, 'login', 'public');
+$router->addRoute('POST', '/login/magic-link', AuthController::class, 'requestMagicLink', 'public');
+$router->addRoute('GET', '/auth/verify', AuthController::class, 'verifyMagicLink', 'public');
+$router->addRoute('GET', '/auth/poll/{id}', AuthController::class, 'pollMagicLink', 'public');
+$router->addRoute('POST', '/logout', AuthController::class, 'logout', 'identified');
 $router->addRoute('GET', '/setup', SetupController::class, 'index', 'admin');
 $router->addRoute('POST', '/setup/test-db', SetupController::class, 'testDatabase', 'admin');
 $router->addRoute('POST', '/setup/save', SetupController::class, 'save', 'admin');
@@ -114,5 +141,6 @@ $router->addRoute('GET', '/setup/dns', SetupController::class, 'checkDns', 'admi
 // Handle the request
 $frontController = new FrontController($router, $twig, $config);
 $frontController->registerController(SetupController::class, new SetupController($twig, $secretManager, $dkimManager, $schemaPath));
+$frontController->registerController(AuthController::class, new AuthController($twig, $authService));
 $response = $frontController->handle($request);
 $response->send();
