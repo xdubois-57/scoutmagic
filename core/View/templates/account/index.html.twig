@@ -1,0 +1,242 @@
+{% extends 'base.html.twig' %}
+{% block title %}Mon compte — {{ site_name }}{% endblock %}
+{% block content %}
+<div class="mx-auto" style="max-width:560px;">
+    <h1>Mon compte</h1>
+    <p class="text-body-secondary mb-4">{{ current_user_email }}</p>
+
+    {# Profile section #}
+    <div class="card mb-3">
+        <div class="card-body">
+            <h2 class="h5 mb-3">Profil</h2>
+            <form method="post" action="/account/profile">
+                {{ csrf_field() }}
+                <div class="row g-3 mb-3">
+                    <div class="col-6">
+                        <label class="form-label">Prénom</label>
+                        <input type="text" name="first_name" class="form-control"
+                               value="{{ account.firstName }}">
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label">Nom</label>
+                        <input type="text" name="last_name" class="form-control"
+                               value="{{ account.lastName }}">
+                    </div>
+                </div>
+                <button type="submit" class="btn btn-primary">Enregistrer</button>
+            </form>
+        </div>
+    </div>
+
+    {# Password section #}
+    <div class="card mb-3">
+        <div class="card-body">
+            <h2 class="h5 mb-3">Mot de passe</h2>
+            {% if has_password %}
+                <p class="text-body-secondary small mb-3">
+                    Mot de passe configuré. Vous pouvez le changer ci-dessous.
+                </p>
+                <form method="post" action="/account/password">
+                    {{ csrf_field() }}
+                    <div class="mb-3">
+                        <label class="form-label">Mot de passe actuel</label>
+                        <input type="password" name="current_password" class="form-control" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Nouveau mot de passe</label>
+                        <input type="password" name="new_password" class="form-control"
+                               minlength="8" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Confirmer le nouveau mot de passe</label>
+                        <input type="password" name="confirm_password" class="form-control"
+                               minlength="8" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Changer le mot de passe</button>
+                </form>
+            {% else %}
+                <p class="text-body-secondary small mb-3">
+                    Non configuré — le lien magique reste utilisable pour se connecter.
+                </p>
+                <form method="post" action="/account/password">
+                    {{ csrf_field() }}
+                    <div class="mb-3">
+                        <label class="form-label">Nouveau mot de passe</label>
+                        <input type="password" name="new_password" class="form-control"
+                               minlength="8" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Confirmer le mot de passe</label>
+                        <input type="password" name="confirm_password" class="form-control"
+                               minlength="8" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Définir un mot de passe</button>
+                </form>
+            {% endif %}
+        </div>
+    </div>
+
+    {# Passkey section #}
+    <div class="card mb-3">
+        <div class="card-body">
+            <h2 class="h5 mb-3">Clés numériques</h2>
+
+            <div id="passkey-list">
+                {% for key in passkeys %}
+                    <div class="d-flex align-items-center justify-content-between border rounded p-2 mb-2"
+                         data-passkey-id="{{ key.id }}">
+                        <div class="d-flex align-items-center gap-2">
+                            <i class="bi bi-fingerprint text-body-secondary"></i>
+                            <div>
+                                <span class="small">{{ key.device_label ?? 'Clé sans nom' }}</span>
+                                {% if key.last_used_at %}
+                                    <span class="text-body-secondary d-block"
+                                          style="font-size:0.75rem;">
+                                        Dernière utilisation :
+                                        {{ key.last_used_at|date('d/m/Y') }}
+                                    </span>
+                                {% endif %}
+                            </div>
+                        </div>
+                        <button type="button" class="btn btn-sm btn-outline-danger passkey-delete-btn"
+                                data-id="{{ key.id }}" title="Supprimer">
+                            <i class="bi bi-trash"></i>
+                        </button>
+                    </div>
+                {% else %}
+                    <p class="text-body-secondary small" id="no-passkeys-msg">
+                        Aucune clé enregistrée.
+                    </p>
+                {% endfor %}
+            </div>
+
+            <div id="passkey-add-section">
+                <div class="mb-2" id="passkey-label-input" style="display:none;">
+                    <label class="form-label small">Nom de cette clé</label>
+                    <input type="text" id="passkey-device-label" class="form-control form-control-sm"
+                           placeholder="ex. iPhone de Jean" maxlength="100">
+                </div>
+                <button type="button" class="btn btn-outline-primary w-100" id="passkey-add-btn">
+                    <i class="bi bi-plus"></i> Ajouter une clé
+                </button>
+            </div>
+
+            <div id="passkey-unsupported-notice" class="text-warning small mt-2 d-none">
+                Votre navigateur ne supporte pas les clés numériques.
+            </div>
+        </div>
+    </div>
+
+    {# Cookie preferences link #}
+    <div class="card mb-3">
+        <div class="card-body">
+            <h2 class="h5 mb-3">Préférences cookies</h2>
+            <p class="text-body-secondary small mb-3">
+                Gérez vos préférences concernant les cookies utilisés par le site.
+            </p>
+            <a href="/cookies" class="btn btn-outline-secondary">Modifier les préférences cookies</a>
+        </div>
+    </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function() {
+    function getCsrf() {
+        var el = document.querySelector('input[name="_csrf_token"]');
+        return el ? el.value : '';
+    }
+
+    function base64ToBuffer(b64) {
+        var bin = atob(b64.replace(/-/g, '+').replace(/_/g, '/'));
+        return Uint8Array.from(bin, function(c) { return c.charCodeAt(0); }).buffer;
+    }
+    function bufferToBase64(buf) {
+        return btoa(String.fromCharCode.apply(null, new Uint8Array(buf)))
+            .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    }
+
+    // Check WebAuthn support
+    if (!window.PublicKeyCredential) {
+        document.getElementById('passkey-add-btn').disabled = true;
+        document.getElementById('passkey-unsupported-notice').classList.remove('d-none');
+    }
+
+    // Add passkey flow
+    var addBtn = document.getElementById('passkey-add-btn');
+    if (addBtn) {
+        addBtn.addEventListener('click', async function() {
+            var labelInput = document.getElementById('passkey-label-input');
+            if (labelInput.style.display === 'none') {
+                labelInput.style.display = 'block';
+                document.getElementById('passkey-device-label').focus();
+                return;
+            }
+
+            var deviceLabel = document.getElementById('passkey-device-label').value || 'Clé sans nom';
+
+            try {
+                var optRes = await fetch('/account/passkey/register-options');
+                var options = await optRes.json();
+
+                options.challenge = base64ToBuffer(options.challenge);
+                options.user.id = base64ToBuffer(options.user.id);
+                if (options.excludeCredentials) {
+                    options.excludeCredentials = options.excludeCredentials.map(function(c) {
+                        return Object.assign({}, c, { id: base64ToBuffer(c.id) });
+                    });
+                }
+
+                var credential = await navigator.credentials.create({ publicKey: options });
+
+                var verifyRes = await fetch('/account/passkey/register', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrf() },
+                    body: JSON.stringify({
+                        id: credential.id,
+                        rawId: bufferToBase64(credential.rawId),
+                        response: {
+                            attestationObject: bufferToBase64(credential.response.attestationObject),
+                            clientDataJSON: bufferToBase64(credential.response.clientDataJSON)
+                        },
+                        type: credential.type,
+                        device_label: deviceLabel
+                    })
+                });
+                var result = await verifyRes.json();
+
+                if (result.success) {
+                    window.location.reload();
+                } else {
+                    alert(result.error || 'L\'enregistrement a échoué.');
+                }
+            } catch (err) {
+                alert('L\'enregistrement a été annulé ou a échoué.');
+            }
+        });
+    }
+
+    // Delete passkey
+    document.querySelectorAll('.passkey-delete-btn').forEach(function(btn) {
+        btn.addEventListener('click', async function() {
+            if (!confirm('Supprimer cette clé ?')) return;
+            var id = btn.dataset.id;
+            var res = await fetch('/account/passkey/delete', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrf() },
+                body: JSON.stringify({ id: parseInt(id) })
+            });
+            if (res.ok) {
+                btn.closest('[data-passkey-id]').remove();
+                if (document.querySelectorAll('[data-passkey-id]').length === 0) {
+                    var msg = document.getElementById('no-passkeys-msg');
+                    if (msg) msg.classList.remove('d-none');
+                }
+            }
+        });
+    });
+})();
+</script>
+{% endblock %}

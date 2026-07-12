@@ -177,6 +177,24 @@ class DatabaseTestHelper
             created_by INTEGER
         )');
 
+        $pdo->exec('CREATE TABLE webauthn_credentials (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_account_id INTEGER NOT NULL,
+            credential_id BLOB NOT NULL UNIQUE,
+            public_key BLOB NOT NULL,
+            sign_count INTEGER NOT NULL DEFAULT 0,
+            device_label TEXT,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            last_used_at TEXT,
+            FOREIGN KEY (user_account_id) REFERENCES user_accounts(id)
+        )');
+
+        $pdo->exec('CREATE TABLE login_attempts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email_blind_index TEXT NOT NULL,
+            attempted_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )');
+
         return $pdo;
     }
 }

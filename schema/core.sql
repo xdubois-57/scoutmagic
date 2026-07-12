@@ -180,3 +180,24 @@ CREATE TABLE import_journal (
     CONSTRAINT fk_ij_year FOREIGN KEY (scout_year_id) REFERENCES scout_years(id),
     CONSTRAINT fk_ij_user FOREIGN KEY (user_account_id) REFERENCES user_accounts(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE webauthn_credentials (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    user_account_id INT UNSIGNED NOT NULL,
+    credential_id VARBINARY(255) NOT NULL,
+    public_key BLOB NOT NULL,
+    sign_count INT UNSIGNED NOT NULL DEFAULT 0,
+    device_label VARCHAR(100),
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_used_at DATETIME,
+    UNIQUE INDEX idx_credential_id (credential_id),
+    INDEX idx_user_account (user_account_id),
+    CONSTRAINT fk_wc_user FOREIGN KEY (user_account_id) REFERENCES user_accounts(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE login_attempts (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    email_blind_index CHAR(64) NOT NULL,
+    attempted_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_email_time (email_blind_index, attempted_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

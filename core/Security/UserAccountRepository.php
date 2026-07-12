@@ -120,6 +120,44 @@ class UserAccountRepository
     }
 
     /**
+     * Update profile (first name and last name), encrypted at rest.
+     */
+    public function updateProfile(int $id, ?string $firstName, ?string $lastName): void
+    {
+        $encFirstName = $firstName !== null ? $this->encryption->encrypt($firstName) : null;
+        $encLastName = $lastName !== null ? $this->encryption->encrypt($lastName) : null;
+
+        $stmt = $this->pdo->prepare(
+            'UPDATE user_accounts SET first_name_encrypted = ?, last_name_encrypted = ? WHERE id = ?'
+        );
+        $stmt->execute([$encFirstName, $encLastName, $id]);
+    }
+
+    /**
+     * Update the password hash for a user.
+     */
+    public function updatePasswordHash(int $id, string $passwordHash): void
+    {
+        $stmt = $this->pdo->prepare(
+            'UPDATE user_accounts SET password_hash = ? WHERE id = ?'
+        );
+        $stmt->execute([$passwordHash, $id]);
+    }
+
+    /**
+     * Check if a user has a password set.
+     */
+    public function hasPassword(int $id): bool
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT password_hash FROM user_accounts WHERE id = ?'
+        );
+        $stmt->execute([$id]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+        return $row !== false && $row['password_hash'] !== null;
+    }
+
+    /**
      * Hydrate a UserAccount from a database row.
      *
      * @param array<string, mixed> $row

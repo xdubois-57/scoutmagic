@@ -1,4 +1,30 @@
 (function() {
+    // --- Tab switching ---
+    var tabs = document.querySelectorAll('[data-tab]');
+    var tabContents = {
+        'magic-link': document.getElementById('tab-magic-link'),
+        'password': document.getElementById('tab-password'),
+        'passkey': document.getElementById('tab-passkey')
+    };
+
+    tabs.forEach(function(tab) {
+        tab.addEventListener('click', function() {
+            var target = tab.getAttribute('data-tab');
+            tabs.forEach(function(t) { t.classList.remove('active'); });
+            tab.classList.add('active');
+            Object.keys(tabContents).forEach(function(key) {
+                if (tabContents[key]) {
+                    tabContents[key].classList.toggle('d-none', key !== target);
+                }
+            });
+        });
+    });
+
+    function getCsrf() {
+        return document.getElementById('csrf-token').value;
+    }
+
+    // --- Magic Link ---
     var stateEmail = document.getElementById('state-email');
     var stateWaiting = document.getElementById('state-waiting');
     var stateConfirmed = document.getElementById('state-confirmed');
@@ -25,11 +51,10 @@
         emailError.classList.add('d-none');
     }
 
-    // Send magic link
     sendBtn.addEventListener('click', function() {
         hideError();
         var email = emailInput.value.trim();
-        var csrf = document.querySelector('input[name="_csrf_token"]').value;
+        var csrf = getCsrf();
 
         if (!email) {
             showError('Veuillez entrer une adresse email.');
@@ -64,7 +89,6 @@
         });
     });
 
-    // Back button
     backBtn.addEventListener('click', function() {
         if (pollingInterval) {
             clearInterval(pollingInterval);
@@ -73,7 +97,6 @@
         showState(stateEmail);
     });
 
-    // Allow Enter key to submit
     emailInput.addEventListener('keydown', function(e) {
         if (e.key === 'Enter') {
             e.preventDefault();
@@ -81,7 +104,6 @@
         }
     });
 
-    // Polling
     function startPolling(pollId) {
         pollingInterval = setInterval(function() {
             fetch('/auth/poll/' + pollId)
@@ -96,17 +118,129 @@
                         }, 2000);
                     }
                 })
-                .catch(function() {
-                    // Silently ignore polling errors
-                });
+                .catch(function() {});
         }, 3000);
 
-        // Stop polling after 15 minutes (token expiry)
         setTimeout(function() {
             if (pollingInterval) {
                 clearInterval(pollingInterval);
                 pollingInterval = null;
             }
         }, 15 * 60 * 1000);
+    }
+
+    // --- Password login ---
+    var passwordBtn = document.getElementById('password-login-btn');
+    if (passwordBtn) {
+        passwordBtn.addEventListener('click', async function() {
+            var email = document.getElementById('password-email').value.trim();
+            var password = document.getElementById('password-input').value;
+            var csrf = getCsrf();
+
+            var errorEl = document.getElementById('password-error');
+            var lockoutEl = document.getElementById('password-lockout');
+            errorEl.classList.add('d-none');
+            lockoutEl.classList.add('d-none');
+
+            if (!email || !password) {
+                errorEl.textContent = 'Veuillez remplir tous les champs.';
+                errorEl.classList.remove('d-none');
+                return;
+            }
+
+            try {
+                var res = await fetch('/login/password', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email: email, password: password, _csrf_token: csrf })
+                });
+                var data = await res.json();
+
+                if (data.success) {
+                    window.location.href = '/';
+                } else if (data.locked_seconds) {
+                    lockoutEl.textContent =
+                        'Trop de tentatives. Réessayez dans ' + Math.ceil(data.locked_seconds / 60) + ' minute(s).';
+                    lockoutEl.classList.remove('d-none');
+                } else {
+                    errorEl.textContent = data.error || 'Identifiants invalides.';
+                    errorEl.classList.remove('d-none');
+                }
+            } catch (err) {
+                errorEl.textContent = 'Erreur réseau. Veuillez réessayer.';
+                errorEl.classList.remove('d-none');
+            }
+        });
+
+        // Enter key in password field
+        document.getElementById('password-input').addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') { e.preventDefault(); passwordBtn.click(); }
+        });
+    }
+
+    // --- Passkey login ---
+    var passkeyBtn = document.getElementById('passkey-login-btn');
+    if (passkeyBtn) {
+        if (!window.PublicKeyCredential) {
+            passkeyBtn.disabled = true;
+            document.getElementById('passkey-unsupported').classList.remove('d-none');
+        }
+
+        passkeyBtn.addEventListener('click', async function() {
+            var errorEl = document.getElementById('passkey-error');
+            errorEl.classList.add('d-none');
+
+            try {
+                var optRes = await fetch('/login/passkey/options');
+                var options = await optRes.json();
+
+                options.challenge = base64ToBuffer(options.challenge);
+                if (options.allowCredentials) {
+                    options.allowCredentials = options.allowCredentials.map(function(c) {
+                        return Object.assign({}, c, { id: base64ToBuffer(c.id) });
+                    });
+                }
+
+                var credential = await navigator.credentials.get({ publicKey: options });
+
+                var verifyRes = await fetch('/login/passkey/verify', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrf() },
+                    body: JSON.stringify({
+                        id: credential.id,
+                        rawId: bufferToBase64(credential.rawId),
+                        response: {
+                            authenticatorData: bufferToBase64(credential.response.authenticatorData),
+                            clientDataJSON: bufferToBase64(credential.response.clientDataJSON),
+                            signature: bufferToBase64(credential.response.signature),
+                            userHandle: credential.response.userHandle
+                                ? bufferToBase64(credential.response.userHandle) : null
+                        },
+                        type: credential.type
+                    })
+                });
+                var result = await verifyRes.json();
+
+                if (result.success) {
+                    window.location.href = '/';
+                } else {
+                    errorEl.textContent = result.error || 'L\'authentification a échoué.';
+                    errorEl.classList.remove('d-none');
+                }
+            } catch (err) {
+                errorEl.textContent = 'L\'authentification a été annulée ou a échoué.';
+                errorEl.classList.remove('d-none');
+            }
+        });
+    }
+
+    // --- Utilities ---
+    function base64ToBuffer(b64) {
+        var bin = atob(b64.replace(/-/g, '+').replace(/_/g, '/'));
+        return Uint8Array.from(bin, function(c) { return c.charCodeAt(0); }).buffer;
+    }
+    function bufferToBase64(buf) {
+        return btoa(String.fromCharCode.apply(null, new Uint8Array(buf)))
+            .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
     }
 })();

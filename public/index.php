@@ -15,6 +15,7 @@ use Core\File\FileAccessGuard;
 use Core\File\FileRepository;
 use Core\File\UploadHandler;
 use Core\Config\ScoutYearService;
+use Core\Http\Controller\AccountController;
 use Core\Http\Controller\AuthController;
 use Core\Http\Controller\CookieController;
 use Core\Http\Controller\ConfigModeController;
@@ -47,10 +48,14 @@ use Core\Mail\MailServiceFactory;
 use Core\Security\AuthService;
 use Core\Security\AuthSession;
 use Core\Security\EncryptionService;
+use Core\Security\LoginThrottler;
+use Core\Security\PasswordAuthMethod;
 use Core\Security\Role;
 use Core\Security\SecretManager;
 use Core\Security\SessionManager;
 use Core\Security\UserAccountRepository;
+use Core\Security\WebAuthnCredentialRepository;
+use Core\Security\WebAuthnService;
 use Core\View\ConfigurationMode;
 use Core\View\EditableContentRepository;
 use Core\View\EditableContentService;
@@ -328,9 +333,20 @@ $router->addRoute('GET', '/rgpd', PageController::class, 'rgpd', 'public');
 // Auth routes
 $router->addRoute('GET', '/login', AuthController::class, 'login', 'public');
 $router->addRoute('POST', '/login/magic-link', AuthController::class, 'requestMagicLink', 'public');
+$router->addRoute('POST', '/login/password', AuthController::class, 'loginWithPassword', 'public');
+$router->addRoute('GET', '/login/passkey/options', AuthController::class, 'passkeyOptions', 'public');
+$router->addRoute('POST', '/login/passkey/verify', AuthController::class, 'passkeyVerify', 'public');
 $router->addRoute('GET', '/auth/verify', AuthController::class, 'verifyMagicLink', 'public');
 $router->addRoute('GET', '/auth/poll/{id}', AuthController::class, 'pollMagicLink', 'public');
 $router->addRoute('POST', '/logout', AuthController::class, 'logout', 'identified');
+
+// Account routes
+$router->addRoute('GET', '/account', AccountController::class, 'index', 'identified');
+$router->addRoute('POST', '/account/profile', AccountController::class, 'updateProfile', 'identified');
+$router->addRoute('POST', '/account/password', AccountController::class, 'updatePassword', 'identified');
+$router->addRoute('GET', '/account/passkey/register-options', AccountController::class, 'passkeyRegisterOptions', 'identified');
+$router->addRoute('POST', '/account/passkey/register', AccountController::class, 'passkeyRegister', 'identified');
+$router->addRoute('POST', '/account/passkey/delete', AccountController::class, 'passkeyDelete', 'identified');
 
 // Member pages
 $router->addRoute('GET', '/members/{id}', MemberController::class, 'show', 'identified');
@@ -379,7 +395,23 @@ $frontController = new FrontController($router, $twig, $config);
 $frontController->registerController(PageController::class, new PageController($twig, $editableContentService, $sectionRepository, $cookieConsentService));
 $frontController->registerController(CookieController::class, new CookieController($twig, $cookieConsentService));
 $frontController->registerController(SetupController::class, new SetupController($twig, $secretManager, $dkimManager, $schemaPath));
-$frontController->registerController(AuthController::class, new AuthController($twig, $authService, $roleResolver, $scoutYearService));
+// Build auth dependencies
+$loginThrottler = new LoginThrottler($connection);
+$passwordAuthMethod = new PasswordAuthMethod($userAccountRepo, $encryptionService, $loginThrottler);
+$webAuthnCredentialRepo = new WebAuthnCredentialRepository($pdo);
+$webAuthnService = new WebAuthnService(
+    $webAuthnCredentialRepo,
+    $userAccountRepo,
+    $config->get('webauthn_rp_id', parse_url($config->get('base_url', 'https://localhost'), PHP_URL_HOST) ?: 'localhost'),
+    $config->get('site_name', 'Unité scoute'),
+    $config->get('base_url', 'https://localhost')
+);
+
+$authController = new AuthController($twig, $authService, $roleResolver, $scoutYearService);
+$authController->setPasswordAuth($passwordAuthMethod);
+$authController->setWebAuthnService($webAuthnService);
+$frontController->registerController(AuthController::class, $authController);
+$frontController->registerController(AccountController::class, new AccountController($twig, $userAccountRepo, $webAuthnCredentialRepo, $webAuthnService));
 $frontController->registerController(ImportController::class, new ImportController($twig, $importService, $scoutYearService, $importJournalRepo, $functionRepo, $storagePath));
 $frontController->registerController(MemberController::class, new MemberController($twig, $memberService));
 $frontController->registerController(ConfigModeController::class, new ConfigModeController($twig));

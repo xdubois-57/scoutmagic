@@ -11,17 +11,33 @@ use Core\Http\Response;
 use Core\Security\AuthService;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
+use Core\Security\LoginThrottler;
+use Core\Security\PasswordAuthMethod;
 use Core\Security\RoleResolver;
+use Core\Security\WebAuthnService;
 use Twig\Environment;
 
 class AuthController extends AbstractController
 {
+    private ?PasswordAuthMethod $passwordAuth = null;
+    private ?WebAuthnService $webAuthnService = null;
+
     public function __construct(
         protected Environment $twig,
         private AuthService $authService,
         private ?RoleResolver $roleResolver = null,
         private ?ScoutYearService $scoutYearService = null
     ) {
+    }
+
+    public function setPasswordAuth(PasswordAuthMethod $passwordAuth): void
+    {
+        $this->passwordAuth = $passwordAuth;
+    }
+
+    public function setWebAuthnService(WebAuthnService $webAuthnService): void
+    {
+        $this->webAuthnService = $webAuthnService;
     }
 
     /**
@@ -131,6 +147,106 @@ class AuthController extends AbstractController
         }
 
         return $this->json(['confirmed' => true]);
+    }
+
+    /**
+     * POST /login/password — authenticate with email + password (AJAX, JSON).
+     *
+     * @param array<string, string> $params
+     */
+    public function loginWithPassword(Request $request, array $params): Response
+    {
+        if ($this->passwordAuth === null) {
+            return $this->json(['success' => false, 'error' => 'Méthode non disponible.']);
+        }
+
+        $body = json_decode((string) $request->getRawBody(), true);
+        if (!is_array($body)) {
+            return $this->json(['success' => false, 'error' => 'Données invalides.']);
+        }
+
+        // Validate CSRF
+        $csrfToken = (string) ($body['_csrf_token'] ?? '');
+        if (!CsrfGuard::validateToken($csrfToken)) {
+            return $this->json(['success' => false, 'error' => 'Session expirée. Veuillez recharger la page.'], 403);
+        }
+
+        $email = trim((string) ($body['email'] ?? ''));
+        $password = (string) ($body['password'] ?? '');
+
+        if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            return $this->json(['success' => false, 'error' => 'Identifiants invalides.']);
+        }
+
+        if ($password === '') {
+            return $this->json(['success' => false, 'error' => 'Identifiants invalides.']);
+        }
+
+        $result = $this->passwordAuth->attempt(['email' => $email, 'password' => $password]);
+
+        if ($result['locked_seconds'] > 0) {
+            return $this->json([
+                'success' => false,
+                'error' => 'Trop de tentatives.',
+                'locked_seconds' => $result['locked_seconds'],
+            ]);
+        }
+
+        if ($result['account'] === null) {
+            return $this->json(['success' => false, 'error' => 'Identifiants invalides.']);
+        }
+
+        // Login successful
+        $account = $result['account'];
+        $role = $this->resolveRole($account->email, $account->id);
+        AuthSession::login($account->id, $account->email, $role);
+        $this->storeLinkedMembers($account->email);
+
+        return $this->json(['success' => true]);
+    }
+
+    /**
+     * GET /login/passkey/options — get WebAuthn authentication options (AJAX, JSON).
+     *
+     * @param array<string, string> $params
+     */
+    public function passkeyOptions(Request $request, array $params): Response
+    {
+        if ($this->webAuthnService === null) {
+            return $this->json(['error' => 'Méthode non disponible.'], 500);
+        }
+
+        $options = $this->webAuthnService->generateAuthenticationOptions();
+        return $this->json($options);
+    }
+
+    /**
+     * POST /login/passkey/verify — verify WebAuthn authentication (AJAX, JSON).
+     *
+     * @param array<string, string> $params
+     */
+    public function passkeyVerify(Request $request, array $params): Response
+    {
+        if ($this->webAuthnService === null) {
+            return $this->json(['success' => false, 'error' => 'Méthode non disponible.']);
+        }
+
+        $body = json_decode((string) $request->getRawBody(), true);
+        if (!is_array($body)) {
+            return $this->json(['success' => false, 'error' => 'Données invalides.']);
+        }
+
+        $account = $this->webAuthnService->verifyAuthentication($body);
+
+        if ($account === null) {
+            return $this->json(['success' => false, 'error' => 'L\'authentification a échoué.']);
+        }
+
+        $role = $this->resolveRole($account->email, $account->id);
+        AuthSession::login($account->id, $account->email, $role);
+        $this->storeLinkedMembers($account->email);
+
+        return $this->json(['success' => true]);
     }
 
     /**

@@ -14,7 +14,7 @@
     </div>
     <div class="offcanvas-body d-flex flex-column p-0">
         {% if is_authenticated %}
-        <div class="p-3 border-bottom bg-light">
+        <a href="/account" class="d-block p-3 border-bottom bg-light text-decoration-none text-body">
             <div class="d-flex align-items-center gap-2">
                 <span class="d-inline-flex align-items-center justify-content-center rounded-circle bg-primary text-white fw-bold" style="width:40px;height:40px;font-size:.9rem;">
                     {{ current_user_display_name[:2]|upper }}
@@ -29,7 +29,7 @@
                     </div>
                 </div>
             </div>
-        </div>
+        </a>
         {% endif %}
 
         <div class="accordion accordion-flush flex-grow-1 overflow-auto" id="mobileMenuAccordion">
@@ -105,13 +105,15 @@
         <div class="ms-auto">
             {% if is_authenticated %}
             <div class="d-flex align-items-center gap-2">
-                <span class="d-inline-flex align-items-center justify-content-center rounded-circle bg-primary text-white fw-bold" style="width:32px;height:32px;font-size:.8rem;">
-                    {{ current_user_display_name[:2]|upper }}
-                </span>
-                <span class="small text-truncate" style="max-width:160px;">{{ current_user_display_name }}</span>
-                {% if current_user_member_count > 0 %}
-                    <span class="text-muted" style="font-size:.75rem;">· {{ current_user_member_count }} membre{{ current_user_member_count > 1 ? 's' : '' }}</span>
-                {% endif %}
+                <a href="/account" class="d-flex align-items-center gap-2 text-decoration-none text-body">
+                    <span class="d-inline-flex align-items-center justify-content-center rounded-circle bg-primary text-white fw-bold" style="width:32px;height:32px;font-size:.8rem;">
+                        {{ current_user_display_name[:2]|upper }}
+                    </span>
+                    <span class="small text-truncate" style="max-width:160px;">{{ current_user_display_name }}</span>
+                    {% if current_user_member_count > 0 %}
+                        <span class="text-muted" style="font-size:.75rem;">· {{ current_user_member_count }} membre{{ current_user_member_count > 1 ? 's' : '' }}</span>
+                    {% endif %}
+                </a>
                 <form method="post" action="/logout" class="d-inline ms-2">
                     {{ csrf_field()|raw }}
                     <button type="submit" class="btn btn-outline-secondary btn-sm">Se déconnecter</button>
