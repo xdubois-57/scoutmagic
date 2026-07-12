@@ -13,6 +13,10 @@ use Core\Http\FrontController;
 use Core\Http\Request;
 use Core\Http\Response;
 use Core\Http\Router;
+use Core\Database\MigrationRunner;
+use Core\Database\SchemaComparator;
+use Core\Database\SchemaIntrospector;
+use Core\Database\SqlParser;
 use Core\Mail\DkimManager;
 use Core\Mail\MailServiceFactory;
 use Core\Security\AuthService;
@@ -106,6 +110,15 @@ $encryptionService = new EncryptionService(
     $secrets['encryption_key'] ?? '',
     $secrets['blind_index_key'] ?? ''
 );
+
+// Auto-migrate: apply any pending schema changes from core.sql
+$migrationRunner = new MigrationRunner(
+    $connection,
+    new SchemaIntrospector($connection->getPdo()),
+    new SchemaComparator(),
+    new SqlParser()
+);
+$migrationRunner->migrate([$schemaPath]);
 
 // Create MailService
 $mailService = MailServiceFactory::create($secrets, $dkimManager);
