@@ -1,0 +1,119 @@
+{% extends 'base.html.twig' %}
+{% block title %}Actions planifiées — {{ param('site_name') }}{% endblock %}
+{% block content %}
+<div class="mx-auto" style="max-width:960px;">
+    <h1>Actions planifiées</h1>
+    <p class="text-body-secondary small mb-3">{{ total }} action{{ total > 1 ? 's' : '' }} au total</p>
+
+    {# Desktop table #}
+    <div class="d-none d-md-block">
+        <div class="table-responsive">
+            <table class="table table-sm table-hover">
+                <thead>
+                    <tr>
+                        <th>Module</th>
+                        <th>Tâche</th>
+                        <th>Référence</th>
+                        <th>Exécution prévue</th>
+                        <th>Statut</th>
+                        <th>Tentatives</th>
+                        <th>Créée le</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for action in actions %}
+                    <tr class="action-row" data-error="{{ action.last_error|default('')|e('html_attr') }}">
+                        <td class="small">{{ action.module_id }}</td>
+                        <td class="small">{{ action.task_key }}</td>
+                        <td class="small">{{ action.reference ?? '—' }}</td>
+                        <td class="small text-nowrap">{{ action.run_at }}</td>
+                        <td>
+                            {% if action.status == 'pending' %}
+                                <span class="badge text-bg-primary">En attente</span>
+                            {% elseif action.status == 'processing' %}
+                                <span class="badge text-bg-warning">En cours</span>
+                            {% elseif action.status == 'done' %}
+                                <span class="badge text-bg-success">Terminé</span>
+                            {% elseif action.status == 'failed' %}
+                                <span class="badge text-bg-danger">Échoué</span>
+                            {% elseif action.status == 'canceled' %}
+                                <span class="badge text-bg-secondary">Annulé</span>
+                            {% endif %}
+                        </td>
+                        <td class="small text-center">{{ action.attempts }}</td>
+                        <td class="small text-nowrap">{{ action.created_at }}</td>
+                    </tr>
+                    {% if action.last_error %}
+                    <tr class="d-none error-row">
+                        <td colspan="7">
+                            <pre class="bg-body-tertiary p-2 rounded small mb-0 text-danger">{{ action.last_error }}</pre>
+                        </td>
+                    </tr>
+                    {% endif %}
+                    {% else %}
+                    <tr><td colspan="7" class="text-center text-body-secondary py-4">Aucune action planifiée.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    {# Mobile cards #}
+    <div class="d-md-none">
+        {% for action in actions %}
+        <div class="card mb-2">
+            <div class="card-body py-2 px-3">
+                <div class="d-flex justify-content-between align-items-center mb-1">
+                    <span class="fw-semibold small">{{ action.task_key }}</span>
+                    {% if action.status == 'pending' %}
+                        <span class="badge text-bg-primary" style="font-size:0.65rem;">En attente</span>
+                    {% elseif action.status == 'processing' %}
+                        <span class="badge text-bg-warning" style="font-size:0.65rem;">En cours</span>
+                    {% elseif action.status == 'done' %}
+                        <span class="badge text-bg-success" style="font-size:0.65rem;">Terminé</span>
+                    {% elseif action.status == 'failed' %}
+                        <span class="badge text-bg-danger" style="font-size:0.65rem;">Échoué</span>
+                    {% elseif action.status == 'canceled' %}
+                        <span class="badge text-bg-secondary" style="font-size:0.65rem;">Annulé</span>
+                    {% endif %}
+                </div>
+                <div class="text-body-secondary" style="font-size:0.7rem;">
+                    {{ action.module_id }} · Prévu : {{ action.run_at }}
+                </div>
+                {% if action.last_error %}
+                <pre class="bg-body-tertiary p-2 rounded small mb-0 mt-1 text-danger">{{ action.last_error }}</pre>
+                {% endif %}
+            </div>
+        </div>
+        {% else %}
+        <p class="text-center text-body-secondary py-4">Aucune action planifiée.</p>
+        {% endfor %}
+    </div>
+
+    {# Pagination #}
+    {% if total_pages > 1 %}
+    <nav class="mt-3">
+        <ul class="pagination pagination-sm justify-content-center">
+            {% for p in 1..total_pages %}
+                <li class="page-item {{ p == page ? 'active' : '' }}">
+                    <a class="page-link" href="?page={{ p }}">{{ p }}</a>
+                </li>
+            {% endfor %}
+        </ul>
+    </nav>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.querySelectorAll('.action-row').forEach(function(row) {
+    row.addEventListener('click', function() {
+        var next = row.nextElementSibling;
+        if (next && next.classList.contains('error-row')) {
+            next.classList.toggle('d-none');
+        }
+    });
+});
+</script>
+{% endblock %}

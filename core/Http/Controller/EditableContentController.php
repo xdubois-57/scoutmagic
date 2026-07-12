@@ -6,6 +6,7 @@ namespace Core\Http\Controller;
 
 use Core\Http\Request;
 use Core\Http\Response;
+use Core\Journal\JournalService;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\View\ConfigurationMode;
@@ -14,10 +15,17 @@ use Twig\Environment;
 
 class EditableContentController extends AbstractController
 {
+    private ?JournalService $journalService = null;
+
     public function __construct(
         protected Environment $twig,
         private EditableContentService $editableContentService
     ) {
+    }
+
+    public function setJournalService(JournalService $journalService): void
+    {
+        $this->journalService = $journalService;
     }
 
     /**
@@ -62,8 +70,13 @@ class EditableContentController extends AbstractController
             return $this->json(['success' => false, 'error' => 'Non authentifié.'], 403);
         }
 
-        // TODO: log change via JournalService (iteration 11)
         $this->editableContentService->set($key, $value, $type, $userId);
+
+        $this->journalService?->log(
+            'core', 'content_updated', 'info', 'Editable content modified',
+            ['key' => $key, 'type' => $type, 'ip' => $_SERVER['REMOTE_ADDR'] ?? ''],
+            $userId
+        );
 
         return $this->json(['success' => true]);
     }

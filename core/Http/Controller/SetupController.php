@@ -9,12 +9,15 @@ use Core\Database\MigrationRunner;
 use Core\Database\SchemaComparator;
 use Core\Database\SchemaIntrospector;
 use Core\Database\SqlParser;
+use Core\Config\SettingService;
 use Core\Http\FlashMessage;
 use Core\Http\Request;
 use Core\Http\Response;
+use Core\Journal\JournalService;
 use Core\Mail\DkimManager;
 use Core\Mail\DnsVerifier;
 use Core\Mail\MailServiceFactory;
+use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\Security\EncryptionService;
 use Core\Security\SecretManager;
@@ -22,12 +25,25 @@ use Twig\Environment;
 
 class SetupController extends AbstractController
 {
+    private ?SettingService $settingService = null;
+    private ?JournalService $journalService = null;
+
     public function __construct(
         protected Environment $twig,
         private SecretManager $secretManager,
         private DkimManager $dkimManager,
         private string $schemaPath
     ) {
+    }
+
+    public function setSettingService(SettingService $settingService): void
+    {
+        $this->settingService = $settingService;
+    }
+
+    public function setJournalService(JournalService $journalService): void
+    {
+        $this->journalService = $journalService;
     }
 
     /**
@@ -226,7 +242,7 @@ class SetupController extends AbstractController
                 'smtp_password' => $data['smtp_password'],
                 'encryption_key' => base64_encode($encryptionKey),
                 'blind_index_key' => base64_encode($blindIndexKey),
-                // TODO: migrate non-secret settings to settings table in iteration 11
+                // Non-secret settings stored temporarily; migrated to settings table on first boot
                 'site_name' => $data['site_name'],
                 'short_name' => $data['short_name'],
                 'base_url' => $data['base_url'],
@@ -306,16 +322,22 @@ class SetupController extends AbstractController
             if ($data['smtp_password'] !== '') {
                 $currentSecrets['smtp_password'] = $data['smtp_password'];
             }
-            // TODO: migrate non-secret settings to settings table in iteration 11
-            $currentSecrets['site_name'] = $data['site_name'];
-            $currentSecrets['short_name'] = $data['short_name'];
-            $currentSecrets['base_url'] = $data['base_url'];
-            $currentSecrets['mail_from_address'] = $data['mail_from_address'];
-            $currentSecrets['mail_from_name'] = $data['mail_from_name'];
-            $currentSecrets['dkim_selector'] = $data['dkim_selector'];
-            $currentSecrets['dmarc_report_email'] = $data['dmarc_report_email'];
-
             $this->secretManager->writeSecrets($currentSecrets);
+
+            // Write non-secret settings to settings table
+            if ($this->settingService !== null) {
+                $nonSecretKeys = ['site_name', 'short_name', 'base_url', 'mail_from_address', 'mail_from_name', 'dkim_selector', 'dmarc_report_email'];
+                foreach ($nonSecretKeys as $nsKey) {
+                    if (isset($data[$nsKey])) {
+                        try {
+                            $this->settingService->set($nsKey, $data[$nsKey]);
+                        } catch (\Throwable $e) {
+                            // Setting may not be registered yet during initial setup
+                        }
+                    }
+                }
+                $this->settingService->clearCache();
+            }
 
             // Regenerate DKIM key if requested
             if ($request->getBody('regenerate_dkim') === '1') {
@@ -343,6 +365,12 @@ class SetupController extends AbstractController
                 );
                 $runner->migrate([$this->schemaPath]);
             }
+
+            $this->journalService?->log(
+                'core', 'setup_completed', 'security', 'Site configuration saved',
+                ['ip' => $_SERVER['REMOTE_ADDR'] ?? ''],
+                AuthSession::getUserAccountId()
+            );
 
             FlashMessage::set('success', 'Configuration enregistrée avec succès.');
             return $this->redirect('/setup');

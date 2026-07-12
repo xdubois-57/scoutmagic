@@ -1,0 +1,150 @@
+{% extends 'base.html.twig' %}
+{% block title %}Journal — {{ param('site_name') }}{% endblock %}
+{% block content %}
+<div class="mx-auto" style="max-width:960px;">
+    <h1>Journal d'événements</h1>
+
+    {# Filter bar #}
+    <form method="get" action="/admin/journal" class="card mb-3">
+        <div class="card-body">
+            <div class="row g-2 align-items-end">
+                <div class="col-12 col-md-2">
+                    <label class="form-label small">Catégorie</label>
+                    <select name="category" class="form-select form-select-sm">
+                        <option value="">Toutes</option>
+                        {% for cat in categories %}
+                            <option value="{{ cat }}" {{ filter_category == cat ? 'selected' : '' }}>{{ cat }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-6 col-md-2">
+                    <label class="form-label small">Niveau</label>
+                    <select name="level" class="form-select form-select-sm">
+                        <option value="">Tous</option>
+                        <option value="info" {{ filter_level == 'info' ? 'selected' : '' }}>Info</option>
+                        <option value="security" {{ filter_level == 'security' ? 'selected' : '' }}>Sécurité</option>
+                    </select>
+                </div>
+                <div class="col-12 col-md-3">
+                    <label class="form-label small">Recherche</label>
+                    <input type="text" name="search" class="form-control form-control-sm"
+                           value="{{ filter_search }}" placeholder="Texte...">
+                </div>
+                <div class="col-6 col-md-2">
+                    <label class="form-label small">Du</label>
+                    <input type="date" name="date_from" class="form-control form-control-sm"
+                           value="{{ filter_date_from }}">
+                </div>
+                <div class="col-6 col-md-2">
+                    <label class="form-label small">Au</label>
+                    <input type="date" name="date_to" class="form-control form-control-sm"
+                           value="{{ filter_date_to }}">
+                </div>
+                <div class="col-12 col-md-1">
+                    <button type="submit" class="btn btn-primary btn-sm w-100">Filtrer</button>
+                </div>
+            </div>
+        </div>
+    </form>
+
+    <p class="text-body-secondary small mb-2">{{ total }} entrée{{ total > 1 ? 's' : '' }}</p>
+
+    {# Desktop table #}
+    <div class="d-none d-md-block">
+        <div class="table-responsive">
+            <table class="table table-sm table-hover">
+                <thead>
+                    <tr>
+                        <th style="width:140px;">Date</th>
+                        <th style="width:80px;">Niveau</th>
+                        <th style="width:100px;">Catégorie</th>
+                        <th>Description</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for entry in entries %}
+                    <tr class="journal-row" data-context='{{ entry.context|default("")|e('html_attr') }}' style="cursor:pointer;">
+                        <td class="text-nowrap small">{{ entry.logged_at }}</td>
+                        <td>
+                            {% if entry.level == 'security' %}
+                                <span class="badge text-bg-warning">sécurité</span>
+                            {% else %}
+                                <span class="badge text-bg-info">info</span>
+                            {% endif %}
+                        </td>
+                        <td class="small">{{ entry.category }}</td>
+                        <td class="small">{{ entry.description }}</td>
+                    </tr>
+                    {% if entry.context %}
+                    <tr class="d-none context-row">
+                        <td colspan="4">
+                            <pre class="bg-body-tertiary p-2 rounded small mb-0">{{ entry.context }}</pre>
+                        </td>
+                    </tr>
+                    {% endif %}
+                    {% else %}
+                    <tr><td colspan="4" class="text-center text-body-secondary py-4">Aucune entrée trouvée.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    {# Mobile cards #}
+    <div class="d-md-none">
+        {% for entry in entries %}
+        <div class="card mb-2 journal-card" data-context='{{ entry.context|default("")|e('html_attr') }}'>
+            <div class="card-body py-2 px-3">
+                <div class="d-flex justify-content-between align-items-center mb-1">
+                    <span class="text-body-secondary" style="font-size:0.7rem;">{{ entry.logged_at }}</span>
+                    {% if entry.level == 'security' %}
+                        <span class="badge text-bg-warning" style="font-size:0.65rem;">sécurité</span>
+                    {% else %}
+                        <span class="badge text-bg-info" style="font-size:0.65rem;">info</span>
+                    {% endif %}
+                </div>
+                <div class="small">{{ entry.description }}</div>
+                <div class="text-body-secondary" style="font-size:0.7rem;">{{ entry.category }}</div>
+                {% if entry.context %}
+                <pre class="bg-body-tertiary p-2 rounded small mb-0 mt-1 d-none context-detail">{{ entry.context }}</pre>
+                {% endif %}
+            </div>
+        </div>
+        {% else %}
+        <p class="text-center text-body-secondary py-4">Aucune entrée trouvée.</p>
+        {% endfor %}
+    </div>
+
+    {# Pagination #}
+    {% if total_pages > 1 %}
+    <nav class="mt-3">
+        <ul class="pagination pagination-sm justify-content-center">
+            {% for p in 1..total_pages %}
+                <li class="page-item {{ p == page ? 'active' : '' }}">
+                    <a class="page-link" href="?category={{ filter_category }}&level={{ filter_level }}&search={{ filter_search }}&date_from={{ filter_date_from }}&date_to={{ filter_date_to }}&page={{ p }}">{{ p }}</a>
+                </li>
+            {% endfor %}
+        </ul>
+    </nav>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.querySelectorAll('.journal-row').forEach(function(row) {
+    row.addEventListener('click', function() {
+        var next = row.nextElementSibling;
+        if (next && next.classList.contains('context-row')) {
+            next.classList.toggle('d-none');
+        }
+    });
+});
+document.querySelectorAll('.journal-card').forEach(function(card) {
+    card.addEventListener('click', function() {
+        var detail = card.querySelector('.context-detail');
+        if (detail) detail.classList.toggle('d-none');
+    });
+});
+</script>
+{% endblock %}

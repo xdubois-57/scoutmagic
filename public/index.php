@@ -5,6 +5,8 @@ declare(strict_types=1);
 require_once __DIR__ . '/../vendor/autoload.php';
 
 use Core\Config\AppConfig;
+use Core\Config\SettingRepository;
+use Core\Config\SettingService;
 use Core\Cookie\CookieConsentService;
 use Core\Database\Connection;
 use Core\Database\MigrationRunner;
@@ -22,11 +24,19 @@ use Core\Http\Controller\ConfigModeController;
 use Core\Http\Controller\EditableContentController;
 use Core\Http\Controller\FileController;
 use Core\Http\Controller\ImportController;
+use Core\Http\Controller\JournalController;
 use Core\Http\Controller\MemberController;
 use Core\Http\Controller\PageController;
 use Core\Http\Controller\PlaceholderController;
+use Core\Http\Controller\ScheduledActionsController;
+use Core\Http\Controller\SettingsController;
 use Core\Http\Controller\SetupController;
 use Core\Http\Controller\UploadController;
+use Core\Journal\JournalRepository;
+use Core\Journal\JournalService;
+use Core\Scheduler\SchedulerRepository;
+use Core\Scheduler\SchedulerRunner;
+use Core\Scheduler\SchedulerService;
 use Core\Import\AgeBranchRepository;
 use Core\Import\DeskCsvParser;
 use Core\Import\DeskImportService;
@@ -56,6 +66,7 @@ use Core\Security\SessionManager;
 use Core\Security\UserAccountRepository;
 use Core\Security\WebAuthnCredentialRepository;
 use Core\Security\WebAuthnService;
+use Twig\TwigFunction;
 use Core\View\ConfigurationMode;
 use Core\View\EditableContentRepository;
 use Core\View\EditableContentService;
@@ -72,8 +83,7 @@ $twig = TwigFactory::create(
     $config->isDebug()
 );
 
-// Add site_name as a global Twig variable
-$twig->addGlobal('site_name', $config->get('site_name', 'Unité scoute'));
+// site_name will be set later from settings database
 
 // Create SecretManager and check initialization
 $secretManager = new SecretManager(
@@ -130,10 +140,8 @@ if (!$isInitialized) {
 // Load secrets and create services
 $secrets = $secretManager->readSecrets();
 
-// Update site_name from secrets if available
-if (!empty($secrets['site_name'])) {
-    $twig->addGlobal('site_name', $secrets['site_name']);
-}
+// site_name from secrets used as fallback during settings migration
+$siteName = $secrets['site_name'] ?? 'Unité scoute';
 
 $connection = new Connection(
     $secrets['db_host'] ?? 'localhost',
@@ -157,6 +165,8 @@ $migrationRunner = new MigrationRunner(
 );
 $migrationRunner->migrate([$schemaPath]);
 
+$pdo = $connection->getPdo();
+
 // Auto-repair admin account if broken (e.g. created with wrong key format)
 if (!empty($secrets['admin_email'])) {
     $userAccountRepo = new UserAccountRepository($connection->getPdo(), $encryptionService);
@@ -168,6 +178,93 @@ if (!empty($secrets['admin_email'])) {
     }
 }
 
+// Create Setting service and register core settings
+$settingRepo = new SettingRepository($pdo);
+$settingService = new SettingService($settingRepo);
+
+$settingService->register('site_name', $siteName, 'text', 'Nom de l\'unité',
+    'Nom complet de l\'unité, affiché dans le header et le titre du site.');
+$settingService->register('short_name', '', 'text', 'Nom court',
+    'Identifiant court (5 caractères maximum), utilisé comme préfixe du sujet de tous les emails, par exemple [25SV].',
+    null, '^[A-Za-z0-9]{0,5}$', null, true, 20);
+$settingService->register('base_url', '', 'url', 'URL de base',
+    'Adresse complète du site (ex. https://www.unite-exemple.be). Utilisée pour générer les liens dans les emails.',
+    null, null, null, true, 30);
+$settingService->register('mail_from_address', '', 'email', 'Email d\'expédition',
+    'Adresse email affichée comme expéditeur pour tous les emails envoyés par le site.',
+    null, null, null, true, 40);
+$settingService->register('mail_from_name', '', 'text', 'Nom d\'expédition',
+    'Nom affiché comme expéditeur, en complément de l\'adresse email.',
+    null, null, null, true, 50);
+$settingService->register('dkim_selector', 's2026', 'text', 'Sélecteur DKIM',
+    'Identifiant technique de la clé DKIM, présent dans l\'enregistrement DNS correspondant.',
+    null, '^[a-z0-9]+$', null, true, 60);
+$settingService->register('dmarc_report_email', '', 'email', 'Email rapports DMARC',
+    'Adresse à laquelle les fournisseurs de messagerie envoient un résumé périodique des emails reçus au nom du domaine.',
+    null, null, null, true, 70);
+$settingService->register('contact_email', '', 'email', 'Email de contact',
+    'Adresse email affichée sur la page Contact.',
+    null, null, null, true, 80);
+$settingService->register('site_version', '0.0.0', 'text', 'Version du site',
+    'Version actuelle du site. Mise à jour automatiquement lors des releases.',
+    null, null, null, false, 90);
+$settingService->register('journal_retention_days', '730', 'number', 'Rétention du journal (jours)',
+    'Durée de conservation des entrées du journal d\'événements. Les entrées plus anciennes sont automatiquement supprimées.',
+    null, '^[1-9][0-9]*$', null, true, 100);
+$settingService->register('scheduler_last_run', '0', 'number', 'Dernier passage du planificateur',
+    'Horodatage Unix du dernier passage du planificateur de tâches. Géré automatiquement.',
+    null, null, null, false, 200);
+
+// Migrate non-secret settings from secrets.enc to settings table (one-time)
+if ($settingService->get('settings_migrated') !== '1') {
+    $settingService->register('settings_migrated', '0', 'boolean', 'Migration effectuée',
+        'Indique si la migration des paramètres depuis secrets.enc a été effectuée.',
+        null, null, null, false, 999);
+
+    $migrateKeys = ['site_name', 'short_name', 'base_url', 'mail_from_address', 'mail_from_name', 'dkim_selector', 'dmarc_report_email'];
+    foreach ($migrateKeys as $mKey) {
+        if (!empty($secrets[$mKey]) && ($settingService->get($mKey) === '' || $settingService->get($mKey) === null)) {
+            $settingRepo->updateValue(null, $mKey, $secrets[$mKey]);
+        }
+    }
+    // Also migrate contact_email from mail_from_address if not set
+    if (!empty($secrets['mail_from_address']) && ($settingService->get('contact_email') === '' || $settingService->get('contact_email') === null)) {
+        $settingRepo->updateValue(null, 'contact_email', $secrets['mail_from_address']);
+    }
+
+    // Mark migration done
+    $settingRepo->updateValue(null, 'settings_migrated', '1');
+    $settingService->clearCache();
+
+    // Remove non-secret keys from secrets.enc
+    $secretKeysToKeep = ['db_host', 'db_port', 'db_name', 'db_user', 'db_password', 'smtp_host', 'smtp_port', 'smtp_user', 'smtp_password', 'mail_mode', 'encryption_key', 'blind_index_key', 'admin_email'];
+    $cleanedSecrets = [];
+    foreach ($secretKeysToKeep as $sk) {
+        if (isset($secrets[$sk])) {
+            $cleanedSecrets[$sk] = $secrets[$sk];
+        }
+    }
+    $secretManager->writeSecrets($cleanedSecrets);
+    $secrets = $cleanedSecrets;
+}
+
+// Create Journal service
+$journalRepo = new JournalRepository($pdo);
+$journalService = new JournalService($journalRepo);
+
+// Create Scheduler service
+$schedulerRepo = new SchedulerRepository($pdo);
+$schedulerService = new SchedulerService($schedulerRepo);
+$schedulerRunner = new SchedulerRunner($schedulerRepo, $journalService);
+
+// Register param() Twig function — reads from settings database
+$twig->addFunction(new TwigFunction('param', function (string $key, ?string $moduleId = null) use ($settingService): string {
+    return (string) ($settingService->get($key, $moduleId) ?? '');
+}));
+
+// Set site_name global from settings (used extensively in templates)
+$twig->addGlobal('site_name', (string) ($settingService->get('site_name') ?: 'Unité scoute'));
+
 // Create MailService
 $mailService = MailServiceFactory::create($secrets, $dkimManager);
 
@@ -177,15 +274,14 @@ $authService = new AuthService(
     $encryptionService,
     $mailService,
     $twig,
-    $secrets['base_url'] ?? '',
-    $secrets['site_name'] ?? ''
+    (string) $settingService->get('base_url'),
+    (string) $settingService->get('site_name')
 );
 
 // Create cookie consent service
 $cookieConsentService = new CookieConsentService();
 
 // Create editable content service
-$pdo = $connection->getPdo();
 $editableContentRepo = new EditableContentRepository($pdo);
 $editableContentService = new EditableContentService($editableContentRepo);
 $sectionRepository = new SectionRepository($pdo);
@@ -250,7 +346,6 @@ $twig->addGlobal('current_user_role_label', $roleLabelMap[$currentRole] ?? 'Publ
 $twig->addGlobal('current_path', $request->getPath());
 $twig->addGlobal('config_mode', ConfigurationMode::isActive());
 $twig->addGlobal('_editable_content_service', $editableContentService);
-$twig->addGlobal('contact_email', $secrets['mail_from_address'] ?? '');
 $twig->addGlobal('cookie_consent_given', $cookieConsentService->hasConsented());
 
 // Build menu
@@ -378,14 +473,22 @@ $router->addRoute('POST', '/setup/save', SetupController::class, 'save', 'admin'
 $router->addRoute('GET', '/setup/dns', SetupController::class, 'checkDns', 'admin');
 $router->addRoute('POST', '/setup/test-email', SetupController::class, 'testEmail', 'admin');
 
-// Placeholder routes for pages not yet built
 // Import
 $router->addRoute('GET', '/admin/import', ImportController::class, 'index', 'chief');
 $router->addRoute('POST', '/admin/import', ImportController::class, 'import', 'chief');
-$router->addRoute('GET', '/admin/journal', PlaceholderController::class, 'show', 'chief');
+
+// Journal
+$router->addRoute('GET', '/admin/journal', JournalController::class, 'index', 'chief');
+
+// Settings
+$router->addRoute('GET', '/config/settings', SettingsController::class, 'index', 'admin');
+$router->addRoute('POST', '/config/settings/update', SettingsController::class, 'update', 'admin');
+
+// Scheduled actions
+$router->addRoute('GET', '/config/scheduled', ScheduledActionsController::class, 'index', 'admin');
+
+// Placeholder routes for pages not yet built
 $router->addRoute('GET', '/config/functions', PlaceholderController::class, 'show', 'admin');
-$router->addRoute('GET', '/config/settings', PlaceholderController::class, 'show', 'admin');
-$router->addRoute('GET', '/config/scheduled', PlaceholderController::class, 'show', 'admin');
 $router->addRoute('GET', '/chefs/staffs', PlaceholderController::class, 'show', 'intendant');
 
 // Handle the request
@@ -394,17 +497,23 @@ $frontController = new FrontController($router, $twig, $config);
 // Register controllers with dependencies
 $frontController->registerController(PageController::class, new PageController($twig, $editableContentService, $sectionRepository, $cookieConsentService));
 $frontController->registerController(CookieController::class, new CookieController($twig, $cookieConsentService));
-$frontController->registerController(SetupController::class, new SetupController($twig, $secretManager, $dkimManager, $schemaPath));
+$setupController = new SetupController($twig, $secretManager, $dkimManager, $schemaPath);
+$setupController->setSettingService($settingService);
+$setupController->setJournalService($journalService);
+$frontController->registerController(SetupController::class, $setupController);
 // Build auth dependencies
+$authService->setJournalService($journalService);
 $loginThrottler = new LoginThrottler($connection);
 $passwordAuthMethod = new PasswordAuthMethod($userAccountRepo, $encryptionService, $loginThrottler);
+$passwordAuthMethod->setJournalService($journalService);
 $webAuthnCredentialRepo = new WebAuthnCredentialRepository($pdo);
+$webAuthnBaseUrl = (string) ($settingService->get('base_url') ?: 'https://localhost');
 $webAuthnService = new WebAuthnService(
     $webAuthnCredentialRepo,
     $userAccountRepo,
-    $config->get('webauthn_rp_id', parse_url($config->get('base_url', 'https://localhost'), PHP_URL_HOST) ?: 'localhost'),
-    $config->get('site_name', 'Unité scoute'),
-    $config->get('base_url', 'https://localhost')
+    parse_url($webAuthnBaseUrl, PHP_URL_HOST) ?: 'localhost',
+    (string) ($settingService->get('site_name') ?: 'Unité scoute'),
+    $webAuthnBaseUrl
 );
 
 $authController = new AuthController($twig, $authService, $roleResolver, $scoutYearService);
@@ -415,10 +524,34 @@ $frontController->registerController(AccountController::class, new AccountContro
 $frontController->registerController(ImportController::class, new ImportController($twig, $importService, $scoutYearService, $importJournalRepo, $functionRepo, $storagePath));
 $frontController->registerController(MemberController::class, new MemberController($twig, $memberService));
 $frontController->registerController(ConfigModeController::class, new ConfigModeController($twig));
-$frontController->registerController(EditableContentController::class, new EditableContentController($twig, $editableContentService));
-$frontController->registerController(FileController::class, new FileController($twig, $fileAccessGuard, $storagePath));
+$editableContentController = new EditableContentController($twig, $editableContentService);
+$editableContentController->setJournalService($journalService);
+$frontController->registerController(EditableContentController::class, $editableContentController);
+$fileController = new FileController($twig, $fileAccessGuard, $storagePath);
+$fileController->setJournalService($journalService);
+$frontController->registerController(FileController::class, $fileController);
 $frontController->registerController(UploadController::class, new UploadController($twig, $uploadHandler, $editableContentService));
+$frontController->registerController(JournalController::class, new JournalController($twig, $journalRepo));
+$frontController->registerController(SettingsController::class, new SettingsController($twig, $settingService, $journalService));
+$frontController->registerController(ScheduledActionsController::class, new ScheduledActionsController($twig, $schedulerRepo));
 $frontController->registerController(PlaceholderController::class, new PlaceholderController($twig));
 
 $response = $frontController->handle($request);
 $response->send();
+
+// Poor man's cron — run scheduler max once per minute, after response is sent
+$lastRun = (int) $settingService->get('scheduler_last_run');
+$now = time();
+if (($now - $lastRun) > 60) {
+    try {
+        $settingRepo->updateValue(null, 'scheduler_last_run', (string) $now);
+        if (function_exists('fastcgi_finish_request')) {
+            fastcgi_finish_request();
+        }
+        $schedulerRunner->processOverdue();
+        $retentionDays = (int) ($settingService->get('journal_retention_days') ?: '730');
+        $journalService->cleanup($retentionDays);
+    } catch (\Throwable $e) {
+        // Silently ignore scheduler errors in poor man's cron
+    }
+}

@@ -7,15 +7,24 @@ namespace Core\Http\Controller;
 use Core\File\FileAccessGuard;
 use Core\Http\Request;
 use Core\Http\Response;
+use Core\Journal\JournalService;
+use Core\Security\AuthSession;
 use Twig\Environment;
 
 class FileController extends AbstractController
 {
+    private ?JournalService $journalService = null;
+
     public function __construct(
         protected Environment $twig,
         private FileAccessGuard $fileAccessGuard,
         private string $storagePath
     ) {
+    }
+
+    public function setJournalService(JournalService $journalService): void
+    {
+        $this->journalService = $journalService;
     }
 
     /**
@@ -34,7 +43,11 @@ class FileController extends AbstractController
         $file = $this->fileAccessGuard->check($id);
 
         if ($file === null) {
-            // TODO: log access attempt via JournalService (iteration 11)
+            $this->journalService?->log(
+                'core', 'file_access_denied', 'security', 'File access denied',
+                ['file_id' => $id, 'ip' => $_SERVER['REMOTE_ADDR'] ?? ''],
+                AuthSession::getUserAccountId()
+            );
             return (new Response('Forbidden', 403));
         }
 

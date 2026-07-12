@@ -195,6 +195,47 @@ class DatabaseTestHelper
             attempted_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )');
 
+        $pdo->exec('CREATE TABLE settings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            module_id TEXT,
+            setting_key TEXT NOT NULL,
+            setting_value TEXT,
+            setting_type TEXT NOT NULL DEFAULT \'text\',
+            label TEXT NOT NULL,
+            description TEXT NOT NULL,
+            validation_regex TEXT,
+            select_options TEXT,
+            editable INTEGER NOT NULL DEFAULT 1,
+            sort_order INTEGER NOT NULL DEFAULT 0
+        )');
+        $pdo->exec('CREATE UNIQUE INDEX idx_module_key ON settings (module_id, setting_key)');
+
+        $pdo->exec('CREATE TABLE event_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            logged_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            user_account_id INTEGER,
+            category TEXT NOT NULL,
+            event_type TEXT NOT NULL,
+            level TEXT NOT NULL DEFAULT \'info\',
+            description TEXT NOT NULL,
+            context TEXT,
+            FOREIGN KEY (user_account_id) REFERENCES user_accounts(id) ON DELETE SET NULL
+        )');
+
+        $pdo->exec('CREATE TABLE scheduled_actions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            module_id TEXT NOT NULL,
+            task_key TEXT NOT NULL,
+            reference TEXT,
+            payload TEXT,
+            run_at TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT \'pending\',
+            attempts INTEGER NOT NULL DEFAULT 0,
+            last_error TEXT,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            executed_at TEXT
+        )');
+
         return $pdo;
     }
 }

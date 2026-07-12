@@ -201,3 +201,51 @@ CREATE TABLE login_attempts (
     attempted_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_email_time (email_blind_index, attempted_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE settings (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    module_id VARCHAR(50),
+    setting_key VARCHAR(100) NOT NULL,
+    setting_value TEXT,
+    setting_type VARCHAR(20) NOT NULL DEFAULT 'text',
+    label VARCHAR(200) NOT NULL,
+    description TEXT NOT NULL,
+    validation_regex VARCHAR(255),
+    select_options JSON,
+    editable BOOLEAN NOT NULL DEFAULT TRUE,
+    sort_order INT NOT NULL DEFAULT 0,
+    UNIQUE INDEX idx_module_key (module_id, setting_key)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE event_log (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    logged_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    user_account_id INT UNSIGNED,
+    category VARCHAR(50) NOT NULL,
+    event_type VARCHAR(100) NOT NULL,
+    level ENUM('info', 'security') NOT NULL DEFAULT 'info',
+    description VARCHAR(500) NOT NULL,
+    context JSON,
+    INDEX idx_logged_at (logged_at),
+    INDEX idx_category (category),
+    INDEX idx_level (level),
+    INDEX idx_user (user_account_id),
+    CONSTRAINT fk_el_user FOREIGN KEY (user_account_id) REFERENCES user_accounts(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE scheduled_actions (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    module_id VARCHAR(50) NOT NULL,
+    task_key VARCHAR(100) NOT NULL,
+    reference VARCHAR(200),
+    payload JSON,
+    run_at DATETIME NOT NULL,
+    status ENUM('pending', 'processing', 'done', 'failed', 'canceled') NOT NULL DEFAULT 'pending',
+    attempts INT UNSIGNED NOT NULL DEFAULT 0,
+    last_error TEXT,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    executed_at DATETIME,
+    INDEX idx_status_run (status, run_at),
+    INDEX idx_module_task (module_id, task_key),
+    INDEX idx_module_ref (module_id, task_key, reference)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

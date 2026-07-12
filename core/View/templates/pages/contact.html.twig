@@ -8,11 +8,11 @@
         <h1 class="mb-4">Contact</h1>
         {{ editable('contact.text', '<p>Contactez-nous pour toute question concernant notre unité scoute.</p>') }}
 
-        {% if contact_email is defined and contact_email %}
+        {% if param('contact_email') %}
         <div class="card mt-4">
             <div class="card-body">
                 <h5 class="card-title"><i class="bi bi-envelope"></i> Email</h5>
-                <p class="card-text"><a href="mailto:{{ contact_email }}">{{ contact_email }}</a></p>
+                <p class="card-text"><a href="mailto:{{ param('contact_email') }}">{{ param('contact_email') }}</a></p>
             </div>
         </div>
         {% endif %}

@@ -4,13 +4,22 @@ declare(strict_types=1);
 
 namespace Core\Security;
 
+use Core\Journal\JournalService;
+
 class PasswordAuthMethod
 {
+    private ?JournalService $journalService = null;
+
     public function __construct(
         private UserAccountRepository $userAccountRepo,
         private EncryptionService $encryption,
         private LoginThrottler $throttler
     ) {
+    }
+
+    public function setJournalService(JournalService $journalService): void
+    {
+        $this->journalService = $journalService;
     }
 
     /**
@@ -28,6 +37,10 @@ class PasswordAuthMethod
         // Check lockout
         $lockout = $this->throttler->getLockoutRemaining($blindIndex);
         if ($lockout > 0) {
+            $this->journalService?->log(
+                'core', 'login_lockout', 'security', 'Account locked out',
+                ['ip' => $_SERVER['REMOTE_ADDR'] ?? '', 'locked_seconds' => $lockout]
+            );
             return ['account' => null, 'locked_seconds' => $lockout];
         }
 
@@ -54,6 +67,13 @@ class PasswordAuthMethod
 
         // Success — clear failures
         $this->throttler->clearFailures($blindIndex);
+
+        $this->journalService?->log(
+            'core', 'login_success', 'security', 'Login via password',
+            ['ip' => $_SERVER['REMOTE_ADDR'] ?? ''],
+            $account->id
+        );
+
         return ['account' => $account, 'locked_seconds' => 0];
     }
 }

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Core\Security;
 
 use Core\Database\Connection;
+use Core\Journal\JournalService;
 use Core\Mail\MailService;
 use Twig\Environment;
 
@@ -15,6 +16,7 @@ class AuthService
 
     private UserAccountRepository $userRepo;
     private MagicLinkRepository $magicLinkRepo;
+    private ?JournalService $journalService = null;
 
     public function __construct(
         private Connection $connection,
@@ -27,6 +29,11 @@ class AuthService
         $pdo = $this->connection->getPdo();
         $this->userRepo = new UserAccountRepository($pdo, $this->encryption);
         $this->magicLinkRepo = new MagicLinkRepository($pdo);
+    }
+
+    public function setJournalService(JournalService $journalService): void
+    {
+        $this->journalService = $journalService;
     }
 
     /**
@@ -74,6 +81,12 @@ class AuthService
                 );
             }
         }
+
+        $this->journalService?->log(
+            'core', 'magic_link_requested', 'info', 'Magic link requested for email',
+            ['ip' => $_SERVER['REMOTE_ADDR'] ?? ''],
+            null
+        );
 
         return new MagicLinkResult(
             success: true,
@@ -124,6 +137,12 @@ class AuthService
 
         // Update last login
         $this->userRepo->updateLastLogin($user->id);
+
+        $this->journalService?->log(
+            'core', 'login_success', 'security', 'Login via magic link',
+            ['ip' => $_SERVER['REMOTE_ADDR'] ?? ''],
+            $user->id
+        );
 
         return new VerifiedMagicLink(
             email: $user->email,

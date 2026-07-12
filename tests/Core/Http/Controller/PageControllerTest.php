@@ -30,7 +30,6 @@ class PageControllerTest extends TestCase
         $twig->addGlobal('current_user_email', null);
         $twig->addGlobal('current_user_role', 'public');
         $twig->addGlobal('config_mode', false);
-        $twig->addGlobal('contact_email', 'test@example.com');
         $twig->addGlobal('cookie_consent_given', true);
         $twig->addGlobal('menus', null);
 
@@ -45,6 +44,10 @@ class PageControllerTest extends TestCase
         }));
         $twig->addFunction(new \Twig\TwigFunction('file_url', function (): string {
             return '';
+        }));
+        $twig->addFunction(new \Twig\TwigFunction('param', function (string $key): string {
+            $params = ['contact_email' => 'test@example.com', 'site_name' => 'Test'];
+            return $params[$key] ?? '';
         }));
 
         // Create mock editable content service

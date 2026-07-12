@@ -1,0 +1,95 @@
+{% extends 'base.html.twig' %}
+{% block title %}Paramètres — {{ param('site_name') }}{% endblock %}
+{% block content %}
+<div class="mx-auto" style="max-width:720px;">
+    <h1>Paramètres</h1>
+
+    {% for group_id, group in setting_groups %}
+        <div class="mb-4">
+            <div class="d-flex align-items-center gap-2 mb-2">
+                <i class="bi {{ group.icon ?? 'bi-gear' }} text-body-secondary"></i>
+                <h2 class="h5 mb-0">{{ group.label }}</h2>
+            </div>
+            {% if group.description %}
+                <p class="text-body-secondary small mb-2">{{ group.description }}</p>
+            {% endif %}
+
+            <div class="border rounded-3 overflow-hidden">
+                {% for setting in group.settings %}
+                    {% if setting.editable %}
+                        <div class="d-flex align-items-center justify-content-between p-3 border-bottom setting-row"
+                             data-module="{{ group_id }}" data-key="{{ setting.setting_key }}"
+                             data-type="{{ setting.setting_type }}" data-regex="{{ setting.validation_regex }}"
+                             data-label="{{ setting.label }}" data-description="{{ setting.description }}"
+                             data-value="{{ setting.setting_value }}"
+                             data-options='{{ setting.select_options|default("[]") }}'
+                             style="cursor:pointer;">
+                            <div>
+                                <div class="small fw-semibold">{{ setting.label }}</div>
+                                <div class="text-body-secondary" style="font-size:0.75rem;">
+                                    {{ setting.description }}
+                                </div>
+                            </div>
+                            <div class="d-flex align-items-center gap-2 text-nowrap">
+                                <span class="text-body-secondary small">
+                                    {% if setting.setting_type == 'boolean' %}
+                                        {{ setting.setting_value == '1' ? 'Oui' : 'Non' }}
+                                    {% elseif setting.setting_type == 'color' %}
+                                        <span class="d-inline-block rounded"
+                                              style="width:14px;height:14px;background:{{ setting.setting_value }};vertical-align:middle;"></span>
+                                        {{ setting.setting_value }}
+                                    {% else %}
+                                        {{ setting.setting_value|length > 40 ? setting.setting_value[:40] ~ '…' : setting.setting_value }}
+                                    {% endif %}
+                                </span>
+                                <i class="bi bi-chevron-right text-body-tertiary small"></i>
+                            </div>
+                        </div>
+                    {% else %}
+                        <div class="d-flex align-items-center justify-content-between p-3 border-bottom"
+                             style="opacity:0.5;">
+                            <div>
+                                <div class="small fw-semibold">{{ setting.label }}</div>
+                                <div class="text-body-secondary" style="font-size:0.75rem;">
+                                    {{ setting.description }}
+                                </div>
+                            </div>
+                            <div class="d-flex align-items-center gap-2">
+                                <span class="text-body-secondary small">{{ setting.setting_value }}</span>
+                                <i class="bi bi-lock text-body-tertiary small"></i>
+                            </div>
+                        </div>
+                    {% endif %}
+                {% endfor %}
+            </div>
+        </div>
+    {% endfor %}
+</div>
+
+{# Edit dialog modal #}
+<div class="modal fade" id="settingEditModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="settingEditTitle"></h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-body-secondary small" id="settingEditDescription"></p>
+                <label class="form-label" id="settingEditLabel"></label>
+                <div id="settingEditInputContainer"></div>
+                <div class="text-danger small mt-1 d-none" id="settingEditError"></div>
+                <p class="text-body-secondary mt-2" style="font-size:0.7rem;" id="settingEditType"></p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Annuler</button>
+                <button type="button" class="btn btn-primary" id="settingEditSave">Enregistrer</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/assets/js/settings.js" defer></script>
+{% endblock %}
