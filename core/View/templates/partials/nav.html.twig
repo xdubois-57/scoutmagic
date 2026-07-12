@@ -17,11 +17,16 @@
         <div class="p-3 border-bottom bg-light">
             <div class="d-flex align-items-center gap-2">
                 <span class="d-inline-flex align-items-center justify-content-center rounded-circle bg-primary text-white fw-bold" style="width:40px;height:40px;font-size:.9rem;">
-                    {{ user_display_name|first|upper }}
+                    {{ current_user_display_name[:2]|upper }}
                 </span>
                 <div>
-                    <div class="fw-semibold small text-truncate" style="max-width:180px;">{{ user_display_name }}</div>
-                    <div class="text-muted" style="font-size:.75rem;">{{ user_role_label }}</div>
+                    <div class="fw-semibold small text-truncate" style="max-width:180px;">{{ current_user_display_name }}</div>
+                    <div class="text-muted" style="font-size:.75rem;">
+                        {{ current_user_role_label }}
+                        {% if current_user_member_count > 0 %}
+                            · {{ current_user_member_count }} membre{{ current_user_member_count > 1 ? 's' : '' }}
+                        {% endif %}
+                    </div>
                 </div>
             </div>
         </div>
@@ -41,6 +46,21 @@
                             {% for page in menu.pages %}
                                 {% if page.isSeparator %}
                                     <li class="list-group-item p-0"><hr class="my-1"></li>
+                                {% elseif page.isDynamic %}
+                                    <li class="list-group-item list-group-item-action border-0 ps-4{% if current_path == page.url %} active{% endif %}">
+                                        <a href="{{ page.url }}" class="d-flex align-items-center gap-2 text-decoration-none{% if current_path == page.url %} fw-semibold text-primary{% else %} text-dark{% endif %}">
+                                            <div class="rounded-circle bg-primary-subtle d-flex align-items-center justify-content-center"
+                                                 style="width:32px;height:32px;min-width:32px;">
+                                                <span class="small fw-semibold text-primary">{{ page.label[:2] }}</span>
+                                            </div>
+                                            <div class="lh-sm">
+                                                <span class="d-block small">{{ page.label }}</span>
+                                                {% if page.subtitle %}
+                                                    <span class="d-block text-body-secondary" style="font-size:0.75rem;">{{ page.subtitle }}</span>
+                                                {% endif %}
+                                            </div>
+                                        </a>
+                                    </li>
                                 {% else %}
                                     <li class="list-group-item list-group-item-action border-0 ps-4{% if current_path == page.url %} active{% endif %}">
                                         <a href="{{ page.url }}" class="text-decoration-none d-block{% if current_path == page.url %} fw-semibold text-primary{% else %} text-dark{% endif %}">{{ page.label }}</a>
@@ -86,9 +106,12 @@
             {% if is_authenticated %}
             <div class="d-flex align-items-center gap-2">
                 <span class="d-inline-flex align-items-center justify-content-center rounded-circle bg-primary text-white fw-bold" style="width:32px;height:32px;font-size:.8rem;">
-                    {{ user_display_name|first|upper }}
+                    {{ current_user_display_name[:2]|upper }}
                 </span>
-                <span class="small text-truncate" style="max-width:160px;">{{ user_display_name }}</span>
+                <span class="small text-truncate" style="max-width:160px;">{{ current_user_display_name }}</span>
+                {% if current_user_member_count > 0 %}
+                    <span class="text-muted" style="font-size:.75rem;">· {{ current_user_member_count }} membre{{ current_user_member_count > 1 ? 's' : '' }}</span>
+                {% endif %}
                 <form method="post" action="/logout" class="d-inline ms-2">
                     {{ csrf_field()|raw }}
                     <button type="submit" class="btn btn-outline-secondary btn-sm">Se déconnecter</button>
@@ -107,6 +130,15 @@
             {% for page in menu.pages %}
                 {% if page.isSeparator %}
                     <span class="border-start mx-1" style="height:24px;"></span>
+                {% elseif page.isDynamic %}
+                    <a href="{{ page.url }}"
+                       class="btn btn-sm {% if current_path == page.url %}btn-primary{% else %}btn-outline-secondary{% endif %} d-flex align-items-center gap-1">
+                        <span class="d-inline-flex align-items-center justify-content-center rounded-circle bg-primary-subtle text-primary fw-bold"
+                              style="width:20px;height:20px;font-size:.7rem;">
+                            {{ page.label[:2] }}
+                        </span>
+                        <span>{{ page.label }}</span>
+                    </a>
                 {% else %}
                     <a href="{{ page.url }}"
                        class="btn btn-sm {% if current_path == page.url %}btn-primary{% else %}btn-outline-secondary{% endif %}">

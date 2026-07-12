@@ -1,0 +1,133 @@
+{% extends 'base.html.twig' %}
+{% block title %}{{ member|display_name }} — {{ site_name }}{% endblock %}
+{% block content %}
+<div class="mx-auto" style="max-width:720px;">
+
+    {# Header #}
+    <div class="d-flex align-items-center gap-3 mb-4">
+        <div class="rounded-circle bg-primary-subtle d-flex align-items-center justify-content-center"
+             style="width:56px;height:56px;">
+            <span class="fs-4 fw-semibold text-primary">
+                {{ member.getDisplayName()[:2] }}
+            </span>
+        </div>
+        <div>
+            <h1 class="h3 mb-0">{{ member|display_name }}</h1>
+            {% if member.totem and member.quali %}
+                <span class="text-body-secondary">{{ member.totem }} {{ member.quali }}</span>
+            {% endif %}
+            <div class="text-body-secondary small">
+                {{ member.firstName }} {{ member.lastName }}
+            </div>
+        </div>
+    </div>
+
+    {# Functions / Roles #}
+    <div class="card mb-3">
+        <div class="card-body">
+            <h2 class="h5 mb-3">Fonctions</h2>
+            {% for func in member.functions %}
+                <div class="d-flex align-items-center gap-2 {% if not loop.last %}mb-2{% endif %}">
+                    <i class="bi bi-star{% if func.isMainFunction %}-fill text-warning{% endif %}"></i>
+                    <div>
+                        <span class="fw-semibold">{{ func.functionLabel }}</span>
+                        {% if func.sectionName or func.branchName %}
+                            <span class="text-body-secondary">
+                                — {{ func.sectionName ?? func.sectionCode }}
+                                {% if func.branchName %}({{ func.branchName }}){% endif %}
+                            </span>
+                        {% endif %}
+                        {% if func.startDate %}
+                            <div class="text-body-secondary small">
+                                Depuis le {{ func.startDate|date('d/m/Y') }}
+                                {% if func.endDate %} — jusqu'au {{ func.endDate|date('d/m/Y') }}{% endif %}
+                            </div>
+                        {% endif %}
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    {# Contact info — only shown based on role visibility rules #}
+    {% if show_contact %}
+        <div class="card mb-3">
+            <div class="card-body">
+                <h2 class="h5 mb-3">Contact</h2>
+                {% if member.email %}
+                    <div class="d-flex align-items-center gap-2 mb-2">
+                        <i class="bi bi-envelope text-body-secondary"></i>
+                        <a href="mailto:{{ member.email }}">{{ member.email }}</a>
+                    </div>
+                {% endif %}
+                {% if member.phone %}
+                    <div class="d-flex align-items-center gap-2 mb-2">
+                        <i class="bi bi-telephone text-body-secondary"></i>
+                        <a href="tel:{{ member.phone }}">{{ member.phone }}</a>
+                    </div>
+                {% endif %}
+                {% if member.mobile %}
+                    <div class="d-flex align-items-center gap-2 mb-2">
+                        <i class="bi bi-phone text-body-secondary"></i>
+                        <a href="tel:{{ member.mobile }}">{{ member.mobile }}</a>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    {% endif %}
+
+    {# Addresses — only shown to self or chief/admin #}
+    {% if show_addresses %}
+        <div class="card mb-3">
+            <div class="card-body">
+                <h2 class="h5 mb-3">Adresses</h2>
+                {% for address in member.addresses %}
+                    <div class="{% if not loop.last %}mb-3{% endif %}">
+                        <span class="badge bg-secondary-subtle text-secondary-emphasis mb-1">
+                            {{ address.type }}
+                        </span>
+                        <div>{{ address.format() }}</div>
+                    </div>
+                {% endfor %}
+            </div>
+        </div>
+    {% endif %}
+
+    {# Personal info #}
+    <div class="card mb-3">
+        <div class="card-body">
+            <h2 class="h5 mb-3">Informations</h2>
+            <div class="row g-3 small">
+                {% if member.birthDate %}
+                    <div class="col-6 col-md-4">
+                        <span class="text-body-secondary d-block">Date de naissance</span>
+                        {{ member.birthDate|date('d/m/Y') }}
+                    </div>
+                {% endif %}
+                {% if member.gender %}
+                    <div class="col-6 col-md-4">
+                        <span class="text-body-secondary d-block">Genre</span>
+                        {{ member.gender }}
+                    </div>
+                {% endif %}
+                {% if member.patrol %}
+                    <div class="col-6 col-md-4">
+                        <span class="text-body-secondary d-block">Sizaine / Patrouille</span>
+                        {{ member.patrol }}
+                    </div>
+                {% endif %}
+                {% if member.formationLevel %}
+                    <div class="col-6 col-md-4">
+                        <span class="text-body-secondary d-block">Formation</span>
+                        {{ member.formationLevel }}
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    {# Module sections will be injected here in future iterations #}
+    {# Each module can add cards to the member page via a hook #}
+
+</div>
+{% endblock %}

@@ -21,6 +21,7 @@ use Core\Http\Controller\ConfigModeController;
 use Core\Http\Controller\EditableContentController;
 use Core\Http\Controller\FileController;
 use Core\Http\Controller\ImportController;
+use Core\Http\Controller\MemberController;
 use Core\Http\Controller\PageController;
 use Core\Http\Controller\PlaceholderController;
 use Core\Http\Controller\SetupController;
@@ -35,6 +36,7 @@ use Core\Import\ImportSectionRepository;
 use Core\Import\MappingResolver;
 use Core\Import\MemberRepository;
 use Core\Import\MemberYearRepository;
+use Core\Member\MemberService;
 use Core\Security\RoleResolver;
 use Core\Http\FrontController;
 use Core\Http\Request;
@@ -200,6 +202,7 @@ $importService = new DeskImportService(
     $memberRepo, $memberYearRepo, $importJournalRepo, $userAccountRepo
 );
 $roleResolver = new RoleResolver($memberYearRepo, $encryptionService, $pdo);
+$memberService = new MemberService($memberYearRepo, $encryptionService, $connection);
 
 // Create file services
 $storagePath = dirname(__DIR__) . '/storage';
@@ -221,7 +224,23 @@ $currentRole = AuthSession::getRole();
 $twig->addGlobal('is_authenticated', AuthSession::isAuthenticated());
 $twig->addGlobal('current_user_email', AuthSession::getEmail());
 $twig->addGlobal('current_user_role', $currentRole);
-$twig->addGlobal('current_user_display_name', AuthSession::getEmail() ?? '');
+
+// Update user display name based on linked members
+$displayName = AuthSession::getEmail() ?? '';
+$memberCount = 0;
+if (AuthSession::isAuthenticated()) {
+    $linkedMembers = $memberService->getLinkedMembers(
+        AuthSession::getEmail(),
+        $scoutYearService->getCurrentYear()['id']
+    );
+    if (count($linkedMembers) > 0) {
+        // Use the display name of the first member (could be refined to pick highest role)
+        $displayName = $linkedMembers[0]->getDisplayName();
+        $memberCount = count($linkedMembers);
+    }
+}
+$twig->addGlobal('current_user_display_name', $displayName);
+$twig->addGlobal('current_user_member_count', $memberCount);
 $twig->addGlobal('current_user_role_label', $roleLabelMap[$currentRole] ?? 'Public');
 $twig->addGlobal('current_path', $request->getPath());
 $twig->addGlobal('config_mode', ConfigurationMode::isActive());
@@ -244,6 +263,43 @@ $menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Configuration générale
 $menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Fonctions', '/config/functions', 'admin', 20);
 $menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Paramètres', '/config/settings', 'admin', 30);
 $menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Actions planifiées', '/config/scheduled', 'admin', 40);
+
+// Add dynamic member entries to Espace des animés
+if (AuthSession::isAuthenticated()) {
+    $linkedMembers = $memberService->getLinkedMembers(
+        AuthSession::getEmail(),
+        $scoutYearService->getCurrentYear()['id']
+    );
+
+    foreach ($linkedMembers as $index => $member) {
+        $menuBuilder->addPage(
+            MenuBuilder::MENU_ESPACE_ANIMES,
+            $member->getDisplayName(),
+            '/members/' . $member->memberYearId,
+            'identified',
+            10 + $index,  // order: members first
+            true,          // isDynamic = true
+            $member->getMainSectionName()  // subtitle
+        );
+    }
+
+    // Separator between dynamic member entries and static module pages
+    if (count($linkedMembers) > 0) {
+        $menuBuilder->addSeparator(MenuBuilder::MENU_ESPACE_ANIMES, 50);
+    } else {
+        // Empty state message when no members are linked
+        $currentYear = $scoutYearService->getCurrentYear();
+        $menuBuilder->addPage(
+            MenuBuilder::MENU_ESPACE_ANIMES,
+            'Aucun membre associé à votre compte pour l\'année ' . $currentYear['label'],
+            '#',
+            'identified',
+            10,
+            false,
+            null
+        );
+    }
+}
 
 $menus = $menuBuilder->build();
 $twig->addGlobal('menus', $menus);
@@ -275,6 +331,9 @@ $router->addRoute('POST', '/login/magic-link', AuthController::class, 'requestMa
 $router->addRoute('GET', '/auth/verify', AuthController::class, 'verifyMagicLink', 'public');
 $router->addRoute('GET', '/auth/poll/{id}', AuthController::class, 'pollMagicLink', 'public');
 $router->addRoute('POST', '/logout', AuthController::class, 'logout', 'identified');
+
+// Member pages
+$router->addRoute('GET', '/members/{id}', MemberController::class, 'show', 'identified');
 
 // Configuration mode
 $router->addRoute('POST', '/config-mode/activate', ConfigModeController::class, 'activate', 'admin');
@@ -322,6 +381,7 @@ $frontController->registerController(CookieController::class, new CookieControll
 $frontController->registerController(SetupController::class, new SetupController($twig, $secretManager, $dkimManager, $schemaPath));
 $frontController->registerController(AuthController::class, new AuthController($twig, $authService, $roleResolver, $scoutYearService));
 $frontController->registerController(ImportController::class, new ImportController($twig, $importService, $scoutYearService, $importJournalRepo, $functionRepo, $storagePath));
+$frontController->registerController(MemberController::class, new MemberController($twig, $memberService));
 $frontController->registerController(ConfigModeController::class, new ConfigModeController($twig));
 $frontController->registerController(EditableContentController::class, new EditableContentController($twig, $editableContentService));
 $frontController->registerController(FileController::class, new FileController($twig, $fileAccessGuard, $storagePath));

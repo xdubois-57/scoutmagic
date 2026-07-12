@@ -23,7 +23,7 @@ class MenuBuilder
         ['id' => self::MENU_CONFIGURATION, 'label' => 'Configuration',     'icon' => 'bi-sliders',  'role_min' => 'admin'],
     ];
 
-    /** @var array<string, array<array{label?: string, url?: string, roleMin: string, order: int, isDynamic: bool, isSeparator: bool}>> */
+    /** @var array<string, array<array{label?: string, url?: string, roleMin: string, order: int, isDynamic: bool, isSeparator: bool, subtitle?: string|null}>> */
     private array $pages = [];
 
     public function __construct(
@@ -34,7 +34,7 @@ class MenuBuilder
     /**
      * Register a sub-page for a menu.
      */
-    public function addPage(string $menuId, string $label, string $url, string $roleMin = 'public', int $order = 100, bool $isDynamic = false): void
+    public function addPage(string $menuId, string $label, string $url, string $roleMin = 'public', int $order = 100, bool $isDynamic = false, ?string $subtitle = null): void
     {
         $this->pages[$menuId][] = [
             'label' => $label,
@@ -43,6 +43,7 @@ class MenuBuilder
             'order' => $order,
             'isDynamic' => $isDynamic,
             'isSeparator' => false,
+            'subtitle' => $subtitle,
         ];
     }
 
@@ -104,7 +105,7 @@ class MenuBuilder
     /**
      * Build filtered and sorted pages for a menu.
      *
-     * @return array<array{label?: string, url?: string, isDynamic: bool, isSeparator: bool}>
+     * @return array<array{label?: string, url?: string, isDynamic: bool, isSeparator: bool, subtitle?: string|null}>
      */
     private function buildPages(string $menuId): array
     {
@@ -136,6 +137,7 @@ class MenuBuilder
                     'url' => $entry['url'] ?? '',
                     'isDynamic' => $entry['isDynamic'],
                     'isSeparator' => false,
+                    'subtitle' => $entry['subtitle'] ?? null,
                 ];
             }
         }

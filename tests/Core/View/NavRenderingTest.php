@@ -68,8 +68,8 @@ class NavRenderingTest extends TestCase
             'menus' => $menus,
             'current_path' => $currentPath,
             'is_authenticated' => $isAuthenticated,
-            'user_display_name' => 'test@example.com',
-            'user_role_label' => 'Admin',
+            'current_user_display_name' => 'test@example.com',
+            'current_user_role_label' => 'Admin',
             'site_name' => 'Test Scout',
             'active_menu_id' => $activeMenuId,
         ]);
@@ -136,7 +136,7 @@ class NavRenderingTest extends TestCase
     public function testUserCardShownWhenAuthenticated(): void
     {
         $html = $this->renderNav(Role::ADMIN, true);
-        $this->assertStringContainsString('test@example.com', $html);
+        $this->assertStringContainsString('test@example.com', $html); // Display name falls back to email when no members
         $this->assertStringContainsString('Admin', $html);
     }
 }

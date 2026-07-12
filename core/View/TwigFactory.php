@@ -8,6 +8,7 @@ use Core\Http\FlashMessage;
 use Core\Security\CsrfGuard;
 use Twig\Environment;
 use Twig\Loader\FilesystemLoader;
+use Twig\TwigFilter;
 use Twig\TwigFunction;
 
 class TwigFactory
@@ -101,6 +102,18 @@ class TwigFactory
 
             return '';
         }, ['is_safe' => ['html']]));
+
+        // Register display_name filter
+        $environment->addFilter(new TwigFilter('display_name', function ($member) {
+            if ($member instanceof \Core\Member\MemberProfile) {
+                return $member->getDisplayName();
+            }
+            // Also handle arrays (from menu builder)
+            if (is_array($member)) {
+                return $member['totem'] ?? $member['first_name'] ?? '?';
+            }
+            return (string) $member;
+        }));
 
         return $environment;
     }
