@@ -348,8 +348,8 @@ if (AuthSession::isAuthenticated()) {
         $scoutYearService->getCurrentYear()['id']
     );
     if (count($linkedMembers) > 0) {
-        // Use the display name of the first member (could be refined to pick highest role)
-        $displayName = $linkedMembers[0]->getDisplayName();
+        $primaryMember = MemberService::getHighestRoleMember($linkedMembers);
+        $displayName = $primaryMember !== null ? $primaryMember->getDisplayName() : $displayName;
         $memberCount = count($linkedMembers);
     }
 }

@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Core\View;
 
 use Core\Member\MemberProfile;
-use Core\Security\Role;
+use Core\Member\MemberService;
 
 class SectionPickerHelper
 {
@@ -41,23 +41,11 @@ class SectionPickerHelper
 
         // 2. Find section of the highest-role linked member
         if (count($linkedMembers) > 0) {
-            $bestMember = null;
-            $bestLevel = -1;
-            foreach ($linkedMembers as $member) {
-                $mainFn = $member->getMainFunction();
-                if ($mainFn !== null) {
-                    $level = Role::fromString($mainFn->functionRole)->level();
-                    if ($level > $bestLevel) {
-                        $bestLevel = $level;
-                        $bestMember = $member;
-                    }
-                }
-            }
+            $bestMember = MemberService::getHighestRoleMember($linkedMembers);
 
             if ($bestMember !== null) {
                 $mainFn = $bestMember->getMainFunction();
                 if ($mainFn !== null && $mainFn->sectionCode !== null) {
-                    // Find the section ID by desk_code
                     foreach ($availableSections as $section) {
                         if ($section['desk_code'] === $mainFn->sectionCode
                             && in_array($section['id'], $availableIds, true)) {

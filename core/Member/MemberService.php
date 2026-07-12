@@ -38,6 +38,31 @@ class MemberService
     }
 
     /**
+     * From a list of linked members, return the one with the highest permission level.
+     * Returns null if the list is empty.
+     *
+     * @param MemberProfile[] $members
+     */
+    public static function getHighestRoleMember(array $members): ?MemberProfile
+    {
+        $best = null;
+        $bestLevel = -1;
+        foreach ($members as $member) {
+            $mainFn = $member->getMainFunction();
+            if ($mainFn !== null) {
+                $level = Role::fromString($mainFn->functionRole)->level();
+                if ($level > $bestLevel) {
+                    $bestLevel = $level;
+                    $best = $member;
+                }
+            } elseif ($best === null) {
+                $best = $member;
+            }
+        }
+        return $best ?? ($members[0] ?? null);
+    }
+
+    /**
      * Get a single member's full profile for a given scout year.
      * Includes: identity, addresses, functions, section info.
      * All personal data decrypted.
