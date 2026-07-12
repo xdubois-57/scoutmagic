@@ -53,6 +53,11 @@ if ($isInitialized || $isSetupRoute) {
 if (!$isInitialized) {
     // Site not initialized: only allow /setup routes
     if (!$isSetupRoute) {
+        // Don't redirect asset requests — return 404 for files with extensions
+        if (preg_match('/\.\w{2,4}$/', $request->getPath())) {
+            (new Response('', 404))->send();
+            exit;
+        }
         (new Response('', 302))->setHeader('Location', '/setup')->send();
         exit;
     }
