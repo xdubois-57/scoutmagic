@@ -83,11 +83,15 @@ use Core\View\TwigFactory;
 // Load configuration
 $config = new AppConfig(__DIR__ . '/../config/app.php');
 
+// Generate per-request CSP nonce
+$cspNonce = base64_encode(random_bytes(16));
+
 // Create Twig environment
 $twig = TwigFactory::create(
     __DIR__ . '/../core/View/templates',
     $config->isDebug()
 );
+$twig->addGlobal('csp_nonce', $cspNonce);
 
 // site_name will be set later from settings database
 
@@ -139,6 +143,7 @@ if (!$isInitialized) {
         exit;
     }
 
+    $response->setCspNonce($cspNonce);
     $response->send();
     exit;
 }
@@ -593,6 +598,7 @@ if (!$secretManager->isInitialized() || $allowSetup) {
 }
 
 $response = $frontController->handle($request);
+$response->setCspNonce($cspNonce);
 $response->send();
 
 // Poor man's cron — run scheduler max once per minute, after response is sent

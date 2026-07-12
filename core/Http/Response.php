@@ -6,6 +6,8 @@ namespace Core\Http;
 
 class Response
 {
+    private string $cspNonce = '';
+
     /**
      * @param array<string, string> $headers
      */
@@ -14,6 +16,12 @@ class Response
         private int $statusCode = 200,
         private array $headers = []
     ) {
+    }
+
+    public function setCspNonce(string $nonce): self
+    {
+        $this->cspNonce = $nonce;
+        return $this;
     }
 
     public function setHeader(string $name, string $value): self
@@ -52,6 +60,15 @@ class Response
         return $this->body;
     }
 
+    private function buildCsp(): string
+    {
+        $scriptSrc = $this->cspNonce !== ''
+            ? "script-src 'self' 'nonce-{$this->cspNonce}'"
+            : "script-src 'self'";
+
+        return "default-src 'self'; {$scriptSrc}; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; frame-ancestors 'none';";
+    }
+
     public function send(): void
     {
         http_response_code($this->statusCode);
@@ -61,7 +78,7 @@ class Response
             'X-Content-Type-Options' => 'nosniff',
             'X-Frame-Options' => 'DENY',
             'Referrer-Policy' => 'strict-origin-when-cross-origin',
-            'Content-Security-Policy' => "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; frame-ancestors 'none';",
+            'Content-Security-Policy' => $this->buildCsp(),
         ];
 
         foreach ($securityHeaders as $name => $value) {

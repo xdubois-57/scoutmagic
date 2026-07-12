@@ -131,7 +131,7 @@
 {% endblock %}
 
 {% block scripts %}
-<script>
+<script nonce="{{ csp_nonce }}">
 document.querySelectorAll('.journal-row').forEach(function(row) {
     row.addEventListener('click', function() {
         var next = row.nextElementSibling;

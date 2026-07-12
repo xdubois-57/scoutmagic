@@ -79,7 +79,7 @@
 {% endblock %}
 
 {% block scripts %}
-<script>
+<script nonce="{{ csp_nonce }}">
 document.querySelectorAll('.module-toggle').forEach(toggle => {
     toggle.addEventListener('change', async () => {
         const moduleId = toggle.dataset.module;

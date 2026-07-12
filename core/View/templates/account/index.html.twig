@@ -142,7 +142,7 @@
 {% endblock %}
 
 {% block scripts %}
-<script>
+<script nonce="{{ csp_nonce }}">
 (function() {
     function getCsrf() {
         var el = document.querySelector('input[name="_csrf_token"]');

@@ -140,7 +140,7 @@
 
 {% block scripts %}
 {% if can_edit_section is defined and can_edit_section and current_section is defined and current_section %}
-<script>
+<script nonce="{{ csp_nonce }}">
 const editBtn = document.getElementById('edit-section-btn');
 const editForm = document.getElementById('section-edit-form');
 const cancelBtn = document.getElementById('section-edit-cancel');
