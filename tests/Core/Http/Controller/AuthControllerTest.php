@@ -50,6 +50,22 @@ class AuthControllerTest extends TestCase
             return null;
         }));
 
+        // Register csrf_token function
+        $this->twig->addFunction(new \Twig\TwigFunction('csrf_token', function (): string {
+            return 'test-csrf-token';
+        }));
+
+        // Register editable functions (for base template)
+        $this->twig->addFunction(new \Twig\TwigFunction('editable', function (): string {
+            return '';
+        }, ['is_safe' => ['html']]));
+        $this->twig->addFunction(new \Twig\TwigFunction('editable_image', function (): string {
+            return '';
+        }, ['is_safe' => ['html']]));
+        $this->twig->addFunction(new \Twig\TwigFunction('file_url', function (): string {
+            return '';
+        }));
+
         $this->authService = $this->createMock(AuthService::class);
         $this->controller = new AuthController($this->twig, $this->authService);
     }

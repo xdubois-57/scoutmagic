@@ -1,0 +1,36 @@
+{% extends "base.html.twig" %}
+
+{% block title %}Sections — {{ site_name }}{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-12 col-md-10 col-lg-8">
+        <h1 class="mb-4">Sections</h1>
+        {{ editable('sections.intro', '<p>Voici les sections de notre unité.</p>') }}
+
+        {% if section_groups is empty %}
+        <div class="alert alert-info mt-4">
+            <i class="bi bi-info-circle"></i> Les sections apparaîtront ici après le premier import depuis Desk.
+        </div>
+        {% else %}
+            {% for group in section_groups %}
+            <h3 class="mt-4 mb-3">{{ group.branch_label }}</h3>
+            <div class="row g-3">
+                {% for section in group.sections %}
+                <div class="col-12 col-sm-6 col-md-4">
+                    <div class="card h-100">
+                        <div class="card-body">
+                            <h5 class="card-title">{{ section.name ?? section.desk_code }}</h5>
+                            {% if section.email %}
+                            <p class="card-text small"><a href="mailto:{{ section.email }}">{{ section.email }}</a></p>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% endfor %}
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

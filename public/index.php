@@ -10,10 +10,17 @@ use Core\Database\MigrationRunner;
 use Core\Database\SchemaComparator;
 use Core\Database\SchemaIntrospector;
 use Core\Database\SqlParser;
+use Core\File\FileAccessGuard;
+use Core\File\FileRepository;
+use Core\File\UploadHandler;
 use Core\Http\Controller\AuthController;
-use Core\Http\Controller\HomeController;
+use Core\Http\Controller\ConfigModeController;
+use Core\Http\Controller\EditableContentController;
+use Core\Http\Controller\FileController;
+use Core\Http\Controller\PageController;
 use Core\Http\Controller\PlaceholderController;
 use Core\Http\Controller\SetupController;
+use Core\Http\Controller\UploadController;
 use Core\Http\FrontController;
 use Core\Http\Request;
 use Core\Http\Response;
@@ -27,7 +34,11 @@ use Core\Security\Role;
 use Core\Security\SecretManager;
 use Core\Security\SessionManager;
 use Core\Security\UserAccountRepository;
+use Core\View\ConfigurationMode;
+use Core\View\EditableContentRepository;
+use Core\View\EditableContentService;
 use Core\View\MenuBuilder;
+use Core\View\SectionRepository;
 use Core\View\TwigFactory;
 
 // Load configuration
@@ -148,6 +159,18 @@ $authService = new AuthService(
     $secrets['site_name'] ?? ''
 );
 
+// Create editable content service
+$pdo = $connection->getPdo();
+$editableContentRepo = new EditableContentRepository($pdo);
+$editableContentService = new EditableContentService($editableContentRepo);
+$sectionRepository = new SectionRepository($pdo);
+
+// Create file services
+$storagePath = dirname(__DIR__) . '/storage';
+$fileRepository = new FileRepository($pdo);
+$fileAccessGuard = new FileAccessGuard($fileRepository, Role::fromString(AuthSession::getRole()));
+$uploadHandler = new UploadHandler($fileRepository, $storagePath);
+
 // Role labels in French
 $roleLabelMap = [
     'public' => 'Public',
@@ -165,6 +188,9 @@ $twig->addGlobal('current_user_role', $currentRole);
 $twig->addGlobal('current_user_display_name', AuthSession::getEmail() ?? '');
 $twig->addGlobal('current_user_role_label', $roleLabelMap[$currentRole] ?? 'Public');
 $twig->addGlobal('current_path', $request->getPath());
+$twig->addGlobal('config_mode', ConfigurationMode::isActive());
+$twig->addGlobal('_editable_content_service', $editableContentService);
+$twig->addGlobal('contact_email', $secrets['mail_from_address'] ?? '');
 
 // Build menu
 $menuBuilder = new MenuBuilder(Role::fromString($currentRole));
@@ -200,13 +226,32 @@ $twig->addGlobal('active_menu_id', $activeMenuId);
 // Create router and register routes
 $router = new Router();
 
-// Core routes
-$router->addRoute('GET', '/', HomeController::class, 'index', 'public');
+// Public pages
+$router->addRoute('GET', '/', PageController::class, 'home', 'public');
+$router->addRoute('GET', '/contact', PageController::class, 'contact', 'public');
+$router->addRoute('GET', '/sections', PageController::class, 'sections', 'public');
+$router->addRoute('GET', '/rgpd', PageController::class, 'rgpd', 'public');
+
+// Auth routes
 $router->addRoute('GET', '/login', AuthController::class, 'login', 'public');
 $router->addRoute('POST', '/login/magic-link', AuthController::class, 'requestMagicLink', 'public');
 $router->addRoute('GET', '/auth/verify', AuthController::class, 'verifyMagicLink', 'public');
 $router->addRoute('GET', '/auth/poll/{id}', AuthController::class, 'pollMagicLink', 'public');
 $router->addRoute('POST', '/logout', AuthController::class, 'logout', 'identified');
+
+// Configuration mode
+$router->addRoute('POST', '/config-mode/activate', ConfigModeController::class, 'activate', 'admin');
+$router->addRoute('POST', '/config-mode/deactivate', ConfigModeController::class, 'deactivate', 'admin');
+
+// Editable content API
+$router->addRoute('POST', '/api/editable-content', EditableContentController::class, 'update', 'admin');
+
+// File serving
+$router->addRoute('GET', '/files/{id}', FileController::class, 'serve', 'public');
+
+// File upload
+$router->addRoute('GET', '/upload', UploadController::class, 'index', 'admin');
+$router->addRoute('POST', '/upload', UploadController::class, 'store', 'admin');
 
 // Setup routes (admin, but bypassed when not initialized)
 $router->addRoute('GET', '/setup', SetupController::class, 'index', 'admin');
@@ -216,9 +261,6 @@ $router->addRoute('GET', '/setup/dns', SetupController::class, 'checkDns', 'admi
 $router->addRoute('POST', '/setup/test-email', SetupController::class, 'testEmail', 'admin');
 
 // Placeholder routes for pages not yet built
-$router->addRoute('GET', '/contact', PlaceholderController::class, 'show', 'public');
-$router->addRoute('GET', '/sections', PlaceholderController::class, 'show', 'public');
-$router->addRoute('GET', '/rgpd', PlaceholderController::class, 'show', 'public');
 $router->addRoute('GET', '/admin/import', PlaceholderController::class, 'show', 'chief');
 $router->addRoute('GET', '/admin/journal', PlaceholderController::class, 'show', 'chief');
 $router->addRoute('GET', '/config/functions', PlaceholderController::class, 'show', 'admin');
@@ -228,11 +270,16 @@ $router->addRoute('GET', '/chefs/staffs', PlaceholderController::class, 'show', 
 
 // Handle the request
 $frontController = new FrontController($router, $twig, $config);
+
+// Register controllers with dependencies
+$frontController->registerController(PageController::class, new PageController($twig, $editableContentService, $sectionRepository));
 $frontController->registerController(SetupController::class, new SetupController($twig, $secretManager, $dkimManager, $schemaPath));
 $frontController->registerController(AuthController::class, new AuthController($twig, $authService));
-
-$placeholderController = new PlaceholderController($twig);
-$frontController->registerController(PlaceholderController::class, $placeholderController);
+$frontController->registerController(ConfigModeController::class, new ConfigModeController($twig));
+$frontController->registerController(EditableContentController::class, new EditableContentController($twig, $editableContentService));
+$frontController->registerController(FileController::class, new FileController($twig, $fileAccessGuard, $storagePath));
+$frontController->registerController(UploadController::class, new UploadController($twig, $uploadHandler, $editableContentService));
+$frontController->registerController(PlaceholderController::class, new PlaceholderController($twig));
 
 $response = $frontController->handle($request);
 $response->send();

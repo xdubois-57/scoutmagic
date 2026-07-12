@@ -65,4 +65,32 @@ class Request
     {
         return $this->server[$key] ?? $default;
     }
+
+    /**
+     * Get an uploaded file entry from $_FILES.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function getFile(string $key): ?array
+    {
+        return $_FILES[$key] ?? null;
+    }
+
+    /**
+     * Get the raw body content (for JSON requests).
+     */
+    public function getRawBody(): string
+    {
+        return file_get_contents('php://input') ?: '';
+    }
+
+    /**
+     * Get the HTTP_REFERER header.
+     */
+    public function getReferer(): ?string
+    {
+        $referer = $this->server['HTTP_REFERER'] ?? null;
+
+        return is_string($referer) ? $referer : null;
+    }
 }

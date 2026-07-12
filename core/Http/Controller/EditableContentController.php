@@ -1,0 +1,70 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Core\Http\Controller;
+
+use Core\Http\Request;
+use Core\Http\Response;
+use Core\Security\AuthSession;
+use Core\Security\CsrfGuard;
+use Core\View\ConfigurationMode;
+use Core\View\EditableContentService;
+use Twig\Environment;
+
+class EditableContentController extends AbstractController
+{
+    public function __construct(
+        protected Environment $twig,
+        private EditableContentService $editableContentService
+    ) {
+    }
+
+    /**
+     * POST /api/editable-content — update editable content (AJAX, JSON).
+     *
+     * @param array<string, string> $params
+     */
+    public function update(Request $request, array $params): Response
+    {
+        $rawBody = $request->getRawBody();
+        $data = json_decode($rawBody, true);
+
+        if (!is_array($data)) {
+            return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
+        }
+
+        // Validate CSRF
+        $csrf = (string) ($data['_csrf_token'] ?? '');
+        if (!CsrfGuard::validateToken($csrf)) {
+            return $this->json(['success' => false, 'error' => 'Session expirée.'], 403);
+        }
+
+        // Configuration mode must be active
+        if (!ConfigurationMode::isActive()) {
+            return $this->json(['success' => false, 'error' => 'Le mode configuration n\'est pas actif.'], 403);
+        }
+
+        $key = trim((string) ($data['key'] ?? ''));
+        $value = (string) ($data['value'] ?? '');
+        $type = (string) ($data['type'] ?? 'rich_text');
+
+        if ($key === '') {
+            return $this->json(['success' => false, 'error' => 'Clé de contenu manquante.'], 400);
+        }
+
+        if (!in_array($type, ['rich_text', 'image'], true)) {
+            return $this->json(['success' => false, 'error' => 'Type de contenu invalide.'], 400);
+        }
+
+        $userId = AuthSession::getUserAccountId();
+        if ($userId === null) {
+            return $this->json(['success' => false, 'error' => 'Non authentifié.'], 403);
+        }
+
+        // TODO: log change via JournalService (iteration 11)
+        $this->editableContentService->set($key, $value, $type, $userId);
+
+        return $this->json(['success' => true]);
+    }
+}

@@ -44,6 +44,18 @@ class FrontControllerTest extends TestCase
         $this->twig->addFunction(new \Twig\TwigFunction('get_flash', function (): ?array {
             return null;
         }));
+        $this->twig->addFunction(new \Twig\TwigFunction('csrf_token', function (): string {
+            return 'test-csrf-token';
+        }));
+        $this->twig->addFunction(new \Twig\TwigFunction('editable', function (): string {
+            return '';
+        }, ['is_safe' => ['html']]));
+        $this->twig->addFunction(new \Twig\TwigFunction('editable_image', function (): string {
+            return '';
+        }, ['is_safe' => ['html']]));
+        $this->twig->addFunction(new \Twig\TwigFunction('file_url', function (): string {
+            return '';
+        }));
 
         $configFile = sys_get_temp_dir() . '/test_app_config_' . uniqid() . '.php';
         file_put_contents($configFile, "<?php\nreturn ['site_name' => 'Test', 'debug' => false];");

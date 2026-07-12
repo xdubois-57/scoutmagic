@@ -1,0 +1,28 @@
+<div class="modal fade" id="richTextEditorModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Modifier le contenu</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="rich-text-toolbar mb-2">
+                    <button type="button" data-command="bold" class="btn btn-sm btn-outline-secondary" title="Gras"><i class="bi bi-type-bold"></i></button>
+                    <button type="button" data-command="italic" class="btn btn-sm btn-outline-secondary" title="Italique"><i class="bi bi-type-italic"></i></button>
+                    <button type="button" data-command="underline" class="btn btn-sm btn-outline-secondary" title="Souligné"><i class="bi bi-type-underline"></i></button>
+                    <span class="mx-1"></span>
+                    <button type="button" data-command="insertUnorderedList" class="btn btn-sm btn-outline-secondary" title="Liste à puces"><i class="bi bi-list-ul"></i></button>
+                    <button type="button" data-command="insertOrderedList" class="btn btn-sm btn-outline-secondary" title="Liste numérotée"><i class="bi bi-list-ol"></i></button>
+                    <span class="mx-1"></span>
+                    <button type="button" data-command="createLink" class="btn btn-sm btn-outline-secondary" title="Lien"><i class="bi bi-link-45deg"></i></button>
+                    <button type="button" data-command="removeFormat" class="btn btn-sm btn-outline-secondary" title="Supprimer le formatage"><i class="bi bi-eraser"></i></button>
+                </div>
+                <div id="richTextEditorContent" contenteditable="true" class="form-control" style="min-height:200px;"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Annuler</button>
+                <button type="button" id="richTextEditorSave" class="btn btn-primary">Enregistrer</button>
+            </div>
+        </div>
+    </div>
+</div>

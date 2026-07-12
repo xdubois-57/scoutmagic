@@ -11,6 +11,28 @@
     <p class="lead text-muted mb-4">Bienvenue ! Configurez les paramètres de base pour initialiser le site.</p>
 {% else %}
     <h1 class="mb-4">Configuration du site</h1>
+
+    <div class="card mb-4 border-warning">
+        <div class="card-body d-flex align-items-center gap-3">
+            <div>
+                <h5 class="card-title h6 mb-1">Mode configuration</h5>
+                <p class="card-text small text-muted mb-0">Permet de modifier les textes et images des pages publiques.</p>
+            </div>
+            <div class="ms-auto">
+                {% if config_mode is defined and config_mode %}
+                <form method="post" action="/config-mode/deactivate">
+                    {{ csrf_field()|raw }}
+                    <button type="submit" class="btn btn-outline-warning btn-sm">Désactiver</button>
+                </form>
+                {% else %}
+                <form method="post" action="/config-mode/activate">
+                    {{ csrf_field()|raw }}
+                    <button type="submit" class="btn btn-warning btn-sm">Activer</button>
+                </form>
+                {% endif %}
+            </div>
+        </div>
+    </div>
 {% endif %}
 
 <form method="post" action="/setup/save" id="setup-form" data-initialized="{{ is_initialized ? '1' : '0' }}" novalidate>

@@ -28,6 +28,18 @@ class NavRenderingTest extends TestCase
         $this->twig->addFunction(new \Twig\TwigFunction('get_flash', function (): ?array {
             return null;
         }));
+        $this->twig->addFunction(new \Twig\TwigFunction('csrf_token', function (): string {
+            return 'test-csrf-token';
+        }));
+        $this->twig->addFunction(new \Twig\TwigFunction('editable', function (): string {
+            return '';
+        }, ['is_safe' => ['html']]));
+        $this->twig->addFunction(new \Twig\TwigFunction('editable_image', function (): string {
+            return '';
+        }, ['is_safe' => ['html']]));
+        $this->twig->addFunction(new \Twig\TwigFunction('file_url', function (): string {
+            return '';
+        }));
     }
 
     private function renderNav(Role $role, bool $isAuthenticated = false, string $currentPath = '/'): string

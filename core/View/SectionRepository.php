@@ -1,0 +1,49 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Core\View;
+
+class SectionRepository
+{
+    public function __construct(private \PDO $pdo)
+    {
+    }
+
+    /**
+     * Get all sections grouped by age branch.
+     *
+     * @return array<array{branch_label: string, sections: array<array{name: ?string, desk_code: string, email: ?string}>}>
+     */
+    public function findAllGroupedByBranch(): array
+    {
+        $stmt = $this->pdo->query(
+            'SELECT s.name, s.desk_code, s.email, ab.label AS branch_label, ab.sort_order
+             FROM sections s
+             JOIN age_branches ab ON s.age_branch_id = ab.id
+             ORDER BY ab.sort_order, s.name'
+        );
+
+        if ($stmt === false) {
+            return [];
+        }
+
+        $groups = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $branchLabel = $row['branch_label'];
+            if (!isset($groups[$branchLabel])) {
+                $groups[$branchLabel] = [
+                    'branch_label' => $branchLabel,
+                    'sections' => [],
+                ];
+            }
+            $groups[$branchLabel]['sections'][] = [
+                'name' => $row['name'],
+                'desk_code' => $row['desk_code'],
+                'email' => $row['email'],
+            ];
+        }
+
+        return array_values($groups);
+    }
+}

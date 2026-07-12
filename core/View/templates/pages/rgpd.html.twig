@@ -1,0 +1,14 @@
+{% extends "base.html.twig" %}
+
+{% block title %}Protection des données — {{ site_name }}{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-12 col-md-10 col-lg-8">
+        <h1 class="mb-4">Protection des données</h1>
+        {{ editable('rgpd.text', '<h2>Politique de confidentialité</h2><p>Ce site respecte le Règlement Général sur la Protection des Données (RGPD). Les données personnelles collectées sont traitées de manière sécurisée et ne sont partagées avec aucun tiers sans consentement explicite.</p><h3>Données collectées</h3><p>Nous collectons uniquement les données nécessaires au fonctionnement de l\'unité scoute : adresses email pour l\'authentification, informations des membres importées depuis Desk.</p><h3>Durée de conservation</h3><p>Les données sont conservées pendant la durée de l\'année scoute en cours et sont supprimées à la fin de chaque cycle, sauf obligation légale.</p><h3>Vos droits</h3><p>Vous disposez d\'un droit d\'accès, de rectification, de suppression et de portabilité de vos données. Contactez-nous pour exercer ces droits.</p>') }}
+
+        {# TODO: dynamic cookie list from CookieConsentService (iteration 7) #}
+    </div>
+</div>
+{% endblock %}

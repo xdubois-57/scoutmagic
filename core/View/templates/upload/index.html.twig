@@ -1,0 +1,46 @@
+{% extends 'base.html.twig' %}
+{% block title %}Télécharger un fichier — {{ site_name }}{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-12 col-md-8 col-lg-6">
+        <h1 class="mb-4">Télécharger un fichier</h1>
+
+        <form method="post" action="/upload" enctype="multipart/form-data" id="upload-form">
+            {{ csrf_field()|raw }}
+            <input type="hidden" name="context" value="{{ context }}">
+            <input type="hidden" name="key" value="{{ key }}">
+            <input type="hidden" name="return_url" value="{{ return_url }}">
+
+            <div id="drop-zone" class="border border-2 border-dashed rounded p-5 text-center mb-3">
+                <i class="bi bi-cloud-arrow-up display-4 text-muted"></i>
+                <p class="mt-2">Glissez-déposez un fichier ici</p>
+                <p class="text-muted">ou</p>
+                <label class="btn btn-outline-primary">
+                    Choisir un fichier
+                    <input type="file" name="file" accept="image/*" class="d-none" id="file-input">
+                </label>
+                <label class="btn btn-outline-secondary ms-2">
+                    <i class="bi bi-camera"></i> Prendre une photo
+                    <input type="file" name="file_camera" accept="image/*" capture="environment" class="d-none" id="camera-input">
+                </label>
+            </div>
+
+            <div id="preview-container" class="mb-3 d-none text-center">
+                <img id="preview-img" src="" alt="Aperçu" class="img-fluid rounded" style="max-height:300px;">
+                <p class="small text-muted mt-1" id="preview-name"></p>
+            </div>
+
+            <button type="submit" class="btn btn-primary w-100" id="upload-btn" disabled>
+                <i class="bi bi-upload"></i> Envoyer
+            </button>
+        </form>
+
+        <a href="{{ return_url }}" class="btn btn-link mt-2">Annuler</a>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/assets/js/upload.js" defer></script>
+{% endblock %}

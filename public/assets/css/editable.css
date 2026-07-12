@@ -1,0 +1,22 @@
+.editable-content,
+.editable-image {
+    position: relative;
+    transition: outline 0.15s;
+}
+.editable-content:hover,
+.editable-image:hover {
+    outline: 2px dashed var(--bs-primary);
+    outline-offset: 4px;
+}
+.editable-overlay {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    z-index: 10;
+    opacity: 0;
+    transition: opacity 0.15s;
+}
+.editable-content:hover .editable-overlay,
+.editable-image:hover .editable-overlay {
+    opacity: 1;
+}

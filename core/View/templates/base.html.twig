@@ -3,9 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>{% block title %}{{ site_name }}{% endblock %}</title>
     <link rel="stylesheet" href="/assets/vendor/bootstrap/css/bootstrap.min.css">
     <link rel="stylesheet" href="/assets/vendor/bootstrap-icons/bootstrap-icons.min.css">
+    {% if config_mode is defined and config_mode %}
+    <link rel="stylesheet" href="/assets/css/editable.css">
+    {% endif %}
     {% block stylesheets %}{% endblock %}
 </head>
 <body>
@@ -22,6 +26,17 @@
         } %}
     {% endif %}
     {% endblock %}
+
+    {% if config_mode is defined and config_mode %}
+    <div class="alert alert-warning d-flex align-items-center gap-2 rounded-0 mb-0 border-start-0 border-end-0" role="alert">
+        <i class="bi bi-exclamation-triangle"></i>
+        <span>Mode configuration actif — les textes et images du site sont éditables.</span>
+        <form method="post" action="/config-mode/deactivate" class="ms-auto">
+            {{ csrf_field()|raw }}
+            <button type="submit" class="btn btn-sm btn-outline-warning">Désactiver</button>
+        </form>
+    </div>
+    {% endif %}
 
     <main class="container py-3">
         {% set flash = get_flash() %}
@@ -40,6 +55,10 @@
 
     <script src="/assets/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
     <script src="/assets/js/nav.js"></script>
+    {% if config_mode is defined and config_mode %}
+    {% include 'partials/rich_text_editor.html.twig' %}
+    <script src="/assets/js/editable.js" defer></script>
+    {% endif %}
     {% block scripts %}{% endblock %}
 </body>
 </html>
