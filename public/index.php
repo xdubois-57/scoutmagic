@@ -19,6 +19,7 @@ use Core\File\UploadHandler;
 use Core\Config\ScoutYearService;
 use Core\Http\Controller\AccountController;
 use Core\Http\Controller\AuthController;
+use Core\Http\Controller\ConfigGeneralController;
 use Core\Http\Controller\CookieController;
 use Core\Http\Controller\ConfigModeController;
 use Core\Http\Controller\EditableContentController;
@@ -34,9 +35,12 @@ use Core\Http\Controller\SetupController;
 use Core\Http\Controller\UploadController;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
+use Core\Module\ModuleManager;
+use Core\Module\ModuleRegistryRepository;
 use Core\Scheduler\SchedulerRepository;
 use Core\Scheduler\SchedulerRunner;
 use Core\Scheduler\SchedulerService;
+use Core\Scheduler\TaskContext;
 use Core\Import\AgeBranchRepository;
 use Core\Import\DeskCsvParser;
 use Core\Import\DeskImportService;
@@ -359,10 +363,31 @@ $menuBuilder->addPage(MenuBuilder::MENU_NOTRE_UNITE, 'Protection des données', 
 $menuBuilder->addPage(MenuBuilder::MENU_ESPACE_CHEFS, 'Staffs', '/chefs/staffs', 'intendant', 10);
 $menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Import Desk', '/admin/import', 'chief', 10);
 $menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Journal', '/admin/journal', 'chief', 20);
-$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Configuration générale', '/setup', 'admin', 10);
+$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Configuration générale', '/config/general', 'admin', 10);
+$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Configuration du site', '/setup', 'admin', 15);
 $menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Fonctions', '/config/functions', 'admin', 20);
 $menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Paramètres', '/config/settings', 'admin', 30);
 $menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Actions planifiées', '/config/scheduled', 'admin', 40);
+
+// Create router early so ModuleManager can register routes
+$router = new Router();
+
+// Create ModuleManager (modules loaded after core routes are registered)
+$modulesDir = __DIR__ . '/../modules';
+$moduleRegistryRepo = new ModuleRegistryRepository($pdo);
+$moduleManager = new ModuleManager(
+    $modulesDir,
+    $settingService,
+    $cookieConsentService,
+    $menuBuilder,
+    $moduleRegistryRepo,
+    $migrationRunner,
+    $journalService,
+    $router
+);
+
+// Set up SchedulerRunner with ModuleManager
+$schedulerRunner->setModuleManager($moduleManager);
 
 // Add dynamic member entries to Espace des animés
 if (AuthSession::isAuthenticated()) {
@@ -401,24 +426,7 @@ if (AuthSession::isAuthenticated()) {
     }
 }
 
-$menus = $menuBuilder->build();
-$twig->addGlobal('menus', $menus);
-
-// Determine active menu from current path
-$activeMenuId = '';
-foreach ($menus as $menu) {
-    foreach ($menu['pages'] as $page) {
-        if (!$page['isSeparator'] && ($page['url'] ?? '') === $request->getPath()) {
-            $activeMenuId = $menu['id'];
-            break 2;
-        }
-    }
-}
-$twig->addGlobal('active_menu_id', $activeMenuId);
-
-// Create router and register routes
-$router = new Router();
-
+// Register core routes
 // Public pages
 $router->addRoute('GET', '/', PageController::class, 'home', 'public');
 $router->addRoute('GET', '/contact', PageController::class, 'contact', 'public');
@@ -487,9 +495,43 @@ $router->addRoute('POST', '/config/settings/update', SettingsController::class, 
 // Scheduled actions
 $router->addRoute('GET', '/config/scheduled', ScheduledActionsController::class, 'index', 'admin');
 
+// Configuration générale
+$router->addRoute('GET', '/config/general', ConfigGeneralController::class, 'index', 'admin');
+$router->addRoute('POST', '/config/general/module-toggle', ConfigGeneralController::class, 'toggleModule', 'admin');
+
 // Placeholder routes for pages not yet built
 $router->addRoute('GET', '/config/functions', PlaceholderController::class, 'show', 'admin');
 $router->addRoute('GET', '/chefs/staffs', PlaceholderController::class, 'show', 'intendant');
+
+// Load enabled modules (routes registered AFTER core routes so core takes priority)
+$moduleManager->loadEnabledModules();
+
+// Register module template namespaces in Twig
+$twigLoader = $twig->getLoader();
+if ($twigLoader instanceof \Twig\Loader\FilesystemLoader) {
+    foreach ($moduleManager->getEnabledModuleIds() as $moduleId) {
+        $viewsPath = $modulesDir . '/' . $moduleId . '/views';
+        if (is_dir($viewsPath)) {
+            $twigLoader->addPath($viewsPath, $moduleId);
+        }
+    }
+}
+
+// Build menus (after module pages are registered)
+$menus = $menuBuilder->build();
+$twig->addGlobal('menus', $menus);
+
+// Determine active menu from current path
+$activeMenuId = '';
+foreach ($menus as $menu) {
+    foreach ($menu['pages'] as $page) {
+        if (!$page['isSeparator'] && ($page['url'] ?? '') === $request->getPath()) {
+            $activeMenuId = $menu['id'];
+            break 2;
+        }
+    }
+}
+$twig->addGlobal('active_menu_id', $activeMenuId);
 
 // Handle the request
 $frontController = new FrontController($router, $twig, $config);
@@ -534,6 +576,7 @@ $frontController->registerController(UploadController::class, new UploadControll
 $frontController->registerController(JournalController::class, new JournalController($twig, $journalRepo));
 $frontController->registerController(SettingsController::class, new SettingsController($twig, $settingService, $journalService));
 $frontController->registerController(ScheduledActionsController::class, new ScheduledActionsController($twig, $schedulerRepo));
+$frontController->registerController(ConfigGeneralController::class, new ConfigGeneralController($twig, $moduleManager));
 $frontController->registerController(PlaceholderController::class, new PlaceholderController($twig));
 
 $response = $frontController->handle($request);

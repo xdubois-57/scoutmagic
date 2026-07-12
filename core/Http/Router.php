@@ -9,6 +9,9 @@ class Router
     /** @var array<array{method: string, path: string, controllerClass: string, action: string, roleMin: string}> */
     private array $routes = [];
 
+    /** @var string[] Module IDs for routes that belong to modules */
+    private array $moduleRoutes = [];
+
     public function addRoute(string $method, string $path, string $controllerClass, string $action, string $roleMin = 'public'): void
     {
         $this->routes[] = [
@@ -18,6 +21,33 @@ class Router
             'action' => $action,
             'roleMin' => $roleMin,
         ];
+    }
+
+    /**
+     * Check if a resolved route belongs to a module.
+     */
+    public function getModuleForPath(string $path): ?string
+    {
+        return $this->moduleRoutes[$path] ?? null;
+    }
+
+    /**
+     * Register routes from a module manifest, marking them as module routes.
+     *
+     * @param \Core\Module\ModuleManifest $manifest
+     */
+    public function registerModuleRoutes(\Core\Module\ModuleManifest $manifest): void
+    {
+        foreach ($manifest->routes as $route) {
+            $this->addRoute(
+                $route['method'],
+                $route['path'],
+                $route['controller'],
+                $route['action'],
+                $route['role_min']
+            );
+            $this->moduleRoutes[$route['path']] = $manifest->id;
+        }
     }
 
     public function resolve(Request $request): ?ResolvedRoute

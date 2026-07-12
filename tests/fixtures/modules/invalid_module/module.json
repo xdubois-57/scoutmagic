@@ -1,0 +1,12 @@
+{
+  "name": "Module invalide",
+  "version": "1.0.0",
+  "routes": [
+    {
+      "path": "/invalid",
+      "controller": "Modules\\InvalidModule\\Controller\\TestController",
+      "action": "index",
+      "menu": "espace_animes"
+    }
+  ]
+}

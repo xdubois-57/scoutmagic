@@ -1,0 +1,53 @@
+{
+  "id": "valid_module",
+  "name": "Module de test valide",
+  "version": "1.0.0",
+  "routes": [
+    {
+      "path": "/test-module",
+      "method": "GET",
+      "controller": "Modules\\ValidModule\\Controller\\TestController",
+      "action": "index",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": "Test Module"
+    },
+    {
+      "path": "/config/test-module",
+      "method": "GET",
+      "controller": "Modules\\ValidModule\\Controller\\ConfigController",
+      "action": "index",
+      "menu": "configuration",
+      "role_min": "admin",
+      "label": "Test Module Config"
+    }
+  ],
+  "settings": [
+    {
+      "key": "test_setting",
+      "default_value": "default",
+      "type": "text",
+      "label": "Paramètre de test",
+      "description": "Un paramètre pour tester"
+    }
+  ],
+  "cookies": [
+    {
+      "name": "test_pref",
+      "category": "functional",
+      "purpose": "Mémorise une préférence de test",
+      "duration": "1 an"
+    }
+  ],
+  "scheduled_tasks": [
+    {
+      "key": "test_task",
+      "handler": "Modules\\ValidModule\\Task\\TestHandler"
+    }
+  ],
+  "storage": {
+    "uploads": {
+      "role_min": "identified"
+    }
+  }
+}

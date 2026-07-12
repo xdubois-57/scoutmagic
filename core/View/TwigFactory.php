@@ -13,9 +13,19 @@ use Twig\TwigFunction;
 
 class TwigFactory
 {
-    public static function create(string $templateDir, bool $debug = false): Environment
+    /**
+     * @param array<string, string> $moduleTemplateDirs Namespace => path mapping for modules
+     */
+    public static function create(string $templateDir, bool $debug = false, array $moduleTemplateDirs = []): Environment
     {
         $loader = new FilesystemLoader($templateDir);
+
+        // Register module template namespaces
+        foreach ($moduleTemplateDirs as $namespace => $path) {
+            if (is_dir($path)) {
+                $loader->addPath($path, $namespace);
+            }
+        }
 
         $cacheDir = dirname(__DIR__, 2) . '/storage/temp/twig_cache';
 

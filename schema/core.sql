@@ -233,6 +233,16 @@ CREATE TABLE event_log (
     CONSTRAINT fk_el_user FOREIGN KEY (user_account_id) REFERENCES user_accounts(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE module_registry (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    module_id VARCHAR(100) NOT NULL UNIQUE,
+    enabled BOOLEAN NOT NULL DEFAULT FALSE,
+    installed_version VARCHAR(20) NOT NULL,
+    enabled_at DATETIME,
+    enabled_by INT UNSIGNED,
+    FOREIGN KEY (enabled_by) REFERENCES user_accounts(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE scheduled_actions (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     module_id VARCHAR(50) NOT NULL,

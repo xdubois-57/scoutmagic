@@ -9,5 +9,5 @@ interface TaskHandlerInterface
     /**
      * @param array<string, mixed> $payload
      */
-    public function handle(array $payload): void;
+    public function handle(array $payload, TaskContext $context): void;
 }

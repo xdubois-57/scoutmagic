@@ -4,11 +4,17 @@ declare(strict_types=1);
 
 namespace Tests\Core\Scheduler;
 
+use Core\Config\SettingRepository;
+use Core\Config\SettingService;
+use Core\Database\Connection;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
+use Core\Mail\MailService;
 use Core\Scheduler\SchedulerRepository;
 use Core\Scheduler\SchedulerRunner;
+use Core\Scheduler\TaskContext;
 use Core\Scheduler\TaskHandlerInterface;
+use Core\Security\EncryptionService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 
@@ -26,6 +32,15 @@ class SchedulerRunnerTest extends TestCase
         $journalRepo = new JournalRepository($this->pdo);
         $this->journal = new JournalService($journalRepo);
         $this->runner = new SchedulerRunner($this->repo, $this->journal);
+
+        // Create a mock TaskContext for handler calls
+        $connection = $this->createMock(Connection::class);
+        $encryption = $this->createMock(EncryptionService::class);
+        $mailService = $this->createMock(MailService::class);
+        $settingRepo = new SettingRepository($this->pdo);
+        $settingService = new SettingService($settingRepo);
+        $taskContext = new TaskContext($connection, $encryption, $mailService, $this->journal, $settingService);
+        $this->runner->setTaskContext($taskContext);
     }
 
     public function testProcessOverdueWithRegisteredHandler(): void
@@ -35,7 +50,7 @@ class SchedulerRunnerTest extends TestCase
             /** @var array<string, mixed> */
             public array $payload = [];
 
-            public function handle(array $payload): void
+            public function handle(array $payload, TaskContext $context): void
             {
                 $this->called = true;
                 $this->payload = $payload;
@@ -57,7 +72,7 @@ class SchedulerRunnerTest extends TestCase
     public function testProcessOverdueMarksTaskDone(): void
     {
         $handler = new class implements TaskHandlerInterface {
-            public function handle(array $payload): void
+            public function handle(array $payload, TaskContext $context): void
             {
                 // success
             }
@@ -78,7 +93,7 @@ class SchedulerRunnerTest extends TestCase
     public function testProcessOverdueMarksTaskFailedOnException(): void
     {
         $handler = new class implements TaskHandlerInterface {
-            public function handle(array $payload): void
+            public function handle(array $payload, TaskContext $context): void
             {
                 throw new \RuntimeException('Handler error');
             }
@@ -114,7 +129,7 @@ class SchedulerRunnerTest extends TestCase
         $handler = new class implements TaskHandlerInterface {
             public bool $called = false;
 
-            public function handle(array $payload): void
+            public function handle(array $payload, TaskContext $context): void
             {
                 $this->called = true;
             }
@@ -134,7 +149,7 @@ class SchedulerRunnerTest extends TestCase
     public function testJournalEntriesAreCreatedOnCompletion(): void
     {
         $handler = new class implements TaskHandlerInterface {
-            public function handle(array $payload): void
+            public function handle(array $payload, TaskContext $context): void
             {
                 // success
             }

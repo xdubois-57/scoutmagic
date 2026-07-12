@@ -5,16 +5,30 @@ declare(strict_types=1);
 namespace Core\Scheduler;
 
 use Core\Journal\JournalService;
+use Core\Module\ModuleManager;
 
 class SchedulerRunner
 {
     /** @var array<string, TaskHandlerInterface> */
     private array $handlers = [];
 
+    private ?ModuleManager $moduleManager = null;
+    private ?TaskContext $taskContext = null;
+
     public function __construct(
         private SchedulerRepository $repository,
         private JournalService $journal
     ) {
+    }
+
+    public function setModuleManager(ModuleManager $moduleManager): void
+    {
+        $this->moduleManager = $moduleManager;
+    }
+
+    public function setTaskContext(TaskContext $context): void
+    {
+        $this->taskContext = $context;
     }
 
     /**
@@ -37,6 +51,15 @@ class SchedulerRunner
             $handlerKey = $task['module_id'] . '::' . $task['task_key'];
             $handler = $this->handlers[$handlerKey] ?? null;
 
+            // Try to resolve via ModuleManager if no directly registered handler
+            if ($handler === null && $this->moduleManager !== null) {
+                $handlerClass = $this->moduleManager->getTaskHandler($task['module_id'], $task['task_key']);
+                if ($handlerClass !== null && class_exists($handlerClass)) {
+                    /** @var TaskHandlerInterface $handler */
+                    $handler = new $handlerClass();
+                }
+            }
+
             if ($handler === null) {
                 $this->repository->markFailed(
                     (int) $task['id'],
@@ -54,7 +77,8 @@ class SchedulerRunner
 
             try {
                 $payload = $task['payload'] !== null ? json_decode($task['payload'], true) : [];
-                $handler->handle(is_array($payload) ? $payload : []);
+                $context = $this->taskContext ?? $this->createFallbackContext();
+                $handler->handle(is_array($payload) ? $payload : [], $context);
                 $this->repository->markDone((int) $task['id']);
                 $processed++;
 
@@ -78,5 +102,11 @@ class SchedulerRunner
         }
 
         return $processed;
+    }
+
+    private function createFallbackContext(): TaskContext
+    {
+        // Should never be called in production — TaskContext must be set during boot
+        throw new \RuntimeException('TaskContext not set on SchedulerRunner');
     }
 }
