@@ -19,6 +19,14 @@ class SessionManager
         $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
             || (int) ($_SERVER['SERVER_PORT'] ?? 0) === 443;
 
+        // Use a dedicated session save path to avoid OS-level temp cleanup issues
+        $savePath = dirname(__DIR__, 2) . '/storage/temp/sessions';
+        if (!is_dir($savePath)) {
+            mkdir($savePath, 0700, true);
+        }
+
+        ini_set('session.save_path', $savePath);
+        ini_set('session.name', 'SM_SESSION');
         ini_set('session.cookie_httponly', '1');
         ini_set('session.cookie_secure', $isHttps ? '1' : '0');
         ini_set('session.cookie_samesite', 'Lax');

@@ -13,7 +13,7 @@
     <h1 class="mb-4">Configuration du site</h1>
 {% endif %}
 
-<form method="post" action="/setup/save" id="setup-form" novalidate>
+<form method="post" action="/setup/save" id="setup-form" data-initialized="{{ is_initialized ? '1' : '0' }}" novalidate>
     <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
 
     {# Section 1: Database #}
@@ -232,119 +232,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script>
-(function() {
-    const mailMode = document.getElementById('mail_mode');
-    const smtpFields = document.getElementById('smtp-fields');
-    const btnTestDb = document.getElementById('btn-test-db');
-    const btnSave = document.getElementById('btn-save');
-    const saveHint = document.getElementById('save-hint');
-    const dbSpinner = document.getElementById('db-spinner');
-    const dbResult = document.getElementById('db-test-result');
-    const btnCheckDns = document.getElementById('btn-check-dns');
-    const dnsSpinner = document.getElementById('dns-spinner');
-    const dnsRecords = document.getElementById('dns-records');
-
-    // Toggle SMTP fields visibility
-    function toggleSmtp() {
-        smtpFields.style.display = mailMode.value === 'smtp' ? 'block' : 'none';
-    }
-    mailMode.addEventListener('change', toggleSmtp);
-    toggleSmtp();
-
-    // Test DB connection
-    let dbTestPassed = {{ is_initialized ? 'true' : 'false' }};
-    if (dbTestPassed) {
-        btnSave.disabled = false;
-        saveHint.style.display = 'none';
-    }
-
-    btnTestDb.addEventListener('click', function() {
-        dbSpinner.classList.remove('d-none');
-        dbResult.textContent = '';
-
-        const data = new FormData();
-        data.append('db_host', document.getElementById('db_host').value);
-        data.append('db_port', document.getElementById('db_port').value);
-        data.append('db_name', document.getElementById('db_name').value);
-        data.append('db_user', document.getElementById('db_user').value);
-        data.append('db_password', document.getElementById('db_password').value);
-
-        fetch('/setup/test-db', { method: 'POST', body: data })
-            .then(r => r.json())
-            .then(json => {
-                dbSpinner.classList.add('d-none');
-                if (json.success) {
-                    dbResult.innerHTML = '<span class="text-success">✓ Connexion réussie</span>';
-                    dbTestPassed = true;
-                    btnSave.disabled = false;
-                    saveHint.style.display = 'none';
-                } else {
-                    dbResult.innerHTML = '<span class="text-danger">✗ ' + json.message + '</span>';
-                    dbTestPassed = false;
-                    btnSave.disabled = true;
-                    saveHint.style.display = 'block';
-                }
-            })
-            .catch(() => {
-                dbSpinner.classList.add('d-none');
-                dbResult.innerHTML = '<span class="text-danger">✗ Erreur réseau</span>';
-            });
-    });
-
-    // Check DNS
-    btnCheckDns.addEventListener('click', function() {
-        dnsSpinner.classList.remove('d-none');
-
-        const fromAddress = document.getElementById('mail_from_address').value;
-        const domain = fromAddress.includes('@') ? fromAddress.split('@')[1] : '';
-        const selector = document.getElementById('dkim_selector').value;
-        const mode = mailMode.value;
-        const smtpHost = document.getElementById('smtp_host').value;
-        const dmarcEmail = document.getElementById('dmarc_report_email').value;
-
-        if (!domain || !selector) {
-            dnsSpinner.classList.add('d-none');
-            dnsRecords.innerHTML = '<p class="text-warning small">Veuillez remplir l\'adresse d\'expédition et le sélecteur DKIM.</p>';
-            return;
-        }
-
-        const params = new URLSearchParams({ domain, selector, mode, smtp_host: smtpHost, dmarc_email: dmarcEmail });
-        fetch('/setup/dns?' + params.toString())
-            .then(r => r.json())
-            .then(json => {
-                dnsSpinner.classList.add('d-none');
-                let html = '';
-                const records = [
-                    { key: 'spf', label: 'SPF', host: domain, type: 'TXT' },
-                    { key: 'dkim', label: 'DKIM', host: selector + '._domainkey.' + domain, type: 'TXT' },
-                    { key: 'dmarc', label: 'DMARC', host: '_dmarc.' + domain, type: 'TXT' }
-                ];
-                records.forEach(function(rec) {
-                    const data = json[rec.key];
-                    const badge = data.exists
-                        ? '<span class="badge bg-success">OK</span>'
-                        : '<span class="badge bg-warning text-dark">Manquant</span>';
-                    html += '<div class="mb-2 small">';
-                    html += '<strong>' + rec.label + '</strong> ' + badge + '<br>';
-                    html += '<span class="text-muted">Hôte :</span> <code>' + rec.host + '</code><br>';
-                    html += '<span class="text-muted">Valeur attendue :</span> ';
-                    html += '<div class="input-group input-group-sm mt-1 mb-1">';
-                    html += '<input type="text" class="form-control form-control-sm font-monospace" value="' + data.expected.replace(/"/g, '&quot;') + '" readonly>';
-                    html += '<button type="button" class="btn btn-outline-secondary btn-sm" onclick="navigator.clipboard.writeText(this.previousElementSibling.value)">Copier</button>';
-                    html += '</div>';
-                    if (data.actual) {
-                        html += '<span class="text-muted">Valeur actuelle :</span> <code class="text-break">' + data.actual + '</code>';
-                    }
-                    html += '</div>';
-                });
-                dnsRecords.innerHTML = html;
-            })
-            .catch(() => {
-                dnsSpinner.classList.add('d-none');
-                dnsRecords.innerHTML = '<p class="text-danger small">Erreur lors de la vérification DNS.</p>';
-            });
-    });
-})();
-</script>
+<script src="/assets/js/setup.js"></script>
 {% endblock %}
