@@ -1,0 +1,350 @@
+{% extends "base.html.twig" %}
+
+{% block title %}{% if not is_initialized %}Installation — {{ site_name }}{% else %}Configuration — {{ site_name }}{% endif %}{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+<div class="col-12 col-lg-8" style="max-width: 720px;">
+
+{% if not is_initialized %}
+    <h1 class="mb-3">Installation</h1>
+    <p class="lead text-muted mb-4">Bienvenue ! Configurez les paramètres de base pour initialiser le site.</p>
+{% else %}
+    <h1 class="mb-4">Configuration du site</h1>
+{% endif %}
+
+<form method="post" action="/setup/save" id="setup-form" novalidate>
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+
+    {# Section 1: Database #}
+    <div class="card mb-4">
+        <div class="card-body">
+            <h2 class="card-title h5 mb-3">Base de données</h2>
+
+            <div class="mb-3">
+                <label for="db_host" class="form-label">Hôte</label>
+                <input type="text" class="form-control{% if errors.db_host is defined %} is-invalid{% endif %}" id="db_host" name="db_host" value="{{ values.db_host ?? 'localhost' }}" required>
+                {% if errors.db_host is defined %}<div class="invalid-feedback">{{ errors.db_host }}</div>{% endif %}
+            </div>
+
+            <div class="mb-3">
+                <label for="db_port" class="form-label">Port</label>
+                <input type="number" class="form-control{% if errors.db_port is defined %} is-invalid{% endif %}" id="db_port" name="db_port" value="{{ values.db_port ?? '3306' }}" min="1" max="65535" required>
+                {% if errors.db_port is defined %}<div class="invalid-feedback">{{ errors.db_port }}</div>{% endif %}
+            </div>
+
+            <div class="mb-3">
+                <label for="db_name" class="form-label">Nom de la base de données</label>
+                <input type="text" class="form-control{% if errors.db_name is defined %} is-invalid{% endif %}" id="db_name" name="db_name" value="{{ values.db_name ?? '' }}" required>
+                {% if errors.db_name is defined %}<div class="invalid-feedback">{{ errors.db_name }}</div>{% endif %}
+            </div>
+
+            <div class="mb-3">
+                <label for="db_user" class="form-label">Utilisateur</label>
+                <input type="text" class="form-control{% if errors.db_user is defined %} is-invalid{% endif %}" id="db_user" name="db_user" value="{{ values.db_user ?? '' }}" required>
+                {% if errors.db_user is defined %}<div class="invalid-feedback">{{ errors.db_user }}</div>{% endif %}
+            </div>
+
+            <div class="mb-3">
+                <label for="db_password" class="form-label">Mot de passe</label>
+                <input type="password" class="form-control{% if errors.db_password is defined %} is-invalid{% endif %}" id="db_password" name="db_password" {% if not is_initialized %}required{% endif %}>
+                {% if is_initialized %}<div class="form-text">Laisser vide pour conserver le mot de passe actuel.</div>{% endif %}
+                {% if errors.db_password is defined %}<div class="invalid-feedback">{{ errors.db_password }}</div>{% endif %}
+            </div>
+
+            <button type="button" class="btn btn-outline-secondary" id="btn-test-db">
+                <span class="spinner-border spinner-border-sm d-none" id="db-spinner" role="status"></span>
+                Tester la connexion
+            </button>
+            <span id="db-test-result" class="ms-2"></span>
+        </div>
+    </div>
+
+    {# Section 2: General settings #}
+    <div class="card mb-4">
+        <div class="card-body">
+            <h2 class="card-title h5 mb-3">Paramètres généraux</h2>
+
+            <div class="mb-3">
+                <label for="site_name" class="form-label">Nom de l'unité</label>
+                <input type="text" class="form-control{% if errors.site_name is defined %} is-invalid{% endif %}" id="site_name" name="site_name" value="{{ values.site_name ?? '' }}" required>
+                <div class="form-text">Nom complet de l'unité, affiché dans le header et le titre du site.</div>
+                {% if errors.site_name is defined %}<div class="invalid-feedback">{{ errors.site_name }}</div>{% endif %}
+            </div>
+
+            <div class="mb-3">
+                <label for="short_name" class="form-label">Nom court</label>
+                <input type="text" class="form-control{% if errors.short_name is defined %} is-invalid{% endif %}" id="short_name" name="short_name" value="{{ values.short_name ?? '' }}" maxlength="5" pattern="[A-Za-z0-9]{1,5}" required>
+                <div class="form-text">Identifiant court (5 caractères maximum), utilisé comme préfixe du sujet de tous les emails envoyés par le site, par exemple [25SV].</div>
+                {% if errors.short_name is defined %}<div class="invalid-feedback">{{ errors.short_name }}</div>{% endif %}
+            </div>
+
+            <div class="mb-3">
+                <label for="base_url" class="form-label">URL de base</label>
+                <input type="url" class="form-control{% if errors.base_url is defined %} is-invalid{% endif %}" id="base_url" name="base_url" value="{{ values.base_url ?? '' }}" placeholder="https://www.unite-exemple.be" required>
+                <div class="form-text">Adresse complète du site (ex. https://www.unite-exemple.be). Utilisée pour générer les liens dans les emails.</div>
+                {% if errors.base_url is defined %}<div class="invalid-feedback">{{ errors.base_url }}</div>{% endif %}
+            </div>
+        </div>
+    </div>
+
+    {# Section 3: Email settings #}
+    <div class="card mb-4">
+        <div class="card-body">
+            <h2 class="card-title h5 mb-3">Envoi d'email</h2>
+
+            <div class="mb-3">
+                <label for="mail_mode" class="form-label">Mode d'envoi</label>
+                <select class="form-select{% if errors.mail_mode is defined %} is-invalid{% endif %}" id="mail_mode" name="mail_mode" required>
+                    <option value="smtp"{% if (values.mail_mode ?? 'smtp') == 'smtp' %} selected{% endif %}>SMTP</option>
+                    <option value="local"{% if (values.mail_mode ?? '') == 'local' %} selected{% endif %}>Local</option>
+                </select>
+                <div class="form-text">Relais SMTP (recommandé) ou envoi depuis le serveur. La fiabilité en mode local dépend de la réputation de l'hébergeur.</div>
+                {% if errors.mail_mode is defined %}<div class="invalid-feedback">{{ errors.mail_mode }}</div>{% endif %}
+            </div>
+
+            <div id="smtp-fields">
+                <div class="mb-3">
+                    <label for="smtp_host" class="form-label">Hôte SMTP</label>
+                    <input type="text" class="form-control{% if errors.smtp_host is defined %} is-invalid{% endif %}" id="smtp_host" name="smtp_host" value="{{ values.smtp_host ?? '' }}">
+                    <div class="form-text">Adresse du serveur SMTP relais.</div>
+                    {% if errors.smtp_host is defined %}<div class="invalid-feedback">{{ errors.smtp_host }}</div>{% endif %}
+                </div>
+
+                <div class="mb-3">
+                    <label for="smtp_port" class="form-label">Port SMTP</label>
+                    <input type="number" class="form-control{% if errors.smtp_port is defined %} is-invalid{% endif %}" id="smtp_port" name="smtp_port" value="{{ values.smtp_port ?? '587' }}" min="1" max="65535">
+                    <div class="form-text">Port du serveur SMTP (587 pour STARTTLS, 465 pour SSL).</div>
+                    {% if errors.smtp_port is defined %}<div class="invalid-feedback">{{ errors.smtp_port }}</div>{% endif %}
+                </div>
+
+                <div class="mb-3">
+                    <label for="smtp_user" class="form-label">Utilisateur SMTP</label>
+                    <input type="text" class="form-control{% if errors.smtp_user is defined %} is-invalid{% endif %}" id="smtp_user" name="smtp_user" value="{{ values.smtp_user ?? '' }}">
+                    <div class="form-text">Identifiant de connexion au serveur SMTP.</div>
+                    {% if errors.smtp_user is defined %}<div class="invalid-feedback">{{ errors.smtp_user }}</div>{% endif %}
+                </div>
+
+                <div class="mb-3">
+                    <label for="smtp_password" class="form-label">Mot de passe SMTP</label>
+                    <input type="password" class="form-control{% if errors.smtp_password is defined %} is-invalid{% endif %}" id="smtp_password" name="smtp_password">
+                    <div class="form-text">Mot de passe de connexion au serveur SMTP.</div>
+                    {% if is_initialized %}<div class="form-text">Laisser vide pour conserver le mot de passe actuel.</div>{% endif %}
+                    {% if errors.smtp_password is defined %}<div class="invalid-feedback">{{ errors.smtp_password }}</div>{% endif %}
+                </div>
+            </div>
+
+            <div class="mb-3">
+                <label for="mail_from_address" class="form-label">Adresse d'expédition</label>
+                <input type="email" class="form-control{% if errors.mail_from_address is defined %} is-invalid{% endif %}" id="mail_from_address" name="mail_from_address" value="{{ values.mail_from_address ?? '' }}" required>
+                <div class="form-text">Adresse email affichée comme expéditeur pour tous les emails envoyés par le site.</div>
+                {% if errors.mail_from_address is defined %}<div class="invalid-feedback">{{ errors.mail_from_address }}</div>{% endif %}
+            </div>
+
+            <div class="mb-3">
+                <label for="mail_from_name" class="form-label">Nom d'expédition</label>
+                <input type="text" class="form-control{% if errors.mail_from_name is defined %} is-invalid{% endif %}" id="mail_from_name" name="mail_from_name" value="{{ values.mail_from_name ?? '' }}" required>
+                <div class="form-text">Nom affiché comme expéditeur, en complément de l'adresse email.</div>
+                {% if errors.mail_from_name is defined %}<div class="invalid-feedback">{{ errors.mail_from_name }}</div>{% endif %}
+            </div>
+
+            <div class="mb-3">
+                <label for="dkim_selector" class="form-label">Sélecteur DKIM</label>
+                <input type="text" class="form-control{% if errors.dkim_selector is defined %} is-invalid{% endif %}" id="dkim_selector" name="dkim_selector" value="{{ values.dkim_selector ?? '' }}" pattern="[a-z0-9]+" required>
+                <div class="form-text">Identifiant technique de la clé DKIM utilisée pour signer les emails, présent dans l'enregistrement DNS correspondant.</div>
+                {% if errors.dkim_selector is defined %}<div class="invalid-feedback">{{ errors.dkim_selector }}</div>{% endif %}
+            </div>
+
+            <div class="mb-3">
+                <label for="dmarc_report_email" class="form-label">Email rapports DMARC</label>
+                <input type="email" class="form-control{% if errors.dmarc_report_email is defined %} is-invalid{% endif %}" id="dmarc_report_email" name="dmarc_report_email" value="{{ values.dmarc_report_email ?? '' }}" required>
+                <div class="form-text">Adresse à laquelle les fournisseurs de messagerie envoient un résumé périodique des emails reçus au nom du domaine. Certains services externes traitent automatiquement ces résumés.</div>
+                {% if errors.dmarc_report_email is defined %}<div class="invalid-feedback">{{ errors.dmarc_report_email }}</div>{% endif %}
+            </div>
+
+            {# DNS records panel #}
+            <div class="card bg-light mt-3">
+                <div class="card-body">
+                    <h3 class="h6 mb-2">Configuration DNS requise</h3>
+                    <div id="dns-records">
+                        <p class="text-muted small mb-2">Complétez les champs ci-dessus puis cliquez sur « Vérifier les DNS » pour afficher les enregistrements requis.</p>
+                    </div>
+                    <button type="button" class="btn btn-outline-secondary btn-sm" id="btn-check-dns">
+                        <span class="spinner-border spinner-border-sm d-none" id="dns-spinner" role="status"></span>
+                        Vérifier les DNS
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {# Section 4: DKIM key #}
+    <div class="card mb-4">
+        <div class="card-body">
+            <h2 class="card-title h5 mb-3">Clé DKIM</h2>
+            {% if has_dkim_key %}
+                <p class="mb-2">Clé DKIM générée. Sélecteur : <strong>{{ values.dkim_selector ?? '—' }}</strong>.</p>
+                <div class="mb-2">
+                    <small class="text-muted">Clé publique (pour l'enregistrement DNS) :</small>
+                    <div class="input-group input-group-sm mt-1">
+                        <input type="text" class="form-control font-monospace" value="{{ dkim_public_key }}" readonly id="dkim-pubkey-display">
+                        <button type="button" class="btn btn-outline-secondary" onclick="navigator.clipboard.writeText(document.getElementById('dkim-pubkey-display').value)">Copier</button>
+                    </div>
+                </div>
+                <div class="form-check mt-2">
+                    <input class="form-check-input" type="checkbox" id="regenerate_dkim" name="regenerate_dkim" value="1">
+                    <label class="form-check-label" for="regenerate_dkim">Régénérer la clé DKIM</label>
+                    <div class="form-text text-warning">Attention : si vous régénérez la clé, vous devrez mettre à jour l'enregistrement DNS correspondant.</div>
+                </div>
+            {% else %}
+                <p class="text-muted">Aucune clé DKIM. Une clé sera générée automatiquement lors de l'enregistrement.</p>
+            {% endif %}
+        </div>
+    </div>
+
+    {# Section 5: Initial admin (first-time only) #}
+    {% if not is_initialized %}
+    <div class="card mb-4">
+        <div class="card-body">
+            <h2 class="card-title h5 mb-3">Administrateur initial</h2>
+
+            <div class="mb-3">
+                <label for="admin_email" class="form-label">Email administrateur</label>
+                <input type="email" class="form-control{% if errors.admin_email is defined %} is-invalid{% endif %}" id="admin_email" name="admin_email" value="{{ values.admin_email ?? '' }}" required>
+                <div class="form-text">Adresse email de la première personne administratrice. Un compte sera créé avec le rôle administrateur.</div>
+                {% if errors.admin_email is defined %}<div class="invalid-feedback">{{ errors.admin_email }}</div>{% endif %}
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    {# Save button #}
+    <div class="d-grid mb-4">
+        <button type="submit" class="btn btn-primary btn-lg" id="btn-save" disabled>
+            {% if not is_initialized %}Installer{% else %}Enregistrer{% endif %}
+        </button>
+        <div class="form-text text-center mt-1" id="save-hint">Testez la connexion à la base de données avant de pouvoir enregistrer.</div>
+    </div>
+</form>
+
+</div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function() {
+    const mailMode = document.getElementById('mail_mode');
+    const smtpFields = document.getElementById('smtp-fields');
+    const btnTestDb = document.getElementById('btn-test-db');
+    const btnSave = document.getElementById('btn-save');
+    const saveHint = document.getElementById('save-hint');
+    const dbSpinner = document.getElementById('db-spinner');
+    const dbResult = document.getElementById('db-test-result');
+    const btnCheckDns = document.getElementById('btn-check-dns');
+    const dnsSpinner = document.getElementById('dns-spinner');
+    const dnsRecords = document.getElementById('dns-records');
+
+    // Toggle SMTP fields visibility
+    function toggleSmtp() {
+        smtpFields.style.display = mailMode.value === 'smtp' ? 'block' : 'none';
+    }
+    mailMode.addEventListener('change', toggleSmtp);
+    toggleSmtp();
+
+    // Test DB connection
+    let dbTestPassed = {{ is_initialized ? 'true' : 'false' }};
+    if (dbTestPassed) {
+        btnSave.disabled = false;
+        saveHint.style.display = 'none';
+    }
+
+    btnTestDb.addEventListener('click', function() {
+        dbSpinner.classList.remove('d-none');
+        dbResult.textContent = '';
+
+        const data = new FormData();
+        data.append('db_host', document.getElementById('db_host').value);
+        data.append('db_port', document.getElementById('db_port').value);
+        data.append('db_name', document.getElementById('db_name').value);
+        data.append('db_user', document.getElementById('db_user').value);
+        data.append('db_password', document.getElementById('db_password').value);
+
+        fetch('/setup/test-db', { method: 'POST', body: data })
+            .then(r => r.json())
+            .then(json => {
+                dbSpinner.classList.add('d-none');
+                if (json.success) {
+                    dbResult.innerHTML = '<span class="text-success">✓ Connexion réussie</span>';
+                    dbTestPassed = true;
+                    btnSave.disabled = false;
+                    saveHint.style.display = 'none';
+                } else {
+                    dbResult.innerHTML = '<span class="text-danger">✗ ' + json.message + '</span>';
+                    dbTestPassed = false;
+                    btnSave.disabled = true;
+                    saveHint.style.display = 'block';
+                }
+            })
+            .catch(() => {
+                dbSpinner.classList.add('d-none');
+                dbResult.innerHTML = '<span class="text-danger">✗ Erreur réseau</span>';
+            });
+    });
+
+    // Check DNS
+    btnCheckDns.addEventListener('click', function() {
+        dnsSpinner.classList.remove('d-none');
+
+        const fromAddress = document.getElementById('mail_from_address').value;
+        const domain = fromAddress.includes('@') ? fromAddress.split('@')[1] : '';
+        const selector = document.getElementById('dkim_selector').value;
+        const mode = mailMode.value;
+        const smtpHost = document.getElementById('smtp_host').value;
+        const dmarcEmail = document.getElementById('dmarc_report_email').value;
+
+        if (!domain || !selector) {
+            dnsSpinner.classList.add('d-none');
+            dnsRecords.innerHTML = '<p class="text-warning small">Veuillez remplir l\'adresse d\'expédition et le sélecteur DKIM.</p>';
+            return;
+        }
+
+        const params = new URLSearchParams({ domain, selector, mode, smtp_host: smtpHost, dmarc_email: dmarcEmail });
+        fetch('/setup/dns?' + params.toString())
+            .then(r => r.json())
+            .then(json => {
+                dnsSpinner.classList.add('d-none');
+                let html = '';
+                const records = [
+                    { key: 'spf', label: 'SPF', host: domain, type: 'TXT' },
+                    { key: 'dkim', label: 'DKIM', host: selector + '._domainkey.' + domain, type: 'TXT' },
+                    { key: 'dmarc', label: 'DMARC', host: '_dmarc.' + domain, type: 'TXT' }
+                ];
+                records.forEach(function(rec) {
+                    const data = json[rec.key];
+                    const badge = data.exists
+                        ? '<span class="badge bg-success">OK</span>'
+                        : '<span class="badge bg-warning text-dark">Manquant</span>';
+                    html += '<div class="mb-2 small">';
+                    html += '<strong>' + rec.label + '</strong> ' + badge + '<br>';
+                    html += '<span class="text-muted">Hôte :</span> <code>' + rec.host + '</code><br>';
+                    html += '<span class="text-muted">Valeur attendue :</span> ';
+                    html += '<div class="input-group input-group-sm mt-1 mb-1">';
+                    html += '<input type="text" class="form-control form-control-sm font-monospace" value="' + data.expected.replace(/"/g, '&quot;') + '" readonly>';
+                    html += '<button type="button" class="btn btn-outline-secondary btn-sm" onclick="navigator.clipboard.writeText(this.previousElementSibling.value)">Copier</button>';
+                    html += '</div>';
+                    if (data.actual) {
+                        html += '<span class="text-muted">Valeur actuelle :</span> <code class="text-break">' + data.actual + '</code>';
+                    }
+                    html += '</div>';
+                });
+                dnsRecords.innerHTML = html;
+            })
+            .catch(() => {
+                dnsSpinner.classList.add('d-none');
+                dnsRecords.innerHTML = '<p class="text-danger small">Erreur lors de la vérification DNS.</p>';
+            });
+    });
+})();
+</script>
+{% endblock %}

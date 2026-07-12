@@ -7,12 +7,15 @@ require_once __DIR__ . '/../vendor/autoload.php';
 use Core\Config\AppConfig;
 use Core\Database\Connection;
 use Core\Http\Controller\HomeController;
+use Core\Http\Controller\SetupController;
 use Core\Http\FrontController;
 use Core\Http\Request;
 use Core\Http\Response;
 use Core\Http\Router;
+use Core\Mail\DkimManager;
 use Core\Security\EncryptionService;
 use Core\Security\SecretManager;
+use Core\Security\SessionManager;
 use Core\View\TwigFactory;
 
 // Load configuration
@@ -33,17 +36,54 @@ $secretManager = new SecretManager(
     __DIR__ . '/../storage/config/secrets.enc'
 );
 
-if (!$secretManager->isInitialized()) {
-    // Site not initialized: render informational page (setup page comes in iteration 3)
-    $html = $twig->render('errors/not_initialized.html.twig', [
-        'site_name' => $config->get('site_name', 'Unité scoute'),
-    ]);
-    (new Response($html))->send();
+$dkimManager = new DkimManager(__DIR__ . '/../storage/keys');
+$schemaPath = __DIR__ . '/../schema/core.sql';
+
+// Create the request early to check the path
+$request = Request::fromGlobals();
+
+$isInitialized = $secretManager->isInitialized();
+$isSetupRoute = str_starts_with($request->getPath(), '/setup');
+
+// Start session for setup routes or when initialized
+if ($isInitialized || $isSetupRoute) {
+    SessionManager::start();
+}
+
+if (!$isInitialized) {
+    // Site not initialized: only allow /setup routes
+    if (!$isSetupRoute) {
+        (new Response('', 302))->setHeader('Location', '/setup')->send();
+        exit;
+    }
+
+    // Handle setup routes
+    $setupController = new SetupController($twig, $secretManager, $dkimManager, $schemaPath);
+
+    if ($request->getMethod() === 'GET' && $request->getPath() === '/setup') {
+        $response = $setupController->index($request, []);
+    } elseif ($request->getMethod() === 'POST' && $request->getPath() === '/setup/test-db') {
+        $response = $setupController->testDatabase($request, []);
+    } elseif ($request->getMethod() === 'POST' && $request->getPath() === '/setup/save') {
+        $response = $setupController->save($request, []);
+    } elseif ($request->getMethod() === 'GET' && $request->getPath() === '/setup/dns') {
+        $response = $setupController->checkDns($request, []);
+    } else {
+        (new Response('', 302))->setHeader('Location', '/setup')->send();
+        exit;
+    }
+
+    $response->send();
     exit;
 }
 
 // Load secrets and create services
 $secrets = $secretManager->readSecrets();
+
+// Update site_name from secrets if available
+if (!empty($secrets['site_name'])) {
+    $twig->addGlobal('site_name', $secrets['site_name']);
+}
 
 $connection = new Connection(
     $secrets['db_host'] ?? 'localhost',
@@ -61,9 +101,13 @@ $encryptionService = new EncryptionService(
 // Create router and register routes
 $router = new Router();
 $router->addRoute('GET', '/', HomeController::class, 'index', 'public');
+$router->addRoute('GET', '/setup', SetupController::class, 'index', 'admin');
+$router->addRoute('POST', '/setup/test-db', SetupController::class, 'testDatabase', 'admin');
+$router->addRoute('POST', '/setup/save', SetupController::class, 'save', 'admin');
+$router->addRoute('GET', '/setup/dns', SetupController::class, 'checkDns', 'admin');
 
 // Handle the request
-$request = Request::fromGlobals();
 $frontController = new FrontController($router, $twig, $config);
+$frontController->registerController(SetupController::class, new SetupController($twig, $secretManager, $dkimManager, $schemaPath));
 $response = $frontController->handle($request);
 $response->send();

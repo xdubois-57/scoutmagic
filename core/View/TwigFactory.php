@@ -4,8 +4,11 @@ declare(strict_types=1);
 
 namespace Core\View;
 
+use Core\Http\FlashMessage;
+use Core\Security\CsrfGuard;
 use Twig\Environment;
 use Twig\Loader\FilesystemLoader;
+use Twig\TwigFunction;
 
 class TwigFactory
 {
@@ -25,6 +28,17 @@ class TwigFactory
             'auto_reload' => $debug,
             'autoescape' => 'html',
         ]);
+
+        // Register csrf_field() function
+        $environment->addFunction(new TwigFunction('csrf_field', function (): string {
+            $token = CsrfGuard::generateToken();
+            return '<input type="hidden" name="_csrf_token" value="' . htmlspecialchars($token, ENT_QUOTES, 'UTF-8') . '">';
+        }, ['is_safe' => ['html']]));
+
+        // Register get_flash() function
+        $environment->addFunction(new TwigFunction('get_flash', function (): ?array {
+            return FlashMessage::get();
+        }));
 
         return $environment;
     }

@@ -18,3 +18,16 @@ CREATE TABLE members (
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE INDEX idx_desk_id (desk_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE user_accounts (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    email_encrypted BLOB NOT NULL,
+    email_blind_index CHAR(64) NOT NULL,
+    first_name_encrypted BLOB,
+    last_name_encrypted BLOB,
+    password_hash VARCHAR(255),
+    is_super_admin BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_login_at DATETIME,
+    UNIQUE INDEX idx_email_blind (email_blind_index)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

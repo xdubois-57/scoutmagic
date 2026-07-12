@@ -13,6 +13,13 @@
     {% endblock %}
 
     <main class="container py-3">
+        {% set flash = get_flash() %}
+        {% if flash %}
+        <div class="alert alert-{{ flash.type == 'error' ? 'danger' : flash.type }} alert-dismissible fade show" role="alert">
+            {{ flash.message }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Fermer"></button>
+        </div>
+        {% endif %}
         {% block content %}{% endblock %}
     </main>
 
