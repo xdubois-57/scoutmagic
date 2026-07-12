@@ -157,6 +157,7 @@ class SetupControllerTest extends TestCase
             'dkim_selector' => 'INVALID!',
             'dmarc_report_email' => 'invalid',
             'admin_email' => 'invalid',
+            'admin_password' => 'short',
         ], [], []);
 
         $response = $controller->save($request, []);
@@ -211,6 +212,7 @@ class SetupControllerTest extends TestCase
             'dkim_selector' => 'mail',
             'dmarc_report_email' => 'dmarc@example.com',
             'admin_email' => 'admin@example.com',
+            'admin_password' => 'securepassword123',
         ], [], []);
 
         $response = $controller->save($request, []);
@@ -228,11 +230,13 @@ class SetupControllerTest extends TestCase
         $rawSecrets = file_get_contents($this->tempDir . '/config/secrets.enc');
         $this->assertStringNotContainsString('admin@example.com', $rawSecrets);
 
-        // Check admin account exists in DB
+        // Check admin account exists in DB with password hash
         $stmt = $pdo->query('SELECT * FROM user_accounts WHERE is_super_admin = 1');
         $admin = $stmt->fetch(\PDO::FETCH_ASSOC);
         $this->assertNotFalse($admin);
         $this->assertSame(1, (int) $admin['is_super_admin']);
+        $this->assertNotNull($admin['password_hash']);
+        $this->assertTrue(password_verify('securepassword123', $admin['password_hash']));
 
         // Cleanup
         $pdo->exec('DROP TABLE IF EXISTS user_accounts');

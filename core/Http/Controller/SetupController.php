@@ -288,7 +288,7 @@ class SetupController extends AbstractController
             $this->secretManager->writeSecrets($secrets);
 
             // Create initial admin account (use base64 keys to match boot sequence)
-            $this->createAdminAccount($connection, $secrets['encryption_key'], $secrets['blind_index_key'], $data['admin_email']);
+            $this->createAdminAccount($connection, $secrets['encryption_key'], $secrets['blind_index_key'], $data['admin_email'], $data['admin_password']);
 
             FlashMessage::set('success', 'Installation terminée avec succès. Bienvenue !');
             return $this->redirect('/');
@@ -404,6 +404,7 @@ class SetupController extends AbstractController
             'dkim_selector' => trim((string) $request->getBody('dkim_selector', '')),
             'dmarc_report_email' => trim((string) $request->getBody('dmarc_report_email', '')),
             'admin_email' => trim((string) $request->getBody('admin_email', '')),
+            'admin_password' => (string) $request->getBody('admin_password', ''),
         ];
     }
 
@@ -484,31 +485,37 @@ class SetupController extends AbstractController
             $errors['dmarc_report_email'] = 'L\'email pour les rapports DMARC n\'est pas valide.';
         }
 
-        // Admin email (first-time only)
+        // Admin email and password (first-time only)
         if ($isFirstTime) {
             if ($data['admin_email'] === '') {
                 $errors['admin_email'] = 'L\'email administrateur est requis.';
             } elseif (!filter_var($data['admin_email'], FILTER_VALIDATE_EMAIL)) {
                 $errors['admin_email'] = 'L\'email administrateur n\'est pas valide.';
             }
+            if ($data['admin_password'] === '') {
+                $errors['admin_password'] = 'Le mot de passe administrateur est requis.';
+            } elseif (strlen($data['admin_password']) < 8) {
+                $errors['admin_password'] = 'Le mot de passe doit contenir au moins 8 caractères.';
+            }
         }
 
         return $errors;
     }
 
-    private function createAdminAccount(Connection $connection, string $encryptionKey, string $blindIndexKey, string $email): void
+    private function createAdminAccount(Connection $connection, string $encryptionKey, string $blindIndexKey, string $email, string $password): void
     {
         $encryptionService = new EncryptionService($encryptionKey, $blindIndexKey);
         $normalizedEmail = strtolower(trim($email));
 
         $emailEncrypted = $encryptionService->encrypt($normalizedEmail);
         $emailBlindIndex = $encryptionService->blindIndex($normalizedEmail);
+        $passwordHash = password_hash($password, PASSWORD_DEFAULT);
 
         $pdo = $connection->getPdo();
         $stmt = $pdo->prepare(
-            'INSERT INTO user_accounts (email_encrypted, email_blind_index, is_super_admin, created_at) VALUES (?, ?, TRUE, NOW())'
+            'INSERT INTO user_accounts (email_encrypted, email_blind_index, password_hash, is_super_admin, created_at) VALUES (?, ?, ?, TRUE, NOW())'
         );
-        $stmt->execute([$emailEncrypted, $emailBlindIndex]);
+        $stmt->execute([$emailEncrypted, $emailBlindIndex, $passwordHash]);
     }
 
     private function cleanupFailedSetup(): void

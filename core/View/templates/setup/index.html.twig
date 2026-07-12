@@ -251,6 +251,13 @@
                 <div class="form-text">Adresse email de la première personne administratrice. Un compte sera créé avec le rôle administrateur.</div>
                 {% if errors.admin_email is defined %}<div class="invalid-feedback">{{ errors.admin_email }}</div>{% endif %}
             </div>
+
+            <div class="mb-3">
+                <label for="admin_password" class="form-label">Mot de passe administrateur</label>
+                <input type="password" class="form-control{% if errors.admin_password is defined %} is-invalid{% endif %}" id="admin_password" name="admin_password" minlength="8" required>
+                <div class="form-text">Ce mot de passe permet de se connecter sans attendre un import Desk. Minimum 8 caractères.</div>
+                {% if errors.admin_password is defined %}<div class="invalid-feedback">{{ errors.admin_password }}</div>{% endif %}
+            </div>
         </div>
     </div>
     {% endif %}
