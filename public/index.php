@@ -586,8 +586,9 @@ $frontController->registerController(ScheduledActionsController::class, new Sche
 $frontController->registerController(ConfigGeneralController::class, new ConfigGeneralController($twig, $moduleManager));
 $frontController->registerController(PlaceholderController::class, new PlaceholderController($twig));
 
-// Bypass RBAC for /setup routes when site is not initialized
-if (!$secretManager->isInitialized()) {
+// Bypass RBAC for /setup routes when site is not initialized or explicitly allowed
+$allowSetup = (bool) $config->get('allow_setup', false);
+if (!$secretManager->isInitialized() || $allowSetup) {
     $frontController->setRbacBypassPrefix('/setup');
 }
 
