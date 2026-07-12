@@ -1,0 +1,16 @@
+{% extends "base.html.twig" %}
+
+{% block title %}Accès refusé — {{ site_name }}{% endblock %}
+
+{% block content %}
+    <div class="text-center py-5">
+        <h1 class="display-4">403</h1>
+        <p class="lead">Accès refusé</p>
+        <p>Vous n'avez pas les permissions nécessaires pour accéder à cette page.</p>
+        {% if not is_authenticated %}
+            <a href="/login" class="btn btn-primary">Se connecter</a>
+        {% else %}
+            <a href="/" class="btn btn-outline-secondary">Retour à l'accueil</a>
+        {% endif %}
+    </div>
+{% endblock %}

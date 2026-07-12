@@ -5,11 +5,22 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}{{ site_name }}{% endblock %}</title>
     <link rel="stylesheet" href="/assets/vendor/bootstrap/css/bootstrap.min.css">
+    <link rel="stylesheet" href="/assets/vendor/bootstrap-icons/bootstrap-icons.min.css">
     {% block stylesheets %}{% endblock %}
 </head>
 <body>
     {% block nav %}
-    {# TODO: Navigation component will be added in iteration 5 #}
+    {% if menus is defined and menus is not null %}
+        {% include 'partials/nav.html.twig' with {
+            menus: menus,
+            current_path: current_path|default('/'),
+            is_authenticated: is_authenticated|default(false),
+            user_display_name: current_user_display_name|default(''),
+            user_role_label: current_user_role_label|default(''),
+            site_name: site_name|default('Unité scoute'),
+            active_menu_id: active_menu_id|default('')
+        } %}
+    {% endif %}
     {% endblock %}
 
     <main class="container py-3">
@@ -28,6 +39,7 @@
     {% endblock %}
 
     <script src="/assets/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
+    <script src="/assets/js/nav.js"></script>
     {% block scripts %}{% endblock %}
 </body>
 </html>

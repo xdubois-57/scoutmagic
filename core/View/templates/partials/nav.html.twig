@@ -1,0 +1,120 @@
+{# Mobile header bar — visible below lg #}
+<header class="d-lg-none d-flex align-items-center px-3 border-bottom bg-white" style="height:56px;">
+    <button class="btn btn-link text-dark p-0 me-auto" type="button" data-bs-toggle="offcanvas" data-bs-target="#navOffcanvas" aria-label="Menu">
+        <i class="bi bi-list fs-3"></i>
+    </button>
+    <span class="fw-semibold">{{ site_name }}</span>
+</header>
+
+{# Mobile offcanvas — slides from left #}
+<div class="offcanvas offcanvas-start d-lg-none" tabindex="-1" id="navOffcanvas" aria-label="Navigation">
+    <div class="offcanvas-header border-bottom">
+        <h5 class="offcanvas-title">{{ site_name }}</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Fermer"></button>
+    </div>
+    <div class="offcanvas-body d-flex flex-column p-0">
+        {% if is_authenticated %}
+        <div class="p-3 border-bottom bg-light">
+            <div class="d-flex align-items-center gap-2">
+                <span class="d-inline-flex align-items-center justify-content-center rounded-circle bg-primary text-white fw-bold" style="width:40px;height:40px;font-size:.9rem;">
+                    {{ user_display_name|first|upper }}
+                </span>
+                <div>
+                    <div class="fw-semibold small text-truncate" style="max-width:180px;">{{ user_display_name }}</div>
+                    <div class="text-muted" style="font-size:.75rem;">{{ user_role_label }}</div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <div class="accordion accordion-flush flex-grow-1 overflow-auto" id="mobileMenuAccordion">
+            {% for menu in menus %}
+            <div class="accordion-item">
+                <h2 class="accordion-header">
+                    <button class="accordion-button {% if not menu.id == active_menu_id %}collapsed{% endif %}" type="button" data-bs-toggle="collapse" data-bs-target="#mob-{{ menu.id }}" aria-expanded="{{ menu.id == active_menu_id ? 'true' : 'false' }}">
+                        <i class="bi {{ menu.icon }} me-2"></i> {{ menu.label }}
+                    </button>
+                </h2>
+                <div id="mob-{{ menu.id }}" class="accordion-collapse collapse {% if menu.id == active_menu_id %}show{% endif %}" data-bs-parent="#mobileMenuAccordion">
+                    <div class="accordion-body p-0">
+                        <ul class="list-group list-group-flush">
+                            {% for page in menu.pages %}
+                                {% if page.isSeparator %}
+                                    <li class="list-group-item p-0"><hr class="my-1"></li>
+                                {% else %}
+                                    <li class="list-group-item list-group-item-action border-0 ps-4{% if current_path == page.url %} active{% endif %}">
+                                        <a href="{{ page.url }}" class="text-decoration-none d-block{% if current_path == page.url %} fw-semibold text-primary{% else %} text-dark{% endif %}">{{ page.label }}</a>
+                                    </li>
+                                {% endif %}
+                            {% endfor %}
+                        </ul>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+
+        <div class="p-3 border-top mt-auto">
+            {% if is_authenticated %}
+            <form method="post" action="/logout">
+                {{ csrf_field()|raw }}
+                <button type="submit" class="btn btn-outline-secondary btn-sm w-100">Se déconnecter</button>
+            </form>
+            {% else %}
+            <a href="/login" class="btn btn-primary btn-sm w-100">Se connecter</a>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+{# Desktop navigation — visible at lg and above #}
+<nav class="d-none d-lg-block border-bottom bg-white" id="desktopNav">
+    <div class="container-fluid d-flex align-items-center px-3" style="height:56px;">
+        <a href="/" class="text-decoration-none text-dark fw-semibold me-4">{{ site_name }}</a>
+
+        <div class="d-flex align-items-center gap-1 flex-grow-1" id="desktopMenus">
+            {% for menu in menus %}
+            <button type="button"
+                    class="btn btn-sm {% if menu.id == active_menu_id %}btn-primary{% else %}btn-outline-secondary{% endif %} desktop-menu-btn"
+                    data-menu-id="{{ menu.id }}">
+                <i class="bi {{ menu.icon }} me-1"></i>{{ menu.label }}
+            </button>
+            {% endfor %}
+        </div>
+
+        <div class="ms-auto">
+            {% if is_authenticated %}
+            <div class="d-flex align-items-center gap-2">
+                <span class="d-inline-flex align-items-center justify-content-center rounded-circle bg-primary text-white fw-bold" style="width:32px;height:32px;font-size:.8rem;">
+                    {{ user_display_name|first|upper }}
+                </span>
+                <span class="small text-truncate" style="max-width:160px;">{{ user_display_name }}</span>
+                <form method="post" action="/logout" class="d-inline ms-2">
+                    {{ csrf_field()|raw }}
+                    <button type="submit" class="btn btn-outline-secondary btn-sm">Se déconnecter</button>
+                </form>
+            </div>
+            {% else %}
+            <a href="/login" class="btn btn-primary btn-sm">Se connecter</a>
+            {% endif %}
+        </div>
+    </div>
+
+    {# Sub-menu bars #}
+    {% for menu in menus %}
+    <div class="desktop-submenu border-top bg-light {% if menu.id != active_menu_id %}d-none{% endif %}" data-submenu-id="{{ menu.id }}">
+        <div class="container-fluid px-3 py-2 d-flex flex-wrap gap-2">
+            {% for page in menu.pages %}
+                {% if page.isSeparator %}
+                    <span class="border-start mx-1" style="height:24px;"></span>
+                {% else %}
+                    <a href="{{ page.url }}"
+                       class="btn btn-sm {% if current_path == page.url %}btn-primary{% else %}btn-outline-secondary{% endif %}">
+                        {{ page.label }}
+                    </a>
+                {% endif %}
+            {% endfor %}
+        </div>
+    </div>
+    {% endfor %}
+</nav>

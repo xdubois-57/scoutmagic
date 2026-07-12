@@ -6,25 +6,28 @@ require_once __DIR__ . '/../vendor/autoload.php';
 
 use Core\Config\AppConfig;
 use Core\Database\Connection;
+use Core\Database\MigrationRunner;
+use Core\Database\SchemaComparator;
+use Core\Database\SchemaIntrospector;
+use Core\Database\SqlParser;
 use Core\Http\Controller\AuthController;
 use Core\Http\Controller\HomeController;
+use Core\Http\Controller\PlaceholderController;
 use Core\Http\Controller\SetupController;
 use Core\Http\FrontController;
 use Core\Http\Request;
 use Core\Http\Response;
 use Core\Http\Router;
-use Core\Database\MigrationRunner;
-use Core\Database\SchemaComparator;
-use Core\Database\SchemaIntrospector;
-use Core\Database\SqlParser;
 use Core\Mail\DkimManager;
 use Core\Mail\MailServiceFactory;
 use Core\Security\AuthService;
 use Core\Security\AuthSession;
 use Core\Security\EncryptionService;
+use Core\Security\Role;
 use Core\Security\SecretManager;
 use Core\Security\SessionManager;
 use Core\Security\UserAccountRepository;
+use Core\View\MenuBuilder;
 use Core\View\TwigFactory;
 
 // Load configuration
@@ -145,28 +148,91 @@ $authService = new AuthService(
     $secrets['site_name'] ?? ''
 );
 
+// Role labels in French
+$roleLabelMap = [
+    'public' => 'Public',
+    'identified' => 'Animé',
+    'intendant' => 'Intendant',
+    'chief' => 'Chef',
+    'admin' => 'Admin',
+];
+
 // Set Twig globals for auth state (after session is started)
+$currentRole = AuthSession::getRole();
 $twig->addGlobal('is_authenticated', AuthSession::isAuthenticated());
 $twig->addGlobal('current_user_email', AuthSession::getEmail());
-$twig->addGlobal('current_user_role', AuthSession::getRole());
+$twig->addGlobal('current_user_role', $currentRole);
+$twig->addGlobal('current_user_display_name', AuthSession::getEmail() ?? '');
+$twig->addGlobal('current_user_role_label', $roleLabelMap[$currentRole] ?? 'Public');
+$twig->addGlobal('current_path', $request->getPath());
+
+// Build menu
+$menuBuilder = new MenuBuilder(Role::fromString($currentRole));
+
+// Register core pages in menus
+$menuBuilder->addPage(MenuBuilder::MENU_NOTRE_UNITE, 'Accueil', '/', 'public', 10);
+$menuBuilder->addPage(MenuBuilder::MENU_NOTRE_UNITE, 'Contact', '/contact', 'public', 20);
+$menuBuilder->addPage(MenuBuilder::MENU_NOTRE_UNITE, 'Sections', '/sections', 'public', 30);
+$menuBuilder->addPage(MenuBuilder::MENU_NOTRE_UNITE, 'Protection des données', '/rgpd', 'public', 40);
+$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_CHEFS, 'Staffs', '/chefs/staffs', 'intendant', 10);
+$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Import Desk', '/admin/import', 'chief', 10);
+$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Journal', '/admin/journal', 'chief', 20);
+$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Configuration générale', '/setup', 'admin', 10);
+$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Fonctions', '/config/functions', 'admin', 20);
+$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Paramètres', '/config/settings', 'admin', 30);
+$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Actions planifiées', '/config/scheduled', 'admin', 40);
+
+$menus = $menuBuilder->build();
+$twig->addGlobal('menus', $menus);
+
+// Determine active menu from current path
+$activeMenuId = '';
+foreach ($menus as $menu) {
+    foreach ($menu['pages'] as $page) {
+        if (!$page['isSeparator'] && ($page['url'] ?? '') === $request->getPath()) {
+            $activeMenuId = $menu['id'];
+            break 2;
+        }
+    }
+}
+$twig->addGlobal('active_menu_id', $activeMenuId);
 
 // Create router and register routes
 $router = new Router();
+
+// Core routes
 $router->addRoute('GET', '/', HomeController::class, 'index', 'public');
 $router->addRoute('GET', '/login', AuthController::class, 'login', 'public');
 $router->addRoute('POST', '/login/magic-link', AuthController::class, 'requestMagicLink', 'public');
 $router->addRoute('GET', '/auth/verify', AuthController::class, 'verifyMagicLink', 'public');
 $router->addRoute('GET', '/auth/poll/{id}', AuthController::class, 'pollMagicLink', 'public');
 $router->addRoute('POST', '/logout', AuthController::class, 'logout', 'identified');
+
+// Setup routes (admin, but bypassed when not initialized)
 $router->addRoute('GET', '/setup', SetupController::class, 'index', 'admin');
 $router->addRoute('POST', '/setup/test-db', SetupController::class, 'testDatabase', 'admin');
 $router->addRoute('POST', '/setup/save', SetupController::class, 'save', 'admin');
 $router->addRoute('GET', '/setup/dns', SetupController::class, 'checkDns', 'admin');
 $router->addRoute('POST', '/setup/test-email', SetupController::class, 'testEmail', 'admin');
 
+// Placeholder routes for pages not yet built
+$router->addRoute('GET', '/contact', PlaceholderController::class, 'show', 'public');
+$router->addRoute('GET', '/sections', PlaceholderController::class, 'show', 'public');
+$router->addRoute('GET', '/rgpd', PlaceholderController::class, 'show', 'public');
+$router->addRoute('GET', '/admin/import', PlaceholderController::class, 'show', 'chief');
+$router->addRoute('GET', '/admin/journal', PlaceholderController::class, 'show', 'chief');
+$router->addRoute('GET', '/config/functions', PlaceholderController::class, 'show', 'admin');
+$router->addRoute('GET', '/config/settings', PlaceholderController::class, 'show', 'admin');
+$router->addRoute('GET', '/config/scheduled', PlaceholderController::class, 'show', 'admin');
+$router->addRoute('GET', '/chefs/staffs', PlaceholderController::class, 'show', 'intendant');
+
 // Handle the request
 $frontController = new FrontController($router, $twig, $config);
 $frontController->registerController(SetupController::class, new SetupController($twig, $secretManager, $dkimManager, $schemaPath));
 $frontController->registerController(AuthController::class, new AuthController($twig, $authService));
+
+$placeholderController = new PlaceholderController($twig);
+$frontController->registerController(PlaceholderController::class, $placeholderController);
+
 $response = $frontController->handle($request);
 $response->send();
