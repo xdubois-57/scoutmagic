@@ -1,0 +1,29 @@
+# Dependencies
+vendor/
+
+# Environment and secrets
+.env
+storage/keys/
+storage/config/
+storage/temp/
+
+# Local configuration
+config/app.php
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# PHPStan cache
+storage/temp/phpstan/
+
+# Twig cache
+storage/temp/twig_cache/
+
+# Release artifacts
+release-*.zip

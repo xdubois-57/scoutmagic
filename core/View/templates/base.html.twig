@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}{{ site_name }}{% endblock %}</title>
+    <link rel="stylesheet" href="/assets/vendor/bootstrap/css/bootstrap.min.css">
+    {% block stylesheets %}{% endblock %}
+</head>
+<body>
+    {% block nav %}
+    {# TODO: Navigation component will be added in iteration 5 #}
+    {% endblock %}
+
+    <main class="container py-3">
+        {% block content %}{% endblock %}
+    </main>
+
+    {% block footer %}
+    {# TODO: Footer with cookie preferences link will be added in iteration 7 #}
+    {% endblock %}
+
+    <script src="/assets/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,7 @@
+<?php
+
+return [
+    'debug' => false,
+    'site_name' => 'Unité scoute',
+    'base_url' => 'http://localhost',
+];
