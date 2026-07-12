@@ -1,0 +1,21 @@
+{# 
+  Usage:
+  {% include 'partials/section_picker.html.twig' with {
+      sections: sections,
+      selected_id: current_section_id,
+      base_url: '/chefs/staffs?section='
+  } %}
+#}
+<div class="d-flex gap-2 overflow-auto pb-2 mb-3 section-picker">
+    {% for section in sections %}
+        {% set is_active = section.id == selected_id %}
+        <a href="{{ base_url }}{{ section.id }}"
+           class="btn btn-sm {{ is_active ? 'btn-primary' : 'btn-outline-secondary' }} text-nowrap d-flex flex-column align-items-center px-3 py-2 text-decoration-none"
+           style="min-width:0;">
+            <span class="small fw-semibold">{{ section.name ?? section.desk_code }}</span>
+            <span style="font-size:0.7rem;" class="{{ is_active ? 'text-white-50' : 'text-body-secondary' }}">
+                {{ section.branch_name }}
+            </span>
+        </a>
+    {% endfor %}
+</div>

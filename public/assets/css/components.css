@@ -1,0 +1,11 @@
+.section-picker {
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+}
+.section-picker::-webkit-scrollbar {
+    height: 4px;
+}
+
+@media (min-width: 992px) {
+    .section-picker { flex-wrap: wrap; overflow: visible; }
+}

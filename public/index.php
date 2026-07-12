@@ -32,6 +32,7 @@ use Core\Http\Controller\PlaceholderController;
 use Core\Http\Controller\ScheduledActionsController;
 use Core\Http\Controller\SettingsController;
 use Core\Http\Controller\SetupController;
+use Core\Http\Controller\StaffsController;
 use Core\Http\Controller\UploadController;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
@@ -52,6 +53,7 @@ use Core\Import\MappingResolver;
 use Core\Import\MemberRepository;
 use Core\Import\MemberYearRepository;
 use Core\Member\MemberService;
+use Core\Member\SectionService;
 use Core\Security\RoleResolver;
 use Core\Http\FrontController;
 use Core\Http\Request;
@@ -308,6 +310,7 @@ $importService = new DeskImportService(
 );
 $roleResolver = new RoleResolver($memberYearRepo, $encryptionService, $pdo);
 $memberService = new MemberService($memberYearRepo, $encryptionService, $connection);
+$sectionService = new SectionService($connection, $encryptionService);
 
 // Create file services
 $storagePath = dirname(__DIR__) . '/storage';
@@ -499,9 +502,12 @@ $router->addRoute('GET', '/config/scheduled', ScheduledActionsController::class,
 $router->addRoute('GET', '/config/general', ConfigGeneralController::class, 'index', 'admin');
 $router->addRoute('POST', '/config/general/module-toggle', ConfigGeneralController::class, 'toggleModule', 'admin');
 
+// Staffs
+$router->addRoute('GET', '/chefs/staffs', StaffsController::class, 'index', 'intendant');
+$router->addRoute('POST', '/chefs/staffs/update-section', StaffsController::class, 'updateSection', 'chief');
+
 // Placeholder routes for pages not yet built
 $router->addRoute('GET', '/config/functions', PlaceholderController::class, 'show', 'admin');
-$router->addRoute('GET', '/chefs/staffs', PlaceholderController::class, 'show', 'intendant');
 
 // Load enabled modules (routes registered AFTER core routes so core takes priority)
 $moduleManager->loadEnabledModules();
@@ -565,6 +571,7 @@ $frontController->registerController(AuthController::class, $authController);
 $frontController->registerController(AccountController::class, new AccountController($twig, $userAccountRepo, $webAuthnCredentialRepo, $webAuthnService));
 $frontController->registerController(ImportController::class, new ImportController($twig, $importService, $scoutYearService, $importJournalRepo, $functionRepo, $storagePath));
 $frontController->registerController(MemberController::class, new MemberController($twig, $memberService));
+$frontController->registerController(StaffsController::class, new StaffsController($twig, $sectionService, $memberService, $scoutYearService, $journalService));
 $frontController->registerController(ConfigModeController::class, new ConfigModeController($twig));
 $editableContentController = new EditableContentController($twig, $editableContentService);
 $editableContentController->setJournalService($journalService);
