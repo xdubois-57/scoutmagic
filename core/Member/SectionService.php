@@ -121,6 +121,47 @@ class SectionService
     }
 
     /**
+     * Get staff members who have an admin or chief role function but no section assignment.
+     * These are considered part of "Staff d'U".
+     *
+     * @return MemberProfile[]
+     */
+    public function getUnitStaff(int $scoutYearId): array
+    {
+        $pdo = $this->connection->getPdo();
+
+        // Find member_year IDs with admin/chief functions but no section
+        $stmt = $pdo->prepare(
+            'SELECT DISTINCT mf.member_year_id
+             FROM member_functions mf
+             JOIN member_years my ON mf.member_year_id = my.id
+             JOIN functions f ON mf.function_id = f.id
+             WHERE my.scout_year_id = ?
+               AND f.role IN (\'admin\', \'chief\')
+               AND mf.section_id IS NULL'
+        );
+        $stmt->execute([$scoutYearId]);
+        $memberYearIds = array_map(fn(array $row) => (int) $row['member_year_id'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
+
+        if (count($memberYearIds) === 0) {
+            return [];
+        }
+
+        $profiles = [];
+        foreach ($memberYearIds as $myId) {
+            $profile = $this->hydrateMemberProfile($myId);
+            if ($profile !== null) {
+                $profiles[] = $profile;
+            }
+        }
+
+        usort($profiles, fn(MemberProfile $a, MemberProfile $b) =>
+            strcasecmp($a->getDisplayName(), $b->getDisplayName()));
+
+        return $profiles;
+    }
+
+    /**
      * Update a section's configurable info (name, email).
      */
     public function updateSectionInfo(int $sectionId, ?string $name, ?string $email): void

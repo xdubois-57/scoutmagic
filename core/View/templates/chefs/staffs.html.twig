@@ -22,7 +22,7 @@
                 {{ current_section.branch_name }}
             </span>
             <span class="text-body-secondary small">{{ staff|length }} animateur{{ staff|length > 1 ? 's' : '' }}</span>
-            {% if can_edit_section %}
+            {% if can_edit_section and current_section.id > 0 %}
                 <button type="button" class="btn btn-sm btn-link text-body-secondary ms-auto p-0"
                         id="edit-section-btn" title="Modifier les informations de la section">
                     <i class="bi bi-pencil"></i>
@@ -31,10 +31,12 @@
         </div>
         <p class="text-body-secondary small mb-3">
             {{ current_section.email ?? 'Aucun email configuré' }}
+            {% if current_section.id > 0 %}
             · code {{ current_section.desk_code }}
+        {% endif %}
         </p>
 
-        {% if not current_section.name %}
+        {% if not current_section.name and current_section.id > 0 %}
             <div class="alert alert-warning small py-2 mb-3">
                 <i class="bi bi-exclamation-triangle"></i>
                 Cette section n'a pas encore de nom configuré.
@@ -44,7 +46,7 @@
             </div>
         {% endif %}
 
-        {% if can_edit_section %}
+        {% if can_edit_section and current_section.id > 0 %}
             <div id="section-edit-form" class="card mb-3" style="display:none;">
                 <div class="card-body">
                     <h2 class="h6 mb-2">Informations de la section</h2>
@@ -139,7 +141,7 @@
 {% endblock %}
 
 {% block scripts %}
-{% if can_edit_section is defined and can_edit_section and current_section is defined and current_section %}
+{% if can_edit_section is defined and can_edit_section and current_section is defined and current_section and current_section.id > 0 %}
 <script nonce="{{ csp_nonce }}">
 const editBtn = document.getElementById('edit-section-btn');
 const editForm = document.getElementById('section-edit-form');

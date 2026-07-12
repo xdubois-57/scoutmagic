@@ -258,7 +258,7 @@
             <div class="mb-3">
                 <label for="admin_password" class="form-label">Mot de passe administrateur</label>
                 <input type="password" class="form-control{% if errors.admin_password is defined %} is-invalid{% endif %}" id="admin_password" name="admin_password" minlength="8" {% if not is_initialized %}required{% endif %}>
-                <div class="form-text">Ce mot de passe permet de se connecter sans attendre un import Desk. Minimum 8 caractères.</div>
+                <div class="form-text">{% if is_initialized %}Laissez vide pour conserver le mot de passe actuel. Minimum 8 caractères si modifié.{% else %}Ce mot de passe permet de se connecter sans attendre un import Desk. Minimum 8 caractères.{% endif %}</div>
                 {% if errors.admin_password is defined %}<div class="invalid-feedback">{{ errors.admin_password }}</div>{% endif %}
             </div>
         </div>

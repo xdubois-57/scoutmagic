@@ -27,6 +27,8 @@ class StaffsController extends AbstractController
     ) {
     }
 
+    public const UNIT_STAFF_SECTION_ID = -1;
+
     /**
      * GET /chefs/staffs — render the Staffs page.
      *
@@ -48,6 +50,19 @@ class StaffsController extends AbstractController
         // Filter sections based on role
         $sections = $this->filterSectionsForRole($allSections, $linkedMembers, $currentRole);
 
+        // Append virtual "Staff d'U" section for chiefs/admins
+        if ($currentRole->hasAccess(Role::CHIEF)) {
+            $sections[] = [
+                'id' => self::UNIT_STAFF_SECTION_ID,
+                'desk_code' => '__staff_u__',
+                'name' => "Staff d'U",
+                'email' => null,
+                'age_branch_id' => 0,
+                'branch_name' => "Staff d'unité",
+                'branch_sort_order' => 60,
+            ];
+        }
+
         // Resolve selected section
         $requestedId = $request->getQuery('section');
         $requestedSectionId = $requestedId !== null && $requestedId !== '' ? (int) $requestedId : null;
@@ -58,7 +73,17 @@ class StaffsController extends AbstractController
         $staff = [];
         $canEditSection = $currentRole->hasAccess(Role::CHIEF);
 
-        if ($selectedSectionId !== null) {
+        if ($selectedSectionId === self::UNIT_STAFF_SECTION_ID) {
+            $currentSection = [
+                'id' => self::UNIT_STAFF_SECTION_ID,
+                'desk_code' => '__staff_u__',
+                'name' => "Staff d'U",
+                'email' => null,
+                'age_branch_id' => 0,
+                'branch_name' => "Staff d'unité",
+            ];
+            $staff = $this->sectionService->getUnitStaff($scoutYearId);
+        } elseif ($selectedSectionId !== null) {
             $currentSection = $this->sectionService->getSection($selectedSectionId);
 
             if ($currentSection !== null) {

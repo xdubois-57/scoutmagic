@@ -525,9 +525,8 @@ class SetupController extends AbstractController
             if ($data['admin_email'] !== '' && !filter_var($data['admin_email'], FILTER_VALIDATE_EMAIL)) {
                 $errors['admin_email'] = 'L\'email administrateur n\'est pas valide.';
             }
-            if ($data['admin_email'] !== '' && $data['admin_password'] === '') {
-                $errors['admin_password'] = 'Le mot de passe est requis pour créer ou mettre à jour le compte.';
-            } elseif ($data['admin_password'] !== '' && strlen($data['admin_password']) < 8) {
+            // Password is only required when changing admin email to a new address without existing account
+            if ($data['admin_password'] !== '' && strlen($data['admin_password']) < 8) {
                 $errors['admin_password'] = 'Le mot de passe doit contenir au moins 8 caractères.';
             }
             if ($data['admin_password'] !== '' && $data['admin_email'] === '') {

@@ -39,6 +39,11 @@ class MappingResolver
     {
         $existing = $this->ageBranchRepo->findByDeskCode($deskCode);
         if ($existing !== null) {
+            // Fix sort_order if it was set to default 0
+            $expectedOrder = AgeBranchRepository::canonicalSortOrder($existing['label']);
+            if ($existing['sort_order'] !== $expectedOrder) {
+                $this->ageBranchRepo->updateSortOrder($existing['id'], $expectedOrder);
+            }
             return $existing['id'];
         }
 

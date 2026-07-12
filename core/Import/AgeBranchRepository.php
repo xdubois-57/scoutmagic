@@ -31,11 +31,36 @@ class AgeBranchRepository
 
     public function create(string $deskCode, string $label): int
     {
+        $sortOrder = self::canonicalSortOrder($label);
         $stmt = $this->pdo->prepare(
-            'INSERT INTO age_branches (desk_code, label) VALUES (?, ?)'
+            'INSERT INTO age_branches (desk_code, label, sort_order) VALUES (?, ?, ?)'
         );
-        $stmt->execute([$deskCode, $label]);
+        $stmt->execute([$deskCode, $label, $sortOrder]);
         return (int) $this->pdo->lastInsertId();
+    }
+
+    /**
+     * Return canonical sort order for known Les Scouts branches.
+     * Unknown branches get sort_order 99 (displayed last).
+     */
+    public static function canonicalSortOrder(string $label): int
+    {
+        $normalized = mb_strtolower(trim($label));
+        return match (true) {
+            str_contains($normalized, 'baladin') => 10,
+            str_contains($normalized, 'louveteau') => 20,
+            str_contains($normalized, 'eclaireur'), str_contains($normalized, 'éclaireur') => 30,
+            str_contains($normalized, 'pionnier') => 40,
+            str_contains($normalized, 'routier') => 50,
+            str_contains($normalized, 'staff'), str_contains($normalized, 'unité') => 60,
+            default => 99,
+        };
+    }
+
+    public function updateSortOrder(int $id, int $sortOrder): void
+    {
+        $stmt = $this->pdo->prepare('UPDATE age_branches SET sort_order = ? WHERE id = ?');
+        $stmt->execute([$sortOrder, $id]);
     }
 
     /**
