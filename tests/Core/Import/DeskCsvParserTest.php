@@ -237,4 +237,30 @@ class DeskCsvParserTest extends TestCase
         $this->assertSame('Bruxelles', $domicile->city);
         $this->assertSame('Belgique', $domicile->country);
     }
+
+    public function testParseCommaDelimitedCsv(): void
+    {
+        $commaFixture = dirname(__DIR__, 2) . '/fixtures/desk_export_comma.csv';
+        $result = $this->parser->parse($commaFixture);
+
+        $this->assertSame(2, $result->lineCount);
+        $this->assertCount(2, $result->members);
+
+        $selim = null;
+        foreach ($result->members as $m) {
+            if ($m->deskId === '2028823') {
+                $selim = $m;
+                break;
+            }
+        }
+        $this->assertNotNull($selim);
+        $this->assertSame('Agram', $selim->lastName);
+        $this->assertSame('Sélim', $selim->firstName);
+        $this->assertSame('selim@example.com', $selim->email);
+        $this->assertCount(1, $selim->functions);
+        $this->assertSame('Scout', $selim->functions[0]->functionCode);
+        $this->assertSame('Baladins', $selim->functions[0]->branchCode);
+        $this->assertSame('SV025 BALADINS1', $selim->functions[0]->sectionCode);
+        $this->assertSame('SV025B1', $selim->functions[0]->sectionName);
+    }
 }

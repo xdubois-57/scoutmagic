@@ -45,8 +45,11 @@ class DeskCsvParser
             throw new ImportException('Le fichier CSV est vide.');
         }
 
+        // Detect delimiter from header line
+        $delimiter = $this->detectDelimiter($lines[0]);
+
         // Parse header line
-        $headers = str_getcsv($lines[0], ';', '"', '');
+        $headers = str_getcsv($lines[0], $delimiter, '"', '');
         $headers = array_map('trim', $headers);
         $this->validateHeaders($headers);
 
@@ -63,7 +66,7 @@ class DeskCsvParser
                 continue;
             }
 
-            $fields = str_getcsv($line, ';', '"', '');
+            $fields = str_getcsv($line, $delimiter, '"', '');
             $row = [];
             foreach ($headers as $idx => $header) {
                 $row[$header] = isset($fields[$idx]) ? trim($fields[$idx]) : '';
@@ -219,5 +222,16 @@ class DeskCsvParser
     private function parseBool(string $value): bool
     {
         return strtolower(trim($value)) === 'true';
+    }
+
+    /**
+     * Detect delimiter by counting occurrences of comma vs semicolon in the header line.
+     */
+    private function detectDelimiter(string $headerLine): string
+    {
+        $semicolons = substr_count($headerLine, ';');
+        $commas = substr_count($headerLine, ',');
+
+        return $semicolons > $commas ? ';' : ',';
     }
 }
