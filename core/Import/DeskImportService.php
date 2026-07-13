@@ -32,6 +32,9 @@ class DeskImportService
         $this->pdo->beginTransaction();
 
         try {
+            // Mark all existing member_years for this year as inactive
+            $this->memberYearRepository->deactivateAllForYear($scoutYearId);
+
             foreach ($parsed->members as $member) {
                 $this->importMember($member, $scoutYearId, $warnings);
             }

@@ -29,7 +29,7 @@ class MemberYearRepository
                     totem_encrypted = ?, quali_encrypted = ?,
                     patrol_encrypted = ?, formation_level = ?,
                     federation_mail_consent = ?, unit_mail_consent = ?,
-                    fee_category_id = ?, unit_code = ?
+                    fee_category_id = ?, unit_code = ?, is_active = 1
                 WHERE id = ?'
             );
             $stmt->execute([
@@ -122,7 +122,7 @@ class MemberYearRepository
             'SELECT my.*, m.desk_id
              FROM member_years my
              JOIN members m ON my.member_id = m.id
-             WHERE my.email_blind_index = ? AND my.scout_year_id = ?'
+             WHERE my.email_blind_index = ? AND my.scout_year_id = ? AND my.is_active = 1'
         );
         $stmt->execute([$emailBlindIndex, $scoutYearId]);
         return $stmt->fetchAll(\PDO::FETCH_ASSOC);
@@ -191,6 +191,24 @@ class MemberYearRepository
                 $fn['is_main_function'] ? 1 : 0,
             ]);
         }
+    }
+
+    /**
+     * Mark all member_years for a given scout year as inactive.
+     */
+    public function deactivateAllForYear(int $scoutYearId): void
+    {
+        $stmt = $this->pdo->prepare('UPDATE member_years SET is_active = 0 WHERE scout_year_id = ?');
+        $stmt->execute([$scoutYearId]);
+    }
+
+    /**
+     * Mark a specific member_year as active.
+     */
+    public function activate(int $memberYearId): void
+    {
+        $stmt = $this->pdo->prepare('UPDATE member_years SET is_active = 1 WHERE id = ?');
+        $stmt->execute([$memberYearId]);
     }
 
     /**

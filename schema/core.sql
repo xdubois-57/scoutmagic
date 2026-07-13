@@ -130,6 +130,7 @@ CREATE TABLE member_years (
     unit_mail_consent BOOLEAN NOT NULL DEFAULT FALSE,
     fee_category_id INT UNSIGNED,
     unit_code VARCHAR(50),
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE INDEX idx_member_year (member_id, scout_year_id),
     INDEX idx_scout_year (scout_year_id),

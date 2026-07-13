@@ -96,7 +96,7 @@ class SectionService
             'SELECT DISTINCT mf.member_year_id
              FROM member_functions mf
              JOIN member_years my ON mf.member_year_id = my.id
-             WHERE mf.section_id = ? AND my.scout_year_id = ?'
+             WHERE mf.section_id = ? AND my.scout_year_id = ? AND my.is_active = 1'
         );
         $stmt->execute([$sectionId, $scoutYearId]);
         $memberYearIds = array_map(fn(array $row) => (int) $row['member_year_id'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
@@ -137,6 +137,7 @@ class SectionService
              JOIN member_years my ON mf.member_year_id = my.id
              JOIN functions f ON mf.function_id = f.id
              WHERE my.scout_year_id = ?
+               AND my.is_active = 1
                AND f.role IN (\'admin\', \'chief\')
                AND mf.section_id IS NULL'
         );
