@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Core\Http\Controller;
 
-use Core\Config\ScoutYearService;
 use Core\Http\FlashMessage;
 use Core\Http\Request;
 use Core\Http\Response;
@@ -12,6 +11,7 @@ use Core\Import\DeskImportService;
 use Core\Import\FunctionRepository;
 use Core\Import\ImportException;
 use Core\Import\ImportJournalRepository;
+use Core\ScoutYear\ScoutYearResolver;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Twig\Environment;
@@ -21,7 +21,7 @@ class ImportController extends AbstractController
     public function __construct(
         protected Environment $twig,
         private DeskImportService $importService,
-        private ScoutYearService $scoutYearService,
+        private ScoutYearResolver $scoutYearResolver,
         private ImportJournalRepository $importJournalRepo,
         private FunctionRepository $functionRepo,
         private string $storagePath
@@ -35,8 +35,8 @@ class ImportController extends AbstractController
      */
     public function index(Request $request, array $params): Response
     {
-        $currentYear = $this->scoutYearService->getCurrentYear();
-        $years = $this->scoutYearService->getAll();
+        $currentYear = $this->scoutYearResolver->getCurrentPublicYear();
+        $years = $this->scoutYearResolver->listYears();
         $journals = $this->importJournalRepo->findByYear($currentYear['id']);
         $lastImport = count($journals) > 0 ? $journals[0] : null;
         $unconfirmed = $this->functionRepo->findUnconfirmed();
@@ -109,8 +109,8 @@ class ImportController extends AbstractController
             return $this->redirect('/admin/import');
         }
 
-        $currentYear = $this->scoutYearService->getCurrentYear();
-        $years = $this->scoutYearService->getAll();
+        $currentYear = $this->scoutYearResolver->getCurrentPublicYear();
+        $years = $this->scoutYearResolver->listYears();
         $journals = $this->importJournalRepo->findByYear($scoutYearId);
         $lastImport = count($journals) > 0 ? $journals[0] : null;
         $unconfirmed = $this->functionRepo->findUnconfirmed();

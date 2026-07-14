@@ -31,6 +31,7 @@ use Core\Http\Controller\MemberController;
 use Core\Http\Controller\PageController;
 use Core\Http\Controller\PlaceholderController;
 use Core\Http\Controller\ScheduledActionsController;
+use Core\Http\Controller\ScoutYearController;
 use Core\Http\Controller\SettingsController;
 use Core\Http\Controller\SetupController;
 use Core\Http\Controller\StaffsController;
@@ -55,6 +56,9 @@ use Core\Import\MemberRepository;
 use Core\Import\MemberYearRepository;
 use Core\Member\MemberService;
 use Core\Member\SectionService;
+use Core\ScoutYear\ScoutYearAdminService;
+use Core\ScoutYear\ScoutYearResolver;
+use Core\ScoutYear\ScoutYearSession;
 use Core\Security\RoleResolver;
 use Core\Http\FrontController;
 use Core\Http\Request;
@@ -226,6 +230,12 @@ $settingService->register('journal_retention_days', '730', 'number', 'Rétention
 $settingService->register('scheduler_last_run', '0', 'number', 'Dernier passage du planificateur',
     'Horodatage Unix du dernier passage du planificateur de tâches. Géré automatiquement.',
     null, null, null, false, 200);
+$settingService->register('current_scout_year_id', '0', 'number', 'Année scoute publique (ID)',
+    'Identifiant de l\'année scoute vue par tout le monde. Gérée depuis la page « Année scoute ».',
+    null, '^[0-9]+$', null, false, 210);
+$settingService->register('staff_scout_year_id', '0', 'number', 'Année scoute du staff (ID)',
+    'Identifiant de l\'année scoute vue par les chefs et intendants. 0 si aucune. Gérée depuis la page « Année scoute ».',
+    null, '^[0-9]+$', null, false, 220);
 
 // Migrate non-secret settings from secrets.enc to settings table (one-time)
 if ($settingService->get('settings_migrated') !== '1') {
@@ -318,6 +328,10 @@ $roleResolver = new RoleResolver($memberYearRepo, $encryptionService, $pdo);
 $memberService = new MemberService($memberYearRepo, $encryptionService, $connection);
 $sectionService = new SectionService($connection, $encryptionService);
 
+// Scout year resolution (public / staff / session-preview priority)
+$scoutYearResolver = new ScoutYearResolver($scoutYearService, $settingService, $memberYearRepo);
+$scoutYearAdminService = new ScoutYearAdminService($settingService);
+
 // Create file services
 $storagePath = dirname(__DIR__) . '/storage';
 $fileRepository = new FileRepository($pdo);
@@ -339,13 +353,19 @@ $twig->addGlobal('is_authenticated', AuthSession::isAuthenticated());
 $twig->addGlobal('current_user_email', AuthSession::getEmail());
 $twig->addGlobal('current_user_role', $currentRole);
 
+// Resolve the scout year in effect for this request (may be a preview/staff override).
+$effectiveScoutYear = $scoutYearResolver->getEffectiveYear(
+    ScoutYearSession::getPreviewId(),
+    Role::fromString($currentRole)
+);
+
 // Update user display name based on linked members
 $displayName = AuthSession::getEmail() ?? '';
 $memberCount = 0;
 if (AuthSession::isAuthenticated()) {
     $linkedMembers = $memberService->getLinkedMembers(
         AuthSession::getEmail(),
-        $scoutYearService->getCurrentYear()['id']
+        $effectiveScoutYear->id
     );
     if (count($linkedMembers) > 0) {
         $primaryMember = MemberService::getHighestRoleMember($linkedMembers);
@@ -358,6 +378,9 @@ $twig->addGlobal('current_user_member_count', $memberCount);
 $twig->addGlobal('current_user_role_label', $roleLabelMap[$currentRole] ?? 'Public');
 $twig->addGlobal('current_path', $request->getPath());
 $twig->addGlobal('config_mode', ConfigurationMode::isActive());
+$twig->addGlobal('effective_scout_year', $effectiveScoutYear->label);
+$twig->addGlobal('is_year_overridden', $effectiveScoutYear->isOverridden());
+$twig->addGlobal('year_override_type', $effectiveScoutYear->overrideType);
 $twig->addGlobal('_editable_content_service', $editableContentService);
 $twig->addGlobal('cookie_consent_given', $cookieConsentService->hasConsented());
 
@@ -372,6 +395,7 @@ $menuBuilder->addPage(MenuBuilder::MENU_NOTRE_UNITE, 'Protection des données', 
 $menuBuilder->addPage(MenuBuilder::MENU_ESPACE_CHEFS, 'Staffs', '/chefs/staffs', 'intendant', 10);
 $menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Import Desk', '/admin/import', 'chief', 10);
 $menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Journal', '/admin/journal', 'chief', 20);
+$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Année scoute', '/admin/scout-year', 'chief', 30);
 $menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Configuration générale', '/config/general', 'admin', 10);
 $menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Configuration du site', '/setup', 'admin', 15);
 $menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Fonctions', '/config/functions', 'admin', 20);
@@ -402,7 +426,7 @@ $schedulerRunner->setModuleManager($moduleManager);
 if (AuthSession::isAuthenticated()) {
     $linkedMembers = $memberService->getLinkedMembers(
         AuthSession::getEmail(),
-        $scoutYearService->getCurrentYear()['id']
+        $effectiveScoutYear->id
     );
 
     foreach ($linkedMembers as $index => $member) {
@@ -422,10 +446,9 @@ if (AuthSession::isAuthenticated()) {
         $menuBuilder->addSeparator(MenuBuilder::MENU_ESPACE_ANIMES, 50);
     } else {
         // Empty state message when no members are linked
-        $currentYear = $scoutYearService->getCurrentYear();
         $menuBuilder->addPage(
             MenuBuilder::MENU_ESPACE_ANIMES,
-            'Aucun membre associé à votre compte pour l\'année ' . $currentYear['label'],
+            'Aucun membre associé à votre compte pour l\'année ' . $effectiveScoutYear->label,
             '#',
             'identified',
             10,
@@ -496,6 +519,14 @@ $router->addRoute('POST', '/admin/import', ImportController::class, 'import', 'c
 
 // Journal
 $router->addRoute('GET', '/admin/journal', JournalController::class, 'index', 'chief');
+
+// Scout year navigation and transition
+$router->addRoute('GET', '/admin/scout-year', ScoutYearController::class, 'index', 'chief');
+$router->addRoute('POST', '/admin/scout-year/preview', ScoutYearController::class, 'preview', 'chief');
+$router->addRoute('POST', '/admin/scout-year/clear-preview', ScoutYearController::class, 'clearPreview', 'chief');
+$router->addRoute('POST', '/admin/scout-year/activate-staff', ScoutYearController::class, 'activateStaff', 'chief');
+$router->addRoute('POST', '/admin/scout-year/deactivate-staff', ScoutYearController::class, 'deactivateStaff', 'chief');
+$router->addRoute('POST', '/admin/scout-year/activate-public', ScoutYearController::class, 'activatePublic', 'chief');
 
 // Settings
 $router->addRoute('GET', '/config/settings', SettingsController::class, 'index', 'admin');
@@ -571,14 +602,14 @@ $webAuthnService = new WebAuthnService(
     $webAuthnBaseUrl
 );
 
-$authController = new AuthController($twig, $authService, $roleResolver, $scoutYearService);
+$authController = new AuthController($twig, $authService, $roleResolver, $scoutYearResolver);
 $authController->setPasswordAuth($passwordAuthMethod);
 $authController->setWebAuthnService($webAuthnService);
 $frontController->registerController(AuthController::class, $authController);
 $frontController->registerController(AccountController::class, new AccountController($twig, $userAccountRepo, $webAuthnCredentialRepo, $webAuthnService));
-$frontController->registerController(ImportController::class, new ImportController($twig, $importService, $scoutYearService, $importJournalRepo, $functionRepo, $storagePath));
+$frontController->registerController(ImportController::class, new ImportController($twig, $importService, $scoutYearResolver, $importJournalRepo, $functionRepo, $storagePath));
 $frontController->registerController(MemberController::class, new MemberController($twig, $memberService));
-$frontController->registerController(StaffsController::class, new StaffsController($twig, $sectionService, $memberService, $scoutYearService, $journalService));
+$frontController->registerController(StaffsController::class, new StaffsController($twig, $sectionService, $memberService, $scoutYearResolver, $journalService));
 $frontController->registerController(ConfigModeController::class, new ConfigModeController($twig));
 $editableContentController = new EditableContentController($twig, $editableContentService);
 $editableContentController->setJournalService($journalService);
@@ -588,6 +619,7 @@ $fileController->setJournalService($journalService);
 $frontController->registerController(FileController::class, $fileController);
 $frontController->registerController(UploadController::class, new UploadController($twig, $uploadHandler, $editableContentService));
 $frontController->registerController(JournalController::class, new JournalController($twig, $journalRepo));
+$frontController->registerController(ScoutYearController::class, new ScoutYearController($twig, $scoutYearResolver, $scoutYearAdminService, $scoutYearService, $journalService));
 $frontController->registerController(SettingsController::class, new SettingsController($twig, $settingService, $journalService));
 $frontController->registerController(ScheduledActionsController::class, new ScheduledActionsController($twig, $schedulerRepo));
 $frontController->registerController(ConfigGeneralController::class, new ConfigGeneralController($twig, $moduleManager));

@@ -4,10 +4,11 @@ declare(strict_types=1);
 
 namespace Core\Http\Controller;
 
-use Core\Config\ScoutYearService;
 use Core\Http\FlashMessage;
 use Core\Http\Request;
 use Core\Http\Response;
+use Core\ScoutYear\ScoutYearResolver;
+use Core\ScoutYear\ScoutYearSession;
 use Core\Security\AuthService;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
@@ -26,7 +27,7 @@ class AuthController extends AbstractController
         protected Environment $twig,
         private AuthService $authService,
         private ?RoleResolver $roleResolver = null,
-        private ?ScoutYearService $scoutYearService = null
+        private ?ScoutYearResolver $scoutYearResolver = null
     ) {
     }
 
@@ -263,6 +264,7 @@ class AuthController extends AbstractController
         }
 
         AuthSession::logout();
+        ScoutYearSession::clear();
         FlashMessage::set('success', 'Vous avez été déconnecté.');
 
         return $this->redirect('/');
@@ -273,8 +275,8 @@ class AuthController extends AbstractController
      */
     private function resolveRole(string $email, ?int $userAccountId = null): string
     {
-        if ($this->roleResolver !== null && $this->scoutYearService !== null) {
-            $currentYear = $this->scoutYearService->getCurrentYear();
+        if ($this->roleResolver !== null && $this->scoutYearResolver !== null) {
+            $currentYear = $this->scoutYearResolver->getCurrentPublicYear();
             return $this->roleResolver->resolve($email, $currentYear['id']);
         }
 
@@ -292,8 +294,8 @@ class AuthController extends AbstractController
      */
     private function storeLinkedMembers(string $email): void
     {
-        if ($this->roleResolver !== null && $this->scoutYearService !== null) {
-            $currentYear = $this->scoutYearService->getCurrentYear();
+        if ($this->roleResolver !== null && $this->scoutYearResolver !== null) {
+            $currentYear = $this->scoutYearResolver->getCurrentPublicYear();
             $linked = $this->roleResolver->getLinkedMemberYears($email, $currentYear['id']);
             AuthSession::setLinkedMembers($linked);
         }

@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Tests\Core\Http\Controller;
 
 use Core\Config\ScoutYearService;
+use Core\Config\SettingRepository;
+use Core\Config\SettingService;
 use Core\Database\Connection;
 use Core\Http\Controller\StaffsController;
 use Core\Http\Request;
@@ -13,6 +15,7 @@ use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Member\MemberService;
 use Core\Member\SectionService;
+use Core\ScoutYear\ScoutYearResolver;
 use Core\Security\AuthSession;
 use Core\Security\EncryptionService;
 use PHPUnit\Framework\TestCase;
@@ -45,6 +48,8 @@ class StaffsControllerTest extends TestCase
         $memberYearRepo = new MemberYearRepository($this->pdo);
         $this->memberService = new MemberService($memberYearRepo, $this->encryption, $connection);
         $scoutYearService = new ScoutYearService($this->pdo);
+        $settingService = new SettingService(new SettingRepository($this->pdo));
+        $scoutYearResolver = new ScoutYearResolver($scoutYearService, $settingService, $memberYearRepo);
         $journalRepo = new JournalRepository($this->pdo);
         $journalService = new JournalService($journalRepo);
 
@@ -81,7 +86,7 @@ class StaffsControllerTest extends TestCase
             $twig,
             $this->sectionService,
             $this->memberService,
-            $scoutYearService,
+            $scoutYearResolver,
             $journalService
         );
 

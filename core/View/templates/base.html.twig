@@ -39,6 +39,22 @@
     </div>
     {% endif %}
 
+    {% if year_override_type is defined and year_override_type == 'session' %}
+    <div class="alert alert-warning d-flex align-items-center gap-2 rounded-0 mb-0 border-start-0 border-end-0" role="alert">
+        <i class="bi bi-clock-history"></i>
+        <span>Vous visualisez le site en {{ effective_scout_year }} (session uniquement).</span>
+        <form method="post" action="/admin/scout-year/clear-preview" class="ms-auto">
+            {{ csrf_field()|raw }}
+            <button type="submit" class="btn-close" aria-label="Revenir à l'année courante"></button>
+        </form>
+    </div>
+    {% elseif year_override_type is defined and year_override_type == 'staff' %}
+    <div class="alert alert-info d-flex align-items-center gap-2 rounded-0 mb-0 border-start-0 border-end-0" role="alert">
+        <i class="bi bi-info-circle"></i>
+        <span>Le staff voit actuellement l'année {{ effective_scout_year }}.</span>
+    </div>
+    {% endif %}
+
     <main class="container py-3">
         {% set flash = get_flash() %}
         {% if flash %}

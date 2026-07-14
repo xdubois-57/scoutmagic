@@ -1,0 +1,149 @@
+{% extends 'base.html.twig' %}
+{% block title %}Année scoute — {{ param('site_name') }}{% endblock %}
+{% block content %}
+    <h1>Année scoute</h1>
+    <p class="text-body-secondary">
+        Gérez l'année scoute affichée par le site : prévisualisez une année, préparez la prochaine avec le staff,
+        puis basculez tout le monde le moment venu.
+    </p>
+
+    {# Current public year #}
+    <div class="card mb-3">
+        <div class="card-body">
+            <div class="d-flex align-items-center gap-2 flex-wrap mb-1">
+                <h2 class="h5 mb-0">Année publique</h2>
+                <span class="badge bg-success-subtle text-success-emphasis">Active</span>
+            </div>
+            <p class="fs-5 fw-semibold mb-0">{{ public_year.label }}</p>
+            <p class="text-body-secondary small mb-0">Année vue par tout le monde.</p>
+        </div>
+    </div>
+
+    {# Staff year (only when set) #}
+    {% if staff_year %}
+    <div class="card mb-3">
+        <div class="card-body">
+            <div class="d-flex align-items-center gap-2 flex-wrap mb-1">
+                <h2 class="h5 mb-0">Année du staff</h2>
+                <span class="badge bg-info-subtle text-info-emphasis">Staff</span>
+            </div>
+            <p class="fs-5 fw-semibold mb-1">{{ staff_year.label }}</p>
+            <p class="text-body-secondary small mb-3">Vue par les chefs et intendants uniquement.</p>
+            <form method="post" action="/admin/scout-year/deactivate-staff">
+                {{ csrf_field()|raw }}
+                <button type="submit" class="btn btn-outline-secondary btn-sm">Désactiver l'année du staff</button>
+            </form>
+        </div>
+    </div>
+    {% endif %}
+
+    {# Status cards for the year currently in effect for you #}
+    <div class="row g-3 mb-4">
+        <div class="col-6">
+            <div class="card h-100">
+                <div class="card-body text-center">
+                    <div class="fs-3 fw-bold">{{ member_count }}</div>
+                    <div class="text-body-secondary small">membre(s) — {{ effective_year.label }}</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-6">
+            <div class="card h-100">
+                <div class="card-body text-center">
+                    <div class="fs-3 fw-bold">{{ section_count }}</div>
+                    <div class="text-body-secondary small">section(s) configurée(s)</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {# Preview any year (session-only) #}
+    <div class="card mb-3">
+        <div class="card-body">
+            <h2 class="h5">Prévisualiser une année</h2>
+            <p class="text-body-secondary small">
+                Change l'année affichée pour votre session uniquement. N'affecte aucun autre utilisateur.
+            </p>
+            <form method="post" action="/admin/scout-year/preview" class="d-flex flex-wrap gap-2 align-items-end">
+                {{ csrf_field()|raw }}
+                <div class="flex-grow-1">
+                    <label class="form-label" for="preview-year">Année</label>
+                    <select class="form-select" name="scout_year_id" id="preview-year">
+                        {% for y in years %}
+                            <option value="{{ y.id }}" {{ y.id == effective_year.id ? 'selected' : '' }}>{{ y.label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <button type="submit" class="btn btn-primary">Prévisualiser</button>
+            </form>
+            {% if effective_year.override_type == 'session' %}
+            <form method="post" action="/admin/scout-year/clear-preview" class="mt-2">
+                {{ csrf_field()|raw }}
+                <button type="submit" class="btn btn-outline-secondary">Revenir à l'année courante</button>
+            </form>
+            {% endif %}
+        </div>
+    </div>
+
+    {# Transition actions #}
+    <div class="card mb-3">
+        <div class="card-body">
+            <h2 class="h5">Changer d'année</h2>
+
+            <form method="post" action="/admin/scout-year/activate-staff" class="d-flex flex-wrap gap-2 align-items-end">
+                {{ csrf_field()|raw }}
+                <div class="flex-grow-1">
+                    <label class="form-label" for="staff-year">Activer pour le staff</label>
+                    <select class="form-select" name="scout_year_id" id="staff-year">
+                        {% for y in years %}
+                            <option value="{{ y.id }}" {{ staff_year and y.id == staff_year.id ? 'selected' : '' }}>{{ y.label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <button type="submit" class="btn btn-primary">Activer pour le staff</button>
+            </form>
+            <p class="text-body-secondary small mt-2">
+                Les chefs et intendants verront cette année ; le public garde l'année publique actuelle.
+            </p>
+
+            <hr>
+
+            <form method="post" action="/admin/scout-year/activate-public" id="activate-public-form"
+                  class="d-flex flex-wrap gap-2 align-items-end">
+                {{ csrf_field()|raw }}
+                <div class="flex-grow-1">
+                    <label class="form-label" for="public-year">Activer pour tout le monde</label>
+                    <select class="form-select" name="scout_year_id" id="public-year" {{ can_activate_public ? '' : 'disabled' }}>
+                        {% for y in years %}
+                            <option value="{{ y.id }}" {{ staff_year and y.id == staff_year.id ? 'selected' : '' }}>{{ y.label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <button type="submit" class="btn btn-danger" {{ can_activate_public ? '' : 'disabled' }}>
+                    Activer pour tout le monde
+                </button>
+            </form>
+            {% if can_activate_public %}
+            <p class="text-body-secondary small mb-0 mt-2">
+                Bascule l'ensemble du site (public inclus) sur l'année choisie et désactive l'année du staff.
+            </p>
+            {% else %}
+            <p class="text-body-secondary small mb-0 mt-2">
+                Activez d'abord une année pour le staff avant de la déployer pour tout le monde.
+            </p>
+            {% endif %}
+        </div>
+    </div>
+{% endblock %}
+
+{% block scripts %}
+{% if can_activate_public %}
+<script nonce="{{ csp_nonce }}">
+document.getElementById('activate-public-form')?.addEventListener('submit', function (e) {
+    if (!confirm('Activer cette année pour tout le monde ? Le public verra immédiatement cette année.')) {
+        e.preventDefault();
+    }
+});
+</script>
+{% endif %}
+{% endblock %}

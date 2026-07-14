@@ -212,6 +212,36 @@ class MemberYearRepository
     }
 
     /**
+     * Count active members for a given scout year.
+     */
+    public function countActiveByYear(int $scoutYearId): int
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT COUNT(*) FROM member_years WHERE scout_year_id = ? AND is_active = 1'
+        );
+        $stmt->execute([$scoutYearId]);
+
+        return (int) $stmt->fetchColumn();
+    }
+
+    /**
+     * Count distinct sections that have at least one active member function
+     * for a given scout year.
+     */
+    public function countConfiguredSectionsForYear(int $scoutYearId): int
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT COUNT(DISTINCT mf.section_id)
+             FROM member_functions mf
+             JOIN member_years my ON mf.member_year_id = my.id
+             WHERE my.scout_year_id = ? AND my.is_active = 1 AND mf.section_id IS NOT NULL'
+        );
+        $stmt->execute([$scoutYearId]);
+
+        return (int) $stmt->fetchColumn();
+    }
+
+    /**
      * Find a member year by ID.
      *
      * @return array<string, mixed>|null

@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Tests\Core\Http\Controller;
 
 use Core\Config\ScoutYearService;
+use Core\Config\SettingRepository;
+use Core\Config\SettingService;
 use Core\Http\Controller\ImportController;
 use Core\Http\Request;
 use Core\Import\AgeBranchRepository;
@@ -17,6 +19,7 @@ use Core\Import\ImportSectionRepository;
 use Core\Import\MappingResolver;
 use Core\Import\MemberRepository;
 use Core\Import\MemberYearRepository;
+use Core\ScoutYear\ScoutYearResolver;
 use Core\Security\EncryptionService;
 use Core\Security\UserAccountRepository;
 use PHPUnit\Framework\TestCase;
@@ -100,11 +103,14 @@ class ImportControllerTest extends TestCase
             $memberRepo, $memberYearRepo, $importJournalRepo, $userAccountRepo
         );
 
+        $settingService = new SettingService(new SettingRepository($this->pdo));
+        $scoutYearResolver = new ScoutYearResolver($scoutYearService, $settingService, $memberYearRepo);
+
         $storagePath = sys_get_temp_dir() . '/scoutmagic_test_' . uniqid();
         mkdir($storagePath, 0755, true);
 
         $this->controller = new ImportController(
-            $twig, $importService, $scoutYearService, $importJournalRepo, $functionRepo, $storagePath
+            $twig, $importService, $scoutYearResolver, $importJournalRepo, $functionRepo, $storagePath
         );
     }
 

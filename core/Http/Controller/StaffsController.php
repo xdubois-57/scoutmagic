@@ -4,12 +4,13 @@ declare(strict_types=1);
 
 namespace Core\Http\Controller;
 
-use Core\Config\ScoutYearService;
 use Core\Http\Request;
 use Core\Http\Response;
 use Core\Journal\JournalService;
 use Core\Member\MemberService;
 use Core\Member\SectionService;
+use Core\ScoutYear\ScoutYearResolver;
+use Core\ScoutYear\ScoutYearSession;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\Security\Role;
@@ -22,7 +23,7 @@ class StaffsController extends AbstractController
         protected Environment $twig,
         private SectionService $sectionService,
         private MemberService $memberService,
-        private ScoutYearService $scoutYearService,
+        private ScoutYearResolver $scoutYearResolver,
         private JournalService $journalService
     ) {
     }
@@ -37,8 +38,8 @@ class StaffsController extends AbstractController
     public function index(Request $request, array $params): Response
     {
         $currentRole = Role::fromString(AuthSession::getRole());
-        $scoutYear = $this->scoutYearService->getCurrentYear();
-        $scoutYearId = (int) $scoutYear['id'];
+        $effectiveYear = $this->scoutYearResolver->getEffectiveYear(ScoutYearSession::getPreviewId(), $currentRole);
+        $scoutYearId = $effectiveYear->id;
         $email = AuthSession::getEmail() ?? '';
 
         // Get all sections

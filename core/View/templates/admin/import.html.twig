@@ -8,7 +8,9 @@
         <div class="card-body">
             <h2 class="h5">Année scoute</h2>
             <p class="text-body-secondary small">
-                L'import ajoutera ou mettra à jour les données pour l'année sélectionnée.
+                L'import s'applique à l'année <strong>{{ current_year.label }}</strong> (année publique).
+                Il ajoutera ou mettra à jour les données pour l'année sélectionnée, indépendamment
+                d'une éventuelle prévisualisation en cours.
             </p>
             <div class="d-flex align-items-center gap-2">
                 <span class="fw-semibold">{{ current_year.label }}</span>

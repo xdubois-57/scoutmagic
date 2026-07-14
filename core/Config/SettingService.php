@@ -46,6 +46,29 @@ class SettingService
     }
 
     /**
+     * Set a setting value programmatically, bypassing the `editable` guard.
+     *
+     * For settings managed by the application itself (e.g. the active scout year,
+     * scheduler bookkeeping) rather than hand-edited through the settings UI. The
+     * value is still validated against the setting's type and regex.
+     *
+     * @throws SettingException
+     */
+    public function setInternal(string $key, string $value, ?string $moduleId = null): void
+    {
+        $setting = $this->repository->findByModuleAndKey($moduleId, $key);
+        if ($setting === null) {
+            throw new SettingException("Setting '{$key}' not found.");
+        }
+        if (!$this->validateValue($value, $setting)) {
+            throw new SettingException("Invalid value for setting '{$key}'.");
+        }
+
+        $this->repository->updateValue($moduleId, $key, $value);
+        $this->clearCache();
+    }
+
+    /**
      * Register a setting if it doesn't exist yet.
      *
      * @param array<int, string>|null $selectOptions

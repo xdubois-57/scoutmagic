@@ -34,6 +34,29 @@ class ScoutYearService
     }
 
     /**
+     * Find a scout year by id.
+     *
+     * @return array{id: int, label: string, start_date: string, end_date: string}|null
+     */
+    public function findById(int $id): ?array
+    {
+        $stmt = $this->pdo->prepare('SELECT * FROM scout_years WHERE id = ?');
+        $stmt->execute([$id]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+        if ($row === false) {
+            return null;
+        }
+
+        return [
+            'id' => (int) $row['id'],
+            'label' => (string) $row['label'],
+            'start_date' => (string) $row['start_date'],
+            'end_date' => (string) $row['end_date'],
+        ];
+    }
+
+    /**
      * Get all scout years, ordered by start_date descending.
      *
      * @return array<int, array{id: int, label: string, start_date: string, end_date: string}>

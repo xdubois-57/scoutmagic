@@ -104,6 +104,7 @@ class DatabaseTestHelper
             unit_mail_consent INTEGER NOT NULL DEFAULT 0,
             fee_category_id INTEGER,
             unit_code TEXT,
+            is_active INTEGER NOT NULL DEFAULT 1,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(member_id, scout_year_id),
             FOREIGN KEY (member_id) REFERENCES members(id),
