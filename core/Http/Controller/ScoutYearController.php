@@ -127,7 +127,7 @@ class ScoutYearController extends AbstractController
             'core',
             'scout_year_staff_activated',
             'security',
-            "Staff scout year set to {$year['label']}",
+            "Année scoute du staff activée : {$year['label']}",
             ['year_id' => $yearId],
             AuthSession::getUserAccountId()
         );
@@ -152,7 +152,7 @@ class ScoutYearController extends AbstractController
             'core',
             'scout_year_staff_deactivated',
             'security',
-            'Staff scout year cleared',
+            'Année scoute du staff désactivée',
             [],
             AuthSession::getUserAccountId()
         );
@@ -186,7 +186,7 @@ class ScoutYearController extends AbstractController
             'core',
             'scout_year_public_activated',
             'security',
-            "Public scout year set to {$year['label']}",
+            "Année scoute publique activée : {$year['label']}",
             ['old_year_id' => $oldYearId, 'new_year_id' => $yearId],
             AuthSession::getUserAccountId()
         );

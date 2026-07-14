@@ -29,7 +29,17 @@ class JournalService
         ?int $userId = null
     ): void {
         $contextJson = !empty($context) ? json_encode($context) : null;
-        $this->repository->insert($category, $type, $level, $description, $contextJson, $userId);
+        $this->repository->insert($category, $type, $level, $description, $contextJson, $userId, self::currentIp());
+    }
+
+    /**
+     * Best-effort client IP for the current request. Null on CLI / when unavailable.
+     */
+    private static function currentIp(): ?string
+    {
+        $ip = $_SERVER['REMOTE_ADDR'] ?? null;
+
+        return is_string($ip) && $ip !== '' ? $ip : null;
     }
 
     /**

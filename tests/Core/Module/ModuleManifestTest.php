@@ -156,7 +156,7 @@ class ModuleManifestTest extends TestCase
             'name' => 'Test',
             'version' => '1.0.0',
             'routes' => [
-                ['path' => '/test', 'controller' => 'C', 'action' => 'a', 'menu' => 'notre_unite', 'role_min' => 'superadmin'],
+                ['path' => '/test', 'controller' => 'C', 'action' => 'a', 'menu' => 'notre_unite', 'role_min' => 'wizard'],
             ],
         ]);
     }

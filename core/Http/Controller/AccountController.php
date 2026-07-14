@@ -165,6 +165,12 @@ class AccountController extends AbstractController
             return $this->json(['success' => false, 'error' => 'Données invalides.']);
         }
 
+        // CSRF: the client sends the token in the X-CSRF-Token header (fallback to body).
+        $csrfToken = (string) ($request->getServer('HTTP_X_CSRF_TOKEN', '') ?: ($body['_csrf_token'] ?? ''));
+        if (!CsrfGuard::validateToken($csrfToken)) {
+            return $this->json(['success' => false, 'error' => 'Jeton CSRF invalide.'], 403);
+        }
+
         $deviceLabel = trim((string) ($body['device_label'] ?? 'Clé sans nom'));
         if ($deviceLabel === '') {
             $deviceLabel = 'Clé sans nom';

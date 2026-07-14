@@ -19,8 +19,8 @@ class MenuBuilder
         ['id' => self::MENU_NOTRE_UNITE,   'label' => 'Notre unité',       'icon' => 'bi-house',    'role_min' => 'public'],
         ['id' => self::MENU_ESPACE_ANIMES, 'label' => 'Espace des animés', 'icon' => 'bi-people',   'role_min' => 'identified'],
         ['id' => self::MENU_ESPACE_CHEFS,  'label' => 'Espace des chefs',  'icon' => 'bi-star',     'role_min' => 'intendant'],
-        ['id' => self::MENU_ESPACE_ADMIN,  'label' => 'Espace admin',      'icon' => 'bi-gear',     'role_min' => 'chief'],
-        ['id' => self::MENU_CONFIGURATION, 'label' => 'Configuration',     'icon' => 'bi-sliders',  'role_min' => 'admin'],
+        ['id' => self::MENU_ESPACE_ADMIN,  'label' => 'Espace admin',      'icon' => 'bi-gear',     'role_min' => 'admin'],
+        ['id' => self::MENU_CONFIGURATION, 'label' => 'Configuration',     'icon' => 'bi-sliders',  'role_min' => 'superadmin'],
     ];
 
     /** @var array<string, array<array{label?: string, url?: string, roleMin: string, order: int, isDynamic: bool, isSeparator: bool, subtitle?: string|null}>> */

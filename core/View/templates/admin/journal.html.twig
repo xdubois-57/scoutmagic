@@ -29,6 +29,16 @@
                     <input type="text" name="search" class="form-control form-control-sm"
                            value="{{ filter_search }}" placeholder="Texte...">
                 </div>
+                <div class="col-12 col-md-3">
+                    <label class="form-label small">Email</label>
+                    <input type="email" name="email" class="form-control form-control-sm"
+                           value="{{ filter_email }}" placeholder="nom@exemple.be">
+                </div>
+                <div class="col-6 col-md-2">
+                    <label class="form-label small">Adresse IP</label>
+                    <input type="text" name="ip" class="form-control form-control-sm"
+                           value="{{ filter_ip }}" placeholder="192.168...">
+                </div>
                 <div class="col-6 col-md-2">
                     <label class="form-label small">Du</label>
                     <input type="date" name="date_from" class="form-control form-control-sm"
@@ -39,7 +49,7 @@
                     <input type="date" name="date_to" class="form-control form-control-sm"
                            value="{{ filter_date_to }}">
                 </div>
-                <div class="col-12 col-md-1">
+                <div class="col-12 col-md-2">
                     <button type="submit" class="btn btn-primary btn-sm w-100">Filtrer</button>
                 </div>
             </div>
@@ -57,6 +67,8 @@
                         <th style="width:140px;">Date</th>
                         <th style="width:80px;">Niveau</th>
                         <th style="width:100px;">Catégorie</th>
+                        <th style="width:180px;">Utilisateur</th>
+                        <th style="width:120px;">IP</th>
                         <th>Description</th>
                     </tr>
                 </thead>
@@ -72,17 +84,19 @@
                             {% endif %}
                         </td>
                         <td class="small">{{ entry.category }}</td>
+                        <td class="small text-truncate" style="max-width:180px;">{{ entry.user_email ?? '—' }}</td>
+                        <td class="small text-nowrap">{{ entry.ip_address ?? '—' }}</td>
                         <td class="small">{{ entry.description }}</td>
                     </tr>
                     {% if entry.context %}
                     <tr class="d-none context-row">
-                        <td colspan="4">
+                        <td colspan="6">
                             <pre class="bg-body-tertiary p-2 rounded small mb-0">{{ entry.context }}</pre>
                         </td>
                     </tr>
                     {% endif %}
                     {% else %}
-                    <tr><td colspan="4" class="text-center text-body-secondary py-4">Aucune entrée trouvée.</td></tr>
+                    <tr><td colspan="6" class="text-center text-body-secondary py-4">Aucune entrée trouvée.</td></tr>
                     {% endfor %}
                 </tbody>
             </table>
@@ -103,7 +117,11 @@
                     {% endif %}
                 </div>
                 <div class="small">{{ entry.description }}</div>
-                <div class="text-body-secondary" style="font-size:0.7rem;">{{ entry.category }}</div>
+                <div class="text-body-secondary" style="font-size:0.7rem;">
+                    {{ entry.category }}
+                    {% if entry.user_email %} · {{ entry.user_email }}{% endif %}
+                    {% if entry.ip_address %} · {{ entry.ip_address }}{% endif %}
+                </div>
                 {% if entry.context %}
                 <pre class="bg-body-tertiary p-2 rounded small mb-0 mt-1 d-none context-detail">{{ entry.context }}</pre>
                 {% endif %}
@@ -120,7 +138,7 @@
         <ul class="pagination pagination-sm justify-content-center">
             {% for p in 1..total_pages %}
                 <li class="page-item {{ p == page ? 'active' : '' }}">
-                    <a class="page-link" href="?category={{ filter_category }}&level={{ filter_level }}&search={{ filter_search }}&date_from={{ filter_date_from }}&date_to={{ filter_date_to }}&page={{ p }}">{{ p }}</a>
+                    <a class="page-link" href="?category={{ filter_category }}&level={{ filter_level }}&search={{ filter_search }}&email={{ filter_email }}&ip={{ filter_ip }}&date_from={{ filter_date_from }}&date_to={{ filter_date_to }}&page={{ p }}">{{ p }}</a>
                 </li>
             {% endfor %}
         </ul>

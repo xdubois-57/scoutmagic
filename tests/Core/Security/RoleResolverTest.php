@@ -85,11 +85,11 @@ class RoleResolverTest extends TestCase
         $stmt->execute([$memberYearId, $functionId]);
     }
 
-    public function testSuperAdminReturnsAdminRole(): void
+    public function testSuperAdminReturnsSuperadminRole(): void
     {
         $this->createUserAccount('admin@test.com', true);
         $role = $this->resolver->resolve('admin@test.com', $this->scoutYearId);
-        $this->assertSame('admin', $role);
+        $this->assertSame('superadmin', $role);
     }
 
     public function testMemberWithConfirmedChiefFunctionReturnsChief(): void

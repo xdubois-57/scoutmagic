@@ -283,7 +283,7 @@ class AuthController extends AbstractController
         // Fallback for cases without role resolver
         if ($userAccountId !== null) {
             $user = $this->authService->getUserById($userAccountId);
-            return ($user !== null && $user->isSuperAdmin) ? 'admin' : 'identified';
+            return ($user !== null && $user->isSuperAdmin) ? 'superadmin' : 'identified';
         }
 
         return 'identified';

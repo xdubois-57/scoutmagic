@@ -16,14 +16,15 @@ class JournalRepository
         string $level,
         string $description,
         ?string $contextJson,
-        ?int $userId
+        ?int $userId,
+        ?string $ipAddress = null
     ): void {
         $now = (new \DateTimeImmutable())->format('Y-m-d H:i:s');
         $stmt = $this->pdo->prepare(
-            'INSERT INTO event_log (logged_at, user_account_id, category, event_type, level, description, context)
-             VALUES (?, ?, ?, ?, ?, ?, ?)'
+            'INSERT INTO event_log (logged_at, user_account_id, ip_address, category, event_type, level, description, context)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
         );
-        $stmt->execute([$now, $userId, $category, $type, $level, $description, $contextJson]);
+        $stmt->execute([$now, $userId, $ipAddress, $category, $type, $level, $description, $contextJson]);
     }
 
     /**
@@ -35,12 +36,14 @@ class JournalRepository
         ?string $search = null,
         ?string $dateFrom = null,
         ?string $dateTo = null,
+        ?string $ip = null,
+        ?int $userAccountId = null,
         int $limit = 50,
         int $offset = 0
     ): array {
         $where = [];
         $params = [];
-        $this->buildFilters($category, $level, $search, $dateFrom, $dateTo, $where, $params);
+        $this->buildFilters($category, $level, $search, $dateFrom, $dateTo, $ip, $userAccountId, $where, $params);
 
         $sql = 'SELECT * FROM event_log'
             . ($where ? ' WHERE ' . implode(' AND ', $where) : '')
@@ -58,11 +61,13 @@ class JournalRepository
         ?string $level = null,
         ?string $search = null,
         ?string $dateFrom = null,
-        ?string $dateTo = null
+        ?string $dateTo = null,
+        ?string $ip = null,
+        ?int $userAccountId = null
     ): int {
         $where = [];
         $params = [];
-        $this->buildFilters($category, $level, $search, $dateFrom, $dateTo, $where, $params);
+        $this->buildFilters($category, $level, $search, $dateFrom, $dateTo, $ip, $userAccountId, $where, $params);
 
         $sql = 'SELECT COUNT(*) FROM event_log'
             . ($where ? ' WHERE ' . implode(' AND ', $where) : '');
@@ -99,6 +104,8 @@ class JournalRepository
         ?string $search,
         ?string $dateFrom,
         ?string $dateTo,
+        ?string $ip,
+        ?int $userAccountId,
         array &$where,
         array &$params
     ): void {
@@ -121,6 +128,14 @@ class JournalRepository
         if ($dateTo !== null && $dateTo !== '') {
             $where[] = 'logged_at <= ?';
             $params[] = $dateTo . ' 23:59:59';
+        }
+        if ($ip !== null && $ip !== '') {
+            $where[] = 'ip_address LIKE ?';
+            $params[] = '%' . $ip . '%';
+        }
+        if ($userAccountId !== null) {
+            $where[] = 'user_account_id = ?';
+            $params[] = $userAccountId;
         }
     }
 }

@@ -207,7 +207,7 @@ class AuthControllerTest extends TestCase
         $this->assertTrue($body['confirmed']);
         $this->assertTrue(AuthSession::isAuthenticated());
         $this->assertSame(5, AuthSession::getUserAccountId());
-        $this->assertSame('admin', AuthSession::getRole());
+        $this->assertSame('superadmin', AuthSession::getRole());
     }
 
     private function startTestSession(): void

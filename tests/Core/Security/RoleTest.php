@@ -16,6 +16,10 @@ class RoleTest extends TestCase
         $this->assertSame(2, Role::INTENDANT->level());
         $this->assertSame(3, Role::CHIEF->level());
         $this->assertSame(4, Role::ADMIN->level());
+        $this->assertSame(5, Role::SUPERADMIN->level());
+        $this->assertSame(Role::SUPERADMIN, Role::fromString('superadmin'));
+        $this->assertTrue(Role::SUPERADMIN->hasAccess(Role::ADMIN));
+        $this->assertFalse(Role::ADMIN->hasAccess(Role::SUPERADMIN));
     }
 
     public function testPublicHasAccessToPublic(): void
@@ -60,6 +64,6 @@ class RoleTest extends TestCase
     {
         $this->assertSame(Role::PUBLIC, Role::fromString('unknown'));
         $this->assertSame(Role::PUBLIC, Role::fromString(''));
-        $this->assertSame(Role::PUBLIC, Role::fromString('superadmin'));
+        $this->assertSame(Role::PUBLIC, Role::fromString('wizard'));
     }
 }

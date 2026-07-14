@@ -145,4 +145,126 @@ class WebAuthnServiceTest extends TestCase
             'response' => ['clientDataJSON' => 'dGVzdA', 'attestationObject' => 'dGVzdA']
         ], 'Test Key');
     }
+
+    public function testVerifyRegistrationStoresCredentialForValidNoneAttestation(): void
+    {
+        $challenge = random_bytes(32);
+        $_SESSION['webauthn_challenge'] = base64_encode($challenge);
+        $_SESSION['webauthn_user_id'] = $this->userId;
+
+        $response = $this->buildRegistrationResponse($challenge, 'https://localhost', 'localhost');
+        $id = $this->service->verifyRegistration($this->userId, $response, 'My Key');
+
+        $this->assertGreaterThan(0, $id);
+        $credentials = $this->credentialRepo->findByUserAccountId($this->userId);
+        $this->assertCount(1, $credentials);
+    }
+
+    public function testVerifyRegistrationAcceptsLocalhostOriginWithDifferentSchemeAndPort(): void
+    {
+        // rpOrigin is https://localhost, but the browser serves the page from
+        // http://localhost:8000 — the host still matches rpId, so it is accepted.
+        $challenge = random_bytes(32);
+        $_SESSION['webauthn_challenge'] = base64_encode($challenge);
+        $_SESSION['webauthn_user_id'] = $this->userId;
+
+        $response = $this->buildRegistrationResponse($challenge, 'http://localhost:8000', 'localhost');
+        $id = $this->service->verifyRegistration($this->userId, $response, 'Dev Key');
+
+        $this->assertGreaterThan(0, $id);
+    }
+
+    public function testVerifyRegistrationRejectsForeignOrigin(): void
+    {
+        $challenge = random_bytes(32);
+        $_SESSION['webauthn_challenge'] = base64_encode($challenge);
+        $_SESSION['webauthn_user_id'] = $this->userId;
+
+        $response = $this->buildRegistrationResponse($challenge, 'https://evil.example.com', 'localhost');
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('Origin mismatch.');
+        $this->service->verifyRegistration($this->userId, $response, 'Bad Key');
+    }
+
+    public function testVerifyRegistrationRejectsChallengeMismatch(): void
+    {
+        $_SESSION['webauthn_challenge'] = base64_encode(random_bytes(32));
+        $_SESSION['webauthn_user_id'] = $this->userId;
+
+        // clientData carries a different challenge than the one stored.
+        $response = $this->buildRegistrationResponse(random_bytes(32), 'https://localhost', 'localhost');
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('Challenge mismatch.');
+        $this->service->verifyRegistration($this->userId, $response, 'Key');
+    }
+
+    /**
+     * Build a fake but structurally valid registration response (WebAuthn "none"
+     * attestation) for the given challenge, browser origin, and rpId.
+     *
+     * @return array<string, mixed>
+     */
+    private function buildRegistrationResponse(string $challenge, string $origin, string $rpId): array
+    {
+        $clientData = json_encode([
+            'type' => 'webauthn.create',
+            'challenge' => $this->b64url($challenge),
+            'origin' => $origin,
+            'crossOrigin' => false,
+        ]);
+
+        return [
+            'response' => [
+                'clientDataJSON' => $this->b64url((string) $clientData),
+                'attestationObject' => $this->b64url($this->buildAttestationObject($rpId)),
+            ],
+        ];
+    }
+
+    private function b64url(string $bytes): string
+    {
+        return rtrim(strtr(base64_encode($bytes), '+/', '-_'), '=');
+    }
+
+    private function buildAttestationObject(string $rpId): string
+    {
+        $rpIdHash = hash('sha256', $rpId, true);      // 32 bytes
+        $flags = "\x41";                               // UP (0x01) | AT (0x40)
+        $signCount = "\x00\x00\x00\x00";
+        $aaguid = str_repeat("\x00", 16);
+        $credId = str_repeat("\x11", 16);
+        $credIdLen = pack('n', strlen($credId));       // 2 bytes, big-endian
+
+        // COSE EC P-256 public key: {1:2, 3:-7, -1:1, -2:x(32), -3:y(32)}
+        $x = str_repeat("\x01", 32);
+        $y = str_repeat("\x02", 32);
+        $cose = "\xA5"
+            . "\x01\x02"
+            . "\x03\x26"
+            . "\x20\x01"
+            . "\x21\x58\x20" . $x
+            . "\x22\x58\x20" . $y;
+
+        $authData = $rpIdHash . $flags . $signCount . $aaguid . $credIdLen . $credId . $cose;
+
+        // CBOR map(3): { "fmt":"none", "attStmt":{}, "authData": bstr(authData) }
+        return "\xA3"
+            . "\x63" . 'fmt' . "\x64" . 'none'
+            . "\x67" . 'attStmt' . "\xA0"
+            . "\x68" . 'authData' . $this->cborByteString($authData);
+    }
+
+    private function cborByteString(string $bytes): string
+    {
+        $len = strlen($bytes);
+        if ($len < 24) {
+            return chr(0x40 | $len) . $bytes;
+        }
+        if ($len < 256) {
+            return "\x58" . chr($len) . $bytes;
+        }
+        return "\x59" . pack('n', $len) . $bytes;
+    }
 }

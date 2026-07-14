@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Core\View;
 
 use Core\Security\AuthSession;
+use Core\Security\Role;
 
 class ConfigurationMode
 {
@@ -12,11 +13,11 @@ class ConfigurationMode
 
     /**
      * Activate configuration mode for the current session.
-     * Only callable by admin role.
+     * Only callable by the top administrator role (Configuration area).
      */
     public static function activate(string $currentRole): bool
     {
-        if ($currentRole !== 'admin') {
+        if (!Role::fromString($currentRole)->hasAccess(Role::SUPERADMIN)) {
             return false;
         }
 
@@ -43,7 +44,7 @@ class ConfigurationMode
             return false;
         }
 
-        if (AuthSession::getRole() !== 'admin') {
+        if (!Role::fromString(AuthSession::getRole())->hasAccess(Role::SUPERADMIN)) {
             self::deactivate();
             return false;
         }

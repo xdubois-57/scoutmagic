@@ -33,6 +33,16 @@ L'unité scoute propriétaire du site (configurée via la page de configuration)
 Toutes les données personnelles sont chiffrées au repos (AES-256-CBC) et
 déchiffrées uniquement dans la couche Repository.
 
+### Journal d'audit (`event_log`)
+
+| Champ | Finalité |
+|---|---|
+| Adresse IP | Journalisation des actions sensibles à des fins de sécurité (détection d'abus) |
+| Compte auteur de l'action | Traçabilité ; l'email est résolu à l'affichage pour les chefs d'unité, jamais stocké en clair |
+
+Le journal ne contient aucune autre donnée personnelle. Base légale : intérêt
+légitime (sécurité du site). Conservation selon le paramètre de rétention du journal.
+
 ## Base légale
 
 - **Intérêt légitime** : gestion de l'unité scoute (membres, fonctions, sections).

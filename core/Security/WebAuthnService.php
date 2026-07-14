@@ -105,7 +105,7 @@ class WebAuthnService
         }
 
         // Verify origin
-        if (($clientData['origin'] ?? '') !== $this->rpOrigin) {
+        if (!$this->isOriginValid((string) ($clientData['origin'] ?? ''))) {
             throw new \RuntimeException('Origin mismatch.');
         }
 
@@ -196,7 +196,7 @@ class WebAuthnService
         }
 
         // Verify origin
-        if (($clientData['origin'] ?? '') !== $this->rpOrigin) {
+        if (!$this->isOriginValid((string) ($clientData['origin'] ?? ''))) {
             return null;
         }
 
@@ -429,6 +429,39 @@ class WebAuthnService
                (ord($authData[34]) << 16) |
                (ord($authData[35]) << 8) |
                ord($authData[36]);
+    }
+
+    /**
+     * Validate the client-supplied origin.
+     *
+     * Accepts an exact match with the configured rpOrigin, or — more robustly —
+     * any origin whose host equals the rpId (case-insensitive). This tolerates
+     * scheme/port differences between the configured base_url and the actual
+     * host the site is served from (e.g. http://localhost:8000 in development
+     * versus an https base_url). For non-local hosts, https is still required so
+     * a real domain cannot be downgraded.
+     */
+    private function isOriginValid(string $origin): bool
+    {
+        if ($origin === '') {
+            return false;
+        }
+        if ($origin === $this->rpOrigin) {
+            return true;
+        }
+
+        $host = parse_url($origin, PHP_URL_HOST);
+        $scheme = parse_url($origin, PHP_URL_SCHEME);
+        if (!is_string($host) || $host === '') {
+            return false;
+        }
+        if (strcasecmp($host, $this->rpId) !== 0) {
+            return false;
+        }
+
+        $isLocal = in_array(strtolower($host), ['localhost', '127.0.0.1'], true);
+
+        return $isLocal || $scheme === 'https';
     }
 
     private function base64UrlEncode(string $data): string

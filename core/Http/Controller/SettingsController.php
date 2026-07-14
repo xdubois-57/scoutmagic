@@ -78,7 +78,7 @@ class SettingsController extends AbstractController
             'core',
             'setting_changed',
             'info',
-            "Setting '{$key}' modified",
+            "Paramètre « {$key} » modifié",
             ['key' => $key, 'module_id' => $moduleId, 'old_value' => $oldValue, 'new_value' => $value, 'ip' => $_SERVER['REMOTE_ADDR'] ?? ''],
             AuthSession::getUserAccountId()
         );

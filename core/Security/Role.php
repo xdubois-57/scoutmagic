@@ -10,7 +10,9 @@ enum Role: string
     case IDENTIFIED = 'identified';
     case INTENDANT = 'intendant';
     case CHIEF = 'chief';
+    // ADMIN is displayed as "Chef d'Unité"; SUPERADMIN is the top site administrator.
     case ADMIN = 'admin';
+    case SUPERADMIN = 'superadmin';
 
     /**
      * Numeric level for comparison. Higher = more access.
@@ -23,6 +25,7 @@ enum Role: string
             self::INTENDANT => 2,
             self::CHIEF => 3,
             self::ADMIN => 4,
+            self::SUPERADMIN => 5,
         };
     }
 

@@ -146,7 +146,7 @@ class StaffsController extends AbstractController
             'core',
             'section_info_updated',
             'info',
-            "Section {$oldSection['desk_code']} info updated",
+            "Informations de la section {$oldSection['desk_code']} mises à jour",
             [
                 'section_id' => $sectionId,
                 'old_name' => $oldSection['name'],

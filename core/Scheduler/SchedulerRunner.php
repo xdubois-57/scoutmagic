@@ -69,7 +69,7 @@ class SchedulerRunner
                     'core',
                     'scheduler_task_failed',
                     'info',
-                    "Scheduled task '{$task['task_key']}' failed: no handler registered",
+                    "Tâche planifiée « {$task['task_key']} » échouée : aucun gestionnaire enregistré",
                     ['task_id' => $task['id'], 'module_id' => $task['module_id']]
                 );
                 continue;
@@ -86,7 +86,7 @@ class SchedulerRunner
                     'core',
                     'scheduler_task_done',
                     'info',
-                    "Scheduled task '{$task['task_key']}' completed",
+                    "Tâche planifiée « {$task['task_key']} » terminée",
                     ['task_id' => $task['id'], 'module_id' => $task['module_id']]
                 );
             } catch (\Throwable $e) {
@@ -95,7 +95,7 @@ class SchedulerRunner
                     'core',
                     'scheduler_task_failed',
                     'info',
-                    "Scheduled task '{$task['task_key']}' failed: " . $e->getMessage(),
+                    "Tâche planifiée « {$task['task_key']} » échouée : " . $e->getMessage(),
                     ['task_id' => $task['id'], 'module_id' => $task['module_id']]
                 );
             }

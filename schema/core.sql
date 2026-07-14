@@ -222,6 +222,7 @@ CREATE TABLE event_log (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     logged_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     user_account_id INT UNSIGNED,
+    ip_address VARCHAR(45),
     category VARCHAR(50) NOT NULL,
     event_type VARCHAR(100) NOT NULL,
     level ENUM('info', 'security') NOT NULL DEFAULT 'info',
@@ -231,6 +232,7 @@ CREATE TABLE event_log (
     INDEX idx_category (category),
     INDEX idx_level (level),
     INDEX idx_user (user_account_id),
+    INDEX idx_ip (ip_address),
     CONSTRAINT fk_el_user FOREIGN KEY (user_account_id) REFERENCES user_accounts(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

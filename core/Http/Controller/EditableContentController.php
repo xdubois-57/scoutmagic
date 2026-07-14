@@ -73,7 +73,7 @@ class EditableContentController extends AbstractController
         $this->editableContentService->set($key, $value, $type, $userId);
 
         $this->journalService?->log(
-            'core', 'content_updated', 'info', 'Editable content modified',
+            'core', 'content_updated', 'info', 'Contenu éditable modifié',
             ['key' => $key, 'type' => $type, 'ip' => $_SERVER['REMOTE_ADDR'] ?? ''],
             $userId
         );

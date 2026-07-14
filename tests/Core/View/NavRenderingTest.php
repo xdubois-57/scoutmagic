@@ -128,7 +128,7 @@ class NavRenderingTest extends TestCase
 
     public function testActivePageHighlighted(): void
     {
-        $html = $this->renderNav(Role::ADMIN, true, '/setup');
+        $html = $this->renderNav(Role::SUPERADMIN, true, '/setup');
         // The active submenu bar should not have d-none
         $this->assertStringContainsString('data-submenu-id="configuration"', $html);
     }

@@ -38,7 +38,7 @@ class PasswordAuthMethod
         $lockout = $this->throttler->getLockoutRemaining($blindIndex);
         if ($lockout > 0) {
             $this->journalService?->log(
-                'core', 'login_lockout', 'security', 'Account locked out',
+                'core', 'login_lockout', 'security', 'Compte temporairement verrouillé (trop de tentatives)',
                 ['ip' => $_SERVER['REMOTE_ADDR'] ?? '', 'locked_seconds' => $lockout]
             );
             return ['account' => null, 'locked_seconds' => $lockout];
@@ -69,7 +69,7 @@ class PasswordAuthMethod
         $this->throttler->clearFailures($blindIndex);
 
         $this->journalService?->log(
-            'core', 'login_success', 'security', 'Login via password',
+            'core', 'login_success', 'security', 'Connexion par mot de passe',
             ['ip' => $_SERVER['REMOTE_ADDR'] ?? ''],
             $account->id
         );

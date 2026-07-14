@@ -16,9 +16,9 @@ use Twig\Environment;
 use Twig\Loader\FilesystemLoader;
 
 /**
- * RBAC boundary for the scout-year routes: all require `chief`.
- * Allowed at chief, denied (403) one level below (intendant),
- * redirect (302 /login) when unauthenticated.
+ * RBAC boundary for the scout-year routes (Espace admin): all require `admin`
+ * (displayed as "Chef d'Unité"). Allowed at admin, denied (403) one level below
+ * (chief), redirect (302 /login) when unauthenticated.
  */
 class ScoutYearRbacTest extends TestCase
 {
@@ -71,7 +71,7 @@ class ScoutYearRbacTest extends TestCase
     {
         $router = new Router();
         foreach (self::ROUTES as [$method, $path]) {
-            $router->addRoute($method, $path, ScoutYearStubController::class, 'index', 'chief');
+            $router->addRoute($method, $path, ScoutYearStubController::class, 'index', 'admin');
         }
         $fc = new FrontController($router, $this->twig, $this->config);
         $fc->registerController(ScoutYearStubController::class, new ScoutYearStubController($this->twig));
@@ -88,7 +88,19 @@ class ScoutYearRbacTest extends TestCase
         }
     }
 
-    public function testChiefIsAllowed(): void
+    public function testAdminIsAllowed(): void
+    {
+        $this->startTestSession();
+        AuthSession::login(1, 'unitchief@test.com', 'admin');
+        $fc = $this->buildFrontController();
+
+        foreach (self::ROUTES as [$method, $path]) {
+            $response = $fc->handle(new Request($method, $path, [], [], [], []));
+            $this->assertSame(200, $response->getStatusCode(), "{$method} {$path} should be allowed for admin (Chef d'Unité)");
+        }
+    }
+
+    public function testChiefIsDenied(): void
     {
         $this->startTestSession();
         AuthSession::login(1, 'chief@test.com', 'chief');
@@ -96,19 +108,7 @@ class ScoutYearRbacTest extends TestCase
 
         foreach (self::ROUTES as [$method, $path]) {
             $response = $fc->handle(new Request($method, $path, [], [], [], []));
-            $this->assertSame(200, $response->getStatusCode(), "{$method} {$path} should be allowed for chief");
-        }
-    }
-
-    public function testIntendantIsDenied(): void
-    {
-        $this->startTestSession();
-        AuthSession::login(1, 'intendant@test.com', 'intendant');
-        $fc = $this->buildFrontController();
-
-        foreach (self::ROUTES as [$method, $path]) {
-            $response = $fc->handle(new Request($method, $path, [], [], [], []));
-            $this->assertSame(403, $response->getStatusCode(), "{$method} {$path} should be denied for intendant");
+            $this->assertSame(403, $response->getStatusCode(), "{$method} {$path} should be denied for chief");
         }
     }
 

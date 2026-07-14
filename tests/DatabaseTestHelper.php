@@ -225,6 +225,7 @@ class DatabaseTestHelper
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             logged_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             user_account_id INTEGER,
+            ip_address TEXT,
             category TEXT NOT NULL,
             event_type TEXT NOT NULL,
             level TEXT NOT NULL DEFAULT \'info\',

@@ -18,6 +18,18 @@ class Connection
     }
 
     /**
+     * Build a Connection backed by an existing PDO instance instead of connecting
+     * lazily from credentials. Intended for tests (e.g. an in-memory SQLite PDO).
+     */
+    public static function withPdo(\PDO $pdo): self
+    {
+        $connection = new self('', 0, '', '', '');
+        $connection->pdo = $pdo;
+
+        return $connection;
+    }
+
+    /**
      * Get the PDO instance (lazy connection — connects on first call).
      */
     public function getPdo(): \PDO

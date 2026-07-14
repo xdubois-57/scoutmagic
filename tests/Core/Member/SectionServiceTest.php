@@ -24,8 +24,7 @@ class SectionServiceTest extends TestCase
     {
         $this->pdo = DatabaseTestHelper::createTestDatabase();
         $this->encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
-        /** @phpstan-ignore-next-line */
-        $connection = new Connection($this->pdo);
+        $connection = Connection::withPdo($this->pdo);
         $this->service = new SectionService($connection, $this->encryption);
 
         // Create scout year

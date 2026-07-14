@@ -344,7 +344,8 @@ $roleLabelMap = [
     'identified' => 'Animé',
     'intendant' => 'Intendant',
     'chief' => 'Chef',
-    'admin' => 'Admin',
+    'admin' => 'Chef d\'Unité',
+    'superadmin' => 'Administrateur',
 ];
 
 // Set Twig globals for auth state (after session is started)
@@ -393,14 +394,14 @@ $menuBuilder->addPage(MenuBuilder::MENU_NOTRE_UNITE, 'Contact', '/contact', 'pub
 $menuBuilder->addPage(MenuBuilder::MENU_NOTRE_UNITE, 'Sections', '/sections', 'public', 30);
 $menuBuilder->addPage(MenuBuilder::MENU_NOTRE_UNITE, 'Protection des données', '/rgpd', 'public', 40);
 $menuBuilder->addPage(MenuBuilder::MENU_ESPACE_CHEFS, 'Staffs', '/chefs/staffs', 'intendant', 10);
-$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Import Desk', '/admin/import', 'chief', 10);
-$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Journal', '/admin/journal', 'chief', 20);
-$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Année scoute', '/admin/scout-year', 'chief', 30);
-$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Configuration générale', '/config/general', 'admin', 10);
-$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Configuration du site', '/setup', 'admin', 15);
-$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Fonctions', '/config/functions', 'admin', 20);
-$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Paramètres', '/config/settings', 'admin', 30);
-$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Actions planifiées', '/config/scheduled', 'admin', 40);
+$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Import Desk', '/admin/import', 'admin', 10);
+$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Journal', '/admin/journal', 'admin', 20);
+$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Année scoute', '/admin/scout-year', 'admin', 30);
+$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Configuration générale', '/config/general', 'superadmin', 10);
+$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Configuration du site', '/setup', 'superadmin', 15);
+$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Fonctions', '/config/functions', 'superadmin', 20);
+$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Paramètres', '/config/settings', 'superadmin', 30);
+$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Actions planifiées', '/config/scheduled', 'superadmin', 40);
 
 // Create router early so ModuleManager can register routes
 $router = new Router();
@@ -487,11 +488,11 @@ $router->addRoute('POST', '/account/passkey/delete', AccountController::class, '
 $router->addRoute('GET', '/members/{id}', MemberController::class, 'show', 'identified');
 
 // Configuration mode
-$router->addRoute('POST', '/config-mode/activate', ConfigModeController::class, 'activate', 'admin');
-$router->addRoute('POST', '/config-mode/deactivate', ConfigModeController::class, 'deactivate', 'admin');
+$router->addRoute('POST', '/config-mode/activate', ConfigModeController::class, 'activate', 'superadmin');
+$router->addRoute('POST', '/config-mode/deactivate', ConfigModeController::class, 'deactivate', 'superadmin');
 
 // Editable content API
-$router->addRoute('POST', '/api/editable-content', EditableContentController::class, 'update', 'admin');
+$router->addRoute('POST', '/api/editable-content', EditableContentController::class, 'update', 'superadmin');
 
 // Cookie consent
 $router->addRoute('GET', '/cookies', CookieController::class, 'preferences', 'public');
@@ -503,49 +504,49 @@ $router->addRoute('POST', '/cookies/reject-all', CookieController::class, 'rejec
 $router->addRoute('GET', '/files/{id}', FileController::class, 'serve', 'public');
 
 // File upload
-$router->addRoute('GET', '/upload', UploadController::class, 'index', 'admin');
-$router->addRoute('POST', '/upload', UploadController::class, 'store', 'admin');
+$router->addRoute('GET', '/upload', UploadController::class, 'index', 'superadmin');
+$router->addRoute('POST', '/upload', UploadController::class, 'store', 'superadmin');
 
 // Setup routes (admin, but bypassed when not initialized)
-$router->addRoute('GET', '/setup', SetupController::class, 'index', 'admin');
-$router->addRoute('POST', '/setup/test-db', SetupController::class, 'testDatabase', 'admin');
-$router->addRoute('POST', '/setup/save', SetupController::class, 'save', 'admin');
-$router->addRoute('GET', '/setup/dns', SetupController::class, 'checkDns', 'admin');
-$router->addRoute('POST', '/setup/test-email', SetupController::class, 'testEmail', 'admin');
+$router->addRoute('GET', '/setup', SetupController::class, 'index', 'superadmin');
+$router->addRoute('POST', '/setup/test-db', SetupController::class, 'testDatabase', 'superadmin');
+$router->addRoute('POST', '/setup/save', SetupController::class, 'save', 'superadmin');
+$router->addRoute('GET', '/setup/dns', SetupController::class, 'checkDns', 'superadmin');
+$router->addRoute('POST', '/setup/test-email', SetupController::class, 'testEmail', 'superadmin');
 
 // Import
-$router->addRoute('GET', '/admin/import', ImportController::class, 'index', 'chief');
-$router->addRoute('POST', '/admin/import', ImportController::class, 'import', 'chief');
+$router->addRoute('GET', '/admin/import', ImportController::class, 'index', 'admin');
+$router->addRoute('POST', '/admin/import', ImportController::class, 'import', 'admin');
 
 // Journal
-$router->addRoute('GET', '/admin/journal', JournalController::class, 'index', 'chief');
+$router->addRoute('GET', '/admin/journal', JournalController::class, 'index', 'admin');
 
 // Scout year navigation and transition
-$router->addRoute('GET', '/admin/scout-year', ScoutYearController::class, 'index', 'chief');
-$router->addRoute('POST', '/admin/scout-year/preview', ScoutYearController::class, 'preview', 'chief');
-$router->addRoute('POST', '/admin/scout-year/clear-preview', ScoutYearController::class, 'clearPreview', 'chief');
-$router->addRoute('POST', '/admin/scout-year/activate-staff', ScoutYearController::class, 'activateStaff', 'chief');
-$router->addRoute('POST', '/admin/scout-year/deactivate-staff', ScoutYearController::class, 'deactivateStaff', 'chief');
-$router->addRoute('POST', '/admin/scout-year/activate-public', ScoutYearController::class, 'activatePublic', 'chief');
+$router->addRoute('GET', '/admin/scout-year', ScoutYearController::class, 'index', 'admin');
+$router->addRoute('POST', '/admin/scout-year/preview', ScoutYearController::class, 'preview', 'admin');
+$router->addRoute('POST', '/admin/scout-year/clear-preview', ScoutYearController::class, 'clearPreview', 'admin');
+$router->addRoute('POST', '/admin/scout-year/activate-staff', ScoutYearController::class, 'activateStaff', 'admin');
+$router->addRoute('POST', '/admin/scout-year/deactivate-staff', ScoutYearController::class, 'deactivateStaff', 'admin');
+$router->addRoute('POST', '/admin/scout-year/activate-public', ScoutYearController::class, 'activatePublic', 'admin');
 
 // Settings
-$router->addRoute('GET', '/config/settings', SettingsController::class, 'index', 'admin');
-$router->addRoute('POST', '/config/settings/update', SettingsController::class, 'update', 'admin');
+$router->addRoute('GET', '/config/settings', SettingsController::class, 'index', 'superadmin');
+$router->addRoute('POST', '/config/settings/update', SettingsController::class, 'update', 'superadmin');
 
 // Scheduled actions
-$router->addRoute('GET', '/config/scheduled', ScheduledActionsController::class, 'index', 'admin');
+$router->addRoute('GET', '/config/scheduled', ScheduledActionsController::class, 'index', 'superadmin');
 
 // Configuration générale
-$router->addRoute('GET', '/config/general', ConfigGeneralController::class, 'index', 'admin');
-$router->addRoute('POST', '/config/general/module-toggle', ConfigGeneralController::class, 'toggleModule', 'admin');
+$router->addRoute('GET', '/config/general', ConfigGeneralController::class, 'index', 'superadmin');
+$router->addRoute('POST', '/config/general/module-toggle', ConfigGeneralController::class, 'toggleModule', 'superadmin');
 
 // Staffs
 $router->addRoute('GET', '/chefs/staffs', StaffsController::class, 'index', 'intendant');
 $router->addRoute('POST', '/chefs/staffs/update-section', StaffsController::class, 'updateSection', 'chief');
 
 // Functions configuration
-$router->addRoute('GET', '/config/functions', FunctionsController::class, 'index', 'admin');
-$router->addRoute('POST', '/config/functions/update', FunctionsController::class, 'update', 'admin');
+$router->addRoute('GET', '/config/functions', FunctionsController::class, 'index', 'superadmin');
+$router->addRoute('POST', '/config/functions/update', FunctionsController::class, 'update', 'superadmin');
 
 // Load enabled modules (routes registered AFTER core routes so core takes priority)
 $moduleManager->loadEnabledModules();
@@ -618,7 +619,7 @@ $fileController = new FileController($twig, $fileAccessGuard, $storagePath);
 $fileController->setJournalService($journalService);
 $frontController->registerController(FileController::class, $fileController);
 $frontController->registerController(UploadController::class, new UploadController($twig, $uploadHandler, $editableContentService));
-$frontController->registerController(JournalController::class, new JournalController($twig, $journalRepo));
+$frontController->registerController(JournalController::class, new JournalController($twig, $journalRepo, $userAccountRepo));
 $frontController->registerController(ScoutYearController::class, new ScoutYearController($twig, $scoutYearResolver, $scoutYearAdminService, $scoutYearService, $journalService));
 $frontController->registerController(SettingsController::class, new SettingsController($twig, $settingService, $journalService));
 $frontController->registerController(ScheduledActionsController::class, new ScheduledActionsController($twig, $schedulerRepo));

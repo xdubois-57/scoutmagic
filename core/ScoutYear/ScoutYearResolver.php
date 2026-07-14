@@ -98,12 +98,17 @@ class ScoutYearResolver
     }
 
     /**
-     * All known scout years, newest first.
+     * All known scout years, newest first. Ensures the year following the public
+     * current year always exists, so the next year can be previewed and imported
+     * before it has been configured.
      *
      * @return array<int, array{id: int, label: string, start_date: string, end_date: string}>
      */
     public function listYears(): array
     {
+        $current = $this->getCurrentPublicYear();
+        $this->scoutYearService->ensureYear(ScoutYearService::nextLabel($current['label']));
+
         return $this->scoutYearService->getAll();
     }
 

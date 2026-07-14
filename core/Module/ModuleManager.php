@@ -149,7 +149,7 @@ class ModuleManager
             'core',
             'module_activated',
             'info',
-            "Module '{$moduleId}' activated (v{$manifest->version})",
+            "Module « {$moduleId} » activé (v{$manifest->version})",
             ['module_id' => $moduleId, 'version' => $manifest->version],
             $activatedBy
         );
@@ -166,7 +166,7 @@ class ModuleManager
             'core',
             'module_deactivated',
             'info',
-            "Module '{$moduleId}' deactivated",
+            "Module « {$moduleId} » désactivé",
             ['module_id' => $moduleId],
             $deactivatedBy
         );

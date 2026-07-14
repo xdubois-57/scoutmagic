@@ -41,8 +41,7 @@ class StaffsControllerTest extends TestCase
     {
         $this->pdo = DatabaseTestHelper::createTestDatabase();
         $this->encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
-        /** @phpstan-ignore-next-line */
-        $connection = new Connection($this->pdo);
+        $connection = Connection::withPdo($this->pdo);
 
         $this->sectionService = new SectionService($connection, $this->encryption);
         $memberYearRepo = new MemberYearRepository($this->pdo);
@@ -241,25 +240,30 @@ class StaffsControllerTest extends TestCase
         $this->assertSame(403, $response->getStatusCode());
     }
 
-    public function testEmptyStateWhenNoSections(): void
+    public function testChiefSeesUnitStaffWhenNoRealSections(): void
     {
+        // A chief always sees the virtual "Staff d'U" section, even with no
+        // imported sections, so the empty-state message does not apply to them.
         $request = new Request('GET', '/chefs/staffs', [], [], [], []);
         $response = $this->controller->index($request, []);
 
         $body = $response->getBody();
-        $this->assertStringContainsString('Aucune section disponible', $body);
+        $this->assertStringContainsString('Staff d', $body);
+        $this->assertStringNotContainsString('Aucune section disponible', $body);
     }
 
     public function testUnconfiguredSectionShowsWarning(): void
     {
         $branchId = $this->createBranch('BAL', 'Baladins', 1);
-        $this->createSection('BAL01', $branchId); // No name
+        $sectionId = $this->createSection('BAL01', $branchId); // No name
 
-        $request = new Request('GET', '/chefs/staffs', [], [], [], []);
+        // Select the unconfigured section explicitly.
+        $request = new Request('GET', '/chefs/staffs', ['section' => (string) $sectionId], [], [], []);
         $response = $this->controller->index($request, []);
 
         $body = $response->getBody();
-        $this->assertStringContainsString("n&#039;a pas encore de nom configuré", $body);
+        // Static template text is not HTML-escaped, so the apostrophe is literal.
+        $this->assertStringContainsString("n'a pas encore de nom configuré", $body);
     }
 
     public function testUpdateSectionLogsToJournal(): void

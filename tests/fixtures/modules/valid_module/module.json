@@ -18,7 +18,7 @@
       "controller": "Modules\\ValidModule\\Controller\\ConfigController",
       "action": "index",
       "menu": "configuration",
-      "role_min": "admin",
+      "role_min": "superadmin",
       "label": "Test Module Config"
     }
   ],

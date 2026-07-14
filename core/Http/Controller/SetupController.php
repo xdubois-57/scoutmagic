@@ -389,7 +389,7 @@ class SetupController extends AbstractController
             }
 
             $this->journalService?->log(
-                'core', 'setup_completed', 'security', 'Site configuration saved',
+                'core', 'setup_completed', 'security', 'Configuration du site enregistrée',
                 ['ip' => $_SERVER['REMOTE_ADDR'] ?? ''],
                 AuthSession::getUserAccountId()
             );

@@ -18,7 +18,7 @@ class RoleResolver
     /**
      * Resolve the effective role for an email address in the current scout year.
      *
-     * 1. Check if user_accounts has is_super_admin=true → return admin.
+     * 1. Check if user_accounts has is_super_admin=true → return superadmin.
      * 2. Compute email blind index.
      * 3. Find all member_years for the current scout year matching this blind index.
      * 4. For each member_year, load their member_functions.
@@ -39,7 +39,7 @@ class RoleResolver
         $userRow = $stmt->fetch(\PDO::FETCH_ASSOC);
 
         if ($userRow !== false && (bool) $userRow['is_super_admin']) {
-            return 'admin';
+            return 'superadmin';
         }
 
         // Find member years

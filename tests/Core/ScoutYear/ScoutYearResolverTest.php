@@ -161,4 +161,14 @@ class ScoutYearResolverTest extends TestCase
         $this->setStaffYear($this->year2025);
         $this->assertSame($this->year2025, $this->resolver->getStaffYearId());
     }
+
+    public function testListYearsEnsuresTheNextYearExists(): void
+    {
+        $this->setPublicYear($this->year2025); // 2025-2026
+
+        $labels = array_column($this->resolver->listYears(), 'label');
+
+        // The year after the public year is created so it can be previewed/imported.
+        $this->assertContains('2026-2027', $labels);
+    }
 }

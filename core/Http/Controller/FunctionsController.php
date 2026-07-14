@@ -10,7 +10,6 @@ use Core\Import\FunctionRepository;
 use Core\Journal\JournalService;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
-use Core\Security\Role;
 use Twig\Environment;
 
 class FunctionsController extends AbstractController
@@ -21,7 +20,7 @@ class FunctionsController extends AbstractController
         ['value' => 'identified', 'label' => 'Animé', 'badge_class' => 'bg-info-subtle text-info-emphasis'],
         ['value' => 'intendant', 'label' => 'Intendant', 'badge_class' => 'bg-primary-subtle text-primary-emphasis'],
         ['value' => 'chief', 'label' => 'Chef', 'badge_class' => 'bg-success-subtle text-success-emphasis'],
-        ['value' => 'admin', 'label' => 'Admin', 'badge_class' => 'bg-danger-subtle text-danger-emphasis'],
+        ['value' => 'admin', 'label' => 'Chef d\'Unité', 'badge_class' => 'bg-danger-subtle text-danger-emphasis'],
     ];
 
     public function __construct(
@@ -82,8 +81,11 @@ class FunctionsController extends AbstractController
         $functionId = isset($json['function_id']) ? (int) $json['function_id'] : 0;
         $newRole = (string) ($json['role'] ?? '');
 
-        // Validate role is a valid enum value
-        if (Role::tryFrom($newRole) === null) {
+        // Validate role is one of the assignable roles. The top administrator
+        // role (superadmin) is deliberately NOT assignable via Desk functions —
+        // it is granted only to the site owner account (is_super_admin).
+        $assignableRoles = array_column(self::ROLE_DEFINITIONS, 'value');
+        if (!in_array($newRole, $assignableRoles, true)) {
             return $this->json(['success' => false, 'error' => 'Rôle invalide.']);
         }
 
@@ -106,8 +108,8 @@ class FunctionsController extends AbstractController
 
         // Log the change (role change or confirmation)
         $description = $wasConfirmed
-            ? "Function {$function['desk_code']} role changed from {$oldRole} to {$newRole}"
-            : "Function {$function['desk_code']} confirmed with role {$newRole}";
+            ? "Rôle de la fonction {$function['desk_code']} modifié de {$oldRole} à {$newRole}"
+            : "Fonction {$function['desk_code']} confirmée avec le rôle {$newRole}";
 
         if ($oldRole !== $newRole || !$wasConfirmed) {
             $this->journalService->log(

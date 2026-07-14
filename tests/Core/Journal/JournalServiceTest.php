@@ -127,13 +127,43 @@ class JournalServiceTest extends TestCase
             $this->service->log('core', "event_{$i}", 'info', "Event {$i}");
         }
 
-        $page1 = $this->repo->search(null, null, null, null, null, 2, 0);
+        $page1 = $this->repo->search(null, null, null, null, null, null, null, 2, 0);
         $this->assertCount(2, $page1);
 
-        $page2 = $this->repo->search(null, null, null, null, null, 2, 2);
+        $page2 = $this->repo->search(null, null, null, null, null, null, null, 2, 2);
         $this->assertCount(2, $page2);
 
-        $page3 = $this->repo->search(null, null, null, null, null, 2, 4);
+        $page3 = $this->repo->search(null, null, null, null, null, null, null, 2, 4);
         $this->assertCount(1, $page3);
+    }
+
+    public function testLogCapturesIpAddress(): void
+    {
+        $_SERVER['REMOTE_ADDR'] = '203.0.113.7';
+        $this->service->log('core', 'login_success', 'security', 'Connexion');
+        unset($_SERVER['REMOTE_ADDR']);
+
+        $entries = $this->repo->search();
+        $this->assertSame('203.0.113.7', $entries[0]['ip_address']);
+    }
+
+    public function testSearchFiltersByIp(): void
+    {
+        $this->repo->insert('core', 'a', 'info', 'A', null, null, '10.0.0.1');
+        $this->repo->insert('core', 'b', 'info', 'B', null, null, '10.0.0.2');
+
+        $results = $this->repo->search(null, null, null, null, null, '10.0.0.2');
+        $this->assertCount(1, $results);
+        $this->assertSame('10.0.0.2', $results[0]['ip_address']);
+    }
+
+    public function testSearchFiltersByUserAccountId(): void
+    {
+        $this->repo->insert('core', 'a', 'info', 'A', null, 5, '10.0.0.1');
+        $this->repo->insert('core', 'b', 'info', 'B', null, 9, '10.0.0.2');
+
+        $results = $this->repo->search(null, null, null, null, null, null, 9);
+        $this->assertCount(1, $results);
+        $this->assertSame(9, (int) $results[0]['user_account_id']);
     }
 }

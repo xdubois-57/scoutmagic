@@ -48,30 +48,49 @@ class MenuBuilderTest extends TestCase
         $this->assertSame('espace_chefs', $menus[2]['id']);
     }
 
-    public function testChiefRoleSeesEverythingExceptConfiguration(): void
+    public function testChiefRoleSeesNeitherEspaceAdminNorConfiguration(): void
     {
         $builder = new MenuBuilder(Role::CHIEF);
         $builder->addPage(MenuBuilder::MENU_NOTRE_UNITE, 'Accueil', '/', 'public', 10);
         $builder->addPage(MenuBuilder::MENU_ESPACE_ANIMES, 'Page animé', '/animes', 'identified', 10);
         $builder->addPage(MenuBuilder::MENU_ESPACE_CHEFS, 'Staffs', '/chefs/staffs', 'intendant', 10);
-        $builder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Import', '/admin/import', 'chief', 10);
-        $builder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Config', '/setup', 'admin', 10);
+        $builder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Import', '/admin/import', 'admin', 10);
+        $builder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Config', '/setup', 'superadmin', 10);
 
         $menus = $builder->build();
 
-        $this->assertCount(4, $menus);
+        // Espace admin now requires "Chef d'Unité" (admin); Configuration requires superadmin.
+        $this->assertCount(3, $menus);
         $ids = array_column($menus, 'id');
+        $this->assertNotContains('espace_admin', $ids);
         $this->assertNotContains('configuration', $ids);
     }
 
-    public function testAdminRoleSeesAllFiveMenus(): void
+    public function testAdminRoleSeesEspaceAdminButNotConfiguration(): void
     {
         $builder = new MenuBuilder(Role::ADMIN);
         $builder->addPage(MenuBuilder::MENU_NOTRE_UNITE, 'Accueil', '/', 'public', 10);
         $builder->addPage(MenuBuilder::MENU_ESPACE_ANIMES, 'Page animé', '/animes', 'identified', 10);
         $builder->addPage(MenuBuilder::MENU_ESPACE_CHEFS, 'Staffs', '/chefs/staffs', 'intendant', 10);
-        $builder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Import', '/admin/import', 'chief', 10);
-        $builder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Config', '/setup', 'admin', 10);
+        $builder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Import', '/admin/import', 'admin', 10);
+        $builder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Config', '/setup', 'superadmin', 10);
+
+        $menus = $builder->build();
+
+        $this->assertCount(4, $menus);
+        $ids = array_column($menus, 'id');
+        $this->assertContains('espace_admin', $ids);
+        $this->assertNotContains('configuration', $ids);
+    }
+
+    public function testSuperAdminRoleSeesAllFiveMenus(): void
+    {
+        $builder = new MenuBuilder(Role::SUPERADMIN);
+        $builder->addPage(MenuBuilder::MENU_NOTRE_UNITE, 'Accueil', '/', 'public', 10);
+        $builder->addPage(MenuBuilder::MENU_ESPACE_ANIMES, 'Page animé', '/animes', 'identified', 10);
+        $builder->addPage(MenuBuilder::MENU_ESPACE_CHEFS, 'Staffs', '/chefs/staffs', 'intendant', 10);
+        $builder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Import', '/admin/import', 'admin', 10);
+        $builder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Config', '/setup', 'superadmin', 10);
 
         $menus = $builder->build();
 

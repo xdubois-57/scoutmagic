@@ -26,7 +26,7 @@ class ConfigurationModeTest extends TestCase
     public function testActivateWithAdminRoleSucceeds(): void
     {
         $this->startTestSession();
-        $this->assertTrue(ConfigurationMode::activate('admin'));
+        $this->assertTrue(ConfigurationMode::activate('superadmin'));
     }
 
     public function testActivateWithNonAdminRoleFails(): void
@@ -35,21 +35,23 @@ class ConfigurationModeTest extends TestCase
         $this->assertFalse(ConfigurationMode::activate('identified'));
         $this->assertFalse(ConfigurationMode::activate('chief'));
         $this->assertFalse(ConfigurationMode::activate('public'));
+        // "admin" is now "Chef d'Unité" — the Configuration area requires superadmin.
+        $this->assertFalse(ConfigurationMode::activate('admin'));
     }
 
     public function testIsActiveReturnsTrueAfterActivation(): void
     {
         $this->startTestSession();
-        AuthSession::login(1, 'admin@test.com', 'admin');
-        ConfigurationMode::activate('admin');
+        AuthSession::login(1, 'admin@test.com', 'superadmin');
+        ConfigurationMode::activate('superadmin');
         $this->assertTrue(ConfigurationMode::isActive());
     }
 
     public function testDeactivateClearsFlag(): void
     {
         $this->startTestSession();
-        AuthSession::login(1, 'admin@test.com', 'admin');
-        ConfigurationMode::activate('admin');
+        AuthSession::login(1, 'admin@test.com', 'superadmin');
+        ConfigurationMode::activate('superadmin');
         ConfigurationMode::deactivate();
         $this->assertFalse(ConfigurationMode::isActive());
     }

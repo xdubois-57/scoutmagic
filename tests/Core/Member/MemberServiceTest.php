@@ -25,7 +25,7 @@ class MemberServiceTest extends TestCase
         $this->service = new MemberService(
             memberYearRepo: new \Core\Import\MemberYearRepository($this->pdo),
             encryption: new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32)),
-            connection: new \Core\Database\Connection($this->pdo)
+            connection: \Core\Database\Connection::withPdo($this->pdo)
         );
 
         // Create scout year

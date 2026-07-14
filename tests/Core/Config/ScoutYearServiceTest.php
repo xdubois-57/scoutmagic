@@ -58,6 +58,12 @@ class ScoutYearServiceTest extends TestCase
         $this->assertSame('2025-2026', ScoutYearService::labelForDate($date));
     }
 
+    public function testNextLabelComputesFollowingYear(): void
+    {
+        $this->assertSame('2026-2027', ScoutYearService::nextLabel('2025-2026'));
+        $this->assertSame('2001-2002', ScoutYearService::nextLabel('2000-2001'));
+    }
+
     public function testEnsureYearIsIdempotent(): void
     {
         $id1 = $this->service->ensureYear('2024-2025');

@@ -83,7 +83,7 @@ class AuthService
         }
 
         $this->journalService?->log(
-            'core', 'magic_link_requested', 'info', 'Magic link requested for email',
+            'core', 'magic_link_requested', 'info', 'Demande de lien magique',
             ['ip' => $_SERVER['REMOTE_ADDR'] ?? ''],
             null
         );
@@ -139,7 +139,7 @@ class AuthService
         $this->userRepo->updateLastLogin($user->id);
 
         $this->journalService?->log(
-            'core', 'login_success', 'security', 'Login via magic link',
+            'core', 'login_success', 'security', 'Connexion par lien magique',
             ['ip' => $_SERVER['REMOTE_ADDR'] ?? ''],
             $user->id
         );

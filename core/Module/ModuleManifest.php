@@ -18,11 +18,11 @@ class ModuleManifest
         'notre_unite' => 'public',
         'espace_animes' => 'identified',
         'espace_chefs' => 'intendant',
-        'espace_admin' => 'chief',
-        'configuration' => 'admin',
+        'espace_admin' => 'admin',
+        'configuration' => 'superadmin',
     ];
 
-    private const VALID_ROLES = ['public', 'identified', 'intendant', 'chief', 'admin'];
+    private const VALID_ROLES = ['public', 'identified', 'intendant', 'chief', 'admin', 'superadmin'];
 
     private const ROLE_LEVELS = [
         'public' => 0,
@@ -30,6 +30,7 @@ class ModuleManifest
         'intendant' => 2,
         'chief' => 3,
         'admin' => 4,
+        'superadmin' => 5,
     ];
 
     private const VALID_COOKIE_CATEGORIES = ['necessary', 'functional', 'analytics'];
