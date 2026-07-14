@@ -1,8 +1,6 @@
 {% extends 'base.html.twig' %}
 {% block title %}{{ member|display_name }} — {{ site_name }}{% endblock %}
 {% block content %}
-<div class="mx-auto" style="max-width:720px;">
-
     {# Header #}
     <div class="d-flex align-items-center gap-3 mb-4">
         <div class="rounded-circle bg-primary-subtle d-flex align-items-center justify-content-center"
@@ -128,6 +126,4 @@
 
     {# Module sections will be injected here in future iterations #}
     {# Each module can add cards to the member page via a hook #}
-
-</div>
 {% endblock %}

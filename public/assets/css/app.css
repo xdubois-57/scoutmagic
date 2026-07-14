@@ -1,0 +1,16 @@
+:root {
+    --page-max-width: 1200px;
+    --page-narrow-width: 560px;
+}
+
+/* Unify the main content container at a single width on large screens,
+   instead of Bootstrap's 1140/1320 tiers. */
+@media (min-width: 1200px) {
+    .container { max-width: var(--page-max-width); }
+}
+
+/* Centered narrow column for form-centric pages, inside the shared container. */
+.page-narrow {
+    max-width: var(--page-narrow-width);
+    margin-inline: auto;
+}

@@ -3,19 +3,15 @@
 {% block title %}Contact — {{ site_name }}{% endblock %}
 
 {% block content %}
-<div class="row justify-content-center">
-    <div class="col-12 col-md-8 col-lg-6">
-        <h1 class="mb-4">Contact</h1>
-        {{ editable('contact.text', '<p>Contactez-nous pour toute question concernant notre unité scoute.</p>') }}
+    <h1 class="mb-4">Contact</h1>
+    {{ editable('contact.text', '<p>Contactez-nous pour toute question concernant notre unité scoute.</p>') }}
 
-        {% if param('contact_email') %}
-        <div class="card mt-4">
-            <div class="card-body">
-                <h5 class="card-title"><i class="bi bi-envelope"></i> Email</h5>
-                <p class="card-text"><a href="mailto:{{ param('contact_email') }}">{{ param('contact_email') }}</a></p>
-            </div>
+    {% if param('contact_email') %}
+    <div class="card mt-4">
+        <div class="card-body">
+            <h5 class="card-title"><i class="bi bi-envelope"></i> Email</h5>
+            <p class="card-text"><a href="mailto:{{ param('contact_email') }}">{{ param('contact_email') }}</a></p>
         </div>
-        {% endif %}
     </div>
-</div>
+    {% endif %}
 {% endblock %}

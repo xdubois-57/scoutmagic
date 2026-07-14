@@ -3,9 +3,7 @@
 {% block title %}Sections — {{ site_name }}{% endblock %}
 
 {% block content %}
-<div class="row justify-content-center">
-    <div class="col-12 col-md-10 col-lg-8">
-        <h1 class="mb-4">Sections</h1>
+    <h1 class="mb-4">Sections</h1>
         {{ editable('sections.intro', '<p>Voici les sections de notre unité.</p>') }}
 
         {% if section_groups is empty %}
@@ -31,6 +29,4 @@
             </div>
             {% endfor %}
         {% endif %}
-    </div>
-</div>
 {% endblock %}

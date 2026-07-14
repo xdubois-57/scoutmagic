@@ -1,7 +1,6 @@
 {% extends 'base.html.twig' %}
 {% block title %}Actions planifiées — {{ param('site_name') }}{% endblock %}
 {% block content %}
-<div class="mx-auto" style="max-width:960px;">
     <h1>Actions planifiées</h1>
     <p class="text-body-secondary small mb-3">{{ total }} action{{ total > 1 ? 's' : '' }} au total</p>
 
@@ -102,7 +101,6 @@
         </ul>
     </nav>
     {% endif %}
-</div>
 {% endblock %}
 
 {% block scripts %}

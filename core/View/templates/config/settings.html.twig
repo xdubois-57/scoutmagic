@@ -1,7 +1,6 @@
 {% extends 'base.html.twig' %}
 {% block title %}Paramètres — {{ param('site_name') }}{% endblock %}
 {% block content %}
-<div class="mx-auto" style="max-width:720px;">
     <h1>Paramètres</h1>
 
     {% for group_id, group in setting_groups %}
@@ -64,7 +63,6 @@
             </div>
         </div>
     {% endfor %}
-</div>
 
 {# Edit dialog modal #}
 <div class="modal fade" id="settingEditModal" tabindex="-1">

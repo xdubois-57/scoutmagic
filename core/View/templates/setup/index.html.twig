@@ -3,8 +3,7 @@
 {% block title %}{% if not is_initialized %}Installation — {{ site_name }}{% else %}Configuration — {{ site_name }}{% endif %}{% endblock %}
 
 {% block content %}
-<div class="row justify-content-center">
-<div class="col-12 col-lg-8" style="max-width: 720px;">
+<div class="page-narrow">
 
 {% if not is_initialized %}
     <h1 class="mb-3">Installation</h1>
@@ -273,7 +272,6 @@
     </div>
 </form>
 
-</div>
 </div>
 {% endblock %}
 

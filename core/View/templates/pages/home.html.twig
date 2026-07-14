@@ -3,14 +3,8 @@
 {% block title %}Bienvenue — {{ site_name }}{% endblock %}
 
 {% block content %}
-<div class="row justify-content-center">
-    <div class="col-12 col-lg-10">
-        <div class="mb-4">
-            {{ editable_image('home.hero', 'Photo d\'accueil', 'img-fluid rounded w-100') }}
-        </div>
-        <div class="col-12 col-md-8 col-lg-6 mx-auto">
-            {{ editable('home.intro', '<h1>Bienvenue</h1><p>Bienvenue sur le site de notre unité scoute.</p>') }}
-        </div>
+    <div class="mb-4">
+        {{ editable_image('home.hero', 'Photo d\'accueil', 'img-fluid rounded w-100') }}
     </div>
-</div>
+    {{ editable('home.intro', '<h1>Bienvenue</h1><p>Bienvenue sur le site de notre unité scoute.</p>') }}
 {% endblock %}
