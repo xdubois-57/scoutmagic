@@ -213,7 +213,15 @@
                     alert(result.error || 'L\'enregistrement a échoué.');
                 }
             } catch (err) {
-                alert('L\'enregistrement a été annulé ou a échoué.');
+                if (err && err.name === 'InvalidStateError') {
+                    // The platform authenticator already holds a key for this account
+                    // on this device (excludeCredentials prevents a duplicate).
+                    alert('Cet appareil possède déjà une clé enregistrée pour ce compte.');
+                } else if (err && err.name === 'NotAllowedError') {
+                    alert('L\'enregistrement a été annulé.');
+                } else {
+                    alert('L\'enregistrement a échoué.');
+                }
             }
         });
     }

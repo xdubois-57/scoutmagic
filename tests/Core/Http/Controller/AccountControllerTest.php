@@ -258,4 +258,46 @@ class AccountControllerTest extends TestCase
         }
         $this->assertFalse($found);
     }
+
+    public function testPasskeyDeleteAcceptsCsrfFromHeader(): void
+    {
+        $token = CsrfGuard::generateToken();
+        $credId = random_bytes(32);
+        $id = $this->webAuthnRepo->create($this->userId, $credId, random_bytes(64), 'Key');
+
+        $request = $this->makeJsonRequest(['id' => $id], ['HTTP_X_CSRF_TOKEN' => $token]);
+        $response = $this->controller->passkeyDelete($request, []);
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertTrue($decoded['success']);
+        $this->assertNull($this->webAuthnRepo->findByCredentialId($credId));
+    }
+
+    public function testPasskeyDeleteRejectsMissingCsrf(): void
+    {
+        CsrfGuard::generateToken();
+        $credId = random_bytes(32);
+        $id = $this->webAuthnRepo->create($this->userId, $credId, random_bytes(64), 'Key');
+
+        $request = $this->makeJsonRequest(['id' => $id], []); // no header, no body token
+        $response = $this->controller->passkeyDelete($request, []);
+
+        $this->assertSame(403, $response->getStatusCode());
+        $this->assertNotNull($this->webAuthnRepo->findByCredentialId($credId));
+    }
+
+    /**
+     * @param array<string, mixed> $body
+     * @param array<string, mixed> $server
+     */
+    private function makeJsonRequest(array $body, array $server): Request
+    {
+        $mock = $this->getMockBuilder(Request::class)
+            ->setConstructorArgs(['POST', '/account/passkey/delete', [], [], [], $server])
+            ->onlyMethods(['getRawBody'])
+            ->getMock();
+        $mock->method('getRawBody')->willReturn((string) json_encode($body));
+
+        return $mock;
+    }
 }
