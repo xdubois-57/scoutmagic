@@ -27,6 +27,8 @@ class ParsedMember
         public readonly bool $unitMailConsent,
         public readonly ?string $feeCode,
         public readonly ?string $unitCode,
+        public readonly ?string $handicap,
+        public readonly ?string $supplementaryInsurance,
         public readonly array $addresses,
         public readonly array $functions
     ) {

@@ -111,6 +111,9 @@ class DeskImportService
             'unit_mail_consent' => $member->unitMailConsent,
             'fee_category_id' => $feeCategoryId,
             'unit_code' => $member->unitCode,
+            // Handicap is health data (GDPR special category) → encrypted at rest.
+            'handicap_encrypted' => $member->handicap !== null ? $this->encryption->encrypt($member->handicap) : null,
+            'supplementary_insurance' => $member->supplementaryInsurance,
         ];
 
         // Upsert member_year

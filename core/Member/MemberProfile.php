@@ -29,7 +29,9 @@ class MemberProfile
         public readonly bool $unitMailConsent,
         public readonly array $addresses,
         public readonly array $functions,
-        public readonly string $scoutYearLabel
+        public readonly string $scoutYearLabel,
+        public readonly ?string $handicap = null,
+        public readonly ?string $supplementaryInsurance = null
     ) {
     }
 

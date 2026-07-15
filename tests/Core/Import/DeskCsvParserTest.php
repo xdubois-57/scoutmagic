@@ -188,6 +188,8 @@ class DeskCsvParserTest extends TestCase
         $this->assertSame('Joyeux', $jean->quali);
         $this->assertSame('Les Tigres', $jean->patrol);
         $this->assertSame('Tarif normal', $jean->feeCode);
+        $this->assertSame('true', $jean->handicap);
+        $this->assertSame('Assurance sport', $jean->supplementaryInsurance);
     }
 
     public function testFunctionSectionAndBranchExtracted(): void

@@ -130,6 +130,10 @@ CREATE TABLE member_years (
     unit_mail_consent BOOLEAN NOT NULL DEFAULT FALSE,
     fee_category_id INT UNSIGNED,
     unit_code VARCHAR(50),
+    -- Handicap is health data (GDPR special category) → encrypted at rest.
+    handicap_encrypted BLOB,
+    -- Assurance complémentaire is administrative → stored in clear like formation_level.
+    supplementary_insurance VARCHAR(255),
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE INDEX idx_member_year (member_id, scout_year_id),

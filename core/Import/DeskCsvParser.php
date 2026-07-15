@@ -15,6 +15,7 @@ class DeskCsvParser
         'FONCTION', 'Tiers', 'Branche', 'Section', 'SECTION',
         'Date début', 'Date fin', 'fin de mandat', 'Fonction principale',
         'Tarif', 'Totem', 'Quali', 'Sizaine/Patrouillle', 'Niveau formation',
+        'Handicap', 'Assurance complémentaire',
     ];
 
     /**
@@ -152,6 +153,8 @@ class DeskCsvParser
             unitMailConsent: $this->parseBool($first["Courrier d'unité"] ?? ''),
             feeCode: $this->nullIfEmpty($first['Tarif'] ?? ''),
             unitCode: $this->nullIfEmpty($first["Fonction au sein de l'unité"] ?? ''),
+            handicap: $this->nullIfEmpty($first['Handicap'] ?? ''),
+            supplementaryInsurance: $this->nullIfEmpty($first['Assurance complémentaire'] ?? ''),
             addresses: array_values($addressMap),
             functions: $functions
         );

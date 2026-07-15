@@ -49,6 +49,17 @@
         {# Address #}
         {{ ui.field('bi-house', 'Adresse', member.addresses|length > 0 ? member.addresses[0].format()|normalize_address : '') }}
 
+        {# Assurance complémentaire — administrative (clear text). #}
+        {{ ui.field('bi-shield-check', 'Assurance complémentaire', member.supplementaryInsurance) }}
+
+        {# Handicap — health data (encrypted). Desk exports true/false. #}
+        <div class="d-flex justify-content-between align-items-start gap-3 py-2 border-bottom">
+            <span class="text-body-secondary d-flex align-items-center gap-2 flex-shrink-0"><i class="bi bi-heart-pulse"></i> Handicap</span>
+            <span class="text-end">
+                {% if member.handicap == 'true' %}Oui{% elseif member.handicap == 'false' %}Non{% else %}{{ member.handicap|default('—') }}{% endif %}
+            </span>
+        </div>
+
         <hr class="my-4">
 
         {# Données du site — placeholder for future module hooks #}

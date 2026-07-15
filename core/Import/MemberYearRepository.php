@@ -29,7 +29,8 @@ class MemberYearRepository
                     totem_encrypted = ?, quali_encrypted = ?,
                     patrol_encrypted = ?, formation_level = ?,
                     federation_mail_consent = ?, unit_mail_consent = ?,
-                    fee_category_id = ?, unit_code = ?, is_active = 1
+                    fee_category_id = ?, unit_code = ?,
+                    handicap_encrypted = ?, supplementary_insurance = ?, is_active = 1
                 WHERE id = ?'
             );
             $stmt->execute([
@@ -49,6 +50,8 @@ class MemberYearRepository
                 $encryptedData['unit_mail_consent'] ? 1 : 0,
                 $encryptedData['fee_category_id'],
                 $encryptedData['unit_code'],
+                $encryptedData['handicap_encrypted'],
+                $encryptedData['supplementary_insurance'],
                 $existing['id'],
             ]);
             return (int) $existing['id'];
@@ -65,8 +68,9 @@ class MemberYearRepository
                 totem_encrypted, quali_encrypted,
                 patrol_encrypted, formation_level,
                 federation_mail_consent, unit_mail_consent,
-                fee_category_id, unit_code, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                fee_category_id, unit_code,
+                handicap_encrypted, supplementary_insurance, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([
             $memberId, $scoutYearId,
@@ -86,6 +90,8 @@ class MemberYearRepository
             $encryptedData['unit_mail_consent'] ? 1 : 0,
             $encryptedData['fee_category_id'],
             $encryptedData['unit_code'],
+            $encryptedData['handicap_encrypted'],
+            $encryptedData['supplementary_insurance'],
             $now,
         ]);
         return (int) $this->pdo->lastInsertId();

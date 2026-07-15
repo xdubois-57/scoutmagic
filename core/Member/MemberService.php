@@ -179,6 +179,8 @@ class MemberService
             formationLevel: $row['formation_level'],
             federationMailConsent: (bool) $row['federation_mail_consent'],
             unitMailConsent: (bool) $row['unit_mail_consent'],
+            handicap: !empty($row['handicap_encrypted']) ? $this->encryption->decrypt($row['handicap_encrypted']) : null,
+            supplementaryInsurance: $row['supplementary_insurance'] ?? null,
             addresses: $addresses,
             functions: $functions,
             scoutYearLabel: $scoutYearLabel
