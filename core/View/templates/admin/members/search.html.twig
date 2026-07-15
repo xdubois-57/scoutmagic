@@ -36,3 +36,11 @@
         {% include 'admin/members/_detail_card.html.twig' with { member: detail } %}
     {% endif %}
 {% endblock %}
+
+{% block scripts %}
+{% if detail %}
+<script nonce="{{ csp_nonce }}">
+document.getElementById('member-detail')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+</script>
+{% endif %}
+{% endblock %}

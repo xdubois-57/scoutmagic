@@ -136,6 +136,8 @@ class MemberSearchControllerTest extends TestCase
         $this->assertStringContainsString('Dupont', $body);
         $this->assertStringNotContainsString('DUPONT', $body);
         $this->assertStringContainsString('inscrit', $body);
+        // Result rows link to the detail anchor so the detail is scrolled into view.
+        $this->assertStringContainsString('#member-detail', $body);
     }
 
     public function testNoResultsMessage(): void
@@ -152,6 +154,7 @@ class MemberSearchControllerTest extends TestCase
         $body = $this->controller->index($this->get(['q' => 'dupont', 'member' => (string) $id]), [])->getBody();
 
         $this->assertStringContainsString('Données Desk', $body);
+        $this->assertStringContainsString('id="member-detail"', $body);
         $this->assertStringContainsString('Données du site', $body);
         $this->assertStringContainsString('jean@ex.be', $body);
         // Phone normalized for display.
