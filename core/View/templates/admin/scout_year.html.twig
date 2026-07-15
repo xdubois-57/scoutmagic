@@ -57,34 +57,6 @@
         </div>
     </div>
 
-    {# Preview any year (session-only) #}
-    <div class="card mb-3">
-        <div class="card-body">
-            <h2 class="h5">Prévisualiser une année</h2>
-            <p class="text-body-secondary small">
-                Change l'année affichée pour votre session uniquement. N'affecte aucun autre utilisateur.
-            </p>
-            <form method="post" action="/admin/scout-year/preview" class="d-flex flex-wrap gap-2 align-items-end">
-                {{ csrf_field()|raw }}
-                <div class="flex-grow-1">
-                    <label class="form-label" for="preview-year">Année</label>
-                    <select class="form-select" name="scout_year_id" id="preview-year">
-                        {% for y in years %}
-                            <option value="{{ y.id }}" {{ y.id == effective_year.id ? 'selected' : '' }}>{{ y.label }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <button type="submit" class="btn btn-primary">Prévisualiser</button>
-            </form>
-            {% if effective_year.override_type == 'session' %}
-            <form method="post" action="/admin/scout-year/clear-preview" class="mt-2">
-                {{ csrf_field()|raw }}
-                <button type="submit" class="btn btn-outline-secondary">Revenir à l'année courante</button>
-            </form>
-            {% endif %}
-        </div>
-    </div>
-
     {# Transition workflow — stepped guide toward the next year #}
     <div class="card mb-3">
         <div class="card-body">
@@ -105,8 +77,28 @@
                         <p class="text-body-secondary small mb-2">{{ step.description }}</p>
 
                         {% if step.action == 'preview' %}
-                            {% if is_current %}
-                                <span class="badge text-bg-primary">Étape en cours — utilisez le sélecteur ci-dessus</span>
+                            <form method="post" action="/admin/scout-year/preview"
+                                  class="d-flex flex-wrap gap-2 align-items-end">
+                                {{ csrf_field()|raw }}
+                                <div>
+                                    <label class="form-label small mb-1" for="preview-year">Année</label>
+                                    <select class="form-select form-select-sm" name="scout_year_id" id="preview-year">
+                                        {% for y in years %}
+                                            <option value="{{ y.id }}" {{ y.id == target_year.id ? 'selected' : '' }}>{{ y.label }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                                <button type="submit"
+                                        class="btn btn-sm {{ is_current ? 'btn-primary' : 'btn-outline-secondary' }}"
+                                        {{ is_current ? '' : 'disabled' }}>
+                                    Prévisualiser
+                                </button>
+                            </form>
+                            {% if effective_year.override_type == 'session' %}
+                            <form method="post" action="/admin/scout-year/clear-preview" class="mt-2">
+                                {{ csrf_field()|raw }}
+                                <button type="submit" class="btn btn-sm btn-outline-secondary">Revenir à l'année courante</button>
+                            </form>
                             {% endif %}
 
                         {% elseif step.action == 'import' %}
@@ -141,7 +133,7 @@
                                 <div>
                                     <label class="form-label small mb-1" for="public-year">Année</label>
                                     <select class="form-select form-select-sm" name="scout_year_id" id="public-year"
-                                            {{ can_activate_public ? '' : 'disabled' }}>
+                                            {{ (can_activate_public and switch_window_open) ? '' : 'disabled' }}>
                                         {% for y in years %}
                                             <option value="{{ y.id }}" {{ y.id == target_year.id ? 'selected' : '' }}>{{ y.label }}</option>
                                         {% endfor %}
@@ -149,11 +141,16 @@
                                 </div>
                                 <button type="submit"
                                         class="btn btn-sm {{ is_current ? 'btn-danger' : 'btn-outline-secondary' }}"
-                                        {{ (is_current and can_activate_public) ? '' : 'disabled' }}>
+                                        {{ (is_current and can_activate_public and switch_window_open) ? '' : 'disabled' }}>
                                     Activer pour tout le monde
                                 </button>
                             </form>
-                            {% if not can_activate_public %}
+                            {% if not switch_window_open %}
+                            <p class="text-body-secondary small mb-0 mt-2">
+                                Le changement d'année pour tout le monde n'est possible qu'en août et en septembre.
+                                À partir du 30 septembre, il se fait automatiquement.
+                            </p>
+                            {% elseif not can_activate_public %}
                             <p class="text-body-secondary small mb-0 mt-2">
                                 Activez d'abord une année pour le staff (étape 3).
                             </p>
@@ -168,7 +165,7 @@
 {% endblock %}
 
 {% block scripts %}
-{% if can_activate_public %}
+{% if can_activate_public and switch_window_open %}
 <script nonce="{{ csp_nonce }}">
 document.getElementById('activate-public-form')?.addEventListener('submit', function (e) {
     if (!confirm('Activer cette année pour tout le monde ? Le public verra immédiatement cette année.')) {

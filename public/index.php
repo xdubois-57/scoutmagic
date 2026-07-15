@@ -332,6 +332,24 @@ $sectionService = new SectionService($connection, $encryptionService);
 $scoutYearResolver = new ScoutYearResolver($scoutYearService, $settingService, $memberYearRepo);
 $scoutYearAdminService = new ScoutYearAdminService($settingService);
 
+// Automatic public-year switch (from September 30, whatever happens): advance
+// the public year if the configured one is stale. Runs once per request.
+$autoSwitchedLabel = $scoutYearAdminService->enforceAutomaticSwitch(
+    $scoutYearService,
+    $scoutYearResolver->getPublicYearId(),
+    new DateTimeImmutable()
+);
+if ($autoSwitchedLabel !== null) {
+    $journalService->log(
+        'core',
+        'scout_year_auto_switched',
+        'security',
+        "Bascule automatique de l'année publique : {$autoSwitchedLabel}",
+        [],
+        null
+    );
+}
+
 // Create file services
 $storagePath = dirname(__DIR__) . '/storage';
 $fileRepository = new FileRepository($pdo);

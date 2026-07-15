@@ -27,7 +27,7 @@ class ScoutYearControllerTest extends TestCase
 {
     private \PDO $pdo;
     private SettingService $settingService;
-    private ScoutYearController $controller;
+    private ClockableScoutYearController $controller;
     private string $token = 'test-token';
     private int $yearA;
     private int $yearB;
@@ -64,7 +64,9 @@ class ScoutYearControllerTest extends TestCase
         $twig->addFunction(new \Twig\TwigFunction('file_url', fn() => ''));
         $twig->addFunction(new \Twig\TwigFunction('param', fn(string $k) => 'Test'));
 
-        $this->controller = new ScoutYearController($twig, $resolver, $adminService, $scoutYearService, $journalService);
+        $this->controller = new ClockableScoutYearController($twig, $resolver, $adminService, $scoutYearService, $journalService);
+        // Default to a date inside the manual switch window (August).
+        $this->controller->fakeNow = new \DateTimeImmutable('2026-08-15');
 
         $this->startSession();
         $_SESSION['_csrf_token'] = $this->token;
@@ -207,10 +209,47 @@ class ScoutYearControllerTest extends TestCase
         $this->assertStringContainsString('bi-check-lg', $body);
     }
 
+    public function testActivatePublicRejectedOutsideSwitchWindow(): void
+    {
+        $this->controller->fakeNow = new \DateTimeImmutable('2026-10-15'); // outside the window
+        $this->settingService->setInternal(ScoutYearResolver::SETTING_STAFF_YEAR, (string) $this->yearB);
+
+        $request = $this->post('/admin/scout-year/activate-public', ['_csrf_token' => $this->token, 'scout_year_id' => $this->yearB]);
+        $response = $this->controller->activatePublic($request, []);
+
+        $this->assertSame(302, $response->getStatusCode());
+        // Public year was NOT changed.
+        $this->assertSame('0', $this->settingService->get(ScoutYearResolver::SETTING_PUBLIC_YEAR));
+    }
+
+    public function testActivatePublicAllowedInsideSwitchWindow(): void
+    {
+        $this->controller->fakeNow = new \DateTimeImmutable('2026-09-10'); // inside the window
+        $this->settingService->setInternal(ScoutYearResolver::SETTING_STAFF_YEAR, (string) $this->yearB);
+
+        $request = $this->post('/admin/scout-year/activate-public', ['_csrf_token' => $this->token, 'scout_year_id' => $this->yearB]);
+        $this->controller->activatePublic($request, []);
+
+        $this->assertSame((string) $this->yearB, $this->settingService->get(ScoutYearResolver::SETTING_PUBLIC_YEAR));
+    }
+
     private function assertJournalHas(string $eventType, string $level): void
     {
         $stmt = $this->pdo->prepare('SELECT COUNT(*) FROM event_log WHERE category = ? AND event_type = ? AND level = ?');
         $stmt->execute(['core', $eventType, $level]);
         $this->assertSame(1, (int) $stmt->fetchColumn(), "Expected one journal entry for {$eventType}");
+    }
+}
+
+/**
+ * Test double allowing the current date to be controlled for switch-window logic.
+ */
+class ClockableScoutYearController extends ScoutYearController
+{
+    public ?\DateTimeImmutable $fakeNow = null;
+
+    protected function now(): \DateTimeImmutable
+    {
+        return $this->fakeNow ?? new \DateTimeImmutable();
     }
 }

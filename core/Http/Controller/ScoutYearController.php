@@ -85,6 +85,7 @@ class ScoutYearController extends AbstractController
             'target_year' => $targetYear,
             'transition_steps' => $steps,
             'current_step' => $currentStep,
+            'switch_window_open' => ScoutYearService::isSwitchWindow($this->now()),
         ]);
     }
 
@@ -203,6 +204,13 @@ class ScoutYearController extends AbstractController
             return $this->redirect('/admin/scout-year');
         }
 
+        // The public switch is only allowed during the transition window
+        // (August–September 29); after that it is enforced automatically.
+        if (!ScoutYearService::isSwitchWindow($this->now())) {
+            FlashMessage::set('error', 'Le changement d\'année publique n\'est possible qu\'en août et en septembre.');
+            return $this->redirect('/admin/scout-year');
+        }
+
         $oldYearId = $this->resolver->getPublicYearId();
 
         $this->adminService->activatePublicYear($yearId);
@@ -244,7 +252,7 @@ class ScoutYearController extends AbstractController
             [
                 'number' => 1,
                 'title' => "Prévisualiser le site de l'année prochaine ({$targetLabel})",
-                'description' => "Utilisez le sélecteur « Prévisualiser une année » ci-dessus et choisissez {$targetLabel} pour voir le site tel qu'il apparaîtra. Cette prévisualisation ne concerne que votre session.",
+                'description' => "Choisissez {$targetLabel} ci-dessous pour voir le site tel qu'il apparaîtra. Cette prévisualisation ne concerne que votre session et n'affecte aucun autre utilisateur.",
                 'done' => $sessionPreviewId === $target,
                 'action' => 'preview',
             ],
@@ -270,6 +278,14 @@ class ScoutYearController extends AbstractController
                 'action' => 'activate-public',
             ],
         ];
+    }
+
+    /**
+     * Current moment. Overridable in tests to exercise the switch window.
+     */
+    protected function now(): \DateTimeImmutable
+    {
+        return new \DateTimeImmutable();
     }
 
     private function validCsrf(Request $request): bool

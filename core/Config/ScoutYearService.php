@@ -57,13 +57,13 @@ class ScoutYearService
     }
 
     /**
-     * Get all scout years, ordered by start_date descending.
+     * Get all scout years, ordered by start_date ascending (oldest first).
      *
      * @return array<int, array{id: int, label: string, start_date: string, end_date: string}>
      */
     public function getAll(): array
     {
-        $stmt = $this->pdo->query('SELECT * FROM scout_years ORDER BY start_date DESC');
+        $stmt = $this->pdo->query('SELECT * FROM scout_years ORDER BY start_date ASC');
         if ($stmt === false) {
             return [];
         }
@@ -102,6 +102,25 @@ class ScoutYearService
         $stmt->execute([$label, $startDate, $endDate, $now]);
 
         return (int) $this->pdo->lastInsertId();
+    }
+
+    /**
+     * Whether the public scout year may be switched manually on a given date.
+     *
+     * The switch is only allowed during the transition window — all of August
+     * and September up to the 29th. From September 30 the switch is enforced
+     * automatically (see ScoutYearResolver::getCurrentPublicYear).
+     */
+    public static function isSwitchWindow(\DateTimeInterface $date): bool
+    {
+        $month = (int) $date->format('n');
+        $day = (int) $date->format('j');
+
+        if ($month === 8) {
+            return true;
+        }
+
+        return $month === 9 && $day < 30;
     }
 
     /**
