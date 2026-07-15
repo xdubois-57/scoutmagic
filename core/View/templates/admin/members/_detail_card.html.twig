@@ -32,20 +32,19 @@
             </span>
         </div>
 
-        {# Phones — tel: links #}
-        <div class="d-flex justify-content-between align-items-start gap-3 py-2 border-bottom">
-            <span class="text-body-secondary d-flex align-items-center gap-2 flex-shrink-0"><i class="bi bi-phone"></i> Tél. membre</span>
-            <span class="text-end">
-                {% if member.mobile %}<a href="tel:{{ member.mobile|normalize_phone|replace({' ': ''}) }}">{{ member.mobile|normalize_phone }}</a>{% else %}—{% endif %}
-            </span>
-        </div>
+        {# Phones — tel: links. Desk provides two numbers: Tél (fixe) and GSM. #}
         <div class="d-flex justify-content-between align-items-start gap-3 py-2 border-bottom">
             <span class="text-body-secondary d-flex align-items-center gap-2 flex-shrink-0"><i class="bi bi-telephone"></i> Tél. parent 1</span>
             <span class="text-end">
                 {% if member.phone %}<a href="tel:{{ member.phone|normalize_phone|replace({' ': ''}) }}">{{ member.phone|normalize_phone }}</a>{% else %}—{% endif %}
             </span>
         </div>
-        {{ ui.field('bi-telephone', 'Tél. parent 2', '') }}
+        <div class="d-flex justify-content-between align-items-start gap-3 py-2 border-bottom">
+            <span class="text-body-secondary d-flex align-items-center gap-2 flex-shrink-0"><i class="bi bi-phone"></i> Tél. parent 2</span>
+            <span class="text-end">
+                {% if member.mobile %}<a href="tel:{{ member.mobile|normalize_phone|replace({' ': ''}) }}">{{ member.mobile|normalize_phone }}</a>{% else %}—{% endif %}
+            </span>
+        </div>
 
         {# Address #}
         {{ ui.field('bi-house', 'Adresse', member.addresses|length > 0 ? member.addresses[0].format()|normalize_address : '') }}
