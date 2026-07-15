@@ -1,0 +1,38 @@
+{% extends 'base.html.twig' %}
+{% block title %}Membres — {{ param('site_name') }}{% endblock %}
+{% block content %}
+    <h1>Membres</h1>
+    <p class="text-body-secondary small">Recherche parmi les membres de l'année {{ year_label }}.</p>
+
+    <form method="get" action="/admin/members" class="mb-4">
+        <div class="input-group">
+            <input type="search" name="q" class="form-control" value="{{ query }}"
+                   placeholder="Nom, prénom, email, téléphone…" aria-label="Recherche" autofocus>
+            <button type="submit" class="btn btn-primary">Rechercher</button>
+        </div>
+    </form>
+
+    {% if query is empty %}
+        <p class="text-body-secondary fst-italic">
+            Entrez un nom, prénom, email ou téléphone pour rechercher un membre.
+        </p>
+    {% elseif results is empty %}
+        <p class="text-body-secondary fst-italic">
+            Aucun membre trouvé pour « {{ query }} ».
+        </p>
+    {% else %}
+        <div class="d-flex flex-column gap-2">
+            {% for member in results %}
+                {% include 'admin/members/_result_row.html.twig' with {
+                    member: member,
+                    query: query,
+                    selected: member.memberYearId == selected_member_id
+                } %}
+            {% endfor %}
+        </div>
+    {% endif %}
+
+    {% if detail %}
+        {% include 'admin/members/_detail_card.html.twig' with { member: detail } %}
+    {% endif %}
+{% endblock %}

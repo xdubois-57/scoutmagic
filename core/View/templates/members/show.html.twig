@@ -10,12 +10,12 @@
             </span>
         </div>
         <div>
-            <h1 class="h3 mb-0">{{ member|display_name }}</h1>
+            <h1 class="h3 mb-0">{{ member|display_name|normalize_name }}</h1>
             {% if member.totem and member.quali %}
-                <span class="text-body-secondary">{{ member.totem }} {{ member.quali }}</span>
+                <span class="text-body-secondary">{{ member.totem|normalize_totem }} {{ member.quali }}</span>
             {% endif %}
             <div class="text-body-secondary small">
-                {{ member.firstName }} {{ member.lastName }}
+                {{ member.firstName|normalize_name }} {{ member.lastName|normalize_name }}
             </div>
         </div>
     </div>
@@ -61,13 +61,13 @@
                 {% if member.phone %}
                     <div class="d-flex align-items-center gap-2 mb-2">
                         <i class="bi bi-telephone text-body-secondary"></i>
-                        <a href="tel:{{ member.phone }}">{{ member.phone }}</a>
+                        <a href="tel:{{ member.phone|normalize_phone|replace({' ': ''}) }}">{{ member.phone|normalize_phone }}</a>
                     </div>
                 {% endif %}
                 {% if member.mobile %}
                     <div class="d-flex align-items-center gap-2 mb-2">
                         <i class="bi bi-phone text-body-secondary"></i>
-                        <a href="tel:{{ member.mobile }}">{{ member.mobile }}</a>
+                        <a href="tel:{{ member.mobile|normalize_phone|replace({' ': ''}) }}">{{ member.mobile|normalize_phone }}</a>
                     </div>
                 {% endif %}
             </div>

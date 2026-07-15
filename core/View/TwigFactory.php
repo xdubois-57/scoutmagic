@@ -113,6 +113,9 @@ class TwigFactory
             return '';
         }, ['is_safe' => ['html']]));
 
+        // Register text normalization filters (normalize_name/totem/phone/address)
+        $environment->addExtension(new TextNormalizerExtension());
+
         // Register display_name filter
         $environment->addFilter(new TwigFilter('display_name', function ($member) {
             if ($member instanceof \Core\Member\MemberProfile) {

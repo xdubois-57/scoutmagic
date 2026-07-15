@@ -91,7 +91,7 @@
                                 </span>
                             </div>
                             <div>
-                                <span class="fw-semibold">{{ member|display_name }}</span>
+                                <span class="fw-semibold">{{ member|display_name|normalize_name }}</span>
                                 {% if member.getMainFunction() %}
                                 <div class="text-body-secondary small">
                                     {{ member.getMainFunction().functionLabel }}
@@ -107,14 +107,14 @@
                                 </span>
                             {% endif %}
                             {% if member.mobile %}
-                                <a href="tel:{{ member.mobile }}" class="text-decoration-none">
+                                <a href="tel:{{ member.mobile|normalize_phone|replace({' ': ''}) }}" class="text-decoration-none">
                                     <i class="bi bi-phone text-body-secondary"></i>
-                                    {{ member.mobile }}
+                                    {{ member.mobile|normalize_phone }}
                                 </a>
                             {% elseif member.phone %}
-                                <a href="tel:{{ member.phone }}" class="text-decoration-none">
+                                <a href="tel:{{ member.phone|normalize_phone|replace({' ': ''}) }}" class="text-decoration-none">
                                     <i class="bi bi-telephone text-body-secondary"></i>
-                                    {{ member.phone }}
+                                    {{ member.phone|normalize_phone }}
                                 </a>
                             {% endif %}
                             {% if member.email %}

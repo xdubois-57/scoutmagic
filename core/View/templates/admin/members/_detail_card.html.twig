@@ -1,0 +1,61 @@
+{% import _self as ui %}
+
+{% macro field(icon, label, value) %}
+    <div class="d-flex justify-content-between align-items-start gap-3 py-2 border-bottom">
+        <span class="text-body-secondary d-flex align-items-center gap-2 flex-shrink-0">
+            <i class="bi {{ icon }}"></i> {{ label }}
+        </span>
+        <span class="text-end">{{ value|default('—') }}</span>
+    </div>
+{% endmacro %}
+
+<div class="card mt-4">
+    <div class="card-body">
+        {# Données Desk — read-only #}
+        <h2 class="h5 d-flex align-items-center gap-2 mb-1"><i class="bi bi-lock"></i> Données Desk</h2>
+        <p class="text-body-secondary small mb-3">Informations importées depuis Desk — lecture seule.</p>
+
+        {% set mainFn = member.getMainFunction() %}
+        {{ ui.field('bi-person', 'Nom', member.lastName|normalize_name) }}
+        {{ ui.field('bi-person', 'Prénom', member.firstName|normalize_name) }}
+        {{ ui.field('bi-calendar', 'Date de naissance', member.birthDate ? member.birthDate|date('d/m/Y') : '') }}
+        {{ ui.field('bi-gender-ambiguous', 'Sexe', member.gender) }}
+        {{ ui.field('bi-feather', 'Totem', member.totem ? member.totem|normalize_totem : '') }}
+        {{ ui.field('bi-people', 'Section', mainFn ? (mainFn.sectionName ?? mainFn.sectionCode) : '') }}
+        {{ ui.field('bi-briefcase', 'Fonction', mainFn ? mainFn.functionLabel : '') }}
+
+        {# Email — accent color, mailto link #}
+        <div class="d-flex justify-content-between align-items-start gap-3 py-2 border-bottom">
+            <span class="text-body-secondary d-flex align-items-center gap-2 flex-shrink-0"><i class="bi bi-envelope"></i> Email</span>
+            <span class="text-end">
+                {% if member.email %}<a href="mailto:{{ member.email }}" class="link-primary">{{ member.email }}</a>{% else %}—{% endif %}
+            </span>
+        </div>
+
+        {# Phones — tel: links #}
+        <div class="d-flex justify-content-between align-items-start gap-3 py-2 border-bottom">
+            <span class="text-body-secondary d-flex align-items-center gap-2 flex-shrink-0"><i class="bi bi-phone"></i> Tél. membre</span>
+            <span class="text-end">
+                {% if member.mobile %}<a href="tel:{{ member.mobile|normalize_phone|replace({' ': ''}) }}">{{ member.mobile|normalize_phone }}</a>{% else %}—{% endif %}
+            </span>
+        </div>
+        <div class="d-flex justify-content-between align-items-start gap-3 py-2 border-bottom">
+            <span class="text-body-secondary d-flex align-items-center gap-2 flex-shrink-0"><i class="bi bi-telephone"></i> Tél. parent 1</span>
+            <span class="text-end">
+                {% if member.phone %}<a href="tel:{{ member.phone|normalize_phone|replace({' ': ''}) }}">{{ member.phone|normalize_phone }}</a>{% else %}—{% endif %}
+            </span>
+        </div>
+        {{ ui.field('bi-telephone', 'Tél. parent 2', '') }}
+
+        {# Address #}
+        {{ ui.field('bi-house', 'Adresse', member.addresses|length > 0 ? member.addresses[0].format()|normalize_address : '') }}
+
+        <hr class="my-4">
+
+        {# Données du site — placeholder for future module hooks #}
+        <h2 class="h5 d-flex align-items-center gap-2 mb-1"><i class="bi bi-globe"></i> Données du site</h2>
+        <p class="text-body-secondary fst-italic mb-0">
+            Aucune donnée spécifique au site pour ce membre. Les modules actifs pourront ajouter des informations ici.
+        </p>
+    </div>
+</div>

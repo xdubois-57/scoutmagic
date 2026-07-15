@@ -1,0 +1,23 @@
+<a href="/admin/members?q={{ query|url_encode }}&member={{ member.memberYearId }}"
+   class="text-decoration-none text-body">
+    <div class="border rounded-3 p-3 d-flex align-items-center gap-3 {{ selected ? 'border-primary bg-primary-subtle' : '' }}"
+         style="min-height:44px;">
+        <div class="rounded-circle bg-primary-subtle d-flex align-items-center justify-content-center flex-shrink-0"
+             style="width:40px;height:40px;">
+            <span class="small fw-semibold text-primary">{{ member.initials }}</span>
+        </div>
+        <div class="flex-grow-1">
+            <div class="fw-semibold">
+                {{ member.lastName|normalize_name }}, {{ member.firstName|normalize_name }}{% if member.totem %} · {{ member.totem|normalize_totem }}{% endif %}
+            </div>
+            <div class="text-body-secondary small">
+                {{ member.sectionName ?? '—' }} · {{ member.functionLabel ?? '—' }}
+            </div>
+        </div>
+        {% if member.isActive %}
+            <span class="badge bg-success-subtle text-success-emphasis flex-shrink-0">inscrit</span>
+        {% else %}
+            <span class="badge bg-secondary-subtle text-secondary-emphasis flex-shrink-0">non inscrit</span>
+        {% endif %}
+    </div>
+</a>

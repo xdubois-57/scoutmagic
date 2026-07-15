@@ -54,7 +54,10 @@ use Core\Import\ImportSectionRepository;
 use Core\Import\MappingResolver;
 use Core\Import\MemberRepository;
 use Core\Import\MemberYearRepository;
+use Core\Member\Controller\MemberSearchController;
 use Core\Member\MemberService;
+use Core\Member\Repository\MemberSearchRepository;
+use Core\Member\Service\MemberSearchService;
 use Core\Member\SectionService;
 use Core\ScoutYear\ScoutYearAdminService;
 use Core\ScoutYear\ScoutYearResolver;
@@ -326,6 +329,7 @@ $importService = new DeskImportService(
 );
 $roleResolver = new RoleResolver($memberYearRepo, $encryptionService, $pdo);
 $memberService = new MemberService($memberYearRepo, $encryptionService, $connection);
+$memberSearchService = new MemberSearchService(new MemberSearchRepository($connection, $encryptionService));
 $sectionService = new SectionService($connection, $encryptionService);
 
 // Scout year resolution (public / staff / session-preview priority)
@@ -415,6 +419,7 @@ $menuBuilder->addPage(MenuBuilder::MENU_ESPACE_CHEFS, 'Staffs', '/chefs/staffs',
 $menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Import Desk', '/admin/import', 'admin', 10);
 $menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Journal', '/admin/journal', 'admin', 20);
 $menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Année scoute', '/admin/scout-year', 'admin', 30);
+$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Membres', '/admin/members', 'admin', 40);
 $menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Configuration générale', '/config/general', 'superadmin', 10);
 $menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Configuration du site', '/setup', 'superadmin', 15);
 $menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Fonctions', '/config/functions', 'superadmin', 20);
@@ -540,6 +545,7 @@ $router->addRoute('POST', '/admin/import', ImportController::class, 'import', 'a
 $router->addRoute('GET', '/admin/journal', JournalController::class, 'index', 'admin');
 
 // Scout year navigation and transition
+$router->addRoute('GET', '/admin/members', MemberSearchController::class, 'index', 'admin');
 $router->addRoute('GET', '/admin/scout-year', ScoutYearController::class, 'index', 'admin');
 $router->addRoute('POST', '/admin/scout-year/preview', ScoutYearController::class, 'preview', 'admin');
 $router->addRoute('POST', '/admin/scout-year/clear-preview', ScoutYearController::class, 'clearPreview', 'admin');
@@ -639,6 +645,7 @@ $frontController->registerController(FileController::class, $fileController);
 $frontController->registerController(UploadController::class, new UploadController($twig, $uploadHandler, $editableContentService));
 $frontController->registerController(JournalController::class, new JournalController($twig, $journalRepo, $userAccountRepo));
 $frontController->registerController(ScoutYearController::class, new ScoutYearController($twig, $scoutYearResolver, $scoutYearAdminService, $scoutYearService, $journalService));
+$frontController->registerController(MemberSearchController::class, new MemberSearchController($twig, $memberSearchService, $memberService, $scoutYearResolver));
 $frontController->registerController(SettingsController::class, new SettingsController($twig, $settingService, $journalService));
 $frontController->registerController(ScheduledActionsController::class, new ScheduledActionsController($twig, $schedulerRepo));
 $frontController->registerController(ConfigGeneralController::class, new ConfigGeneralController($twig, $moduleManager));
