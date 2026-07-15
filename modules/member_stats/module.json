@@ -1,0 +1,20 @@
+{
+  "id": "member_stats",
+  "name": "Statistiques des membres",
+  "version": "1.0.0",
+  "routes": [
+    {
+      "path": "/chiefs/stats",
+      "method": "GET",
+      "controller": "Modules\\MemberStats\\Controller\\MemberStatsController",
+      "action": "index",
+      "menu": "espace_chefs",
+      "label": "Statistiques",
+      "role_min": "chief"
+    }
+  ],
+  "settings": [],
+  "cookies": [],
+  "scheduled_tasks": [],
+  "storage": {}
+}

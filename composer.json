@@ -15,7 +15,8 @@
     "autoload": {
         "psr-4": {
             "Core\\": "core/",
-            "Modules\\": "modules/"
+            "Modules\\": "modules/",
+            "Modules\\MemberStats\\": "modules/member_stats/src/"
         }
     },
     "autoload-dev": {

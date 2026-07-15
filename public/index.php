@@ -652,6 +652,17 @@ $frontController->registerController(ConfigGeneralController::class, new ConfigG
 $frontController->registerController(FunctionsController::class, new FunctionsController($twig, $functionRepo, $journalService));
 $frontController->registerController(PlaceholderController::class, new PlaceholderController($twig));
 
+// Module controllers with dependencies (only wired when the module is enabled).
+if (in_array('member_stats', $moduleManager->getEnabledModuleIds(), true)) {
+    $memberStatsService = new \Modules\MemberStats\Service\MemberStatsService(
+        new \Modules\MemberStats\Repository\MemberStatsRepository($connection, $encryptionService)
+    );
+    $frontController->registerController(
+        \Modules\MemberStats\Controller\MemberStatsController::class,
+        new \Modules\MemberStats\Controller\MemberStatsController($twig, $memberStatsService, $scoutYearResolver)
+    );
+}
+
 // Bypass RBAC for /setup routes when site is not initialized or explicitly allowed
 $allowSetup = (bool) $config->get('allow_setup', false);
 if (!$secretManager->isInitialized() || $allowSetup) {

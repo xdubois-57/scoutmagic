@@ -1,0 +1,97 @@
+{% extends 'base.html.twig' %}
+{% block title %}Statistiques — {{ site_name }}{% endblock %}
+
+{% block content %}
+    <h1 class="mb-1">Statistiques des membres</h1>
+    <p class="text-body-secondary mb-4">Répartition des animés par branche — année {{ scout_year_label }}.</p>
+
+    {# Summary cards #}
+    <div class="row g-2 g-md-3 mb-4">
+        {% set summary = [
+            { label: 'Animés', value: stats.totals.total, icon: 'bi-people-fill', tone: 'primary' },
+            { label: 'Garçons', value: stats.totals.male, icon: 'bi-gender-male', tone: 'info' },
+            { label: 'Filles', value: stats.totals.female, icon: 'bi-gender-female', tone: 'danger' },
+            { label: 'Autres', value: stats.totals.other, icon: 'bi-gender-ambiguous', tone: 'secondary' }
+        ] %}
+        {% for card in summary %}
+            <div class="col-6 col-md-3">
+                <div class="card h-100 border-0 shadow-sm">
+                    <div class="card-body py-3">
+                        <div class="text-body-secondary small d-flex align-items-center gap-2">
+                            <i class="bi {{ card.icon }} text-{{ card.tone }}"></i> {{ card.label }}
+                        </div>
+                        <div class="fs-3 fw-semibold lh-1 mt-1">{{ card.value }}</div>
+                    </div>
+                </div>
+            </div>
+        {% endfor %}
+    </div>
+
+    {% if stats.totals.total == 0 %}
+        <div class="alert alert-info">
+            <i class="bi bi-info-circle"></i> Aucun animé enregistré pour cette année.
+        </div>
+    {% endif %}
+
+    {# Branch sections #}
+    {% for branch in stats.branches %}
+        <section class="mb-4">
+            <div class="d-flex align-items-center gap-2 mb-2">
+                <span class="d-inline-block rounded-circle flex-shrink-0"
+                      style="width: 0.9rem; height: 0.9rem; background-color: {{ branch.color }};"></span>
+                <h2 class="h5 mb-0">{{ branch.name }}</h2>
+                <span class="text-body-secondary small">{{ branch.age_range }} ans</span>
+            </div>
+
+            <div class="d-flex flex-column gap-2">
+                {% for row in branch.rows %}
+                    {% set panel_id = 'stat-detail-' ~ loop.parent.loop.index ~ '-' ~ loop.index %}
+                    {# Bar width is relative to the flexible middle track only, so
+                       the fixed side columns (year label, "né·e en") always show. #}
+                    {% set width = stats.max_count > 0 ? (row.total / stats.max_count * 100) : 0 %}
+                    <div>
+                        {# Collapsible bar row #}
+                        <button type="button"
+                                class="btn btn-light w-100 border p-0 overflow-hidden text-start collapsed d-flex align-items-center gap-2"
+                                style="min-height: 44px;"
+                                data-bs-toggle="collapse" data-bs-target="#{{ panel_id }}"
+                                aria-expanded="false" aria-controls="{{ panel_id }}">
+                            {# Fixed left column: the year label #}
+                            <span class="small text-body flex-shrink-0 ps-2 text-nowrap" style="width: 4.75rem;">{{ row.year_label }}</span>
+                            {# Flexible middle track: the proportional bar, count inside #}
+                            <span class="flex-grow-1" style="min-width: 0;">
+                                <span class="d-flex align-items-center justify-content-end text-white fw-semibold small rounded-end"
+                                      style="width: {{ width }}%; min-width: 2.25rem; height: 30px; padding-right: 0.5rem; background-color: {{ branch.color }};">
+                                    {{ row.total }}
+                                </span>
+                            </span>
+                            {# Fixed right column: always reserved for "né·e en" #}
+                            <span class="small text-body-secondary text-nowrap text-end flex-shrink-0" style="width: 6rem;">né·e en {{ row.birth_year }}</span>
+                            <i class="bi bi-chevron-down small text-body-secondary flex-shrink-0 pe-2"></i>
+                        </button>
+
+                        {# Detail panel: gender breakdown sub-cards #}
+                        <div class="collapse" id="{{ panel_id }}">
+                            <div class="row g-2 px-2 py-2 mx-0">
+                                {% set details = [
+                                    { label: 'Animés', value: row.total },
+                                    { label: 'Garçons', value: row.male },
+                                    { label: 'Filles', value: row.female },
+                                    { label: 'Autres', value: row.other }
+                                ] %}
+                                {% for d in details %}
+                                    <div class="col-3">
+                                        <div class="border rounded text-center py-2 h-100">
+                                            <div class="fw-semibold">{{ d.value }}</div>
+                                            <div class="text-body-secondary" style="font-size: 0.7rem;">{{ d.label }}</div>
+                                        </div>
+                                    </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    </div>
+                {% endfor %}
+            </div>
+        </section>
+    {% endfor %}
+{% endblock %}

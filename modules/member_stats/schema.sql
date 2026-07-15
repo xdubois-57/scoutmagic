@@ -1,0 +1,5 @@
+-- member_stats module
+--
+-- This module is read-only: it aggregates data from core tables
+-- (member_years, member_functions, age_branches) and stores nothing of its own.
+-- No tables are required.
