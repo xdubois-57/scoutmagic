@@ -14,3 +14,40 @@
     max-width: var(--page-narrow-width);
     margin-inline: auto;
 }
+
+/* Stepped workflow (e.g. "Changer d'année"): numbered circles with a connector. */
+.step-circle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.25rem;
+    height: 2.25rem;
+    border-radius: 50%;
+    font-weight: 600;
+    line-height: 1;
+    color: #fff;
+}
+.step-circle--pending {
+    background-color: var(--bs-primary);
+}
+.step-circle--done {
+    background-color: var(--bs-success);
+}
+/* Vertical connector linking each step's circle to the next. */
+.step-item__marker {
+    position: relative;
+}
+.step-item:not(:last-child) .step-item__marker::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: 2.25rem;
+    bottom: -1rem;
+    width: 2px;
+    transform: translateX(-50%);
+    background-color: var(--bs-border-color);
+}
+/* Dim steps that are not yet reachable. */
+.step-item--upcoming {
+    opacity: 0.65;
+}

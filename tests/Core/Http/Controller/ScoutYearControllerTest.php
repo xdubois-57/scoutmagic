@@ -181,6 +181,32 @@ class ScoutYearControllerTest extends TestCase
         $this->assertSame('0', $this->settingService->get(ScoutYearResolver::SETTING_STAFF_YEAR));
     }
 
+    public function testTransitionStepsRenderWithNoneCompleted(): void
+    {
+        // Pin the public year so the target (next year) is deterministic.
+        $this->settingService->setInternal(ScoutYearResolver::SETTING_PUBLIC_YEAR, (string) $this->yearB); // 2025-2026
+
+        $body = $this->controller->index(new Request('GET', '/admin/scout-year', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('Importer les données Desk', $body);
+        $this->assertStringContainsString('Activer pour le staff', $body);
+        $this->assertStringContainsString("Aller à l'import Desk", $body);
+        $this->assertStringContainsString('2026-2027', $body); // dynamic target label
+        $this->assertStringNotContainsString('bi-check-lg', $body); // nothing completed yet
+    }
+
+    public function testStaffStepShowsCompletedWhenStaffYearIsTarget(): void
+    {
+        $this->settingService->setInternal(ScoutYearResolver::SETTING_PUBLIC_YEAR, (string) $this->yearB);
+        $targetId = (new ScoutYearService($this->pdo))->ensureYear('2026-2027');
+        $this->settingService->setInternal(ScoutYearResolver::SETTING_STAFF_YEAR, (string) $targetId);
+
+        $body = $this->controller->index(new Request('GET', '/admin/scout-year', [], [], [], []), [])->getBody();
+
+        // The "activate for staff" step is now marked done (green check).
+        $this->assertStringContainsString('bi-check-lg', $body);
+    }
+
     private function assertJournalHas(string $eventType, string $level): void
     {
         $stmt = $this->pdo->prepare('SELECT COUNT(*) FROM event_log WHERE category = ? AND event_type = ? AND level = ?');

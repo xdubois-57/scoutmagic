@@ -49,6 +49,27 @@ class ScoutYearController extends AbstractController
         $staffYearId = $this->resolver->getStaffYearId();
         $staffYear = $staffYearId !== null ? $this->scoutYearService->findById($staffYearId) : null;
 
+        // The transition targets the year following the public year.
+        $targetId = $this->scoutYearService->ensureYear(ScoutYearService::nextLabel($publicYear['label']));
+        $targetYear = $this->scoutYearService->findById($targetId);
+
+        $steps = $this->buildTransitionSteps(
+            $targetYear,
+            $publicYear,
+            ScoutYearSession::getPreviewId(),
+            $staffYearId,
+            (int) $publicYear['id']
+        );
+
+        // The current actionable step is the first one not yet completed.
+        $currentStep = 0;
+        foreach ($steps as $step) {
+            if (!$step['done']) {
+                $currentStep = $step['number'];
+                break;
+            }
+        }
+
         return $this->render('admin/scout_year.html.twig', [
             'public_year' => $publicYear,
             'staff_year' => $staffYear,
@@ -61,6 +82,9 @@ class ScoutYearController extends AbstractController
             'member_count' => $this->resolver->countMembers($effective->id),
             'section_count' => $this->resolver->countSections($effective->id),
             'can_activate_public' => $staffYear !== null,
+            'target_year' => $targetYear,
+            'transition_steps' => $steps,
+            'current_step' => $currentStep,
         ]);
     }
 
@@ -193,6 +217,59 @@ class ScoutYearController extends AbstractController
         FlashMessage::set('success', "Année {$year['label']} activée pour tout le monde.");
 
         return $this->redirect('/admin/scout-year');
+    }
+
+    /**
+     * Build the ordered transition workflow steps with their completion state,
+     * recomputed on every request (never cached). To change the workflow, add or
+     * reorder entries here — the template renders whatever this returns and does
+     * not hardcode steps.
+     *
+     * @param array{id: int, label: string, start_date: string, end_date: string} $targetYear
+     * @param array{id: int, label: string, start_date: string, end_date: string} $publicYear
+     * @return array<int, array{number: int, title: string, description: string, done: bool, action: string}>
+     */
+    private function buildTransitionSteps(
+        array $targetYear,
+        array $publicYear,
+        ?int $sessionPreviewId,
+        ?int $staffYearId,
+        int $publicYearId
+    ): array {
+        $target = (int) $targetYear['id'];
+        $targetLabel = $targetYear['label'];
+        $publicLabel = $publicYear['label'];
+
+        return [
+            [
+                'number' => 1,
+                'title' => "Prévisualiser le site de l'année prochaine ({$targetLabel})",
+                'description' => "Utilisez le sélecteur « Prévisualiser une année » ci-dessus et choisissez {$targetLabel} pour voir le site tel qu'il apparaîtra. Cette prévisualisation ne concerne que votre session.",
+                'done' => $sessionPreviewId === $target,
+                'action' => 'preview',
+            ],
+            [
+                'number' => 2,
+                'title' => 'Importer les données Desk',
+                'description' => "Importez le fichier CSV Desk pour l'année {$targetLabel} depuis la page « Import Desk ». Les membres de la nouvelle année deviennent alors disponibles.",
+                'done' => $this->resolver->countMembers($target) > 0,
+                'action' => 'import',
+            ],
+            [
+                'number' => 3,
+                'title' => "Activer l'année {$targetLabel} pour les staffs",
+                'description' => "Les chefs et intendants verront {$targetLabel} dès leur prochaine connexion, tandis que les animés et les visiteurs restent sur l'année courante ({$publicLabel}).",
+                'done' => $staffYearId === $target,
+                'action' => 'activate-staff',
+            ],
+            [
+                'number' => 4,
+                'title' => 'Activer pour tout le monde',
+                'description' => "Bascule l'ensemble du site (visiteurs inclus) sur {$targetLabel} de façon permanente et désactive l'année du staff.",
+                'done' => $publicYearId === $target,
+                'action' => 'activate-public',
+            ],
+        ];
     }
 
     private function validCsrf(Request $request): bool

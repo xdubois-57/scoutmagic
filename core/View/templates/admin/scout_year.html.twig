@@ -85,53 +85,84 @@
         </div>
     </div>
 
-    {# Transition actions #}
+    {# Transition workflow — stepped guide toward the next year #}
     <div class="card mb-3">
         <div class="card-body">
-            <h2 class="h5">Changer d'année</h2>
+            <h2 class="h5 mb-3">Changer d'année</h2>
 
-            <form method="post" action="/admin/scout-year/activate-staff" class="d-flex flex-wrap gap-2 align-items-end">
-                {{ csrf_field()|raw }}
-                <div class="flex-grow-1">
-                    <label class="form-label" for="staff-year">Activer pour le staff</label>
-                    <select class="form-select" name="scout_year_id" id="staff-year">
-                        {% for y in years %}
-                            <option value="{{ y.id }}" {{ staff_year and y.id == staff_year.id ? 'selected' : '' }}>{{ y.label }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <button type="submit" class="btn btn-primary">Activer pour le staff</button>
-            </form>
-            <p class="text-body-secondary small mt-2">
-                Les chefs et intendants verront cette année ; le public garde l'année publique actuelle.
-            </p>
+            <ol class="list-unstyled step-list mb-0">
+                {% for step in transition_steps %}
+                {% set is_current = step.number == current_step %}
+                <li class="step-item d-flex gap-3 {% if not loop.last %}pb-4{% endif %} {{ step.done ? 'step-item--done' : (is_current ? 'step-item--current' : 'step-item--upcoming') }}">
+                    <div class="step-item__marker flex-shrink-0">
+                        <span class="step-circle {{ step.done ? 'step-circle--done' : 'step-circle--pending' }}"
+                              aria-hidden="true">
+                            {% if step.done %}<i class="bi bi-check-lg"></i>{% else %}{{ step.number }}{% endif %}
+                        </span>
+                    </div>
+                    <div class="flex-grow-1 pt-1">
+                        <div class="fw-semibold {{ step.done ? 'text-success-emphasis' : '' }}">{{ step.title }}</div>
+                        <p class="text-body-secondary small mb-2">{{ step.description }}</p>
 
-            <hr>
+                        {% if step.action == 'preview' %}
+                            {% if is_current %}
+                                <span class="badge text-bg-primary">Étape en cours — utilisez le sélecteur ci-dessus</span>
+                            {% endif %}
 
-            <form method="post" action="/admin/scout-year/activate-public" id="activate-public-form"
-                  class="d-flex flex-wrap gap-2 align-items-end">
-                {{ csrf_field()|raw }}
-                <div class="flex-grow-1">
-                    <label class="form-label" for="public-year">Activer pour tout le monde</label>
-                    <select class="form-select" name="scout_year_id" id="public-year" {{ can_activate_public ? '' : 'disabled' }}>
-                        {% for y in years %}
-                            <option value="{{ y.id }}" {{ staff_year and y.id == staff_year.id ? 'selected' : '' }}>{{ y.label }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <button type="submit" class="btn btn-danger" {{ can_activate_public ? '' : 'disabled' }}>
-                    Activer pour tout le monde
-                </button>
-            </form>
-            {% if can_activate_public %}
-            <p class="text-body-secondary small mb-0 mt-2">
-                Bascule l'ensemble du site (public inclus) sur l'année choisie et désactive l'année du staff.
-            </p>
-            {% else %}
-            <p class="text-body-secondary small mb-0 mt-2">
-                Activez d'abord une année pour le staff avant de la déployer pour tout le monde.
-            </p>
-            {% endif %}
+                        {% elseif step.action == 'import' %}
+                            <a href="/admin/import"
+                               class="btn btn-sm {{ is_current ? 'btn-primary' : 'btn-outline-secondary' }}">
+                                Aller à l'import Desk
+                            </a>
+
+                        {% elseif step.action == 'activate-staff' %}
+                            <form method="post" action="/admin/scout-year/activate-staff"
+                                  class="d-flex flex-wrap gap-2 align-items-end">
+                                {{ csrf_field()|raw }}
+                                <div>
+                                    <label class="form-label small mb-1" for="staff-year">Année</label>
+                                    <select class="form-select form-select-sm" name="scout_year_id" id="staff-year">
+                                        {% for y in years %}
+                                            <option value="{{ y.id }}" {{ y.id == target_year.id ? 'selected' : '' }}>{{ y.label }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                                <button type="submit"
+                                        class="btn btn-sm {{ is_current ? 'btn-primary' : 'btn-outline-secondary' }}"
+                                        {{ is_current ? '' : 'disabled' }}>
+                                    Activer pour le staff
+                                </button>
+                            </form>
+
+                        {% elseif step.action == 'activate-public' %}
+                            <form method="post" action="/admin/scout-year/activate-public" id="activate-public-form"
+                                  class="d-flex flex-wrap gap-2 align-items-end">
+                                {{ csrf_field()|raw }}
+                                <div>
+                                    <label class="form-label small mb-1" for="public-year">Année</label>
+                                    <select class="form-select form-select-sm" name="scout_year_id" id="public-year"
+                                            {{ can_activate_public ? '' : 'disabled' }}>
+                                        {% for y in years %}
+                                            <option value="{{ y.id }}" {{ y.id == target_year.id ? 'selected' : '' }}>{{ y.label }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                                <button type="submit"
+                                        class="btn btn-sm {{ is_current ? 'btn-danger' : 'btn-outline-secondary' }}"
+                                        {{ (is_current and can_activate_public) ? '' : 'disabled' }}>
+                                    Activer pour tout le monde
+                                </button>
+                            </form>
+                            {% if not can_activate_public %}
+                            <p class="text-body-secondary small mb-0 mt-2">
+                                Activez d'abord une année pour le staff (étape 3).
+                            </p>
+                            {% endif %}
+                        {% endif %}
+                    </div>
+                </li>
+                {% endfor %}
+            </ol>
         </div>
     </div>
 {% endblock %}
