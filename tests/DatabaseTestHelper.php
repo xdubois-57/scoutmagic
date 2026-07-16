@@ -104,6 +104,7 @@ class DatabaseTestHelper
             unit_mail_consent INTEGER NOT NULL DEFAULT 0,
             fee_category_id INTEGER,
             unit_code TEXT,
+            scout_year_offset INTEGER NOT NULL DEFAULT 0,
             handicap_encrypted BLOB,
             supplementary_insurance TEXT,
             is_active INTEGER NOT NULL DEFAULT 1,

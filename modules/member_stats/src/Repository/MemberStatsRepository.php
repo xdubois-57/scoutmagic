@@ -40,7 +40,7 @@ class MemberStatsRepository
     }
 
     /**
-     * @return array<int, array{branch_label: string, branch_sort_order: int, birth_date: ?string, gender: ?string}>
+     * @return array<int, array{branch_label: string, branch_sort_order: int, birth_date: ?string, gender: ?string, scout_year_offset: int}>
      */
     public function getMemberBranchData(int $scoutYearId): array
     {
@@ -53,6 +53,7 @@ class MemberStatsRepository
             'SELECT my.id AS member_year_id,
                     my.birth_date_encrypted,
                     my.gender_encrypted,
+                    my.scout_year_offset,
                     f.role AS function_role,
                     ab.label AS branch_label,
                     ab.sort_order AS branch_sort_order
@@ -89,6 +90,7 @@ class MemberStatsRepository
                 'branch_sort_order' => (int) $r['branch_sort_order'],
                 'birth_date' => $this->decryptNullable($r['birth_date_encrypted']),
                 'gender' => $this->decryptNullable($r['gender_encrypted']),
+                'scout_year_offset' => (int) $r['scout_year_offset'],
             ];
         }
 

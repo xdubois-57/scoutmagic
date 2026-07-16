@@ -248,6 +248,15 @@ class MemberYearRepository
     }
 
     /**
+     * Update a member year's scout year offset (-1, 0, or +1).
+     */
+    public function updateScoutYearOffset(int $memberYearId, int $offset): void
+    {
+        $stmt = $this->pdo->prepare('UPDATE member_years SET scout_year_offset = ? WHERE id = ?');
+        $stmt->execute([$offset, $memberYearId]);
+    }
+
+    /**
      * Find a member year by ID.
      *
      * @return array<string, mixed>|null

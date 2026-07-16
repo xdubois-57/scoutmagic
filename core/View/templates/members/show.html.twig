@@ -124,6 +124,83 @@
         </div>
     </div>
 
+    {# Données du site — chief/admin only #}
+    {% if show_site_data %}
+        <div class="card mb-3" id="scout-year-offset-card" data-member-year-id="{{ member.memberYearId }}">
+            <div class="card-body">
+                <h2 class="h5 d-flex align-items-center gap-2 mb-3"><i class="bi bi-globe"></i> Données du site</h2>
+
+                <label class="form-label fw-semibold mb-1">Décalage année scoute</label>
+                <p class="text-body-secondary small mb-2">
+                    Ajuster si ce membre est en avance ou en retard d'un an.
+                </p>
+
+                <div class="btn-group" role="group" aria-label="Décalage année scoute">
+                    <button type="button"
+                            class="btn btn-outline-secondary offset-btn{{ member.scoutYearOffset == -1 ? ' active' : '' }}"
+                            style="min-height:44px;" data-offset="-1">−1 an</button>
+                    <button type="button"
+                            class="btn btn-outline-secondary offset-btn{{ member.scoutYearOffset == 0 ? ' active' : '' }}"
+                            style="min-height:44px;" data-offset="0">Normal</button>
+                    <button type="button"
+                            class="btn btn-outline-secondary offset-btn{{ member.scoutYearOffset == 1 ? ' active' : '' }}"
+                            style="min-height:44px;" data-offset="1">+1 an</button>
+                </div>
+
+                <div class="mt-3">
+                    <span class="badge rounded-pill text-bg-light border d-inline-flex align-items-center gap-2">
+                        <span class="rounded-circle d-inline-block" id="scout-year-offset-dot"
+                              style="width:10px;height:10px;background-color:{{ effective_age.branchColor|default('#adb5bd') }};"></span>
+                        <span id="scout-year-offset-label">{{ effective_age.getBranchYearLabel()|default('') != '' ? effective_age.getBranchYearLabel() : '—' }}</span>
+                    </span>
+                </div>
+            </div>
+        </div>
+    {% endif %}
+
     {# Module sections will be injected here in future iterations #}
     {# Each module can add cards to the member page via a hook #}
+{% endblock %}
+
+{% block scripts %}
+<script nonce="{{ csp_nonce }}">
+(() => {
+    const card = document.getElementById('scout-year-offset-card');
+    if (!card) return;
+
+    const memberYearId = card.dataset.memberYearId;
+    const buttons = card.querySelectorAll('.offset-btn');
+    const dot = document.getElementById('scout-year-offset-dot');
+    const label = document.getElementById('scout-year-offset-label');
+    const csrf = document.querySelector('meta[name="csrf-token"]')?.content;
+
+    buttons.forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const offset = parseInt(btn.dataset.offset, 10);
+
+            buttons.forEach(b => b.disabled = true);
+            try {
+                const res = await fetch(`/members/${memberYearId}/scout-year-offset`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ offset, _csrf_token: csrf })
+                });
+                const data = await res.json();
+
+                if (data.success) {
+                    buttons.forEach(b => b.classList.toggle('active', parseInt(b.dataset.offset, 10) === offset));
+                    label.textContent = data.branch_year_label || '—';
+                    if (data.branch_color) {
+                        dot.style.backgroundColor = data.branch_color;
+                    }
+                } else {
+                    alert(data.error);
+                }
+            } finally {
+                buttons.forEach(b => b.disabled = false);
+            }
+        });
+    });
+})();
+</script>
 {% endblock %}
