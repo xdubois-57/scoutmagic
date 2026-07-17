@@ -73,12 +73,13 @@ class MemberControllerScoutYearOffsetTest extends TestCase
 
         $stmt = $this->pdo->prepare(
             'INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted, birth_date_encrypted)
-             VALUES (?, ?, ?, ?)'
+             VALUES (?, ?, ?, ?, ?)'
         );
         $stmt->execute([
             $memberId,
             $this->scoutYearId,
             $this->encryption->encrypt('John'),
+            $this->encryption->encrypt('Doe'),
             $this->encryption->encrypt($birthDate),
         ]);
 
@@ -116,7 +117,8 @@ class MemberControllerScoutYearOffsetTest extends TestCase
     public function testValidOffsetIsPersistedAndReturnsBranchYearLabel(): void
     {
         $token = $this->startSessionWithCsrfToken();
-        // 2014-01-01 → raw age 11 in 2025 → louveteaux 4e année. Offset -1 moves it to 10.
+        // 2014-01-01 → raw age 11 in 2025 (louveteaux 4e année). Offset -1 moves
+        // the effective age to 10 → louveteaux 3e année.
         $memberYearId = $this->createMemberYear('2014-01-01');
 
         $response = $this->controller->updateScoutYearOffset(
@@ -126,7 +128,7 @@ class MemberControllerScoutYearOffsetTest extends TestCase
 
         $decoded = json_decode($response->getBody(), true);
         $this->assertTrue($decoded['success']);
-        $this->assertSame('4e année louveteaux', $decoded['branch_year_label']);
+        $this->assertSame('3e année louveteaux', $decoded['branch_year_label']);
         $this->assertSame('#639922', $decoded['branch_color']);
 
         $stmt = $this->pdo->prepare('SELECT scout_year_offset FROM member_years WHERE id = ?');
