@@ -33,7 +33,7 @@
     {% endif %}
 
     {% if detail %}
-        {% include 'admin/members/_detail_card.html.twig' with { member: detail } %}
+        {% include 'admin/members/_detail_card.html.twig' with { member: detail, effective_age: effective_age } %}
     {% endif %}
 {% endblock %}
 
@@ -41,6 +41,45 @@
 {% if detail %}
 <script nonce="{{ csp_nonce }}">
 document.getElementById('member-detail')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+(() => {
+    const card = document.getElementById('scout-year-offset-card');
+    if (!card) return;
+
+    const memberYearId = card.dataset.memberYearId;
+    const buttons = card.querySelectorAll('.offset-btn');
+    const dot = document.getElementById('scout-year-offset-dot');
+    const label = document.getElementById('scout-year-offset-label');
+    const csrf = document.querySelector('meta[name="csrf-token"]')?.content;
+
+    buttons.forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const offset = parseInt(btn.dataset.offset, 10);
+
+            buttons.forEach(b => b.disabled = true);
+            try {
+                const res = await fetch(`/members/${memberYearId}/scout-year-offset`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ offset, _csrf_token: csrf })
+                });
+                const data = await res.json();
+
+                if (data.success) {
+                    buttons.forEach(b => b.classList.toggle('active', parseInt(b.dataset.offset, 10) === offset));
+                    label.textContent = data.branch_year_label || '—';
+                    if (data.branch_color) {
+                        dot.style.backgroundColor = data.branch_color;
+                    }
+                } else {
+                    alert(data.error);
+                }
+            } finally {
+                buttons.forEach(b => b.disabled = false);
+            }
+        });
+    });
+})();
 </script>
 {% endif %}
 {% endblock %}

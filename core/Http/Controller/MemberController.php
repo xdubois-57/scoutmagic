@@ -7,9 +7,7 @@ namespace Core\Http\Controller;
 use Core\Http\Request;
 use Core\Http\Response;
 use Core\Journal\JournalService;
-use Core\Member\EffectiveAge;
 use Core\Member\MemberNotFoundException;
-use Core\Member\MemberProfile;
 use Core\Member\MemberService;
 use Core\Member\MemberYearService;
 use Core\Security\AuthSession;
@@ -63,8 +61,6 @@ class MemberController extends AbstractController
             'member' => $profile,
             'show_contact' => $showContact,
             'show_addresses' => $showAddresses,
-            'show_site_data' => $isChiefOrAbove,
-            'effective_age' => $this->computeEffectiveAge($profile),
         ]);
     }
 
@@ -123,14 +119,5 @@ class MemberController extends AbstractController
             'branch_year_label' => $effectiveAge->getBranchYearLabel(),
             'branch_color' => $effectiveAge->branchColor,
         ]);
-    }
-
-    private function computeEffectiveAge(MemberProfile $profile): EffectiveAge
-    {
-        return $this->memberYearService->getEffectiveAge(
-            MemberYearService::extractBirthYear($profile->birthDate),
-            $profile->scoutYearOffset,
-            MemberYearService::referenceYearFromScoutYearLabel($profile->scoutYearLabel)
-        );
     }
 }

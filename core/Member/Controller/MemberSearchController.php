@@ -9,6 +9,7 @@ use Core\Http\Request;
 use Core\Http\Response;
 use Core\Member\MemberNotFoundException;
 use Core\Member\MemberService;
+use Core\Member\MemberYearService;
 use Core\Member\Service\MemberSearchService;
 use Core\ScoutYear\ScoutYearResolver;
 use Core\ScoutYear\ScoutYearSession;
@@ -25,7 +26,8 @@ class MemberSearchController extends AbstractController
         protected Environment $twig,
         private MemberSearchService $searchService,
         private MemberService $memberService,
-        private ScoutYearResolver $resolver
+        private ScoutYearResolver $resolver,
+        private MemberYearService $memberYearService
     ) {
     }
 
@@ -42,6 +44,7 @@ class MemberSearchController extends AbstractController
         $results = $query !== '' ? $this->searchService->search($yearId, $query) : [];
 
         $detail = null;
+        $effectiveAge = null;
         $memberId = (int) $request->getQuery('member', 0);
         if ($memberId > 0) {
             // The member must belong to the effective scout year.
@@ -53,12 +56,19 @@ class MemberSearchController extends AbstractController
             } catch (MemberNotFoundException) {
                 return $this->notFound();
             }
+
+            $effectiveAge = $this->memberYearService->getEffectiveAge(
+                MemberYearService::extractBirthYear($detail->birthDate),
+                $detail->scoutYearOffset,
+                MemberYearService::referenceYearFromScoutYearLabel($detail->scoutYearLabel)
+            );
         }
 
         return $this->render('admin/members/search.html.twig', [
             'query' => $query,
             'results' => $results,
             'detail' => $detail,
+            'effective_age' => $effectiveAge,
             'selected_member_id' => $memberId,
             'year_label' => $effective->label,
         ]);
