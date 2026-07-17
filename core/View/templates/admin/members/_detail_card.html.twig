@@ -62,10 +62,34 @@
 
         <hr class="my-4">
 
-        {# Données du site — placeholder for future module hooks #}
-        <h2 class="h5 d-flex align-items-center gap-2 mb-1"><i class="bi bi-globe"></i> Données du site</h2>
-        <p class="text-body-secondary fst-italic mb-0">
-            Aucune donnée spécifique au site pour ce membre. Les modules actifs pourront ajouter des informations ici.
-        </p>
+        {# Données du site #}
+        <h2 class="h5 d-flex align-items-center gap-2 mb-3"><i class="bi bi-globe"></i> Données du site</h2>
+
+        <div id="scout-year-offset-card" data-member-year-id="{{ member.memberYearId }}">
+            <label class="form-label fw-semibold mb-1">Décalage année scoute</label>
+            <p class="text-body-secondary small mb-2">
+                Ajuster si ce membre est en avance ou en retard d'un an.
+            </p>
+
+            <div class="btn-group" role="group" aria-label="Décalage année scoute">
+                <button type="button"
+                        class="btn btn-outline-secondary offset-btn{{ member.scoutYearOffset == -1 ? ' active' : '' }}"
+                        style="min-height:44px;" data-offset="-1">−1 an</button>
+                <button type="button"
+                        class="btn btn-outline-secondary offset-btn{{ member.scoutYearOffset == 0 ? ' active' : '' }}"
+                        style="min-height:44px;" data-offset="0">Normal</button>
+                <button type="button"
+                        class="btn btn-outline-secondary offset-btn{{ member.scoutYearOffset == 1 ? ' active' : '' }}"
+                        style="min-height:44px;" data-offset="1">+1 an</button>
+            </div>
+
+            <div class="mt-3">
+                <span class="badge rounded-pill text-bg-light border d-inline-flex align-items-center gap-2">
+                    <span class="rounded-circle d-inline-block" id="scout-year-offset-dot"
+                          style="width:10px;height:10px;background-color:{{ effective_age.branchColor|default('#adb5bd') }};"></span>
+                    <span id="scout-year-offset-label">{{ effective_age.getBranchYearLabel()|default('') != '' ? effective_age.getBranchYearLabel() : '—' }}</span>
+                </span>
+            </div>
+        </div>
     </div>
 </div>

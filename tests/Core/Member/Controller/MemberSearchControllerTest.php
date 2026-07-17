@@ -11,6 +11,7 @@ use Core\Database\Connection;
 use Core\Import\MemberYearRepository;
 use Core\Member\Controller\MemberSearchController;
 use Core\Member\MemberService;
+use Core\Member\MemberYearService;
 use Core\Member\Repository\MemberSearchRepository;
 use Core\Member\Service\MemberSearchService;
 use Core\ScoutYear\ScoutYearResolver;
@@ -73,7 +74,7 @@ class MemberSearchControllerTest extends TestCase
         $twig->addFunction(new TwigFunction('param', fn(string $k) => 'Test'));
         $twig->addFilter(new TwigFilter('display_name', fn($m) => $m instanceof \Core\Member\MemberProfile ? $m->getDisplayName() : (string) $m));
 
-        $this->controller = new MemberSearchController($twig, $searchService, $memberService, $resolver);
+        $this->controller = new MemberSearchController($twig, $searchService, $memberService, $resolver, new MemberYearService());
 
         if (session_status() !== PHP_SESSION_ACTIVE) {
             ini_set('session.use_cookies', '0');
@@ -82,7 +83,7 @@ class MemberSearchControllerTest extends TestCase
         AuthSession::login(1, 'admin@test.be', 'admin');
     }
 
-    private function seedMember(): int
+    private function seedMember(?string $birthDate = null): int
     {
         $this->pdo->exec("INSERT INTO age_branches (desk_code, label, sort_order) VALUES ('BAL', 'Baladins', 1)");
         $branchId = (int) $this->pdo->lastInsertId();
@@ -95,14 +96,15 @@ class MemberSearchControllerTest extends TestCase
         $memberId = (int) $this->pdo->lastInsertId();
 
         $stmt = $this->pdo->prepare(
-            'INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted, totem_encrypted, email_encrypted, mobile_encrypted, is_active)
-             VALUES (?, ?, ?, ?, ?, ?, ?, 1)'
+            'INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted, totem_encrypted, email_encrypted, mobile_encrypted, birth_date_encrypted, is_active)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)'
         );
         $stmt->execute([
             $memberId, $this->yearId,
             $this->enc->encrypt('jean'), $this->enc->encrypt('DUPONT'),
             $this->enc->encrypt('renard'), $this->enc->encrypt('jean@ex.be'),
             $this->enc->encrypt('0476123456'),
+            $birthDate !== null ? $this->enc->encrypt($birthDate) : null,
         ]);
         $memberYearId = (int) $this->pdo->lastInsertId();
 
@@ -160,6 +162,28 @@ class MemberSearchControllerTest extends TestCase
         // Phone normalized for display.
         $this->assertStringContainsString('+32 476 12 34 56', $body);
         $this->assertStringContainsString('Animateur', $body);
+    }
+
+    public function testDetailCardShowsScoutYearOffsetControlAndBranchYearLabel(): void
+    {
+        // 2014-01-01 → raw age 11 in scout year 2025-2026 (reference year 2025)
+        // → louveteaux, 4e année.
+        $id = $this->seedMember('2014-01-01');
+
+        $body = $this->controller->index($this->get(['q' => 'dupont', 'member' => (string) $id]), [])->getBody();
+
+        $this->assertStringContainsString('Décalage année scoute', $body);
+        $this->assertStringContainsString('id="scout-year-offset-card"', $body);
+        $this->assertStringContainsString('data-offset="-1"', $body);
+        $this->assertStringContainsString('data-offset="0"', $body);
+        $this->assertStringContainsString('data-offset="1"', $body);
+        $this->assertStringContainsString('4e année louveteaux', $body);
+        $this->assertStringContainsString('#639922', $body);
+        // No offset set yet → "Normal" is the active segment.
+        $this->assertMatchesRegularExpression(
+            '/offset-btn active"\s+style="min-height:44px;" data-offset="0"/',
+            $body
+        );
     }
 
     public function testNotFoundForInvalidMember(): void

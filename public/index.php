@@ -648,7 +648,7 @@ $frontController->registerController(FileController::class, $fileController);
 $frontController->registerController(UploadController::class, new UploadController($twig, $uploadHandler, $editableContentService));
 $frontController->registerController(JournalController::class, new JournalController($twig, $journalRepo, $userAccountRepo));
 $frontController->registerController(ScoutYearController::class, new ScoutYearController($twig, $scoutYearResolver, $scoutYearAdminService, $scoutYearService, $journalService));
-$frontController->registerController(MemberSearchController::class, new MemberSearchController($twig, $memberSearchService, $memberService, $scoutYearResolver));
+$frontController->registerController(MemberSearchController::class, new MemberSearchController($twig, $memberSearchService, $memberService, $scoutYearResolver, $memberYearService));
 $frontController->registerController(SettingsController::class, new SettingsController($twig, $settingService, $journalService));
 $frontController->registerController(ScheduledActionsController::class, new ScheduledActionsController($twig, $schedulerRepo));
 $frontController->registerController(ConfigGeneralController::class, new ConfigGeneralController($twig, $moduleManager));
