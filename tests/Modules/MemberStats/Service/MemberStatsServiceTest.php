@@ -4,23 +4,23 @@ declare(strict_types=1);
 
 namespace Tests\Modules\MemberStats\Service;
 
-use Core\Database\Connection;
-use Core\Security\EncryptionService;
+use Core\Member\MemberYearService;
 use Modules\MemberStats\Repository\MemberStatsRepository;
 use Modules\MemberStats\Service\MemberStatsService;
 use PHPUnit\Framework\TestCase;
 
 /**
- * Aggregation logic: mapping members to branch-year cells from their birth year,
- * gender bucketing, totals, and bar-scaling max — all with a stubbed repository
- * so no encryption/database is involved.
+ * Aggregation logic: mapping members to branch-year cells via
+ * MemberYearService::getEffectiveAge() (birth year + scout_year_offset),
+ * gender bucketing, totals, and bar-scaling max — all with a stubbed
+ * repository so no encryption/database is involved.
  */
 class MemberStatsServiceTest extends TestCase
 {
     private const REFERENCE_YEAR = 2026;
 
     /**
-     * @param array<int, array{branch_label: string, branch_sort_order: int, birth_date: ?string, gender: ?string}> $rows
+     * @param array<int, array{branch_label: string, branch_sort_order: int, birth_date: ?string, gender: ?string, scout_year_offset: int}> $rows
      */
     private function service(array $rows): MemberStatsService
     {
@@ -37,22 +37,23 @@ class MemberStatsServiceTest extends TestCase
             }
         };
 
-        return new MemberStatsService($repo);
+        return new MemberStatsService($repo, new MemberYearService());
     }
 
     /**
      * @param string $label
      * @param string $birthDate
      * @param string|null $gender
-     * @return array{branch_label: string, branch_sort_order: int, birth_date: ?string, gender: ?string}
+     * @return array{branch_label: string, branch_sort_order: int, birth_date: ?string, gender: ?string, scout_year_offset: int}
      */
-    private function row(string $label, string $birthDate, ?string $gender, int $sort = 10): array
+    private function row(string $label, string $birthDate, ?string $gender, int $sort = 10, int $offset = 0): array
     {
         return [
             'branch_label' => $label,
             'branch_sort_order' => $sort,
             'birth_date' => $birthDate,
             'gender' => $gender,
+            'scout_year_offset' => $offset,
         ];
     }
 
@@ -111,7 +112,7 @@ class MemberStatsServiceTest extends TestCase
             $this->row('Éclaireurs', '2014-01-01', 'X'), // age 12 → y1 other
             $this->row('Pionniers', '2010-01-01', 'M'),  // age 16 → y1 male
             $this->row('Pionniers', '2009-06-06', 'F'),  // age 17 → y2 female
-            $this->row("Staff d'U", '1990-01-01', 'M'),  // not an animés branch → skipped
+            $this->row("Staff d'U", '1990-01-01', 'M'),  // age 36 → outside every branch → skipped
             $this->row('Baladins', '', 'M'),             // no birth date → skipped
             $this->row('Baladins', 'inconnu', 'F'),      // unparseable → skipped
         ];
@@ -139,15 +140,50 @@ class MemberStatsServiceTest extends TestCase
         $this->assertSame(['total' => 1, 'male' => 0, 'female' => 1, 'other' => 0], $this->cell($pionniers[1]));
     }
 
-    public function testAgeOutsideBranchRangeIsClamped(): void
+    public function testAgeOutsideAnyBranchRangeIsExcluded(): void
     {
-        // A "Baladins" member born 2005 (age 21) clamps into the last Baladins year.
+        // Born 2005 → age 21 in 2026: outside every branch (Baladins..Pionniers
+        // cover 6-17). Branch/year now comes exclusively from getEffectiveAge(),
+        // so an out-of-range effective age is excluded rather than clamped into
+        // whatever branch the Desk export happened to label the row with.
         $rows = [$this->row('Baladins', '2005-01-01', 'M')];
         $stats = $this->service($rows)->getStatistics(1, self::REFERENCE_YEAR);
 
         $baladins = $stats['branches'][0]['rows'];
         $this->assertSame(0, $baladins[0]['total']);
-        $this->assertSame(1, $baladins[1]['total']); // clamped to 2e année
+        $this->assertSame(0, $baladins[1]['total']);
+        $this->assertSame(0, $stats['totals']['total']);
+    }
+
+    public function testScoutYearOffsetShiftsAMemberIntoTheAdjacentBranch(): void
+    {
+        // Born 2014 → raw age 12 (éclaireurs 1ère année). A chief-applied -1
+        // offset moves the effective age to 11 → louveteaux 4e année.
+        $rows = [$this->row('Éclaireurs', '2014-01-01', 'F', offset: -1)];
+        $stats = $this->service($rows)->getStatistics(1, self::REFERENCE_YEAR);
+
+        $louveteaux = $stats['branches'][1]['rows'];
+        $this->assertSame(1, $louveteaux[3]['total']); // 4e année
+        $this->assertSame(1, $louveteaux[3]['female']);
+
+        $eclaireurs = $stats['branches'][2]['rows'];
+        $this->assertSame(0, $eclaireurs[0]['total']);
+
+        $this->assertSame(1, $stats['totals']['total']);
+    }
+
+    public function testScoutYearOffsetCanBringAnOutOfRangeMemberBackIntoABranch(): void
+    {
+        // Born 2020 → raw age 6 (baladins 1ère année). A -1 offset would push
+        // this particular member below every branch on its own, but a +1
+        // offset on a member who would otherwise be excluded brings them back
+        // in: born 2021 → raw age 5 (below every branch), offset +1 → age 6 →
+        // baladins 1ère année.
+        $rows = [$this->row('Baladins', '2021-01-01', 'M', offset: 1)];
+        $stats = $this->service($rows)->getStatistics(1, self::REFERENCE_YEAR);
+
+        $baladins = $stats['branches'][0]['rows'];
+        $this->assertSame(1, $baladins[0]['total']);
         $this->assertSame(1, $stats['totals']['total']);
     }
 
@@ -164,15 +200,15 @@ class MemberStatsServiceTest extends TestCase
     {
         // "2025-2026" → 2025, so figures do not drift with today's date and are
         // correct when viewing a past scout year.
-        $this->assertSame(2025, MemberStatsService::referenceYearFromLabel('2025-2026'));
-        $this->assertSame(2023, MemberStatsService::referenceYearFromLabel('2023-2024'));
-        $this->assertSame((int) date('Y'), MemberStatsService::referenceYearFromLabel('sans année'));
+        $this->assertSame(2025, MemberYearService::referenceYearFromScoutYearLabel('2025-2026'));
+        $this->assertSame(2023, MemberYearService::referenceYearFromScoutYearLabel('2023-2024'));
+        $this->assertSame((int) date('Y'), MemberYearService::referenceYearFromScoutYearLabel('sans année'));
     }
 
     public function testBirthYearLabelsUseTheScoutYearStartYear(): void
     {
         // For scout year 2025-2026 (reference 2025), baladins are born 2019 & 2018.
-        $referenceYear = MemberStatsService::referenceYearFromLabel('2025-2026');
+        $referenceYear = MemberYearService::referenceYearFromScoutYearLabel('2025-2026');
         $stats = $this->service([])->getStatistics(1, $referenceYear);
 
         $baladins = $stats['branches'][0]['rows'];

@@ -31,7 +31,8 @@ class MemberProfile
         public readonly array $functions,
         public readonly string $scoutYearLabel,
         public readonly ?string $handicap = null,
-        public readonly ?string $supplementaryInsurance = null
+        public readonly ?string $supplementaryInsurance = null,
+        public readonly int $scoutYearOffset = 0
     ) {
     }
 

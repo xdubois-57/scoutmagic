@@ -130,6 +130,10 @@ CREATE TABLE member_years (
     unit_mail_consent BOOLEAN NOT NULL DEFAULT FALSE,
     fee_category_id INT UNSIGNED,
     unit_code VARCHAR(50),
+    -- Chief-adjustable shift applied on top of the birth-year-derived age when
+    -- computing branch/year (see MemberYearService::getEffectiveAge). Operational
+    -- flag, not personal data — stored in clear.
+    scout_year_offset TINYINT NOT NULL DEFAULT 0,
     -- Handicap is health data (GDPR special category) → encrypted at rest.
     handicap_encrypted BLOB,
     -- Assurance complémentaire is administrative → stored in clear like formation_level.

@@ -52,7 +52,7 @@ class Connection
     /**
      * Test the connection. Returns true on success, error message string on failure.
      */
-    public function testConnection(): true|string
+    public function testConnection(): bool|string
     {
         try {
             $this->getPdo();

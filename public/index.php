@@ -56,6 +56,7 @@ use Core\Import\MemberRepository;
 use Core\Import\MemberYearRepository;
 use Core\Member\Controller\MemberSearchController;
 use Core\Member\MemberService;
+use Core\Member\MemberYearService;
 use Core\Member\Repository\MemberSearchRepository;
 use Core\Member\Service\MemberSearchService;
 use Core\Member\SectionService;
@@ -329,6 +330,7 @@ $importService = new DeskImportService(
 );
 $roleResolver = new RoleResolver($memberYearRepo, $encryptionService, $pdo);
 $memberService = new MemberService($memberYearRepo, $encryptionService, $connection);
+$memberYearService = new MemberYearService();
 $memberSearchService = new MemberSearchService(new MemberSearchRepository($connection, $encryptionService));
 $sectionService = new SectionService($connection, $encryptionService);
 
@@ -509,6 +511,7 @@ $router->addRoute('POST', '/account/passkey/delete', AccountController::class, '
 
 // Member pages
 $router->addRoute('GET', '/members/{id}', MemberController::class, 'show', 'identified');
+$router->addRoute('POST', '/members/{id}/scout-year-offset', MemberController::class, 'updateScoutYearOffset', 'chief');
 
 // Configuration mode
 $router->addRoute('POST', '/config-mode/activate', ConfigModeController::class, 'activate', 'superadmin');
@@ -633,7 +636,7 @@ $authController->setWebAuthnService($webAuthnService);
 $frontController->registerController(AuthController::class, $authController);
 $frontController->registerController(AccountController::class, new AccountController($twig, $userAccountRepo, $webAuthnCredentialRepo, $webAuthnService));
 $frontController->registerController(ImportController::class, new ImportController($twig, $importService, $scoutYearResolver, $importJournalRepo, $functionRepo, $storagePath));
-$frontController->registerController(MemberController::class, new MemberController($twig, $memberService));
+$frontController->registerController(MemberController::class, new MemberController($twig, $memberService, $memberYearService, $journalService));
 $frontController->registerController(StaffsController::class, new StaffsController($twig, $sectionService, $memberService, $scoutYearResolver, $journalService));
 $frontController->registerController(ConfigModeController::class, new ConfigModeController($twig));
 $editableContentController = new EditableContentController($twig, $editableContentService);
@@ -655,7 +658,8 @@ $frontController->registerController(PlaceholderController::class, new Placehold
 // Module controllers with dependencies (only wired when the module is enabled).
 if (in_array('member_stats', $moduleManager->getEnabledModuleIds(), true)) {
     $memberStatsService = new \Modules\MemberStats\Service\MemberStatsService(
-        new \Modules\MemberStats\Repository\MemberStatsRepository($connection, $encryptionService)
+        new \Modules\MemberStats\Repository\MemberStatsRepository($connection, $encryptionService),
+        $memberYearService
     );
     $frontController->registerController(
         \Modules\MemberStats\Controller\MemberStatsController::class,

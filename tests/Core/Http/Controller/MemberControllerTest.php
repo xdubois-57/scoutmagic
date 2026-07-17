@@ -6,8 +6,11 @@ namespace Tests\Core\Http\Controller;
 
 use Core\Http\Controller\MemberController;
 use Core\Http\Request;
+use Core\Journal\JournalService;
 use Core\Member\MemberNotFoundException;
+use Core\Member\MemberProfile;
 use Core\Member\MemberService;
+use Core\Member\MemberYearService;
 use Core\Security\AuthSession;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
@@ -71,7 +74,7 @@ class MemberControllerTest extends TestCase
             return '';
         }));
         $twig->addFilter(new \Twig\TwigFilter('display_name', function ($member) {
-            if ($member instanceof \Core\Member\MemberProfile) {
+            if ($member instanceof MemberProfile) {
                 return $member->getDisplayName();
             }
             if (is_array($member)) {
@@ -81,7 +84,7 @@ class MemberControllerTest extends TestCase
         }));
 
         $memberService = $this->createMock(MemberService::class);
-        $this->controller = new MemberController($twig, $memberService);
+        $this->controller = $this->newController($twig, $memberService);
     }
 
     protected function tearDown(): void
@@ -89,21 +92,62 @@ class MemberControllerTest extends TestCase
         $_SESSION = [];
     }
 
+    private function newController(Environment $twig, MemberService $memberService): MemberController
+    {
+        return new MemberController(
+            $twig,
+            $memberService,
+            new MemberYearService(),
+            $this->createMock(JournalService::class)
+        );
+    }
+
+    /**
+     * Real MemberProfile fixture — this DTO has no benefit from mocking (plain
+     * readonly properties), and computeEffectiveAge() in the controller reads
+     * birthDate/scoutYearOffset/scoutYearLabel directly, which a mock leaves
+     * uninitialized.
+     *
+     * @param array<string, mixed> $overrides
+     */
+    private function makeProfile(array $overrides = []): MemberProfile
+    {
+        $defaults = [
+            'memberYearId' => 1,
+            'memberId' => 1,
+            'deskId' => 'T001',
+            'firstName' => 'John',
+            'lastName' => 'Doe',
+            'totem' => null,
+            'quali' => null,
+            'gender' => null,
+            'birthDate' => null,
+            'phone' => null,
+            'mobile' => null,
+            'email' => null,
+            'patrol' => null,
+            'formationLevel' => null,
+            'federationMailConsent' => false,
+            'unitMailConsent' => false,
+            'addresses' => [],
+            'functions' => [],
+            'scoutYearLabel' => '2025-2026',
+        ];
+
+        $args = array_merge($defaults, $overrides);
+
+        return new MemberProfile(...$args);
+    }
+
     public function testShowPageRendersForLinkedMemberSelf(): void
     {
-        // Mock member service to return a profile
-        $profile = $this->createMock(\Core\Member\MemberProfile::class);
-        $profile->method('getDisplayName')->willReturn('Baloo');
-        $profile->method('getMainSectionName')->willReturn('Meute Akela');
+        $profile = $this->makeProfile(['totem' => 'Baloo']);
 
         $memberService = $this->createMock(MemberService::class);
         $memberService->method('canAccess')->willReturn(true);
         $memberService->method('getMemberProfile')->willReturn($profile);
 
-        $controller = new MemberController(
-            $this->createMock(Environment::class),
-            $memberService
-        );
+        $controller = $this->newController($this->createMock(Environment::class), $memberService);
 
         $request = new Request('GET', '/members/1', [], [], [], []);
         $response = $controller->show($request, ['id' => '1']);
@@ -121,17 +165,13 @@ class MemberControllerTest extends TestCase
             'linked_members' => [],
         ];
 
-        $profile = $this->createMock(\Core\Member\MemberProfile::class);
-        $profile->method('getDisplayName')->willReturn('Mowgli');
+        $profile = $this->makeProfile(['totem' => 'Mowgli']);
 
         $memberService = $this->createMock(MemberService::class);
         $memberService->method('canAccess')->willReturn(true);
         $memberService->method('getMemberProfile')->willReturn($profile);
 
-        $controller = new MemberController(
-            $this->createMock(Environment::class),
-            $memberService
-        );
+        $controller = $this->newController($this->createMock(Environment::class), $memberService);
 
         $request = new Request('GET', '/members/2', [], [], [], []);
         $response = $controller->show($request, ['id' => '2']);
@@ -145,10 +185,7 @@ class MemberControllerTest extends TestCase
         $memberService = $this->createMock(MemberService::class);
         $memberService->method('canAccess')->willReturn(false);
 
-        $controller = new MemberController(
-            $this->createMock(Environment::class),
-            $memberService
-        );
+        $controller = $this->newController($this->createMock(Environment::class), $memberService);
 
         $request = new Request('GET', '/members/999', [], [], [], []);
         $response = $controller->show($request, ['id' => '999']);
@@ -164,10 +201,7 @@ class MemberControllerTest extends TestCase
         $memberService->method('getMemberProfile')
             ->willThrowException(new MemberNotFoundException());
 
-        $controller = new MemberController(
-            $this->createMock(Environment::class),
-            $memberService
-        );
+        $controller = $this->newController($this->createMock(Environment::class), $memberService);
 
         $request = new Request('GET', '/members/99999', [], [], [], []);
         $response = $controller->show($request, ['id' => '99999']);
@@ -178,8 +212,7 @@ class MemberControllerTest extends TestCase
 
     public function testContactInfoIsVisibleToSelf(): void
     {
-        $profile = $this->createMock(\Core\Member\MemberProfile::class);
-        $profile->method('getDisplayName')->willReturn('Baloo');
+        $profile = $this->makeProfile(['totem' => 'Baloo']);
 
         $memberService = $this->createMock(MemberService::class);
         $memberService->method('canAccess')->willReturn(true);
@@ -196,7 +229,7 @@ class MemberControllerTest extends TestCase
             )
             ->willReturn('<html></html>');
 
-        $controller = new MemberController($twig, $memberService);
+        $controller = $this->newController($twig, $memberService);
 
         $request = new Request('GET', '/members/1', [], [], [], []);
         $response = $controller->show($request, ['id' => '1']);
@@ -214,8 +247,7 @@ class MemberControllerTest extends TestCase
             'linked_members' => [],
         ];
 
-        $profile = $this->createMock(\Core\Member\MemberProfile::class);
-        $profile->method('getDisplayName')->willReturn('Mowgli');
+        $profile = $this->makeProfile(['totem' => 'Mowgli']);
 
         $memberService = $this->createMock(MemberService::class);
         $memberService->method('canAccess')->willReturn(true);
@@ -232,7 +264,7 @@ class MemberControllerTest extends TestCase
             )
             ->willReturn('<html></html>');
 
-        $controller = new MemberController($twig, $memberService);
+        $controller = $this->newController($twig, $memberService);
 
         $request = new Request('GET', '/members/2', [], [], [], []);
         $response = $controller->show($request, ['id' => '2']);
@@ -245,9 +277,7 @@ class MemberControllerTest extends TestCase
         // Mock canAccess to return true for the email match but not for chief role
         $memberService = $this->createMock(MemberService::class);
         $memberService->method('canAccess')->willReturn(true);
-        $memberService->method('getMemberProfile')->willReturn(
-            $this->createMock(\Core\Member\MemberProfile::class)
-        );
+        $memberService->method('getMemberProfile')->willReturn($this->makeProfile());
 
         $twig = $this->createMock(Environment::class);
         $twig->expects($this->once())
@@ -260,7 +290,7 @@ class MemberControllerTest extends TestCase
             )
             ->willReturn('<html></html>');
 
-        $controller = new MemberController($twig, $memberService);
+        $controller = $this->newController($twig, $memberService);
 
         $request = new Request('GET', '/members/1', [], [], [], []);
         $response = $controller->show($request, ['id' => '1']);
@@ -270,9 +300,7 @@ class MemberControllerTest extends TestCase
 
     public function testPageHandlesMembersWithMinimalDataGracefully(): void
     {
-        $profile = $this->createMock(\Core\Member\MemberProfile::class);
-        $profile->method('getDisplayName')->willReturn('John');
-        $profile->method('getMainSectionName')->willReturn(null);
+        $profile = $this->makeProfile(['firstName' => 'John']);
 
         $memberService = $this->createMock(MemberService::class);
         $memberService->method('canAccess')->willReturn(true);
@@ -283,7 +311,7 @@ class MemberControllerTest extends TestCase
             ->method('render')
             ->willReturn('<html></html>');
 
-        $controller = new MemberController($twig, $memberService);
+        $controller = $this->newController($twig, $memberService);
 
         $request = new Request('GET', '/members/1', [], [], [], []);
         $response = $controller->show($request, ['id' => '1']);

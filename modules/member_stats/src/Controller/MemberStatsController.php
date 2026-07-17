@@ -7,6 +7,7 @@ namespace Modules\MemberStats\Controller;
 use Core\Http\Controller\AbstractController;
 use Core\Http\Request;
 use Core\Http\Response;
+use Core\Member\MemberYearService;
 use Core\ScoutYear\ScoutYearResolver;
 use Core\ScoutYear\ScoutYearSession;
 use Core\Security\AuthSession;
@@ -35,7 +36,7 @@ class MemberStatsController extends AbstractController
 
         // Ages are computed from the scout year's start year (not today's date),
         // so the figures are stable and correct for past years too.
-        $referenceYear = MemberStatsService::referenceYearFromLabel($effectiveYear->label);
+        $referenceYear = MemberYearService::referenceYearFromScoutYearLabel($effectiveYear->label);
 
         $stats = $this->statsService->getStatistics($effectiveYear->id, $referenceYear);
 

@@ -183,7 +183,17 @@ class MemberService
             supplementaryInsurance: $row['supplementary_insurance'] ?? null,
             addresses: $addresses,
             functions: $functions,
-            scoutYearLabel: $scoutYearLabel
+            scoutYearLabel: $scoutYearLabel,
+            scoutYearOffset: (int) ($row['scout_year_offset'] ?? 0)
         );
+    }
+
+    /**
+     * Update a member's scout year offset (-1, 0, or +1). Plain operational
+     * flag, not personal data — no encryption involved.
+     */
+    public function updateScoutYearOffset(int $memberYearId, int $offset): void
+    {
+        $this->memberYearRepo->updateScoutYearOffset($memberYearId, $offset);
     }
 }
