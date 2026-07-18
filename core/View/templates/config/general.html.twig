@@ -46,11 +46,21 @@
                 </div>
                 {% if not badge.isDefault %}
                     {% set badgeIsAssigned = badge.id in assigned_badge_ids %}
-                    <button type="button" class="btn btn-sm btn-outline-danger badge-delete-btn"
-                            title="{{ badgeIsAssigned ? 'Ce badge est attribué à un membre — désactivez-le au lieu de le supprimer.' : 'Supprimer' }}"
-                            {{ badgeIsAssigned ? 'disabled' : '' }}>
-                        <i class="bi bi-trash"></i>
-                    </button>
+                    {% if badgeIsAssigned %}
+                        {# A disabled <button> doesn't fire the hover events browsers
+                           need to show its own title tooltip, so the tooltip goes on
+                           a plain (non-disabled) wrapping span instead; pointer-events:
+                           none on the button lets the span receive the hover. #}
+                        <span class="d-inline-block" title="Ce badge est attribué à un membre — désactivez-le au lieu de le supprimer.">
+                            <button type="button" class="btn btn-sm btn-outline-danger badge-delete-btn" disabled style="pointer-events:none;">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                        </span>
+                    {% else %}
+                        <button type="button" class="btn btn-sm btn-outline-danger badge-delete-btn" title="Supprimer">
+                            <i class="bi bi-trash"></i>
+                        </button>
+                    {% endif %}
                 {% endif %}
             </div>
         {% endfor %}
