@@ -40,6 +40,7 @@ class MigrationRunnerTest extends TestCase
         $pdo = $this->connection->getPdo();
         $pdo->exec('DROP TABLE IF EXISTS members');
         $pdo->exec('DROP TABLE IF EXISTS scout_years');
+        $pdo->exec('DROP TABLE IF EXISTS drop_test');
     }
 
     protected function tearDown(): void
@@ -48,6 +49,7 @@ class MigrationRunnerTest extends TestCase
             $pdo = $this->connection->getPdo();
             $pdo->exec('DROP TABLE IF EXISTS members');
             $pdo->exec('DROP TABLE IF EXISTS scout_years');
+            $pdo->exec('DROP TABLE IF EXISTS drop_test');
         }
     }
 
@@ -109,5 +111,58 @@ class MigrationRunnerTest extends TestCase
         // This test just verifies the result object structure is correct
         $this->assertIsBool($result->backupCreated);
         $this->assertIsArray($result->warnings);
+    }
+
+    public function testMigrateAppliesExplicitColumnDropFromSiblingDropsFile(): void
+    {
+        $pdo = $this->connection->getPdo();
+        $pdo->exec('CREATE TABLE drop_test (id INT PRIMARY KEY, name VARCHAR(50) NOT NULL, legacy VARCHAR(50) NOT NULL)');
+
+        $tmpDir = sys_get_temp_dir() . '/migration_drop_test_' . uniqid();
+        mkdir($tmpDir);
+        file_put_contents($tmpDir . '/schema.sql', "CREATE TABLE drop_test (\n    id INT PRIMARY KEY,\n    name VARCHAR(50) NOT NULL\n);");
+        file_put_contents($tmpDir . '/drops.sql', 'ALTER TABLE drop_test DROP COLUMN legacy;');
+
+        try {
+            $runner = new MigrationRunner($this->connection, $this->introspector, new SchemaComparator(), new SqlParser());
+
+            $result = $runner->migrate([$tmpDir . '/schema.sql']);
+
+            $columns = array_map(fn($c) => $c->name, $this->introspector->getColumns('drop_test'));
+            $this->assertNotContains('legacy', $columns);
+            $this->assertContains('ALTER TABLE `drop_test` DROP COLUMN `legacy`', $result->executedStatements);
+
+            // Idempotent: the column is already gone, so a second run is a no-op for the drop
+            $secondResult = $runner->migrate([$tmpDir . '/schema.sql']);
+            $this->assertNotContains('ALTER TABLE `drop_test` DROP COLUMN `legacy`', $secondResult->executedStatements);
+        } finally {
+            @unlink($tmpDir . '/schema.sql');
+            @unlink($tmpDir . '/drops.sql');
+            @rmdir($tmpDir);
+        }
+    }
+
+    public function testMigrateSkipsDropWhenColumnNeverExisted(): void
+    {
+        $pdo = $this->connection->getPdo();
+        $pdo->exec('CREATE TABLE drop_test (id INT PRIMARY KEY, name VARCHAR(50) NOT NULL)');
+
+        $tmpDir = sys_get_temp_dir() . '/migration_drop_test_' . uniqid();
+        mkdir($tmpDir);
+        file_put_contents($tmpDir . '/schema.sql', "CREATE TABLE drop_test (\n    id INT PRIMARY KEY,\n    name VARCHAR(50) NOT NULL\n);");
+        file_put_contents($tmpDir . '/drops.sql', 'ALTER TABLE drop_test DROP COLUMN legacy;');
+
+        try {
+            $runner = new MigrationRunner($this->connection, $this->introspector, new SchemaComparator(), new SqlParser());
+
+            $result = $runner->migrate([$tmpDir . '/schema.sql']);
+
+            $this->assertEmpty($result->warnings);
+            $this->assertNotContains('ALTER TABLE `drop_test` DROP COLUMN `legacy`', $result->executedStatements);
+        } finally {
+            @unlink($tmpDir . '/schema.sql');
+            @unlink($tmpDir . '/drops.sql');
+            @rmdir($tmpDir);
+        }
     }
 }

@@ -391,6 +391,50 @@ class SqlParser
     }
 
     /**
+     * Parse a sibling drops.sql file (if it exists) into explicit column-drop
+     * directives. Unlike parse()/parseFile(), this isn't schema diffing —
+     * each statement here is a deliberate, human-reviewed removal (see
+     * MigrationRunner::migrate(), which is the one place these get applied,
+     * and only when the column still exists).
+     *
+     * Only `ALTER TABLE <table> DROP COLUMN <column>;` statements are
+     * recognized; anything else in the file is ignored.
+     *
+     * @return array<array{table: string, column: string}>
+     */
+    public function parseDropsFile(string $filePath): array
+    {
+        if (!file_exists($filePath)) {
+            return [];
+        }
+
+        $content = file_get_contents($filePath);
+        if ($content === false) {
+            return [];
+        }
+
+        return $this->parseDrops($content);
+    }
+
+    /**
+     * @return array<array{table: string, column: string}>
+     */
+    public function parseDrops(string $sql): array
+    {
+        $sql = $this->removeComments($sql);
+
+        $drops = [];
+        $pattern = '/ALTER\s+TABLE\s+[`]?(\w+)[`]?\s+DROP\s+COLUMN\s+[`]?(\w+)[`]?/si';
+        if (preg_match_all($pattern, $sql, $matches, PREG_SET_ORDER)) {
+            foreach ($matches as $m) {
+                $drops[] = ['table' => $m[1], 'column' => $m[2]];
+            }
+        }
+
+        return $drops;
+    }
+
+    /**
      * Parse a comma-separated list of column names.
      *
      * @return array<string>

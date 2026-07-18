@@ -264,9 +264,9 @@ Generic, reusable component: a photo (`member_photos`: member_id, scout_year_id,
 
 ### 8.11 Badges (`Core\Badge`)
 
-Transversal roles assignable to chiefs/chief-d'unité (e.g. Infirmier, Trésorier) — a global concept (`badges`: name, icon, is_default, is_active) configured once from Configuration générale, with assignment scoped per member per scout year via `member_badges.member_year_id` (so history across years is preserved automatically, the same way `member_years` already works). `BadgeIconLibrary` is a small built-in SVG icon set (no external icon dependency); `badge_icon()` (registered in `TwigFactory`) renders one, sized via CSS only (`.badge-icon` / `.badge-icon-lg` in `components.css`).
+Transversal roles assignable to chiefs/chief-d'unité (e.g. Infirmier, Trésorier) — a global concept (`badges`: name, is_default, is_active) configured once from Configuration générale, with assignment scoped per member per scout year via `member_badges.member_year_id` (so history across years is preserved automatically, the same way `member_years` already works). Badges are plain text/name only — no logo/icon.
 
-Default badges (Infirmier, Trésorier) are seeded idempotently by `BadgeService::ensureDefaults()` (called on every `/config/general` request, same pattern as `SettingService::register()`) and can never be deleted, only deactivated. Any badge already assigned to a member — even in a past year — can likewise never be deleted, only deactivated: `BadgeService::delete()` refuses both cases, preserving historical data. A deactivated badge is invisible everywhere (assignment picker, trombinoscope) but existing `member_badges` rows are untouched, so reactivating it brings past assignments back.
+Default badges (Infirmier, Trésorier) are seeded idempotently by `BadgeService::ensureDefaults()` (called on every `/config/general` request, same pattern as `SettingService::register()`) and can never be deleted or renamed, only deactivated. Any badge already assigned to a member — even in a past year — can likewise never be deleted, only deactivated: `BadgeService::delete()`/`update()` refuse both cases, preserving historical data; the admin UI reflects this by disabling the delete button and making the name read-only rather than letting the request round-trip and fail. A deactivated badge is invisible everywhere (assignment picker, trombinoscope) but existing `member_badges` rows are untouched, so reactivating it brings past assignments back.
 
 `Core\Member\SectionService::hydrateMemberProfile()` fetches a member's active badges into `MemberProfile::$badges` — the single hydration path shared by the Staffs page and (via `SectionService::hydrateMemberProfile()` reuse, see §8.8-adjacent Trombinoscope note) the trombinoscope module, so badges surface in both without either needing its own plumbing. `SectionService::getSectionStaff()` also filters to chief/admin-role functions only — a section's animés carry the same `section_id` on their `member_functions` row, so this filter is what keeps the Staffs/badge-assignment page staff-only.
 
@@ -276,7 +276,7 @@ First access without `secrets.enc` → setup page (no auth required, works once)
 
 ## 10. Database schema management
 
-No incremental migration files. `schema/core.sql` + each module's `schema.sql` = source of truth. Deploy script compares and generates DDL.
+No incremental migration files. `schema/core.sql` + each module's `schema.sql` = source of truth. Deploy script compares and generates DDL — this diff never drops a column/table it finds in the database but is no longer declared (data-loss safety net), it only warns. The one narrow exception: a sibling `drops.sql` next to a schema file (e.g. `schema/drops.sql`) can declare reviewed `ALTER TABLE <table> DROP COLUMN <column>;` statements — `MigrationRunner::applyExplicitDrops()` runs each only while the column still exists, so it's idempotent and safe on every request. Still not incremental: once applied everywhere, delete the line from `drops.sql`.
 
 ## 11. Responsive interface (mobile-first)
 

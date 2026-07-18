@@ -21,7 +21,8 @@ class MigrationRunner
      * 3. Introspect the current database.
      * 4. Compare and generate DDL.
      * 5. Execute DDL statements.
-     * 6. Return a MigrationResult.
+     * 6. Apply explicit, reviewed column drops (see applyExplicitDrops()).
+     * 7. Return a MigrationResult.
      *
      * @param array<string> $schemaFiles
      */
@@ -60,12 +61,62 @@ class MigrationRunner
             }
         }
 
-        // Step 6: Return result
+        // Step 6: Apply explicit, reviewed column drops
+        $dropStatements = $this->applyExplicitDrops($schemaFiles, $pdo, $warnings);
+        array_push($executedStatements, ...$dropStatements);
+
+        // Step 7: Return result
         return new MigrationResult(
             executedStatements: $executedStatements,
             warnings: $warnings,
             backupCreated: $backupCreated
         );
+    }
+
+    /**
+     * SchemaComparator deliberately never drops a column or table it finds
+     * in the database but not in the declared schema (a data-loss safety
+     * net — see its class doc comment). This is the one narrow, explicit
+     * exception: for each schema file, a sibling drops.sql (e.g.
+     * schema/core.sql → schema/drops.sql) can declare
+     * `ALTER TABLE <table> DROP COLUMN <column>;` statements that were
+     * hand-written and reviewed as part of the change that stopped
+     * declaring that column. Each drop is only executed if the column
+     * still exists, so this is idempotent and safe to run on every
+     * request — a no-op once applied, and a no-op on fresh installs that
+     * never had the column.
+     *
+     * @param array<string> $schemaFiles
+     * @param array<string> $warnings
+     * @return array<string> executed DROP COLUMN statements
+     */
+    private function applyExplicitDrops(array $schemaFiles, \PDO $pdo, array &$warnings): array
+    {
+        $executed = [];
+
+        foreach ($schemaFiles as $file) {
+            $dropsFile = dirname($file) . '/drops.sql';
+            foreach ($this->parser->parseDropsFile($dropsFile) as $drop) {
+                $currentColumns = array_map(
+                    fn(ColumnDefinition $c) => $c->name,
+                    $this->introspector->getColumns($drop['table'])
+                );
+
+                if (!in_array($drop['column'], $currentColumns, true)) {
+                    continue;
+                }
+
+                $statement = "ALTER TABLE `{$drop['table']}` DROP COLUMN `{$drop['column']}`";
+                try {
+                    $pdo->exec($statement);
+                    $executed[] = $statement;
+                } catch (\PDOException $e) {
+                    $warnings[] = "Failed to execute: {$statement} — Error: {$e->getMessage()}";
+                }
+            }
+        }
+
+        return $executed;
     }
 
     /**

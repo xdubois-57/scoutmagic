@@ -238,4 +238,51 @@ class SqlParserTest extends TestCase
         $this->expectException(\RuntimeException::class);
         $this->parser->parseFile('/nonexistent/path/schema.sql');
     }
+
+    public function testParseDropsExtractsTableAndColumn(): void
+    {
+        $sql = 'ALTER TABLE badges DROP COLUMN icon;';
+
+        $drops = $this->parser->parseDrops($sql);
+
+        $this->assertSame([['table' => 'badges', 'column' => 'icon']], $drops);
+    }
+
+    public function testParseDropsHandlesMultipleStatementsAndBackticks(): void
+    {
+        $sql = "ALTER TABLE `badges` DROP COLUMN `icon`;\nALTER TABLE members DROP COLUMN legacy_flag;";
+
+        $drops = $this->parser->parseDrops($sql);
+
+        $this->assertSame([
+            ['table' => 'badges', 'column' => 'icon'],
+            ['table' => 'members', 'column' => 'legacy_flag'],
+        ], $drops);
+    }
+
+    public function testParseDropsIgnoresCommentedOutStatements(): void
+    {
+        $sql = "-- ALTER TABLE badges DROP COLUMN icon;\nSELECT 1;";
+
+        $this->assertSame([], $this->parser->parseDrops($sql));
+    }
+
+    public function testParseDropsIgnoresNonDropStatements(): void
+    {
+        $sql = 'CREATE TABLE badges (id INT, name VARCHAR(100));';
+
+        $this->assertSame([], $this->parser->parseDrops($sql));
+    }
+
+    public function testParseDropsFileReturnsEmptyArrayForMissingFile(): void
+    {
+        $this->assertSame([], $this->parser->parseDropsFile('/nonexistent/drops.sql'));
+    }
+
+    public function testParseDropsFileReadsRealDropsFile(): void
+    {
+        $drops = $this->parser->parseDropsFile(dirname(__DIR__, 3) . '/schema/drops.sql');
+
+        $this->assertContains(['table' => 'badges', 'column' => 'icon'], $drops);
+    }
 }
