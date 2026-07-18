@@ -16,7 +16,8 @@
         "psr-4": {
             "Core\\": "core/",
             "Modules\\": "modules/",
-            "Modules\\MemberStats\\": "modules/member_stats/src/"
+            "Modules\\MemberStats\\": "modules/member_stats/src/",
+            "Modules\\Trombinoscope\\": "modules/trombinoscope/src/"
         }
     },
     "autoload-dev": {

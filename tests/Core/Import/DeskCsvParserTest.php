@@ -207,8 +207,27 @@ class DeskCsvParserTest extends TestCase
         $fn = $jean->functions[0];
         $this->assertSame('Animé', $fn->functionCode);
         $this->assertSame('Louveteaux', $fn->branchCode);
-        $this->assertSame('SV025L1', $fn->sectionCode);
+        // The section code always comes from the "Section" column, never
+        // "SECTION" (all-caps), which can hold incorrect Desk export data.
+        $this->assertSame('Meute Akela', $fn->sectionCode);
         $this->assertSame('Meute Akela', $fn->sectionName);
+    }
+
+    public function testFunctionSectionCodeIgnoresUppercaseSectionColumn(): void
+    {
+        // T001's "SECTION" (all-caps) column holds "SV025L1", a different
+        // value from "Section" ("Meute Akela") — the parser must ignore it.
+        $result = $this->parser->parse($this->fixturePath);
+
+        $jean = null;
+        foreach ($result->members as $m) {
+            if ($m->deskId === 'T001') {
+                $jean = $m;
+                break;
+            }
+        }
+        $this->assertNotNull($jean);
+        $this->assertNotSame('SV025L1', $jean->functions[0]->sectionCode);
     }
 
     public function testAddressFieldsExtracted(): void
@@ -262,7 +281,10 @@ class DeskCsvParserTest extends TestCase
         $this->assertCount(1, $selim->functions);
         $this->assertSame('Scout', $selim->functions[0]->functionCode);
         $this->assertSame('Baladins', $selim->functions[0]->branchCode);
-        $this->assertSame('SV025 BALADINS1', $selim->functions[0]->sectionCode);
+        // Section identity comes from "Section", not "SECTION" (all-caps) —
+        // this fixture deliberately has different values in each column to
+        // prove the right one is used.
+        $this->assertSame('SV025B1', $selim->functions[0]->sectionCode);
         $this->assertSame('SV025B1', $selim->functions[0]->sectionName);
     }
 }

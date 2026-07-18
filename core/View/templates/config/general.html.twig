@@ -23,6 +23,48 @@
         </div>
     </div>
 
+    {# Badges section #}
+    <h2 class="h5 mb-3">
+        <i class="bi bi-award text-body-secondary"></i> Badges
+    </h2>
+    <p class="text-body-secondary small mb-3">
+        Rôles transversaux assignables aux chefs et chefs d'unité (ex: Infirmier, Trésorier),
+        affichés sur le trombinoscope. Les badges par défaut ne peuvent pas être renommés ni
+        supprimés, seulement désactivés.
+    </p>
+
+    <div class="d-flex flex-column gap-2 mb-3" id="badge-list">
+        {% for badge in badges %}
+            <div class="border rounded-3 p-3 d-flex align-items-center gap-3 badge-row" data-id="{{ badge.id }}" data-default="{{ badge.isDefault ? '1' : '0' }}">
+                <input type="text" class="form-control form-control-sm badge-name-input" style="max-width:220px;" value="{{ badge.name }}" {{ badge.isDefault ? 'readonly' : '' }}>
+                {% if badge.isDefault %}
+                    <span class="badge bg-secondary-subtle text-secondary-emphasis">Par défaut</span>
+                {% endif %}
+                <div class="form-check form-switch ms-auto text-nowrap">
+                    <input type="checkbox" class="form-check-input badge-active-input" role="switch" {{ badge.isActive ? 'checked' : '' }}>
+                    <label class="form-check-label small">Actif</label>
+                </div>
+                {% if not badge.isDefault %}
+                    {% set badgeIsAssigned = badge.id in assigned_badge_ids %}
+                    <button type="button" class="btn btn-sm btn-outline-danger badge-delete-btn"
+                            title="{{ badgeIsAssigned ? 'Ce badge est attribué à un membre — désactivez-le au lieu de le supprimer.' : 'Supprimer' }}"
+                            {{ badgeIsAssigned ? 'disabled' : '' }}>
+                        <i class="bi bi-trash"></i>
+                    </button>
+                {% endif %}
+            </div>
+        {% endfor %}
+    </div>
+
+    <div class="border rounded-3 p-3 d-flex align-items-center gap-2 mb-4" id="badge-add-form">
+        <input type="text" class="form-control form-control-sm" id="new-badge-name" placeholder="Communication" style="max-width:220px;">
+        <button type="button" class="btn btn-sm btn-primary" id="badge-add-btn">
+            <i class="bi bi-plus-lg"></i> Ajouter
+        </button>
+    </div>
+
+    <hr class="my-4">
+
     {# Modules section #}
     <h2 class="h5 mb-3">
         <i class="bi bi-puzzle text-body-secondary"></i> Modules
@@ -55,6 +97,9 @@
                                 <span class="badge bg-warning-subtle text-warning-emphasis">Manquant</span>
                             {% endif %}
                         </div>
+                        {% if mod.manifest.description %}
+                            <p class="text-body-secondary small mb-0 mt-1">{{ mod.manifest.description }}</p>
+                        {% endif %}
                     </div>
                     {% if mod.presentOnDisk and not mod.validationError %}
                         <div class="form-check form-switch">
@@ -96,6 +141,78 @@ document.querySelectorAll('.module-toggle').forEach(toggle => {
             window.location.reload();
         }
     });
+});
+
+const badgeCsrf = () => document.querySelector('meta[name="csrf-token"]')?.content;
+
+document.querySelectorAll('.badge-row').forEach(row => {
+    const badgeId = parseInt(row.dataset.id);
+    const isDefault = row.dataset.default === '1';
+    const nameInput = row.querySelector('.badge-name-input');
+    const activeInput = row.querySelector('.badge-active-input');
+    const deleteBtn = row.querySelector('.badge-delete-btn');
+
+    if (!isDefault) {
+        nameInput.addEventListener('blur', async () => {
+            const res = await fetch('/config/general/badge-update', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ badge_id: badgeId, name: nameInput.value, _csrf_token: badgeCsrf() })
+            });
+            const data = await res.json();
+            if (!data.success) {
+                alert(data.error);
+            } else {
+                window.location.reload();
+            }
+        });
+    }
+
+    activeInput.addEventListener('change', async () => {
+        activeInput.disabled = true;
+        const res = await fetch('/config/general/badge-toggle-active', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ badge_id: badgeId, active: activeInput.checked, _csrf_token: badgeCsrf() })
+        });
+        const data = await res.json();
+        activeInput.disabled = false;
+        if (!data.success) {
+            alert(data.error);
+            activeInput.checked = !activeInput.checked;
+        }
+    });
+
+    deleteBtn?.addEventListener('click', async () => {
+        if (!confirm('Supprimer définitivement ce badge ?')) return;
+        const res = await fetch('/config/general/badge-delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ badge_id: badgeId, _csrf_token: badgeCsrf() })
+        });
+        const data = await res.json();
+        if (!data.success) {
+            alert(data.error);
+        } else {
+            row.remove();
+        }
+    });
+});
+
+document.getElementById('badge-add-btn').addEventListener('click', async () => {
+    const nameInput = document.getElementById('new-badge-name');
+
+    const res = await fetch('/config/general/badge-add', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: nameInput.value, _csrf_token: badgeCsrf() })
+    });
+    const data = await res.json();
+    if (!data.success) {
+        alert(data.error);
+    } else {
+        window.location.reload();
+    }
 });
 </script>
 {% endblock %}

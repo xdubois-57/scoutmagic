@@ -43,4 +43,23 @@ class ImportSectionRepository
         $stmt = $this->pdo->prepare('UPDATE sections SET name = ?, email = ? WHERE id = ?');
         $stmt->execute([$name, $email, $id]);
     }
+
+    /**
+     * Mark every section inactive. Called at the start of a Desk import;
+     * resolveSection() reactivates each section actually referenced by the
+     * import (see MappingResolver). A section with no members this year is
+     * kept (never deleted) but ends up inactive — hidden from the site,
+     * reactivated automatically the moment a later import gives it members
+     * again.
+     */
+    public function deactivateAll(): void
+    {
+        $this->pdo->exec('UPDATE sections SET is_active = 0');
+    }
+
+    public function activate(int $id): void
+    {
+        $stmt = $this->pdo->prepare('UPDATE sections SET is_active = 1 WHERE id = ?');
+        $stmt->execute([$id]);
+    }
 }

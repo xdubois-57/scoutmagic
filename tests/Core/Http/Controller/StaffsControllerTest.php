@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace Tests\Core\Http\Controller;
 
+use Core\Badge\BadgeRepository;
+use Core\Badge\BadgeService;
+use Core\Badge\MemberBadgeRepository;
 use Core\Config\ScoutYearService;
 use Core\Config\SettingRepository;
 use Core\Config\SettingService;
@@ -18,6 +21,7 @@ use Core\Member\SectionService;
 use Core\ScoutYear\ScoutYearResolver;
 use Core\Security\AuthSession;
 use Core\Security\EncryptionService;
+use Core\View\TextNormalizerExtension;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Twig\Environment;
@@ -34,6 +38,7 @@ class StaffsControllerTest extends TestCase
     private StaffsController $controller;
     private SectionService $sectionService;
     private MemberService $memberService;
+    private BadgeService $badgeService;
     private EncryptionService $encryption;
     private int $scoutYearId;
 
@@ -43,7 +48,8 @@ class StaffsControllerTest extends TestCase
         $this->encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $connection = Connection::withPdo($this->pdo);
 
-        $this->sectionService = new SectionService($connection, $this->encryption);
+        $memberBadgeRepository = new MemberBadgeRepository($this->pdo);
+        $this->sectionService = new SectionService($connection, $this->encryption, $memberBadgeRepository);
         $memberYearRepo = new MemberYearRepository($this->pdo);
         $this->memberService = new MemberService($memberYearRepo, $this->encryption, $connection);
         $scoutYearService = new ScoutYearService($this->pdo);
@@ -51,6 +57,7 @@ class StaffsControllerTest extends TestCase
         $scoutYearResolver = new ScoutYearResolver($scoutYearService, $settingService, $memberYearRepo);
         $journalRepo = new JournalRepository($this->pdo);
         $journalService = new JournalService($journalRepo);
+        $this->badgeService = new BadgeService(new BadgeRepository($this->pdo), $memberBadgeRepository);
 
         // Create scout year
         $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES ('2025-2026', '2025-09-01', '2026-08-31', 1)");
@@ -74,6 +81,7 @@ class StaffsControllerTest extends TestCase
         $twig->addFunction(new TwigFunction('csrf_token', fn() => 'test'));
         $twig->addFunction(new TwigFunction('file_url', fn() => ''));
         $twig->addFunction(new TwigFunction('param', fn(string $k) => 'Test'));
+        $twig->addExtension(new TextNormalizerExtension());
         $twig->addFilter(new TwigFilter('display_name', function ($member) {
             if ($member instanceof \Core\Member\MemberProfile) {
                 return $member->getDisplayName();
@@ -86,7 +94,8 @@ class StaffsControllerTest extends TestCase
             $this->sectionService,
             $this->memberService,
             $scoutYearResolver,
-            $journalService
+            $journalService,
+            $this->badgeService
         );
 
         // Set up session as chief
@@ -304,6 +313,81 @@ class StaffsControllerTest extends TestCase
         $decoded = json_decode($response->getBody(), true);
         $this->assertFalse($decoded['success']);
         $this->assertSame(400, $response->getStatusCode());
+    }
+
+    public function testIndexPassesActiveBadgesToChief(): void
+    {
+        $branchId = $this->createBranch('BAL', 'Baladins', 1);
+        $sectionId = $this->createSection('BAL01', $branchId, 'Ma section');
+        $this->createMemberInSection($sectionId, 'Alice', 'chief');
+        $this->badgeService->create('Communication');
+
+        $request = new Request('GET', '/chefs/staffs', [], [], [], []);
+        $response = $this->controller->index($request, []);
+
+        $this->assertStringContainsString('Communication', $response->getBody());
+    }
+
+    public function testToggleBadgeAssignsThenUnassigns(): void
+    {
+        $branchId = $this->createBranch('BAL', 'Baladins', 1);
+        $sectionId = $this->createSection('BAL01', $branchId);
+        $memberYearId = $this->createMemberInSection($sectionId, 'Alice', 'chief');
+        $badge = $this->badgeService->create('Communication');
+
+        $token = bin2hex(random_bytes(32));
+        $_SESSION['_csrf_token'] = $token;
+
+        $request = $this->createJsonRequest([
+            'member_year_id' => $memberYearId,
+            'badge_id' => $badge->id,
+            '_csrf_token' => $token,
+        ]);
+        $response = $this->controller->toggleBadge($request, []);
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertTrue($decoded['success']);
+        $this->assertTrue($decoded['assigned']);
+        $this->assertCount(1, $this->badgeService->getBadgesForMemberYear($memberYearId));
+    }
+
+    public function testToggleBadgeValidatesCsrf(): void
+    {
+        $branchId = $this->createBranch('BAL', 'Baladins', 1);
+        $sectionId = $this->createSection('BAL01', $branchId);
+        $memberYearId = $this->createMemberInSection($sectionId, 'Alice', 'chief');
+        $badge = $this->badgeService->create('Communication');
+
+        $request = $this->createJsonRequest([
+            'member_year_id' => $memberYearId,
+            'badge_id' => $badge->id,
+            '_csrf_token' => 'invalid',
+        ]);
+        $response = $this->controller->toggleBadge($request, []);
+
+        $this->assertSame(403, $response->getStatusCode());
+    }
+
+    public function testToggleBadgeWithInactiveBadgeReturnsError(): void
+    {
+        $branchId = $this->createBranch('BAL', 'Baladins', 1);
+        $sectionId = $this->createSection('BAL01', $branchId);
+        $memberYearId = $this->createMemberInSection($sectionId, 'Alice', 'chief');
+        $badge = $this->badgeService->create('Communication');
+        $this->badgeService->setActive($badge->id, false);
+
+        $token = bin2hex(random_bytes(32));
+        $_SESSION['_csrf_token'] = $token;
+
+        $request = $this->createJsonRequest([
+            'member_year_id' => $memberYearId,
+            'badge_id' => $badge->id,
+            '_csrf_token' => $token,
+        ]);
+        $response = $this->controller->toggleBadge($request, []);
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertFalse($decoded['success']);
     }
 
     /**

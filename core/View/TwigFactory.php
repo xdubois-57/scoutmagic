@@ -113,6 +113,43 @@ class TwigFactory
             return '';
         }, ['is_safe' => ['html']]));
 
+        // Register member_photo() function — core "photo per person per year"
+        // component (ARCHITECTURE.md §8): resolves the member's photo for the
+        // site's current scout year (with fallback to the most recent earlier
+        // photo — see Core\Photo\MemberPhotoService). When none exists, falls
+        // back to the same "initials in a filled circle" avatar used for the
+        // logged-in account menu (partials/nav.html.twig), sized to the same
+        // box as a real photo so grids stay aligned. In configuration mode,
+        // renders the same click-to-replace overlay as editable_image().
+        $environment->addFunction(new TwigFunction('member_photo', function (int $memberId, string $alt = '', string $cssClass = 'rounded-circle') use ($environment): string {
+            /** @var \Core\Photo\MemberPhotoService|null $service */
+            $service = $environment->getGlobals()['_member_photo_service'] ?? null;
+            $scoutYearId = (int) ($environment->getGlobals()['effective_scout_year_id'] ?? 0);
+            $configMode = $environment->getGlobals()['config_mode'] ?? false;
+
+            $fileId = ($service !== null && $scoutYearId > 0) ? $service->resolveFileId($memberId, $scoutYearId) : null;
+
+            if ($fileId !== null) {
+                $img = '<img src="/files/' . $fileId . '" alt="' . htmlspecialchars($alt, ENT_QUOTES) . '" class="' . htmlspecialchars($cssClass, ENT_QUOTES) . '">';
+            } else {
+                $initials = mb_strtoupper(mb_substr(trim($alt), 0, 2));
+                $img = '<div class="' . htmlspecialchars($cssClass, ENT_QUOTES) . ' member-photo-placeholder" title="' . htmlspecialchars($alt, ENT_QUOTES) . '">'
+                    . '<span class="member-photo-initials d-inline-flex align-items-center justify-content-center rounded-circle bg-primary text-white fw-bold">'
+                    . htmlspecialchars($initials, ENT_QUOTES)
+                    . '</span></div>';
+            }
+
+            if ($configMode && $scoutYearId > 0) {
+                $key = $memberId . ':' . $scoutYearId;
+                return '<div class="editable-image" data-key="' . htmlspecialchars($key, ENT_QUOTES) . '" data-context="member_photo">'
+                    . '<div class="editable-overlay"><button class="btn btn-sm btn-outline-primary editable-edit-btn"><i class="bi bi-pencil"></i></button></div>'
+                    . $img
+                    . '</div>';
+            }
+
+            return $img;
+        }, ['is_safe' => ['html']]));
+
         // Register text normalization filters (normalize_name/totem/phone/address)
         $environment->addExtension(new TextNormalizerExtension());
 

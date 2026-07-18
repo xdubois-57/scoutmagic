@@ -1,6 +1,7 @@
 {
   "id": "member_stats",
   "name": "Statistiques des membres",
+  "description": "Statistiques du nombre d'animés par branche d'âge et par année scoute.",
   "version": "1.0.0",
   "routes": [
     {

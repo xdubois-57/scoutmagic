@@ -127,7 +127,11 @@ class DeskCsvParser
             $functions[] = new ParsedFunction(
                 functionCode: $functionCode,
                 branchCode: $this->nullIfEmpty($row['Branche'] ?? ''),
-                sectionCode: $this->nullIfEmpty($row['SECTION'] ?? ''),
+                // The section identity always comes from the "Section" column —
+                // "SECTION" (all-caps) is a separate Desk export field that can
+                // hold incorrect/stale data and must never be used to identify
+                // a section.
+                sectionCode: $this->nullIfEmpty($row['Section'] ?? ''),
                 sectionName: $this->nullIfEmpty($row['Section'] ?? ''),
                 startDate: $this->nullIfEmpty($row['Date début'] ?? ''),
                 endDate: $this->nullIfEmpty($row['Date fin'] ?? ''),

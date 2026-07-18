@@ -108,11 +108,13 @@ The directory name **must** match the `id` field in `module.json`.
   - A route's `role_min` must not be more permissive than its menu's minimum role.
   - `method`: optional (defaults to `GET`).
   - `label`: if non-empty, the route is added to the menu with this label.
+  - `menu_order`: optional integer, defaults to `100`. Controls where the menu entry sorts relative to other pages in the same menu (lower = earlier). Core pages typically use 10–40; in `espace_animes` specifically, dynamic per-member entries use order 10+index and the separator before static pages sits at order 50 — a module page with the default 100 always appears after them. Set a lower value (e.g. `5`) to appear before the dynamic member entries instead.
 - **settings**: optional, each entry must have `key`, `type`, `label`, `description`.
 - **cookies**: optional, each entry must have `name`, `category`, `purpose`, `duration`.
   - `category`: one of `necessary`, `functional`, `analytics`.
 - **scheduled_tasks**: optional, each entry must have `key`, `handler` (FQCN).
 - **storage**: optional, keys are subdirectory names, values have `role_min`.
+- **enabled_by_default**: optional boolean, defaults to `false`. When `true`, the module is activated automatically the very first time it is discovered on disk (no `module_registry` row yet) — no admin action needed. An admin's later explicit deactivation always sticks; this never re-activates a module that already has a registry row.
 
 ## Controller conventions
 

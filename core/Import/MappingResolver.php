@@ -51,16 +51,29 @@ class MappingResolver
     }
 
     /**
-     * Resolve a raw section code. Auto-creates if not found.
+     * Resolve a raw section code. Auto-creates if not found; reactivates an
+     * existing section (see deactivateAllSections()) since it's referenced
+     * by this import.
      */
     public function resolveSection(string $sectionCode, int $branchId, ?string $sectionName): int
     {
         $existing = $this->sectionRepo->findByDeskCode($sectionCode);
         if ($existing !== null) {
+            $this->sectionRepo->activate($existing['id']);
             return $existing['id'];
         }
 
         return $this->sectionRepo->create($sectionCode, $branchId, $sectionName);
+    }
+
+    /**
+     * Mark every section inactive before an import — resolveSection()
+     * reactivates each one actually referenced. See
+     * ImportSectionRepository::deactivateAll().
+     */
+    public function deactivateAllSections(): void
+    {
+        $this->sectionRepo->deactivateAll();
     }
 
     /**

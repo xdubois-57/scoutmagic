@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Core\Member;
 
+use Core\Badge\MemberBadgeRepository;
 use Core\Database\Connection;
 use Core\Security\EncryptionService;
 
@@ -11,25 +12,35 @@ class SectionService
 {
     public function __construct(
         private Connection $connection,
-        private EncryptionService $encryption
+        private EncryptionService $encryption,
+        private MemberBadgeRepository $memberBadgeRepository
     ) {
     }
 
     /**
-     * Get all sections with their branch info, ordered by branch sort_order then desk_code.
+     * Get sections with their branch info, ordered by branch sort_order then
+     * desk_code. Inactive sections (is_active = false — no members this
+     * scout year, see MappingResolver::deactivateAllSections()) are ALWAYS
+     * excluded, everywhere, including the Config Desk admin page: an inactive
+     * section is never deleted, but never shown either, until a later import
+     * gives it members again. Hidden sections (is_visible = false, the
+     * admin's manual toggle) are additionally excluded unless $includeHidden
+     * is true — pass true only for the Config Desk page, which needs to see
+     * (and manage) hidden-but-active sections.
      *
-     * @return array<int, array{id: int, desk_code: string, name: ?string, email: ?string, age_branch_id: int, branch_name: string, branch_sort_order: int}>
+     * @return array<int, array{id: int, desk_code: string, name: ?string, email: ?string, age_branch_id: int, branch_name: string, branch_sort_order: int, is_visible: bool, is_active: bool}>
      */
-    public function getAllWithBranches(): array
+    public function getAllWithBranches(bool $includeHidden = false): array
     {
         $pdo = $this->connection->getPdo();
-        $stmt = $pdo->query(
-            'SELECT s.id, s.desk_code, s.name, s.email, s.age_branch_id,
-                    ab.label AS branch_name, ab.sort_order AS branch_sort_order
-             FROM sections s
-             JOIN age_branches ab ON s.age_branch_id = ab.id
-             ORDER BY ab.sort_order, s.desk_code'
-        );
+        $sql = 'SELECT s.id, s.desk_code, s.name, s.email, s.age_branch_id, s.is_visible, s.is_active,
+                       ab.label AS branch_name, ab.sort_order AS branch_sort_order
+                FROM sections s
+                JOIN age_branches ab ON s.age_branch_id = ab.id
+                WHERE s.is_active = 1' . (!$includeHidden ? ' AND s.is_visible = 1' : '');
+        $sql .= ' ORDER BY ab.sort_order, s.desk_code';
+
+        $stmt = $pdo->query($sql);
 
         if ($stmt === false) {
             return [];
@@ -45,6 +56,8 @@ class SectionService
                 'age_branch_id' => (int) $row['age_branch_id'],
                 'branch_name' => (string) $row['branch_name'],
                 'branch_sort_order' => (int) $row['branch_sort_order'],
+                'is_visible' => (bool) $row['is_visible'],
+                'is_active' => (bool) $row['is_active'],
             ];
         }
         return $sections;
@@ -81,9 +94,11 @@ class SectionService
     }
 
     /**
-     * Get the staff (animateurs) for a section in the current scout year.
-     * Returns decrypted MemberProfile objects for members whose function
-     * is linked to this section.
+     * Get the staff (chiefs / chef d'unité) for a section in the current
+     * scout year. Returns decrypted MemberProfile objects for members whose
+     * function is linked to this section AND whose role is chief or admin —
+     * a section's animés also carry a section_id on their member_functions
+     * row, so this must filter by role to show staff only.
      *
      * @return MemberProfile[]
      */
@@ -91,12 +106,15 @@ class SectionService
     {
         $pdo = $this->connection->getPdo();
 
-        // Find all distinct member_year IDs linked to this section
+        // Find all distinct member_year IDs linked to this section via a
+        // chief/admin-role function.
         $stmt = $pdo->prepare(
             'SELECT DISTINCT mf.member_year_id
              FROM member_functions mf
              JOIN member_years my ON mf.member_year_id = my.id
-             WHERE mf.section_id = ? AND my.scout_year_id = ? AND my.is_active = 1'
+             JOIN functions f ON mf.function_id = f.id
+             WHERE mf.section_id = ? AND my.scout_year_id = ? AND my.is_active = 1
+               AND f.role IN (\'chief\', \'admin\')'
         );
         $stmt->execute([$sectionId, $scoutYearId]);
         $memberYearIds = array_map(fn(array $row) => (int) $row['member_year_id'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
@@ -176,9 +194,22 @@ class SectionService
     }
 
     /**
-     * Hydrate a MemberProfile from a member_year ID.
+     * Show or hide a section from every section picker across the site.
      */
-    private function hydrateMemberProfile(int $memberYearId): ?MemberProfile
+    public function updateSectionVisibility(int $sectionId, bool $visible): void
+    {
+        $pdo = $this->connection->getPdo();
+        $stmt = $pdo->prepare('UPDATE sections SET is_visible = ? WHERE id = ?');
+        $stmt->execute([$visible ? 1 : 0, $sectionId]);
+    }
+
+    /**
+     * Hydrate a MemberProfile from a member_year ID. Public so other core
+     * services/modules that already have a filtered list of member_year ids
+     * (e.g. the trombinoscope module) can reuse this decryption/hydration
+     * logic instead of duplicating it.
+     */
+    public function hydrateMemberProfile(int $memberYearId): ?MemberProfile
     {
         $pdo = $this->connection->getPdo();
 
@@ -238,7 +269,8 @@ class SectionService
             unitMailConsent: (bool) $row['unit_mail_consent'],
             addresses: [],
             functions: $functions,
-            scoutYearLabel: $scoutYearLabel
+            scoutYearLabel: $scoutYearLabel,
+            badges: $this->memberBadgeRepository->getActiveBadgesForMemberYear((int) $row['id'])
         );
     }
 }

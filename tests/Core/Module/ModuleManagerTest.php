@@ -226,6 +226,56 @@ class ModuleManagerTest extends TestCase
         $this->assertNull($handler);
     }
 
+    public function testLoadEnabledModulesAutoActivatesEnabledByDefaultOnFirstDiscovery(): void
+    {
+        // No registry row at all for auto_enabled_module — first discovery ever.
+        $this->manager->loadEnabledModules();
+
+        $entry = $this->registryRepo->findByModuleId('auto_enabled_module');
+        $this->assertNotNull($entry);
+        $this->assertTrue($entry['enabled']);
+        $this->assertContains('auto_enabled_module', $this->manager->getEnabledModuleIds());
+
+        $request = new \Core\Http\Request('GET', '/auto-enabled', [], [], [], []);
+        $resolved = $this->router->resolve($request);
+        $this->assertNotNull($resolved);
+    }
+
+    public function testLoadEnabledModulesRespectsExplicitDeactivation(): void
+    {
+        // Admin already deactivated it once — a registry row exists with enabled=false.
+        $this->registryRepo->upsert('auto_enabled_module', false, '1.0.0', null);
+
+        $this->manager->loadEnabledModules();
+
+        $this->assertNotContains('auto_enabled_module', $this->manager->getEnabledModuleIds());
+        $entry = $this->registryRepo->findByModuleId('auto_enabled_module');
+        $this->assertFalse($entry['enabled']);
+    }
+
+    public function testLoadEnabledModulesUsesCustomMenuOrder(): void
+    {
+        // auto_enabled_module declares menu_order: 3, so its menu entry must
+        // sort before a manually added order-10 core page.
+        $this->menuBuilder->addPage('espace_animes', 'Placeholder', '/placeholder', 'identified', 10);
+
+        $this->manager->loadEnabledModules();
+
+        $menus = $this->menuBuilder->build();
+        $espaceAnimes = null;
+        foreach ($menus as $menu) {
+            if ($menu['id'] === 'espace_animes') {
+                $espaceAnimes = $menu;
+                break;
+            }
+        }
+        $this->assertNotNull($espaceAnimes);
+
+        $labels = array_map(fn($p) => $p['label'] ?? '', $espaceAnimes['pages']);
+        $this->assertSame('Auto Enabled', $labels[0]);
+        $this->assertContains('Placeholder', $labels);
+    }
+
     public function testGetEnabledModuleIds(): void
     {
         $this->registryRepo->upsert('valid_module', true, '1.0.0', null);

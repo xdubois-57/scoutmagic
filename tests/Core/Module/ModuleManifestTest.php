@@ -191,6 +191,80 @@ class ModuleManifestTest extends TestCase
         ]);
     }
 
+    public function testRouteMenuOrderDefaultsTo100(): void
+    {
+        $manifest = ModuleManifest::fromFile($this->fixturesDir . '/valid_module/module.json');
+
+        $this->assertSame(100, $manifest->routes[0]['menu_order']);
+    }
+
+    public function testRouteMenuOrderCanBeSetExplicitly(): void
+    {
+        $manifest = ModuleManifest::fromArray([
+            'id' => 'test',
+            'name' => 'Test',
+            'version' => '1.0.0',
+            'routes' => [
+                ['path' => '/test', 'controller' => 'C', 'action' => 'a', 'menu' => 'espace_animes', 'role_min' => 'identified', 'menu_order' => 5],
+            ],
+        ]);
+
+        $this->assertSame(5, $manifest->routes[0]['menu_order']);
+    }
+
+    public function testRouteMenuOrderRejectsNonInteger(): void
+    {
+        $this->expectException(ModuleException::class);
+        $this->expectExceptionMessage("'menu_order' must be an integer");
+
+        ModuleManifest::fromArray([
+            'id' => 'test',
+            'name' => 'Test',
+            'version' => '1.0.0',
+            'routes' => [
+                ['path' => '/test', 'controller' => 'C', 'action' => 'a', 'menu' => 'espace_animes', 'role_min' => 'identified', 'menu_order' => 'first'],
+            ],
+        ]);
+    }
+
+    public function testEnabledByDefaultDefaultsToFalse(): void
+    {
+        $manifest = ModuleManifest::fromFile($this->fixturesDir . '/valid_module/module.json');
+
+        $this->assertFalse($manifest->enabledByDefault);
+    }
+
+    public function testEnabledByDefaultCanBeSetTrue(): void
+    {
+        $manifest = ModuleManifest::fromArray([
+            'id' => 'test',
+            'name' => 'Test',
+            'version' => '1.0.0',
+            'enabled_by_default' => true,
+        ]);
+
+        $this->assertTrue($manifest->enabledByDefault);
+    }
+
+    public function testDescriptionDefaultsToEmptyString(): void
+    {
+        $manifest = ModuleManifest::fromFile($this->fixturesDir . '/valid_module/module.json');
+
+        $this->assertSame('', $manifest->description);
+    }
+
+    public function testDescriptionCanBeSet(): void
+    {
+        $manifest = ModuleManifest::fromArray([
+            'id' => 'test',
+            'name' => 'Test',
+            'version' => '1.0.0',
+            'description' => 'Un module de test.',
+        ]);
+
+        $this->assertSame('Un module de test.', $manifest->description);
+    }
+
     public function testFromFileThrowsForMissingFile(): void
     {
         $this->expectException(ModuleException::class);

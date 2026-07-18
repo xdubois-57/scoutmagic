@@ -9,6 +9,7 @@ class MemberProfile
     /**
      * @param MemberAddress[] $addresses
      * @param MemberFunctionInfo[] $functions
+     * @param \Core\Badge\Badge[] $badges Active badges assigned to this member for this scout year (see Core\Badge)
      */
     public function __construct(
         public readonly int $memberYearId,
@@ -32,7 +33,8 @@ class MemberProfile
         public readonly string $scoutYearLabel,
         public readonly ?string $handicap = null,
         public readonly ?string $supplementaryInsurance = null,
-        public readonly int $scoutYearOffset = 0
+        public readonly int $scoutYearOffset = 0,
+        public readonly array $badges = []
     ) {
     }
 

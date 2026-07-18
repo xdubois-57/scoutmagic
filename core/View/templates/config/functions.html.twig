@@ -1,7 +1,7 @@
 {% extends 'base.html.twig' %}
-{% block title %}Fonctions — {{ site_name }}{% endblock %}
+{% block title %}Config Desk — {{ site_name }}{% endblock %}
 {% block content %}
-    <h1>Fonctions</h1>
+    <h1>Config Desk</h1>
     <p class="text-body-secondary mb-4">
         Associez chaque fonction importée depuis Desk à un rôle sur le site.
         Les fonctions non confirmées ont le rôle "Animé" par défaut —
@@ -10,6 +10,8 @@
     <p class="text-body-secondary small">
         Les changements de rôle prennent effet à la prochaine connexion des membres concernés.
     </p>
+
+    <h2 class="h4">Fonctions</h2>
 
     {# Unconfirmed functions #}
     {% if unconfirmed|length > 0 %}
@@ -62,23 +64,79 @@
                                 <span class="text-body-secondary small ms-1">({{ func.label }})</span>
                             {% endif %}
                         </div>
-                        <select class="form-select form-select-sm w-auto role-select" data-id="{{ func.id }}">
-                            {% for role in roles %}
-                                <option value="{{ role.value }}"
-                                        {{ func.role == role.value ? 'selected' : '' }}>
-                                    {{ role.label }}
-                                </option>
-                            {% endfor %}
-                        </select>
+                        <div class="d-flex align-items-center gap-3">
+                            {% if function_flags is not null and role_value in ['chief', 'admin'] %}
+                                {% set is_lead = function_flags.flags[func.id]|default(false) %}
+                                <div class="d-flex align-items-center gap-2 small text-body-secondary flags-group" data-id="{{ func.id }}">
+                                    <label class="d-flex align-items-center gap-1 mb-0">
+                                        <input type="checkbox" class="form-check-input flag-lead" {{ is_lead ? 'checked' : '' }}>
+                                        {{ function_flags.lead_label }}
+                                    </label>
+                                </div>
+                            {% endif %}
+                            <select class="form-select form-select-sm w-auto role-select" data-id="{{ func.id }}">
+                                {% for role in roles %}
+                                    <option value="{{ role.value }}"
+                                            {{ func.role == role.value ? 'selected' : '' }}>
+                                        {{ role.label }}
+                                    </option>
+                                {% endfor %}
+                            </select>
+                        </div>
                     </div>
                 {% endfor %}
             </div>
         </div>
     {% endfor %}
 
+    {% if function_flags is not null %}
+        <p class="text-body-secondary small">
+            <i class="bi bi-info-circle"></i> {{ function_flags.section_label }} :
+            « {{ function_flags.lead_label }} » s'applique aux fonctions Chef et Chef d'Unité ci-dessus.
+        </p>
+    {% endif %}
+
     {% if unconfirmed is empty and confirmed_by_role is empty %}
         <p class="text-body-secondary fst-italic">
             Aucune fonction importée. Les fonctions apparaîtront après le premier import Desk.
+        </p>
+    {% endif %}
+
+    <hr class="my-4">
+
+    <h2 class="h4">Sections</h2>
+    <p class="text-body-secondary mb-4">
+        Renommez une section ou masquez-la des sélecteurs de section du site
+        (Staffs, Trombinoscope, page publique Sections). Une section sans
+        aucun membre à l'import Desk devient automatiquement inactive et
+        disparaît de partout, y compris de cette page — elle n'est jamais
+        supprimée, et redevient active (et gérable ici) dès qu'un import lui
+        redonne des membres.
+    </p>
+
+    {% if section_groups|length > 0 %}
+        {% for group in section_groups %}
+            <div class="mb-4">
+                <h2 class="h6 mb-2">{{ group.branch_name }}</h2>
+                <div class="border rounded-3 overflow-hidden">
+                    {% for section in group.sections %}
+                        <div class="d-flex align-items-center gap-3 p-3 border-bottom section-row" data-id="{{ section.id }}">
+                            <span class="text-body-secondary small text-nowrap">{{ section.desk_code }}</span>
+                            <input type="text" class="form-control form-control-sm section-name-input"
+                                   value="{{ section.name }}" placeholder="{{ section.desk_code }}">
+                            <div class="form-check form-switch ms-auto text-nowrap">
+                                <input type="checkbox" class="form-check-input section-visible-input" role="switch"
+                                       {{ section.is_visible ? 'checked' : '' }}>
+                                <label class="form-check-label small">Visible</label>
+                            </div>
+                        </div>
+                    {% endfor %}
+                </div>
+            </div>
+        {% endfor %}
+    {% else %}
+        <p class="text-body-secondary fst-italic">
+            Aucune section importée. Les sections apparaîtront après le premier import Desk.
         </p>
     {% endif %}
 {% endblock %}
@@ -108,6 +166,67 @@ document.querySelectorAll('.role-select').forEach(select => {
             row.style.backgroundColor = 'var(--bs-success-bg-subtle)';
             setTimeout(() => row.style.backgroundColor = '', 1000);
         } else {
+            alert(data.error);
+        }
+    });
+});
+
+document.querySelectorAll('.flags-group').forEach(group => {
+    const functionId = group.dataset.id;
+    const leadInput = group.querySelector('.flag-lead');
+
+    leadInput.addEventListener('change', async () => {
+        const csrf = document.querySelector('meta[name="csrf-token"]')?.content;
+        leadInput.disabled = true;
+
+        const res = await fetch('/config/functions/flags', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                function_id: parseInt(functionId),
+                lead: leadInput.checked,
+                _csrf_token: csrf
+            })
+        });
+        const data = await res.json();
+        leadInput.disabled = false;
+
+        if (!data.success) {
+            alert(data.error);
+        }
+    });
+});
+
+document.querySelectorAll('.section-row').forEach(row => {
+    const sectionId = row.dataset.id;
+    const nameInput = row.querySelector('.section-name-input');
+    const visibleInput = row.querySelector('.section-visible-input');
+    const csrf = () => document.querySelector('meta[name="csrf-token"]')?.content;
+
+    nameInput.addEventListener('blur', async () => {
+        nameInput.disabled = true;
+        const res = await fetch('/config/functions/section-name', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ section_id: parseInt(sectionId), name: nameInput.value, _csrf_token: csrf() })
+        });
+        const data = await res.json();
+        nameInput.disabled = false;
+        if (!data.success) {
+            alert(data.error);
+        }
+    });
+
+    visibleInput.addEventListener('change', async () => {
+        visibleInput.disabled = true;
+        const res = await fetch('/config/functions/section-visibility', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ section_id: parseInt(sectionId), visible: visibleInput.checked, _csrf_token: csrf() })
+        });
+        const data = await res.json();
+        visibleInput.disabled = false;
+        if (!data.success) {
             alert(data.error);
         }
     });

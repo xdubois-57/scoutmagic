@@ -68,7 +68,7 @@ Three-level system: **function** (configurable per unit, e.g. "Animateur Baladin
 
 Hierarchy is **cumulative**: a role at level N sees all menus at level ≤ N.
 
-Functions themselves (name, associated role) are managed via a core page (`Configuration > Fonctions`), not via a module.
+Functions themselves (name, associated role) are managed via a core page (`Configuration > Config Desk`), not via a module. The same page also manages section name/visibility (see §8.8).
 
 Routes within "Espace des chefs" declare `role_min: "intendant"` or `role_min: "chief"` individually — the menu appears for intendants but with filtered content.
 
@@ -193,6 +193,8 @@ Validation rules enforced by `ModuleManager` at load time:
 - `role_min` is **mandatory** on every route. A route without `role_min` is rejected (fail-safe: no access by default).
 - `menu` must be one of: `notre_unite`, `espace_animes`, `espace_chefs`, `espace_admin`, `configuration`.
 - A route may require a stricter role than its menu's minimum, never more permissive.
+- A route's optional `menu_order` (int, default 100) controls where its menu entry sorts within its menu — lower sorts earlier. In `espace_animes`, dynamic per-member entries use 10+index and the separator before static pages sits at 50, so the default 100 always lands after them; a module can set a lower value to appear before them instead.
+- A module's optional top-level `enabled_by_default` (bool, default false) auto-activates it the very first time it is discovered on disk (no `module_registry` row yet). An admin's later explicit deactivation always sticks.
 - A disabled module: all routes return 404, menu entries disappear, but data and schema remain.
 
 ### 7.2 Module registry
@@ -205,6 +207,10 @@ module_registry: id, module_id (unique string), enabled, installed_version, enab
 
 Activation: run schema migration → create default settings → register routes → log activation.
 Deactivation: unregister routes → log deactivation. **Never** touch tables or settings — data stays intact.
+
+### 7.4 Core hooks for module-provided configuration
+
+A module that needs to extend a *core* configuration page (e.g. attach flags to a core entity) must not be depended on by core code directly. Instead, core defines a small interface (e.g. `Core\Module\FunctionFlagsProvider`, used by the Config Desk page to let a module declare a per-function flag without the core page hardcoding any module or function name), the module implements it, and the composition root (`public/index.php`) wires the concrete implementation into the core controller only when that module is enabled. Same precedent as `Core\Scheduler\TaskHandlerInterface`.
 
 ## 8. Core services
 
@@ -244,11 +250,25 @@ Subject prefixed `[{short_name}]`. PHPMailer: SMTP or local, DKIM signed, multip
 
 ### 8.8 SectionPicker component
 
-Reusable Twig partial. Shows sections (not branches). Default: section of highest-role member linked to account.
+Reusable Twig partial. Shows sections (not branches). Default: section of highest-role member linked to account. `Core\Member\SectionService::getAllWithBranches()` excludes hidden (`sections.is_visible = false`, admin toggle) and inactive (`sections.is_active = false`, automatic — see §7.4-adjacent Desk import note below) sections by default — every call site (Staffs, Trombinoscope, the public Sections page) gets this filtering for free; only the Config Desk admin page (which manages both) passes `includeHidden: true`. Name and visibility are configurable from Configuration > Config Desk.
+
+A section with no member in the current Desk import becomes inactive automatically — never deleted, just hidden from every section picker until a later import gives it members again. `MappingResolver::deactivateAllSections()` marks every section inactive at the start of each import; `resolveSection()` reactivates each one actually referenced (same deactivate-then-reactivate pattern as `member_years.is_active`, see §8.1).
 
 ### 8.9 Cookie consent service
 
 `CookieConsentService::isAllowed($category)`: checks stored consent before any non-essential cookie is set. Consent stored in strictly-necessary cookie. Aggregates cookie declarations from core and all active modules for the preferences page.
+
+### 8.10 Photo per person/year (`Core\Photo`)
+
+Generic, reusable component: a photo (`member_photos`: member_id, scout_year_id, file_id) is tied to a member AND a scout year. `MemberPhotoService::resolveFileId()` returns the photo for a given year, falling back to the most recent earlier year, else null. The `member_photo()` Twig function (registered in `TwigFactory`) renders it — an initials-in-a-circle avatar (same style as the account menu) when none exists — and, in configuration mode, the same click-to-replace overlay as `editable_image()` (upload context `member_photo`, key `"{memberId}:{scoutYearId}"`, handled by `UploadController`). Not specific to any module.
+
+### 8.11 Badges (`Core\Badge`)
+
+Transversal roles assignable to chiefs/chief-d'unité (e.g. Infirmier, Trésorier) — a global concept (`badges`: name, icon, is_default, is_active) configured once from Configuration générale, with assignment scoped per member per scout year via `member_badges.member_year_id` (so history across years is preserved automatically, the same way `member_years` already works). `BadgeIconLibrary` is a small built-in SVG icon set (no external icon dependency); `badge_icon()` (registered in `TwigFactory`) renders one, sized via CSS only (`.badge-icon` / `.badge-icon-lg` in `components.css`).
+
+Default badges (Infirmier, Trésorier) are seeded idempotently by `BadgeService::ensureDefaults()` (called on every `/config/general` request, same pattern as `SettingService::register()`) and can never be deleted, only deactivated. Any badge already assigned to a member — even in a past year — can likewise never be deleted, only deactivated: `BadgeService::delete()` refuses both cases, preserving historical data. A deactivated badge is invisible everywhere (assignment picker, trombinoscope) but existing `member_badges` rows are untouched, so reactivating it brings past assignments back.
+
+`Core\Member\SectionService::hydrateMemberProfile()` fetches a member's active badges into `MemberProfile::$badges` — the single hydration path shared by the Staffs page and (via `SectionService::hydrateMemberProfile()` reuse, see §8.8-adjacent Trombinoscope note) the trombinoscope module, so badges surface in both without either needing its own plumbing. `SectionService::getSectionStaff()` also filters to chief/admin-role functions only — a section's animés carry the same `section_id` on their `member_functions` row, so this filter is what keeps the Staffs/badge-assignment page staff-only.
 
 ## 9. Installation / bootstrap
 

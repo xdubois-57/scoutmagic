@@ -105,6 +105,15 @@ CREATE TABLE sections (
     desk_code VARCHAR(50) NOT NULL,
     name VARCHAR(100),
     email VARCHAR(255),
+    -- Controls whether the section appears in any section picker across the
+    -- site (Staffs, Trombinoscope, the public Sections page). Configurable
+    -- from Configuration > Config Desk. Defaults to visible.
+    is_visible BOOLEAN NOT NULL DEFAULT TRUE,
+    -- Automatically recomputed on every Desk import: true when the section
+    -- has at least one member this year, false otherwise. A section with no
+    -- members is kept (never deleted) but excluded from every section picker
+    -- until a later import gives it members again.
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE INDEX idx_desk_code (desk_code),
     CONSTRAINT fk_section_branch FOREIGN KEY (age_branch_id) REFERENCES age_branches(id)
@@ -242,6 +251,55 @@ CREATE TABLE event_log (
     INDEX idx_user (user_account_id),
     INDEX idx_ip (ip_address),
     CONSTRAINT fk_el_user FOREIGN KEY (user_account_id) REFERENCES user_accounts(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Generic "photo per person per year" core component (ARCHITECTURE.md §8):
+-- one row per (member, scout_year). Reused anywhere a person's photo needs to
+-- track the site's current scout year — not specific to any one module.
+CREATE TABLE member_photos (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    member_id INT UNSIGNED NOT NULL,
+    scout_year_id INT UNSIGNED NOT NULL,
+    file_id INT UNSIGNED NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_by INT UNSIGNED,
+    UNIQUE INDEX idx_member_year (member_id, scout_year_id),
+    CONSTRAINT fk_mp_member FOREIGN KEY (member_id) REFERENCES members(id) ON DELETE CASCADE,
+    CONSTRAINT fk_mp_year FOREIGN KEY (scout_year_id) REFERENCES scout_years(id),
+    CONSTRAINT fk_mp_file FOREIGN KEY (file_id) REFERENCES files(id),
+    CONSTRAINT fk_mp_created_by FOREIGN KEY (created_by) REFERENCES user_accounts(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Transversal roles assignable to chiefs/chief-d'unité (e.g. Infirmier,
+-- Trésorier), configured once in Configuration générale and displayed on the
+-- trombinoscope. See Core\Badge.
+CREATE TABLE badges (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    -- Default badges (Infirmier, Trésorier) are seeded automatically and can
+    -- never be deleted — only deactivated.
+    is_default BOOLEAN NOT NULL DEFAULT FALSE,
+    -- A deactivated badge is invisible everywhere and no longer assignable,
+    -- but existing member_badges assignments are preserved.
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE INDEX idx_name (name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Badge assignment: per member_year, so it's naturally scoped to a scout
+-- year (see member_years) — the same member holds independent badge
+-- assignments across different years, and history is preserved even after
+-- a member_year is deactivated by a later import.
+CREATE TABLE member_badges (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    member_year_id INT UNSIGNED NOT NULL,
+    badge_id INT UNSIGNED NOT NULL,
+    assigned_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    assigned_by INT UNSIGNED,
+    UNIQUE INDEX idx_member_badge (member_year_id, badge_id),
+    CONSTRAINT fk_mb_member_year FOREIGN KEY (member_year_id) REFERENCES member_years(id) ON DELETE CASCADE,
+    CONSTRAINT fk_mb_badge FOREIGN KEY (badge_id) REFERENCES badges(id),
+    CONSTRAINT fk_mb_assigned_by FOREIGN KEY (assigned_by) REFERENCES user_accounts(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE module_registry (

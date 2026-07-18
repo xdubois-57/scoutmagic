@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../vendor/autoload.php';
 
+use Core\Badge\BadgeRepository;
+use Core\Badge\BadgeService;
+use Core\Badge\MemberBadgeRepository;
 use Core\Config\AppConfig;
 use Core\Config\SettingRepository;
 use Core\Config\SettingService;
@@ -16,6 +19,8 @@ use Core\Database\SqlParser;
 use Core\File\FileAccessGuard;
 use Core\File\FileRepository;
 use Core\File\UploadHandler;
+use Core\Photo\MemberPhotoRepository;
+use Core\Photo\MemberPhotoService;
 use Core\Config\ScoutYearService;
 use Core\Http\Controller\AccountController;
 use Core\Http\Controller\AuthController;
@@ -332,7 +337,14 @@ $roleResolver = new RoleResolver($memberYearRepo, $encryptionService, $pdo);
 $memberService = new MemberService($memberYearRepo, $encryptionService, $connection);
 $memberYearService = new MemberYearService();
 $memberSearchService = new MemberSearchService(new MemberSearchRepository($connection, $encryptionService));
-$sectionService = new SectionService($connection, $encryptionService);
+// Badges — transversal roles assignable to chiefs (Core\Badge). Global
+// concept configured once (Configuration générale), assignment scoped per
+// member_year (Staffs page), displayed on the trombinoscope.
+$badgeRepository = new BadgeRepository($pdo);
+$memberBadgeRepository = new MemberBadgeRepository($pdo);
+$badgeService = new BadgeService($badgeRepository, $memberBadgeRepository);
+
+$sectionService = new SectionService($connection, $encryptionService, $memberBadgeRepository);
 
 // Scout year resolution (public / staff / session-preview priority)
 $scoutYearResolver = new ScoutYearResolver($scoutYearService, $settingService, $memberYearRepo);
@@ -361,6 +373,10 @@ $storagePath = dirname(__DIR__) . '/storage';
 $fileRepository = new FileRepository($pdo);
 $fileAccessGuard = new FileAccessGuard($fileRepository, Role::fromString(AuthSession::getRole()));
 $uploadHandler = new UploadHandler($fileRepository, $storagePath);
+
+// Core "photo per person per year" component (ARCHITECTURE.md §8) — see
+// Core\Photo\MemberPhotoService.
+$memberPhotoService = new MemberPhotoService(new MemberPhotoRepository($pdo));
 
 // Role labels in French
 $roleLabelMap = [
@@ -404,9 +420,11 @@ $twig->addGlobal('current_user_role_label', $roleLabelMap[$currentRole] ?? 'Publ
 $twig->addGlobal('current_path', $request->getPath());
 $twig->addGlobal('config_mode', ConfigurationMode::isActive());
 $twig->addGlobal('effective_scout_year', $effectiveScoutYear->label);
+$twig->addGlobal('effective_scout_year_id', $effectiveScoutYear->id);
 $twig->addGlobal('is_year_overridden', $effectiveScoutYear->isOverridden());
 $twig->addGlobal('year_override_type', $effectiveScoutYear->overrideType);
 $twig->addGlobal('_editable_content_service', $editableContentService);
+$twig->addGlobal('_member_photo_service', $memberPhotoService);
 $twig->addGlobal('cookie_consent_given', $cookieConsentService->hasConsented());
 
 // Build menu
@@ -424,7 +442,7 @@ $menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Année scoute', '/admin/s
 $menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Membres', '/admin/members', 'admin', 40);
 $menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Configuration générale', '/config/general', 'superadmin', 10);
 $menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Configuration du site', '/setup', 'superadmin', 15);
-$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Fonctions', '/config/functions', 'superadmin', 20);
+$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Config Desk', '/config/functions', 'superadmin', 20);
 $menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Paramètres', '/config/settings', 'superadmin', 30);
 $menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Actions planifiées', '/config/scheduled', 'superadmin', 40);
 
@@ -566,14 +584,22 @@ $router->addRoute('GET', '/config/scheduled', ScheduledActionsController::class,
 // Configuration générale
 $router->addRoute('GET', '/config/general', ConfigGeneralController::class, 'index', 'superadmin');
 $router->addRoute('POST', '/config/general/module-toggle', ConfigGeneralController::class, 'toggleModule', 'superadmin');
+$router->addRoute('POST', '/config/general/badge-add', ConfigGeneralController::class, 'addBadge', 'superadmin');
+$router->addRoute('POST', '/config/general/badge-update', ConfigGeneralController::class, 'updateBadge', 'superadmin');
+$router->addRoute('POST', '/config/general/badge-toggle-active', ConfigGeneralController::class, 'toggleBadgeActive', 'superadmin');
+$router->addRoute('POST', '/config/general/badge-delete', ConfigGeneralController::class, 'deleteBadge', 'superadmin');
 
 // Staffs
 $router->addRoute('GET', '/chefs/staffs', StaffsController::class, 'index', 'intendant');
 $router->addRoute('POST', '/chefs/staffs/update-section', StaffsController::class, 'updateSection', 'chief');
+$router->addRoute('POST', '/chefs/staffs/badge-toggle', StaffsController::class, 'toggleBadge', 'chief');
 
 // Functions configuration
 $router->addRoute('GET', '/config/functions', FunctionsController::class, 'index', 'superadmin');
 $router->addRoute('POST', '/config/functions/update', FunctionsController::class, 'update', 'superadmin');
+$router->addRoute('POST', '/config/functions/flags', FunctionsController::class, 'updateFlags', 'superadmin');
+$router->addRoute('POST', '/config/functions/section-name', FunctionsController::class, 'updateSectionName', 'superadmin');
+$router->addRoute('POST', '/config/functions/section-visibility', FunctionsController::class, 'updateSectionVisibility', 'superadmin');
 
 // Load enabled modules (routes registered AFTER core routes so core takes priority)
 $moduleManager->loadEnabledModules();
@@ -637,7 +663,7 @@ $frontController->registerController(AuthController::class, $authController);
 $frontController->registerController(AccountController::class, new AccountController($twig, $userAccountRepo, $webAuthnCredentialRepo, $webAuthnService));
 $frontController->registerController(ImportController::class, new ImportController($twig, $importService, $scoutYearResolver, $importJournalRepo, $functionRepo, $storagePath));
 $frontController->registerController(MemberController::class, new MemberController($twig, $memberService, $memberYearService, $journalService));
-$frontController->registerController(StaffsController::class, new StaffsController($twig, $sectionService, $memberService, $scoutYearResolver, $journalService));
+$frontController->registerController(StaffsController::class, new StaffsController($twig, $sectionService, $memberService, $scoutYearResolver, $journalService, $badgeService));
 $frontController->registerController(ConfigModeController::class, new ConfigModeController($twig));
 $editableContentController = new EditableContentController($twig, $editableContentService);
 $editableContentController->setJournalService($journalService);
@@ -645,14 +671,16 @@ $frontController->registerController(EditableContentController::class, $editable
 $fileController = new FileController($twig, $fileAccessGuard, $storagePath);
 $fileController->setJournalService($journalService);
 $frontController->registerController(FileController::class, $fileController);
-$frontController->registerController(UploadController::class, new UploadController($twig, $uploadHandler, $editableContentService));
+$uploadController = new UploadController($twig, $uploadHandler, $editableContentService, $memberPhotoService);
+$uploadController->setJournalService($journalService);
+$frontController->registerController(UploadController::class, $uploadController);
 $frontController->registerController(JournalController::class, new JournalController($twig, $journalRepo, $userAccountRepo));
 $frontController->registerController(ScoutYearController::class, new ScoutYearController($twig, $scoutYearResolver, $scoutYearAdminService, $scoutYearService, $journalService));
 $frontController->registerController(MemberSearchController::class, new MemberSearchController($twig, $memberSearchService, $memberService, $scoutYearResolver, $memberYearService));
 $frontController->registerController(SettingsController::class, new SettingsController($twig, $settingService, $journalService));
 $frontController->registerController(ScheduledActionsController::class, new ScheduledActionsController($twig, $schedulerRepo));
-$frontController->registerController(ConfigGeneralController::class, new ConfigGeneralController($twig, $moduleManager));
-$frontController->registerController(FunctionsController::class, new FunctionsController($twig, $functionRepo, $journalService));
+$frontController->registerController(ConfigGeneralController::class, new ConfigGeneralController($twig, $moduleManager, $badgeService, $journalService));
+$frontController->registerController(FunctionsController::class, new FunctionsController($twig, $functionRepo, $journalService, $sectionService));
 $frontController->registerController(PlaceholderController::class, new PlaceholderController($twig));
 
 // Module controllers with dependencies (only wired when the module is enabled).
@@ -664,6 +692,29 @@ if (in_array('member_stats', $moduleManager->getEnabledModuleIds(), true)) {
     $frontController->registerController(
         \Modules\MemberStats\Controller\MemberStatsController::class,
         new \Modules\MemberStats\Controller\MemberStatsController($twig, $memberStatsService, $scoutYearResolver)
+    );
+}
+
+if (in_array('trombinoscope', $moduleManager->getEnabledModuleIds(), true)) {
+    // Re-registers FunctionsController with the trombinoscope function-flags
+    // hook (Core\Module\FunctionFlagsProvider) so the Config Desk page can
+    // expose the "responsable" checkbox — core never depends on the module
+    // directly, only on the interface it implements.
+    $trombinoscopeFunctionFlagsService = new \Modules\Trombinoscope\Service\FunctionFlagsService(
+        new \Modules\Trombinoscope\Repository\FunctionFlagsRepository($pdo)
+    );
+    $frontController->registerController(
+        FunctionsController::class,
+        new FunctionsController($twig, $functionRepo, $journalService, $sectionService, $trombinoscopeFunctionFlagsService)
+    );
+
+    $trombinoscopeService = new \Modules\Trombinoscope\Service\TrombinoscopeService(
+        new \Modules\Trombinoscope\Repository\TrombinoscopeRepository($connection),
+        $sectionService
+    );
+    $frontController->registerController(
+        \Modules\Trombinoscope\Controller\TrombinoscopeController::class,
+        new \Modules\Trombinoscope\Controller\TrombinoscopeController($twig, $sectionService, $trombinoscopeService, $scoutYearResolver)
     );
 }
 

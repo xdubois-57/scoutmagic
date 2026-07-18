@@ -147,4 +147,19 @@ class MemberYearServiceTest extends TestCase
         $this->assertSame(2023, MemberYearService::referenceYearFromScoutYearLabel('2023-2024'));
         $this->assertSame((int) date('Y'), MemberYearService::referenceYearFromScoutYearLabel('sans année'));
     }
+
+    public function testColorForBranchSortOrderMatchesTheFourAnimesBranches(): void
+    {
+        $this->assertSame('#378ADD', MemberYearService::colorForBranchSortOrder(10));
+        $this->assertSame('#639922', MemberYearService::colorForBranchSortOrder(20));
+        $this->assertSame('#1D9E75', MemberYearService::colorForBranchSortOrder(30));
+        $this->assertSame('#D85A30', MemberYearService::colorForBranchSortOrder(40));
+    }
+
+    public function testColorForBranchSortOrderFallsBackToNeutralForOtherBranches(): void
+    {
+        // Staff d'U (50), Route (60), Iama (70), unknown (99).
+        $this->assertSame('#6c757d', MemberYearService::colorForBranchSortOrder(50));
+        $this->assertSame('#6c757d', MemberYearService::colorForBranchSortOrder(99));
+    }
 }

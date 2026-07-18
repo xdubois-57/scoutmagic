@@ -74,6 +74,20 @@ class MemberYearService
     }
 
     /**
+     * Map an age_branches.sort_order value (canonical order assigned by
+     * AgeBranchRepository::canonicalSortOrder() at import time: 10/20/30/40
+     * for Baladins/Louveteaux/Éclaireurs/Pionniers) to that branch's display
+     * color. Branches outside the four animés branches (Staff d'U, Route,
+     * Iama, unknown) get a neutral gray.
+     */
+    public static function colorForBranchSortOrder(int $sortOrder): string
+    {
+        $index = intdiv($sortOrder, 10) - 1;
+
+        return self::BRANCHES[$index]['color'] ?? '#6c757d';
+    }
+
+    /**
      * Extract a calendar birth year from a decrypted birth date string.
      * Handles both "YYYY-MM-DD" and "DD/MM/YYYY". Returns null when the value
      * is empty or unparseable.

@@ -36,7 +36,7 @@ class ModuleManifest
     private const VALID_COOKIE_CATEGORIES = ['necessary', 'functional', 'analytics'];
 
     /**
-     * @param array<int, array{path: string, method: string, controller: string, action: string, menu: string, role_min: string, label: string}> $routes
+     * @param array<int, array{path: string, method: string, controller: string, action: string, menu: string, role_min: string, label: string, menu_order: int}> $routes
      * @param array<int, array{key: string, default_value: string, type: string, label: string, description: string}> $settings
      * @param array<int, array{name: string, category: string, purpose: string, duration: string}> $cookies
      * @param array<int, array{key: string, handler: string}> $scheduledTasks
@@ -50,7 +50,9 @@ class ModuleManifest
         public readonly array $settings,
         public readonly array $cookies,
         public readonly array $scheduledTasks,
-        public readonly array $storage
+        public readonly array $storage,
+        public readonly bool $enabledByDefault = false,
+        public readonly string $description = ''
     ) {
     }
 
@@ -166,12 +168,15 @@ class ModuleManifest
             }
         }
 
-        return new self($id, $data['name'], $data['version'], $routes, $settings, $cookies, $scheduledTasks, $storage);
+        $enabledByDefault = (bool) ($data['enabled_by_default'] ?? false);
+        $description = (string) ($data['description'] ?? '');
+
+        return new self($id, $data['name'], $data['version'], $routes, $settings, $cookies, $scheduledTasks, $storage, $enabledByDefault, $description);
     }
 
     /**
      * @param array<string, mixed>|mixed $route
-     * @return array{path: string, method: string, controller: string, action: string, menu: string, role_min: string, label: string}
+     * @return array{path: string, method: string, controller: string, action: string, menu: string, role_min: string, label: string, menu_order: int}
      */
     private static function validateRoute(string $moduleId, mixed $route, int $index): array
     {
@@ -208,6 +213,19 @@ class ModuleManifest
         $method = strtoupper((string) ($route['method'] ?? 'GET'));
         $label = (string) ($route['label'] ?? '');
 
+        // Optional: where this route's menu entry sorts relative to other
+        // pages in its menu (lower = earlier). Defaults to 100, after core
+        // pages and dynamic entries (e.g. Espace des animés member pages,
+        // which use order 10+). A module can set a lower value to appear
+        // before those, e.g. the trombinoscope page before per-member pages.
+        $menuOrder = 100;
+        if (isset($route['menu_order'])) {
+            if (!is_int($route['menu_order'])) {
+                throw new ModuleException("Module '{$moduleId}' route[{$index}] 'menu_order' must be an integer");
+            }
+            $menuOrder = $route['menu_order'];
+        }
+
         return [
             'path' => $route['path'],
             'method' => $method,
@@ -216,6 +234,7 @@ class ModuleManifest
             'menu' => $route['menu'],
             'role_min' => $route['role_min'],
             'label' => $label,
+            'menu_order' => $menuOrder,
         ];
     }
 

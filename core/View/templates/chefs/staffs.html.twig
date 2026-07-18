@@ -99,6 +99,32 @@
                                 {% endif %}
                             </div>
                         </div>
+
+                        {% if can_edit_section and available_badges|length > 0 %}
+                            <div class="d-flex flex-wrap gap-1 mb-2 badge-picker" data-member-year-id="{{ member.memberYearId }}">
+                                {% for badge in available_badges %}
+                                    {% set assigned = false %}
+                                    {% for mb in member.badges %}
+                                        {% if mb.id == badge.id %}{% set assigned = true %}{% endif %}
+                                    {% endfor %}
+                                    <button type="button"
+                                            class="btn btn-sm {{ assigned ? 'btn-info' : 'btn-outline-secondary' }} d-inline-flex align-items-center gap-1 badge-toggle-btn"
+                                            data-badge-id="{{ badge.id }}"
+                                            style="font-size:0.7rem;">
+                                        {{ badge.name }}
+                                    </button>
+                                {% endfor %}
+                            </div>
+                        {% elseif member.badges|length > 0 %}
+                            <div class="d-flex flex-wrap gap-1 mb-2">
+                                {% for badge in member.badges %}
+                                    <span class="badge bg-info-subtle text-info-emphasis d-inline-flex align-items-center gap-1">
+                                        {{ badge.name }}
+                                    </span>
+                                {% endfor %}
+                            </div>
+                        {% endif %}
+
                         <div class="d-flex flex-wrap gap-3 small">
                             {% if member.formationLevel %}
                                 <span>
@@ -165,6 +191,34 @@ saveBtn?.addEventListener('click', async () => {
     const data = await res.json();
     if (data.success) { window.location.reload(); }
     else { alert(data.error); }
+});
+</script>
+{% endif %}
+{% if can_edit_section is defined and can_edit_section %}
+<script nonce="{{ csp_nonce }}">
+document.querySelectorAll('.badge-toggle-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+        const group = btn.closest('.badge-picker');
+        const memberYearId = group.dataset.memberYearId;
+        const badgeId = btn.dataset.badgeId;
+        const csrf = document.querySelector('meta[name="csrf-token"]')?.content;
+
+        btn.disabled = true;
+        const res = await fetch('/chefs/staffs/badge-toggle', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ member_year_id: parseInt(memberYearId), badge_id: parseInt(badgeId), _csrf_token: csrf })
+        });
+        const data = await res.json();
+        btn.disabled = false;
+
+        if (data.success) {
+            btn.classList.toggle('btn-info', data.assigned);
+            btn.classList.toggle('btn-outline-secondary', !data.assigned);
+        } else {
+            alert(data.error);
+        }
+    });
 });
 </script>
 {% endif %}

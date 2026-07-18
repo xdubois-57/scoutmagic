@@ -77,7 +77,7 @@ Site-wide settings, modules, functions.
 
 | Page | Role | Content |
 |---|---|---|
-| Staffs | intendant | SectionPicker + staff info per section. Section name/email editable (chief only). |
+| Staffs | intendant | SectionPicker + staff info per section (chief/chief-d'unité only — animés are not shown). Section name/email editable, badges assignable to staff (chief only, see Core\Badge). |
 
 ### 4.4 Espace admin
 
@@ -90,8 +90,8 @@ Site-wide settings, modules, functions.
 
 | Page | Content |
 |---|---|
-| Configuration générale | Module registry + configuration mode toggle. |
-| Fonctions | Map Desk functions to site roles. |
+| Configuration générale | Badges (transversal roles, e.g. Infirmier/Trésorier — add/rename/activate/deactivate; default badges and badges already assigned can only be deactivated, never deleted). Module registry + configuration mode toggle. |
+| Config Desk | Map Desk functions to site roles; rename sections and toggle their visibility across the site. |
 | Paramètres | Key-value settings grouped by module, edit via dialog. |
 | Actions planifiées | Scheduled actions list with status. |
 
@@ -141,10 +141,14 @@ Upload → validate headers → group by `desk_id` → resolve mappings → upse
 | FONCTION | functions | Yes (security) |
 | Branche | age_branches | No |
 | Tarif | fee_categories | No |
-| SECTION | sections | No |
+| Section | sections | No |
+
+Section identity always comes from the "Section" column. The Desk export also has a separate "SECTION" (all-caps) column, which is never used — it can hold incorrect/stale data.
 
 ### 7.3 Section configuration
-Sections identified by Desk code. Configurable from Staffs page: name, email.
+Sections identified by Desk code. Name and email configurable from the Staffs page (chief). Name and site-wide visibility also configurable from Configuration > Config Desk (admin) — a hidden section disappears from every section picker (Staffs, Trombinoscope, public Sections page) until made visible again.
+
+A section with no member in a given import becomes inactive automatically (kept, never deleted) and is likewise excluded from every section picker until a later import gives it members again — see §7.1 pipeline and ARCHITECTURE.md §8.1/§8.8.
 
 ## 8. Email system
 

@@ -221,4 +221,46 @@ class DeskImportServiceTest extends TestCase
         );
         $this->assertSame(2, (int) $stmt->fetchColumn());
     }
+
+    public function testSectionsReferencedByImportAreActive(): void
+    {
+        $this->importFixture();
+
+        $stmt = $this->pdo->query("SELECT is_active FROM sections WHERE desk_code = 'Meute Akela'");
+        $this->assertSame(1, (int) $stmt->fetchColumn());
+
+        $stmt = $this->pdo->query("SELECT is_active FROM sections WHERE desk_code = 'Ribambelle'");
+        $this->assertSame(1, (int) $stmt->fetchColumn());
+    }
+
+    public function testSectionNotReferencedByImportBecomesInactive(): void
+    {
+        // A section left over from a previous year, no longer in the CSV.
+        $stmt = $this->pdo->prepare("INSERT INTO age_branches (desk_code, label, sort_order) VALUES ('ROU', 'Route', 60)");
+        $stmt->execute();
+        $branchId = (int) $this->pdo->lastInsertId();
+        $stmt = $this->pdo->prepare('INSERT INTO sections (desk_code, age_branch_id, is_active) VALUES (?, ?, 1)');
+        $stmt->execute(['OLD_SECTION', $branchId]);
+        $oldSectionId = (int) $this->pdo->lastInsertId();
+
+        $this->importFixture();
+
+        $stmt = $this->pdo->prepare('SELECT is_active FROM sections WHERE id = ?');
+        $stmt->execute([$oldSectionId]);
+        $this->assertSame(0, (int) $stmt->fetchColumn());
+    }
+
+    public function testReimportReactivatesPreviouslyInactiveSection(): void
+    {
+        $this->importFixture();
+        $this->pdo->exec("UPDATE sections SET is_active = 0 WHERE desk_code = 'Meute Akela'");
+
+        $this->service = $this->createService();
+        $tmpFile = tempnam(sys_get_temp_dir(), 'csv');
+        copy($this->fixturePath, $tmpFile);
+        $this->service->import($tmpFile, $this->scoutYearId, 1);
+
+        $stmt = $this->pdo->query("SELECT is_active FROM sections WHERE desk_code = 'Meute Akela'");
+        $this->assertSame(1, (int) $stmt->fetchColumn());
+    }
 }

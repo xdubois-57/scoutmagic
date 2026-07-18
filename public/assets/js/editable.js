@@ -63,13 +63,16 @@
         });
     });
 
-    // Image upload — navigate to upload page
+    // Image upload — navigate to upload page. data-context lets other core
+    // components (e.g. member_photo()) reuse this same overlay/click wiring
+    // with their own upload context, defaulting to 'editable_image'.
     document.querySelectorAll('.editable-image .editable-edit-btn').forEach(function (btn) {
         btn.addEventListener('click', function (e) {
             e.stopPropagation();
             var container = btn.closest('.editable-image');
             var key = container.dataset.key;
-            window.location.href = '/upload?context=editable_image&key=' + encodeURIComponent(key) + '&return=' + encodeURIComponent(window.location.pathname);
+            var context = container.dataset.context || 'editable_image';
+            window.location.href = '/upload?context=' + encodeURIComponent(context) + '&key=' + encodeURIComponent(key) + '&return=' + encodeURIComponent(window.location.pathname);
         });
     });
 })();

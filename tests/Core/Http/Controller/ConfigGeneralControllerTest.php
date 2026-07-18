@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace Tests\Core\Http\Controller;
 
+use Core\Badge\BadgeRepository;
+use Core\Badge\BadgeService;
+use Core\Badge\MemberBadgeRepository;
 use Core\Config\SettingRepository;
 use Core\Config\SettingService;
 use Core\Cookie\CookieConsentService;
@@ -30,6 +33,9 @@ class ConfigGeneralControllerTest extends TestCase
     private ConfigGeneralController $controller;
     private ModuleManager $moduleManager;
     private ModuleRegistryRepository $registryRepo;
+    private BadgeRepository $badgeRepository;
+    private MemberBadgeRepository $memberBadgeRepository;
+    private BadgeService $badgeService;
     private \PDO $pdo;
 
     protected function setUp(): void
@@ -77,7 +83,11 @@ class ConfigGeneralControllerTest extends TestCase
         $twig->addFunction(new \Twig\TwigFunction('file_url', fn() => ''));
         $twig->addFunction(new \Twig\TwigFunction('param', fn(string $k) => 'Test'));
 
-        $this->controller = new ConfigGeneralController($twig, $this->moduleManager);
+        $this->badgeRepository = new BadgeRepository($this->pdo);
+        $this->memberBadgeRepository = new MemberBadgeRepository($this->pdo);
+        $this->badgeService = new BadgeService($this->badgeRepository, $this->memberBadgeRepository);
+
+        $this->controller = new ConfigGeneralController($twig, $this->moduleManager, $this->badgeService, $journalService);
     }
 
     public function testIndexRendersWithModuleList(): void
@@ -91,6 +101,185 @@ class ConfigGeneralControllerTest extends TestCase
         $this->assertStringContainsString('Modules', $response->getBody());
         // Should show valid module from fixtures
         $this->assertStringContainsString('Module de test valide', $response->getBody());
+    }
+
+    public function testIndexSeedsAndRendersDefaultBadges(): void
+    {
+        $request = new Request('GET', '/config/general', [], [], [], []);
+        $response = $this->controller->index($request, []);
+
+        $body = $response->getBody();
+        $this->assertStringContainsString('Badges', $body);
+        $this->assertStringContainsString('Infirmier', $body);
+        $this->assertStringContainsString('Trésorier', $body);
+    }
+
+    public function testIndexDisablesDeleteButtonForAssignedBadge(): void
+    {
+        $badge = $this->badgeService->create('Communication');
+        $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date) VALUES ('2025-2026', '2025-09-01', '2026-08-31')");
+        $scoutYearId = (int) $this->pdo->lastInsertId();
+        $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('D1')");
+        $memberId = (int) $this->pdo->lastInsertId();
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted) VALUES (?, ?, ?, ?)'
+        );
+        $stmt->execute([$memberId, $scoutYearId, 'enc', 'enc']);
+        $memberYearId = (int) $this->pdo->lastInsertId();
+        $this->memberBadgeRepository->assign($memberYearId, $badge->id, null);
+
+        $request = new Request('GET', '/config/general', [], [], [], []);
+        $response = $this->controller->index($request, []);
+
+        $body = $response->getBody();
+        $this->assertMatchesRegularExpression(
+            '/data-id="' . $badge->id . '".*?badge-delete-btn[^>]*disabled/s',
+            $body
+        );
+    }
+
+    public function testAddBadgeCreatesBadge(): void
+    {
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+        $token = bin2hex(random_bytes(32));
+        $_SESSION['_csrf_token'] = $token;
+        $_SESSION['user'] = ['user_account_id' => 1, 'email' => 'admin@test.com', 'role' => 'admin'];
+
+        $request = $this->createJsonRequest(['name' => 'Communication', '_csrf_token' => $token]);
+        $response = $this->controller->addBadge($request, []);
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertTrue($decoded['success']);
+        $this->assertSame('Communication', $decoded['badge']['name']);
+        $this->assertNotNull($this->badgeRepository->findByName('Communication'));
+    }
+
+    public function testAddBadgeRejectsDuplicateName(): void
+    {
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+        $token = bin2hex(random_bytes(32));
+        $_SESSION['_csrf_token'] = $token;
+
+        $this->badgeService->create('Communication');
+
+        $request = $this->createJsonRequest(['name' => 'Communication', '_csrf_token' => $token]);
+        $response = $this->controller->addBadge($request, []);
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertFalse($decoded['success']);
+    }
+
+    public function testAddBadgeWithInvalidCsrfReturns403(): void
+    {
+        $request = $this->createJsonRequest(['name' => 'Communication', '_csrf_token' => 'bad']);
+        $response = $this->controller->addBadge($request, []);
+
+        $this->assertSame(403, $response->getStatusCode());
+    }
+
+    public function testUpdateBadgeRenames(): void
+    {
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+        $token = bin2hex(random_bytes(32));
+        $_SESSION['_csrf_token'] = $token;
+        $_SESSION['user'] = ['user_account_id' => 1, 'email' => 'admin@test.com', 'role' => 'admin'];
+
+        $badge = $this->badgeService->create('Communication');
+
+        $request = $this->createJsonRequest([
+            'badge_id' => $badge->id, 'name' => 'Com Interne', '_csrf_token' => $token,
+        ]);
+        $response = $this->controller->updateBadge($request, []);
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertTrue($decoded['success']);
+        $this->assertSame('Com Interne', $this->badgeRepository->findById($badge->id)->name);
+    }
+
+    public function testUpdateBadgeRejectsRenamingDefaultBadge(): void
+    {
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+        $token = bin2hex(random_bytes(32));
+        $_SESSION['_csrf_token'] = $token;
+        $_SESSION['user'] = ['user_account_id' => 1, 'email' => 'admin@test.com', 'role' => 'admin'];
+
+        $this->badgeService->ensureDefaults();
+        $infirmier = array_values(array_filter($this->badgeService->getAll(), fn($b) => $b->name === 'Infirmier'))[0];
+
+        $request = $this->createJsonRequest([
+            'badge_id' => $infirmier->id, 'name' => 'Nurse', '_csrf_token' => $token,
+        ]);
+        $response = $this->controller->updateBadge($request, []);
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertFalse($decoded['success']);
+        $this->assertSame('Infirmier', $this->badgeRepository->findById($infirmier->id)->name);
+    }
+
+    public function testToggleBadgeActiveDeactivatesBadge(): void
+    {
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+        $token = bin2hex(random_bytes(32));
+        $_SESSION['_csrf_token'] = $token;
+        $_SESSION['user'] = ['user_account_id' => 1, 'email' => 'admin@test.com', 'role' => 'admin'];
+
+        $badge = $this->badgeService->create('Communication');
+
+        $request = $this->createJsonRequest(['badge_id' => $badge->id, 'active' => false, '_csrf_token' => $token]);
+        $response = $this->controller->toggleBadgeActive($request, []);
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertTrue($decoded['success']);
+        $this->assertFalse($this->badgeRepository->findById($badge->id)->isActive);
+    }
+
+    public function testDeleteBadgeRejectsDefaultBadge(): void
+    {
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+        $token = bin2hex(random_bytes(32));
+        $_SESSION['_csrf_token'] = $token;
+        $_SESSION['user'] = ['user_account_id' => 1, 'email' => 'admin@test.com', 'role' => 'admin'];
+
+        $this->badgeService->ensureDefaults();
+        $infirmier = array_values(array_filter($this->badgeService->getAll(), fn($b) => $b->name === 'Infirmier'))[0];
+
+        $request = $this->createJsonRequest(['badge_id' => $infirmier->id, '_csrf_token' => $token]);
+        $response = $this->controller->deleteBadge($request, []);
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertFalse($decoded['success']);
+        $this->assertNotNull($this->badgeRepository->findById($infirmier->id));
+    }
+
+    public function testDeleteBadgeSucceedsForUnusedCustomBadge(): void
+    {
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+        $token = bin2hex(random_bytes(32));
+        $_SESSION['_csrf_token'] = $token;
+        $_SESSION['user'] = ['user_account_id' => 1, 'email' => 'admin@test.com', 'role' => 'admin'];
+
+        $badge = $this->badgeService->create('Communication');
+
+        $request = $this->createJsonRequest(['badge_id' => $badge->id, '_csrf_token' => $token]);
+        $response = $this->controller->deleteBadge($request, []);
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertTrue($decoded['success']);
+        $this->assertNull($this->badgeRepository->findById($badge->id));
     }
 
     public function testToggleModuleActivates(): void

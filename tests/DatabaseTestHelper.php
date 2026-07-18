@@ -80,6 +80,8 @@ class DatabaseTestHelper
             desk_code TEXT NOT NULL UNIQUE,
             name TEXT,
             email TEXT,
+            is_visible INTEGER NOT NULL DEFAULT 1,
+            is_active INTEGER NOT NULL DEFAULT 1,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (age_branch_id) REFERENCES age_branches(id)
         )');
@@ -197,6 +199,38 @@ class DatabaseTestHelper
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             email_blind_index TEXT NOT NULL,
             attempted_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )');
+
+        $pdo->exec('CREATE TABLE member_photos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            member_id INTEGER NOT NULL,
+            scout_year_id INTEGER NOT NULL,
+            file_id INTEGER NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            created_by INTEGER,
+            UNIQUE(member_id, scout_year_id),
+            FOREIGN KEY (member_id) REFERENCES members(id),
+            FOREIGN KEY (scout_year_id) REFERENCES scout_years(id),
+            FOREIGN KEY (file_id) REFERENCES files(id)
+        )');
+
+        $pdo->exec('CREATE TABLE badges (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE,
+            is_default INTEGER NOT NULL DEFAULT 0,
+            is_active INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )');
+
+        $pdo->exec('CREATE TABLE member_badges (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            member_year_id INTEGER NOT NULL,
+            badge_id INTEGER NOT NULL,
+            assigned_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            assigned_by INTEGER,
+            UNIQUE(member_year_id, badge_id),
+            FOREIGN KEY (member_year_id) REFERENCES member_years(id),
+            FOREIGN KEY (badge_id) REFERENCES badges(id)
         )');
 
         $pdo->exec('CREATE TABLE module_registry (

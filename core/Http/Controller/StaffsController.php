@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Core\Http\Controller;
 
+use Core\Badge\BadgeException;
+use Core\Badge\BadgeService;
 use Core\Http\Request;
 use Core\Http\Response;
 use Core\Journal\JournalService;
@@ -24,7 +26,8 @@ class StaffsController extends AbstractController
         private SectionService $sectionService,
         private MemberService $memberService,
         private ScoutYearResolver $scoutYearResolver,
-        private JournalService $journalService
+        private JournalService $journalService,
+        private BadgeService $badgeService
     ) {
     }
 
@@ -105,7 +108,53 @@ class StaffsController extends AbstractController
             'current_section' => $currentSection,
             'staff' => $staff,
             'can_edit_section' => $canEditSection,
+            'available_badges' => $canEditSection ? $this->badgeService->getActive() : [],
         ]);
+    }
+
+    /**
+     * POST /chefs/staffs/badge-toggle — assign/unassign a badge to a staff
+     * member for the current scout year (AJAX, JSON). Chief-only, same gate
+     * as updateSection().
+     *
+     * @param array<string, string> $params
+     */
+    public function toggleBadge(Request $request, array $params): Response
+    {
+        $rawBody = $request->getRawBody();
+        $data = json_decode($rawBody, true);
+
+        if (!is_array($data)) {
+            return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
+        }
+
+        $csrf = (string) ($data['_csrf_token'] ?? '');
+        if (!CsrfGuard::validateToken($csrf)) {
+            return $this->json(['success' => false, 'error' => 'Jeton CSRF invalide.'], 403);
+        }
+
+        $memberYearId = isset($data['member_year_id']) ? (int) $data['member_year_id'] : 0;
+        $badgeId = isset($data['badge_id']) ? (int) $data['badge_id'] : 0;
+        if ($memberYearId <= 0 || $badgeId <= 0) {
+            return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
+        }
+
+        try {
+            $assigned = $this->badgeService->toggleAssignment($memberYearId, $badgeId, AuthSession::getUserAccountId());
+        } catch (BadgeException $e) {
+            return $this->json(['success' => false, 'error' => $e->getMessage()], 400);
+        }
+
+        $this->journalService->log(
+            'core',
+            $assigned ? 'badge_assigned' : 'badge_unassigned',
+            'info',
+            $assigned ? 'Badge attribué à un membre' : 'Badge retiré à un membre',
+            ['member_year_id' => $memberYearId, 'badge_id' => $badgeId],
+            AuthSession::getUserAccountId()
+        );
+
+        return $this->json(['success' => true, 'assigned' => $assigned]);
     }
 
     /**
@@ -228,7 +277,8 @@ class StaffsController extends AbstractController
                 unitMailConsent: false,
                 addresses: [],
                 functions: $member->functions,
-                scoutYearLabel: $member->scoutYearLabel
+                scoutYearLabel: $member->scoutYearLabel,
+                badges: $member->badges
             );
         }
         return $stripped;

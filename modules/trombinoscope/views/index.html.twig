@@ -1,0 +1,86 @@
+{% extends 'base.html.twig' %}
+{% block title %}Trombinoscope — {{ site_name }}{% endblock %}
+{% block stylesheets %}
+<link rel="stylesheet" href="/assets/css/components.css">
+{% endblock %}
+
+{% block content %}
+    <h1 class="mb-3">Trombinoscope</h1>
+
+    {% if picker_sections|length > 1 %}
+        {% include 'partials/section_picker.html.twig' with {
+            sections: picker_sections,
+            selected_id: selected_id,
+            base_url: '/trombinoscope?section='
+        } %}
+    {% endif %}
+
+    {% if section_blocks is empty %}
+        <p class="text-body-secondary">
+            Aucune section disponible. Les sections apparaîtront après le premier import Desk.
+        </p>
+    {% endif %}
+
+    {% for block in section_blocks %}
+        <section class="mb-5">
+            <div class="d-flex align-items-center gap-2 mb-3">
+                {% if block.section.color %}
+                    <span class="d-inline-block rounded-circle flex-shrink-0"
+                          style="width:0.9rem;height:0.9rem;background-color:{{ block.section.color }};"></span>
+                {% endif %}
+                <h2 class="h5 mb-0">{{ block.section.name ?? block.section.desk_code }}</h2>
+                <span class="text-body-secondary small">{{ block.section.branch_name }}</span>
+            </div>
+
+            {% if block.lead or block.staff|length > 0 %}
+                <div class="row g-2 row-cols-1 row-cols-sm-2 row-cols-lg-3">
+                    {% if block.lead %}
+                        <div class="col">
+                            <div class="d-flex align-items-center gap-3 p-2 h-100 rounded-3 border border-primary-subtle bg-primary-subtle bg-opacity-25">
+                                {{ member_photo(block.lead.memberId, block.lead|display_name, 'member-photo flex-shrink-0') }}
+                                <div>
+                                    <div class="fw-bold">{{ block.lead|display_name|normalize_name }}</div>
+                                    {% if block.lead.getMainFunction() %}
+                                        <div class="text-body-secondary small">{{ block.lead.getMainFunction().functionLabel }}</div>
+                                    {% endif %}
+                                    <div class="d-flex flex-wrap gap-1 mt-1">
+                                        <span class="badge bg-primary" style="font-size:0.6rem;">Responsable</span>
+                                        {% for badge in block.lead.badges %}
+                                            <span class="badge bg-warning-subtle text-warning-emphasis d-inline-flex align-items-center gap-1" style="font-size:0.6rem;">
+                                                {{ badge.name }}
+                                            </span>
+                                        {% endfor %}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    {% endif %}
+                    {% for member in block.staff %}
+                        <div class="col">
+                            <div class="d-flex align-items-center gap-3 p-2 h-100">
+                                {{ member_photo(member.memberId, member|display_name, 'member-photo flex-shrink-0') }}
+                                <div>
+                                    <div class="fw-semibold">{{ member|display_name|normalize_name }}</div>
+                                    {% if member.getMainFunction() %}
+                                        <div class="text-body-secondary small">{{ member.getMainFunction().functionLabel }}</div>
+                                    {% endif %}
+                                    {% if member.badges|length > 0 %}
+                                        <div class="d-flex flex-wrap gap-1 mt-1">
+                                            {% for badge in member.badges %}
+                                                <span class="badge bg-warning-subtle text-warning-emphasis d-inline-flex align-items-center gap-1" style="font-size:0.6rem;">
+                                                    {{ badge.name }}
+                                                </span>
+                                            {% endfor %}
+                                        </div>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+                    {% endfor %}
+                </div>
+            {% else %}
+                <p class="text-body-secondary fst-italic">Aucun animateur configuré pour cette section.</p>
+            {% endif %}
+        </section>
+    {% endfor %}
+{% endblock %}

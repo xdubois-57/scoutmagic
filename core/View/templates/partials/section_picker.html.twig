@@ -1,10 +1,15 @@
-{# 
+{#
   Usage:
   {% include 'partials/section_picker.html.twig' with {
       sections: sections,
       selected_id: current_section_id,
       base_url: '/chefs/staffs?section='
   } %}
+
+  Each section entry may optionally carry a `color` key (e.g. from
+  Core\Member\MemberYearService::colorForBranchSortOrder()) to show a small
+  branch-colored dot on its button. Callers that don't set it get the plain
+  (uncolored) button, unchanged.
 #}
 <div class="d-flex gap-2 overflow-auto pb-2 mb-3 section-picker">
     {% for section in sections %}
@@ -12,7 +17,12 @@
         <a href="{{ base_url }}{{ section.id }}"
            class="btn btn-sm {{ is_active ? 'btn-primary' : 'btn-outline-secondary' }} text-nowrap d-flex flex-column align-items-center px-3 py-2 text-decoration-none"
            style="min-width:0;">
-            <span class="small fw-semibold">{{ section.name ?? section.desk_code }}</span>
+            <span class="small fw-semibold">
+                {% if section.color is defined and section.color %}
+                    <span class="d-inline-block rounded-circle" style="width:0.55rem;height:0.55rem;background-color:{{ section.color }};"></span>
+                {% endif %}
+                {{ section.name ?? section.desk_code }}
+            </span>
             <span style="font-size:0.7rem;" class="{{ is_active ? 'text-white-50' : 'text-body-secondary' }}">
                 {{ section.branch_name }}
             </span>

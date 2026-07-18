@@ -1,0 +1,22 @@
+{
+  "id": "auto_enabled_module",
+  "name": "Module auto-activé",
+  "version": "1.0.0",
+  "enabled_by_default": true,
+  "routes": [
+    {
+      "path": "/auto-enabled",
+      "method": "GET",
+      "controller": "Modules\\AutoEnabledModule\\Controller\\TestController",
+      "action": "index",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": "Auto Enabled",
+      "menu_order": 3
+    }
+  ],
+  "settings": [],
+  "cookies": [],
+  "scheduled_tasks": [],
+  "storage": {}
+}

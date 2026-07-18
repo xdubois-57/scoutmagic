@@ -35,6 +35,12 @@ class DeskImportService
             // Mark all existing member_years for this year as inactive
             $this->memberYearRepository->deactivateAllForYear($scoutYearId);
 
+            // Mark all sections inactive — reactivated below as each is
+            // referenced by a member (see MappingResolver::resolveSection()).
+            // A section with no members this year ends up inactive: kept,
+            // never deleted, hidden from the site until it has members again.
+            $this->mappingResolver->deactivateAllSections();
+
             foreach ($parsed->members as $member) {
                 $this->importMember($member, $scoutYearId, $warnings);
             }

@@ -33,6 +33,19 @@ L'unité scoute propriétaire du site (configurée via la page de configuration)
 Toutes les données personnelles sont chiffrées au repos (AES-256-CBC) et
 déchiffrées uniquement dans la couche Repository.
 
+### Photos des membres (`member_photos`)
+
+| Champ | Finalité |
+|---|---|
+| Photo, par membre et par année scoute | Affichage du visage d'un membre sur les pages qui l'exposent (ex. trombinoscope) |
+
+Mécanisme central (non spécifique à un module) : une photo est associée à un
+membre ET à une année scoute. Les photos ne sont pas chiffrées (comme les
+autres images du site) mais l'accès au fichier est soumis au rôle minimum
+défini sur le fichier (`identified` par défaut pour une photo de membre).
+Aucune photo par défaut n'est stockée : en l'absence de photo, un avatar
+générique (initiales) est affiché, sans traitement de données personnelles.
+
 ### Journal d'audit (`event_log`)
 
 | Champ | Finalité |
@@ -87,3 +100,12 @@ Contactez le responsable de l'unité pour exercer ces droits.
 
 Chaque module qui traite des données personnelles doit documenter ses traitements
 dans cette section. Consultez `module.json` pour la liste des modules activés.
+
+### Trombinoscope
+
+Affiche, par section, la photo (voir `member_photos` ci-dessus), le totem, le
+nom et la fonction de tous les membres actifs ayant un rôle de chef ou de chef
+d'unité. Ne traite aucune donnée qui ne soit pas déjà collectée ailleurs
+(import Desk) ; n'ajoute aucune table de données personnelles propre au
+module — seule l'indication de la fonction « responsable » de section
+(non personnelle) est stockée dans `trombinoscope_function_flags`.

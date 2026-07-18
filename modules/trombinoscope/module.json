@@ -1,0 +1,23 @@
+{
+  "id": "trombinoscope",
+  "name": "Trombinoscope",
+  "description": "Annuaire photo des animés, classé par section, avec leurs coordonnées et leur fonction.",
+  "version": "1.0.0",
+  "enabled_by_default": true,
+  "routes": [
+    {
+      "path": "/trombinoscope",
+      "method": "GET",
+      "controller": "Modules\\Trombinoscope\\Controller\\TrombinoscopeController",
+      "action": "index",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": "Trombinoscope",
+      "menu_order": 5
+    }
+  ],
+  "settings": [],
+  "cookies": [],
+  "scheduled_tasks": [],
+  "storage": {}
+}

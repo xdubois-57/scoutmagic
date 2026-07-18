@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Core\Member;
 
+use Core\Badge\MemberBadgeRepository;
 use Core\Database\Connection;
 use Core\Member\SectionService;
 use Core\Security\EncryptionService;
@@ -18,6 +19,7 @@ class SectionServiceTest extends TestCase
     private \PDO $pdo;
     private SectionService $service;
     private EncryptionService $encryption;
+    private MemberBadgeRepository $memberBadgeRepository;
     private int $scoutYearId;
 
     protected function setUp(): void
@@ -25,7 +27,8 @@ class SectionServiceTest extends TestCase
         $this->pdo = DatabaseTestHelper::createTestDatabase();
         $this->encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $connection = Connection::withPdo($this->pdo);
-        $this->service = new SectionService($connection, $this->encryption);
+        $this->memberBadgeRepository = new MemberBadgeRepository($this->pdo);
+        $this->service = new SectionService($connection, $this->encryption, $this->memberBadgeRepository);
 
         // Create scout year
         $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES ('2025-2026', '2025-09-01', '2026-08-31', 1)");
@@ -121,9 +124,9 @@ class SectionServiceTest extends TestCase
         $sectionA = $this->createSection('BAL01', $balId);
         $sectionB = $this->createSection('LOU01', $louId);
 
-        $this->createMemberInSection($sectionA, 'Alice');
-        $this->createMemberInSection($sectionA, 'Bob');
-        $this->createMemberInSection($sectionB, 'Charlie');
+        $this->createMemberInSection($sectionA, 'Alice', 'chief');
+        $this->createMemberInSection($sectionA, 'Bob', 'admin');
+        $this->createMemberInSection($sectionB, 'Charlie', 'chief');
 
         $staff = $this->service->getSectionStaff($sectionA, $this->scoutYearId);
 
@@ -131,6 +134,45 @@ class SectionServiceTest extends TestCase
         $names = array_map(fn($p) => $p->firstName, $staff);
         $this->assertContains('Alice', $names);
         $this->assertContains('Bob', $names);
+    }
+
+    public function testGetSectionStaffExcludesAnimeRoleMembers(): void
+    {
+        // A section's animés also carry a section_id on their
+        // member_functions row — getSectionStaff() must filter them out.
+        $stmt = $this->pdo->prepare('SELECT id FROM age_branches WHERE desk_code = ?');
+        $stmt->execute(['BAL']);
+        $balId = (int) $stmt->fetchColumn();
+
+        $sectionId = $this->createSection('BAL01', $balId);
+        $this->createMemberInSection($sectionId, 'Alice', 'chief');
+        $this->createMemberInSection($sectionId, 'Petit Loup', 'identified');
+
+        $staff = $this->service->getSectionStaff($sectionId, $this->scoutYearId);
+
+        $names = array_map(fn($p) => $p->firstName, $staff);
+        $this->assertContains('Alice', $names);
+        $this->assertNotContains('Petit Loup', $names);
+    }
+
+    public function testGetSectionStaffIncludesActiveBadges(): void
+    {
+        $stmt = $this->pdo->prepare('SELECT id FROM age_branches WHERE desk_code = ?');
+        $stmt->execute(['BAL']);
+        $balId = (int) $stmt->fetchColumn();
+
+        $sectionId = $this->createSection('BAL01', $balId);
+        $memberYearId = $this->createMemberInSection($sectionId, 'Alice', 'chief');
+
+        $this->pdo->exec("INSERT INTO badges (name, icon) VALUES ('Infirmier', 'cross')");
+        $badgeId = (int) $this->pdo->lastInsertId();
+        $this->memberBadgeRepository->assign($memberYearId, $badgeId, null);
+
+        $staff = $this->service->getSectionStaff($sectionId, $this->scoutYearId);
+
+        $this->assertCount(1, $staff);
+        $this->assertCount(1, $staff[0]->badges);
+        $this->assertSame('Infirmier', $staff[0]->badges[0]->name);
     }
 
     public function testGetSectionStaffReturnsDecryptedData(): void
@@ -227,5 +269,94 @@ class SectionServiceTest extends TestCase
         $sectionId = $this->createSection('BAL01', $balId);
         $staff = $this->service->getSectionStaff($sectionId, $this->scoutYearId);
         $this->assertEmpty($staff);
+    }
+
+    public function testGetAllWithBranchesExcludesHiddenSectionsByDefault(): void
+    {
+        $stmt = $this->pdo->prepare('SELECT id FROM age_branches WHERE desk_code = ?');
+        $stmt->execute(['BAL']);
+        $balId = (int) $stmt->fetchColumn();
+
+        $visibleId = $this->createSection('BAL01', $balId);
+        $hiddenId = $this->createSection('BAL02', $balId);
+        $this->service->updateSectionVisibility($hiddenId, false);
+
+        $ids = array_column($this->service->getAllWithBranches(), 'id');
+
+        $this->assertContains($visibleId, $ids);
+        $this->assertNotContains($hiddenId, $ids);
+    }
+
+    public function testGetAllWithBranchesIncludesHiddenWhenRequested(): void
+    {
+        $stmt = $this->pdo->prepare('SELECT id FROM age_branches WHERE desk_code = ?');
+        $stmt->execute(['BAL']);
+        $balId = (int) $stmt->fetchColumn();
+
+        $hiddenId = $this->createSection('BAL01', $balId);
+        $this->service->updateSectionVisibility($hiddenId, false);
+
+        $ids = array_column($this->service->getAllWithBranches(includeHidden: true), 'id');
+
+        $this->assertContains($hiddenId, $ids);
+    }
+
+    public function testUpdateSectionVisibilityCanBeToggledBackOn(): void
+    {
+        $stmt = $this->pdo->prepare('SELECT id FROM age_branches WHERE desk_code = ?');
+        $stmt->execute(['BAL']);
+        $balId = (int) $stmt->fetchColumn();
+
+        $sectionId = $this->createSection('BAL01', $balId);
+        $this->service->updateSectionVisibility($sectionId, false);
+        $this->service->updateSectionVisibility($sectionId, true);
+
+        $ids = array_column($this->service->getAllWithBranches(), 'id');
+        $this->assertContains($sectionId, $ids);
+    }
+
+    public function testNewSectionsAreVisibleByDefault(): void
+    {
+        $stmt = $this->pdo->prepare('SELECT id FROM age_branches WHERE desk_code = ?');
+        $stmt->execute(['BAL']);
+        $balId = (int) $stmt->fetchColumn();
+
+        $sectionId = $this->createSection('BAL01', $balId);
+
+        $sections = $this->service->getAllWithBranches();
+        $section = array_values(array_filter($sections, fn(array $s) => $s['id'] === $sectionId))[0];
+        $this->assertTrue($section['is_visible']);
+    }
+
+    public function testGetAllWithBranchesExcludesInactiveSectionsByDefault(): void
+    {
+        $stmt = $this->pdo->prepare('SELECT id FROM age_branches WHERE desk_code = ?');
+        $stmt->execute(['BAL']);
+        $balId = (int) $stmt->fetchColumn();
+
+        $activeId = $this->createSection('BAL01', $balId);
+        $inactiveId = $this->createSection('BAL02', $balId);
+        $this->pdo->exec("UPDATE sections SET is_active = 0 WHERE id = {$inactiveId}");
+
+        $ids = array_column($this->service->getAllWithBranches(), 'id');
+
+        $this->assertContains($activeId, $ids);
+        $this->assertNotContains($inactiveId, $ids);
+    }
+
+    public function testGetAllWithBranchesExcludesInactiveEvenWhenIncludeHiddenIsTrue(): void
+    {
+        $stmt = $this->pdo->prepare('SELECT id FROM age_branches WHERE desk_code = ?');
+        $stmt->execute(['BAL']);
+        $balId = (int) $stmt->fetchColumn();
+
+        $inactiveId = $this->createSection('BAL01', $balId);
+        $this->pdo->exec("UPDATE sections SET is_active = 0 WHERE id = {$inactiveId}");
+
+        // includeHidden only bypasses is_visible — an inactive section stays
+        // excluded everywhere, including the Config Desk admin listing.
+        $ids = array_column($this->service->getAllWithBranches(includeHidden: true), 'id');
+
+        $this->assertNotContains($inactiveId, $ids);
     }
 }

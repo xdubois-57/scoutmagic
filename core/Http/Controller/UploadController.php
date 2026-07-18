@@ -9,6 +9,8 @@ use Core\File\UploadHandler;
 use Core\Http\FlashMessage;
 use Core\Http\Request;
 use Core\Http\Response;
+use Core\Journal\JournalService;
+use Core\Photo\MemberPhotoService;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\View\EditableContentService;
@@ -16,11 +18,19 @@ use Twig\Environment;
 
 class UploadController extends AbstractController
 {
+    private ?JournalService $journalService = null;
+
     public function __construct(
         protected Environment $twig,
         private UploadHandler $uploadHandler,
-        private EditableContentService $editableContentService
+        private EditableContentService $editableContentService,
+        private MemberPhotoService $memberPhotoService
     ) {
+    }
+
+    public function setJournalService(JournalService $journalService): void
+    {
+        $this->journalService = $journalService;
     }
 
     /**
@@ -72,12 +82,17 @@ class UploadController extends AbstractController
             $allowedMimes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
             $maxSize = 5 * 1024 * 1024; // 5 MB
 
+            // member_photo uploads are scoped to a member (not public site
+            // content) — see Core\Photo\MemberPhotoService.
+            $subDirectory = $context === 'member_photo' ? 'core/member_photos' : 'core/editable_contents';
+            $roleMin = $context === 'member_photo' ? 'identified' : 'public';
+
             $fileId = $this->uploadHandler->handle(
                 $uploadedFile,
-                'core/editable_contents',
+                $subDirectory,
                 $allowedMimes,
                 $maxSize,
-                'public',
+                $roleMin,
                 null,
                 AuthSession::getUserAccountId()
             );
@@ -87,6 +102,25 @@ class UploadController extends AbstractController
                 $userId = AuthSession::getUserAccountId();
                 if ($userId !== null) {
                     $this->editableContentService->set($key, (string) $fileId, 'image', $userId);
+                }
+            }
+
+            // For member_photo context, key is "{memberId}:{scoutYearId}"
+            if ($context === 'member_photo' && $key !== '') {
+                [$memberIdStr, $yearIdStr] = array_pad(explode(':', $key, 2), 2, '');
+                $memberId = (int) $memberIdStr;
+                $scoutYearId = (int) $yearIdStr;
+                $userId = AuthSession::getUserAccountId();
+                if ($memberId > 0 && $scoutYearId > 0 && $userId !== null) {
+                    $this->memberPhotoService->setPhoto($memberId, $scoutYearId, $fileId, $userId);
+                    $this->journalService?->log(
+                        'core',
+                        'member_photo_updated',
+                        'info',
+                        'Photo d\'un membre modifiée',
+                        ['member_id' => $memberId, 'scout_year_id' => $scoutYearId],
+                        $userId
+                    );
                 }
             }
 

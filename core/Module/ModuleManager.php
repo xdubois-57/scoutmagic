@@ -101,7 +101,21 @@ class ModuleManager
         $modules = $this->discoverModules();
 
         foreach ($modules as $module) {
-            if (!$module->enabled || !$module->presentOnDisk || $module->validationError !== null) {
+            if (!$module->presentOnDisk || $module->validationError !== null) {
+                continue;
+            }
+
+            // A module declaring "enabled_by_default" is auto-activated the
+            // very first time it is discovered (no registry row yet). An
+            // admin's later explicit deactivation is always respected — this
+            // never re-activates a module that already has a registry row.
+            if (!$module->enabled && $module->manifest->enabledByDefault
+                && $this->registryRepo->findByModuleId($module->manifest->id) === null) {
+                $this->activate($module->manifest->id, null);
+                $module = new ModuleInfo($module->manifest, true, $module->manifest->version, true, null);
+            }
+
+            if (!$module->enabled) {
                 continue;
             }
 
@@ -111,11 +125,13 @@ class ModuleManager
     }
 
     /**
-     * Activate a module.
+     * Activate a module. $activatedBy is null for system-initiated activation
+     * (e.g. auto-activation of an "enabled_by_default" module on first
+     * discovery — there is no admin user to attribute it to).
      *
      * @throws ModuleException on validation failure or migration error
      */
-    public function activate(string $moduleId, int $activatedBy): void
+    public function activate(string $moduleId, ?int $activatedBy): void
     {
         $manifestPath = $this->modulesDir . '/' . $moduleId . '/module.json';
         $manifest = ModuleManifest::fromFile($manifestPath);
@@ -210,7 +226,7 @@ class ModuleManager
                     $route['label'],
                     $route['path'],
                     $route['role_min'],
-                    100 // default order for module pages
+                    $route['menu_order']
                 );
             }
         }

@@ -8,6 +8,8 @@ use Core\Http\Request;
 use Core\Http\Response;
 use Core\Import\FunctionRepository;
 use Core\Journal\JournalService;
+use Core\Member\SectionService;
+use Core\Module\FunctionFlagsProvider;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Twig\Environment;
@@ -26,12 +28,15 @@ class FunctionsController extends AbstractController
     public function __construct(
         protected Environment $twig,
         private FunctionRepository $functionRepo,
-        private JournalService $journalService
+        private JournalService $journalService,
+        private SectionService $sectionService,
+        private ?FunctionFlagsProvider $functionFlagsProvider = null
     ) {
     }
 
     /**
-     * GET /config/functions — render the functions page.
+     * GET /config/functions — render the "Config Desk" page (function → role
+     * mapping, plus section name/visibility).
      *
      * @param array<string, string> $params
      */
@@ -53,10 +58,35 @@ class FunctionsController extends AbstractController
             }
         }
 
+        // Optional module hook: per-function flag (e.g. trombinoscope
+        // "responsable"), only shown for chief/chief-d'unité functions where
+        // such a flag is meaningful.
+        $functionFlags = null;
+        if ($this->functionFlagsProvider !== null) {
+            $functionFlags = [
+                'section_label' => $this->functionFlagsProvider->getSectionLabel(),
+                'lead_label' => $this->functionFlagsProvider->getLeadLabel(),
+                'flags' => $this->functionFlagsProvider->getLeadFlags(),
+            ];
+        }
+
+        // Sections grouped by branch, including hidden ones — this is the
+        // only page that manages visibility, so it needs to see everything.
+        $sectionGroups = [];
+        foreach ($this->sectionService->getAllWithBranches(includeHidden: true) as $section) {
+            $branchName = $section['branch_name'];
+            if (!isset($sectionGroups[$branchName])) {
+                $sectionGroups[$branchName] = ['branch_name' => $branchName, 'sections' => []];
+            }
+            $sectionGroups[$branchName]['sections'][] = $section;
+        }
+
         return $this->render('config/functions.html.twig', [
             'unconfirmed' => $unconfirmed,
             'confirmed_by_role' => $confirmedByRole,
             'roles' => self::ROLE_DEFINITIONS,
+            'function_flags' => $functionFlags,
+            'section_groups' => array_values($sectionGroups),
         ]);
     }
 
@@ -127,6 +157,129 @@ class FunctionsController extends AbstractController
                 AuthSession::getUserAccountId()
             );
         }
+
+        return $this->json(['success' => true]);
+    }
+
+    /**
+     * POST /config/functions/flags — update a module-provided per-function
+     * flag (e.g. trombinoscope "responsable"). No-op (404 behaviour handled
+     * by the caller) when no provider is wired.
+     *
+     * @param array<string, string> $params
+     */
+    public function updateFlags(Request $request, array $params): Response
+    {
+        if ($this->functionFlagsProvider === null) {
+            return $this->json(['success' => false, 'error' => 'Fonctionnalité indisponible.'], 404);
+        }
+
+        $json = json_decode($request->getRawBody(), true);
+        if (!is_array($json)) {
+            return $this->json(['success' => false, 'error' => 'Requête invalide.']);
+        }
+
+        $csrfToken = (string) ($json['_csrf_token'] ?? '');
+        if (!CsrfGuard::validateToken($csrfToken)) {
+            return $this->json(['success' => false, 'error' => 'Jeton CSRF invalide.']);
+        }
+
+        $functionId = isset($json['function_id']) ? (int) $json['function_id'] : 0;
+        $function = $this->functionRepo->findById($functionId);
+        if ($function === null) {
+            return $this->json(['success' => false, 'error' => 'Fonction introuvable.']);
+        }
+
+        $lead = (bool) ($json['lead'] ?? false);
+
+        $this->functionFlagsProvider->setLead($functionId, $lead);
+
+        $this->journalService->log(
+            'core',
+            'function_flags_changed',
+            'info',
+            "Indicateur de la fonction {$function['desk_code']} modifié",
+            ['function_id' => $functionId, 'lead' => $lead],
+            AuthSession::getUserAccountId()
+        );
+
+        return $this->json(['success' => true]);
+    }
+
+    /**
+     * POST /config/functions/section-name — rename a section (AJAX, JSON).
+     * Leaves the section's email untouched (not editable from this page).
+     *
+     * @param array<string, string> $params
+     */
+    public function updateSectionName(Request $request, array $params): Response
+    {
+        $json = json_decode($request->getRawBody(), true);
+        if (!is_array($json)) {
+            return $this->json(['success' => false, 'error' => 'Requête invalide.']);
+        }
+
+        $csrfToken = (string) ($json['_csrf_token'] ?? '');
+        if (!CsrfGuard::validateToken($csrfToken)) {
+            return $this->json(['success' => false, 'error' => 'Jeton CSRF invalide.']);
+        }
+
+        $sectionId = isset($json['section_id']) ? (int) $json['section_id'] : 0;
+        $section = $this->sectionService->getSection($sectionId);
+        if ($section === null) {
+            return $this->json(['success' => false, 'error' => 'Section introuvable.']);
+        }
+
+        $name = isset($json['name']) ? (string) $json['name'] : null;
+        $this->sectionService->updateSectionInfo($sectionId, $name, $section['email']);
+
+        $this->journalService->log(
+            'core',
+            'section_info_updated',
+            'info',
+            "Nom de la section {$section['desk_code']} modifié",
+            ['section_id' => $sectionId, 'old_name' => $section['name'], 'new_name' => $name],
+            AuthSession::getUserAccountId()
+        );
+
+        return $this->json(['success' => true]);
+    }
+
+    /**
+     * POST /config/functions/section-visibility — show/hide a section from
+     * every section picker across the site (AJAX, JSON).
+     *
+     * @param array<string, string> $params
+     */
+    public function updateSectionVisibility(Request $request, array $params): Response
+    {
+        $json = json_decode($request->getRawBody(), true);
+        if (!is_array($json)) {
+            return $this->json(['success' => false, 'error' => 'Requête invalide.']);
+        }
+
+        $csrfToken = (string) ($json['_csrf_token'] ?? '');
+        if (!CsrfGuard::validateToken($csrfToken)) {
+            return $this->json(['success' => false, 'error' => 'Jeton CSRF invalide.']);
+        }
+
+        $sectionId = isset($json['section_id']) ? (int) $json['section_id'] : 0;
+        $section = $this->sectionService->getSection($sectionId);
+        if ($section === null) {
+            return $this->json(['success' => false, 'error' => 'Section introuvable.']);
+        }
+
+        $visible = (bool) ($json['visible'] ?? false);
+        $this->sectionService->updateSectionVisibility($sectionId, $visible);
+
+        $this->journalService->log(
+            'core',
+            'section_visibility_changed',
+            'info',
+            "Visibilité de la section {$section['desk_code']} modifiée",
+            ['section_id' => $sectionId, 'visible' => $visible],
+            AuthSession::getUserAccountId()
+        );
 
         return $this->json(['success' => true]);
     }

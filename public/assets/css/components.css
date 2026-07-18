@@ -1,3 +1,26 @@
+/* Core member_photo() component (see Core\Photo, TwigFactory::create()).
+   3:4 portrait format, same size wherever it's used (e.g. every photo on the
+   trombinoscope, including the highlighted "responsable" card). */
+.member-photo {
+    width: 96px;
+    aspect-ratio: 3 / 4;
+    object-fit: cover;
+    border-radius: 0.375rem;
+}
+/* No-photo fallback: same box as a real photo, with a centered initials
+   circle (same look as the account menu avatar). */
+.member-photo-placeholder {
+    background-color: var(--bs-secondary-bg, #e9ecef);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.member-photo-initials {
+    width: 60%;
+    aspect-ratio: 1 / 1;
+    font-size: 0.9rem;
+}
+
 .section-picker {
     -webkit-overflow-scrolling: touch;
     scrollbar-width: thin;

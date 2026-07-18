@@ -21,6 +21,7 @@ class SectionRepository
             'SELECT s.name, s.desk_code, s.email, ab.label AS branch_label, ab.sort_order
              FROM sections s
              JOIN age_branches ab ON s.age_branch_id = ab.id
+             WHERE s.is_visible = 1 AND s.is_active = 1
              ORDER BY ab.sort_order, s.desk_code'
         );
 

@@ -103,6 +103,39 @@ class MappingResolverTest extends TestCase
         $this->assertSame('Meute Akela', $section['name']);
     }
 
+    public function testResolveSectionNewSectionIsActive(): void
+    {
+        $branchId = $this->resolver->resolveBranch('Baladins');
+        $sectionId = $this->resolver->resolveSection('SV025B1', $branchId, 'Ribambelle');
+
+        $this->assertSame(1, (int) $this->pdo->query("SELECT is_active FROM sections WHERE id = {$sectionId}")->fetchColumn());
+    }
+
+    public function testDeactivateAllSectionsThenResolveReactivatesReferencedOnes(): void
+    {
+        $branchId = $this->resolver->resolveBranch('Baladins');
+        $sectionId = $this->resolver->resolveSection('SV025B1', $branchId, 'Ribambelle');
+
+        $this->resolver->deactivateAllSections();
+        $this->assertSame(0, (int) $this->pdo->query("SELECT is_active FROM sections WHERE id = {$sectionId}")->fetchColumn());
+
+        // Resolving it again (as a later import would) reactivates it.
+        $this->resolver->resolveSection('SV025B1', $branchId, 'Ribambelle');
+        $this->assertSame(1, (int) $this->pdo->query("SELECT is_active FROM sections WHERE id = {$sectionId}")->fetchColumn());
+    }
+
+    public function testDeactivateAllSectionsLeavesUnreferencedSectionsInactive(): void
+    {
+        $branchId = $this->resolver->resolveBranch('Baladins');
+        $sectionId = $this->resolver->resolveSection('SV025B1', $branchId, 'Ribambelle');
+
+        $this->resolver->deactivateAllSections();
+        // A different import run that never references SV025B1 again.
+        $this->resolver->resolveSection('SV025B2', $branchId, 'Renards');
+
+        $this->assertSame(0, (int) $this->pdo->query("SELECT is_active FROM sections WHERE id = {$sectionId}")->fetchColumn());
+    }
+
     public function testResolveFeeAutoCreates(): void
     {
         $id = $this->resolver->resolveFee('Tarif normal');
