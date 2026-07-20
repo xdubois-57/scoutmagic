@@ -65,7 +65,7 @@
             Instructions pour personnaliser le contenu généré (ton, ajouts, précisions).
             Le contenu par défaut et les modules actifs sont toujours inclus automatiquement.
         </p>
-        <textarea class="form-control font-monospace" id="ai-prompt" rows="6" placeholder="Exemple : Les photos et les données sont stockées sur Google Workspace. Ajoute les informations de localisation des serveurs Google et un lien vers leur politique de confidentialité dans la section sous-traitants.">{%- if prompt -%}{{ prompt }}{%- endif -%}</textarea>
+        <textarea class="form-control font-monospace" id="ai-prompt" rows="6" placeholder="Exemple : Nous utilisons Google Workspace pour stocker des documents. Les fiches médicales sont collectées au format papier et utilisées uniquement dans le cadre du camp. L'unité dispose également d'un groupe Facebook destiné aux parents et aux anciens, sur lequel elle peut occasionnellement publier des photos.">{%- if prompt -%}{{ prompt }}{%- endif -%}</textarea>
         <div class="mt-3">
             <button type="button" class="btn btn-primary" id="generate-btn">
                 <i class="bi bi-stars"></i> Générer le contenu
