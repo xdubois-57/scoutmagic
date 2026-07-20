@@ -132,8 +132,19 @@ class RgpdConfigController extends AbstractController
             return $this->json(['success' => false, 'error' => 'Module IA non activé.'], 400);
         }
 
+        // Wrap the ENTIRE flow (generation + auto-save) so that ANY exception,
+        // including ones thrown by sanitization or the DB layer during
+        // auto-save, always results in a valid JSON error response instead
+        // of an uncaught exception (which would produce an HTML error page
+        // and break response.json() on the client — this manifests in Safari
+        // as "The string did not match the expected pattern.").
         try {
             $generatedContent = $this->rgpdContentService->generateWithAi($prompt);
+
+            // Auto-save the generated content
+            $this->settingService->setInternal('rgpd_generation_mode', 'ai');
+            $this->settingService->setInternal('rgpd_custom_prompt', $prompt);
+            $this->editableContentService->set('rgpd.text', $generatedContent, 'rich_text', $userId);
         } catch (\Throwable $e) {
             // Log detailed error information including stack trace
             $errorDetails = [
@@ -141,9 +152,9 @@ class RgpdConfigController extends AbstractController
                 'error_class' => get_class($e),
                 'file' => $e->getFile(),
                 'line' => $e->getLine(),
-                'trace_preview' => array_slice($e->getTrace(), 0, 3), // First 3 stack frames
+                'trace_preview' => array_slice($e->getTrace(), 0, 5),
             ];
-            
+
             $this->journalService->log(
                 'core',
                 'rgpd_generation_failed',
@@ -158,11 +169,6 @@ class RgpdConfigController extends AbstractController
                 'error' => 'Échec de génération : ' . $e->getMessage(),
             ], 500);
         }
-
-        // Auto-save the generated content
-        $this->settingService->setInternal('rgpd_generation_mode', 'ai');
-        $this->settingService->setInternal('rgpd_custom_prompt', $prompt);
-        $this->editableContentService->set('rgpd.text', $generatedContent, 'rich_text', $userId);
 
         $this->journalService->log(
             'core',

@@ -125,17 +125,36 @@ document.addEventListener('DOMContentLoaded', function() {
         editBtn.style.display = (mode === 'custom' || mode === 'ai') ? 'inline-block' : 'none';
     }
 
+    // Debug helper: reads the response as text first so that, if the body
+    // isn't valid JSON (e.g. an uncaught PHP error produced an HTML error
+    // page instead of a JSON response), we log the raw status/content-type/
+    // body to the console instead of letting response.json() throw an
+    // opaque "The string did not match the expected pattern." (Safari) or
+    // "Unexpected token" (Chrome) error.
+    function parseJsonResponse(response) {
+        return response.text().then(function(text) {
+            console.log('[RGPD debug] status=' + response.status + ' content-type=' + response.headers.get('content-type'));
+            try {
+                return JSON.parse(text);
+            } catch (parseErr) {
+                console.error('[RGPD debug] Réponse non-JSON reçue du serveur :', text);
+                throw new Error('Réponse serveur invalide (voir la console pour le détail).');
+            }
+        });
+    }
+
     function saveMode(mode, content, prompt, callback) {
         fetch('/config/rgpd/save', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({ _csrf_token: csrf, mode: mode, content: content, prompt: prompt })
         })
-        .then(function(r) { return r.json(); })
+        .then(parseJsonResponse)
         .then(function(result) {
             if (callback) callback(result.success, result);
         })
-        .catch(function() {
+        .catch(function(err) {
+            console.error('[RGPD debug] saveMode error:', err);
             if (callback) callback(false);
         });
     }
@@ -153,11 +172,14 @@ document.addEventListener('DOMContentLoaded', function() {
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({ _csrf_token: csrf })
                 })
-                .then(function(r) { return r.json(); })
+                .then(parseJsonResponse)
                 .then(function(result) {
                     if (result.success) {
                         preview.innerHTML = result.content;
                     }
+                })
+                .catch(function(err) {
+                    console.error('[RGPD debug] reset error:', err);
                 });
             } else if (mode === 'ai') {
                 // Reset to default first, then auto-generate if prompt exists
@@ -166,7 +188,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({ _csrf_token: csrf })
                 })
-                .then(function(r) { return r.json(); })
+                .then(parseJsonResponse)
                 .then(function(result) {
                     if (result.success) {
                         preview.innerHTML = result.content;
@@ -182,7 +204,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                 headers: {'Content-Type': 'application/json'},
                                 body: JSON.stringify({ _csrf_token: csrf, prompt: prompt })
                             })
-                            .then(function(r) { return r.json(); })
+                            .then(parseJsonResponse)
                             .then(function(result) {
                                 if (result.success) {
                                     preview.innerHTML = result.content;
@@ -193,11 +215,15 @@ document.addEventListener('DOMContentLoaded', function() {
                                 }
                             })
                             .catch(function(err) {
+                                console.error('[RGPD debug] generate (auto) error:', err);
                                 generateStatus.innerHTML = '<span class="text-danger"><i class="bi bi-exclamation-circle"></i> Erreur : ' + err.message + '</span>';
                             })
                             .finally(function() { generateBtn.disabled = false; });
                         }
                     }
+                })
+                .catch(function(err) {
+                    console.error('[RGPD debug] reset (before AI) error:', err);
                 });
             } else if (mode === 'custom') {
                 // Keep current version, save mode
@@ -279,7 +305,7 @@ document.addEventListener('DOMContentLoaded', function() {
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({ _csrf_token: csrf, prompt: prompt })
         })
-        .then(function(r) { return r.json(); })
+        .then(parseJsonResponse)
         .then(function(result) {
             if (result.success) {
                 preview.innerHTML = result.content;
@@ -290,6 +316,7 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         })
         .catch(function(err) {
+            console.error('[RGPD debug] generate (manual) error:', err);
             generateStatus.innerHTML = '<span class="text-danger"><i class="bi bi-exclamation-circle"></i> Erreur : ' + err.message + '</span>';
         })
         .finally(function() { generateBtn.disabled = false; });
@@ -304,11 +331,14 @@ document.addEventListener('DOMContentLoaded', function() {
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({ _csrf_token: csrf })
         })
-        .then(function(r) { return r.json(); })
+        .then(parseJsonResponse)
         .then(function(result) {
             if (result.success) {
                 preview.innerHTML = result.content;
             }
+        })
+        .catch(function(err) {
+            console.error('[RGPD debug] reset (button) error:', err);
         });
     });
 });
