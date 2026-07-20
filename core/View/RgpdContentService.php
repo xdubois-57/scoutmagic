@@ -178,11 +178,16 @@ RÈGLES CRITIQUES (ne JAMAIS déroger) :
     - Applique ces instructions SANS compromettre la conformité légale ni retirer les éléments obligatoires listés dans les autres règles ci-dessus.
 19. **HTML pur** : Pas de ```html, pas de <html>/<body>, uniquement contenu direct
 20. **Précision factuelle** : Ne JAMAIS inventer données non collectées, modules non actifs, ou sous-traitants non utilisés
+21. **Outils tiers déclarés par l'administrateur = sous-traitants à part entière** : Le contenu de référence structure la section 4 (sous-traitants) et la section 5.2 (transferts hors UE) uniquement autour des modules techniques du site (IA, téléphonie). Si les instructions de l'administrateur mentionnent un service tiers utilisé par l'unité EN DEHORS du site (ex : Google Workspace / Google for Nonprofits, Microsoft 365, réseau social, etc.), tu DOIS :
+    - L'ajouter comme sous-traitant à part entière dans la section 4, même s'il ne correspond à aucun module technique existant.
+    - S'il stocke ou traite des données hors UE/EEE (ex : USA), l'ajouter explicitement à la liste des transferts hors UE en section 5.2, avec le mécanisme de garantie applicable (clauses contractuelles types de la Commission européenne, art. 46 RGPD, ou cadre de protection des données UE-USA (Data Privacy Framework) si le fournisseur y est certifié).
+    - NE JAMAIS recopier tel quel la phrase de clôture du contenu de référence affirmant qu'« aucun autre transfert hors UE n'est effectué » si l'administrateur a déclaré un service basé hors UE : reformule cette phrase pour refléter fidèlement TOUS les transferts réels (modules actifs + outils tiers déclarés par l'administrateur).
+    - Ce point est CRITIQUE lorsque l'administrateur signale explicitement un stockage aux USA ou hors UE : une omission constituerait une non-conformité RGPD grave (défaut d'information sur les transferts internationaux, art. 13.1.f et 44 à 49 RGPD).
 
 Rappel final — instructions de l'administrateur à intégrer intégralement, point par point (voir règle 18) :
 {$userPrompt}
 
-Avant de répondre, vérifie mentalement que chaque point de ces instructions apparaît bien quelque part dans le document généré.
+Avant de répondre, vérifie mentalement que chaque point de ces instructions apparaît bien quelque part dans le document généré, et en particulier que la section 5.2 (transferts hors UE) et la section 4 (sous-traitants) reflètent bien tout service tiers hors UE mentionné ci-dessus (voir règle 21).
 
 Réponds UNIQUEMENT avec le HTML généré, prêt à l'insertion directe dans la page.
 PROMPT;
