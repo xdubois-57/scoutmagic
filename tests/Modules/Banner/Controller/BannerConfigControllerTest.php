@@ -236,14 +236,13 @@ class BannerConfigControllerTest extends TestCase
     }
 
     /**
-     * RBAC boundary for /config/banner (Configuration menu, role_min
-     * superadmin): superadmin -> 200, admin ("Chef d'Unité", the
-     * espace_admin ceiling) -> 403.
+     * RBAC boundary for /config/banner (Espace des chefs menu, role_min
+     * admin "Chef d'Unité"): admin/superadmin -> 200, chief -> 403.
      */
     private function buildFrontController(): FrontController
     {
         $router = new Router();
-        $router->addRoute('GET', '/config/banner', BannerConfigController::class, 'index', 'superadmin');
+        $router->addRoute('GET', '/config/banner', BannerConfigController::class, 'index', 'admin');
 
         $configFile = sys_get_temp_dir() . '/test_banner_config_' . uniqid() . '.php';
         file_put_contents($configFile, "<?php\nreturn ['site_name' => 'Test', 'debug' => false];");
@@ -264,9 +263,18 @@ class BannerConfigControllerTest extends TestCase
         $this->assertSame(200, $response->getStatusCode());
     }
 
-    public function testAdminIsDenied(): void
+    public function testAdminGetsPage(): void
     {
         AuthSession::login(1, 'admin@test.be', 'admin');
+
+        $response = $this->buildFrontController()->handle(new Request('GET', '/config/banner', [], [], [], []));
+
+        $this->assertSame(200, $response->getStatusCode());
+    }
+
+    public function testChiefIsDenied(): void
+    {
+        AuthSession::login(1, 'chief@test.be', 'chief');
 
         $response = $this->buildFrontController()->handle(new Request('GET', '/config/banner', [], [], [], []));
 

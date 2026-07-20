@@ -10,8 +10,8 @@
       "method": "GET",
       "controller": "Modules\\Banner\\Controller\\BannerConfigController",
       "action": "index",
-      "menu": "configuration",
-      "role_min": "superadmin",
+      "menu": "espace_chefs",
+      "role_min": "admin",
       "label": "Bannière"
     },
     {
@@ -19,8 +19,8 @@
       "method": "POST",
       "controller": "Modules\\Banner\\Controller\\BannerConfigController",
       "action": "add",
-      "menu": "configuration",
-      "role_min": "superadmin",
+      "menu": "espace_chefs",
+      "role_min": "admin",
       "label": ""
     },
     {
@@ -28,8 +28,8 @@
       "method": "POST",
       "controller": "Modules\\Banner\\Controller\\BannerConfigController",
       "action": "updateActive",
-      "menu": "configuration",
-      "role_min": "superadmin",
+      "menu": "espace_chefs",
+      "role_min": "admin",
       "label": ""
     },
     {
@@ -37,8 +37,8 @@
       "method": "POST",
       "controller": "Modules\\Banner\\Controller\\BannerConfigController",
       "action": "reorder",
-      "menu": "configuration",
-      "role_min": "superadmin",
+      "menu": "espace_chefs",
+      "role_min": "admin",
       "label": ""
     },
     {
@@ -46,8 +46,8 @@
       "method": "POST",
       "controller": "Modules\\Banner\\Controller\\BannerConfigController",
       "action": "delete",
-      "menu": "configuration",
-      "role_min": "superadmin",
+      "menu": "espace_chefs",
+      "role_min": "admin",
       "label": ""
     }
   ],

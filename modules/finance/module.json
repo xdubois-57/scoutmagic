@@ -1,0 +1,219 @@
+{
+  "id": "finance",
+  "name": "Finances",
+  "description": "Gestion financière de l'unité : comptes, exercices, catégorisation, import de relevés bancaires, mouvements, reçus.",
+  "version": "1.0.0",
+  "enabled_by_default": false,
+  "routes": [
+    {
+      "path": "/finance",
+      "method": "GET",
+      "controller": "Modules\\Finance\\Controller\\DashboardController",
+      "action": "index",
+      "menu": "espace_chefs",
+      "role_min": "intendant",
+      "label": "Finances"
+    },
+    {
+      "path": "/finance/movements",
+      "method": "GET",
+      "controller": "Modules\\Finance\\Controller\\MovementController",
+      "action": "list",
+      "menu": "espace_chefs",
+      "role_min": "intendant",
+      "label": "Mouvements"
+    },
+    {
+      "path": "/finance/movements/{id}",
+      "method": "PATCH",
+      "controller": "Modules\\Finance\\Controller\\MovementController",
+      "action": "update",
+      "menu": "espace_chefs",
+      "role_min": "intendant",
+      "label": ""
+    },
+    {
+      "path": "/finance/import",
+      "method": "GET",
+      "controller": "Modules\\Finance\\Controller\\ImportController",
+      "action": "form",
+      "menu": "espace_chefs",
+      "role_min": "intendant",
+      "label": ""
+    },
+    {
+      "path": "/finance/import",
+      "method": "POST",
+      "controller": "Modules\\Finance\\Controller\\ImportController",
+      "action": "upload",
+      "menu": "espace_chefs",
+      "role_min": "intendant",
+      "label": ""
+    },
+    {
+      "path": "/finance/receipts",
+      "method": "GET",
+      "controller": "Modules\\Finance\\Controller\\ReceiptController",
+      "action": "list",
+      "menu": "espace_chefs",
+      "role_min": "intendant",
+      "label": "Reçus"
+    },
+    {
+      "path": "/finance/receipts/new",
+      "method": "GET",
+      "controller": "Modules\\Finance\\Controller\\ReceiptController",
+      "action": "form",
+      "menu": "espace_chefs",
+      "role_min": "intendant",
+      "label": ""
+    },
+    {
+      "path": "/finance/receipts/new",
+      "method": "POST",
+      "controller": "Modules\\Finance\\Controller\\ReceiptController",
+      "action": "upload",
+      "menu": "espace_chefs",
+      "role_min": "intendant",
+      "label": ""
+    },
+    {
+      "path": "/finance/receipts/{id}",
+      "method": "PATCH",
+      "controller": "Modules\\Finance\\Controller\\ReceiptController",
+      "action": "update",
+      "menu": "espace_chefs",
+      "role_min": "intendant",
+      "label": ""
+    },
+    {
+      "path": "/finance/receipts/{id}",
+      "method": "DELETE",
+      "controller": "Modules\\Finance\\Controller\\ReceiptController",
+      "action": "delete",
+      "menu": "espace_chefs",
+      "role_min": "intendant",
+      "label": ""
+    },
+    {
+      "path": "/finance/receipts/{id}/replace",
+      "method": "POST",
+      "controller": "Modules\\Finance\\Controller\\ReceiptController",
+      "action": "replace",
+      "menu": "espace_chefs",
+      "role_min": "intendant",
+      "label": ""
+    },
+    {
+      "path": "/config/finance",
+      "method": "GET",
+      "controller": "Modules\\Finance\\Controller\\ConfigController",
+      "action": "index",
+      "menu": "configuration",
+      "role_min": "admin",
+      "label": "Finances"
+    },
+    {
+      "path": "/config/finance/accounts",
+      "method": "GET",
+      "controller": "Modules\\Finance\\Controller\\ConfigAccountController",
+      "action": "index",
+      "menu": "configuration",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/config/finance/accounts",
+      "method": "POST",
+      "controller": "Modules\\Finance\\Controller\\ConfigAccountController",
+      "action": "save",
+      "menu": "configuration",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/config/finance/categories",
+      "method": "GET",
+      "controller": "Modules\\Finance\\Controller\\ConfigCategoryController",
+      "action": "index",
+      "menu": "configuration",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/config/finance/categories",
+      "method": "POST",
+      "controller": "Modules\\Finance\\Controller\\ConfigCategoryController",
+      "action": "save",
+      "menu": "configuration",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/config/finance/rules",
+      "method": "GET",
+      "controller": "Modules\\Finance\\Controller\\ConfigRuleController",
+      "action": "index",
+      "menu": "configuration",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/config/finance/rules",
+      "method": "POST",
+      "controller": "Modules\\Finance\\Controller\\ConfigRuleController",
+      "action": "save",
+      "menu": "configuration",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/config/finance/fiscal-years",
+      "method": "GET",
+      "controller": "Modules\\Finance\\Controller\\ConfigFiscalYearController",
+      "action": "index",
+      "menu": "configuration",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/config/finance/fiscal-years",
+      "method": "POST",
+      "controller": "Modules\\Finance\\Controller\\ConfigFiscalYearController",
+      "action": "save",
+      "menu": "configuration",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/config/finance/danger",
+      "method": "POST",
+      "controller": "Modules\\Finance\\Controller\\ConfigDangerController",
+      "action": "execute",
+      "menu": "configuration",
+      "role_min": "admin",
+      "label": ""
+    }
+  ],
+  "settings": [
+    {
+      "key": "finance_retention_years",
+      "default_value": "5",
+      "type": "text",
+      "label": "Durée de conservation",
+      "description": "Nombre d'années après lesquelles les mouvements sont purgés."
+    }
+  ],
+  "cookies": [],
+  "scheduled_tasks": [
+    {
+      "key": "purge_old_movements",
+      "handler": "Modules\\Finance\\Task\\PurgeOldMovementsHandler"
+    }
+  ],
+  "storage": {
+    "receipts": {
+      "role_min": "intendant"
+    }
+  }
+}
