@@ -126,8 +126,11 @@ Contenu RGPD de référence (couvre TOUS les modules possibles, version la plus 
 Instructions de l'administrateur :
 {$userPrompt}
 
+PRINCIPE DE PRIORITÉ (essentiel) :
+En cas de contradiction entre le contenu de référence ci-dessus et les instructions de l'administrateur, **les instructions de l'administrateur prévalent toujours**. Le contenu de référence décrit une situation générique et par défaut ; les instructions de l'administrateur décrivent la situation RÉELLE de cette unité. Si une phrase du contenu de référence (localisation, sous-traitant, absence de transfert hors UE, etc.) ne correspond plus à la réalité décrite par l'administrateur, tu DOIS la modifier, la reformuler ou la supprimer plutôt que de la conserver telle quelle.
+
 Tâche :
-Personnalise le contenu de référence ci-dessus selon le contexte réel du site. Le document final doit être juridiquement correct, exhaustif et conforme au RGPD (Règlement UE 2016/679).
+Personnalise le contenu de référence ci-dessus selon le contexte réel du site, tel que décrit par les instructions de l'administrateur en priorité. Le document final doit être juridiquement correct, exhaustif et conforme au RGPD (Règlement UE 2016/679).
 
 Structure OBLIGATOIRE (respecter scrupuleusement) :
 1. Qui sommes-nous et objet de cette politique
@@ -176,9 +179,10 @@ RÈGLES CRITIQUES (ne JAMAIS déroger) :
     - Ne résume JAMAIS plusieurs points administrateur en une seule phrase vague qui en perd le sens : reste fidèle à chaque détail fourni (noms de services, formats, usages, limitations mentionnées, etc.).
     - Une instruction qui semble mineure, redondante ou hors-sujet à première vue doit tout de même être traitée : NE JAMAIS l'ignorer silencieusement.
     - Applique ces instructions SANS compromettre la conformité légale ni retirer les éléments obligatoires listés dans les autres règles ci-dessus.
+    - Rappel (voir PRINCIPE DE PRIORITÉ ci-dessus) : si une instruction contredit une phrase du contenu de référence, l'instruction de l'administrateur gagne toujours — modifie ou supprime la phrase du contenu de référence en conséquence.
 19. **HTML pur** : Pas de ```html, pas de <html>/<body>, uniquement contenu direct
-20. **Précision factuelle** : Ne JAMAIS inventer données non collectées, modules non actifs, ou sous-traitants non utilisés
-21. **Outils tiers déclarés par l'administrateur = sous-traitants à part entière** : Le contenu de référence structure la section 4 (sous-traitants) et la section 5.2 (transferts hors UE) uniquement autour des modules techniques du site (IA, téléphonie). Si les instructions de l'administrateur mentionnent un service tiers utilisé par l'unité EN DEHORS du site (ex : Google Workspace / Google for Nonprofits, Microsoft 365, réseau social, etc.), tu DOIS :
+20. **Précision factuelle** : Ne JAMAIS inventer de données, modules ou sous-traitants qui ne sont mentionnés ni dans le contenu de référence, ni dans les instructions de l'administrateur. Cette règle ne s'applique PAS aux éléments explicitement déclarés par l'administrateur : ceux-ci doivent toujours être inclus (voir PRINCIPE DE PRIORITÉ et règle 18).
+21. **Outils tiers déclarés par l'administrateur = sous-traitants à part entière** : Le contenu de référence structure la section 4 (sous-traitants) et la section 5.2 (transferts hors UE) uniquement autour des modules techniques du site (IA, téléphonie). Si les instructions de l'administrateur mentionnent un service tiers utilisé par l'unité EN DEHORS du site (ex : Google Workspace / Google for Nonprofits, Microsoft 365, réseau social, etc.), tu DOIS (conformément au PRINCIPE DE PRIORITÉ) :
     - L'ajouter comme sous-traitant à part entière dans la section 4, même s'il ne correspond à aucun module technique existant.
     - S'il stocke ou traite des données hors UE/EEE (ex : USA), l'ajouter explicitement à la liste des transferts hors UE en section 5.2, avec le mécanisme de garantie applicable (clauses contractuelles types de la Commission européenne, art. 46 RGPD, ou cadre de protection des données UE-USA (Data Privacy Framework) si le fournisseur y est certifié).
     - NE JAMAIS recopier tel quel la phrase de clôture du contenu de référence affirmant qu'« aucun autre transfert hors UE n'est effectué » si l'administrateur a déclaré un service basé hors UE : reformule cette phrase pour refléter fidèlement TOUS les transferts réels (modules actifs + outils tiers déclarés par l'administrateur).
