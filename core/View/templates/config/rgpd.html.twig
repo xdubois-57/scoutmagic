@@ -16,10 +16,10 @@
             <div class="form-check">
                 <input class="form-check-input" type="radio" name="mode" id="mode-default" value="default" {{ mode == 'default' ? 'checked' : '' }}>
                 <label class="form-check-label" for="mode-default">
-                    <strong>Par défaut</strong> — Contenu RGPD standard couvrant le noyau du site
+                    <strong>Par défaut</strong> — Contenu RGPD standard et complet
                 </label>
                 <div class="form-text">
-                    Aucune personnalisation possible. Couvre les traitements du noyau (pas les modules).
+                    Aucune personnalisation possible. Couvre le noyau du site ainsi que tous les modules disponibles, qu'ils soient actifs ou non sur ce site.
                 </div>
             </div>
 
@@ -166,7 +166,7 @@ document.addEventListener('DOMContentLoaded', function() {
             updateUI();
             
             if (mode === 'default') {
-                // Reset to default immediately
+                // Reset to default content, then persist mode + content
                 fetch('/config/rgpd/reset', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
@@ -176,6 +176,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 .then(function(result) {
                     if (result.success) {
                         preview.innerHTML = result.content;
+                        saveMode('default', result.content, '', function(success) {
+                            // Silent save
+                        });
                     }
                 })
                 .catch(function(err) {
@@ -322,7 +325,7 @@ document.addEventListener('DOMContentLoaded', function() {
         .finally(function() { generateBtn.disabled = false; });
     });
 
-    // Reset button - resets to default content
+    // Reset button - resets to default content and persists it for the current mode
     resetBtn.addEventListener('click', function() {
         if (!confirm('Réinitialiser au contenu par défaut ?')) return;
 
@@ -335,6 +338,9 @@ document.addEventListener('DOMContentLoaded', function() {
         .then(function(result) {
             if (result.success) {
                 preview.innerHTML = result.content;
+                saveMode(getMode(), result.content, aiPromptTextarea.value, function(success) {
+                    // Silent save
+                });
             }
         })
         .catch(function(err) {
