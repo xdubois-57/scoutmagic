@@ -36,16 +36,23 @@ class RgpdConfigController extends AbstractController
     {
         $mode = $this->settingService->get('rgpd_generation_mode', null, 'default');
         $prompt = $this->settingService->get('rgpd_custom_prompt', null, '');
-        $currentContent = $this->editableContentService->get('rgpd.text', '');
         $defaultContent = $this->rgpdContentService->getDefaultContent();
-        
+
+        if ($mode === 'default') {
+            $currentContent = $defaultContent;
+        } else {
+            $currentContent = $this->editableContentService->get('rgpd.text', '');
+            if ($currentContent === '') {
+                $currentContent = $defaultContent;
+            }
+        }
+
         $llmAvailable = in_array('llm_connector', $this->moduleManager->getEnabledModuleIds(), true);
 
         return $this->render('config/rgpd.html.twig', [
             'mode' => $mode,
             'prompt' => $prompt,
             'current_content' => $currentContent,
-            'default_content' => $defaultContent,
             'llm_available' => $llmAvailable,
         ]);
     }

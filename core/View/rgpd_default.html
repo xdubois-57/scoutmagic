@@ -1,0 +1,117 @@
+<h2>Politique de confidentialité</h2>
+<p>Ce site est exploité par une unité scoute affiliée à la fédération <a href="https://www.lesscouts.be" target="_blank" rel="noopener">Les Scouts ASBL</a> (Belgique). Il respecte le Règlement Général sur la Protection des Données (RGPD — Règlement UE 2016/679). Cette page décrit les traitements de données personnelles effectués par le site de l'unité.</p>
+<p>L'unité est également soumise à la <a href="https://www.lesscouts.be/fr/ressources-scouts/administratif-1/web-et-vie-privee/protection-des-donnees-personnelles" target="_blank" rel="noopener">politique de protection des données personnelles de la fédération Les Scouts</a>, qui s'applique en complément de la présente page.</p>
+
+<h2>Responsable du traitement</h2>
+<p>Le responsable du traitement est le chef d'unité (responsable du groupe « chefs d'U »).</p>
+<p>Pour exercer vos droits ou poser une question relative à vos données personnelles, contactez-nous via l'adresse email indiquée sur la page de contact du site.</p>
+
+<h2>Données collectées</h2>
+
+<h3>Comptes utilisateurs</h3>
+<p>Lors de la création d'un compte, les données suivantes sont collectées :</p>
+<ul>
+<li><strong>Adresse email</strong> — pour l'authentification et l'envoi de liens magiques. Chiffrée au repos avec index aveugle pour la recherche.</li>
+<li><strong>Nom et prénom</strong> — pour l'affichage du profil. Chiffrés au repos.</li>
+<li><strong>Mot de passe</strong> — pour l'authentification par mot de passe. Stocké sous forme de hachage irréversible (jamais en clair).</li>
+<li><strong>Clés WebAuthn</strong> — pour l'authentification par passkey, si activée par l'utilisateur.</li>
+</ul>
+
+<h3>Membres importés depuis Desk</h3>
+<p>Les données des membres sont importées depuis la plateforme <a href="https://desk.lesscouts.be" target="_blank" rel="noopener">Desk</a> de la fédération Les Scouts. Toutes les données personnelles suivantes sont chiffrées au repos (AES-256-CBC) et déchiffrées uniquement au moment de l'affichage :</p>
+<ul>
+<li><strong>Prénom, nom</strong> — affichage des listes de membres.</li>
+<li><strong>Genre</strong> — statistiques internes et gestion des branches.</li>
+<li><strong>Date de naissance</strong> — gestion des branches d'âge.</li>
+<li><strong>Téléphone, GSM</strong> — contact des membres.</li>
+<li><strong>Adresse email</strong> — liaison entre le compte utilisateur et la fiche membre. Chiffrée avec index aveugle.</li>
+<li><strong>Totem, quali, sizaine</strong> — vie de l'unité.</li>
+<li><strong>Adresse postale</strong> — envoi de courrier.</li>
+</ul>
+
+<h3>Photos des membres</h3>
+<p>Une photo peut être associée à chaque membre pour chaque année scoute (affichage sur les pages du site, trombinoscope). Les photos ne sont pas chiffrées mais leur accès est protégé par un rôle minimum. En l'absence de photo, un avatar générique (initiales) est affiché sans traitement de données personnelles.</p>
+
+<h3>Trombinoscope</h3>
+<p>Le module trombinoscope affiche publiquement les photos, totems, noms et fonctions des chefs de l'unité. Aucune donnée personnelle supplémentaire n'est collectée par ce module au-delà des informations déjà présentes dans les fiches membres.</p>
+
+<h3>Journal d'audit</h3>
+<p>Les actions sensibles sont journalisées à des fins de sécurité :</p>
+<ul>
+<li><strong>Adresse IP</strong> — détection d'abus.</li>
+<li><strong>Identifiant du compte auteur</strong> — traçabilité. L'email n'est jamais stocké en clair dans le journal.</li>
+</ul>
+<p>Le journal ne contient aucune autre donnée personnelle. Base légale : intérêt légitime (sécurité du site).</p>
+
+<h3>Calendrier</h3>
+<p>Le module calendrier génère un jeton ICS personnel pour chaque utilisateur, permettant la synchronisation des événements avec un calendrier externe. Les rappels par email relisent l'adresse email depuis la fiche membre chiffrée sans en conserver de copie.</p>
+
+<h3>SOS Staff d'U</h3>
+<p>Le module SOS Staff d'U traite les données suivantes :</p>
+<ul>
+<li><strong>Gardes SOS</strong> — planning des permanences des chefs.</li>
+<li><strong>Numéro de téléphone de repli</strong> — chiffré au repos.</li>
+<li><strong>Identifiants API téléphonie</strong> — chiffrés au repos, utilisés pour le transfert d'appels.</li>
+<li><strong>Numéro de GSM du membre</strong> — relu depuis la fiche membre chiffrée pour le transfert d'appels, jamais copié.</li>
+</ul>
+
+<h3>Connecteur IA (Intelligence Artificielle)</h3>
+<p>Le module connecteur IA envoie des données au fournisseur d'intelligence artificielle configuré pour effectuer des traitements automatisés (reconnaissance de texte, génération de contenu). Les données envoyées peuvent inclure des noms, montants ou extraits de documents. La clé API du fournisseur est chiffrée au repos.</p>
+<p>Selon le fournisseur configuré, les données peuvent être transférées hors de l'Union européenne (voir section Sous-traitants).</p>
+
+<h2>Base légale</h2>
+<ul>
+<li><strong>Intérêt légitime</strong> — gestion de l'unité scoute (membres, fonctions, sections, calendrier, gardes).</li>
+<li><strong>Consentement</strong> — cookies non essentiels et envoi d'emails non transactionnels.</li>
+</ul>
+
+<h2>Durée de conservation</h2>
+<ul>
+<li><strong>Données des membres</strong> — durée de l'année scoute en cours.</li>
+<li><strong>Comptes utilisateurs</strong> — jusqu'à suppression manuelle par l'administrateur.</li>
+<li><strong>Journal d'audit</strong> — durée configurable (par défaut 2 ans).</li>
+<li><strong>Liens magiques</strong> — expirés après 15 minutes, nettoyés périodiquement.</li>
+<li><strong>Jetons ICS</strong> — valides tant que le compte utilisateur existe.</li>
+</ul>
+
+<h2>Cookies</h2>
+<p>La liste complète et à jour des cookies utilisés par le site est affichée ci-dessous, dans la section « Cookies utilisés ». Vous pouvez modifier vos préférences à tout moment sur la <a href="/cookies">page de préférences cookies</a>.</p>
+
+<h2>Sous-traitants</h2>
+<ul>
+<li><strong>Hébergeur web</strong> — stockage des données et exécution du site.</li>
+<li><strong>Relais SMTP</strong> (si configuré) — envoi d'emails transactionnels (liens magiques, notifications).</li>
+<li><strong>Fournisseur IA</strong> (si configuré) — traitement automatisé de données (OCR, génération de contenu). Selon le fournisseur : Anthropic (serveurs aux États-Unis, transfert hors UE avec clauses contractuelles types), Mistral AI (serveurs en France, UE) ou Scaleway (serveurs en France/Pays-Bas, UE).</li>
+<li><strong>OVH Télécom</strong> (si module SOS activé) — transfert d'appels téléphoniques pour les gardes SOS. Serveurs en France (UE).</li>
+</ul>
+<p>Conformément à la législation en vigueur, nous nous assurons que nos sous-traitants s'engagent à respecter la sécurité et la confidentialité des données qui leur sont transmises.</p>
+
+<h2>Transferts hors UE</h2>
+<p>Si le fournisseur d'intelligence artificielle configuré est situé hors de l'Union européenne (par exemple Anthropic, États-Unis), le transfert est encadré par des clauses contractuelles types conformément à l'article 46 du RGPD. Aucune autre donnée n'est transférée hors de l'UE.</p>
+
+<h2>Sécurité des données</h2>
+<ul>
+<li>Toutes les données personnelles sensibles sont chiffrées au repos (AES-256-CBC).</li>
+<li>Les mots de passe sont hachés de manière irréversible.</li>
+<li>L'accès au site est protégé par authentification (email + mot de passe ou passkey).</li>
+<li>Les clés API et identifiants de services externes sont chiffrés.</li>
+<li>Les accès sont contrôlés par un système de rôles (RBAC).</li>
+<li>Un journal d'audit trace les actions sensibles.</li>
+</ul>
+
+<h2>Vos droits</h2>
+<p>Conformément au RGPD, vous disposez des droits suivants :</p>
+<ul>
+<li><strong>Accès</strong> — demander une copie de vos données.</li>
+<li><strong>Rectification</strong> — corriger des données inexactes.</li>
+<li><strong>Suppression</strong> — demander l'effacement de vos données.</li>
+<li><strong>Portabilité</strong> — recevoir vos données dans un format structuré.</li>
+<li><strong>Opposition</strong> — vous opposer au traitement de vos données.</li>
+<li><strong>Limitation</strong> — demander la limitation du traitement.</li>
+<li><strong>Retrait du consentement</strong> — retirer votre consentement à tout moment pour les traitements basés sur celui-ci.</li>
+</ul>
+<p>Contactez-nous via l'adresse email indiquée sur la page de contact pour exercer ces droits. Nous vous répondrons dans un délai raisonnable.</p>
+<p>Vous avez également le droit d'introduire une réclamation auprès de l'<a href="https://www.autoriteprotectiondonnees.be/citoyen" target="_blank" rel="noopener">Autorité de protection des données (APD)</a> belge.</p>
+
+<h2>Politique de la fédération</h2>
+<p>En tant qu'unité affiliée aux Scouts ASBL, les données de nos membres sont également soumises à la politique de protection des données de la fédération. Consultez la <a href="https://www.lesscouts.be/fr/ressources-scouts/administratif-1/web-et-vie-privee/protection-des-donnees-personnelles" target="_blank" rel="noopener">page dédiée de la fédération Les Scouts</a> ainsi que leur <a href="https://lesscouts.be/api/file/3240" target="_blank" rel="noopener">charte de protection des données personnelles</a>.</p>

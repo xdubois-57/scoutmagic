@@ -660,11 +660,22 @@ foreach ($menus as $menu) {
 }
 $twig->addGlobal('active_menu_id', $activeMenuId);
 
+// RGPD content service (may use LLM if module is active)
+$llmConnectorForRgpd = null;
+$llmProviderRepoForRgpd = null;
+$llmModelRepoForRgpd = null;
+if (in_array('llm_connector', $moduleManager->getEnabledModuleIds(), true)) {
+    $llmProviderRepoForRgpd = new \Modules\LlmConnector\Repository\ProviderRepository($pdo, $encryptionService);
+    $llmModelRepoForRgpd = new \Modules\LlmConnector\Repository\ProviderModelRepository($pdo);
+    $llmConnectorForRgpd = new \Modules\LlmConnector\Service\LlmConnectorService($llmProviderRepoForRgpd, $llmModelRepoForRgpd, $journalService);
+}
+$rgpdContentService = new RgpdContentService($moduleManager, $settingService, $cookieConsentService, $llmConnectorForRgpd, $llmProviderRepoForRgpd, $llmModelRepoForRgpd);
+
 // Handle the request
 $frontController = new FrontController($router, $twig, $config);
 
 // Register controllers with dependencies
-$frontController->registerController(PageController::class, new PageController($twig, $editableContentService, $sectionRepository, $cookieConsentService));
+$frontController->registerController(PageController::class, new PageController($twig, $editableContentService, $sectionRepository, $cookieConsentService, $settingService, $rgpdContentService));
 $frontController->registerController(CookieController::class, new CookieController($twig, $cookieConsentService));
 $setupController = new SetupController($twig, $secretManager, $dkimManager, $schemaPath);
 $setupController->setSettingService($settingService);
@@ -858,7 +869,7 @@ if (in_array('banner', $moduleManager->getEnabledModuleIds(), true)) {
     // (ARCHITECTURE.md §7.4): core never depends on the module directly.
     $frontController->registerController(
         PageController::class,
-        new PageController($twig, $editableContentService, $sectionRepository, $cookieConsentService, $bannerService)
+        new PageController($twig, $editableContentService, $sectionRepository, $cookieConsentService, $settingService, $rgpdContentService, $bannerService)
     );
 }
 
@@ -879,16 +890,7 @@ if (in_array('llm_connector', $moduleManager->getEnabledModuleIds(), true)) {
     );
 }
 
-// RGPD configuration (may use LLM if module is active)
-$llmConnectorForRgpd = null;
-$llmProviderRepoForRgpd = null;
-$llmModelRepoForRgpd = null;
-if (in_array('llm_connector', $moduleManager->getEnabledModuleIds(), true)) {
-    $llmProviderRepoForRgpd = new \Modules\LlmConnector\Repository\ProviderRepository($pdo, $encryptionService);
-    $llmModelRepoForRgpd = new \Modules\LlmConnector\Repository\ProviderModelRepository($pdo);
-    $llmConnectorForRgpd = new \Modules\LlmConnector\Service\LlmConnectorService($llmProviderRepoForRgpd, $llmModelRepoForRgpd, $journalService);
-}
-$rgpdContentService = new RgpdContentService($moduleManager, $settingService, $cookieConsentService, $llmConnectorForRgpd, $llmProviderRepoForRgpd, $llmModelRepoForRgpd);
+// RGPD configuration controller
 $frontController->registerController(RgpdConfigController::class, new RgpdConfigController($twig, $editableContentService, $rgpdContentService, $settingService, $moduleManager, $journalService));
 
 // Bypass RBAC for /setup routes when site is not initialized or explicitly allowed

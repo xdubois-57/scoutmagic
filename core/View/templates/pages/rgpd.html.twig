@@ -4,53 +4,42 @@
 
 {% block content %}
     <h1 class="mb-4">Protection des données</h1>
-    
-    {% set default_rgpd_content %}
-        <h2>Politique de confidentialité</h2>
-        <p>Ce site respecte le Règlement Général sur la Protection des Données (RGPD). Les données personnelles collectées sont traitées de manière sécurisée et ne sont partagées avec aucun tiers sans consentement explicite.</p>
-        <h3>Données collectées</h3>
-        <p>Nous collectons uniquement les données nécessaires au fonctionnement de l'unité scoute : adresses email pour l'authentification, informations des membres importées depuis Desk.</p>
-        <h3>Durée de conservation</h3>
-        <p>Les données sont conservées pendant la durée de l'année scoute en cours et sont supprimées à la fin de chaque cycle, sauf obligation légale.</p>
-        <h3>Vos droits</h3>
-        <p>Vous disposez d'un droit d'accès, de rectification, de suppression et de portabilité de vos données. Contactez-nous pour exercer ces droits.</p>
-    {% endset %}
-    
-    {{ editable('rgpd.text', default_rgpd_content) }}
 
-        <h2 class="mt-5">Cookies utilisés</h2>
-        <p>
-            Vous pouvez modifier vos préférences à tout moment sur la
-            <a href="/cookies">page de préférences cookies</a>.
-        </p>
+    {{ rgpd_content|raw }}
 
-        {% for category_id, category in cookie_categories %}
-            <h3>{{ category.label }}{% if category_id == 'necessary' %} (toujours actifs){% endif %}</h3>
-            <p>{{ category.description }}</p>
+    <h2 class="mt-5">Cookies utilisés</h2>
+    <p>
+        Vous pouvez modifier vos préférences à tout moment sur la
+        <a href="/cookies">page de préférences cookies</a>.
+    </p>
 
-            {% if category.cookies|length > 0 %}
-                <table class="table table-sm">
-                    <thead>
+    {% for category_id, category in cookie_categories %}
+        <h3>{{ category.label }}{% if category_id == 'necessary' %} (toujours actifs){% endif %}</h3>
+        <p>{{ category.description }}</p>
+
+        {% if category.cookies|length > 0 %}
+            <table class="table table-sm">
+                <thead>
+                    <tr>
+                        <th>Cookie</th>
+                        <th>Finalité</th>
+                        <th>Durée</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for cookie in category.cookies %}
                         <tr>
-                            <th>Cookie</th>
-                            <th>Finalité</th>
-                            <th>Durée</th>
+                            <td><code>{{ cookie.name }}</code></td>
+                            <td>{{ cookie.purpose }}</td>
+                            <td>{{ cookie.duration }}</td>
                         </tr>
-                    </thead>
-                    <tbody>
-                        {% for cookie in category.cookies %}
-                            <tr>
-                                <td><code>{{ cookie.name }}</code></td>
-                                <td>{{ cookie.purpose }}</td>
-                                <td>{{ cookie.duration }}</td>
-                            </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            {% else %}
-                <p class="text-body-secondary fst-italic">
-                    Aucun cookie dans cette catégorie actuellement.
-                </p>
-            {% endif %}
-        {% endfor %}
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% else %}
+            <p class="text-body-secondary fst-italic">
+                Aucun cookie dans cette catégorie actuellement.
+            </p>
+        {% endif %}
+    {% endfor %}
 {% endblock %}
