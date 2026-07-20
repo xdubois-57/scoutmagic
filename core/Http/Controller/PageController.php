@@ -73,22 +73,23 @@ class PageController extends AbstractController
 
         if ($mode === 'default') {
             $content = $this->rgpdContentService->getDefaultContent();
-            $lastUpdated = date('d/m/Y'); // Current date for default mode
+            $lastUpdated = $this->rgpdContentService->getDefaultContentLastModified();
         } else {
             $content = $this->editableContentService->get('rgpd.text', '');
             if ($content === '') {
                 $content = $this->rgpdContentService->getDefaultContent();
-                $lastUpdated = date('d/m/Y');
+                $lastUpdated = $this->rgpdContentService->getDefaultContentLastModified();
             } else {
-                // Get last update date from editable_contents
-                $lastUpdated = $this->editableContentService->getLastUpdated('rgpd.text');
-                if ($lastUpdated === null) {
-                    $lastUpdated = date('d/m/Y');
-                } else {
-                    $lastUpdated = date('d/m/Y', strtotime($lastUpdated));
-                }
+                // Get the last real content-change timestamp from editable_contents
+                // (stored in UTC, see EditableContentRepository::upsert()).
+                $lastUpdatedRaw = $this->editableContentService->getLastUpdated('rgpd.text');
+                $lastUpdated = $lastUpdatedRaw !== null
+                    ? new \DateTimeImmutable($lastUpdatedRaw, new \DateTimeZone('UTC'))
+                    : $this->rgpdContentService->getDefaultContentLastModified();
             }
         }
+
+        $lastUpdated = $lastUpdated->format('d/m/Y H:i \U\T\C');
 
         // Inject the date into the content
         $content = str_replace(

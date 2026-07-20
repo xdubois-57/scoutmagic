@@ -4,12 +4,13 @@ declare(strict_types=1);
 
 namespace Tests\Core\Http\Controller;
 
-use Core\Cookie\CookieConsentService;
+use Core\Config\SettingService;
 use Core\Http\Controller\PageController;
 use Core\Http\Request;
 use Core\Module\HomeBannerProvider;
 use Core\View\EditableContentRepository;
 use Core\View\EditableContentService;
+use Core\View\RgpdContentService;
 use Core\View\SectionRepository;
 use PHPUnit\Framework\TestCase;
 use Twig\Environment;
@@ -21,7 +22,8 @@ class PageControllerTest extends TestCase
     private Environment $twig;
     private EditableContentService $editableService;
     private SectionRepository $sectionRepo;
-    private CookieConsentService $cookieConsentService;
+    private SettingService $settingService;
+    private RgpdContentService $rgpdContentService;
 
     protected function setUp(): void
     {
@@ -82,12 +84,19 @@ class PageControllerTest extends TestCase
         $pdo->exec("CREATE TABLE sections (id INTEGER PRIMARY KEY, age_branch_id INTEGER, desk_code TEXT, name TEXT, email TEXT, is_visible INTEGER NOT NULL DEFAULT 1, is_active INTEGER NOT NULL DEFAULT 1, created_at TEXT)");
         $sectionRepo = new SectionRepository($pdo);
 
-        $cookieConsentService = new CookieConsentService([]);
+        $settingService = $this->createMock(SettingService::class);
+        $settingService->method('get')->willReturn('default');
+
+        $rgpdContentService = $this->createMock(RgpdContentService::class);
+        $rgpdContentService->method('getDefaultContent')->willReturn('<h2>Protection des données</h2>');
+        $rgpdContentService->method('getDefaultContentLastModified')->willReturn(new \DateTimeImmutable('2026-01-01T00:00:00+00:00'));
+
         $this->twig = $twig;
         $this->editableService = $editableService;
         $this->sectionRepo = $sectionRepo;
-        $this->cookieConsentService = $cookieConsentService;
-        $this->controller = new PageController($twig, $editableService, $sectionRepo, $cookieConsentService);
+        $this->settingService = $settingService;
+        $this->rgpdContentService = $rgpdContentService;
+        $this->controller = new PageController($twig, $editableService, $sectionRepo, $settingService, $rgpdContentService);
     }
 
     public function testHomePageRenders(): void
@@ -116,7 +125,7 @@ class PageControllerTest extends TestCase
                 return '<p>Message important</p>';
             }
         };
-        $controller = new PageController($this->twig, $this->editableService, $this->sectionRepo, $this->cookieConsentService, $provider);
+        $controller = new PageController($this->twig, $this->editableService, $this->sectionRepo, $this->settingService, $this->rgpdContentService, $provider);
 
         $request = new Request('GET', '/', [], [], [], []);
         $response = $controller->home($request, []);
@@ -132,7 +141,7 @@ class PageControllerTest extends TestCase
                 return null;
             }
         };
-        $controller = new PageController($this->twig, $this->editableService, $this->sectionRepo, $this->cookieConsentService, $provider);
+        $controller = new PageController($this->twig, $this->editableService, $this->sectionRepo, $this->settingService, $this->rgpdContentService, $provider);
 
         $request = new Request('GET', '/', [], [], [], []);
         $response = $controller->home($request, []);

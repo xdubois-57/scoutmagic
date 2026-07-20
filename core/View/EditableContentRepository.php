@@ -38,15 +38,23 @@ class EditableContentRepository
 
     public function upsert(string $key, string $type, string $value, ?string $moduleId, int $modifiedBy): void
     {
-        $now = date('Y-m-d H:i:s');
         $existing = $this->findByKey($key);
 
         if ($existing !== null) {
+            // modified_at must reflect the last time the content actually
+            // changed, not the last time this method was called (callers
+            // may re-save unchanged content, e.g. when only switching mode).
+            if ($existing['content_type'] === $type && $existing['content_value'] === $value) {
+                return;
+            }
+
+            $now = gmdate('Y-m-d H:i:s');
             $stmt = $this->pdo->prepare(
                 'UPDATE editable_contents SET content_type = ?, content_value = ?, modified_at = ?, modified_by = ? WHERE content_key = ?'
             );
             $stmt->execute([$type, $value, $now, $modifiedBy, $key]);
         } else {
+            $now = gmdate('Y-m-d H:i:s');
             $stmt = $this->pdo->prepare(
                 'INSERT INTO editable_contents (content_key, content_type, content_value, module_id, modified_at, modified_by)
                  VALUES (?, ?, ?, ?, ?, ?)'

@@ -88,4 +88,40 @@ class EditableContentServiceTest extends TestCase
 
         $this->assertNull($this->service->get('never.existed'));
     }
+
+    public function testGetLastUpdatedReturnsNullForUnknownKey(): void
+    {
+        $this->assertNull($this->service->getLastUpdated('never.existed'));
+    }
+
+    public function testGetLastUpdatedReturnsTimestampAfterSet(): void
+    {
+        $this->service->set('test.timestamp', '<p>Hello</p>', 'rich_text', 1);
+
+        $this->assertNotNull($this->service->getLastUpdated('test.timestamp'));
+    }
+
+    public function testReSavingIdenticalContentDoesNotChangeLastUpdated(): void
+    {
+        $this->service->set('test.stable', '<p>Stable</p>', 'rich_text', 1);
+        $first = $this->service->getLastUpdated('test.stable');
+
+        sleep(1);
+        $this->service->set('test.stable', '<p>Stable</p>', 'rich_text', 1);
+        $second = $this->service->getLastUpdated('test.stable');
+
+        $this->assertSame($first, $second);
+    }
+
+    public function testSavingDifferentContentUpdatesLastUpdated(): void
+    {
+        $this->service->set('test.changing', '<p>First</p>', 'rich_text', 1);
+        $first = $this->service->getLastUpdated('test.changing');
+
+        sleep(1);
+        $this->service->set('test.changing', '<p>Second</p>', 'rich_text', 1);
+        $second = $this->service->getLastUpdated('test.changing');
+
+        $this->assertNotSame($first, $second);
+    }
 }

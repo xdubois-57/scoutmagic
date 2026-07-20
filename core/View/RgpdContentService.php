@@ -42,6 +42,23 @@ class RgpdContentService
     }
 
     /**
+     * Get the last time the default RGPD content actually changed, in UTC.
+     * Used as the "last updated" date when mode is "default" — this file
+     * is static, so its filesystem mtime reflects the last real content
+     * change (deploy), unlike recomputing "today" on every page load.
+     */
+    public function getDefaultContentLastModified(): \DateTimeImmutable
+    {
+        $path = __DIR__ . '/rgpd_default.html';
+        $timestamp = @filemtime($path);
+        if ($timestamp === false) {
+            $timestamp = time();
+        }
+
+        return (new \DateTimeImmutable('@' . $timestamp))->setTimezone(new \DateTimeZone('UTC'));
+    }
+
+    /**
      * Generate RGPD content via AI based on active modules and user prompt
      */
     public function generateWithAi(string $userPrompt): string
