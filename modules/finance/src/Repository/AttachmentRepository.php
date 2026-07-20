@@ -51,12 +51,26 @@ class AttachmentRepository
     }
 
     /**
-     * Attachments are never physically deleted — only archived (see
-     * schema.sql's comment on finance_attachments).
+     * User-facing deletion (Service\ReceiptService::delete()) never
+     * physically removes an attachment — only archives it, so proof of
+     * an expense is never lost by accident.
      */
     public function archive(int $id): void
     {
         $stmt = $this->pdo->prepare("UPDATE finance_attachments SET status = 'archived' WHERE id = ?");
+        $stmt->execute([$id]);
+    }
+
+    /**
+     * The one genuine physical deletion in this module — used only by
+     * Task\PurgeOldMovementsHandler once an attachment has zero
+     * remaining movement associations after a fiscal year is purged.
+     * Callers must delete the underlying encrypted file themselves first
+     * (Core\File\EncryptedFileStorageService::delete()).
+     */
+    public function delete(int $id): void
+    {
+        $stmt = $this->pdo->prepare('DELETE FROM finance_attachments WHERE id = ?');
         $stmt->execute([$id]);
     }
 

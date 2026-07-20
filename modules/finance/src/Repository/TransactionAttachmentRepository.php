@@ -112,4 +112,16 @@ class TransactionAttachmentRepository
         $stmt = $this->pdo->prepare('DELETE FROM finance_transaction_attachments WHERE attachment_id = ?');
         $stmt->execute([$attachmentId]);
     }
+
+    /**
+     * Used by Task\PurgeOldMovementsHandler right before deleting a
+     * purged transaction — the caller reads
+     * findAttachmentIdsForTransaction() first to know which attachments
+     * might now be orphaned.
+     */
+    public function deleteAllForTransaction(int $transactionId): void
+    {
+        $stmt = $this->pdo->prepare('DELETE FROM finance_transaction_attachments WHERE transaction_id = ?');
+        $stmt->execute([$transactionId]);
+    }
 }

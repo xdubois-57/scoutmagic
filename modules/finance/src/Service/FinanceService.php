@@ -12,13 +12,12 @@ use Modules\Finance\Repository\Category;
 use Modules\Finance\Repository\CategoryRepository;
 use Modules\Finance\Repository\FiscalYear;
 use Modules\Finance\Repository\FiscalYearRepository;
+use Modules\Finance\Repository\TransactionRepository;
 
 /**
- * Accounts, categories, and fiscal years — the configuration data the
- * rest of the finance module (dashboard, movements, import) is built on
- * top of in later iterations. Import/movements/statistics functionality
- * itself is out of scope here — see Service\ImportService,
- * Service\CategoryRuleEngine (stubs) and the module spec's "itération 3".
+ * Accounts, categories, fiscal years, and dashboard statistics — the
+ * configuration data and aggregates the rest of the finance module
+ * (dashboard, movements, import) is built on top of.
  */
 class FinanceService
 {
@@ -29,7 +28,9 @@ class FinanceService
         private AccountRepository $accountRepository,
         private CategoryRepository $categoryRepository,
         private FiscalYearRepository $fiscalYearRepository,
-        private SectionService $sectionService
+        private SectionService $sectionService,
+        private TransactionRepository $transactionRepository,
+        private BalanceService $balanceService
     ) {
     }
 
@@ -303,5 +304,67 @@ class FinanceService
             throw new FinanceException('Exercice introuvable.');
         }
         $this->fiscalYearRepository->setCurrent($id);
+    }
+
+    // --- Dashboard statistics ---
+
+    /**
+     * Per-category income/expense/total for an account's fiscal year,
+     * sorted by income descending — backs the dashboard's "bilan par
+     * catégorie" table. Uncategorized movements group under a null
+     * category_id/category_name (rendered as "Non catégorisé").
+     *
+     * @return array<int, array{category_id: ?int, category_name: ?string, income: float, expense: float, total: float}>
+     */
+    public function getCategorySummary(int $accountId, int $fiscalYearId): array
+    {
+        return $this->transactionRepository->getCategorySummary($accountId, $fiscalYearId);
+    }
+
+    /**
+     * Month-end cumulative balance across a fiscal year, from its start
+     * up to today (never projected into the future) — backs the
+     * dashboard's balance-evolution line chart. Each point reuses
+     * Service\BalanceService::getBalanceAt(), so it's seeded from
+     * whatever checkpoint is closest to that month's end, exactly like
+     * every other balance figure in the module.
+     *
+     * @return array<int, array{month: string, balance: ?float}>
+     */
+    public function getBalanceEvolution(int $accountId, int $fiscalYearId): array
+    {
+        $fiscalYear = $this->fiscalYearRepository->findById($fiscalYearId);
+        $account = $this->accountRepository->findById($accountId);
+        if ($fiscalYear === null || $account === null) {
+            return [];
+        }
+
+        $end = new \DateTimeImmutable($fiscalYear->endDate);
+        $today = new \DateTimeImmutable('today');
+        if ($end > $today) {
+            $end = $today;
+        }
+
+        $cursor = new \DateTimeImmutable($fiscalYear->startDate);
+        if ($cursor > $end) {
+            return [];
+        }
+
+        $evolution = [];
+        while ($cursor <= $end) {
+            $monthEnd = $cursor->modify('last day of this month');
+            if ($monthEnd > $end) {
+                $monthEnd = $end;
+            }
+
+            $evolution[] = [
+                'month' => $cursor->format('Y-m'),
+                'balance' => $this->balanceService->getBalanceAt($account, $monthEnd),
+            ];
+
+            $cursor = $cursor->modify('first day of next month');
+        }
+
+        return $evolution;
     }
 }

@@ -5,30 +5,194 @@
 {% block content %}
     <h1 class="mb-4">Finances</h1>
 
-    {% if current_fiscal_year %}
-        <p class="text-body-secondary small mb-3">Exercice courant : <strong>{{ current_fiscal_year.label }}</strong></p>
-    {% endif %}
+    {% if no_accounts %}
+        <p class="text-body-secondary fst-italic">Aucun compte visible pour votre rôle.</p>
+    {% else %}
+        <div class="d-flex flex-wrap gap-2 pb-2 mb-2 finance-account-picker">
+            {% for account in accounts %}
+                {% set is_active = account.id == selected_account.id %}
+                <a href="/finance?account_id={{ account.id }}{% if selected_fiscal_year %}&fiscal_year_id={{ selected_fiscal_year.id }}{% endif %}"
+                   class="btn btn-sm {{ is_active ? 'btn-primary' : 'btn-outline-secondary' }} text-nowrap text-decoration-none">
+                    {{ account.name }}
+                </a>
+            {% endfor %}
+        </div>
 
-    <div class="row g-3 mb-4">
-        {% for entry in accounts %}
+        {% if fiscal_years %}
+            <div class="d-flex flex-wrap gap-2 pb-2 mb-4 finance-fiscal-year-picker">
+                {% for fiscalYear in fiscal_years %}
+                    {% set is_active = selected_fiscal_year and fiscalYear.id == selected_fiscal_year.id %}
+                    <a href="/finance?account_id={{ selected_account.id }}&fiscal_year_id={{ fiscalYear.id }}"
+                       class="btn btn-sm {{ is_active ? 'btn-primary' : 'btn-outline-secondary' }} text-nowrap text-decoration-none">
+                        {{ fiscalYear.label }}
+                    </a>
+                {% endfor %}
+            </div>
+        {% endif %}
+
+        {% if uncategorized_count > 0 or pending_receipts_count > 0 %}
+            <div class="alert alert-warning d-flex flex-wrap gap-3">
+                {% if uncategorized_count > 0 %}
+                    <span><i class="bi bi-exclamation-triangle-fill me-1"></i>{{ uncategorized_count }} mouvement(s) non catégorisé(s)</span>
+                {% endif %}
+                {% if pending_receipts_count > 0 %}
+                    <span><i class="bi bi-receipt me-1"></i>{{ pending_receipts_count }} reçu(s) en attente d'association</span>
+                {% endif %}
+            </div>
+        {% endif %}
+
+        <div class="row g-3 mb-4">
             <div class="col-12 col-md-4">
                 <div class="border rounded-3 p-3 h-100">
-                    <div class="text-body-secondary small">{{ entry.account.name }}</div>
+                    <div class="text-body-secondary small">Solde actuel</div>
                     <div class="fs-3 fw-semibold">
-                        {{ entry.balance is not null ? entry.balance|number_format(2, ',', ' ') ~ ' €' : 'Solde inconnu' }}
+                        {{ balance is not null ? balance|number_format(2, ',', ' ') ~ ' €' : 'Solde inconnu' }}
                     </div>
                 </div>
             </div>
-        {% else %}
-            <div class="col-12">
-                <p class="text-body-secondary fst-italic">Aucun compte visible pour votre rôle.</p>
+            <div class="col-12 col-md-8 d-flex align-items-center gap-2 flex-wrap">
+                <a href="/finance/import" class="btn btn-outline-primary">Importer un extrait bancaire →</a>
+                <a href="/finance/receipts/new" class="btn btn-outline-primary">Ajouter un reçu →</a>
             </div>
-        {% endfor %}
-    </div>
+        </div>
 
-    <div class="d-flex gap-2">
-        <a href="/finance/movements" class="btn btn-sm btn-outline-secondary">Mouvements</a>
-        <a href="/finance/import" class="btn btn-sm btn-outline-secondary">Importer un relevé</a>
-        <a href="/finance/receipts" class="btn btn-sm btn-outline-secondary">Reçus</a>
-    </div>
+        {% if selected_fiscal_year %}
+            <h2 class="h5 mb-3">Bilan par catégorie — {{ selected_fiscal_year.label }}</h2>
+            <div class="table-responsive mb-4">
+                <table class="table table-sm align-middle">
+                    <thead>
+                        <tr>
+                            <th>Catégorie</th>
+                            <th class="text-end">Recettes</th>
+                            <th class="text-end">Dépenses</th>
+                            <th class="text-end">Total</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in category_summary %}
+                            <tr>
+                                <td>
+                                    <a href="/finance/movements?fiscal_year_id={{ selected_fiscal_year.id }}{% if row.category_id %}&category_id={{ row.category_id }}{% endif %}">
+                                        {{ row.category_name ?? 'Non catégorisé' }}
+                                    </a>
+                                </td>
+                                <td class="text-end text-success">{{ row.income|number_format(2, ',', ' ') }} €</td>
+                                <td class="text-end text-danger">{{ row.expense|number_format(2, ',', ' ') }} €</td>
+                                <td class="text-end">{{ row.total|number_format(2, ',', ' ') }} €</td>
+                            </tr>
+                        {% else %}
+                            <tr><td colspan="4" class="text-body-secondary fst-italic">Aucun mouvement pour cet exercice.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                    {% if category_summary %}
+                        <tfoot>
+                            <tr class="fw-bold">
+                                <td>Bilan</td>
+                                <td class="text-end text-success">{{ bilan.income|number_format(2, ',', ' ') }} €</td>
+                                <td class="text-end text-danger">{{ bilan.expense|number_format(2, ',', ' ') }} €</td>
+                                <td class="text-end">{{ bilan.total|number_format(2, ',', ' ') }} €</td>
+                            </tr>
+                        </tfoot>
+                    {% endif %}
+                </table>
+            </div>
+
+            {% if category_summary %}
+                <div class="row g-3 mb-4">
+                    <div class="col-12 col-md-6">
+                        <div class="border rounded-3 p-3">
+                            <div class="small text-body-secondary mb-2">Répartition des dépenses</div>
+                            <canvas id="chart-expenses-pie" height="220"></canvas>
+                        </div>
+                    </div>
+                    <div class="col-12 col-md-6">
+                        <div class="border rounded-3 p-3">
+                            <div class="small text-body-secondary mb-2">Recettes vs dépenses par catégorie</div>
+                            <canvas id="chart-income-expense-bar" height="220"></canvas>
+                        </div>
+                    </div>
+                    <div class="col-12">
+                        <div class="border rounded-3 p-3">
+                            <div class="small text-body-secondary mb-2">Évolution du solde</div>
+                            <canvas id="chart-balance-line" height="140"></canvas>
+                        </div>
+                    </div>
+                </div>
+            {% endif %}
+        {% endif %}
+
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h2 class="h5 mb-0">Derniers mouvements</h2>
+            <a href="/finance/movements" class="small">Voir tout →</a>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-sm align-middle">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Libellé</th>
+                        <th class="text-end">Montant</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for movement in recent_movements %}
+                        <tr>
+                            <td>{{ movement.transactionDate }}</td>
+                            <td>{{ movement.label }}</td>
+                            <td class="text-end {{ movement.amount < 0 ? 'text-danger' : 'text-success' }}">
+                                {{ movement.amount|number_format(2, ',', ' ') }} €
+                            </td>
+                        </tr>
+                    {% else %}
+                        <tr><td colspan="3" class="text-body-secondary fst-italic">Aucun mouvement.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% endif %}
+{% endblock %}
+
+{% block scripts %}
+    {% if selected_fiscal_year and category_summary %}
+        <script src="/assets/vendor/chartjs/chart.umd.min.js"></script>
+        <script nonce="{{ csp_nonce }}">
+        const categoryLabels = {{ category_summary|map(row => row.category_name ?? 'Non catégorisé')|json_encode|raw }};
+        const categoryIncome = {{ category_summary|map(row => row.income)|json_encode|raw }};
+        const categoryExpense = {{ category_summary|map(row => row.expense)|json_encode|raw }};
+        const evolutionLabels = {{ balance_evolution|map(point => point.month)|json_encode|raw }};
+        const evolutionBalances = {{ balance_evolution|map(point => point.balance)|json_encode|raw }};
+
+        const palette = ['#0d6efd', '#dc3545', '#198754', '#ffc107', '#6f42c1', '#20c997', '#fd7e14', '#0dcaf0'];
+
+        new Chart(document.getElementById('chart-expenses-pie'), {
+            type: 'pie',
+            data: {
+                labels: categoryLabels,
+                datasets: [{ data: categoryExpense, backgroundColor: palette }]
+            },
+            options: { responsive: true }
+        });
+
+        new Chart(document.getElementById('chart-income-expense-bar'), {
+            type: 'bar',
+            data: {
+                labels: categoryLabels,
+                datasets: [
+                    { label: 'Recettes', data: categoryIncome, backgroundColor: '#198754' },
+                    { label: 'Dépenses', data: categoryExpense, backgroundColor: '#dc3545' }
+                ]
+            },
+            options: { responsive: true, scales: { y: { beginAtZero: true } } }
+        });
+
+        new Chart(document.getElementById('chart-balance-line'), {
+            type: 'line',
+            data: {
+                labels: evolutionLabels,
+                datasets: [{ label: 'Solde', data: evolutionBalances, borderColor: '#0d6efd', tension: 0.2 }]
+            },
+            options: { responsive: true }
+        });
+        </script>
+    {% endif %}
 {% endblock %}

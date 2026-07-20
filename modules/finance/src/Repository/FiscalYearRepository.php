@@ -50,6 +50,22 @@ class FiscalYearRepository
         return $row !== false ? $this->hydrate($row) : null;
     }
 
+    /**
+     * The oldest fiscal year (by end_date) whose end_date is strictly
+     * before $date — used by Task\PurgeOldMovementsHandler to purge one
+     * complete fiscal year at a time, oldest first, rather than a
+     * day-by-day cutoff.
+     */
+    public function findOldestEndingBefore(string $date): ?FiscalYear
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT * FROM finance_fiscal_years WHERE end_date < ? ORDER BY end_date ASC LIMIT 1'
+        );
+        $stmt->execute([$date]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+        return $row !== false ? $this->hydrate($row) : null;
+    }
+
     public function create(string $label, string $startDate, string $endDate): int
     {
         $stmt = $this->pdo->prepare(

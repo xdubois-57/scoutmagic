@@ -903,10 +903,10 @@ if (in_array('finance', $moduleManager->getEnabledModuleIds(), true)) {
     $financeAttachmentRepo = new \Modules\Finance\Repository\AttachmentRepository($pdo);
     $financeTransactionAttachmentRepo = new \Modules\Finance\Repository\TransactionAttachmentRepository($pdo);
 
-    $financeService = new \Modules\Finance\Service\FinanceService(
-        $financeAccountRepo, $financeCategoryRepo, $financeFiscalYearRepo, $sectionService
-    );
     $financeBalanceService = new \Modules\Finance\Service\BalanceService($financeCheckpointRepo, $financeTransactionRepo);
+    $financeService = new \Modules\Finance\Service\FinanceService(
+        $financeAccountRepo, $financeCategoryRepo, $financeFiscalYearRepo, $sectionService, $financeTransactionRepo, $financeBalanceService
+    );
     $financeRuleEngine = new \Modules\Finance\Service\CategoryRuleEngine($financeTransactionRepo, $financeCategoryRuleRepo);
     $financeParserFactory = new \Modules\Finance\Parser\BankStatementParserFactory();
     $financeImportService = new \Modules\Finance\Service\ImportService(
@@ -925,7 +925,7 @@ if (in_array('finance', $moduleManager->getEnabledModuleIds(), true)) {
 
     $frontController->registerController(
         \Modules\Finance\Controller\DashboardController::class,
-        new \Modules\Finance\Controller\DashboardController($twig, $financeService, $financeBalanceService)
+        new \Modules\Finance\Controller\DashboardController($twig, $financeService, $financeBalanceService, $financeTransactionRepo, $financeReceiptService)
     );
     $frontController->registerController(
         \Modules\Finance\Controller\MovementController::class,

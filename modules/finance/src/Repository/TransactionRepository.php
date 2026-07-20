@@ -110,6 +110,52 @@ class TransactionRepository
         return $transactions;
     }
 
+    /**
+     * Per-category income/expense/total for an account's fiscal year —
+     * backs Service\FinanceService::getCategorySummary(). Pure SQL
+     * aggregation: category_id and amount are both plain columns, so
+     * there's nothing here that needs decrypting.
+     *
+     * @return array<int, array{category_id: ?int, category_name: ?string, income: float, expense: float, total: float}>
+     */
+    public function getCategorySummary(int $accountId, int $fiscalYearId): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT
+                t.category_id AS category_id,
+                c.name AS category_name,
+                SUM(CASE WHEN t.amount > 0 THEN t.amount ELSE 0 END) AS income,
+                SUM(CASE WHEN t.amount < 0 THEN -t.amount ELSE 0 END) AS expense,
+                SUM(t.amount) AS total
+             FROM finance_transactions t
+             LEFT JOIN finance_categories c ON c.id = t.category_id
+             WHERE t.account_id = ? AND t.fiscal_year_id = ?
+             GROUP BY t.category_id, c.name
+             ORDER BY income DESC'
+        );
+        $stmt->execute([$accountId, $fiscalYearId]);
+
+        return array_map(fn(array $row) => [
+            'category_id' => $row['category_id'] !== null ? (int) $row['category_id'] : null,
+            'category_name' => $row['category_name'] !== null ? (string) $row['category_name'] : null,
+            'income' => (float) $row['income'],
+            'expense' => (float) $row['expense'],
+            'total' => (float) $row['total'],
+        ], $stmt->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
+    /**
+     * Backs the dashboard's alert banner ("N mouvements non catégorisés").
+     */
+    public function countUncategorized(int $accountId, int $fiscalYearId): int
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT COUNT(*) FROM finance_transactions WHERE account_id = ? AND fiscal_year_id = ? AND category_id IS NULL'
+        );
+        $stmt->execute([$accountId, $fiscalYearId]);
+        return (int) $stmt->fetchColumn();
+    }
+
     public function create(
         int $accountId,
         int $fiscalYearId,
@@ -199,10 +245,25 @@ class TransactionRepository
         return $stmt->rowCount();
     }
 
-    public function deleteOlderThan(string $cutoffDate): int
+    /**
+     * @return int[]
+     */
+    public function findIdsByAccountAndFiscalYear(int $accountId, int $fiscalYearId): array
     {
-        $stmt = $this->pdo->prepare('DELETE FROM finance_transactions WHERE transaction_date < ?');
-        $stmt->execute([$cutoffDate]);
+        $stmt = $this->pdo->prepare('SELECT id FROM finance_transactions WHERE account_id = ? AND fiscal_year_id = ?');
+        $stmt->execute([$accountId, $fiscalYearId]);
+        return array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN));
+    }
+
+    /**
+     * Task\PurgeOldMovementsHandler purges one complete fiscal year at a
+     * time (per account) rather than a day-based cutoff — see
+     * Repository\FiscalYearRepository::findOldestEndingBefore().
+     */
+    public function deleteByAccountAndFiscalYear(int $accountId, int $fiscalYearId): int
+    {
+        $stmt = $this->pdo->prepare('DELETE FROM finance_transactions WHERE account_id = ? AND fiscal_year_id = ?');
+        $stmt->execute([$accountId, $fiscalYearId]);
         return $stmt->rowCount();
     }
 

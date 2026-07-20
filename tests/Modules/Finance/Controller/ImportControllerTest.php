@@ -62,7 +62,9 @@ class ImportControllerTest extends TestCase
         $balanceService = new BalanceService($this->checkpointRepository, $transactionRepository);
         $parserFactory = new BankStatementParserFactory();
 
-        $financeService = new FinanceService($this->accountRepository, $categoryRepository, $fiscalYearRepository, $sectionService);
+        $financeService = new FinanceService(
+            $this->accountRepository, $categoryRepository, $fiscalYearRepository, $sectionService, $transactionRepository, $balanceService
+        );
         $importService = new ImportService(
             $this->pdo, $encryption, $parserFactory, $transactionRepository,
             $this->checkpointRepository, $statementImportRepository, $fiscalYearRepository, $ruleEngine, $balanceService

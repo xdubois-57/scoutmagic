@@ -11,8 +11,12 @@ use Core\Security\EncryptionService;
 use Core\Security\Role;
 use Modules\Finance\Repository\Account;
 use Modules\Finance\Repository\AccountRepository;
+use Modules\Finance\Repository\BalanceCheckpointRepository;
 use Modules\Finance\Repository\CategoryRepository;
 use Modules\Finance\Repository\FiscalYearRepository;
+use Modules\Finance\Repository\Transaction;
+use Modules\Finance\Repository\TransactionRepository;
+use Modules\Finance\Service\BalanceService;
 use Modules\Finance\Service\FinanceException;
 use Modules\Finance\Service\FinanceService;
 use PHPUnit\Framework\TestCase;
@@ -27,6 +31,10 @@ class FinanceServiceTest extends TestCase
     private \PDO $pdo;
     private FinanceService $service;
     private AccountRepository $accountRepository;
+    private FiscalYearRepository $fiscalYearRepository;
+    private CategoryRepository $categoryRepository;
+    private TransactionRepository $transactionRepository;
+    private BalanceCheckpointRepository $checkpointRepository;
 
     protected function setUp(): void
     {
@@ -38,11 +46,19 @@ class FinanceServiceTest extends TestCase
         $sectionService = new SectionService($connection, $encryption, new MemberBadgeRepository($this->pdo));
 
         $this->accountRepository = new AccountRepository($this->pdo, $encryption);
+        $this->fiscalYearRepository = new FiscalYearRepository($this->pdo);
+        $this->categoryRepository = new CategoryRepository($this->pdo);
+        $this->transactionRepository = new TransactionRepository($this->pdo, $encryption);
+        $this->checkpointRepository = new BalanceCheckpointRepository($this->pdo);
+        $balanceService = new BalanceService($this->checkpointRepository, $this->transactionRepository);
+
         $this->service = new FinanceService(
             $this->accountRepository,
-            new CategoryRepository($this->pdo),
-            new FiscalYearRepository($this->pdo),
-            $sectionService
+            $this->categoryRepository,
+            $this->fiscalYearRepository,
+            $sectionService,
+            $this->transactionRepository,
+            $balanceService
         );
     }
 
@@ -153,5 +169,144 @@ class FinanceServiceTest extends TestCase
 
         $this->service->ensureDefaultAccountsForSections();
         $this->assertCount(1, $this->service->getAllAccountsForConfig());
+    }
+
+    // --- getCategorySummary() ---
+
+    public function testGetCategorySummaryReturnsEmptyArrayWhenNoMovements(): void
+    {
+        [$accountId, $fiscalYearId] = $this->createAccountAndFiscalYear();
+
+        $this->assertSame([], $this->service->getCategorySummary($accountId, $fiscalYearId));
+    }
+
+    public function testGetCategorySummaryAggregatesIncomeAndExpensePerCategory(): void
+    {
+        [$accountId, $fiscalYearId] = $this->createAccountAndFiscalYear();
+        $alimentation = $this->service->createCategory('Alimentation');
+        $this->createMovement($accountId, $fiscalYearId, -20.0, $alimentation->id);
+        $this->createMovement($accountId, $fiscalYearId, -30.0, $alimentation->id);
+        $this->createMovement($accountId, $fiscalYearId, 100.0, $alimentation->id);
+
+        $summary = $this->service->getCategorySummary($accountId, $fiscalYearId);
+
+        $this->assertCount(1, $summary);
+        $this->assertSame($alimentation->id, $summary[0]['category_id']);
+        $this->assertSame(100.0, $summary[0]['income']);
+        $this->assertSame(50.0, $summary[0]['expense']);
+        $this->assertSame(50.0, $summary[0]['total']);
+    }
+
+    public function testGetCategorySummaryGroupsUncategorizedMovements(): void
+    {
+        [$accountId, $fiscalYearId] = $this->createAccountAndFiscalYear();
+        $this->createMovement($accountId, $fiscalYearId, -15.0, null);
+
+        $summary = $this->service->getCategorySummary($accountId, $fiscalYearId);
+
+        $this->assertCount(1, $summary);
+        $this->assertNull($summary[0]['category_id']);
+        $this->assertNull($summary[0]['category_name']);
+    }
+
+    public function testGetCategorySummarySortedByIncomeDescending(): void
+    {
+        [$accountId, $fiscalYearId] = $this->createAccountAndFiscalYear();
+        $low = $this->service->createCategory('Faibles recettes');
+        $high = $this->service->createCategory('Fortes recettes');
+        $this->createMovement($accountId, $fiscalYearId, 10.0, $low->id);
+        $this->createMovement($accountId, $fiscalYearId, 500.0, $high->id);
+
+        $summary = $this->service->getCategorySummary($accountId, $fiscalYearId);
+
+        $this->assertSame($high->id, $summary[0]['category_id']);
+        $this->assertSame($low->id, $summary[1]['category_id']);
+    }
+
+    public function testGetCategorySummaryScopedToAccountAndFiscalYear(): void
+    {
+        [$accountId, $fiscalYearId] = $this->createAccountAndFiscalYear();
+        $otherAccountId = $this->accountRepository->create('Autre compte', Account::TYPE_BANK, null, null, null, 'intendant');
+        $this->createMovement($accountId, $fiscalYearId, -20.0, null);
+        $this->createMovement($otherAccountId, $fiscalYearId, -999.0, null);
+
+        $summary = $this->service->getCategorySummary($accountId, $fiscalYearId);
+
+        $this->assertSame(20.0, $summary[0]['expense']);
+    }
+
+    // --- getBalanceEvolution() ---
+
+    public function testGetBalanceEvolutionEmptyWhenAccountOrFiscalYearUnknown(): void
+    {
+        $this->assertSame([], $this->service->getBalanceEvolution(9999, 9999));
+    }
+
+    public function testGetBalanceEvolutionOneEntryPerMonthForAPastFiscalYear(): void
+    {
+        // Entirely in the past, so "today" never truncates it — a
+        // deterministic 12-entry result regardless of when the test runs.
+        [$accountId, $fiscalYearId] = $this->createAccountAndFiscalYear('2020-01-01', '2020-12-31');
+        $this->checkpointRepository->create($accountId, '2020-01-01', 1000.0, 'manual');
+
+        $evolution = $this->service->getBalanceEvolution($accountId, $fiscalYearId);
+
+        $this->assertCount(12, $evolution);
+        $this->assertSame('2020-01', $evolution[0]['month']);
+        $this->assertSame('2020-12', $evolution[11]['month']);
+    }
+
+    public function testGetBalanceEvolutionNeverProjectsPastToday(): void
+    {
+        $today = new \DateTimeImmutable('today');
+        [$accountId, $fiscalYearId] = $this->createAccountAndFiscalYear($today->format('Y-m-d'), $today->modify('+1 year')->format('Y-m-d'));
+        $this->checkpointRepository->create($accountId, $today->format('Y-m-d'), 1000.0, 'manual');
+
+        $evolution = $this->service->getBalanceEvolution($accountId, $fiscalYearId);
+
+        $lastMonth = end($evolution)['month'];
+        $this->assertSame($today->format('Y-m'), $lastMonth);
+    }
+
+    public function testGetBalanceEvolutionReflectsCumulativeMovements(): void
+    {
+        [$accountId, $fiscalYearId] = $this->createAccountAndFiscalYear('2020-01-01', '2020-03-31');
+        $this->checkpointRepository->create($accountId, '2020-01-01', 100.0, 'manual');
+        $this->createMovementOnDate($accountId, $fiscalYearId, '2020-02-15', -20.0);
+
+        $evolution = $this->service->getBalanceEvolution($accountId, $fiscalYearId);
+
+        $balancesByMonth = [];
+        foreach ($evolution as $point) {
+            $balancesByMonth[$point['month']] = $point['balance'];
+        }
+
+        $this->assertSame(100.0, $balancesByMonth['2020-01']);
+        $this->assertSame(80.0, $balancesByMonth['2020-02']);
+        $this->assertSame(80.0, $balancesByMonth['2020-03']);
+    }
+
+    /**
+     * @return array{0: int, 1: int}
+     */
+    private function createAccountAndFiscalYear(string $start = '2026-09-01', string $end = '2027-08-31'): array
+    {
+        $accountId = $this->accountRepository->create('Compte', Account::TYPE_BANK, null, null, null, 'intendant');
+        $fiscalYearId = $this->fiscalYearRepository->create($start . ' - ' . $end, $start, $end);
+        return [$accountId, $fiscalYearId];
+    }
+
+    private function createMovement(int $accountId, int $fiscalYearId, float $amount, ?int $categoryId): void
+    {
+        $this->transactionRepository->create(
+            $accountId, $fiscalYearId, 'ref-' . uniqid(), '2026-10-01', 'x', $amount, $categoryId, null, Transaction::SOURCE_MANUAL, null
+        );
+    }
+
+    private function createMovementOnDate(int $accountId, int $fiscalYearId, string $date, float $amount): void
+    {
+        $this->transactionRepository->create(
+            $accountId, $fiscalYearId, 'ref-' . uniqid(), $date, 'x', $amount, null, null, Transaction::SOURCE_MANUAL, null
+        );
     }
 }

@@ -142,9 +142,13 @@ CREATE TABLE IF NOT EXISTS finance_statement_imports (
     CONSTRAINT fk_fsi_account FOREIGN KEY (account_id) REFERENCES finance_accounts(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- finance_attachments: a receipt (or other supporting document), never
--- physically deleted — only archived (status = 'archived'), so a
--- mistaken deletion never loses proof of an expense. file_id references
+-- finance_attachments: a receipt (or other supporting document). A
+-- user-facing delete only ever archives it (status = 'archived'), so a
+-- mistaken deletion never loses proof of an expense — the sole
+-- exception is Task\PurgeOldMovementsHandler, which physically deletes
+-- an attachment (row + encrypted file) once its fiscal year has been
+-- purged past the retention period AND it has no remaining movement
+-- association (active or archived). file_id references
 -- the core files table (Core\File\FileAccessGuard); the file itself is
 -- stored encrypted at rest via the generic Core\File\
 -- EncryptedFileStorageService (files.encrypted = true for every

@@ -45,17 +45,17 @@ class ConfigController extends AbstractController
     }
 
     /**
-     * Ensures the daily movement-purge task is scheduled — same
+     * Ensures the monthly movement-purge task is scheduled — same
      * idempotent check-then-schedule pattern as
      * Modules\LlmConnector\Controller\ConfigController::ensureWeeklyRefreshScheduled().
      */
     private function ensurePurgeScheduled(): void
     {
-        $existing = $this->schedulerService->find('finance', 'purge_old_movements', 'daily');
+        $existing = $this->schedulerService->find('finance', 'purge_old_movements', 'monthly');
         if ($existing !== null && $existing['status'] === 'pending' && strtotime($existing['run_at']) > time()) {
             return;
         }
 
-        $this->schedulerService->schedule('finance', 'purge_old_movements', new \DateTimeImmutable('+1 day'), [], 'daily');
+        $this->schedulerService->schedule('finance', 'purge_old_movements', new \DateTimeImmutable('+1 month'), [], 'monthly');
     }
 }

@@ -117,16 +117,32 @@ class TransactionRepositoryTest extends TestCase
         $this->assertCount(0, $this->repository->findByAccountId($this->accountId));
     }
 
-    public function testDeleteOlderThanCutoff(): void
+    public function testFindIdsByAccountAndFiscalYear(): void
     {
-        $this->repository->create($this->accountId, $this->fiscalYearId, 'R1', '2020-01-01', 'Old', -1.0, null, null, Transaction::SOURCE_MANUAL, null);
-        $this->repository->create($this->accountId, $this->fiscalYearId, 'R2', '2026-10-05', 'Recent', -2.0, null, null, Transaction::SOURCE_MANUAL, null);
+        $id1 = $this->repository->create($this->accountId, $this->fiscalYearId, 'R1', '2026-10-01', 'A', -1.0, null, null, Transaction::SOURCE_MANUAL, null);
+        $stmt = $this->pdo->prepare("INSERT INTO finance_fiscal_years (label, start_date, end_date) VALUES ('other', '2020-01-01', '2020-12-31')");
+        $stmt->execute();
+        $otherFiscalYearId = (int) $this->pdo->lastInsertId();
+        $this->repository->create($this->accountId, $otherFiscalYearId, 'R2', '2020-06-01', 'B', -2.0, null, null, Transaction::SOURCE_MANUAL, null);
 
-        $deleted = $this->repository->deleteOlderThan('2025-01-01');
+        $ids = $this->repository->findIdsByAccountAndFiscalYear($this->accountId, $this->fiscalYearId);
+
+        $this->assertSame([$id1], $ids);
+    }
+
+    public function testDeleteByAccountAndFiscalYearOnlyTouchesThatFiscalYear(): void
+    {
+        $this->repository->create($this->accountId, $this->fiscalYearId, 'R1', '2026-10-01', 'A', -1.0, null, null, Transaction::SOURCE_MANUAL, null);
+        $stmt = $this->pdo->prepare("INSERT INTO finance_fiscal_years (label, start_date, end_date) VALUES ('other', '2020-01-01', '2020-12-31')");
+        $stmt->execute();
+        $otherFiscalYearId = (int) $this->pdo->lastInsertId();
+        $this->repository->create($this->accountId, $otherFiscalYearId, 'R2', '2020-06-01', 'B', -2.0, null, null, Transaction::SOURCE_MANUAL, null);
+
+        $deleted = $this->repository->deleteByAccountAndFiscalYear($this->accountId, $this->fiscalYearId);
+
         $this->assertSame(1, $deleted);
-
         $remaining = $this->repository->findByAccountId($this->accountId);
         $this->assertCount(1, $remaining);
-        $this->assertSame('Recent', $remaining[0]->label);
+        $this->assertSame('B', $remaining[0]->label);
     }
 }

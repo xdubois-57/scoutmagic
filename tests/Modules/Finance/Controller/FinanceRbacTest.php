@@ -102,8 +102,10 @@ class FinanceRbacTest extends TestCase
         $this->attachmentRepository = new AttachmentRepository($this->pdo);
         $this->transactionAttachmentRepository = new TransactionAttachmentRepository($this->pdo);
 
-        $this->financeService = new FinanceService($accountRepository, $this->categoryRepository, $this->fiscalYearRepository, $this->sectionService);
         $this->balanceService = new BalanceService($this->checkpointRepository, $this->transactionRepository);
+        $this->financeService = new FinanceService(
+            $accountRepository, $this->categoryRepository, $this->fiscalYearRepository, $this->sectionService, $this->transactionRepository, $this->balanceService
+        );
         $this->categoryRuleEngine = new CategoryRuleEngine($this->transactionRepository, $this->categoryRuleRepository);
         $parserFactory = new BankStatementParserFactory();
         $importService = new ImportService(
@@ -212,7 +214,9 @@ class FinanceRbacTest extends TestCase
     private function instantiateController(string $name): object
     {
         return match ($name) {
-            'DashboardController' => new DashboardController($this->twig, $this->financeService, $this->balanceService),
+            'DashboardController' => new DashboardController(
+                $this->twig, $this->financeService, $this->balanceService, $this->transactionRepository, $this->receiptService
+            ),
             'MovementController' => new MovementController(
                 $this->twig, $this->financeService, $this->transactionRepository, $this->categoryRepository, $this->fiscalYearRepository,
                 $this->attachmentRepository, $this->transactionAttachmentRepository, $this->receiptService, $this->journalService

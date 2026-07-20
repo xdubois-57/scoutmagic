@@ -60,6 +60,19 @@ class BalanceCheckpointRepository
     }
 
     /**
+     * Used by Task\PurgeOldMovementsHandler right after inserting a
+     * consolidated checkpoint at the purge cutoff — every checkpoint
+     * that predates it is now redundant (nothing to reference it since
+     * the transactions it covered have been purged too).
+     */
+    public function deleteBeforeOrAt(int $accountId, string $date): int
+    {
+        $stmt = $this->pdo->prepare('DELETE FROM finance_balance_checkpoints WHERE account_id = ? AND checkpoint_date <= ?');
+        $stmt->execute([$accountId, $date]);
+        return $stmt->rowCount();
+    }
+
+    /**
      * @param array<string, mixed> $row
      */
     private function hydrate(array $row): BalanceCheckpoint
