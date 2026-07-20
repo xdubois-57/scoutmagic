@@ -1,0 +1,15 @@
+{#
+  Generic reusable rich text preview — the display half of the "rich text
+  field" pair, deliberately decoupled from its edit trigger (see
+  partials/rich_text_edit_button.html.twig, matched by content_key rather
+  than DOM nesting) so a caller can place the edit affordance anywhere in
+  its own layout — e.g. as one icon among several in a row of item
+  actions (see partials/list_editor.html.twig's item_edit block).
+
+  Usage:
+  {% include 'partials/rich_text_field.html.twig' with {
+      content_key: 'banner_content_' ~ item.id,
+      content_value: item.content
+  } %}
+#}
+<div class="rich-text-field-preview" data-key="{{ content_key }}">{{ content_value|raw }}</div>

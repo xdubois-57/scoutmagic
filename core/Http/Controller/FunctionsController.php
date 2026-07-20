@@ -9,9 +9,13 @@ use Core\Http\Response;
 use Core\Import\FunctionRepository;
 use Core\Journal\JournalService;
 use Core\Member\SectionService;
+use Core\Member\UnitStaffSectionService;
 use Core\Module\FunctionFlagsProvider;
+use Core\ScoutYear\ScoutYearResolver;
+use Core\ScoutYear\ScoutYearSession;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
+use Core\Security\Role;
 use Twig\Environment;
 
 class FunctionsController extends AbstractController
@@ -30,6 +34,8 @@ class FunctionsController extends AbstractController
         private FunctionRepository $functionRepo,
         private JournalService $journalService,
         private SectionService $sectionService,
+        private UnitStaffSectionService $unitStaffSectionService,
+        private ScoutYearResolver $scoutYearResolver,
         private ?FunctionFlagsProvider $functionFlagsProvider = null
     ) {
     }
@@ -71,9 +77,13 @@ class FunctionsController extends AbstractController
         }
 
         // Sections grouped by branch, including hidden ones — this is the
-        // only page that manages visibility, so it needs to see everything.
+        // only page that manages visibility and color, so it needs to see
+        // everything. effective_color is what every picker/list across the
+        // site actually renders (explicit override, or the branch-derived
+        // default) — the color input is pre-filled with it either way.
         $sectionGroups = [];
         foreach ($this->sectionService->getAllWithBranches(includeHidden: true) as $section) {
+            $section['effective_color'] = SectionService::colorForSection($section);
             $branchName = $section['branch_name'];
             if (!isset($sectionGroups[$branchName])) {
                 $sectionGroups[$branchName] = ['branch_name' => $branchName, 'sections' => []];
@@ -135,6 +145,14 @@ class FunctionsController extends AbstractController
 
         // Update role and set confirmed=true
         $this->functionRepo->updateRole($functionId, $newRole, true);
+
+        // A role change may move members into or out of "Staff d'U" — role
+        // (unlike the raw Desk import) is only known once confirmed here.
+        if ($oldRole !== $newRole) {
+            $currentRole = Role::fromString(AuthSession::getRole());
+            $effectiveYear = $this->scoutYearResolver->getEffectiveYear(ScoutYearSession::getPreviewId(), $currentRole);
+            $this->unitStaffSectionService->syncMembership($effectiveYear->id);
+        }
 
         // Log the change (role change or confirmation)
         $description = $wasConfirmed
@@ -282,5 +300,54 @@ class FunctionsController extends AbstractController
         );
 
         return $this->json(['success' => true]);
+    }
+
+    /**
+     * POST /config/functions/section-color — set or clear a section's
+     * explicit color override (AJAX, JSON). Empty/missing color clears the
+     * override, reverting to the branch-derived default
+     * (Core\Member\SectionService::colorForSection()).
+     *
+     * @param array<string, string> $params
+     */
+    public function updateSectionColor(Request $request, array $params): Response
+    {
+        $json = json_decode($request->getRawBody(), true);
+        if (!is_array($json)) {
+            return $this->json(['success' => false, 'error' => 'Requête invalide.']);
+        }
+
+        $csrfToken = (string) ($json['_csrf_token'] ?? '');
+        if (!CsrfGuard::validateToken($csrfToken)) {
+            return $this->json(['success' => false, 'error' => 'Jeton CSRF invalide.']);
+        }
+
+        $sectionId = isset($json['section_id']) ? (int) $json['section_id'] : 0;
+        $section = $this->sectionService->getSection($sectionId);
+        if ($section === null) {
+            return $this->json(['success' => false, 'error' => 'Section introuvable.']);
+        }
+
+        $color = isset($json['color']) ? (string) $json['color'] : null;
+        try {
+            $this->sectionService->updateSectionColor($sectionId, $color);
+        } catch (\InvalidArgumentException $e) {
+            return $this->json(['success' => false, 'error' => $e->getMessage()]);
+        }
+
+        $this->journalService->log(
+            'core',
+            'section_color_changed',
+            'info',
+            "Couleur de la section {$section['desk_code']} modifiée",
+            ['section_id' => $sectionId, 'color' => $color],
+            AuthSession::getUserAccountId()
+        );
+
+        return $this->json(['success' => true, 'color' => SectionService::colorForSection([
+            'desk_code' => $section['desk_code'],
+            'branch_sort_order' => $section['branch_sort_order'],
+            'color' => $color,
+        ])]);
     }
 }

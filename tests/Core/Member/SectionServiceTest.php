@@ -164,7 +164,7 @@ class SectionServiceTest extends TestCase
         $sectionId = $this->createSection('BAL01', $balId);
         $memberYearId = $this->createMemberInSection($sectionId, 'Alice', 'chief');
 
-        $this->pdo->exec("INSERT INTO badges (name, icon) VALUES ('Infirmier', 'cross')");
+        $this->pdo->exec("INSERT INTO badges (name) VALUES ('Infirmier')");
         $badgeId = (int) $this->pdo->lastInsertId();
         $this->memberBadgeRepository->assign($memberYearId, $badgeId, null);
 
@@ -358,5 +358,81 @@ class SectionServiceTest extends TestCase
         $ids = array_column($this->service->getAllWithBranches(includeHidden: true), 'id');
 
         $this->assertNotContains($inactiveId, $ids);
+    }
+
+    public function testColorForSectionReturnsDedicatedColorForStaffdu(): void
+    {
+        $color = SectionService::colorForSection(['desk_code' => 'STAFFDU', 'branch_sort_order' => 50]);
+
+        $this->assertMatchesRegularExpression('/^#[0-9A-Fa-f]{6}$/', $color);
+        // Distinct from a regular branch color (never falls back to the
+        // colorForBranchSortOrder() gray, since sort_order 50 has no entry
+        // in MemberYearService::BRANCHES).
+        $this->assertNotSame('#6c757d', $color);
+    }
+
+    public function testColorForSectionDelegatesToBranchColorForRegularSections(): void
+    {
+        $color = SectionService::colorForSection(['desk_code' => 'BAL01', 'branch_sort_order' => 10]);
+
+        $this->assertSame(\Core\Member\MemberYearService::colorForBranchSortOrder(10), $color);
+    }
+
+    public function testColorForSectionIsConsistentBetweenStaffduAndRegularSections(): void
+    {
+        $staffduColor = SectionService::colorForSection(['desk_code' => 'STAFFDU', 'branch_sort_order' => 50]);
+        $regularColor = SectionService::colorForSection(['desk_code' => 'BAL01', 'branch_sort_order' => 10]);
+
+        $this->assertNotSame($staffduColor, $regularColor);
+    }
+
+    public function testColorForSectionExplicitOverrideWinsOverBranchDefault(): void
+    {
+        $color = SectionService::colorForSection(['desk_code' => 'BAL01', 'branch_sort_order' => 10, 'color' => '#123456']);
+
+        $this->assertSame('#123456', $color);
+    }
+
+    public function testColorForSectionExplicitOverrideWinsOverStaffduDefault(): void
+    {
+        $color = SectionService::colorForSection(['desk_code' => 'STAFFDU', 'branch_sort_order' => 50, 'color' => '#123456']);
+
+        $this->assertSame('#123456', $color);
+    }
+
+    public function testColorForSectionIgnoresEmptyOverride(): void
+    {
+        $color = SectionService::colorForSection(['desk_code' => 'BAL01', 'branch_sort_order' => 10, 'color' => '']);
+
+        $this->assertSame(\Core\Member\MemberYearService::colorForBranchSortOrder(10), $color);
+    }
+
+    public function testUpdateSectionColorPersistsOverride(): void
+    {
+        $sectionId = $this->createSection('BAL01', 1);
+
+        $this->service->updateSectionColor($sectionId, '#123456');
+
+        $section = $this->service->getSection($sectionId);
+        $this->assertSame('#123456', $section['color']);
+    }
+
+    public function testUpdateSectionColorClearsOverrideWhenNull(): void
+    {
+        $sectionId = $this->createSection('BAL01', 1);
+        $this->service->updateSectionColor($sectionId, '#123456');
+
+        $this->service->updateSectionColor($sectionId, null);
+
+        $section = $this->service->getSection($sectionId);
+        $this->assertNull($section['color']);
+    }
+
+    public function testUpdateSectionColorRejectsInvalidHex(): void
+    {
+        $sectionId = $this->createSection('BAL01', 1);
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->service->updateSectionColor($sectionId, 'not-a-color');
     }
 }

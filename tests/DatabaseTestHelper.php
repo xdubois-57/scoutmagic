@@ -82,6 +82,7 @@ class DatabaseTestHelper
             email TEXT,
             is_visible INTEGER NOT NULL DEFAULT 1,
             is_active INTEGER NOT NULL DEFAULT 1,
+            color TEXT,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (age_branch_id) REFERENCES age_branches(id)
         )');

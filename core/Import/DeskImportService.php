@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Core\Import;
 
+use Core\Member\UnitStaffSectionService;
 use Core\Security\EncryptionService;
 use Core\Security\UserAccountRepository;
 
@@ -17,7 +18,8 @@ class DeskImportService
         private MemberRepository $memberRepository,
         private MemberYearRepository $memberYearRepository,
         private ImportJournalRepository $importJournalRepository,
-        private UserAccountRepository $userAccountRepository
+        private UserAccountRepository $userAccountRepository,
+        private UnitStaffSectionService $unitStaffSectionService
     ) {
     }
 
@@ -41,9 +43,19 @@ class DeskImportService
             // never deleted, hidden from the site until it has members again.
             $this->mappingResolver->deactivateAllSections();
 
+            // "Staff d'U" is never referenced by a CSV "Section" column, so
+            // deactivateAllSections() above would otherwise leave it
+            // inactive — force it back on immediately.
+            $this->unitStaffSectionService->ensureSection();
+
             foreach ($parsed->members as $member) {
                 $this->importMember($member, $scoutYearId, $warnings);
             }
+
+            // Chef d'unité role is only known once a function is confirmed
+            // on Config Desk, not from the CSV itself — recompute Staff d'U
+            // membership from whatever functions are already role='admin'.
+            $this->unitStaffSectionService->syncMembership($scoutYearId);
 
             $this->pdo->commit();
         } catch (\Throwable $e) {

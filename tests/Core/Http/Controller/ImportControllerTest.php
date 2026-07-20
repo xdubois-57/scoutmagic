@@ -19,6 +19,7 @@ use Core\Import\ImportSectionRepository;
 use Core\Import\MappingResolver;
 use Core\Import\MemberRepository;
 use Core\Import\MemberYearRepository;
+use Core\Member\UnitStaffSectionService;
 use Core\ScoutYear\ScoutYearResolver;
 use Core\Security\EncryptionService;
 use Core\Security\UserAccountRepository;
@@ -100,7 +101,8 @@ class ImportControllerTest extends TestCase
         $parser = new DeskCsvParser();
         $importService = new DeskImportService(
             $this->pdo, $this->encryption, $parser, $mappingResolver,
-            $memberRepo, $memberYearRepo, $importJournalRepo, $userAccountRepo
+            $memberRepo, $memberYearRepo, $importJournalRepo, $userAccountRepo,
+            new UnitStaffSectionService($this->pdo)
         );
 
         $settingService = new SettingService(new SettingRepository($this->pdo));

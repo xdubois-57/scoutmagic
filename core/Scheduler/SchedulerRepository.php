@@ -53,6 +53,27 @@ class SchedulerRepository
     }
 
     /**
+     * All scheduled actions for a given module/task key, any status,
+     * newest run_at first — for a module's own "planned actions" page (e.g.
+     * the SOS module's list of upcoming/past redirect changes), unlike
+     * findByModuleAndKey() which only returns a single pending row by
+     * reference.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function findByModuleAndTaskKey(string $moduleId, string $taskKey, int $limit = 100): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT * FROM scheduled_actions WHERE module_id = ? AND task_key = ? ORDER BY run_at DESC LIMIT ?'
+        );
+        $stmt->bindValue(1, $moduleId);
+        $stmt->bindValue(2, $taskKey);
+        $stmt->bindValue(3, $limit, \PDO::PARAM_INT);
+        $stmt->execute();
+        return $stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
+    }
+
+    /**
      * Atomically claim overdue tasks for processing.
      *
      * @return array<int, array<string, mixed>>
@@ -98,6 +119,22 @@ class SchedulerRepository
             "UPDATE scheduled_actions SET status = 'canceled' WHERE id = ?"
         );
         $stmt->execute([$id]);
+    }
+
+    /**
+     * Purge old scheduled actions (any status) for a module/task key, run_at
+     * before the cutoff — used by modules whose own retention cleanup needs
+     * to also drop the scheduled_actions rows it created (e.g. the SOS
+     * module's >1 year purge, module spec §6). Mirrors
+     * JournalService::cleanup()'s retention-purge pattern.
+     */
+    public function deleteOlderThan(string $moduleId, string $taskKey, string $cutoffRunAt): int
+    {
+        $stmt = $this->pdo->prepare(
+            'DELETE FROM scheduled_actions WHERE module_id = ? AND task_key = ? AND run_at < ?'
+        );
+        $stmt->execute([$moduleId, $taskKey, $cutoffRunAt]);
+        return $stmt->rowCount();
     }
 
     /**

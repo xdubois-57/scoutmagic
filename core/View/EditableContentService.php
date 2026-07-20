@@ -42,4 +42,12 @@ class EditableContentService
 
         $this->repository->upsert($key, $type, $value, null, $modifiedBy);
     }
+
+    /**
+     * Removes a content key entirely — see EditableContentRepository::delete().
+     */
+    public function delete(string $key): void
+    {
+        $this->repository->delete($key);
+    }
 }

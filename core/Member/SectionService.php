@@ -10,11 +10,41 @@ use Core\Security\EncryptionService;
 
 class SectionService
 {
+    /** "Staff d'U" — outside MemberYearService::BRANCHES' age-branch palette
+     *  (it has no age range, so it can't just be added there without
+     *  corrupting effective-age computation), so it needs its own entry
+     *  here rather than falling through colorForBranchSortOrder()'s
+     *  unmapped-index fallback (gray). */
+    private const STAFFDU_COLOR = '#7EC8E3';
+
     public function __construct(
         private Connection $connection,
         private EncryptionService $encryption,
         private MemberBadgeRepository $memberBadgeRepository
     ) {
+    }
+
+    /**
+     * Single source of truth for "what color represents this section" —
+     * every section picker/list across the site (Staffs, trombinoscope,
+     * the calendar module, statistics) should call this rather than
+     * MemberYearService::colorForBranchSortOrder() directly, so "Staff
+     * d'U" gets a real, consistent color everywhere instead of silently
+     * falling back to gray. An explicit admin override
+     * (sections.color, Configuration > Config Desk) always wins over the
+     * branch-derived default.
+     *
+     * @param array{desk_code: string, branch_sort_order: int, color?: ?string} $section
+     */
+    public static function colorForSection(array $section): string
+    {
+        if (!empty($section['color'])) {
+            return $section['color'];
+        }
+        if ($section['desk_code'] === UnitStaffSectionService::DESK_CODE) {
+            return self::STAFFDU_COLOR;
+        }
+        return MemberYearService::colorForBranchSortOrder($section['branch_sort_order']);
     }
 
     /**
@@ -28,12 +58,12 @@ class SectionService
      * is true — pass true only for the Config Desk page, which needs to see
      * (and manage) hidden-but-active sections.
      *
-     * @return array<int, array{id: int, desk_code: string, name: ?string, email: ?string, age_branch_id: int, branch_name: string, branch_sort_order: int, is_visible: bool, is_active: bool}>
+     * @return array<int, array{id: int, desk_code: string, name: ?string, email: ?string, age_branch_id: int, branch_name: string, branch_sort_order: int, is_visible: bool, is_active: bool, color: ?string}>
      */
     public function getAllWithBranches(bool $includeHidden = false): array
     {
         $pdo = $this->connection->getPdo();
-        $sql = 'SELECT s.id, s.desk_code, s.name, s.email, s.age_branch_id, s.is_visible, s.is_active,
+        $sql = 'SELECT s.id, s.desk_code, s.name, s.email, s.age_branch_id, s.is_visible, s.is_active, s.color,
                        ab.label AS branch_name, ab.sort_order AS branch_sort_order
                 FROM sections s
                 JOIN age_branches ab ON s.age_branch_id = ab.id
@@ -58,6 +88,7 @@ class SectionService
                 'branch_sort_order' => (int) $row['branch_sort_order'],
                 'is_visible' => (bool) $row['is_visible'],
                 'is_active' => (bool) $row['is_active'],
+                'color' => $row['color'] !== null ? (string) $row['color'] : null,
             ];
         }
         return $sections;
@@ -66,14 +97,14 @@ class SectionService
     /**
      * Get a single section by ID with branch info.
      *
-     * @return array{id: int, desk_code: string, name: ?string, email: ?string, age_branch_id: int, branch_name: string}|null
+     * @return array{id: int, desk_code: string, name: ?string, email: ?string, age_branch_id: int, branch_name: string, branch_sort_order: int, color: ?string}|null
      */
     public function getSection(int $sectionId): ?array
     {
         $pdo = $this->connection->getPdo();
         $stmt = $pdo->prepare(
-            'SELECT s.id, s.desk_code, s.name, s.email, s.age_branch_id,
-                    ab.label AS branch_name
+            'SELECT s.id, s.desk_code, s.name, s.email, s.age_branch_id, s.color,
+                    ab.label AS branch_name, ab.sort_order AS branch_sort_order
              FROM sections s
              JOIN age_branches ab ON s.age_branch_id = ab.id
              WHERE s.id = ?'
@@ -90,6 +121,8 @@ class SectionService
             'email' => $row['email'] !== null ? (string) $row['email'] : null,
             'age_branch_id' => (int) $row['age_branch_id'],
             'branch_name' => (string) $row['branch_name'],
+            'branch_sort_order' => (int) $row['branch_sort_order'],
+            'color' => $row['color'] !== null ? (string) $row['color'] : null,
         ];
     }
 
@@ -139,48 +172,6 @@ class SectionService
     }
 
     /**
-     * Get staff members who have an admin or chief role function but no section assignment.
-     * These are considered part of "Staff d'U".
-     *
-     * @return MemberProfile[]
-     */
-    public function getUnitStaff(int $scoutYearId): array
-    {
-        $pdo = $this->connection->getPdo();
-
-        // Find member_year IDs with admin/chief functions but no section
-        $stmt = $pdo->prepare(
-            'SELECT DISTINCT mf.member_year_id
-             FROM member_functions mf
-             JOIN member_years my ON mf.member_year_id = my.id
-             JOIN functions f ON mf.function_id = f.id
-             WHERE my.scout_year_id = ?
-               AND my.is_active = 1
-               AND f.role IN (\'admin\', \'chief\')
-               AND mf.section_id IS NULL'
-        );
-        $stmt->execute([$scoutYearId]);
-        $memberYearIds = array_map(fn(array $row) => (int) $row['member_year_id'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
-
-        if (count($memberYearIds) === 0) {
-            return [];
-        }
-
-        $profiles = [];
-        foreach ($memberYearIds as $myId) {
-            $profile = $this->hydrateMemberProfile($myId);
-            if ($profile !== null) {
-                $profiles[] = $profile;
-            }
-        }
-
-        usort($profiles, fn(MemberProfile $a, MemberProfile $b) =>
-            strcasecmp($a->getDisplayName(), $b->getDisplayName()));
-
-        return $profiles;
-    }
-
-    /**
      * Update a section's configurable info (name, email).
      */
     public function updateSectionInfo(int $sectionId, ?string $name, ?string $email): void
@@ -201,6 +192,26 @@ class SectionService
         $pdo = $this->connection->getPdo();
         $stmt = $pdo->prepare('UPDATE sections SET is_visible = ? WHERE id = ?');
         $stmt->execute([$visible ? 1 : 0, $sectionId]);
+    }
+
+    /**
+     * Set (or clear, when $color is null/empty) the section's explicit
+     * color override — see colorForSection()'s doc comment. Validated as a
+     * "#RRGGBB" hex string so every consumer of colorForSection() can trust
+     * the value is safe to drop straight into a CSS background-color.
+     *
+     * @throws \InvalidArgumentException on an invalid hex color
+     */
+    public function updateSectionColor(int $sectionId, ?string $color): void
+    {
+        $clean = $color !== null && trim($color) !== '' ? trim($color) : null;
+        if ($clean !== null && !preg_match('/^#[0-9A-Fa-f]{6}$/', $clean)) {
+            throw new \InvalidArgumentException('Couleur invalide — format hexadécimal attendu (ex : #378ADD).');
+        }
+
+        $pdo = $this->connection->getPdo();
+        $stmt = $pdo->prepare('UPDATE sections SET color = ? WHERE id = ?');
+        $stmt->execute([$clean, $sectionId]);
     }
 
     /**

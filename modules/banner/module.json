@@ -1,0 +1,58 @@
+{
+  "id": "banner",
+  "name": "Bannière",
+  "description": "Affiche un message choisi aléatoirement parmi une liste de bannières configurables sur la page d'accueil.",
+  "version": "1.0.0",
+  "enabled_by_default": false,
+  "routes": [
+    {
+      "path": "/config/banner",
+      "method": "GET",
+      "controller": "Modules\\Banner\\Controller\\BannerConfigController",
+      "action": "index",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": "Bannière"
+    },
+    {
+      "path": "/config/banner/add",
+      "method": "POST",
+      "controller": "Modules\\Banner\\Controller\\BannerConfigController",
+      "action": "add",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": ""
+    },
+    {
+      "path": "/config/banner/active",
+      "method": "POST",
+      "controller": "Modules\\Banner\\Controller\\BannerConfigController",
+      "action": "updateActive",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": ""
+    },
+    {
+      "path": "/config/banner/reorder",
+      "method": "POST",
+      "controller": "Modules\\Banner\\Controller\\BannerConfigController",
+      "action": "reorder",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": ""
+    },
+    {
+      "path": "/config/banner/delete",
+      "method": "POST",
+      "controller": "Modules\\Banner\\Controller\\BannerConfigController",
+      "action": "delete",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": ""
+    }
+  ],
+  "settings": [],
+  "cookies": [],
+  "scheduled_tasks": [],
+  "storage": {}
+}

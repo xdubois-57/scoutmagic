@@ -65,4 +65,25 @@ class SchedulerService
     {
         $this->repository->cancel($actionId);
     }
+
+    /**
+     * All scheduled actions for a module/task key, any status, newest
+     * run_at first — for a module's own "planned actions" list (see
+     * SchedulerRepository::findByModuleAndTaskKey()).
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function findAllForTask(string $moduleId, string $taskKey, int $limit = 100): array
+    {
+        return $this->repository->findByModuleAndTaskKey($moduleId, $taskKey, $limit);
+    }
+
+    /**
+     * Purge old scheduled actions (any status) for a module/task, run_at
+     * before $cutoff — see SchedulerRepository::deleteOlderThan().
+     */
+    public function deleteOlderThan(string $moduleId, string $taskKey, \DateTimeInterface $cutoff): int
+    {
+        return $this->repository->deleteOlderThan($moduleId, $taskKey, $cutoff->format('Y-m-d H:i:s'));
+    }
 }

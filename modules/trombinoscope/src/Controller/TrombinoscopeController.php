@@ -7,7 +7,6 @@ namespace Modules\Trombinoscope\Controller;
 use Core\Http\Controller\AbstractController;
 use Core\Http\Request;
 use Core\Http\Response;
-use Core\Member\MemberYearService;
 use Core\Member\SectionService;
 use Core\ScoutYear\ScoutYearResolver;
 use Core\ScoutYear\ScoutYearSession;
@@ -47,7 +46,7 @@ class TrombinoscopeController extends AbstractController
             ['id' => self::ALL_SECTIONS_ID, 'desk_code' => '__all__', 'name' => 'Toutes', 'branch_name' => '', 'color' => null],
         ];
         foreach ($allSections as $section) {
-            $section['color'] = MemberYearService::colorForBranchSortOrder($section['branch_sort_order']);
+            $section['color'] = SectionService::colorForSection($section);
             $pickerSections[] = $section;
         }
 

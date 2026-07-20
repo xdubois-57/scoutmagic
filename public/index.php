@@ -65,6 +65,7 @@ use Core\Member\MemberYearService;
 use Core\Member\Repository\MemberSearchRepository;
 use Core\Member\Service\MemberSearchService;
 use Core\Member\SectionService;
+use Core\Member\UnitStaffSectionService;
 use Core\ScoutYear\ScoutYearAdminService;
 use Core\ScoutYear\ScoutYearResolver;
 use Core\ScoutYear\ScoutYearSession;
@@ -329,9 +330,10 @@ $importJournalRepo = new ImportJournalRepository($pdo);
 $userAccountRepo = new UserAccountRepository($pdo, $encryptionService);
 $mappingResolver = new MappingResolver($functionRepo, $ageBranchRepo, $importSectionRepo, $feeCategoryRepo);
 $csvParser = new DeskCsvParser();
+$unitStaffSectionService = new UnitStaffSectionService($pdo);
 $importService = new DeskImportService(
     $pdo, $encryptionService, $csvParser, $mappingResolver,
-    $memberRepo, $memberYearRepo, $importJournalRepo, $userAccountRepo
+    $memberRepo, $memberYearRepo, $importJournalRepo, $userAccountRepo, $unitStaffSectionService
 );
 $roleResolver = new RoleResolver($memberYearRepo, $encryptionService, $pdo);
 $memberService = new MemberService($memberYearRepo, $encryptionService, $connection);
@@ -440,9 +442,9 @@ $menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Import Desk', '/admin/imp
 $menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Journal', '/admin/journal', 'admin', 20);
 $menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Année scoute', '/admin/scout-year', 'admin', 30);
 $menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Membres', '/admin/members', 'admin', 40);
-$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Configuration générale', '/config/general', 'superadmin', 10);
-$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Configuration du site', '/setup', 'superadmin', 15);
-$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Config Desk', '/config/functions', 'superadmin', 20);
+$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Générale', '/config/general', 'superadmin', 10);
+$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Technique', '/setup', 'superadmin', 15);
+$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Desk', '/config/functions', 'superadmin', 20);
 $menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Paramètres', '/config/settings', 'superadmin', 30);
 $menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Actions planifiées', '/config/scheduled', 'superadmin', 40);
 
@@ -463,8 +465,18 @@ $moduleManager = new ModuleManager(
     $router
 );
 
-// Set up SchedulerRunner with ModuleManager
+// Set up SchedulerRunner with ModuleManager and the context task handlers run
+// with — without this, processOverdue() throws the moment it reaches a real
+// (module-registered) task, since TaskContext has no fallback construction.
 $schedulerRunner->setModuleManager($moduleManager);
+$schedulerRunner->setTaskContext(new TaskContext(
+    $connection,
+    $encryptionService,
+    $mailService,
+    $journalService,
+    $settingService,
+    $userAccountRepo
+));
 
 // Add dynamic member entries to Espace des animés
 if (AuthSession::isAuthenticated()) {
@@ -537,6 +549,7 @@ $router->addRoute('POST', '/config-mode/deactivate', ConfigModeController::class
 
 // Editable content API
 $router->addRoute('POST', '/api/editable-content', EditableContentController::class, 'update', 'superadmin');
+$router->addRoute('POST', '/api/rich-text-content', EditableContentController::class, 'updateField', 'superadmin');
 
 // Cookie consent
 $router->addRoute('GET', '/cookies', CookieController::class, 'preferences', 'public');
@@ -600,6 +613,7 @@ $router->addRoute('POST', '/config/functions/update', FunctionsController::class
 $router->addRoute('POST', '/config/functions/flags', FunctionsController::class, 'updateFlags', 'superadmin');
 $router->addRoute('POST', '/config/functions/section-name', FunctionsController::class, 'updateSectionName', 'superadmin');
 $router->addRoute('POST', '/config/functions/section-visibility', FunctionsController::class, 'updateSectionVisibility', 'superadmin');
+$router->addRoute('POST', '/config/functions/section-color', FunctionsController::class, 'updateSectionColor', 'superadmin');
 
 // Load enabled modules (routes registered AFTER core routes so core takes priority)
 $moduleManager->loadEnabledModules();
@@ -663,7 +677,7 @@ $frontController->registerController(AuthController::class, $authController);
 $frontController->registerController(AccountController::class, new AccountController($twig, $userAccountRepo, $webAuthnCredentialRepo, $webAuthnService));
 $frontController->registerController(ImportController::class, new ImportController($twig, $importService, $scoutYearResolver, $importJournalRepo, $functionRepo, $storagePath));
 $frontController->registerController(MemberController::class, new MemberController($twig, $memberService, $memberYearService, $journalService));
-$frontController->registerController(StaffsController::class, new StaffsController($twig, $sectionService, $memberService, $scoutYearResolver, $journalService, $badgeService));
+$frontController->registerController(StaffsController::class, new StaffsController($twig, $sectionService, $memberService, $scoutYearResolver, $journalService, $badgeService, $unitStaffSectionService));
 $frontController->registerController(ConfigModeController::class, new ConfigModeController($twig));
 $editableContentController = new EditableContentController($twig, $editableContentService);
 $editableContentController->setJournalService($journalService);
@@ -680,7 +694,7 @@ $frontController->registerController(MemberSearchController::class, new MemberSe
 $frontController->registerController(SettingsController::class, new SettingsController($twig, $settingService, $journalService));
 $frontController->registerController(ScheduledActionsController::class, new ScheduledActionsController($twig, $schedulerRepo));
 $frontController->registerController(ConfigGeneralController::class, new ConfigGeneralController($twig, $moduleManager, $badgeService, $journalService));
-$frontController->registerController(FunctionsController::class, new FunctionsController($twig, $functionRepo, $journalService, $sectionService));
+$frontController->registerController(FunctionsController::class, new FunctionsController($twig, $functionRepo, $journalService, $sectionService, $unitStaffSectionService, $scoutYearResolver));
 $frontController->registerController(PlaceholderController::class, new PlaceholderController($twig));
 
 // Module controllers with dependencies (only wired when the module is enabled).
@@ -705,7 +719,7 @@ if (in_array('trombinoscope', $moduleManager->getEnabledModuleIds(), true)) {
     );
     $frontController->registerController(
         FunctionsController::class,
-        new FunctionsController($twig, $functionRepo, $journalService, $sectionService, $trombinoscopeFunctionFlagsService)
+        new FunctionsController($twig, $functionRepo, $journalService, $sectionService, $unitStaffSectionService, $scoutYearResolver, $trombinoscopeFunctionFlagsService)
     );
 
     $trombinoscopeService = new \Modules\Trombinoscope\Service\TrombinoscopeService(
@@ -715,6 +729,121 @@ if (in_array('trombinoscope', $moduleManager->getEnabledModuleIds(), true)) {
     $frontController->registerController(
         \Modules\Trombinoscope\Controller\TrombinoscopeController::class,
         new \Modules\Trombinoscope\Controller\TrombinoscopeController($twig, $sectionService, $trombinoscopeService, $scoutYearResolver)
+    );
+}
+
+if (in_array('calendar', $moduleManager->getEnabledModuleIds(), true)) {
+    $calendarRepo = new \Modules\Calendar\Repository\CalendarRepository($pdo);
+    $calendarEventRepo = new \Modules\Calendar\Repository\CalendarEventRepository($pdo);
+    $calendarPersonalTokenRepo = new \Modules\Calendar\Repository\CalendarPersonalTokenRepository($pdo);
+    $calendarUnitFeedTokenRepo = new \Modules\Calendar\Repository\CalendarUnitFeedTokenRepository($pdo);
+
+    $calendarService = new \Modules\Calendar\Service\CalendarService(
+        $calendarRepo, $calendarEventRepo, $sectionService, $calendarUnitFeedTokenRepo
+    );
+    $calendarNotificationService = new \Modules\Calendar\Service\CalendarNotificationService(
+        $schedulerService, $settingService, $calendarService, $calendarEventRepo
+    );
+    $calendarEventService = new \Modules\Calendar\Service\CalendarEventService(
+        $calendarEventRepo, $calendarService, $calendarNotificationService
+    );
+    $calendarPersonalFeedService = new \Modules\Calendar\Service\PersonalFeedService(
+        $calendarPersonalTokenRepo, $calendarService, $calendarEventRepo,
+        $roleResolver, $memberService, $userAccountRepo, $sectionService
+    );
+    $calendarPickerService = new \Modules\Calendar\Service\CalendarPickerService(
+        $calendarService, $calendarPersonalFeedService
+    );
+    $monthGridBuilder = new \Core\View\MonthGrid\MonthGridBuilder();
+    $calendarIcsBuilder = new \Modules\Calendar\Service\IcsBuilder();
+
+    $frontController->registerController(
+        \Modules\Calendar\Controller\CalendarPublicController::class,
+        new \Modules\Calendar\Controller\CalendarPublicController(
+            $twig, $calendarService, $calendarPickerService, $monthGridBuilder, $calendarPersonalFeedService,
+            $calendarIcsBuilder, $scoutYearResolver, $journalService
+        )
+    );
+    $frontController->registerController(
+        \Modules\Calendar\Controller\CalendarChiefController::class,
+        new \Modules\Calendar\Controller\CalendarChiefController(
+            $twig, $calendarService, $calendarPickerService, $monthGridBuilder, $calendarEventService,
+            $sectionService, $memberService, $scoutYearResolver, $journalService, $settingService
+        )
+    );
+    $frontController->registerController(
+        \Modules\Calendar\Controller\CalendarConfigController::class,
+        new \Modules\Calendar\Controller\CalendarConfigController(
+            $twig, $calendarService, $sectionService, $settingService, $journalService, $calendarNotificationService
+        )
+    );
+}
+
+if (in_array('sos_staff', $moduleManager->getEnabledModuleIds(), true)) {
+    $sosProviderCredentialRepo = new \Modules\SosStaff\Repository\ProviderCredentialRepository($pdo, $encryptionService);
+    $sosSettingsRepo = new \Modules\SosStaff\Repository\SosSettingsRepository($pdo);
+    $sosExcludedSectionRepo = new \Modules\SosStaff\Repository\ExcludedSectionRepository($pdo);
+    $sosOnCallRepo = new \Modules\SosStaff\Repository\OnCallRepository($pdo);
+    $sosCalendarSyncRepo = new \Modules\SosStaff\Repository\CalendarSyncRepository($pdo);
+
+    // Optional dependency on the trombinoscope module — the default
+    // number's auto-resolution falls back to the first Staff d'U roster
+    // member (Service\SosSettingsService) when trombinoscope is disabled or
+    // no "responsable" is flagged, so this is never a hard requirement.
+    $sosTrombinoscopeRepo = in_array('trombinoscope', $moduleManager->getEnabledModuleIds(), true)
+        ? new \Modules\Trombinoscope\Repository\TrombinoscopeRepository($connection)
+        : null;
+
+    $sosProviderConfigService = new \Modules\SosStaff\Service\ProviderConfigService($sosProviderCredentialRepo);
+    $sosSettingsService = new \Modules\SosStaff\Service\SosSettingsService(
+        $sosExcludedSectionRepo, $sosSettingsRepo, $sectionService, $memberYearRepo, $unitStaffSectionService,
+        $settingService, $sosTrombinoscopeRepo
+    );
+    $sosOnCallService = new \Modules\SosStaff\Service\OnCallService($sosOnCallRepo, $schedulerService, $sosSettingsService);
+    $sosRedirectService = new \Modules\SosStaff\Service\RedirectService(
+        $sosProviderConfigService, $sosSettingsService, $memberService, $userAccountRepo, $mailService, $journalService, $twig
+    );
+
+    // Optional dependency on the calendar module (module spec §5) — sync
+    // and the admin page's section-activity columns both no-op gracefully
+    // when it's disabled, per Service\CalendarSyncService's own contract.
+    $sosCalendarService = in_array('calendar', $moduleManager->getEnabledModuleIds(), true) ? $calendarService : null;
+    $sosCalendarEventService = in_array('calendar', $moduleManager->getEnabledModuleIds(), true) ? $calendarEventService : null;
+    $sosCalendarSyncService = new \Modules\SosStaff\Service\CalendarSyncService(
+        $sosCalendarSyncRepo, $sosOnCallRepo, $memberService, $sosCalendarService, $sosCalendarEventService
+    );
+
+    $frontController->registerController(
+        \Modules\SosStaff\Controller\SosConfigController::class,
+        new \Modules\SosStaff\Controller\SosConfigController(
+            $twig, $sosProviderConfigService, $sosSettingsService, $sectionService, $journalService
+        )
+    );
+    $frontController->registerController(
+        \Modules\SosStaff\Controller\SosAdminController::class,
+        new \Modules\SosStaff\Controller\SosAdminController(
+            $twig, $sosProviderConfigService, $sosSettingsService, $sosOnCallService, $sosRedirectService,
+            $sosCalendarSyncService, $sectionService, $schedulerService, $scoutYearResolver, $journalService,
+            $sosCalendarService
+        )
+    );
+}
+
+if (in_array('banner', $moduleManager->getEnabledModuleIds(), true)) {
+    $bannerRepo = new \Modules\Banner\Repository\BannerRepository($pdo);
+    $bannerService = new \Modules\Banner\Service\BannerService($bannerRepo, $editableContentService);
+
+    $frontController->registerController(
+        \Modules\Banner\Controller\BannerConfigController::class,
+        new \Modules\Banner\Controller\BannerConfigController($twig, $bannerService, $journalService)
+    );
+
+    // Re-registers PageController with the real banner provider — same
+    // core-hook precedent as FunctionsController/trombinoscope above
+    // (ARCHITECTURE.md §7.4): core never depends on the module directly.
+    $frontController->registerController(
+        PageController::class,
+        new PageController($twig, $editableContentService, $sectionRepository, $cookieConsentService, $bannerService)
     );
 }
 

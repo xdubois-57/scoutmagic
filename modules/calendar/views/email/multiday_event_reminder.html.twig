@@ -1,0 +1,13 @@
+{% extends 'email/base.html.twig' %}
+{% block content %}
+    <h2 style="margin:0 0 16px;font-size:20px;">Rappel — évènement à venir</h2>
+    <p>Bonjour {{ display_name }},</p>
+    <p>
+        L'évènement <strong>{{ event_title }}</strong> ({{ start_date }} — {{ end_date }}) approche.
+        Merci de vérifier les points suivants :
+    </p>
+    <ul>
+        <li>Déclarer l'évènement dans Desk, si ce n'est pas encore fait.</li>
+        <li>Envoyer la liste des intendants à l'avance au Staff d'U.</li>
+    </ul>
+{% endblock %}

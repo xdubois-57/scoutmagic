@@ -32,3 +32,118 @@
 @media (min-width: 992px) {
     .section-picker { flex-wrap: wrap; overflow: visible; }
 }
+
+/* Core\View\MonthGrid\MonthGridBuilder month view, rendered by
+   partials/month_grid.html.twig — generic, reusable by any module (not
+   calendar-specific). No Bootstrap component duplicated here — Bootstrap
+   has no calendar/month-grid component. Each week is ONE CSS grid (7
+   columns x (1 + row_count) rows): row 1 holds the day-number labels, the
+   rows below hold event bars, computed server-side (MonthGridBuilder's
+   greedy row-packing, capped at a fixed row count so a day's cell height
+   never grows with its event count — see .calendar-day-overflow for what
+   happens beyond the cap). The day-cell background/border box
+   (.calendar-day-cell) spans row 1 through the last bar row so it reads as
+   a single iCal-style cell containing the number and "its" events —
+   .calendar-day-number sits on top of it (row 1 only, pointer-events:none
+   so clicks/hover fall through to the cell behind it) rather than nesting,
+   since CSS grid placement is sibling-based, not parent/child. Mobile-first:
+   small cells/text by default, roomier from the md breakpoint. */
+.calendar-weekday-row {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    text-align: center;
+    font-size: 0.7rem;
+}
+.calendar-week {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    border-left: 1px solid var(--bs-border-color, #dee2e6);
+    border-top: 1px solid var(--bs-border-color, #dee2e6);
+}
+.calendar-day-cell {
+    border-right: 1px solid var(--bs-border-color, #dee2e6);
+    border-bottom: 1px solid var(--bs-border-color, #dee2e6);
+}
+.calendar-day-cell.is-padding {
+    background-color: var(--bs-tertiary-bg, #f8f9fa);
+}
+.calendar-day-cell.is-today {
+    background-color: var(--bs-primary-bg-subtle, #cfe2ff);
+}
+.calendar-day-cell--clickable {
+    cursor: pointer;
+}
+.calendar-day-cell--clickable:hover {
+    background-color: var(--bs-secondary-bg, #e9ecef);
+}
+.calendar-day-number {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.25rem;
+    min-height: 1.4rem;
+    padding: 0.2rem 0.35rem;
+    font-size: 0.75rem;
+    color: var(--bs-body-color);
+    pointer-events: none;
+}
+.calendar-day-cell.is-padding .calendar-day-number {
+    color: var(--bs-secondary-color, #6c757d);
+}
+.calendar-day-cell.is-today .calendar-day-number {
+    font-weight: 600;
+}
+/* Count of events hidden past MonthGridBuilder's row cap (see
+   GridEvent/day.overflow_count) — a small badge next to the day number,
+   hover/title-tooltip lists the hidden events' labels. pointer-events:auto
+   re-enables hit-testing for just this child inside the otherwise
+   pass-through .calendar-day-number (a browser only fires the native
+   title-tooltip on an element that actually receives the hover). */
+.calendar-day-overflow {
+    pointer-events: auto;
+    cursor: default;
+    flex-shrink: 0;
+    font-size: 0.65rem;
+    font-weight: 600;
+    color: var(--bs-secondary-color, #6c757d);
+}
+.calendar-event-bar {
+    margin: 1px;
+    padding: 0 0.3rem;
+    border-radius: 0.25rem;
+    font-size: 0.68rem;
+    line-height: 1.25rem;
+    color: #fff;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    align-self: start;
+}
+.calendar-event-bar.continues-before {
+    border-top-left-radius: 0;
+    border-bottom-left-radius: 0;
+}
+.calendar-event-bar.continues-after {
+    border-top-right-radius: 0;
+    border-bottom-right-radius: 0;
+}
+.calendar-event-bar--clickable {
+    cursor: pointer;
+}
+
+@media (min-width: 768px) {
+    .calendar-day-number { min-height: 1.75rem; padding: 0.3rem 0.5rem; font-size: 0.85rem; }
+    .calendar-event-bar { font-size: 0.75rem; }
+}
+
+/* Core\View\templates\partials\list_editor.html.twig / list-editor.js —
+   generic reusable list editor (add/reorder/activate/delete). */
+.list-editor-item {
+    background-color: var(--bs-body-bg);
+}
+.list-editor-item--dragging {
+    opacity: 0.4;
+}
+.list-editor-drag-handle:active {
+    cursor: grabbing;
+}

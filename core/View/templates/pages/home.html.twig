@@ -3,6 +3,9 @@
 {% block title %}Bienvenue — {{ site_name }}{% endblock %}
 
 {% block content %}
+    {% if banner_html is not empty %}
+        <div class="alert alert-info mb-4">{{ banner_html|raw }}</div>
+    {% endif %}
     <div class="mb-4">
         {{ editable_image('home.hero', 'Photo d\'accueil', 'img-fluid rounded w-100') }}
     </div>

@@ -106,12 +106,16 @@
 
     <h2 class="h4">Sections</h2>
     <p class="text-body-secondary mb-4">
-        Renommez une section ou masquez-la des sélecteurs de section du site
-        (Staffs, Trombinoscope, page publique Sections). Une section sans
-        aucun membre à l'import Desk devient automatiquement inactive et
-        disparaît de partout, y compris de cette page — elle n'est jamais
-        supprimée, et redevient active (et gérable ici) dès qu'un import lui
-        redonne des membres.
+        Renommez une section, changez sa couleur ou masquez-la des
+        sélecteurs de section du site (Staffs, Trombinoscope, calendrier,
+        statistiques, page publique Sections). Par défaut, la couleur suit
+        la branche d'âge (Baladins, Louveteaux, Éclaireurs, Pionniers) ou
+        est celle du Staff d'U ; le bouton <i class="bi bi-arrow-counterclockwise"></i>
+        efface une couleur personnalisée et revient à cette valeur par
+        défaut. Une section sans aucun membre à l'import Desk devient
+        automatiquement inactive et disparaît de partout, y compris de
+        cette page — elle n'est jamais supprimée, et redevient active (et
+        gérable ici) dès qu'un import lui redonne des membres.
     </p>
 
     {% if section_groups|length > 0 %}
@@ -124,6 +128,15 @@
                             <span class="text-body-secondary small text-nowrap">{{ section.desk_code }}</span>
                             <input type="text" class="form-control form-control-sm section-name-input"
                                    value="{{ section.name }}" placeholder="{{ section.desk_code }}">
+                            <div class="d-flex align-items-center gap-1">
+                                <input type="color" class="form-control form-control-color section-color-input"
+                                       value="{{ section.effective_color }}" title="Couleur de la section"
+                                       data-has-override="{{ section.color ? '1' : '0' }}">
+                                <button type="button" class="btn btn-sm btn-outline-secondary section-color-reset"
+                                        title="Revenir à la couleur par défaut" {{ section.color ? '' : 'disabled' }}>
+                                    <i class="bi bi-arrow-counterclockwise"></i>
+                                </button>
+                            </div>
                             <div class="form-check form-switch ms-auto text-nowrap">
                                 <input type="checkbox" class="form-check-input section-visible-input" role="switch"
                                        {{ section.is_visible ? 'checked' : '' }}>
@@ -230,6 +243,30 @@ document.querySelectorAll('.section-row').forEach(row => {
             alert(data.error);
         }
     });
+
+    const colorInput = row.querySelector('.section-color-input');
+    const colorReset = row.querySelector('.section-color-reset');
+
+    async function saveColor(color) {
+        colorInput.disabled = true;
+        const res = await fetch('/config/functions/section-color', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ section_id: parseInt(sectionId), color, _csrf_token: csrf() })
+        });
+        const data = await res.json();
+        colorInput.disabled = false;
+        if (!data.success) {
+            alert(data.error);
+            return;
+        }
+        colorInput.value = data.color;
+        colorInput.dataset.hasOverride = color ? '1' : '0';
+        colorReset.disabled = !color;
+    }
+
+    colorInput.addEventListener('change', () => saveColor(colorInput.value));
+    colorReset.addEventListener('click', () => saveColor(null));
 });
 </script>
 {% endblock %}

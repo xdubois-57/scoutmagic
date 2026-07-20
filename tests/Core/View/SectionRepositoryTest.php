@@ -69,4 +69,19 @@ class SectionRepositoryTest extends TestCase
         $this->assertContains('Renards', $names);
         $this->assertNotContains('Ecureuils', $names);
     }
+
+    public function testExcludesStaffduEvenWhenActiveAndVisible(): void
+    {
+        // "Staff d'U" is a real, active, visible section for internal use
+        // (section picker, trombinoscope, calendar) but must never appear
+        // on the public "Notre unité > Sections" page.
+        $this->createSection('BAL01', 'Renards', true);
+        $this->createSection('STAFFDU', "Staff d'U", true);
+
+        $groups = $this->repository->findAllGroupedByBranch();
+
+        $names = array_column($groups[0]['sections'], 'name');
+        $this->assertContains('Renards', $names);
+        $this->assertNotContains("Staff d'U", $names);
+    }
 }

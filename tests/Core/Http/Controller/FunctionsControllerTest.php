@@ -5,14 +5,20 @@ declare(strict_types=1);
 namespace Tests\Core\Http\Controller;
 
 use Core\Badge\MemberBadgeRepository;
+use Core\Config\SettingRepository;
+use Core\Config\SettingService;
+use Core\Config\ScoutYearService;
 use Core\Database\Connection;
 use Core\Http\Controller\FunctionsController;
 use Core\Http\Request;
 use Core\Import\FunctionRepository;
+use Core\Import\MemberYearRepository;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Member\SectionService;
+use Core\Member\UnitStaffSectionService;
 use Core\Module\FunctionFlagsProvider;
+use Core\ScoutYear\ScoutYearResolver;
 use Core\Security\EncryptionService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
@@ -28,6 +34,9 @@ class FunctionsControllerTest extends TestCase
     private FunctionRepository $functionRepo;
     private JournalRepository $journalRepo;
     private SectionService $sectionService;
+    private UnitStaffSectionService $unitStaffSectionService;
+    private ScoutYearResolver $scoutYearResolver;
+    private int $scoutYearId;
     private \PDO $pdo;
     private Environment $twig;
 
@@ -42,6 +51,16 @@ class FunctionsControllerTest extends TestCase
             new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)),
             new MemberBadgeRepository($this->pdo)
         );
+        $this->unitStaffSectionService = new UnitStaffSectionService($this->pdo);
+        $memberYearRepo = new MemberYearRepository($this->pdo);
+        $settingService = new SettingService(new SettingRepository($this->pdo));
+        $this->scoutYearResolver = new ScoutYearResolver(new ScoutYearService($this->pdo), $settingService, $memberYearRepo);
+
+        // FunctionsController::update() resolves the effective (current
+        // public) scout year via $this->scoutYearResolver — use the same
+        // resolution here so member_years created in tests land in the year
+        // the controller will actually sync membership for.
+        $this->scoutYearId = $this->scoutYearResolver->getCurrentPublicYear()['id'];
 
         $templateDir = dirname(__DIR__, 4) . '/core/View/templates';
         $this->twig = new Environment(new FilesystemLoader($templateDir), [
@@ -62,7 +81,7 @@ class FunctionsControllerTest extends TestCase
         $this->twig->addFunction(new \Twig\TwigFunction('file_url', fn() => ''));
         $this->twig->addFunction(new \Twig\TwigFunction('param', fn(string $k) => 'Test'));
 
-        $this->controller = new FunctionsController($this->twig, $this->functionRepo, $journalService, $this->sectionService);
+        $this->controller = new FunctionsController($this->twig, $this->functionRepo, $journalService, $this->sectionService, $this->unitStaffSectionService, $this->scoutYearResolver);
     }
 
     public function testIndexRendersEmptyState(): void
@@ -282,11 +301,44 @@ class FunctionsControllerTest extends TestCase
         $this->assertSame(1, (int) $stmt->fetchColumn());
     }
 
+    public function testUpdateToAdminRoleSyncsMemberIntoStaffdu(): void
+    {
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+        $token = bin2hex(random_bytes(32));
+        $_SESSION['_csrf_token'] = $token;
+        $_SESSION['user'] = ['user_account_id' => 1, 'email' => 'admin@test.com', 'role' => 'admin'];
+
+        $functionId = $this->functionRepo->create('CU', 'CU', 'identified', false);
+        $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('D1')");
+        $memberId = (int) $this->pdo->lastInsertId();
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted) VALUES (?, ?, ?, ?)'
+        );
+        $stmt->execute([$memberId, $this->scoutYearId, 'enc', 'enc']);
+        $memberYearId = (int) $this->pdo->lastInsertId();
+        $stmt = $this->pdo->prepare('INSERT INTO member_functions (member_year_id, function_id, section_id) VALUES (?, ?, NULL)');
+        $stmt->execute([$memberYearId, $functionId]);
+
+        $request = $this->createJsonRequest([
+            'function_id' => $functionId,
+            'role' => 'admin',
+            '_csrf_token' => $token,
+        ]);
+        $this->controller->update($request, []);
+
+        $staffduId = $this->unitStaffSectionService->ensureSection();
+        $stmt = $this->pdo->prepare('SELECT section_id FROM member_functions WHERE member_year_id = ?');
+        $stmt->execute([$memberYearId]);
+        $this->assertSame($staffduId, (int) $stmt->fetchColumn());
+    }
+
     public function testIndexRendersFlagsWhenProviderIsWired(): void
     {
         $this->functionRepo->create('Animateur', 'Animateur', 'chief', true);
 
-        $controller = new FunctionsController($this->twig, $this->functionRepo, new JournalService($this->journalRepo), $this->sectionService, $this->stubFlagsProvider());
+        $controller = new FunctionsController($this->twig, $this->functionRepo, new JournalService($this->journalRepo), $this->sectionService, $this->unitStaffSectionService, $this->scoutYearResolver, $this->stubFlagsProvider());
 
         $request = new Request('GET', '/config/functions', [], [], [], []);
         $response = $controller->index($request, []);
@@ -332,7 +384,7 @@ class FunctionsControllerTest extends TestCase
 
         $id = $this->functionRepo->create('Animateur', 'Animateur', 'chief', true);
         $provider = $this->stubFlagsProvider();
-        $controller = new FunctionsController($this->twig, $this->functionRepo, new JournalService($this->journalRepo), $this->sectionService, $provider);
+        $controller = new FunctionsController($this->twig, $this->functionRepo, new JournalService($this->journalRepo), $this->sectionService, $this->unitStaffSectionService, $this->scoutYearResolver, $provider);
 
         $request = $this->createJsonRequest(['function_id' => $id, 'lead' => true, '_csrf_token' => $token]);
         $response = $controller->updateFlags($request, []);
@@ -345,7 +397,7 @@ class FunctionsControllerTest extends TestCase
     public function testUpdateFlagsWithInvalidCsrfReturnsError(): void
     {
         $id = $this->functionRepo->create('Animateur', 'Animateur', 'chief', true);
-        $controller = new FunctionsController($this->twig, $this->functionRepo, new JournalService($this->journalRepo), $this->sectionService, $this->stubFlagsProvider());
+        $controller = new FunctionsController($this->twig, $this->functionRepo, new JournalService($this->journalRepo), $this->sectionService, $this->unitStaffSectionService, $this->scoutYearResolver, $this->stubFlagsProvider());
 
         $request = $this->createJsonRequest(['function_id' => $id, 'lead' => false, '_csrf_token' => 'bad']);
         $response = $controller->updateFlags($request, []);
@@ -475,6 +527,76 @@ class FunctionsControllerTest extends TestCase
 
         $request = $this->createJsonRequest(['section_id' => $sectionId, 'visible' => false, '_csrf_token' => 'bad']);
         $response = $this->controller->updateSectionVisibility($request, []);
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertFalse($decoded['success']);
+    }
+
+    public function testUpdateSectionColorPersistsOverride(): void
+    {
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+        $token = bin2hex(random_bytes(32));
+        $_SESSION['_csrf_token'] = $token;
+        $_SESSION['user'] = ['user_account_id' => 1, 'email' => 'admin@test.com', 'role' => 'admin'];
+
+        $sectionId = $this->createSection('BAL01', 'Baladins', 'Renards');
+
+        $request = $this->createJsonRequest(['section_id' => $sectionId, 'color' => '#123456', '_csrf_token' => $token]);
+        $response = $this->controller->updateSectionColor($request, []);
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertTrue($decoded['success']);
+        $this->assertSame('#123456', $decoded['color']);
+        $this->assertSame('#123456', $this->sectionService->getSection($sectionId)['color']);
+    }
+
+    public function testUpdateSectionColorClearsOverrideWithEmptyColor(): void
+    {
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+        $token = bin2hex(random_bytes(32));
+        $_SESSION['_csrf_token'] = $token;
+        $_SESSION['user'] = ['user_account_id' => 1, 'email' => 'admin@test.com', 'role' => 'admin'];
+
+        $sectionId = $this->createSection('BAL01', 'Baladins', 'Renards');
+        $this->sectionService->updateSectionColor($sectionId, '#123456');
+
+        $request = $this->createJsonRequest(['section_id' => $sectionId, 'color' => '', '_csrf_token' => $token]);
+        $response = $this->controller->updateSectionColor($request, []);
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertTrue($decoded['success']);
+        $this->assertNull($this->sectionService->getSection($sectionId)['color']);
+        // Falls back to the branch-derived default, not empty.
+        $this->assertNotSame('', $decoded['color']);
+    }
+
+    public function testUpdateSectionColorRejectsInvalidHex(): void
+    {
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+        $token = bin2hex(random_bytes(32));
+        $_SESSION['_csrf_token'] = $token;
+
+        $sectionId = $this->createSection('BAL01', 'Baladins', 'Renards');
+
+        $request = $this->createJsonRequest(['section_id' => $sectionId, 'color' => 'not-a-color', '_csrf_token' => $token]);
+        $response = $this->controller->updateSectionColor($request, []);
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertFalse($decoded['success']);
+    }
+
+    public function testUpdateSectionColorWithInvalidCsrfReturnsError(): void
+    {
+        $sectionId = $this->createSection('BAL01', 'Baladins', 'Renards');
+
+        $request = $this->createJsonRequest(['section_id' => $sectionId, 'color' => '#123456', '_csrf_token' => 'bad']);
+        $response = $this->controller->updateSectionColor($request, []);
 
         $decoded = json_decode($response->getBody(), true);
         $this->assertFalse($decoded['success']);

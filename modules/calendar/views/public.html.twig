@@ -1,0 +1,192 @@
+{% extends "base.html.twig" %}
+
+{% block title %}Calendrier — {{ site_name }}{% endblock %}
+
+{% block stylesheets %}
+<link rel="stylesheet" href="/assets/css/components.css">
+{% endblock %}
+
+{% block content %}
+    <h1 class="mb-4">Calendrier</h1>
+
+    {{ editable('calendar.intro', '<p>Retrouvez ici les prochaines activités de notre unité.</p>') }}
+
+    {% include '@calendar/partials/calendar_picker.html.twig' with {
+        options: calendar_options,
+        selected_id: selected_calendar_id,
+        base_url: '/calendar?calendar=',
+        extra_query: '&month=' ~ month_param
+    } %}
+
+    <div class="d-flex align-items-center justify-content-between mb-3">
+        <a href="/calendar?month={{ prev_month_param }}&calendar={{ selected_calendar_id }}"
+           class="btn btn-sm btn-outline-secondary" aria-label="Mois précédent">
+            <i class="bi bi-chevron-left"></i>
+        </a>
+        <h2 class="h5 mb-0">{{ month_label }}</h2>
+        <a href="/calendar?month={{ next_month_param }}&calendar={{ selected_calendar_id }}"
+           class="btn btn-sm btn-outline-secondary" aria-label="Mois suivant">
+            <i class="bi bi-chevron-right"></i>
+        </a>
+    </div>
+
+    <div class="mb-4">
+        {% include 'partials/month_grid.html.twig' with { weeks: weeks, events_clickable: true } %}
+    </div>
+
+    <h2 class="h5 mb-3">Prochains évènements</h2>
+    {% if upcoming_events is empty %}
+        <p class="text-body-secondary fst-italic mb-4">Aucun évènement à venir.</p>
+    {% else %}
+        <ul class="list-group mb-4">
+            {% for event in upcoming_events %}
+                <li class="list-group-item d-flex justify-content-between align-items-start">
+                    <div>
+                        <div class="fw-semibold">{{ event.label }}</div>
+                        <div class="text-body-secondary small d-flex align-items-center gap-1">
+                            <span class="d-inline-block rounded-circle" style="width:0.5rem;height:0.5rem;background-color:{{ event.color }};"></span>
+                            {{ event.data['calendar-label'] }}
+                        </div>
+                        {% if event.data['start-time'] %}
+                            <div class="text-body-secondary small">
+                                <i class="bi bi-clock"></i> {{ event.data['start-time'] }}{% if event.data['end-time'] %} - {{ event.data['end-time'] }}{% endif %}
+                            </div>
+                        {% endif %}
+                        {% if event.data['location'] %}
+                            <div class="text-body-secondary small"><i class="bi bi-geo-alt"></i> {{ event.data['location'] }}</div>
+                        {% endif %}
+                    </div>
+                    <span class="badge bg-primary-subtle text-primary-emphasis text-nowrap">
+                        {{ event.startDate|date('d/m/Y') }}{% if event.endDate and event.endDate != event.startDate %} - {{ event.endDate|date('d/m/Y') }}{% endif %}
+                    </span>
+                </li>
+            {% endfor %}
+        </ul>
+    {% endif %}
+
+    <hr class="my-4">
+
+    <h2 class="h5 mb-3">S'abonner au calendrier</h2>
+    {% if is_authenticated %}
+        <p class="text-body-secondary small mb-2">
+            Ajoutez ce lien personnel dans votre application de calendrier (iPhone, Google Calendar,
+            Android, macOS Calendar, Outlook, Thunderbird…) pour recevoir automatiquement vos évènements.
+        </p>
+        <div class="input-group mb-2" style="max-width:520px;">
+            <input type="text" class="form-control form-control-sm" id="personal-ics-link"
+                   value="{{ param('base_url')|trim('/') }}/calendar/feed/personal/{{ personal_token }}.ics" readonly>
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="copy-personal-link">
+                <i class="bi bi-clipboard"></i> Copier
+            </button>
+        </div>
+        <button type="button" class="btn btn-sm btn-outline-danger" id="regenerate-personal-link">
+            Régénérer le lien
+        </button>
+    {% else %}
+        <p class="text-body-secondary small">
+            <i class="bi bi-lock"></i> Connectez-vous pour obtenir un lien de calendrier personnalisé,
+            regroupant les évènements de vos sections.
+        </p>
+    {% endif %}
+
+    {# Read-only event detail dialog, opened by clicking a bar in the grid #}
+    <div class="modal fade" id="eventDetailsModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="event-details-title"></h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="d-flex align-items-center gap-2 mb-2">
+                        <span class="d-inline-block rounded-circle" id="event-details-calendar-dot" style="width:0.6rem;height:0.6rem;"></span>
+                        <span class="text-body-secondary small" id="event-details-calendar-label"></span>
+                    </div>
+                    <div class="small mb-1"><i class="bi bi-calendar-event"></i> <span id="event-details-dates"></span></div>
+                    <div class="small mb-1 d-none" id="event-details-time-row"><i class="bi bi-clock"></i> <span id="event-details-time"></span></div>
+                    <div class="small mb-2 d-none" id="event-details-location-row"><i class="bi bi-geo-alt"></i> <span id="event-details-location"></span></div>
+                    <p class="small mb-0" style="white-space:pre-line;" id="event-details-description"></p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Fermer</button>
+                </div>
+            </div>
+        </div>
+    </div>
+{% endblock %}
+
+{% block scripts %}
+<script nonce="{{ csp_nonce }}">
+const eventDetailsModalEl = document.getElementById('eventDetailsModal');
+const eventDetailsModal = new bootstrap.Modal(eventDetailsModalEl);
+
+function formatDateFr(isoDate) {
+    const [y, m, d] = isoDate.split('-');
+    return `${d}/${m}/${y}`;
+}
+
+document.querySelectorAll('.calendar-event-bar--clickable').forEach(bar => {
+    bar.addEventListener('click', () => {
+        const data = bar.dataset;
+        document.getElementById('event-details-title').textContent = data.title;
+        document.getElementById('event-details-calendar-dot').style.backgroundColor = bar.style.backgroundColor;
+        document.getElementById('event-details-calendar-label').textContent = data.calendarLabel;
+
+        let dates = formatDateFr(data.startDate);
+        if (data.endDate && data.endDate !== data.startDate) {
+            dates += ' — ' + formatDateFr(data.endDate);
+        }
+        document.getElementById('event-details-dates').textContent = dates;
+
+        const timeRow = document.getElementById('event-details-time-row');
+        if (data.startTime) {
+            let time = data.startTime;
+            if (data.endTime) time += ' - ' + data.endTime;
+            document.getElementById('event-details-time').textContent = time;
+            timeRow.classList.remove('d-none');
+        } else {
+            timeRow.classList.add('d-none');
+        }
+
+        const locationRow = document.getElementById('event-details-location-row');
+        if (data.location) {
+            document.getElementById('event-details-location').textContent = data.location;
+            locationRow.classList.remove('d-none');
+        } else {
+            locationRow.classList.add('d-none');
+        }
+
+        document.getElementById('event-details-description').textContent = data.description || '';
+
+        eventDetailsModal.show();
+    });
+});
+</script>
+{% if is_authenticated %}
+<script nonce="{{ csp_nonce }}">
+document.getElementById('copy-personal-link')?.addEventListener('click', () => {
+    const input = document.getElementById('personal-ics-link');
+    input.select();
+    navigator.clipboard?.writeText(input.value);
+});
+
+document.getElementById('regenerate-personal-link')?.addEventListener('click', async () => {
+    if (!confirm("Régénérer le lien invalidera l'ancien : les abonnements déjà configurés cesseront de se mettre à jour. Continuer ?")) {
+        return;
+    }
+    const csrf = document.querySelector('meta[name="csrf-token"]')?.content;
+    const res = await fetch('/calendar/personal-token/regenerate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ _csrf_token: csrf })
+    });
+    const data = await res.json();
+    if (data.success) {
+        window.location.reload();
+    } else {
+        alert(data.error);
+    }
+});
+</script>
+{% endif %}
+{% endblock %}

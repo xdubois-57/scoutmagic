@@ -67,6 +67,7 @@ légitime (sécurité du site). Conservation selon le paramètre de rétention d
 - Comptes utilisateurs : jusqu'à suppression manuelle.
 - Journal d'audit : configurable (par défaut 90 jours).
 - Liens magiques : expirés après 15 minutes, nettoyés périodiquement.
+- Assignations de garde SOS Staff d'U : purgées automatiquement au-delà d'un an (à chaque sauvegarde du planning), avec les tâches planifiées et les évènements de calendrier associés.
 
 ## Cookies
 
@@ -83,6 +84,7 @@ dans `CookieRegistry` (core) et `module.json` (modules). Elle est affichée sur 
 |---|---|
 | Hébergeur web | Stockage des données, exécution du site |
 | Relais SMTP (configurable) | Envoi d'emails transactionnels |
+| Fournisseur de téléphonie (OVH Télécom, si le module SOS Staff d'U est activé et configuré) | Redirection automatique du numéro SOS de l'unité vers le membre du Staff d'U de garde |
 
 ## Vos droits
 
@@ -109,3 +111,52 @@ d'unité. Ne traite aucune donnée qui ne soit pas déjà collectée ailleurs
 (import Desk) ; n'ajoute aucune table de données personnelles propre au
 module — seule l'indication de la fonction « responsable » de section
 (non personnelle) est stockée dans `trombinoscope_function_flags`.
+
+### Calendrier
+
+Le lien ICS personnel (lien d'abonnement au calendrier propre à chaque
+utilisateur identifié) lit — sans les stocker — l'e-mail, le rôle effectif et
+les sections liées de l'utilisateur au moment de chaque consultation du lien,
+afin de déterminer quels évènements lui montrer. Un jeton d'accès
+(`calendar_personal_tokens.token`, une chaîne aléatoire non identifiante liée
+à l'identifiant de compte) est conservé pour permettre la révocation via le
+bouton « Régénérer » — ce jeton n'est pas une donnée personnelle au sens de
+la stratégie de chiffrement ci-dessus (comparable à un jeton de session).
+Les évènements eux-mêmes (titre, lieu, description) sont des données
+organisationnelles, non personnelles ; `calendar_events.created_by` référence
+un compte utilisateur (identifiant uniquement, jamais affiché).
+
+Si l'option « Rappels avant les évènements multi-jours » est activée
+(Configuration > Calendrier), un email est envoyé aux responsables de la
+section concernée avant un évènement de plusieurs jours, pour leur rappeler
+de déclarer l'évènement dans Desk et d'envoyer la liste des intendants au
+Staff d'U. L'adresse email utilisée est relue depuis la fiche membre déjà
+chiffrée au moment de l'envoi — aucune copie n'est conservée par ce
+mécanisme (même principe que le lien ICS personnel ci-dessus et que le
+module SOS Staff d'U).
+
+### SOS Staff d'U
+
+Planifie les gardes du numéro SOS de l'unité et automatise la redirection
+téléphonique vers le membre du Staff d'U de garde, via l'API du fournisseur
+de téléphonie configuré (OVH Télécom).
+
+| Champ | Finalité |
+|---|---|
+| Assignation de garde (`sos_oncall_assignments` : identifiant du membre, date, état « de garde »/« indisponible ») | Planification des gardes ; détermine vers quel numéro rediriger le numéro SOS chaque jour |
+| Numéro par défaut saisi manuellement (`sos_settings.default_number_manual_encrypted`, chiffré) | Numéro de repli utilisé les jours sans garde explicite, quand ce n'est pas le numéro d'un membre lié |
+| Identifiants API du fournisseur de téléphonie (`sos_provider_credentials.config_encrypted`, chiffré : Application Key/Secret, Consumer Key OVH, ligne sélectionnée) | Authentification auprès du fournisseur pour lire/modifier la redirection |
+
+Le numéro de mobile utilisé pour rediriger vers un membre du Staff d'U n'est
+**jamais dupliqué** : il est relu, au moment de chaque changement de
+redirection, depuis les données déjà chiffrées de sa fiche membre
+(`member_years.mobile_encrypted`) pour l'année scoute en cours — comme le
+lien ICS personnel du module Calendrier, aucune copie n'est conservée par ce
+module. Les évènements synchronisés dans le calendrier (« SOS Staff d'U :
+{totem/prénom} », un par période de garde consécutive) affichent uniquement
+le nom d'affichage du membre, jamais son numéro.
+
+Des emails sont envoyés à chaque changement de garde (si l'option est
+activée) : au nouveau membre de garde, à l'ancien, et — en cas d'échec
+technique de la redirection — à l'administrateur du site, pour l'alerter.
+Base légale : intérêt légitime (sécurité du numéro d'urgence de l'unité).

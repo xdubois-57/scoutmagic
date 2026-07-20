@@ -1,0 +1,265 @@
+{% extends "base.html.twig" %}
+
+{% block title %}SOS Staff d'U — {{ site_name }}{% endblock %}
+
+{% block content %}
+    <h1 class="mb-4">SOS Staff d'U — Configuration</h1>
+
+    <h2 class="h5 mb-3">Fournisseur de téléphonie</h2>
+    <div class="d-flex flex-wrap gap-2 mb-4">
+        {% for option in provider_options %}
+            <span class="btn btn-sm {{ option.is_active ? 'btn-primary' : (option.is_available ? 'btn-outline-secondary' : 'btn-outline-secondary disabled') }} d-flex align-items-center gap-2">
+                {{ option.label }}
+                {% if not option.is_available %}<span class="badge bg-secondary-subtle text-secondary-emphasis">Bientôt</span>{% endif %}
+                {% if option.is_active %}<span class="badge bg-light text-primary">Actif</span>{% endif %}
+            </span>
+        {% endfor %}
+    </div>
+
+    <div class="border rounded-3 p-3 mb-3">
+        <div class="d-flex align-items-center gap-2 mb-2">
+            <span class="badge {{ has_application_credentials ? 'bg-success' : 'bg-secondary' }}">1</span>
+            <h2 class="h6 mb-0">Application OVH <span class="badge bg-secondary-subtle text-secondary-emphasis">Manuel</span></h2>
+        </div>
+        <p class="text-body-secondary small">
+            Connectez-vous avec le compte OVH qui gère la ligne téléphonique, puis créez une application
+            (nom libre, ex. « ScoutMagic SOS »). L'Application Key et l'Application Secret ne sont affichés
+            qu'une seule fois par OVH — copiez-les immédiatement.
+        </p>
+        <p>
+            <a href="https://eu.api.ovh.com/createApp/" target="_blank" rel="noopener">
+                Créer une application sur la console API OVH <i class="bi bi-box-arrow-up-right"></i>
+            </a>
+        </p>
+        <form id="ovh-credentials-form" class="row g-2 align-items-end">
+            <div class="col-12 col-md-5">
+                <label class="form-label small" for="ovh-application-key">Application Key</label>
+                <div class="input-group input-group-sm">
+                    <input type="password" class="form-control" id="ovh-application-key" autocomplete="off">
+                    <button type="button" class="btn btn-outline-secondary toggle-visibility" data-target="ovh-application-key"><i class="bi bi-eye"></i></button>
+                </div>
+            </div>
+            <div class="col-12 col-md-5">
+                <label class="form-label small" for="ovh-application-secret">Application Secret</label>
+                <div class="input-group input-group-sm">
+                    <input type="password" class="form-control" id="ovh-application-secret" autocomplete="off">
+                    <button type="button" class="btn btn-outline-secondary toggle-visibility" data-target="ovh-application-secret"><i class="bi bi-eye"></i></button>
+                </div>
+            </div>
+            <div class="col-12 col-md-2">
+                <button type="submit" class="btn btn-sm btn-primary w-100">Enregistrer</button>
+            </div>
+        </form>
+        <div class="text-danger small mt-2 d-none" id="ovh-credentials-error"></div>
+        {% if has_application_credentials %}
+            <p class="text-success small mb-0 mt-2"><i class="bi bi-check-circle"></i> Application Key/Secret enregistrés.</p>
+        {% endif %}
+    </div>
+
+    <div class="border rounded-3 p-3 mb-3">
+        <div class="d-flex align-items-center gap-2 mb-2">
+            <span class="badge {{ consumer_key_validated ? 'bg-success' : 'bg-secondary' }}">2</span>
+            <h2 class="h6 mb-0">Consumer Key <span class="badge bg-secondary-subtle text-secondary-emphasis">Automatisé</span></h2>
+        </div>
+
+        {% if consumer_key_validated %}
+            <p class="text-success small mb-2"><i class="bi bi-check-circle"></i> Consumer Key validée.</p>
+            <button type="button" class="btn btn-sm btn-outline-danger" id="regenerate-consumer-key-btn" {{ has_application_credentials ? '' : 'disabled' }}>
+                Régénérer la Consumer Key
+            </button>
+        {% else %}
+            <button type="button" class="btn btn-sm btn-primary" id="generate-consumer-key-btn" {{ has_application_credentials ? '' : 'disabled' }}>
+                Générer une Consumer Key
+            </button>
+            <div id="consumer-key-validation" class="mt-2 {{ has_pending_consumer_key ? '' : 'd-none' }}">
+                <p class="small">Ouvrez ce lien pour confirmer les droits sur le site OVH, puis cliquez sur « J'ai validé, vérifier ».</p>
+                <p><a href="#" target="_blank" rel="noopener" id="consumer-key-validation-link"></a></p>
+                <button type="button" class="btn btn-sm btn-outline-primary" id="validate-consumer-key-btn">J'ai validé, vérifier</button>
+            </div>
+        {% endif %}
+        <div class="text-danger small mt-2 d-none" id="consumer-key-error"></div>
+    </div>
+
+    <div class="border rounded-3 p-3 mb-3">
+        <div class="d-flex align-items-center gap-2 mb-2">
+            <span class="badge {{ service_name ? 'bg-success' : 'bg-secondary' }}">3</span>
+            <h2 class="h6 mb-0">Ligne téléphonique <span class="badge bg-secondary-subtle text-secondary-emphasis">Automatisé</span></h2>
+        </div>
+
+        <button type="button" class="btn btn-sm btn-primary mb-2" id="list-lines-btn" {{ consumer_key_validated ? '' : 'disabled' }}>
+            Récupérer mes lignes OVH
+        </button>
+        <div class="d-flex gap-2 align-items-end d-none" id="line-picker-row">
+            <div>
+                <label class="form-label small" for="line-select">Ligne</label>
+                <select class="form-select form-select-sm" id="line-select" style="min-width:320px;"></select>
+            </div>
+            <button type="button" class="btn btn-sm btn-outline-primary" id="select-line-btn">Sélectionner</button>
+        </div>
+        <div class="text-danger small mt-2 d-none" id="lines-error"></div>
+
+        {% if sos_number %}
+            <p class="small mt-2 mb-0">
+                Ligne actuelle : <strong>{{ billing_account }} / {{ service_name }}</strong> —
+                numéro SOS : <strong id="current-sos-number">{{ sos_number }}</strong>
+            </p>
+        {% endif %}
+    </div>
+
+    <div class="mb-4">
+        <button type="button" class="btn btn-sm btn-outline-secondary" id="test-connection-btn" {{ is_active ? '' : 'disabled' }}>
+            Tester la connexion
+        </button>
+        <span id="test-connection-result" class="ms-2 small"></span>
+    </div>
+
+    <hr class="my-4">
+
+    <h2 class="h5 mb-3">Sections incluses dans le planning</h2>
+    <p class="text-body-secondary small mb-2">
+        Ces sections apparaissent dans les colonnes d'activités de la page de planification SOS.
+        La section Staff d'U est toujours exclue.
+    </p>
+    <form id="excluded-sections-form" class="d-flex flex-column gap-1">
+        {% for section in sections %}
+            <div class="form-check">
+                <input class="form-check-input excluded-section-checkbox" type="checkbox"
+                       id="excluded-section-{{ section.id }}" value="{{ section.id }}"
+                       {{ section.id not in excluded_section_ids ? 'checked' : '' }}
+                       {{ section.desk_code == staffdu_desk_code ? 'disabled' : '' }}>
+                <label class="form-check-label" for="excluded-section-{{ section.id }}">
+                    {{ section.name ?? section.desk_code }}
+                </label>
+            </div>
+        {% endfor %}
+    </form>
+{% endblock %}
+
+{% block scripts %}
+<script nonce="{{ csp_nonce }}">
+const csrf = () => document.querySelector('meta[name="csrf-token"]')?.content;
+
+async function postJson(url, body) {
+    const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...body, _csrf_token: csrf() })
+    });
+    return res.json();
+}
+
+document.querySelectorAll('.toggle-visibility').forEach(btn => {
+    btn.addEventListener('click', () => {
+        const input = document.getElementById(btn.dataset.target);
+        input.type = input.type === 'password' ? 'text' : 'password';
+    });
+});
+
+document.getElementById('ovh-credentials-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const errorBox = document.getElementById('ovh-credentials-error');
+    errorBox.classList.add('d-none');
+    const data = await postJson('/config/sos/ovh/credentials', {
+        application_key: document.getElementById('ovh-application-key').value,
+        application_secret: document.getElementById('ovh-application-secret').value
+    });
+    if (data.success) {
+        window.location.reload();
+    } else {
+        errorBox.textContent = data.error;
+        errorBox.classList.remove('d-none');
+    }
+});
+
+document.getElementById('generate-consumer-key-btn')?.addEventListener('click', async () => {
+    const errorBox = document.getElementById('consumer-key-error');
+    errorBox.classList.add('d-none');
+    const data = await postJson('/config/sos/ovh/generate-consumer-key', {});
+    if (data.success) {
+        document.getElementById('consumer-key-validation-link').href = data.validation_url;
+        document.getElementById('consumer-key-validation-link').textContent = data.validation_url;
+        document.getElementById('consumer-key-validation').classList.remove('d-none');
+    } else {
+        errorBox.textContent = data.error;
+        errorBox.classList.remove('d-none');
+    }
+});
+
+document.getElementById('regenerate-consumer-key-btn')?.addEventListener('click', async () => {
+    if (!confirm('Régénérer la Consumer Key ? La ligne devra être sélectionnée à nouveau.')) return;
+    const data = await postJson('/config/sos/ovh/generate-consumer-key', {});
+    if (data.success) {
+        window.location.reload();
+    } else {
+        alert(data.error);
+    }
+});
+
+document.getElementById('validate-consumer-key-btn')?.addEventListener('click', async () => {
+    const errorBox = document.getElementById('consumer-key-error');
+    errorBox.classList.add('d-none');
+    const data = await postJson('/config/sos/ovh/validate-consumer-key', {});
+    if (data.success) {
+        window.location.reload();
+    } else {
+        errorBox.textContent = data.error;
+        errorBox.classList.remove('d-none');
+    }
+});
+
+document.getElementById('list-lines-btn')?.addEventListener('click', async () => {
+    const errorBox = document.getElementById('lines-error');
+    errorBox.classList.add('d-none');
+    const data = await postJson('/config/sos/ovh/list-lines', {});
+    if (!data.success) {
+        errorBox.textContent = data.error;
+        errorBox.classList.remove('d-none');
+        return;
+    }
+    const select = document.getElementById('line-select');
+    select.innerHTML = '';
+    data.lines.forEach(line => {
+        const option = document.createElement('option');
+        option.value = JSON.stringify({ billing_account: line.billing_account, service_name: line.service_name });
+        option.textContent = `${line.billing_account} — ${line.number}`;
+        select.appendChild(option);
+    });
+    document.getElementById('line-picker-row').classList.remove('d-none');
+});
+
+document.getElementById('select-line-btn')?.addEventListener('click', async () => {
+    const select = document.getElementById('line-select');
+    if (!select.value) return;
+    const chosen = JSON.parse(select.value);
+    const errorBox = document.getElementById('lines-error');
+    errorBox.classList.add('d-none');
+    const data = await postJson('/config/sos/ovh/select-line', chosen);
+    if (data.success) {
+        window.location.reload();
+    } else {
+        errorBox.textContent = data.error;
+        errorBox.classList.remove('d-none');
+    }
+});
+
+document.getElementById('test-connection-btn')?.addEventListener('click', async () => {
+    const result = document.getElementById('test-connection-result');
+    result.textContent = '…';
+    const data = await postJson('/config/sos/test-connection', {});
+    if (data.success) {
+        result.innerHTML = '<span class="text-success"><i class="bi bi-check-circle"></i> Connexion réussie</span>';
+    } else {
+        result.innerHTML = `<span class="text-danger"><i class="bi bi-x-circle"></i> ${data.error}</span>`;
+    }
+});
+
+document.querySelectorAll('.excluded-section-checkbox').forEach(checkbox => {
+    checkbox.addEventListener('change', async () => {
+        // Checkboxes represent "included" sections; the endpoint stores the
+        // excluded (unchecked, non-disabled) ones.
+        const excludedIds = Array.from(document.querySelectorAll('.excluded-section-checkbox:not(:checked):not(:disabled)')).map(cb => parseInt(cb.value));
+        await postJson('/config/sos/excluded-sections', { section_ids: excludedIds });
+    });
+});
+</script>
+{% endblock %}

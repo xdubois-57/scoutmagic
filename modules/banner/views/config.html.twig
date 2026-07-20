@@ -1,0 +1,117 @@
+{% extends "base.html.twig" %}
+
+{% block title %}Bannière — {{ site_name }}{% endblock %}
+
+{% block content %}
+    <h1 class="mb-4">Bannière</h1>
+    <p class="text-body-secondary small mb-3">
+        À chaque chargement de la page d'accueil, une bannière est choisie aléatoirement parmi celles
+        actives ci-dessous. Si aucune n'est active, rien ne s'affiche. L'ordre ci-dessous n'a aucun
+        effet sur l'affichage — il sert uniquement à organiser cette liste.
+    </p>
+
+    {% embed 'partials/list_editor.html.twig' with {
+        list_id: 'banner-list',
+        items: banners,
+        add_url: '/config/banner/add',
+        reorder_url: '/config/banner/reorder',
+        active_url: '/config/banner/active',
+        delete_url: '/config/banner/delete',
+        add_label: 'Ajouter une bannière',
+        empty_label: 'Aucune bannière configurée.',
+        add_mode: 'custom'
+    } %}
+        {% block item_content %}
+            {% include 'partials/rich_text_field.html.twig' with {
+                content_key: 'banner_content_' ~ item.id,
+                content_value: item.content
+            } %}
+        {% endblock %}
+        {% block item_edit %}
+            {% include 'partials/rich_text_edit_button.html.twig' with {
+                content_key: 'banner_content_' ~ item.id,
+                save_url: '/api/rich-text-content'
+            } %}
+        {% endblock %}
+    {% endembed %}
+
+    {% include 'partials/rich_text_editor.html.twig' %}
+{% endblock %}
+
+{% block scripts %}
+<script src="/assets/js/rich-text-field.js" defer></script>
+<script src="/assets/js/list-editor.js" defer></script>
+<script nonce="{{ csp_nonce }}">
+// Custom add flow (list_editor's add_mode: 'custom' above) — collect the
+// new banner's text in the shared rich-text dialog BEFORE it ever appears
+// in the list, instead of adding an empty banner and editing it after.
+// If the dialog is dismissed without saving, the banner created just to
+// get an id is deleted again, so nothing empty is ever left behind.
+document.addEventListener('DOMContentLoaded', () => {
+    const csrf = () => document.querySelector('meta[name="csrf-token"]')?.content;
+    const addBtn = document.querySelector('#banner-list .list-editor-add-btn');
+    const modalEl = document.getElementById('richTextEditorModal');
+    if (!addBtn || !modalEl) return;
+
+    const modal = new bootstrap.Modal(modalEl);
+    const editorContent = document.getElementById('richTextEditorContent');
+    const saveBtn = document.getElementById('richTextEditorSave');
+
+    addBtn.addEventListener('click', async () => {
+        const res = await fetch(addBtn.dataset.url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ _csrf_token: csrf() })
+        });
+        const data = await res.json();
+        if (!data.success) {
+            alert(data.error || "Erreur lors de l'ajout.");
+            return;
+        }
+
+        const bannerId = data.banner_id;
+        let saved = false;
+        editorContent.innerHTML = '';
+        modal.show();
+
+        function onSave() {
+            fetch('/api/rich-text-content', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    key: 'banner_content_' + bannerId,
+                    value: editorContent.innerHTML,
+                    type: 'rich_text',
+                    _csrf_token: csrf()
+                })
+            })
+            .then(r => r.json())
+            .then(json => {
+                if (json.success) {
+                    saved = true;
+                    modal.hide();
+                    window.location.reload();
+                } else {
+                    alert(json.error || 'Erreur.');
+                }
+            });
+        }
+
+        function onHidden() {
+            saveBtn.removeEventListener('click', onSave);
+            modalEl.removeEventListener('hidden.bs.modal', onHidden);
+            if (!saved) {
+                fetch('/config/banner/delete', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id: bannerId, _csrf_token: csrf() })
+                });
+            }
+        }
+
+        saveBtn.addEventListener('click', onSave);
+        modalEl.addEventListener('hidden.bs.modal', onHidden);
+    });
+});
+</script>
+{% endblock %}

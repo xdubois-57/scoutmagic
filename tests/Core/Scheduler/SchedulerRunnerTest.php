@@ -15,6 +15,7 @@ use Core\Scheduler\SchedulerRunner;
 use Core\Scheduler\TaskContext;
 use Core\Scheduler\TaskHandlerInterface;
 use Core\Security\EncryptionService;
+use Core\Security\UserAccountRepository;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 
@@ -39,7 +40,8 @@ class SchedulerRunnerTest extends TestCase
         $mailService = $this->createMock(MailService::class);
         $settingRepo = new SettingRepository($this->pdo);
         $settingService = new SettingService($settingRepo);
-        $taskContext = new TaskContext($connection, $encryption, $mailService, $this->journal, $settingService);
+        $userAccounts = $this->createMock(UserAccountRepository::class);
+        $taskContext = new TaskContext($connection, $encryption, $mailService, $this->journal, $settingService, $userAccounts);
         $this->runner->setTaskContext($taskContext);
     }
 
@@ -144,6 +146,27 @@ class SchedulerRunnerTest extends TestCase
 
         $this->assertSame(0, $processed);
         $this->assertFalse($handler->called);
+    }
+
+    public function testHandlerReceivesUserAccountsRepositoryViaContext(): void
+    {
+        $handler = new class implements TaskHandlerInterface {
+            public ?UserAccountRepository $seenUserAccounts = null;
+
+            public function handle(array $payload, TaskContext $context): void
+            {
+                $this->seenUserAccounts = $context->userAccounts;
+            }
+        };
+
+        $this->runner->registerHandler('core', 'admin_alert_task', $handler);
+
+        $pastTime = (new \DateTimeImmutable('-1 minute'))->format('Y-m-d H:i:s');
+        $this->repo->create('core', 'admin_alert_task', $pastTime, null, null);
+
+        $this->runner->processOverdue();
+
+        $this->assertInstanceOf(UserAccountRepository::class, $handler->seenUserAccounts);
     }
 
     public function testJournalEntriesAreCreatedOnCompletion(): void

@@ -11,7 +11,7 @@
   branch-colored dot on its button. Callers that don't set it get the plain
   (uncolored) button, unchanged.
 #}
-<div class="d-flex gap-2 overflow-auto pb-2 mb-3 section-picker">
+<div class="d-flex flex-wrap gap-2 pb-2 mb-3 section-picker">
     {% for section in sections %}
         {% set is_active = section.id == selected_id %}
         <a href="{{ base_url }}{{ section.id }}"

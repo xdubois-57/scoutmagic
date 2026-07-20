@@ -9,6 +9,7 @@ use Core\Database\Connection;
 use Core\Journal\JournalService;
 use Core\Mail\MailService;
 use Core\Security\EncryptionService;
+use Core\Security\UserAccountRepository;
 
 class TaskContext
 {
@@ -17,7 +18,8 @@ class TaskContext
         public readonly EncryptionService $encryption,
         public readonly MailService $mailService,
         public readonly JournalService $journal,
-        public readonly SettingService $settings
+        public readonly SettingService $settings,
+        public readonly UserAccountRepository $userAccounts
     ) {
     }
 }

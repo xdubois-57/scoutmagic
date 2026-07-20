@@ -1,0 +1,151 @@
+{
+  "id": "sos_staff",
+  "name": "SOS Staff d'U",
+  "description": "Planification des gardes du numéro SOS de l'unité et automatisation des changements de redirection téléphonique.",
+  "version": "1.0.0",
+  "enabled_by_default": false,
+  "routes": [
+    {
+      "path": "/admin/sos",
+      "method": "GET",
+      "controller": "Modules\\SosStaff\\Controller\\SosAdminController",
+      "action": "index",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": "SOS Staff d'U",
+      "menu_order": 50
+    },
+    {
+      "path": "/admin/sos/default-number",
+      "method": "POST",
+      "controller": "Modules\\SosStaff\\Controller\\SosAdminController",
+      "action": "updateDefaultNumber",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/admin/sos/settings",
+      "method": "POST",
+      "controller": "Modules\\SosStaff\\Controller\\SosAdminController",
+      "action": "updateSettings",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/admin/sos/oncall",
+      "method": "POST",
+      "controller": "Modules\\SosStaff\\Controller\\SosAdminController",
+      "action": "saveOnCall",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/admin/sos/transitions",
+      "method": "GET",
+      "controller": "Modules\\SosStaff\\Controller\\SosAdminController",
+      "action": "plannedTransitions",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/config/sos",
+      "method": "GET",
+      "controller": "Modules\\SosStaff\\Controller\\SosConfigController",
+      "action": "index",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": "SOS Staff d'U"
+    },
+    {
+      "path": "/config/sos/ovh/credentials",
+      "method": "POST",
+      "controller": "Modules\\SosStaff\\Controller\\SosConfigController",
+      "action": "saveOvhCredentials",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": ""
+    },
+    {
+      "path": "/config/sos/ovh/generate-consumer-key",
+      "method": "POST",
+      "controller": "Modules\\SosStaff\\Controller\\SosConfigController",
+      "action": "generateConsumerKey",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": ""
+    },
+    {
+      "path": "/config/sos/ovh/validate-consumer-key",
+      "method": "POST",
+      "controller": "Modules\\SosStaff\\Controller\\SosConfigController",
+      "action": "validateConsumerKey",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": ""
+    },
+    {
+      "path": "/config/sos/ovh/list-lines",
+      "method": "POST",
+      "controller": "Modules\\SosStaff\\Controller\\SosConfigController",
+      "action": "listLines",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": ""
+    },
+    {
+      "path": "/config/sos/ovh/select-line",
+      "method": "POST",
+      "controller": "Modules\\SosStaff\\Controller\\SosConfigController",
+      "action": "selectLine",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": ""
+    },
+    {
+      "path": "/config/sos/test-connection",
+      "method": "POST",
+      "controller": "Modules\\SosStaff\\Controller\\SosConfigController",
+      "action": "testConnection",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": ""
+    },
+    {
+      "path": "/config/sos/excluded-sections",
+      "method": "POST",
+      "controller": "Modules\\SosStaff\\Controller\\SosConfigController",
+      "action": "updateExcludedSections",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": ""
+    }
+  ],
+  "settings": [
+    {
+      "key": "transition_hour",
+      "default_value": "10:00",
+      "type": "text",
+      "label": "Heure de changement de garde",
+      "description": "Heure à laquelle les transitions de redirection sont exécutées chaque jour (format HH:MM)."
+    },
+    {
+      "key": "email_notifications_enabled",
+      "default_value": "1",
+      "type": "boolean",
+      "label": "Notifications par email",
+      "description": "Envoie un email à la personne de garde (nouvelle et ancienne) à chaque changement de redirection."
+    }
+  ],
+  "cookies": [],
+  "scheduled_tasks": [
+    {
+      "key": "apply_redirect",
+      "handler": "Modules\\SosStaff\\Task\\ApplyRedirectHandler"
+    }
+  ],
+  "storage": {}
+}

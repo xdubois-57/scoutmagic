@@ -193,4 +193,28 @@ class MemberServiceTest extends TestCase
         $this->assertFalse($this->service->canAccess('different@example.com', $memberYearId, 'identified'));
         $this->assertFalse($this->service->canAccess('different@example.com', $memberYearId, 'intendant'));
     }
+
+    public function testFindProfileByMemberAndYearResolvesViaPersistentIdentity(): void
+    {
+        $this->createTestMember($this->testEmail, 'Akela');
+        $memberId = (int) $this->pdo->query('SELECT id FROM members ORDER BY id DESC LIMIT 1')->fetchColumn();
+
+        $profile = $this->service->findProfileByMemberAndYear($memberId, $this->scoutYearId);
+
+        $this->assertNotNull($profile);
+        $this->assertSame('Akela', $profile->totem);
+    }
+
+    public function testFindProfileByMemberAndYearReturnsNullWhenNoRowForThatYear(): void
+    {
+        $this->createTestMember($this->testEmail, 'Akela');
+        $memberId = (int) $this->pdo->query('SELECT id FROM members ORDER BY id DESC LIMIT 1')->fetchColumn();
+
+        $this->assertNull($this->service->findProfileByMemberAndYear($memberId, 999999));
+    }
+
+    public function testFindProfileByMemberAndYearReturnsNullForUnknownMemberId(): void
+    {
+        $this->assertNull($this->service->findProfileByMemberAndYear(999999, $this->scoutYearId));
+    }
 }

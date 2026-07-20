@@ -1,0 +1,214 @@
+{
+  "id": "calendar",
+  "name": "Calendrier",
+  "description": "Calendrier des activités : un calendrier par section (automatique) et des calendriers supplémentaires configurables, avec abonnement ICS.",
+  "version": "1.0.0",
+  "enabled_by_default": true,
+  "routes": [
+    {
+      "path": "/calendar",
+      "method": "GET",
+      "controller": "Modules\\Calendar\\Controller\\CalendarPublicController",
+      "action": "index",
+      "menu": "notre_unite",
+      "role_min": "public",
+      "label": "Calendrier"
+    },
+    {
+      "path": "/calendar/feed/{token}.ics",
+      "method": "GET",
+      "controller": "Modules\\Calendar\\Controller\\CalendarPublicController",
+      "action": "calendarFeed",
+      "menu": "notre_unite",
+      "role_min": "public",
+      "label": ""
+    },
+    {
+      "path": "/calendar/feed/unit/{token}.ics",
+      "method": "GET",
+      "controller": "Modules\\Calendar\\Controller\\CalendarPublicController",
+      "action": "unitFeed",
+      "menu": "notre_unite",
+      "role_min": "public",
+      "label": ""
+    },
+    {
+      "path": "/calendar/feed/personal/{token}.ics",
+      "method": "GET",
+      "controller": "Modules\\Calendar\\Controller\\CalendarPublicController",
+      "action": "personalFeed",
+      "menu": "notre_unite",
+      "role_min": "public",
+      "label": ""
+    },
+    {
+      "path": "/calendar/personal-token/regenerate",
+      "method": "POST",
+      "controller": "Modules\\Calendar\\Controller\\CalendarPublicController",
+      "action": "regeneratePersonalToken",
+      "menu": "notre_unite",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/chefs/calendar",
+      "method": "GET",
+      "controller": "Modules\\Calendar\\Controller\\CalendarChiefController",
+      "action": "index",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": "Calendrier"
+    },
+    {
+      "path": "/chefs/calendar/event-create",
+      "method": "POST",
+      "controller": "Modules\\Calendar\\Controller\\CalendarChiefController",
+      "action": "createEvent",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/chefs/calendar/event-update",
+      "method": "POST",
+      "controller": "Modules\\Calendar\\Controller\\CalendarChiefController",
+      "action": "updateEvent",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/chefs/calendar/event-delete",
+      "method": "POST",
+      "controller": "Modules\\Calendar\\Controller\\CalendarChiefController",
+      "action": "deleteEvent",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/config/calendar",
+      "method": "GET",
+      "controller": "Modules\\Calendar\\Controller\\CalendarConfigController",
+      "action": "index",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": "Calendrier"
+    },
+    {
+      "path": "/config/calendar/defaults",
+      "method": "POST",
+      "controller": "Modules\\Calendar\\Controller\\CalendarConfigController",
+      "action": "updateDefaults",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": ""
+    },
+    {
+      "path": "/config/calendar/visibility",
+      "method": "POST",
+      "controller": "Modules\\Calendar\\Controller\\CalendarConfigController",
+      "action": "updateVisibility",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": ""
+    },
+    {
+      "path": "/config/calendar/add",
+      "method": "POST",
+      "controller": "Modules\\Calendar\\Controller\\CalendarConfigController",
+      "action": "addCalendar",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": ""
+    },
+    {
+      "path": "/config/calendar/regenerate",
+      "method": "POST",
+      "controller": "Modules\\Calendar\\Controller\\CalendarConfigController",
+      "action": "regenerateToken",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": ""
+    },
+    {
+      "path": "/config/calendar/delete",
+      "method": "POST",
+      "controller": "Modules\\Calendar\\Controller\\CalendarConfigController",
+      "action": "deleteCalendar",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": ""
+    },
+    {
+      "path": "/config/calendar/unit-token/regenerate",
+      "method": "POST",
+      "controller": "Modules\\Calendar\\Controller\\CalendarConfigController",
+      "action": "regenerateUnitToken",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": ""
+    },
+    {
+      "path": "/config/calendar/notifications",
+      "method": "POST",
+      "controller": "Modules\\Calendar\\Controller\\CalendarConfigController",
+      "action": "updateNotificationSettings",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": ""
+    }
+  ],
+  "settings": [
+    {
+      "key": "event_default_title",
+      "default_value": "Réunion",
+      "type": "text",
+      "label": "Nom par défaut",
+      "description": "Titre pré-rempli dans le formulaire de création d'un évènement."
+    },
+    {
+      "key": "event_default_start_time",
+      "default_value": "14:00",
+      "type": "text",
+      "label": "Heure de début par défaut",
+      "description": "Heure de début pré-remplie dans le formulaire de création d'un évènement."
+    },
+    {
+      "key": "event_default_end_time",
+      "default_value": "16:00",
+      "type": "text",
+      "label": "Heure de fin par défaut",
+      "description": "Heure de fin pré-remplie dans le formulaire de création d'un évènement."
+    },
+    {
+      "key": "event_default_location",
+      "default_value": "",
+      "type": "text",
+      "label": "Localisation par défaut",
+      "description": "Lieu pré-rempli dans le formulaire de création d'un évènement."
+    },
+    {
+      "key": "notify_multiday_events_enabled",
+      "default_value": "0",
+      "type": "boolean",
+      "label": "Rappels avant les évènements multi-jours",
+      "description": "Envoie un rappel par email aux responsables d'une section avant un évènement de plusieurs jours (déclaration Desk, liste des intendants)."
+    },
+    {
+      "key": "notify_multiday_events_days_before",
+      "default_value": "14",
+      "type": "text",
+      "label": "Délai avant l'évènement (jours)",
+      "description": "Nombre de jours avant le début de l'évènement auquel le rappel est envoyé."
+    }
+  ],
+  "cookies": [],
+  "scheduled_tasks": [
+    {
+      "key": "multiday_event_reminder",
+      "handler": "Modules\\Calendar\\Task\\MultidayEventReminderHandler"
+    }
+  ],
+  "storage": {}
+}

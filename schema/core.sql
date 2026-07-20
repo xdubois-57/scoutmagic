@@ -114,6 +114,13 @@ CREATE TABLE sections (
     -- members is kept (never deleted) but excluded from every section picker
     -- until a later import gives it members again.
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    -- Explicit color override (hex, e.g. "#378ADD"), configurable from
+    -- Configuration > Config Desk. Null means "no override" — the section
+    -- falls back to its branch's canonical color (or the dedicated Staff
+    -- d'U color) via Core\Member\SectionService::colorForSection(), the
+    -- single source of truth every section picker/list across the site
+    -- (Staffs, Trombinoscope, the calendar module, statistics) calls.
+    color VARCHAR(7) NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE INDEX idx_desk_code (desk_code),
     CONSTRAINT fk_section_branch FOREIGN KEY (age_branch_id) REFERENCES age_branches(id)

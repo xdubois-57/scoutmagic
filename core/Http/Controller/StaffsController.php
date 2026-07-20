@@ -11,6 +11,7 @@ use Core\Http\Response;
 use Core\Journal\JournalService;
 use Core\Member\MemberService;
 use Core\Member\SectionService;
+use Core\Member\UnitStaffSectionService;
 use Core\ScoutYear\ScoutYearResolver;
 use Core\ScoutYear\ScoutYearSession;
 use Core\Security\AuthSession;
@@ -27,11 +28,10 @@ class StaffsController extends AbstractController
         private MemberService $memberService,
         private ScoutYearResolver $scoutYearResolver,
         private JournalService $journalService,
-        private BadgeService $badgeService
+        private BadgeService $badgeService,
+        private UnitStaffSectionService $unitStaffSectionService
     ) {
     }
-
-    public const UNIT_STAFF_SECTION_ID = -1;
 
     /**
      * GET /chefs/staffs — render the Staffs page.
@@ -45,27 +45,26 @@ class StaffsController extends AbstractController
         $scoutYearId = $effectiveYear->id;
         $email = AuthSession::getEmail() ?? '';
 
+        // Idempotent: guarantees "Staff d'U" exists even before any Desk
+        // import has ever run (mirrors BadgeService::ensureDefaults()).
+        $this->unitStaffSectionService->ensureSection();
+
         // Get all sections
         $allSections = $this->sectionService->getAllWithBranches();
 
         // Get linked members for filtering and default selection
         $linkedMembers = $this->memberService->getLinkedMembers($email, $scoutYearId);
 
-        // Filter sections based on role
+        // Filter sections based on role. "Staff d'U" (STAFFDU) is a real
+        // section like any other — it flows through this same filter and is
+        // visible to chiefs/admins (hasAccess(CHIEF) returns all sections).
         $sections = $this->filterSectionsForRole($allSections, $linkedMembers, $currentRole);
-
-        // Append virtual "Staff d'U" section for chiefs/admins
-        if ($currentRole->hasAccess(Role::CHIEF)) {
-            $sections[] = [
-                'id' => self::UNIT_STAFF_SECTION_ID,
-                'desk_code' => '__staff_u__',
-                'name' => "Staff d'U",
-                'email' => null,
-                'age_branch_id' => 0,
-                'branch_name' => "Staff d'unité",
-                'branch_sort_order' => 50,
-            ];
+        // Resolved (override or branch-derived) color for the picker dots —
+        // same single source of truth as every other section picker/list.
+        foreach ($sections as &$section) {
+            $section['color'] = SectionService::colorForSection($section);
         }
+        unset($section);
 
         // Resolve selected section
         $requestedId = $request->getQuery('section');
@@ -77,17 +76,7 @@ class StaffsController extends AbstractController
         $staff = [];
         $canEditSection = $currentRole->hasAccess(Role::CHIEF);
 
-        if ($selectedSectionId === self::UNIT_STAFF_SECTION_ID) {
-            $currentSection = [
-                'id' => self::UNIT_STAFF_SECTION_ID,
-                'desk_code' => '__staff_u__',
-                'name' => "Staff d'U",
-                'email' => null,
-                'age_branch_id' => 0,
-                'branch_name' => "Staff d'unité",
-            ];
-            $staff = $this->sectionService->getUnitStaff($scoutYearId);
-        } elseif ($selectedSectionId !== null) {
+        if ($selectedSectionId !== null) {
             $currentSection = $this->sectionService->getSection($selectedSectionId);
 
             if ($currentSection !== null) {

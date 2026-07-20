@@ -61,6 +61,27 @@ class UserAccountRepository
     }
 
     /**
+     * Find the first super-admin account (by id), for system-generated
+     * alerts that need a human to notify but have no more specific
+     * recipient (e.g. a scheduled task failure — see Core\Scheduler\TaskContext).
+     */
+    public function findFirstSuperAdmin(): ?UserAccount
+    {
+        $stmt = $this->pdo->query(
+            'SELECT * FROM user_accounts WHERE is_super_admin = 1 ORDER BY id ASC LIMIT 1'
+        );
+        $row = $stmt !== false ? $stmt->fetch() : false;
+
+        if ($row === false) {
+            return null;
+        }
+
+        $decryptedEmail = $this->encryption->decrypt($row['email_encrypted']);
+
+        return $this->hydrate($row, $decryptedEmail);
+    }
+
+    /**
      * Find a user account by email blind index.
      */
     public function findByBlindIndex(string $blindIndex): ?UserAccount

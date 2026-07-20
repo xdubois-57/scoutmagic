@@ -1,0 +1,58 @@
+{#
+  Reusable iCal-style month grid — renders the output of
+  Core\View\MonthGrid\MonthGridBuilder::build(). Generic: knows nothing
+  about "calendars" or any other domain concept, only about
+  Core\View\MonthGrid\GridEvent's generic shape, so any module can reuse it.
+
+  Usage:
+  {% include 'partials/month_grid.html.twig' with {
+      weeks: weeks,
+      days_clickable: true,
+      events_clickable: true
+  } %}
+
+  Each week is ONE CSS grid (7 columns x (1 + row_count) rows): row 1 holds
+  the day-number labels, the rows below hold event bars. The day-cell
+  background/border box spans row 1 through the last bar row so it reads as
+  a single cell containing the number and "its" events, capped at a fixed
+  row count by the builder — a day's cell height never grows past that cap,
+  no matter how many events land on it (see day.overflow_count).
+
+  days_clickable / events_clickable (both default false) only toggle the
+  CSS hook classes (calendar-day-cell--clickable / calendar-event-bar--clickable)
+  a caller's own <script> block queries to wire up click handlers — this
+  partial never attaches any JS itself.
+#}
+<div class="calendar-weekday-row text-body-secondary fw-semibold mb-1">
+    <div>Lun</div><div>Mar</div><div>Mer</div><div>Jeu</div><div>Ven</div><div>Sam</div><div>Dim</div>
+</div>
+{% set month_bar_count = 0 %}
+{% for week in weeks %}{% set month_bar_count = month_bar_count + week.bars|length %}{% endfor %}
+{% for week in weeks %}
+    <div class="calendar-week" style="grid-template-rows: auto repeat({{ week.row_count }}, 1.35rem);">
+        {% for day in week.days %}
+            <div class="calendar-day-cell{{ days_clickable ? ' calendar-day-cell--clickable' : '' }}{{ not day.in_month ? ' is-padding' : '' }}{{ day.is_today ? ' is-today' : '' }}"
+                 style="grid-column: {{ loop.index }}; grid-row: 1 / span {{ week.row_count + 1 }};"
+                 data-date="{{ day.date }}"></div>
+        {% endfor %}
+        {% for day in week.days %}
+            <div class="calendar-day-number" style="grid-column: {{ loop.index }}; grid-row: 1;">
+                <span>{{ day.day_number }}</span>
+                {% if day.overflow_count > 0 %}
+                    <span class="calendar-day-overflow" title="+{{ day.overflow_count }} : {{ day.overflow_labels|join(', ') }}">+{{ day.overflow_count }}</span>
+                {% endif %}
+            </div>
+        {% endfor %}
+        {% for bar in week.bars %}
+            <div class="calendar-event-bar{{ events_clickable ? ' calendar-event-bar--clickable' : '' }}{{ bar.continues_before ? ' continues-before' : '' }}{{ bar.continues_after ? ' continues-after' : '' }}"
+                 style="grid-column: {{ bar.col_start }} / span {{ bar.col_span }}; grid-row: {{ bar.row + 2 }}; background-color: {{ bar.event.color }};"
+                 title="{{ bar.event.tooltip ?? bar.event.label }}"
+                 {%- for key, value in bar.event.data %} data-{{ key }}="{{ value }}"{% endfor %}>
+                {{ bar.event.label }}
+            </div>
+        {% endfor %}
+    </div>
+{% endfor %}
+{% if month_bar_count == 0 %}
+    <p class="text-body-secondary fst-italic small mt-2 mb-0">Aucun évènement ce mois-ci.</p>
+{% endif %}

@@ -14,6 +14,7 @@ use Core\Import\ImportSectionRepository;
 use Core\Import\MappingResolver;
 use Core\Import\MemberRepository;
 use Core\Import\MemberYearRepository;
+use Core\Member\UnitStaffSectionService;
 use Core\Security\EncryptionService;
 use Core\Security\UserAccountRepository;
 use PHPUnit\Framework\TestCase;
@@ -70,7 +71,8 @@ class DeskImportServiceTest extends TestCase
 
         return new DeskImportService(
             $this->pdo, $this->encryption, $parser, $mappingResolver,
-            $memberRepo, $memberYearRepo, $importJournalRepo, $userAccountRepo
+            $memberRepo, $memberYearRepo, $importJournalRepo, $userAccountRepo,
+            new UnitStaffSectionService($this->pdo)
         );
     }
 
@@ -137,6 +139,51 @@ class DeskImportServiceTest extends TestCase
         $journal = $stmt->fetch(\PDO::FETCH_ASSOC);
         $this->assertSame($this->scoutYearId, (int) $journal['scout_year_id']);
         $this->assertSame(3, (int) $journal['member_count']);
+    }
+
+    public function testImportCreatesStaffduSection(): void
+    {
+        $this->importFixture();
+
+        $stmt = $this->pdo->query("SELECT is_active FROM sections WHERE desk_code = 'STAFFDU'");
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+        $this->assertNotFalse($row);
+        $this->assertSame(1, (int) $row['is_active']);
+    }
+
+    public function testImportSyncsExistingAdminFunctionsIntoStaffdu(): void
+    {
+        $this->importFixture();
+
+        // The fixture's "Intendant d'unité" CSV row has no Section/Branche
+        // column, so it always imports with section_id NULL — the exact
+        // shape a future chef d'unité function has once confirmed on Config
+        // Desk (role is only ever set post-import, never by the CSV itself).
+        $stmt = $this->pdo->prepare(
+            'SELECT mf.id, mf.function_id FROM member_functions mf
+             JOIN functions f ON mf.function_id = f.id
+             WHERE mf.section_id IS NULL AND f.desk_code = ?'
+        );
+        $stmt->execute(["Intendant d'unité"]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+        $this->assertNotFalse($row, 'fixture must contain a function row with no section');
+        $functionId = (int) $row['function_id'];
+
+        // Simulate that function being confirmed as chef d'unité on Config
+        // Desk before the next import runs.
+        $this->pdo->exec("UPDATE functions SET role = 'admin' WHERE id = {$functionId}");
+
+        $this->service = $this->createService();
+        $tmpFile = tempnam(sys_get_temp_dir(), 'csv');
+        copy($this->fixturePath, $tmpFile);
+        $this->service->import($tmpFile, $this->scoutYearId, 1);
+
+        $stmt = $this->pdo->query("SELECT id FROM sections WHERE desk_code = 'STAFFDU'");
+        $staffduId = (int) $stmt->fetchColumn();
+
+        $stmt = $this->pdo->prepare('SELECT section_id FROM member_functions WHERE function_id = ?');
+        $stmt->execute([$functionId]);
+        $this->assertSame($staffduId, (int) $stmt->fetchColumn());
     }
 
     public function testCsvFileDeletedAfterImport(): void

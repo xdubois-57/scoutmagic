@@ -56,4 +56,46 @@ class SchedulerRepositoryTest extends TestCase
     {
         $this->assertSame(0, $this->repo->countAll());
     }
+
+    public function testFindByModuleAndTaskKeyReturnsAllStatusesNewestFirst(): void
+    {
+        $this->repo->create('sos_staff', 'apply_redirect', '2026-01-05 10:00:00', null, '2026-01-05');
+        $id = $this->repo->create('sos_staff', 'apply_redirect', '2026-01-10 10:00:00', null, '2026-01-10');
+        $this->repo->markDone($id);
+        $this->repo->create('other_module', 'apply_redirect', '2026-01-07 10:00:00', null, '2026-01-07');
+
+        $rows = $this->repo->findByModuleAndTaskKey('sos_staff', 'apply_redirect');
+
+        $this->assertCount(2, $rows);
+        $this->assertSame('2026-01-10 10:00:00', $rows[0]['run_at']);
+        $this->assertSame('done', $rows[0]['status']);
+        $this->assertSame('2026-01-05 10:00:00', $rows[1]['run_at']);
+    }
+
+    public function testFindByModuleAndTaskKeyRespectsLimit(): void
+    {
+        for ($i = 1; $i <= 5; $i++) {
+            $this->repo->create('sos_staff', 'apply_redirect', "2026-01-0{$i} 10:00:00", null, "2026-01-0{$i}");
+        }
+
+        $rows = $this->repo->findByModuleAndTaskKey('sos_staff', 'apply_redirect', 2);
+
+        $this->assertCount(2, $rows);
+    }
+
+    public function testDeleteOlderThanRemovesOnlyOldRowsForThatModuleAndTask(): void
+    {
+        $this->repo->create('sos_staff', 'apply_redirect', '2024-01-01 10:00:00', null, '2024-01-01');
+        $this->repo->create('sos_staff', 'apply_redirect', '2026-07-01 10:00:00', null, '2026-07-01');
+        $this->repo->create('other_module', 'apply_redirect', '2024-01-01 10:00:00', null, '2024-01-01');
+
+        $deleted = $this->repo->deleteOlderThan('sos_staff', 'apply_redirect', '2025-01-01 00:00:00');
+
+        $this->assertSame(1, $deleted);
+        $remaining = $this->repo->findByModuleAndTaskKey('sos_staff', 'apply_redirect');
+        $this->assertCount(1, $remaining);
+        $this->assertSame('2026-07-01 10:00:00', $remaining[0]['run_at']);
+        // Untouched: different module.
+        $this->assertCount(1, $this->repo->findByModuleAndTaskKey('other_module', 'apply_redirect'));
+    }
 }

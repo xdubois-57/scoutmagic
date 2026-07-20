@@ -1,0 +1,89 @@
+{#
+  Generic, reusable list editor — add / drag-and-drop reorder / activate
+  toggle / delete for any collection of configurable items (module.json
+  banners today; a future module's FAQ entries, useful links, etc. can
+  reuse this unchanged). Knows nothing about what an item "is" — the
+  caller supplies each item's own content via the item_content block, and
+  optionally an edit trigger (icon button) via the item_edit block (both
+  Twig embed — see usage below), so this partial only owns the list
+  chrome (drag handle, edit/active/delete icons in one row, add button)
+  and the JS wiring (public/assets/js/list-editor.js) that persists
+  ordering, activation, and deletion against caller-supplied endpoints.
+
+  Usage:
+  {% embed 'partials/list_editor.html.twig' with {
+      list_id: 'banner-list',
+      items: banners,
+      add_url: '/config/banner/add',
+      reorder_url: '/config/banner/reorder',
+      active_url: '/config/banner/active',
+      delete_url: '/config/banner/delete',
+      add_label: 'Ajouter une bannière',
+      empty_label: 'Aucune bannière configurée.'
+  } %}
+      {% block item_content %}
+          // item is in scope here — this is what makes reuse possible
+          {% include 'partials/rich_text_field.html.twig' with {
+              content_key: 'banner_content_' ~ item.id,
+              content_value: item.content
+          } %}
+      {% endblock %}
+      {% block item_edit %}
+          {% include 'partials/rich_text_edit_button.html.twig' with {
+              content_key: 'banner_content_' ~ item.id,
+              save_url: '/api/rich-text-content'
+          } %}
+      {% endblock %}
+  {% endembed %}
+
+  Each item array may optionally carry:
+  - `can_delete` (bool, default true) and `delete_blocked_reason` (string)
+    — when false, the delete button is disabled with that reason as its
+    title, same "used elsewhere, deactivate instead" pattern already
+    established for Badges/Functions deletions.
+
+  item_edit is optional — leave it undeclared (or empty) for a list whose
+  items need no separate edit affordance (e.g. content editable in place).
+
+  Set add_mode: 'custom' to suppress this partial's own "Ajouter" wiring
+  (a blind create + reload) — for a caller whose add flow needs to collect
+  data first (e.g. opening the rich text dialog before an item exists at
+  all, so nothing empty ever appears in the list); the caller then wires
+  the `.list-editor-add-btn` itself, calling add_url however it needs to.
+#}
+<div class="list-editor" id="{{ list_id }}"
+     data-reorder-url="{{ reorder_url }}"
+     data-active-url="{{ active_url }}"
+     data-delete-url="{{ delete_url }}"
+     data-add-mode="{{ add_mode|default('default') }}">
+    <div class="list-editor-items d-flex flex-column gap-2 mb-3">
+        {% for item in items %}
+            {% set can_delete = item.can_delete is not defined or item.can_delete %}
+            <div class="list-editor-item border rounded-3 p-3 d-flex align-items-start gap-2" draggable="true" data-id="{{ item.id }}">
+                <span class="list-editor-drag-handle text-body-secondary" title="Glisser pour réordonner" style="cursor:grab;">
+                    <i class="bi bi-grip-vertical"></i>
+                </span>
+                <div class="list-editor-item-content flex-grow-1">
+                    {% block item_content %}{% endblock %}
+                </div>
+                <div class="d-flex flex-row align-items-center gap-2 flex-shrink-0">
+                    {% block item_edit %}{% endblock %}
+                    <button type="button" class="btn btn-sm {{ item.is_active ? 'btn-outline-success' : 'btn-outline-secondary' }} list-editor-active-toggle"
+                            data-id="{{ item.id }}" data-active="{{ item.is_active ? '1' : '0' }}"
+                            title="{{ item.is_active ? 'Actif — cliquer pour désactiver' : 'Inactif — cliquer pour activer' }}">
+                        <i class="bi {{ item.is_active ? 'bi-toggle-on' : 'bi-toggle-off' }}"></i>
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline-danger list-editor-delete-btn" data-id="{{ item.id }}"
+                            {{ can_delete ? '' : 'disabled' }} title="{{ can_delete ? 'Supprimer' : item.delete_blocked_reason|default('Suppression impossible.') }}">
+                        <i class="bi bi-trash"></i>
+                    </button>
+                </div>
+            </div>
+        {% else %}
+            <p class="text-body-secondary fst-italic mb-0">{{ empty_label|default('Aucun élément.') }}</p>
+        {% endfor %}
+    </div>
+    <button type="button" class="btn btn-sm btn-primary list-editor-add-btn" data-url="{{ add_url }}">
+        <i class="bi bi-plus-lg"></i> {{ add_label|default('Ajouter') }}
+    </button>
+</div>

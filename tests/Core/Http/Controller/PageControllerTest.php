@@ -7,6 +7,7 @@ namespace Tests\Core\Http\Controller;
 use Core\Cookie\CookieConsentService;
 use Core\Http\Controller\PageController;
 use Core\Http\Request;
+use Core\Module\HomeBannerProvider;
 use Core\View\EditableContentRepository;
 use Core\View\EditableContentService;
 use Core\View\SectionRepository;
@@ -17,6 +18,10 @@ use Twig\Loader\FilesystemLoader;
 class PageControllerTest extends TestCase
 {
     private PageController $controller;
+    private Environment $twig;
+    private EditableContentService $editableService;
+    private SectionRepository $sectionRepo;
+    private CookieConsentService $cookieConsentService;
 
     protected function setUp(): void
     {
@@ -78,6 +83,10 @@ class PageControllerTest extends TestCase
         $sectionRepo = new SectionRepository($pdo);
 
         $cookieConsentService = new CookieConsentService([]);
+        $this->twig = $twig;
+        $this->editableService = $editableService;
+        $this->sectionRepo = $sectionRepo;
+        $this->cookieConsentService = $cookieConsentService;
         $this->controller = new PageController($twig, $editableService, $sectionRepo, $cookieConsentService);
     }
 
@@ -87,6 +96,48 @@ class PageControllerTest extends TestCase
         $response = $this->controller->home($request, []);
         $this->assertSame(200, $response->getStatusCode());
         $this->assertStringContainsString('Bienvenue', $response->getBody());
+    }
+
+    public function testHomePageRendersNoBannerWhenNoProviderWired(): void
+    {
+        // Banner module disabled — PageController's bannerProvider defaults
+        // to null, and the homepage must render normally, without error.
+        $request = new Request('GET', '/', [], [], [], []);
+        $response = $this->controller->home($request, []);
+
+        $this->assertStringNotContainsString('alert-info', $response->getBody());
+    }
+
+    public function testHomePageRendersBannerWhenProviderReturnsContent(): void
+    {
+        $provider = new class implements HomeBannerProvider {
+            public function getRandomBannerHtml(): ?string
+            {
+                return '<p>Message important</p>';
+            }
+        };
+        $controller = new PageController($this->twig, $this->editableService, $this->sectionRepo, $this->cookieConsentService, $provider);
+
+        $request = new Request('GET', '/', [], [], [], []);
+        $response = $controller->home($request, []);
+
+        $this->assertStringContainsString('Message important', $response->getBody());
+    }
+
+    public function testHomePageRendersNothingWhenProviderReturnsNull(): void
+    {
+        $provider = new class implements HomeBannerProvider {
+            public function getRandomBannerHtml(): ?string
+            {
+                return null;
+            }
+        };
+        $controller = new PageController($this->twig, $this->editableService, $this->sectionRepo, $this->cookieConsentService, $provider);
+
+        $request = new Request('GET', '/', [], [], [], []);
+        $response = $controller->home($request, []);
+
+        $this->assertStringNotContainsString('alert-info', $response->getBody());
     }
 
     public function testContactPageRenders(): void

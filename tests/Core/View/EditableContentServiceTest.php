@@ -72,4 +72,20 @@ class EditableContentServiceTest extends TestCase
         $result = $this->service->get('missing');
         $this->assertNull($result);
     }
+
+    public function testDeleteRemovesTheKey(): void
+    {
+        $this->service->set('test.delete', '<p>Bye</p>', 'rich_text', 1);
+
+        $this->service->delete('test.delete');
+
+        $this->assertNull($this->service->get('test.delete'));
+    }
+
+    public function testDeleteOnUnknownKeyIsANoOp(): void
+    {
+        $this->service->delete('never.existed');
+
+        $this->assertNull($this->service->get('never.existed'));
+    }
 }

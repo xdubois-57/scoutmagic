@@ -7,6 +7,7 @@ namespace Core\Http\Controller;
 use Core\Cookie\CookieConsentService;
 use Core\Http\Request;
 use Core\Http\Response;
+use Core\Module\HomeBannerProvider;
 use Core\View\EditableContentService;
 use Core\View\SectionRepository;
 use Twig\Environment;
@@ -17,7 +18,8 @@ class PageController extends AbstractController
         protected Environment $twig,
         private EditableContentService $editableContentService, // @phpstan-ignore property.onlyWritten
         private SectionRepository $sectionRepository,
-        private CookieConsentService $cookieConsentService
+        private CookieConsentService $cookieConsentService,
+        private ?HomeBannerProvider $bannerProvider = null
     ) {
     }
 
@@ -28,7 +30,9 @@ class PageController extends AbstractController
      */
     public function home(Request $request, array $params): Response
     {
-        return $this->render('pages/home.html.twig');
+        return $this->render('pages/home.html.twig', [
+            'banner_html' => $this->bannerProvider?->getRandomBannerHtml(),
+        ]);
     }
 
     /**

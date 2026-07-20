@@ -1,0 +1,7 @@
+{% extends 'email/base.html.twig' %}
+{% block content %}
+    <h2 style="margin:0 0 16px;font-size:20px;">Vous êtes de garde SOS</h2>
+    <p>Bonjour {{ display_name }},</p>
+    <p>Le numéro SOS de l'unité est désormais redirigé vers votre téléphone ({{ number }}).</p>
+    <p style="font-size:13px;color:#666;">Vous recevrez un nouvel email lorsque ce ne sera plus le cas.</p>
+{% endblock %}

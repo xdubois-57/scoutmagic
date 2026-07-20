@@ -1,0 +1,23 @@
+{#
+  Generic reusable "edit this rich text field" icon button — the trigger
+  half of the pair described in partials/rich_text_field.html.twig's doc
+  comment. save_url is normally the generic core endpoint
+  (Core\Http\Controller\EditableContentController::updateField(), POST
+  /api/rich-text-content, role_min superadmin) — no per-module save
+  endpoint needed for the text itself.
+
+  The calling PAGE (not this partial, to avoid duplicate DOM ids) must
+  once, anywhere on the page:
+  - {% include 'partials/rich_text_editor.html.twig' %}
+  - <script src="/assets/js/rich-text-field.js" defer></script>
+
+  Usage:
+  {% include 'partials/rich_text_edit_button.html.twig' with {
+      content_key: 'banner_content_' ~ item.id,
+      save_url: '/api/rich-text-content'
+  } %}
+#}
+<button type="button" class="btn btn-sm btn-outline-secondary rich-text-field-edit-btn"
+        data-key="{{ content_key }}" data-save-url="{{ save_url }}" title="Modifier">
+    <i class="bi bi-pencil"></i>
+</button>

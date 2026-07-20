@@ -1,0 +1,318 @@
+{% extends "base.html.twig" %}
+
+{% block title %}Calendrier — {{ site_name }}{% endblock %}
+
+{% block content %}
+    <h1 class="mb-4">Calendrier</h1>
+
+    {# 5.1 Event defaults #}
+    <h2 class="h5 mb-3">Valeurs par défaut des évènements</h2>
+    <p class="text-body-secondary small mb-3">
+        Ces valeurs sont pré-remplies dans le formulaire de création d'un évènement,
+        mais restent modifiables par les chefs pour chaque évènement.
+    </p>
+    <form id="defaults-form" class="border rounded-3 p-3 mb-4">
+        <div class="row g-2">
+            <div class="col-12 col-md-6">
+                <label class="form-label small" for="default-title">Nom par défaut</label>
+                <input type="text" class="form-control form-control-sm" id="default-title" value="{{ default_title }}">
+            </div>
+            <div class="col-6 col-md-2">
+                <label class="form-label small" for="default-start-time">Heure de début</label>
+                <input type="time" class="form-control form-control-sm" id="default-start-time" value="{{ default_start_time }}">
+            </div>
+            <div class="col-6 col-md-2">
+                <label class="form-label small" for="default-end-time">Heure de fin</label>
+                <input type="time" class="form-control form-control-sm" id="default-end-time" value="{{ default_end_time }}">
+            </div>
+            <div class="col-12 col-md-2 d-flex align-items-end">
+                <button type="submit" class="btn btn-sm btn-primary w-100">Enregistrer</button>
+            </div>
+            <div class="col-12">
+                <label class="form-label small" for="default-location">Localisation par défaut</label>
+                <input type="text" class="form-control form-control-sm" id="default-location" value="{{ default_location }}">
+            </div>
+        </div>
+    </form>
+
+    <hr class="my-4">
+
+    {# Notifications #}
+    <h2 class="h5 mb-3">Notifications</h2>
+    <p class="text-body-secondary small mb-3">
+        Avant un évènement de plusieurs jours, un rappel par email peut être envoyé aux responsables
+        de la section concernée pour leur demander de déclarer l'évènement dans Desk (si ce n'est pas
+        encore fait) et d'envoyer la liste des intendants à l'avance au Staff d'U. Seuls les évènements
+        des calendriers de section sont concernés.
+    </p>
+    <form id="notifications-form" class="border rounded-3 p-3 mb-4">
+        <div class="row g-2 align-items-end">
+            <div class="col-12">
+                <div class="form-check form-switch">
+                    <input class="form-check-input" type="checkbox" id="notify-enabled" role="switch"
+                           {{ notify_multiday_events_enabled ? 'checked' : '' }}>
+                    <label class="form-check-label" for="notify-enabled">Activer les rappels d'évènements multi-jours</label>
+                </div>
+            </div>
+            <div class="col-12 col-md-4">
+                <label class="form-label small" for="notify-days-before">Délai avant l'évènement (jours)</label>
+                <input type="number" min="1" max="365" class="form-control form-control-sm" id="notify-days-before"
+                       value="{{ notify_multiday_events_days_before }}">
+            </div>
+            <div class="col-12 col-md-4">
+                <button type="submit" class="btn btn-sm btn-primary">Enregistrer</button>
+            </div>
+        </div>
+        <div class="text-danger small mt-2 d-none" id="notifications-error"></div>
+    </form>
+
+    <hr class="my-4">
+
+    {# 5.2 Section calendars #}
+    <h2 class="h5 mb-3">Calendriers de section</h2>
+    <p class="text-body-secondary small mb-3">
+        Un calendrier est créé automatiquement pour chaque section active. Ces calendriers ne sont pas supprimables.
+    </p>
+    <div class="d-flex flex-column gap-2 mb-4">
+        {% for item in section_calendars %}
+            <div class="border rounded-3 p-3 d-flex align-items-center gap-3">
+                <span class="d-inline-block rounded-circle" style="width:0.7rem;height:0.7rem;background-color:{{ item.color ?? '#6c757d' }};"></span>
+                <span class="fw-semibold flex-grow-1">{{ item.section_name }}</span>
+                <select class="form-select form-select-sm visibility-select" style="max-width:220px;" data-calendar-id="{{ item.calendar.id }}">
+                    <option value="public" {{ item.calendar.visibility == 'public' ? 'selected' : '' }}>Public</option>
+                    <option value="chief" {{ item.calendar.visibility == 'chief' ? 'selected' : '' }}>Chef</option>
+                    <option value="admin" {{ item.calendar.visibility == 'admin' ? 'selected' : '' }}>Chef d'Unité</option>
+                </select>
+                <span class="badge bg-secondary-subtle text-secondary-emphasis text-nowrap">Non supprimable</span>
+            </div>
+        {% else %}
+            <p class="text-body-secondary fst-italic">Aucune section active pour le moment.</p>
+        {% endfor %}
+    </div>
+
+    <hr class="my-4">
+
+    {# 5.3 Supplementary calendars #}
+    <h2 class="h5 mb-3">Calendriers supplémentaires</h2>
+    <div class="alert alert-warning small mb-3">
+        <i class="bi bi-exclamation-triangle"></i>
+        La visibilité ne restreint que l'affichage sur la page publique lorsque l'utilisateur est identifié —
+        elle ne restreint pas l'accès au lien ICS. Le calendrier reste accessible à toute personne connaissant
+        le lien. Utilisez le bouton « Régénérer » pour restreindre l'accès à un lien déjà partagé.
+    </div>
+
+    <div class="d-flex flex-column gap-2 mb-3" id="supplementary-calendar-list">
+        {% for calendar in supplementary_calendars %}
+            <div class="border rounded-3 p-3" data-calendar-id="{{ calendar.id }}">
+                <div class="d-flex align-items-center gap-2 flex-wrap mb-2">
+                    <span class="fw-semibold">{{ calendar.name }}</span>
+                    {% if calendar.isDefault %}
+                        <span class="badge bg-secondary-subtle text-secondary-emphasis">Par défaut</span>
+                    {% endif %}
+                    <select class="form-select form-select-sm visibility-select ms-auto" style="max-width:220px;" data-calendar-id="{{ calendar.id }}">
+                        <option value="public" {{ calendar.visibility == 'public' ? 'selected' : '' }}>Public</option>
+                        <option value="chief" {{ calendar.visibility == 'chief' ? 'selected' : '' }}>Chef</option>
+                        <option value="admin" {{ calendar.visibility == 'admin' ? 'selected' : '' }}>Chef d'Unité</option>
+                    </select>
+                </div>
+                <div class="input-group input-group-sm mb-2" style="max-width:520px;">
+                    <input type="text" class="form-control ics-link-input" readonly
+                           value="{{ param('base_url')|trim('/') }}/calendar/feed/{{ calendar.icsToken }}.ics">
+                    <button type="button" class="btn btn-outline-secondary copy-link-btn">
+                        <i class="bi bi-clipboard"></i> Copier
+                    </button>
+                </div>
+                <div class="d-flex gap-2">
+                    <button type="button" class="btn btn-sm btn-outline-danger regenerate-btn" data-calendar-id="{{ calendar.id }}">
+                        Régénérer
+                    </button>
+                    {% if not calendar.isDefault %}
+                        {% set hasEvents = calendar.id in calendar_ids_with_events %}
+                        {% if hasEvents %}
+                            <span class="d-inline-block" title="Ce calendrier contient des évènements — il ne peut pas être supprimé.">
+                                <button type="button" class="btn btn-sm btn-outline-danger" disabled style="pointer-events:none;">
+                                    <i class="bi bi-trash"></i> Supprimer
+                                </button>
+                            </span>
+                        {% else %}
+                            <button type="button" class="btn btn-sm btn-outline-danger delete-calendar-btn" data-calendar-id="{{ calendar.id }}">
+                                <i class="bi bi-trash"></i> Supprimer
+                            </button>
+                        {% endif %}
+                    {% endif %}
+                </div>
+            </div>
+        {% endfor %}
+    </div>
+
+    <div class="border rounded-3 p-3 d-flex align-items-center gap-2 mb-4" id="add-calendar-form">
+        <input type="text" class="form-control form-control-sm" id="new-calendar-name" placeholder="Anniversaires" style="max-width:220px;">
+        <select class="form-select form-select-sm" id="new-calendar-visibility" style="max-width:220px;">
+            <option value="public">Public</option>
+            <option value="chief">Chef</option>
+            <option value="admin">Chef d'Unité</option>
+        </select>
+        <button type="button" class="btn btn-sm btn-primary" id="add-calendar-btn">
+            <i class="bi bi-plus-lg"></i> Ajouter
+        </button>
+    </div>
+
+    <hr class="my-4">
+
+    {# 5.4 Unit ICS link #}
+    <h2 class="h5 mb-3">Lien ICS — Unité complète</h2>
+    <p class="text-body-secondary small mb-2">
+        Ce lien regroupe les évènements de tous les calendriers configurés (sections et supplémentaires).
+        Compatible avec tous les clients courants : iPhone, Google Calendar, Android, macOS Calendar,
+        Outlook, Thunderbird.
+    </p>
+    <div class="input-group input-group-sm mb-2" style="max-width:520px;">
+        <input type="text" class="form-control" id="unit-ics-link" readonly
+               value="{{ param('base_url')|trim('/') }}/calendar/feed/unit/{{ unit_feed_token }}.ics">
+        <button type="button" class="btn btn-outline-secondary" id="copy-unit-link">
+            <i class="bi bi-clipboard"></i> Copier
+        </button>
+    </div>
+    <button type="button" class="btn btn-sm btn-outline-danger" id="regenerate-unit-token">
+        Régénérer
+    </button>
+{% endblock %}
+
+{% block scripts %}
+<script nonce="{{ csp_nonce }}">
+const csrf = () => document.querySelector('meta[name="csrf-token"]')?.content;
+
+document.getElementById('defaults-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const res = await fetch('/config/calendar/defaults', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            event_default_title: document.getElementById('default-title').value,
+            event_default_start_time: document.getElementById('default-start-time').value,
+            event_default_end_time: document.getElementById('default-end-time').value,
+            event_default_location: document.getElementById('default-location').value,
+            _csrf_token: csrf()
+        })
+    });
+    const data = await res.json();
+    if (!data.success) alert(data.error);
+});
+
+document.getElementById('notifications-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const errorBox = document.getElementById('notifications-error');
+    errorBox.classList.add('d-none');
+    const res = await fetch('/config/calendar/notifications', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            enabled: document.getElementById('notify-enabled').checked,
+            days_before: parseInt(document.getElementById('notify-days-before').value, 10),
+            _csrf_token: csrf()
+        })
+    });
+    const data = await res.json();
+    if (!data.success) {
+        errorBox.textContent = data.error;
+        errorBox.classList.remove('d-none');
+    }
+});
+
+document.querySelectorAll('.visibility-select').forEach(select => {
+    select.addEventListener('change', async () => {
+        const res = await fetch('/config/calendar/visibility', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ calendar_id: parseInt(select.dataset.calendarId), visibility: select.value, _csrf_token: csrf() })
+        });
+        const data = await res.json();
+        if (!data.success) alert(data.error);
+    });
+});
+
+document.querySelectorAll('.copy-link-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        const input = btn.closest('.input-group').querySelector('.ics-link-input');
+        input.select();
+        navigator.clipboard?.writeText(input.value);
+    });
+});
+
+document.getElementById('copy-unit-link')?.addEventListener('click', () => {
+    const input = document.getElementById('unit-ics-link');
+    input.select();
+    navigator.clipboard?.writeText(input.value);
+});
+
+document.querySelectorAll('.regenerate-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+        if (!confirm("Régénérer ce lien invalidera l'ancien : tous les abonnements existants cesseront de se mettre à jour. Continuer ?")) {
+            return;
+        }
+        const res = await fetch('/config/calendar/regenerate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ calendar_id: parseInt(btn.dataset.calendarId), _csrf_token: csrf() })
+        });
+        const data = await res.json();
+        if (data.success) {
+            window.location.reload();
+        } else {
+            alert(data.error);
+        }
+    });
+});
+
+document.getElementById('regenerate-unit-token')?.addEventListener('click', async () => {
+    if (!confirm("Régénérer ce lien invalidera l'ancien : tous les abonnements existants cesseront de se mettre à jour. Continuer ?")) {
+        return;
+    }
+    const res = await fetch('/config/calendar/unit-token/regenerate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ _csrf_token: csrf() })
+    });
+    const data = await res.json();
+    if (data.success) {
+        window.location.reload();
+    } else {
+        alert(data.error);
+    }
+});
+
+document.querySelectorAll('.delete-calendar-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+        if (!confirm('Supprimer définitivement ce calendrier ?')) return;
+        const res = await fetch('/config/calendar/delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ calendar_id: parseInt(btn.dataset.calendarId), _csrf_token: csrf() })
+        });
+        const data = await res.json();
+        if (data.success) {
+            document.querySelector(`#supplementary-calendar-list [data-calendar-id="${btn.dataset.calendarId}"]`)?.remove();
+        } else {
+            alert(data.error);
+        }
+    });
+});
+
+document.getElementById('add-calendar-btn').addEventListener('click', async () => {
+    const name = document.getElementById('new-calendar-name').value;
+    const visibility = document.getElementById('new-calendar-visibility').value;
+
+    const res = await fetch('/config/calendar/add', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, visibility, _csrf_token: csrf() })
+    });
+    const data = await res.json();
+    if (data.success) {
+        window.location.reload();
+    } else {
+        alert(data.error);
+    }
+});
+</script>
+{% endblock %}

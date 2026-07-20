@@ -16,7 +16,10 @@
         "psr-4": {
             "Core\\": "core/",
             "Modules\\": "modules/",
+            "Modules\\Banner\\": "modules/banner/src/",
+            "Modules\\Calendar\\": "modules/calendar/src/",
             "Modules\\MemberStats\\": "modules/member_stats/src/",
+            "Modules\\SosStaff\\": "modules/sos_staff/src/",
             "Modules\\Trombinoscope\\": "modules/trombinoscope/src/"
         }
     },

@@ -11,7 +11,10 @@ class SectionRepository
     }
 
     /**
-     * Get all sections grouped by age branch.
+     * Get all sections grouped by age branch. "Staff d'U" (STAFFDU) is
+     * deliberately excluded from this public read-model — it's a real
+     * section for internal purposes (section picker, trombinoscope,
+     * calendar) but not listed on the public "Notre unité > Sections" page.
      *
      * @return array<array{branch_label: string, sections: array<array{name: ?string, desk_code: string, email: ?string}>}>
      */
@@ -21,7 +24,7 @@ class SectionRepository
             'SELECT s.name, s.desk_code, s.email, ab.label AS branch_label, ab.sort_order
              FROM sections s
              JOIN age_branches ab ON s.age_branch_id = ab.id
-             WHERE s.is_visible = 1 AND s.is_active = 1
+             WHERE s.is_visible = 1 AND s.is_active = 1 AND s.desk_code != \'STAFFDU\'
              ORDER BY ab.sort_order, s.desk_code'
         );
 

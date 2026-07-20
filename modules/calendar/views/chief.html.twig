@@ -1,0 +1,229 @@
+{% extends "base.html.twig" %}
+
+{% block title %}Calendrier — {{ site_name }}{% endblock %}
+
+{% block stylesheets %}
+<link rel="stylesheet" href="/assets/css/components.css">
+{% endblock %}
+
+{% block content %}
+    <h1 class="mb-4">Calendrier</h1>
+
+    {% include '@calendar/partials/calendar_picker.html.twig' with {
+        options: calendar_options,
+        selected_id: selected_calendar_id,
+        base_url: '/chefs/calendar?calendar=',
+        extra_query: '&month=' ~ month_param
+    } %}
+
+    <div class="d-flex align-items-center justify-content-between mb-3">
+        <a href="/chefs/calendar?month={{ prev_month_param }}&calendar={{ selected_calendar_id }}"
+           class="btn btn-sm btn-outline-secondary" aria-label="Mois précédent">
+            <i class="bi bi-chevron-left"></i>
+        </a>
+        <h2 class="h5 mb-0">{{ month_label }}</h2>
+        <a href="/chefs/calendar?month={{ next_month_param }}&calendar={{ selected_calendar_id }}"
+           class="btn btn-sm btn-outline-secondary" aria-label="Mois suivant">
+            <i class="bi bi-chevron-right"></i>
+        </a>
+    </div>
+
+    <p class="text-body-secondary small mb-2">
+        <i class="bi bi-info-circle"></i> Cliquez sur un jour pour ajouter un évènement, ou sur un évènement pour le modifier.
+    </p>
+
+    <div class="mb-4">
+        {% include 'partials/month_grid.html.twig' with { weeks: weeks, days_clickable: true, events_clickable: true } %}
+    </div>
+
+    {# Add/edit event dialog #}
+    <div class="modal fade" id="eventModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="event-modal-title">Ajouter un évènement</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <form id="event-form">
+                    <div class="modal-body">
+                        <input type="hidden" id="event-id" value="">
+                        <div class="row g-2 mb-2">
+                            <div class="col-12 col-md-6">
+                                <label class="form-label small" for="event-title">Titre</label>
+                                <input type="text" class="form-control form-control-sm" id="event-title">
+                            </div>
+                            <div class="col-12 col-md-6">
+                                <label class="form-label small" for="event-calendar">Calendrier</label>
+                                <select class="form-select form-select-sm" id="event-calendar">
+                                    {% for option in calendar_options %}
+                                        {% if option.id != 0 %}
+                                            <option value="{{ option.id }}">{{ option.label }}</option>
+                                        {% endif %}
+                                    {% endfor %}
+                                </select>
+                            </div>
+                        </div>
+                        <div class="row g-2 mb-2">
+                            <div class="col-6 col-md-3">
+                                <label class="form-label small" for="event-start-date">Date de début</label>
+                                <input type="date" class="form-control form-control-sm" id="event-start-date">
+                            </div>
+                            <div class="col-6 col-md-3">
+                                <label class="form-label small" for="event-end-date">Date de fin</label>
+                                <input type="date" class="form-control form-control-sm" id="event-end-date">
+                            </div>
+                            <div class="col-6 col-md-3">
+                                <label class="form-label small" for="event-start-time">Heure de début</label>
+                                <input type="time" class="form-control form-control-sm" id="event-start-time">
+                            </div>
+                            <div class="col-6 col-md-3">
+                                <label class="form-label small" for="event-end-time">Heure de fin</label>
+                                <input type="time" class="form-control form-control-sm" id="event-end-time">
+                            </div>
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label small" for="event-location">Localisation</label>
+                            <input type="text" class="form-control form-control-sm" id="event-location">
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label small" for="event-description">Description</label>
+                            <textarea class="form-control form-control-sm" id="event-description" rows="2"></textarea>
+                        </div>
+                        <div class="text-danger small d-none" id="event-form-error"></div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-outline-danger me-auto d-none" id="event-form-delete">
+                            <i class="bi bi-trash"></i> Supprimer
+                        </button>
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Annuler</button>
+                        <button type="submit" class="btn btn-primary" id="event-form-submit">Ajouter</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+{% endblock %}
+
+{% block scripts %}
+<script nonce="{{ csp_nonce }}">
+const csrf = () => document.querySelector('meta[name="csrf-token"]')?.content;
+
+const eventModalEl = document.getElementById('eventModal');
+const eventModal = new bootstrap.Modal(eventModalEl);
+const form = document.getElementById('event-form');
+const idInput = document.getElementById('event-id');
+const titleInput = document.getElementById('event-title');
+const calendarSelect = document.getElementById('event-calendar');
+const startDateInput = document.getElementById('event-start-date');
+const endDateInput = document.getElementById('event-end-date');
+const startTimeInput = document.getElementById('event-start-time');
+const endTimeInput = document.getElementById('event-end-time');
+const locationInput = document.getElementById('event-location');
+const descriptionInput = document.getElementById('event-description');
+const modalTitle = document.getElementById('event-modal-title');
+const submitBtn = document.getElementById('event-form-submit');
+const deleteBtn = document.getElementById('event-form-delete');
+const errorBox = document.getElementById('event-form-error');
+
+const defaultTitle = {{ default_title|json_encode|raw }};
+const defaultStartTime = {{ default_start_time|json_encode|raw }};
+const defaultEndTime = {{ default_end_time|json_encode|raw }};
+const defaultLocation = {{ default_location|json_encode|raw }};
+const defaultCalendarId = {{ default_calendar_id|json_encode|raw }};
+
+function openAddModal(dateStr) {
+    idInput.value = '';
+    titleInput.value = defaultTitle;
+    if (defaultCalendarId !== null) {
+        calendarSelect.value = String(defaultCalendarId);
+    }
+    startDateInput.value = dateStr;
+    endDateInput.value = dateStr;
+    startTimeInput.value = defaultStartTime;
+    endTimeInput.value = defaultEndTime;
+    locationInput.value = defaultLocation;
+    descriptionInput.value = '';
+    modalTitle.textContent = 'Ajouter un évènement';
+    submitBtn.textContent = 'Ajouter';
+    deleteBtn.classList.add('d-none');
+    errorBox.classList.add('d-none');
+    eventModal.show();
+}
+
+function openEditModal(dataset) {
+    idInput.value = dataset.id;
+    calendarSelect.value = dataset.calendarId;
+    titleInput.value = dataset.title;
+    startDateInput.value = dataset.startDate;
+    endDateInput.value = dataset.endDate || '';
+    startTimeInput.value = dataset.startTime || '';
+    endTimeInput.value = dataset.endTime || '';
+    locationInput.value = dataset.location;
+    descriptionInput.value = dataset.description;
+    modalTitle.textContent = "Modifier l'évènement";
+    submitBtn.textContent = 'Enregistrer';
+    deleteBtn.classList.remove('d-none');
+    errorBox.classList.add('d-none');
+    eventModal.show();
+}
+
+document.querySelectorAll('.calendar-day-cell--clickable').forEach(cell => {
+    cell.addEventListener('click', () => openAddModal(cell.dataset.date));
+});
+
+document.querySelectorAll('.calendar-event-bar--clickable').forEach(bar => {
+    bar.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openEditModal(bar.dataset);
+    });
+});
+
+form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const isUpdate = idInput.value !== '';
+    const payload = {
+        calendar_id: parseInt(calendarSelect.value),
+        title: titleInput.value,
+        start_date: startDateInput.value,
+        end_date: endDateInput.value,
+        start_time: startTimeInput.value,
+        end_time: endTimeInput.value,
+        location: locationInput.value,
+        description: descriptionInput.value,
+        _csrf_token: csrf()
+    };
+    if (isUpdate) {
+        payload.event_id = parseInt(idInput.value);
+    }
+
+    const res = await fetch(isUpdate ? '/chefs/calendar/event-update' : '/chefs/calendar/event-create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (data.success) {
+        window.location.reload();
+    } else {
+        errorBox.textContent = data.error;
+        errorBox.classList.remove('d-none');
+    }
+});
+
+deleteBtn.addEventListener('click', async () => {
+    if (!confirm('Supprimer cet évènement ?')) return;
+    const res = await fetch('/chefs/calendar/event-delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ event_id: parseInt(idInput.value), _csrf_token: csrf() })
+    });
+    const data = await res.json();
+    if (data.success) {
+        window.location.reload();
+    } else {
+        errorBox.textContent = data.error;
+        errorBox.classList.remove('d-none');
+    }
+});
+</script>
+{% endblock %}

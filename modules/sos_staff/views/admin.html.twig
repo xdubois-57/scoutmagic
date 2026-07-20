@@ -1,0 +1,251 @@
+{% extends "base.html.twig" %}
+
+{% block title %}SOS Staff d'U — {{ site_name }}{% endblock %}
+
+{% block stylesheets %}
+<style nonce="{{ csp_nonce }}">
+.sos-grid-wrapper { overflow-x: auto; }
+.sos-grid { border-collapse: collapse; font-size: 0.75rem; width: 100%; table-layout: fixed; }
+.sos-grid th, .sos-grid td { border: 1px solid var(--bs-border-color, #dee2e6); padding: 0.3rem; text-align: center; }
+.sos-grid th.sos-col-header { padding: 0.3rem 0.1rem 0; height: 7rem; width: 1.6rem; max-width: 1.6rem; vertical-align: bottom; font-weight: 600; }
+.sos-grid th.sos-col-header .sos-col-header-label {
+    writing-mode: vertical-rl;
+    -webkit-writing-mode: vertical-rl;
+    transform: rotate(180deg);
+    display: inline-block;
+    white-space: nowrap;
+}
+.sos-grid td.sos-day-label, .sos-grid th.sos-day-label-header { text-align: left; white-space: nowrap; font-weight: 600; width: 5rem; }
+.sos-grid tbody tr.is-weekend td:not(.has-event):not(.state-oncall):not(.state-unavailable) { background-color: var(--bs-tertiary-bg, #f8f9fa); }
+.sos-grid tbody tr.is-today td:not(.has-event):not(.state-oncall):not(.state-unavailable) { background-color: var(--bs-warning-bg-subtle, #fff3cd); }
+.sos-section-divider { border-left: 3px solid var(--bs-secondary-color, #6c757d) !important; }
+.sos-activity-cell { width: 1.6rem; max-width: 1.6rem; }
+.sos-activity-cell.has-event { background-color: #fd7e14; }
+.sos-oncall-cell { cursor: pointer; width: 1.6rem; max-width: 1.6rem; font-weight: 700; user-select: none; }
+.sos-oncall-cell.state-oncall { background-color: #66bb6a; color: #fff; }
+.sos-oncall-cell.state-unavailable { background-color: #ef5350; color: #fff; }
+.sos-next-transition { background-color: var(--bs-warning-bg-subtle, #fff3cd); border-left: 4px solid var(--bs-warning, #ffc107) !important; }
+</style>
+{% endblock %}
+
+{% block content %}
+    <h1 class="mb-4">SOS Staff d'U</h1>
+
+    <div class="border rounded-3 p-3 mb-3">
+        <div class="row g-3">
+            <div class="col-12 col-md-6">
+                <div class="text-body-secondary small">Numéro SOS</div>
+                {% if sos_number %}
+                    <div class="h5 mb-0">{{ sos_number }}</div>
+                {% else %}
+                    <div class="text-danger small"><i class="bi bi-exclamation-triangle"></i> Aucun fournisseur configuré (voir Configuration &gt; SOS Staff d'U).</div>
+                {% endif %}
+            </div>
+            <div class="col-12 col-md-6">
+                <div class="text-body-secondary small">État actuel de la redirection</div>
+                {% if live_state.error %}
+                    <div class="text-danger small"><i class="bi bi-exclamation-triangle"></i> {{ live_state.error }}</div>
+                {% elseif live_state.active %}
+                    <div class="text-success">
+                        <i class="bi bi-telephone-forward"></i> Active vers {{ live_state.number }}
+                        {% if live_state.label %}({{ live_state.label }}){% endif %}
+                    </div>
+                {% else %}
+                    <div class="text-body-secondary"><i class="bi bi-telephone-x"></i> Inactive</div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="border rounded-3 p-3 mb-4">
+        <div class="row g-3">
+            <div class="col-12 col-md-6">
+                <label class="form-label small">Numéro par défaut</label>
+                {% if staff_options is empty %}
+                    <p class="text-danger small mb-0">
+                        <i class="bi bi-exclamation-triangle"></i>
+                        Aucun membre du Staff d'U n'a de numéro de mobile enregistré — impossible de définir un numéro par défaut.
+                        Complétez un numéro de mobile pour au moins un membre du Staff d'U.
+                    </p>
+                {% else %}
+                    <div class="d-flex gap-2">
+                        <select class="form-select form-select-sm" id="default-number-member">
+                            {% for option in staff_options %}
+                                <option value="{{ option.member_id }}" {{ default_number_selection_member_id == option.member_id ? 'selected' : '' }}>
+                                    {{ option.label }} ({{ option.mobile }})
+                                </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <p class="text-body-secondary small mt-1 mb-0">
+                        Numéro utilisé les jours sans garde explicite. Il doit toujours s'agir d'un membre du Staff d'U —
+                        par défaut, le/la responsable de la section Staff d'U ; choisissez un autre membre ci-dessus pour l'imposer explicitement.
+                    </p>
+                    <div class="text-danger small mt-1 d-none" id="default-number-error"></div>
+                {% endif %}
+            </div>
+            <div class="col-6 col-md-3">
+                <label class="form-label small" for="transition-hour">Heure de changement de garde</label>
+                <input type="time" class="form-control form-control-sm" id="transition-hour" value="{{ transition_hour }}">
+            </div>
+            <div class="col-6 col-md-3">
+                <label class="form-label small d-block">Notifications par email</label>
+                <div class="form-check form-switch">
+                    <input class="form-check-input" type="checkbox" id="email-notifications-toggle" {{ email_notifications_enabled ? 'checked' : '' }}>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="d-flex align-items-center justify-content-between mb-3">
+        <a href="/admin/sos?month={{ prev_month_param }}" class="btn btn-sm btn-outline-secondary" aria-label="Mois précédent">
+            <i class="bi bi-chevron-left"></i>
+        </a>
+        <h2 class="h5 mb-0">{{ month_label }}</h2>
+        <a href="/admin/sos?month={{ next_month_param }}" class="btn btn-sm btn-outline-secondary" aria-label="Mois suivant">
+            <i class="bi bi-chevron-right"></i>
+        </a>
+    </div>
+
+    <div class="sos-grid-wrapper mb-4">
+        <table class="sos-grid">
+            <thead>
+                <tr>
+                    <th class="sos-day-label-header"></th>
+                    {% for column in section_activity %}
+                        <th class="sos-col-header{{ loop.first ? ' sos-section-divider' : '' }}"><span class="sos-col-header-label">{{ column.label }}</span></th>
+                    {% endfor %}
+                    {% for option in staff_options %}
+                        <th class="sos-col-header{{ loop.first ? ' sos-section-divider' : '' }}"><span class="sos-col-header-label">{{ option.label }}</span></th>
+                    {% endfor %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for day in days %}
+                    <tr class="{{ day.is_weekend ? 'is-weekend' : '' }} {{ day.is_today ? 'is-today' : '' }}">
+                        <td class="sos-day-label">{{ day.day_name }} {{ day.day_number }}</td>
+                        {% for column in section_activity %}
+                            {% set titles = column.events_by_day[day.date] ?? [] %}
+                            <td class="sos-activity-cell{{ loop.first ? ' sos-section-divider' : '' }}{{ titles|length > 0 ? ' has-event' : '' }}"{% if titles|length > 0 %} title="{{ titles|join(', ') }}"{% endif %}></td>
+                        {% endfor %}
+                        {% for option in staff_options %}
+                            {% set state = states[day.date][option.member_id] ?? null %}
+                            <td class="sos-oncall-cell{{ loop.first ? ' sos-section-divider' : '' }}{{ state == 'oncall' ? ' state-oncall' : '' }}{{ state == 'unavailable' ? ' state-unavailable' : '' }}"
+                                data-member-id="{{ option.member_id }}" data-date="{{ day.date }}">
+                                {{ state == 'oncall' ? '✓' : (state == 'unavailable' ? '✗' : '') }}
+                            </td>
+                        {% endfor %}
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <div id="oncall-save-status" class="small text-body-secondary mb-4"></div>
+
+    <h2 class="h5 mb-3">Redirections planifiées</h2>
+    <div id="planned-transitions-list">
+        {% include '@sos_staff/partials/planned_transitions.html.twig' %}
+    </div>
+{% endblock %}
+
+{% block scripts %}
+<script nonce="{{ csp_nonce }}">
+const csrf = () => document.querySelector('meta[name="csrf-token"]')?.content;
+const currentYear = {{ year }};
+const currentMonth = {{ month }};
+const cellStates = {{ states|json_encode|raw }};
+
+async function postJson(url, body) {
+    const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...body, _csrf_token: csrf() })
+    });
+    return res.json();
+}
+
+// --- Default number / settings (auto-save) ---
+document.getElementById('default-number-member')?.addEventListener('change', async (e) => {
+    const errorBox = document.getElementById('default-number-error');
+    errorBox.classList.add('d-none');
+    const data = await postJson('/admin/sos/default-number', { member_id: parseInt(e.target.value) });
+    if (!data.success) {
+        errorBox.textContent = data.error;
+        errorBox.classList.remove('d-none');
+    }
+});
+
+document.getElementById('transition-hour').addEventListener('change', async (e) => {
+    await postJson('/admin/sos/settings', { transition_hour: e.target.value });
+});
+
+document.getElementById('email-notifications-toggle').addEventListener('change', async (e) => {
+    await postJson('/admin/sos/settings', { email_notifications_enabled: e.target.checked });
+});
+
+// --- Duty grid (3-state click-cycle, full-month auto-save) ---
+function cycle(state) {
+    if (state === 'oncall') return 'unavailable';
+    if (state === 'unavailable') return null;
+    return 'oncall';
+}
+
+async function saveOnCall() {
+    const cells = [];
+    Object.keys(cellStates).forEach(date => {
+        Object.keys(cellStates[date]).forEach(memberId => {
+            cells.push({ member_id: parseInt(memberId), date, state: cellStates[date][memberId] });
+        });
+    });
+
+    const status = document.getElementById('oncall-save-status');
+    status.textContent = 'Enregistrement…';
+    const data = await postJson('/admin/sos/oncall', { year: currentYear, month: currentMonth, cells });
+    status.textContent = data.success ? 'Enregistré.' : ('Erreur : ' + data.error);
+}
+
+document.querySelectorAll('.sos-oncall-cell').forEach(cell => {
+    cell.addEventListener('click', () => {
+        const date = cell.dataset.date;
+        const memberId = cell.dataset.memberId;
+        const current = (cellStates[date] && cellStates[date][memberId]) || null;
+        const next = cycle(current);
+
+        if (!cellStates[date]) cellStates[date] = {};
+        if (next === null) {
+            delete cellStates[date][memberId];
+        } else {
+            cellStates[date][memberId] = next;
+        }
+
+        cell.classList.remove('state-oncall', 'state-unavailable');
+        cell.textContent = '';
+        if (next === 'oncall') {
+            cell.classList.add('state-oncall');
+            cell.textContent = '✓';
+        } else if (next === 'unavailable') {
+            cell.classList.add('state-unavailable');
+            cell.textContent = '✗';
+        }
+
+        saveOnCall();
+    });
+});
+
+// --- Planned redirections list (AJAX pagination, no page reload) ---
+const transitionsList = document.getElementById('planned-transitions-list');
+
+async function loadTransitionsPage(page) {
+    const params = new URLSearchParams({ month: '{{ month_param }}', transitions_page: page });
+    const res = await fetch('/admin/sos/transitions?' + params.toString());
+    transitionsList.innerHTML = await res.text();
+}
+
+transitionsList.addEventListener('click', (e) => {
+    const link = e.target.closest('[data-transitions-page]');
+    if (!link) return;
+    e.preventDefault();
+    loadTransitionsPage(link.dataset.transitionsPage);
+});
+</script>
+{% endblock %}

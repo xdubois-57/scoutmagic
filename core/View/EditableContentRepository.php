@@ -24,6 +24,18 @@ class EditableContentRepository
         return $row ?: null;
     }
 
+    /**
+     * Removes a content key entirely — for callers whose key is tied to a
+     * deletable entity (e.g. one list item among several dynamically
+     * created ones), unlike the fixed, page-anchored keys used by
+     * editable()/editable_image() which are never deleted.
+     */
+    public function delete(string $key): void
+    {
+        $stmt = $this->pdo->prepare('DELETE FROM editable_contents WHERE content_key = ?');
+        $stmt->execute([$key]);
+    }
+
     public function upsert(string $key, string $type, string $value, ?string $moduleId, int $modifiedBy): void
     {
         $now = date('Y-m-d H:i:s');

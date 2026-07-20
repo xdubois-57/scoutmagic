@@ -1,0 +1,26 @@
+{#
+  Shared calendar-picker — used by both public.html.twig and chief.html.twig
+  (Service\CalendarPickerService::buildOptions() builds `options`; the two
+  pages only differ in which calendars are eligible to appear, not in how
+  the picker itself is built or rendered).
+
+  Usage:
+  {% include '@calendar/partials/calendar_picker.html.twig' with {
+      options: calendar_options,
+      selected_id: selected_calendar_id,
+      base_url: '/calendar?calendar=',
+      extra_query: '&month=' ~ month_param
+  } %}
+#}
+<div class="d-flex flex-wrap gap-2 pb-2 mb-3 calendar-picker">
+    {% for option in options %}
+        {% set is_active = option.id == selected_id %}
+        <a href="{{ base_url }}{{ option.id }}{{ extra_query|default('') }}"
+           class="btn btn-sm {{ is_active ? 'btn-primary' : 'btn-outline-secondary' }} text-nowrap d-flex align-items-center gap-1 text-decoration-none">
+            {% if option.color %}
+                <span class="d-inline-block rounded-circle" style="width:0.55rem;height:0.55rem;background-color:{{ option.color }};"></span>
+            {% endif %}
+            {{ option.label }}
+        </a>
+    {% endfor %}
+</div>

@@ -1,0 +1,7 @@
+{% extends 'email/base.html.twig' %}
+{% block content %}
+    <h2 style="margin:0 0 16px;font-size:20px;">Alerte — Redirection SOS Staff d'U</h2>
+    <p>Une erreur technique est survenue lors d'un changement de redirection du numéro SOS :</p>
+    <p style="background:#f8d7da;color:#842029;padding:12px;border-radius:6px;">{{ message }}</p>
+    <p style="font-size:13px;color:#666;">Vérifiez la configuration du fournisseur de téléphonie (Configuration &gt; SOS Staff d'U) et le journal d'évènements.</p>
+{% endblock %}

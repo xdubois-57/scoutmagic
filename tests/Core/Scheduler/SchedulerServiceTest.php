@@ -135,4 +135,27 @@ class SchedulerServiceTest extends TestCase
         $this->assertCount(3, $all);
         $this->assertSame(3, $this->repo->countAll());
     }
+
+    public function testFindAllForTaskScopesToModuleAndTaskKey(): void
+    {
+        $runAt = (new \DateTimeImmutable('+1 hour'))->format('Y-m-d H:i:s');
+        $this->service->schedule('sos_staff', 'apply_redirect', new \DateTimeImmutable($runAt), [], '2026-02-01');
+        $this->service->schedule('sos_staff', 'apply_redirect', new \DateTimeImmutable($runAt), [], '2026-02-02');
+        $this->service->schedule('sos_staff', 'other_task', new \DateTimeImmutable($runAt));
+
+        $rows = $this->service->findAllForTask('sos_staff', 'apply_redirect');
+
+        $this->assertCount(2, $rows);
+    }
+
+    public function testDeleteOlderThanPurgesOldScheduledActions(): void
+    {
+        $this->service->schedule('sos_staff', 'apply_redirect', new \DateTimeImmutable('2024-01-01'), [], '2024-01-01');
+        $this->service->schedule('sos_staff', 'apply_redirect', new \DateTimeImmutable('2026-07-01'), [], '2026-07-01');
+
+        $deleted = $this->service->deleteOlderThan('sos_staff', 'apply_redirect', new \DateTimeImmutable('2025-01-01'));
+
+        $this->assertSame(1, $deleted);
+        $this->assertCount(1, $this->service->findAllForTask('sos_staff', 'apply_redirect'));
+    }
 }

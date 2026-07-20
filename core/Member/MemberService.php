@@ -80,6 +80,28 @@ class MemberService
     }
 
     /**
+     * Resolve a member's profile from their persistent identity
+     * (members.id) rather than a member_year id — for callers that only
+     * hold onto the persistent id across scout years (e.g. a module
+     * storing a long-lived "which member" reference, like the SOS
+     * module's duty roster). Null (not an exception) when the member has
+     * no row for that year — a perfectly normal state, not an error.
+     */
+    public function findProfileByMemberAndYear(int $memberId, int $scoutYearId): ?MemberProfile
+    {
+        $row = $this->memberYearRepo->findByMemberAndYear($memberId, $scoutYearId);
+        if ($row === null) {
+            return null;
+        }
+
+        try {
+            return $this->getMemberProfile($row['id']);
+        } catch (MemberNotFoundException $e) {
+            return null;
+        }
+    }
+
+    /**
      * Check if a user account (by email) has access to a specific member_year.
      *
      * Access granted if:

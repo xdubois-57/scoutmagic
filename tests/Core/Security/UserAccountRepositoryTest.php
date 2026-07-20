@@ -127,4 +127,26 @@ class UserAccountRepositoryTest extends TestCase
         $this->assertNotNull($found);
         $this->assertSame('find@test.com', $found->email);
     }
+
+    public function testFindFirstSuperAdminReturnsEarliestSuperAdmin(): void
+    {
+        $this->repo->create('regular@test.com', false);
+        $firstAdmin = $this->repo->create('first-admin@test.com', true);
+        $this->repo->create('second-admin@test.com', true);
+
+        $found = $this->repo->findFirstSuperAdmin();
+
+        $this->assertNotNull($found);
+        $this->assertSame($firstAdmin->id, $found->id);
+        $this->assertSame('first-admin@test.com', $found->email);
+    }
+
+    public function testFindFirstSuperAdminReturnsNullWhenNoneExists(): void
+    {
+        $this->repo->create('regular@test.com', false);
+
+        $found = $this->repo->findFirstSuperAdmin();
+
+        $this->assertNull($found);
+    }
 }

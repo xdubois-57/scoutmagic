@@ -197,7 +197,7 @@ CREATE TABLE IF NOT EXISTS calendar_events (
 - Declared in `module.json` under the `scheduled_tasks` section.
 - The `handler` field is a fully qualified class name implementing `Core\Scheduler\TaskHandlerInterface`.
 - The handler receives `array $payload` and `Core\Scheduler\TaskContext $context`.
-- `TaskContext` provides: `$context->connection`, `$context->encryption`, `$context->mailService`, `$context->journal`, `$context->settings`.
+- `TaskContext` provides: `$context->connection`, `$context->encryption`, `$context->mailService`, `$context->journal`, `$context->settings`, `$context->userAccounts`.
 
 Example handler:
 

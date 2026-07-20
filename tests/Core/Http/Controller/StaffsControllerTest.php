@@ -18,6 +18,7 @@ use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Member\MemberService;
 use Core\Member\SectionService;
+use Core\Member\UnitStaffSectionService;
 use Core\ScoutYear\ScoutYearResolver;
 use Core\Security\AuthSession;
 use Core\Security\EncryptionService;
@@ -95,7 +96,8 @@ class StaffsControllerTest extends TestCase
             $this->memberService,
             $scoutYearResolver,
             $journalService,
-            $this->badgeService
+            $this->badgeService,
+            new UnitStaffSectionService($this->pdo)
         );
 
         // Set up session as chief
@@ -171,6 +173,10 @@ class StaffsControllerTest extends TestCase
         $this->assertStringContainsString('section-picker', $body);
         $this->assertStringContainsString('Ma section', $body);
         $this->assertStringContainsString('Alice', $body);
+        // The section picker's colored dot — same single source of truth
+        // (Core\Member\SectionService::colorForSection()) as every other
+        // section picker/list across the site.
+        $this->assertStringContainsString('background-color:', $body);
     }
 
     public function testChiefSeesAllSections(): void
@@ -251,8 +257,9 @@ class StaffsControllerTest extends TestCase
 
     public function testChiefSeesUnitStaffWhenNoRealSections(): void
     {
-        // A chief always sees the virtual "Staff d'U" section, even with no
-        // imported sections, so the empty-state message does not apply to them.
+        // A chief always sees "Staff d'U", even with no imported sections —
+        // StaffsController::index() ensures the section exists on every
+        // load, so the empty-state message does not apply to them.
         $request = new Request('GET', '/chefs/staffs', [], [], [], []);
         $response = $this->controller->index($request, []);
 

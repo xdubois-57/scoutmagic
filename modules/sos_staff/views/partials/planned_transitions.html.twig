@@ -1,0 +1,35 @@
+{#
+  Shared between admin.html.twig's initial page render (via {% include %})
+  and SosAdminController::plannedTransitions()'s AJAX pagination response —
+  markup can never drift between the two.
+#}
+{% if planned_transitions is empty %}
+    <p class="text-body-secondary fst-italic mb-4">Aucune redirection planifiée ce mois-ci.</p>
+{% else %}
+    <ul class="list-group mb-2">
+        {% for transition in planned_transitions %}
+            <li class="list-group-item d-flex justify-content-between align-items-center{{ transition.is_next ? ' sos-next-transition' : '' }}">
+                <div>
+                    <span class="fw-semibold">{{ transition.run_at }}</span> — {{ transition.label }}
+                    {% if transition.is_next %}<span class="badge bg-warning text-dark ms-2">Prochain changement</span>{% endif %}
+                </div>
+                <span class="badge {{ transition.status == 'actif' ? 'bg-success' : (transition.status == 'à venir' ? 'bg-primary-subtle text-primary-emphasis' : 'bg-secondary-subtle text-secondary-emphasis') }}">
+                    {{ transition.status }}
+                </span>
+            </li>
+        {% endfor %}
+    </ul>
+    {% if planned_transitions_total_pages > 1 %}
+        <nav aria-label="Pagination des redirections planifiées" class="mb-4">
+            <ul class="pagination pagination-sm">
+                {% for p in 1..planned_transitions_total_pages %}
+                    <li class="page-item {{ p == planned_transitions_page ? 'active' : '' }}">
+                        <a class="page-link" href="#" data-transitions-page="{{ p }}">{{ p }}</a>
+                    </li>
+                {% endfor %}
+            </ul>
+        </nav>
+    {% else %}
+        <div class="mb-4"></div>
+    {% endif %}
+{% endif %}
