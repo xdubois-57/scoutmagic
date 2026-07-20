@@ -1,0 +1,207 @@
+{% extends "base.html.twig" %}
+
+{% block title %}Configuration RGPD — {{ site_name }}{% endblock %}
+
+{% block content %}
+<h1 class="h3 mb-4">Configuration de la page RGPD</h1>
+
+<div class="card mb-4">
+    <div class="card-body">
+        <h2 class="h6 mb-3">Mode de génération du contenu</h2>
+        <p class="text-body-secondary">
+            Choisissez comment le contenu de la page RGPD publique est généré.
+        </p>
+
+        <div class="mb-3">
+            <div class="form-check">
+                <input class="form-check-input" type="radio" name="mode" id="mode-default" value="default" {{ mode == 'default' ? 'checked' : '' }}>
+                <label class="form-check-label" for="mode-default">
+                    <strong>Par défaut</strong> — Utilise le contenu complet de <code>docs/rgpd.md</code>
+                </label>
+                <div class="form-text">
+                    Assume que tous les modules sont actifs. Aucune personnalisation possible.
+                </div>
+            </div>
+
+            <div class="form-check mt-3">
+                <input class="form-check-input" type="radio" name="mode" id="mode-custom" value="custom" {{ mode == 'custom' ? 'checked' : '' }}>
+                <label class="form-check-label" for="mode-custom">
+                    <strong>Personnalisé</strong> — Saisissez votre propre texte
+                </label>
+                <div class="form-text">
+                    Vous êtes responsable de la conformité RGPD du contenu saisi.
+                </div>
+            </div>
+
+            {% if llm_available %}
+            <div class="form-check mt-3">
+                <input class="form-check-input" type="radio" name="mode" id="mode-ai" value="ai" {{ mode == 'ai' ? 'checked' : '' }}>
+                <label class="form-check-label" for="mode-ai">
+                    <strong>Généré par IA</strong> — Le contenu est généré automatiquement
+                </label>
+                <div class="form-text">
+                    Basé sur <code>docs/rgpd.md</code>, les modules actifs, et votre prompt personnalisé.
+                </div>
+            </div>
+            {% else %}
+            <div class="form-check mt-3 disabled">
+                <input class="form-check-input" type="radio" name="mode" id="mode-ai" value="ai" disabled>
+                <label class="form-check-label text-muted" for="mode-ai">
+                    <strong>Généré par IA</strong> — Module IA non activé
+                </label>
+                <div class="form-text">
+                    Activez le module « Connecteur IA » pour utiliser cette option.
+                </div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<div class="card mb-4" id="ai-prompt-card" style="display: none;">
+    <div class="card-body">
+        <h2 class="h6 mb-3">Prompt de personnalisation (IA)</h2>
+        <p class="text-body-secondary">
+            Instructions pour personnaliser le contenu généré (ton, ajouts, précisions).
+            Le contenu de base de <code>docs/rgpd.md</code> est toujours inclus.
+        </p>
+        <textarea class="form-control font-monospace" id="ai-prompt" rows="6" placeholder="Exemple : Utilise un ton formel et ajoute une section sur les données de santé collectées lors des camps.">{%- if prompt -%}{{ prompt }}{%- endif -%}</textarea>
+        <div class="mt-3">
+            <button type="button" class="btn btn-primary" id="generate-btn">
+                <i class="bi bi-stars"></i> Générer le contenu
+            </button>
+            <span class="text-body-secondary ms-3" id="generate-status"></span>
+        </div>
+    </div>
+</div>
+
+<div class="card mb-4">
+    <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h2 class="h6 mb-0">Contenu actuel</h2>
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="reset-btn">
+                <i class="bi bi-arrow-counterclockwise"></i> Réinitialiser au contenu par défaut
+            </button>
+        </div>
+        <div id="editor-container" style="min-height: 400px; border: 1px solid #dee2e6; border-radius: 0.375rem; padding: 1rem;">
+            {{ current_content|raw }}
+        </div>
+    </div>
+</div>
+
+<div class="mb-4">
+    <button type="button" class="btn btn-primary" id="save-btn">
+        <i class="bi bi-check-lg"></i> Enregistrer
+    </button>
+    <span class="text-body-secondary ms-3" id="save-status"></span>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const modeRadios = document.querySelectorAll('input[name="mode"]');
+    const aiPromptCard = document.getElementById('ai-prompt-card');
+    const generateBtn = document.getElementById('generate-btn');
+    const resetBtn = document.getElementById('reset-btn');
+    const saveBtn = document.getElementById('save-btn');
+    const editorContainer = document.getElementById('editor-container');
+    const aiPromptTextarea = document.getElementById('ai-prompt');
+    const generateStatus = document.getElementById('generate-status');
+    const saveStatus = document.getElementById('save-status');
+
+    function updateUI() {
+        const selectedMode = document.querySelector('input[name="mode"]:checked').value;
+        aiPromptCard.style.display = selectedMode === 'ai' ? 'block' : 'none';
+        editorContainer.contentEditable = selectedMode === 'custom' || selectedMode === 'ai';
+    }
+
+    modeRadios.forEach(radio => radio.addEventListener('change', updateUI));
+    updateUI();
+
+    generateBtn.addEventListener('click', async function() {
+        const prompt = aiPromptTextarea.value;
+        generateStatus.textContent = 'Génération en cours...';
+        generateBtn.disabled = true;
+
+        try {
+            const response = await fetch('/config/rgpd/generate', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    _csrf_token: '{{ csrf_token() }}',
+                    prompt: prompt
+                })
+            });
+
+            const result = await response.json();
+            if (result.success) {
+                editorContainer.innerHTML = result.content;
+                generateStatus.innerHTML = '<span class="text-success"><i class="bi bi-check-circle"></i> Contenu généré</span>';
+            } else {
+                generateStatus.innerHTML = '<span class="text-danger"><i class="bi bi-exclamation-circle"></i> ' + result.error + '</span>';
+            }
+        } catch (error) {
+            generateStatus.innerHTML = '<span class="text-danger"><i class="bi bi-exclamation-circle"></i> Erreur: ' + error.message + '</span>';
+        } finally {
+            generateBtn.disabled = false;
+        }
+    });
+
+    resetBtn.addEventListener('click', async function() {
+        if (!confirm('Réinitialiser au contenu par défaut ?')) {
+            return;
+        }
+
+        try {
+            const response = await fetch('/config/rgpd/reset', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({_csrf_token: '{{ csrf_token() }}'})
+            });
+
+            const result = await response.json();
+            if (result.success) {
+                editorContainer.innerHTML = result.content;
+                saveStatus.innerHTML = '<span class="text-success"><i class="bi bi-check-circle"></i> Réinitialisé</span>';
+                setTimeout(() => saveStatus.textContent = '', 3000);
+            }
+        } catch (error) {
+            saveStatus.innerHTML = '<span class="text-danger"><i class="bi bi-exclamation-circle"></i> Erreur</span>';
+        }
+    });
+
+    saveBtn.addEventListener('click', async function() {
+        const selectedMode = document.querySelector('input[name="mode"]:checked').value;
+        const content = editorContainer.innerHTML;
+        const prompt = aiPromptTextarea.value;
+
+        saveStatus.textContent = 'Enregistrement...';
+        saveBtn.disabled = true;
+
+        try {
+            const response = await fetch('/config/rgpd/save', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    _csrf_token: '{{ csrf_token() }}',
+                    mode: selectedMode,
+                    content: content,
+                    prompt: prompt
+                })
+            });
+
+            const result = await response.json();
+            if (result.success) {
+                saveStatus.innerHTML = '<span class="text-success"><i class="bi bi-check-circle"></i> Enregistré</span>';
+                setTimeout(() => saveStatus.textContent = '', 3000);
+            } else {
+                saveStatus.innerHTML = '<span class="text-danger"><i class="bi bi-exclamation-circle"></i> ' + result.error + '</span>';
+            }
+        } catch (error) {
+            saveStatus.innerHTML = '<span class="text-danger"><i class="bi bi-exclamation-circle"></i> Erreur</span>';
+        } finally {
+            saveBtn.disabled = false;
+        }
+    });
+});
+</script>
+{% endblock %}

@@ -25,6 +25,7 @@ use Core\Config\ScoutYearService;
 use Core\Http\Controller\AccountController;
 use Core\Http\Controller\AuthController;
 use Core\Http\Controller\ConfigGeneralController;
+use Core\Http\Controller\RgpdConfigController;
 use Core\Http\Controller\FunctionsController;
 use Core\Http\Controller\CookieController;
 use Core\Http\Controller\ConfigModeController;
@@ -91,6 +92,7 @@ use Twig\TwigFunction;
 use Core\View\ConfigurationMode;
 use Core\View\EditableContentRepository;
 use Core\View\EditableContentService;
+use Core\View\RgpdContentService;
 use Core\View\MenuBuilder;
 use Core\View\SectionRepository;
 use Core\View\TwigFactory;
@@ -246,6 +248,12 @@ $settingService->register('current_scout_year_id', '0', 'number', 'Année scoute
 $settingService->register('staff_scout_year_id', '0', 'number', 'Année scoute du staff (ID)',
     'Identifiant de l\'année scoute vue par les chefs et intendants. 0 si aucune. Gérée depuis la page « Année scoute ».',
     null, '^[0-9]+$', null, false, 220);
+$settingService->register('rgpd_generation_mode', 'default', 'select', 'Mode de génération RGPD',
+    'Mode de génération du contenu de la page RGPD publique.',
+    null, null, ['default', 'custom', 'ai'], false, 230);
+$settingService->register('rgpd_custom_prompt', '', 'textarea', 'Prompt RGPD personnalisé',
+    'Instructions pour la génération IA du contenu RGPD.',
+    null, null, null, false, 240);
 
 // Migrate non-secret settings from secrets.enc to settings table (one-time)
 if ($settingService->get('settings_migrated') !== '1') {
@@ -446,6 +454,7 @@ $menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Générale', '/config/ge
 $menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Technique', '/setup', 'superadmin', 15);
 $menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Desk', '/config/functions', 'superadmin', 20);
 $menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Paramètres', '/config/settings', 'superadmin', 30);
+$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'RGPD', '/config/rgpd', 'superadmin', 35);
 $menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Actions planifiées', '/config/scheduled', 'superadmin', 40);
 
 // Create router early so ModuleManager can register routes
@@ -601,6 +610,12 @@ $router->addRoute('POST', '/config/general/badge-add', ConfigGeneralController::
 $router->addRoute('POST', '/config/general/badge-update', ConfigGeneralController::class, 'updateBadge', 'superadmin');
 $router->addRoute('POST', '/config/general/badge-toggle-active', ConfigGeneralController::class, 'toggleBadgeActive', 'superadmin');
 $router->addRoute('POST', '/config/general/badge-delete', ConfigGeneralController::class, 'deleteBadge', 'superadmin');
+
+// RGPD configuration
+$router->addRoute('GET', '/config/rgpd', RgpdConfigController::class, 'index', 'superadmin');
+$router->addRoute('POST', '/config/rgpd/save', RgpdConfigController::class, 'save', 'superadmin');
+$router->addRoute('POST', '/config/rgpd/generate', RgpdConfigController::class, 'generate', 'superadmin');
+$router->addRoute('POST', '/config/rgpd/reset', RgpdConfigController::class, 'reset', 'superadmin');
 
 // Staffs
 $router->addRoute('GET', '/chefs/staffs', StaffsController::class, 'index', 'intendant');
@@ -863,6 +878,17 @@ if (in_array('llm_connector', $moduleManager->getEnabledModuleIds(), true)) {
         )
     );
 }
+
+// RGPD configuration (may use LLM if module is active)
+$llmConnector = null;
+$llmProviderRepoForRgpd = null;
+if (in_array('llm_connector', $moduleManager->getEnabledModuleIds(), true)) {
+    $llmProviderRepoForRgpd = new \Modules\LlmConnector\Repository\ProviderRepository($pdo, $encryptionService);
+    $llmModelRepoForRgpd = new \Modules\LlmConnector\Repository\ProviderModelRepository($pdo);
+    $llmConnector = new \Modules\LlmConnector\Service\LlmConnectorService($llmProviderRepoForRgpd, $llmModelRepoForRgpd, $journalService);
+}
+$rgpdContentService = new RgpdContentService($moduleManager, $llmConnector, $llmProviderRepoForRgpd);
+$frontController->registerController(RgpdConfigController::class, new RgpdConfigController($twig, $editableContentService, $rgpdContentService, $settingService, $moduleManager, $journalService));
 
 // Bypass RBAC for /setup routes when site is not initialized or explicitly allowed
 $allowSetup = (bool) $config->get('allow_setup', false);
