@@ -65,7 +65,9 @@
             Instructions pour personnaliser le contenu généré (ton, ajouts, précisions).
             Le contenu par défaut et les modules actifs sont toujours inclus automatiquement.
         </p>
-        <textarea class="form-control font-monospace" id="ai-prompt" rows="6" placeholder="Exemple : Nous utilisons Google Workspace pour stocker des documents. Les fiches médicales sont collectées au format papier et utilisées uniquement dans le cadre du camp. L'unité dispose également d'un groupe Facebook destiné aux parents et aux anciens, sur lequel elle peut occasionnellement publier des photos.">{%- if prompt -%}{{ prompt }}{%- endif -%}</textarea>
+        <textarea class="form-control font-monospace" id="ai-prompt" rows="6" placeholder="Nous utilisons les services Google (par exemple Drive, Gmail et Google Photos) pour stocker des documents pouvant contenir des données à caractère personnel, ainsi que des photos. Cela signifie que ces données peuvent être hébergées sur des serveurs situés aux États-Unis.
+Les fiches médicales sont collectées au format papier et sont utilisées uniquement dans le cadre du camp.
+L'unité dispose également d'un groupe Facebook destiné aux parents et aux anciens membres, sur lequel elle peut occasionnellement publier des photos.">{%- if prompt -%}{{ prompt }}{%- endif -%}</textarea>
         <div class="mt-3">
             <button type="button" class="btn btn-primary" id="generate-btn">
                 <i class="bi bi-stars"></i> Générer le contenu
@@ -113,6 +115,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     var csrfMeta = document.querySelector('meta[name="csrf-token"]');
     var csrf = csrfMeta ? csrfMeta.content : '';
+    var generationTimer = null;
 
     function getMode() {
         var checked = document.querySelector('input[name="mode"]:checked');
@@ -141,6 +144,25 @@ document.addEventListener('DOMContentLoaded', function() {
                 throw new Error('Réponse serveur invalide (voir la console pour le détail).');
             }
         });
+    }
+
+    function startGenerationTimer(baseMessage) {
+        var seconds = 0;
+        if (generationTimer !== null) {
+            clearInterval(generationTimer);
+        }
+        generateStatus.textContent = baseMessage + ' (' + seconds + 's)';
+        generationTimer = setInterval(function() {
+            seconds += 1;
+            generateStatus.textContent = baseMessage + ' (' + seconds + 's)';
+        }, 1000);
+    }
+
+    function stopGenerationTimer() {
+        if (generationTimer !== null) {
+            clearInterval(generationTimer);
+            generationTimer = null;
+        }
     }
 
     function saveMode(mode, content, prompt, callback) {
@@ -199,7 +221,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         // Auto-generate if prompt exists
                         var prompt = aiPromptTextarea.value.trim();
                         if (prompt) {
-                            generateStatus.textContent = 'Génération automatique en cours…';
+                            startGenerationTimer('Génération automatique en cours…');
                             generateBtn.disabled = true;
                             
                             fetch('/config/rgpd/generate', {
@@ -209,6 +231,7 @@ document.addEventListener('DOMContentLoaded', function() {
                             })
                             .then(parseJsonResponse)
                             .then(function(result) {
+                                stopGenerationTimer();
                                 if (result.success) {
                                     preview.innerHTML = result.content;
                                     generateStatus.innerHTML = '<span class="text-success"><i class="bi bi-check-circle"></i> Contenu généré automatiquement</span>';
@@ -218,6 +241,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                 }
                             })
                             .catch(function(err) {
+                                stopGenerationTimer();
                                 console.error('[RGPD debug] generate (auto) error:', err);
                                 generateStatus.innerHTML = '<span class="text-danger"><i class="bi bi-exclamation-circle"></i> Erreur : ' + err.message + '</span>';
                             })
@@ -300,7 +324,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // Manual generate button (when in AI mode)
     generateBtn.addEventListener('click', function() {
         var prompt = aiPromptTextarea.value;
-        generateStatus.textContent = 'Génération en cours…';
+        startGenerationTimer('Génération en cours…');
         generateBtn.disabled = true;
 
         fetch('/config/rgpd/generate', {
@@ -310,6 +334,7 @@ document.addEventListener('DOMContentLoaded', function() {
         })
         .then(parseJsonResponse)
         .then(function(result) {
+            stopGenerationTimer();
             if (result.success) {
                 preview.innerHTML = result.content;
                 generateStatus.innerHTML = '<span class="text-success"><i class="bi bi-check-circle"></i> Contenu généré et enregistré</span>';
@@ -319,6 +344,7 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         })
         .catch(function(err) {
+            stopGenerationTimer();
             console.error('[RGPD debug] generate (manual) error:', err);
             generateStatus.innerHTML = '<span class="text-danger"><i class="bi bi-exclamation-circle"></i> Erreur : ' + err.message + '</span>';
         })
