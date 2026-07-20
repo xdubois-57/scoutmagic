@@ -60,7 +60,7 @@ class RgpdContentService
 
         $request = new LlmRequest(
             prompt: "Génère le contenu RGPD complet en HTML selon la structure imposée dans le prompt système.",
-            tier: LlmTier::CHEAP,
+            tier: LlmTier::CAPABLE,
             systemPrompt: $systemPrompt,
             timeoutSeconds: 90
         );
