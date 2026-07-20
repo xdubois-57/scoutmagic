@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Core\View;
 
 use Core\Config\SettingService;
-use Core\Cookie\CookieConsentService;
 use Core\Module\ModuleManager;
 use Modules\LlmConnector\Api\LlmConnectorInterface;
 use Modules\LlmConnector\Api\LlmRequest;
@@ -18,7 +17,6 @@ class RgpdContentService
     public function __construct(
         private ModuleManager $moduleManager,
         private SettingService $settingService,
-        private CookieConsentService $cookieConsentService,
         private ?LlmConnectorInterface $llmConnector = null,
         private ?ProviderRepository $llmProviderRepo = null,
         private ?ProviderModelRepository $llmModelRepo = null
@@ -56,10 +54,9 @@ class RgpdContentService
         $activeModules = $this->moduleManager->getEnabledModuleIds();
         $providerInfo = $this->getActiveProviderInfo();
         $modelsInfo = $this->getActiveModelsInfo();
-        $cookieList = $this->getCookieListText();
         $phoneProvider = $this->getPhoneProviderInfo();
 
-        $systemPrompt = $this->buildSystemPrompt($baseContent, $activeModules, $providerInfo, $modelsInfo, $cookieList, $phoneProvider, $userPrompt);
+        $systemPrompt = $this->buildSystemPrompt($baseContent, $activeModules, $providerInfo, $modelsInfo, $phoneProvider, $userPrompt);
 
         $request = new LlmRequest(
             prompt: "Génère le contenu RGPD complet en HTML selon la structure imposée dans le prompt système.",
@@ -82,7 +79,6 @@ class RgpdContentService
         array $activeModules,
         string $providerInfo,
         string $modelsInfo,
-        string $cookieList,
         string $phoneProvider,
         string $userPrompt
     ): string {
@@ -102,9 +98,6 @@ Contexte de l'unité :
 - Fournisseur IA : {$providerInfo}
 - Modèles IA : {$modelsInfo}
 - Fournisseur téléphonie : {$phoneProvider}
-
-Cookies actuellement déclarés :
-{$cookieList}
 
 Contenu RGPD de référence (couvre TOUS les modules possibles, version la plus complète) :
 {$baseContent}
@@ -226,24 +219,6 @@ PROMPT;
     }
 
     /**
-     * Get the cookie list as readable text for the AI prompt
-     */
-    private function getCookieListText(): string
-    {
-        $categories = $this->cookieConsentService->getAllDeclaredCookies();
-        $lines = [];
-
-        foreach ($categories as $categoryKey => $category) {
-            $lines[] = "Catégorie : {$category['label']} — {$category['description']}";
-            foreach ($category['cookies'] as $cookie) {
-                $lines[] = "  - {$cookie['name']} : {$cookie['purpose']} (durée : {$cookie['duration']})";
-            }
-        }
-
-        return implode("\n", $lines);
-    }
-
-    /**
      * Get info about the phone provider for SOS module
      */
     private function getPhoneProviderInfo(): string
@@ -264,17 +239,60 @@ PROMPT;
     private function sanitizeHtmlOutput(string $html): string
     {
         // Remove markdown code fences if present
-        $html = preg_replace('/^```html\s*\n/', '', $html);
-        $html = preg_replace('/\n```\s*$/', '', $html);
+        $result = preg_replace('/^```html\s*\n/', '', $html);
+        if ($result === null) {
+            throw new \RuntimeException('Erreur regex lors du nettoyage du HTML généré (code fence début)');
+        }
+        $html = $result;
+        
+        $result = preg_replace('/\n```\s*$/', '', $html);
+        if ($result === null) {
+            throw new \RuntimeException('Erreur regex lors du nettoyage du HTML généré (code fence fin)');
+        }
+        $html = $result;
 
         // Remove full document wrappers if present
-        $html = preg_replace('/<\?xml[^>]*>\s*/', '', $html);
-        $html = preg_replace('/<!DOCTYPE[^>]*>\s*/', '', $html);
-        $html = preg_replace('/<html[^>]*>/', '', $html);
-        $html = preg_replace('/<\/html>/', '', $html);
-        $html = preg_replace('/<head>.*?<\/head>/s', '', $html);
-        $html = preg_replace('/<body[^>]*>/', '', $html);
-        $html = preg_replace('/<\/body>/', '', $html);
+        $result = preg_replace('/<\?xml[^>]*>\s*/', '', $html);
+        if ($result === null) {
+            throw new \RuntimeException('Erreur regex lors du nettoyage du HTML généré (XML)');
+        }
+        $html = $result;
+        
+        $result = preg_replace('/<!DOCTYPE[^>]*>\s*/', '', $html);
+        if ($result === null) {
+            throw new \RuntimeException('Erreur regex lors du nettoyage du HTML généré (DOCTYPE)');
+        }
+        $html = $result;
+        
+        $result = preg_replace('/<html[^>]*>/', '', $html);
+        if ($result === null) {
+            throw new \RuntimeException('Erreur regex lors du nettoyage du HTML généré (html tag)');
+        }
+        $html = $result;
+        
+        $result = preg_replace('/<\/html>/', '', $html);
+        if ($result === null) {
+            throw new \RuntimeException('Erreur regex lors du nettoyage du HTML généré (html close)');
+        }
+        $html = $result;
+        
+        $result = preg_replace('/<head>.*?<\/head>/s', '', $html);
+        if ($result === null) {
+            throw new \RuntimeException('Erreur regex lors du nettoyage du HTML généré (head)');
+        }
+        $html = $result;
+        
+        $result = preg_replace('/<body[^>]*>/', '', $html);
+        if ($result === null) {
+            throw new \RuntimeException('Erreur regex lors du nettoyage du HTML généré (body tag)');
+        }
+        $html = $result;
+        
+        $result = preg_replace('/<\/body>/', '', $html);
+        if ($result === null) {
+            throw new \RuntimeException('Erreur regex lors du nettoyage du HTML généré (body close)');
+        }
+        $html = $result;
 
         return trim($html);
     }

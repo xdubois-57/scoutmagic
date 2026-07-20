@@ -669,7 +669,7 @@ if (in_array('llm_connector', $moduleManager->getEnabledModuleIds(), true)) {
     $llmModelRepoForRgpd = new \Modules\LlmConnector\Repository\ProviderModelRepository($pdo);
     $llmConnectorForRgpd = new \Modules\LlmConnector\Service\LlmConnectorService($llmProviderRepoForRgpd, $llmModelRepoForRgpd, $journalService);
 }
-$rgpdContentService = new RgpdContentService($moduleManager, $settingService, $cookieConsentService, $llmConnectorForRgpd, $llmProviderRepoForRgpd, $llmModelRepoForRgpd);
+$rgpdContentService = new RgpdContentService($moduleManager, $settingService, $llmConnectorForRgpd, $llmProviderRepoForRgpd, $llmModelRepoForRgpd);
 
 // Handle the request
 $frontController = new FrontController($router, $twig, $config);
