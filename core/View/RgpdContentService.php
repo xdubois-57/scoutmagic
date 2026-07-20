@@ -116,36 +116,48 @@ Tâche :
 Personnalise le contenu de référence ci-dessus selon le contexte réel du site. Le document final doit être juridiquement correct, exhaustif et conforme au RGPD (Règlement UE 2016/679).
 
 Structure OBLIGATOIRE (respecter scrupuleusement) :
-1. Qui sommes-nous et objet de cette politique (avec sous-sections : Identité, Cadre légal, Logiciel open source)
-2. Quelles données collectons-nous et pourquoi (sous-sections par finalité avec données traitées + base légale)
-3. Combien de temps conservons-nous vos données (conservation active, archivage 5 ans, journaux, suppression sur demande)
-4. Avec qui partageons-nous vos données (sous-traitants essentiels, modules, garanties art. 28 RGPD)
-5. Où sont stockées vos données et transferts internationaux (localisation, transferts hors UE avec mécanismes art. 46)
+1. Qui sommes-nous et objet de cette politique
+   - 1.1 Identité du responsable du traitement (délai raisonnable, bénévoles)
+   - 1.2 Cadre légal et fédération
+   - 1.3 Acceptation de cette politique (participation = acceptation)
+   - 1.4 Formation des animateurs (Code Qualité des Adultes)
+   - 1.5 Logiciel open source
+2. Quelles données collectons-nous et pourquoi
+   - 2.1 Gestion des comptes et authentification
+   - 2.2 Gestion des membres de l'unité
+   - 2.3 Photos et droit à l'image (consentement explicite par participation, pas d'usage promotionnel, pas de partage fédération sans consentement)
+   - 2.4 Fonctionnalités optionnelles (modules actifs uniquement)
+   - 2.5 Sécurité et traçabilité
+3. Combien de temps conservons-nous vos données (conservation active, archivage 5 ans après départ, journaux, suppression sur demande)
+4. Avec qui partageons-nous vos données (sous-traitants essentiels sans mention localisation précise, modules, garanties art. 28 RGPD)
+5. Où sont stockées vos données et transferts internationaux (localisation générique, transferts hors UE avec mécanismes art. 46)
 6. Comment protégeons-nous vos données (mesures techniques détaillées : chiffrement AES-256, bcrypt, CSP, RBAC, plan incident)
 7. Vos droits sur vos données personnelles (accès, rectification, effacement, portabilité, opposition, limitation, retrait, réclamation APD)
 8. Cookies et technologies similaires (gestion préférences + tableau HTML des cookies)
 9. Politique de la fédération Les Scouts (référence Les Scouts ASBL BE0409580916)
-10. Modifications de cette politique
+10. Modifications de cette politique (uniquement changement date)
 
 RÈGLES CRITIQUES (ne JAMAIS déroger) :
-1. **Date et notification** : Inclure en haut `<span id="rgpd-last-updated">` et bandeau notification modifications
-2. **Modules actifs uniquement** : Retirer les sections des modules INACTIFS (comparer avec liste modules actifs)
-3. **Personnalisation obligatoire** : Remplacer {$unitName} et {$contactEmail} partout. Ne JAMAIS laisser de placeholder générique
-4. **Sous-traitants** : Pour CHAQUE sous-traitant actif, indiquer : nom, URL, localisation serveurs, lien politique confidentialité. Chercher sur internet si besoin
-5. **Hébergeur** : NE PAS assumer que l'hébergeur est en UE. Écrire "La localisation doit être précisée par l'administrateur" sauf si connue
-6. **IA provider** : Utiliser les infos exactes du fournisseur actif ({$providerInfo}, {$modelsInfo}) avec localisation et privacy policy
-7. **Téléphonie** : Si sos_staff actif, utiliser {$phoneProvider} (OVH Télécom ou autre)
-8. **Cookies tableau** : Créer tableau HTML complet (<table>) avec colonnes : Nom | Catégorie | Finalité | Durée. Utiliser la liste cookies ci-dessus
-9. **Sécurité technique** : Garder les détails techniques précis (AES-256-CBC, bcrypt, CSP, RBAC, 6 rôles, WebAuthn, PHPStan niveau 6)
-10. **Conservation 5 ans** : Conserver la mention "5 ans après départ membre" pour archivage
-11. **Base légale** : Chaque traitement doit avoir sa base légale (art. 6 RGPD : intérêt légitime, contrat, consentement)
-12. **Transferts hors UE** : Si Anthropic ou hébergeur hors UE, mentionner SCC (art. 46.2.c RGPD)
-13. **Open source** : Garder section 1.3 (PHP, Twig, PHPMailer, Bootstrap, licence AGPL-3.0)
-14. **Obligation APD** : Conserver mentions notification 72h (art. 33), information personnes (art. 34), réclamation APD
-15. **Délai réponse** : 1 mois pour réponse droits (art. 12.3)
-16. **Instructions admin** : Appliquer {$userPrompt} SANS compromettre conformité légale ni retirer éléments obligatoires
-17. **HTML pur** : Pas de ```html, pas de <html>/<body>, uniquement contenu <h2> à </p>
-18. **Précision factuelle** : Ne JAMAIS inventer données non collectées, modules non actifs, ou sous-traitants non utilisés
+1. **Date et notification** : Inclure en haut `<span id="rgpd-last-updated">` et bandeau "modifications = changement date uniquement"
+2. **Acceptation par participation** : Section 1.3 doit mentionner que participation aux activités = acceptation RGPD
+3. **Formation animateurs** : Section 1.4 doit mentionner Code Qualité des Adultes avec lien
+4. **Photos et consentement** : Section 2.3 complète : participation = consentement explicite photos, partage parents uniquement, pas promotionnel, pas fédération sans consentement, droit retrait
+5. **Modules actifs uniquement** : Retirer les sections des modules INACTIFS (comparer avec liste modules actifs)
+6. **Personnalisation obligatoire** : Remplacer {$unitName} et {$contactEmail} partout. Ne JAMAIS laisser de placeholder générique
+7. **Délai raisonnable bénévoles** : Section 1.1 doit mentionner "délai raisonnable" car organisation bénévole, visant 1 mois art. 12.3
+8. **Hébergeur générique** : NE PAS demander à l'admin de remplir. Écrire "La localisation dépend de l'hébergeur sélectionné. Pour toute question, contacter le responsable."
+9. **IA provider** : Utiliser les infos exactes du fournisseur actif ({$providerInfo}, {$modelsInfo}) avec localisation et privacy policy
+10. **Téléphonie** : Si sos_staff actif, utiliser {$phoneProvider} (OVH Télécom ou autre)
+11. **Cookies tableau** : Créer tableau HTML complet (<table>) avec colonnes : Nom | Catégorie | Finalité | Durée
+12. **Sécurité technique** : Garder détails précis (AES-256-CBC, bcrypt, CSP, RBAC, 6 rôles, WebAuthn, PHPStan niveau 6)
+13. **Conservation 5 ans** : Mention obligatoire "5 ans après départ membre" pour archivage
+14. **Base légale** : Chaque traitement doit avoir sa base légale (art. 6 RGPD)
+15. **Transferts hors UE** : Si Anthropic ou hébergeur hors UE, mentionner SCC (art. 46.2.c RGPD)
+16. **Open source** : Garder section 1.5 (PHP, Twig, PHPMailer, Bootstrap, licence AGPL-3.0)
+17. **Obligation APD** : Conserver mentions notification 72h (art. 33), information personnes (art. 34), réclamation APD
+18. **Instructions admin** : Appliquer {$userPrompt} SANS compromettre conformité légale
+19. **HTML pur** : Pas de ```html, pas de <html>/<body>, uniquement contenu direct
+20. **Précision factuelle** : Ne JAMAIS inventer données non collectées, modules non actifs, ou sous-traitants non utilisés
 
 Réponds UNIQUEMENT avec le HTML généré, prêt à l'insertion directe dans la page.
 PROMPT;
