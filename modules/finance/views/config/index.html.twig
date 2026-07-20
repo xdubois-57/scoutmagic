@@ -1,0 +1,105 @@
+{% extends "base.html.twig" %}
+
+{% block title %}Finances — {{ site_name }}{% endblock %}
+
+{% block content %}
+    <h1 class="mb-4">Finances</h1>
+
+    {% include '@finance/config/_nav.html.twig' %}
+
+    <div class="row g-3 mb-4">
+        <div class="col-12 col-md-4">
+            <div class="border rounded-3 p-3 h-100">
+                <div class="text-body-secondary small">Comptes</div>
+                <div class="fs-3 fw-semibold">{{ account_count }}</div>
+                <a href="/config/finance/accounts" class="small">Gérer les comptes</a>
+            </div>
+        </div>
+        <div class="col-12 col-md-4">
+            <div class="border rounded-3 p-3 h-100">
+                <div class="text-body-secondary small">Catégories</div>
+                <div class="fs-3 fw-semibold">{{ category_count }}</div>
+                <a href="/config/finance/categories" class="small">Gérer les catégories</a>
+            </div>
+        </div>
+        <div class="col-12 col-md-4">
+            <div class="border rounded-3 p-3 h-100">
+                <div class="text-body-secondary small">Exercice courant</div>
+                <div class="fs-3 fw-semibold">{{ current_fiscal_year ? current_fiscal_year.label : 'Aucun' }}</div>
+                <a href="/config/finance/fiscal-years" class="small">Gérer les exercices ({{ fiscal_year_count }})</a>
+            </div>
+        </div>
+    </div>
+
+    <hr class="my-4">
+
+    <h2 class="h5 mb-3 text-danger">Zone de danger</h2>
+    <div class="border border-danger rounded-3 p-3">
+        <div class="mb-4">
+            <h3 class="h6">Supprimer tous les mouvements d'un compte</h3>
+            <p class="text-body-secondary small mb-2">
+                Supprime définitivement tous les mouvements et soldes de référence du compte sélectionné. Cette action est irréversible.
+            </p>
+            <div class="row g-2 align-items-end">
+                <div class="col-12 col-md-5">
+                    <label class="form-label small" for="danger-movements-account">Compte</label>
+                    <select class="form-select form-select-sm" id="danger-movements-account">
+                        {% for account in accounts %}
+                            <option value="{{ account.id }}">{{ account.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-12 col-md-4">
+                    <button type="button" class="btn btn-sm btn-outline-danger" id="danger-movements-btn">Supprimer les mouvements</button>
+                </div>
+            </div>
+        </div>
+
+        <div>
+            <h3 class="h6">Supprimer tous les reçus</h3>
+            <p class="text-body-secondary small mb-2">
+                Archive tous les reçus (les fichiers restent sur le disque, chiffrés). Cette action est irréversible.
+            </p>
+            <button type="button" class="btn btn-sm btn-outline-danger" id="danger-receipts-btn">Supprimer tous les reçus</button>
+        </div>
+    </div>
+{% endblock %}
+
+{% block scripts %}
+<script nonce="{{ csp_nonce }}">
+const csrf = () => document.querySelector('meta[name="csrf-token"]')?.content;
+
+async function executeDangerAction(action, extra) {
+    const confirmationText = prompt('Cette action est irréversible. Tapez SUPPRIMER pour confirmer :');
+    if (confirmationText !== 'SUPPRIMER') {
+        return;
+    }
+    const res = await fetch('/config/finance/danger', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(Object.assign({ action: action, confirmation_text: confirmationText, _csrf_token: csrf() }, extra))
+    });
+    const data = await res.json();
+    if (data.success) {
+        window.location.reload();
+    } else {
+        alert(data.error);
+    }
+}
+
+document.getElementById('danger-movements-btn').addEventListener('click', () => {
+    const accountId = parseInt(document.getElementById('danger-movements-account').value, 10);
+    if (!confirm("Supprimer tous les mouvements de ce compte ? Cette action est irréversible.")) {
+        return;
+    }
+    executeDangerAction('delete_movements', { account_id: accountId });
+});
+
+document.getElementById('danger-receipts-btn').addEventListener('click', () => {
+    if (!confirm('Supprimer (archiver) tous les reçus ? Cette action est irréversible.')) {
+        return;
+    }
+    executeDangerAction('delete_receipts', {});
+});
+</script>
+{% endblock %}

@@ -1,0 +1,34 @@
+{% extends "base.html.twig" %}
+
+{% block title %}Finances — {{ site_name }}{% endblock %}
+
+{% block content %}
+    <h1 class="mb-4">Finances</h1>
+
+    {% if current_fiscal_year %}
+        <p class="text-body-secondary small mb-3">Exercice courant : <strong>{{ current_fiscal_year.label }}</strong></p>
+    {% endif %}
+
+    <div class="row g-3 mb-4">
+        {% for entry in accounts %}
+            <div class="col-12 col-md-4">
+                <div class="border rounded-3 p-3 h-100">
+                    <div class="text-body-secondary small">{{ entry.account.name }}</div>
+                    <div class="fs-3 fw-semibold">
+                        {{ entry.balance is not null ? entry.balance|number_format(2, ',', ' ') ~ ' €' : 'Solde inconnu' }}
+                    </div>
+                </div>
+            </div>
+        {% else %}
+            <div class="col-12">
+                <p class="text-body-secondary fst-italic">Aucun compte visible pour votre rôle.</p>
+            </div>
+        {% endfor %}
+    </div>
+
+    <div class="d-flex gap-2">
+        <a href="/finance/movements" class="btn btn-sm btn-outline-secondary">Mouvements</a>
+        <a href="/finance/import" class="btn btn-sm btn-outline-secondary">Importer un relevé</a>
+        <a href="/finance/receipts" class="btn btn-sm btn-outline-secondary">Reçus</a>
+    </div>
+{% endblock %}

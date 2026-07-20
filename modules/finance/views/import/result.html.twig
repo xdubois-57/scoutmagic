@@ -1,0 +1,13 @@
+{% extends "base.html.twig" %}
+
+{% block title %}Résultat de l'import — Finances — {{ site_name }}{% endblock %}
+
+{% block content %}
+    <h1 class="mb-4">Résultat de l'import</h1>
+
+    {% if error %}
+        <div class="alert alert-danger">{{ error }}</div>
+    {% endif %}
+
+    <a href="/finance/import" class="btn btn-sm btn-outline-secondary">Retour</a>
+{% endblock %}

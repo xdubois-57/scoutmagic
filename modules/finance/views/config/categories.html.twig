@@ -1,0 +1,130 @@
+{% extends "base.html.twig" %}
+
+{% block title %}Catégories — Finances — {{ site_name }}{% endblock %}
+
+{% block content %}
+    <h1 class="mb-4">Finances</h1>
+
+    {% include '@finance/config/_nav.html.twig' %}
+
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2 class="h5 mb-0">Catégories</h2>
+        <button type="button" class="btn btn-sm btn-primary" id="new-category-btn">Nouvelle catégorie</button>
+    </div>
+
+    <div class="d-flex flex-column gap-2 mb-4">
+        {% for category in categories %}
+            <div class="border rounded-3 p-2 d-flex align-items-center gap-2">
+                <span class="flex-grow-1 category-name" data-id="{{ category.id }}">{{ category.name }}</span>
+                <button type="button" class="btn btn-sm btn-outline-secondary edit-category-btn" data-id="{{ category.id }}" data-name="{{ category.name }}" title="Modifier">
+                    <i class="bi bi-pencil"></i>
+                </button>
+                <button type="button" class="btn btn-sm {{ category.isActive ? 'btn-outline-success' : 'btn-outline-secondary' }} toggle-category-btn"
+                        data-id="{{ category.id }}" data-active="{{ category.isActive ? '1' : '0' }}"
+                        title="{{ category.isActive ? 'Actif — cliquer pour désactiver' : 'Inactif — cliquer pour activer' }}">
+                    <i class="bi {{ category.isActive ? 'bi-toggle-on' : 'bi-toggle-off' }}"></i>
+                </button>
+                <button type="button" class="btn btn-sm btn-outline-danger delete-category-btn" data-id="{{ category.id }}" title="Supprimer">
+                    <i class="bi bi-trash"></i>
+                </button>
+            </div>
+        {% else %}
+            <p class="text-body-secondary fst-italic mb-0">Aucune catégorie.</p>
+        {% endfor %}
+    </div>
+
+    <div class="border rounded-3 p-3 mb-4 d-none" id="category-form-container">
+        <form id="category-form" class="row g-2 align-items-end">
+            <input type="hidden" id="category-id" value="">
+            <div class="col-12 col-md-6">
+                <label class="form-label small" for="category-name">Nom</label>
+                <input type="text" class="form-control form-control-sm" id="category-name" required>
+            </div>
+            <div class="col-auto">
+                <button type="submit" class="btn btn-sm btn-primary">Enregistrer</button>
+            </div>
+            <div class="col-auto">
+                <button type="button" class="btn btn-sm btn-outline-secondary" id="cancel-category-form">Annuler</button>
+            </div>
+            <div class="col-12 text-danger small d-none" id="category-form-error"></div>
+        </form>
+    </div>
+{% endblock %}
+
+{% block scripts %}
+<script nonce="{{ csp_nonce }}">
+const csrf = () => document.querySelector('meta[name="csrf-token"]')?.content;
+const formContainer = document.getElementById('category-form-container');
+const errorBox = document.getElementById('category-form-error');
+
+document.getElementById('new-category-btn').addEventListener('click', () => {
+    document.getElementById('category-id').value = '';
+    document.getElementById('category-name').value = '';
+    formContainer.classList.remove('d-none');
+    errorBox.classList.add('d-none');
+});
+
+document.getElementById('cancel-category-form').addEventListener('click', () => {
+    formContainer.classList.add('d-none');
+});
+
+document.querySelectorAll('.edit-category-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.getElementById('category-id').value = btn.dataset.id;
+        document.getElementById('category-name').value = btn.dataset.name;
+        formContainer.classList.remove('d-none');
+        errorBox.classList.add('d-none');
+    });
+});
+
+document.getElementById('category-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const id = document.getElementById('category-id').value;
+    const payload = {
+        action: id ? 'update' : 'create',
+        name: document.getElementById('category-name').value,
+        _csrf_token: csrf()
+    };
+    if (id) payload.id = parseInt(id, 10);
+
+    const res = await fetch('/config/finance/categories', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (data.success) {
+        window.location.reload();
+    } else {
+        errorBox.textContent = data.error;
+        errorBox.classList.remove('d-none');
+    }
+});
+
+async function postCategoryAction(action, id) {
+    const res = await fetch('/config/finance/categories', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: action, id: id, _csrf_token: csrf() })
+    });
+    const data = await res.json();
+    if (data.success) {
+        window.location.reload();
+    } else {
+        alert(data.error);
+    }
+}
+
+document.querySelectorAll('.toggle-category-btn').forEach(btn => {
+    btn.addEventListener('click', () => postCategoryAction(btn.dataset.active === '1' ? 'deactivate' : 'activate', parseInt(btn.dataset.id, 10)));
+});
+
+document.querySelectorAll('.delete-category-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        if (confirm('Supprimer cette catégorie ?')) {
+            postCategoryAction('delete', parseInt(btn.dataset.id, 10));
+        }
+    });
+});
+</script>
+{% endblock %}

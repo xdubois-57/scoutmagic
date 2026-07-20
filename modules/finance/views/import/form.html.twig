@@ -1,0 +1,39 @@
+{% extends "base.html.twig" %}
+
+{% block title %}Importer un relevé — Finances — {{ site_name }}{% endblock %}
+
+{% block content %}
+    <h1 class="mb-4">Importer un relevé bancaire</h1>
+
+    <div class="alert alert-info">
+        L'import de relevés bancaires n'est pas encore disponible.
+    </div>
+
+    <form method="post" action="/finance/import" enctype="multipart/form-data" class="border rounded-3 p-3">
+        <div class="row g-2">
+            <div class="col-12 col-md-4">
+                <label class="form-label small" for="import-account">Compte</label>
+                <select class="form-select form-select-sm" id="import-account" name="account_id">
+                    {% for account in accounts %}
+                        <option value="{{ account.id }}">{{ account.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-12 col-md-4">
+                <label class="form-label small" for="import-bank">Banque</label>
+                <select class="form-select form-select-sm" id="import-bank" name="bank_code">
+                    {% for code in bank_codes %}
+                        <option value="{{ code }}">{{ code|upper }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-12 col-md-4">
+                <label class="form-label small" for="import-file">Fichier</label>
+                <input type="file" class="form-control form-control-sm" id="import-file" name="statement">
+            </div>
+            <div class="col-12">
+                <button type="submit" class="btn btn-sm btn-primary" disabled>Importer</button>
+            </div>
+        </div>
+    </form>
+{% endblock %}

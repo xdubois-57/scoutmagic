@@ -1,0 +1,200 @@
+{% extends "base.html.twig" %}
+
+{% block title %}Comptes — Finances — {{ site_name }}{% endblock %}
+
+{% block content %}
+    <h1 class="mb-4">Finances</h1>
+
+    {% include '@finance/config/_nav.html.twig' %}
+
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2 class="h5 mb-0">Comptes</h2>
+        <button type="button" class="btn btn-sm btn-primary" id="new-account-btn">Nouveau compte</button>
+    </div>
+
+    <div class="table-responsive mb-4">
+        <table class="table table-sm align-middle">
+            <thead>
+                <tr>
+                    <th>Nom</th>
+                    <th>Type</th>
+                    <th>Section</th>
+                    <th>IBAN</th>
+                    <th>Statut</th>
+                    <th>Visible à partir de</th>
+                    <th class="text-end">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for account in accounts %}
+                    <tr>
+                        <td>{{ account.name }}</td>
+                        <td>{{ account_types[account.accountType] ?? account.accountType }}</td>
+                        <td>{{ account.sectionId and sections_by_id[account.sectionId] is defined ? (sections_by_id[account.sectionId].name ?? sections_by_id[account.sectionId].desk_code) : '—' }}</td>
+                        <td>{{ account.iban ? account.iban|slice(0, 4) ~ ' •••• ' ~ account.iban|slice(-4) : '—' }}</td>
+                        <td>
+                            <span class="badge {{ account.status == 'active' ? 'text-bg-success' : (account.status == 'archived' ? 'text-bg-secondary' : 'text-bg-warning') }}">
+                                {{ {'draft': 'Brouillon', 'active': 'Actif', 'archived': 'Archivé'}[account.status] ?? account.status }}
+                            </span>
+                        </td>
+                        <td>{{ role_min_options[account.roleMinView] ?? account.roleMinView }}</td>
+                        <td class="text-end">
+                            <button type="button" class="btn btn-sm btn-outline-secondary edit-account-btn"
+                                    data-id="{{ account.id }}" data-name="{{ account.name }}" data-account-type="{{ account.accountType }}"
+                                    data-section-id="{{ account.sectionId }}" data-role-min-view="{{ account.roleMinView }}"
+                                    title="Modifier"><i class="bi bi-pencil"></i></button>
+                            {% if account.status == 'draft' %}
+                                <button type="button" class="btn btn-sm btn-outline-success activate-account-btn" data-id="{{ account.id }}">Activer</button>
+                            {% elseif account.status == 'active' %}
+                                <button type="button" class="btn btn-sm btn-outline-warning archive-account-btn" data-id="{{ account.id }}">Archiver</button>
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="border rounded-3 p-3 mb-4 d-none" id="account-form-container">
+        <h3 class="h6" id="account-form-title">Nouveau compte</h3>
+        <form id="account-form">
+            <input type="hidden" id="account-id" value="">
+            <div class="row g-2">
+                <div class="col-12 col-md-6">
+                    <label class="form-label small" for="account-name">Nom</label>
+                    <input type="text" class="form-control form-control-sm" id="account-name" required>
+                </div>
+                <div class="col-6 col-md-3">
+                    <label class="form-label small" for="account-type">Type</label>
+                    <select class="form-select form-select-sm" id="account-type">
+                        {% for value, label in account_types %}
+                            <option value="{{ value }}">{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-6 col-md-3">
+                    <label class="form-label small" for="account-section">Section</label>
+                    <select class="form-select form-select-sm" id="account-section">
+                        <option value="">—</option>
+                        {% for id, section in sections_by_id %}
+                            <option value="{{ id }}">{{ section.name ?? section.desk_code }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-12 col-md-6">
+                    <label class="form-label small" for="account-iban">IBAN</label>
+                    <input type="text" class="form-control form-control-sm" id="account-iban" placeholder="Laisser vide pour ne pas modifier">
+                </div>
+                <div class="col-12 col-md-6">
+                    <label class="form-label small" for="account-holder">Nom du titulaire</label>
+                    <input type="text" class="form-control form-control-sm" id="account-holder" placeholder="Laisser vide pour ne pas modifier">
+                </div>
+                <div class="col-6 col-md-3">
+                    <label class="form-label small" for="account-role-min-view">Visible à partir de</label>
+                    <select class="form-select form-select-sm" id="account-role-min-view">
+                        {% for value, label in role_min_options %}
+                            <option value="{{ value }}">{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-6 col-md-3 d-flex align-items-end gap-2">
+                    <button type="submit" class="btn btn-sm btn-primary">Enregistrer</button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" id="cancel-account-form">Annuler</button>
+                </div>
+            </div>
+            <div class="text-danger small mt-2 d-none" id="account-form-error"></div>
+        </form>
+    </div>
+{% endblock %}
+
+{% block scripts %}
+<script nonce="{{ csp_nonce }}">
+const csrf = () => document.querySelector('meta[name="csrf-token"]')?.content;
+const formContainer = document.getElementById('account-form-container');
+const errorBox = document.getElementById('account-form-error');
+
+function showForm(title) {
+    document.getElementById('account-form-title').textContent = title;
+    formContainer.classList.remove('d-none');
+    errorBox.classList.add('d-none');
+}
+
+document.getElementById('new-account-btn').addEventListener('click', () => {
+    document.getElementById('account-form').reset();
+    document.getElementById('account-id').value = '';
+    showForm('Nouveau compte');
+});
+
+document.getElementById('cancel-account-form').addEventListener('click', () => {
+    formContainer.classList.add('d-none');
+});
+
+document.querySelectorAll('.edit-account-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.getElementById('account-id').value = btn.dataset.id;
+        document.getElementById('account-name').value = btn.dataset.name;
+        document.getElementById('account-type').value = btn.dataset.accountType;
+        document.getElementById('account-section').value = btn.dataset.sectionId || '';
+        document.getElementById('account-role-min-view').value = btn.dataset.roleMinView;
+        document.getElementById('account-iban').value = '';
+        document.getElementById('account-holder').value = '';
+        showForm('Modifier le compte');
+    });
+});
+
+document.getElementById('account-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const id = document.getElementById('account-id').value;
+    const payload = {
+        action: id ? 'update' : 'create',
+        name: document.getElementById('account-name').value,
+        account_type: document.getElementById('account-type').value,
+        section_id: document.getElementById('account-section').value,
+        iban: document.getElementById('account-iban').value,
+        holder_name: document.getElementById('account-holder').value,
+        role_min_view: document.getElementById('account-role-min-view').value,
+        _csrf_token: csrf()
+    };
+    if (id) payload.id = parseInt(id, 10);
+
+    const res = await fetch('/config/finance/accounts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (data.success) {
+        window.location.reload();
+    } else {
+        errorBox.textContent = data.error;
+        errorBox.classList.remove('d-none');
+    }
+});
+
+async function postAccountAction(action, id) {
+    const res = await fetch('/config/finance/accounts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: action, id: id, _csrf_token: csrf() })
+    });
+    const data = await res.json();
+    if (data.success) {
+        window.location.reload();
+    } else {
+        alert(data.error);
+    }
+}
+
+document.querySelectorAll('.activate-account-btn').forEach(btn => {
+    btn.addEventListener('click', () => postAccountAction('activate', parseInt(btn.dataset.id, 10)));
+});
+
+document.querySelectorAll('.archive-account-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        if (confirm('Archiver ce compte ?')) {
+            postAccountAction('archive', parseInt(btn.dataset.id, 10));
+        }
+    });
+});
+</script>
+{% endblock %}

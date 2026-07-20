@@ -1,0 +1,29 @@
+{% extends "base.html.twig" %}
+
+{% block title %}Reçus — Finances — {{ site_name }}{% endblock %}
+
+{% block content %}
+    <h1 class="mb-4">Reçus</h1>
+
+    <p class="text-body-secondary small mb-3">
+        L'ajout de reçus sera disponible dans une prochaine version.
+    </p>
+
+    <div class="row g-3">
+        {% for attachment in attachments %}
+            <div class="col-12 col-md-4">
+                <div class="border rounded-3 p-3 h-100">
+                    <div class="fw-semibold">{{ attachment.originalFilename }}</div>
+                    <div class="text-body-secondary small">{{ attachment.uploadedAt }}</div>
+                    {% if attachment.suggestedAmount %}
+                        <div class="small">{{ attachment.suggestedAmount|number_format(2, ',', ' ') }} €</div>
+                    {% endif %}
+                </div>
+            </div>
+        {% else %}
+            <div class="col-12">
+                <p class="text-body-secondary fst-italic">Aucun reçu.</p>
+            </div>
+        {% endfor %}
+    </div>
+{% endblock %}

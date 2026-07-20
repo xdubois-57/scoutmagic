@@ -890,6 +890,73 @@ if (in_array('llm_connector', $moduleManager->getEnabledModuleIds(), true)) {
     );
 }
 
+if (in_array('finance', $moduleManager->getEnabledModuleIds(), true)) {
+    $financeFiscalYearRepo = new \Modules\Finance\Repository\FiscalYearRepository($pdo);
+    $financeAccountRepo = new \Modules\Finance\Repository\AccountRepository($pdo, $encryptionService);
+    $financeCategoryRepo = new \Modules\Finance\Repository\CategoryRepository($pdo);
+    $financeCategoryRuleRepo = new \Modules\Finance\Repository\CategoryRuleRepository($pdo);
+    $financeTransactionRepo = new \Modules\Finance\Repository\TransactionRepository($pdo, $encryptionService);
+    $financeCheckpointRepo = new \Modules\Finance\Repository\BalanceCheckpointRepository($pdo);
+    $financeStatementImportRepo = new \Modules\Finance\Repository\StatementImportRepository($pdo);
+    $financeAttachmentRepo = new \Modules\Finance\Repository\AttachmentRepository($pdo);
+
+    $financeService = new \Modules\Finance\Service\FinanceService(
+        $financeAccountRepo, $financeCategoryRepo, $financeFiscalYearRepo, $sectionService
+    );
+    $financeBalanceService = new \Modules\Finance\Service\BalanceService($financeCheckpointRepo, $financeTransactionRepo);
+    $financeRuleEngine = new \Modules\Finance\Service\CategoryRuleEngine($financeTransactionRepo);
+    $financeParserFactory = new \Modules\Finance\Parser\BankStatementParserFactory();
+    $financeImportService = new \Modules\Finance\Service\ImportService(
+        $financeParserFactory, $financeAccountRepo, $financeTransactionRepo, $financeCheckpointRepo,
+        $financeStatementImportRepo, $financeFiscalYearRepo, $financeRuleEngine
+    );
+
+    $frontController->registerController(
+        \Modules\Finance\Controller\DashboardController::class,
+        new \Modules\Finance\Controller\DashboardController($twig, $financeService, $financeBalanceService)
+    );
+    $frontController->registerController(
+        \Modules\Finance\Controller\MovementController::class,
+        new \Modules\Finance\Controller\MovementController($twig, $financeService, $financeTransactionRepo)
+    );
+    $frontController->registerController(
+        \Modules\Finance\Controller\ImportController::class,
+        new \Modules\Finance\Controller\ImportController($twig, $financeService, $financeImportService, $financeParserFactory)
+    );
+    $frontController->registerController(
+        \Modules\Finance\Controller\ReceiptController::class,
+        new \Modules\Finance\Controller\ReceiptController($twig, $financeAttachmentRepo, $financeService)
+    );
+    $frontController->registerController(
+        \Modules\Finance\Controller\ConfigController::class,
+        new \Modules\Finance\Controller\ConfigController($twig, $financeService, $schedulerService)
+    );
+    $frontController->registerController(
+        \Modules\Finance\Controller\ConfigAccountController::class,
+        new \Modules\Finance\Controller\ConfigAccountController($twig, $financeService, $sectionService, $journalService)
+    );
+    $frontController->registerController(
+        \Modules\Finance\Controller\ConfigCategoryController::class,
+        new \Modules\Finance\Controller\ConfigCategoryController($twig, $financeService, $journalService)
+    );
+    $frontController->registerController(
+        \Modules\Finance\Controller\ConfigRuleController::class,
+        new \Modules\Finance\Controller\ConfigRuleController(
+            $twig, $financeCategoryRuleRepo, $financeCategoryRepo, $financeRuleEngine, $journalService
+        )
+    );
+    $frontController->registerController(
+        \Modules\Finance\Controller\ConfigFiscalYearController::class,
+        new \Modules\Finance\Controller\ConfigFiscalYearController($twig, $financeService, $journalService)
+    );
+    $frontController->registerController(
+        \Modules\Finance\Controller\ConfigDangerController::class,
+        new \Modules\Finance\Controller\ConfigDangerController(
+            $twig, $financeTransactionRepo, $financeCheckpointRepo, $financeAttachmentRepo, $journalService
+        )
+    );
+}
+
 // RGPD configuration controller
 $frontController->registerController(RgpdConfigController::class, new RgpdConfigController($twig, $editableContentService, $rgpdContentService, $settingService, $moduleManager, $journalService));
 

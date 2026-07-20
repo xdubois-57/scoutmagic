@@ -1,0 +1,40 @@
+{% extends "base.html.twig" %}
+
+{% block title %}Mouvements — Finances — {{ site_name }}{% endblock %}
+
+{% block content %}
+    <h1 class="mb-4">Mouvements</h1>
+
+    <p class="text-body-secondary small mb-3">
+        Le filtrage, le tri et la modification en ligne seront disponibles dans une prochaine version.
+    </p>
+
+    <div class="table-responsive">
+        <table class="table table-sm align-middle">
+            <thead>
+                <tr>
+                    <th>Date</th>
+                    <th>Libellé</th>
+                    <th class="text-end">Montant</th>
+                    <th>Catégorie</th>
+                    <th>Commentaire</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for movement in movements %}
+                    <tr>
+                        <td>{{ movement.transactionDate }}</td>
+                        <td>{{ movement.label }}</td>
+                        <td class="text-end {{ movement.amount < 0 ? 'text-danger' : 'text-success' }}">
+                            {{ movement.amount|number_format(2, ',', ' ') }} €
+                        </td>
+                        <td>—</td>
+                        <td>{{ movement.comment }}</td>
+                    </tr>
+                {% else %}
+                    <tr><td colspan="5" class="text-body-secondary fst-italic">Aucun mouvement — l'import de relevés n'est pas encore disponible.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+{% endblock %}

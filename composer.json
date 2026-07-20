@@ -18,6 +18,7 @@
             "Modules\\": "modules/",
             "Modules\\Banner\\": "modules/banner/src/",
             "Modules\\Calendar\\": "modules/calendar/src/",
+            "Modules\\Finance\\": "modules/finance/src/",
             "Modules\\LlmConnector\\": "modules/llm_connector/src/",
             "Modules\\MemberStats\\": "modules/member_stats/src/",
             "Modules\\SosStaff\\": "modules/sos_staff/src/",

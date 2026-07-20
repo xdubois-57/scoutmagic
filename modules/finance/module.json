@@ -110,7 +110,7 @@
       "controller": "Modules\\Finance\\Controller\\ConfigController",
       "action": "index",
       "menu": "configuration",
-      "role_min": "admin",
+      "role_min": "superadmin",
       "label": "Finances"
     },
     {
@@ -119,7 +119,7 @@
       "controller": "Modules\\Finance\\Controller\\ConfigAccountController",
       "action": "index",
       "menu": "configuration",
-      "role_min": "admin",
+      "role_min": "superadmin",
       "label": ""
     },
     {
@@ -128,7 +128,7 @@
       "controller": "Modules\\Finance\\Controller\\ConfigAccountController",
       "action": "save",
       "menu": "configuration",
-      "role_min": "admin",
+      "role_min": "superadmin",
       "label": ""
     },
     {
@@ -137,7 +137,7 @@
       "controller": "Modules\\Finance\\Controller\\ConfigCategoryController",
       "action": "index",
       "menu": "configuration",
-      "role_min": "admin",
+      "role_min": "superadmin",
       "label": ""
     },
     {
@@ -146,7 +146,7 @@
       "controller": "Modules\\Finance\\Controller\\ConfigCategoryController",
       "action": "save",
       "menu": "configuration",
-      "role_min": "admin",
+      "role_min": "superadmin",
       "label": ""
     },
     {
@@ -155,7 +155,7 @@
       "controller": "Modules\\Finance\\Controller\\ConfigRuleController",
       "action": "index",
       "menu": "configuration",
-      "role_min": "admin",
+      "role_min": "superadmin",
       "label": ""
     },
     {
@@ -164,7 +164,7 @@
       "controller": "Modules\\Finance\\Controller\\ConfigRuleController",
       "action": "save",
       "menu": "configuration",
-      "role_min": "admin",
+      "role_min": "superadmin",
       "label": ""
     },
     {
@@ -173,7 +173,7 @@
       "controller": "Modules\\Finance\\Controller\\ConfigFiscalYearController",
       "action": "index",
       "menu": "configuration",
-      "role_min": "admin",
+      "role_min": "superadmin",
       "label": ""
     },
     {
@@ -182,7 +182,7 @@
       "controller": "Modules\\Finance\\Controller\\ConfigFiscalYearController",
       "action": "save",
       "menu": "configuration",
-      "role_min": "admin",
+      "role_min": "superadmin",
       "label": ""
     },
     {
@@ -191,7 +191,7 @@
       "controller": "Modules\\Finance\\Controller\\ConfigDangerController",
       "action": "execute",
       "menu": "configuration",
-      "role_min": "admin",
+      "role_min": "superadmin",
       "label": ""
     }
   ],

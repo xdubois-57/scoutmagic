@@ -126,6 +126,20 @@ Modèles : Llama, Qwen, divers modèles open source</li>
 <h4>Modules Banner et Member Stats</h4>
 <p>Ces modules n'ajoutent aucun traitement de données personnelles. Banner affiche des bannières visuelles éditables. Member Stats génère des statistiques anonymisées sur la répartition des membres (par branche, genre, âge).</p>
 
+<h4>Module Finances</h4>
+<p><strong>Finalité</strong> : Gérer les comptes bancaires et caisses de l'unité, catégoriser automatiquement les mouvements financiers, et conserver les reçus justifiant les dépenses.</p>
+<p><strong>Données traitées</strong> :</p>
+<ul>
+<li>IBAN et nom du titulaire des comptes bancaires de l'unité (chiffrés au repos avec AES-256-GCM ; un index de recherche chiffré (« blind index ») permet de vérifier qu'un relevé importé correspond bien au bon compte, sans jamais déchiffrer l'IBAN pour cette comparaison)</li>
+<li>Communication bancaire des mouvements (libellé, chiffré au repos — cette communication peut contenir des données personnelles, par exemple le nom d'un membre lors d'un remboursement)</li>
+<li>Montant et date des mouvements financiers</li>
+<li>Reçus et justificatifs de dépense (fichier, montant et date suggérés)</li>
+</ul>
+<p><strong>Visibilité restreinte</strong> : chaque compte n'est visible que par les chefs dont le rôle atteint le niveau minimum configuré par l'administrateur pour ce compte (intendant, chef, ou admin).</p>
+<p><strong>Conservation</strong> : les mouvements financiers sont purgés automatiquement après la durée configurée par l'administrateur (5 ans par défaut). Les reçus ne sont jamais supprimés automatiquement, seulement archivés (masqués de la liste active) si besoin.</p>
+<p><strong>État du module</strong> : l'import automatisé de relevés bancaires et la gestion des reçus sont en cours de développement et pas encore disponibles ; seule la configuration des comptes, catégories, règles et exercices comptables est fonctionnelle à ce stade.</p>
+<p><strong>Base légale</strong> : Intérêt légitime (gestion administrative et comptable de l'unité, obligation de transparence financière envers la fédération).</p>
+
 <h3>2.5. Sécurité et traçabilité</h3>
 <p><strong>Finalité</strong> : Détecter et prévenir les abus, assurer la sécurité du site.</p>
 <p><strong>Données traitées</strong> : Journal d'audit contenant l'adresse IP, l'identifiant du compte (jamais l'email en clair), la date et l'action effectuée.</p>
