@@ -133,7 +133,7 @@ Structure OBLIGATOIRE (respecter scrupuleusement) :
 5. Où sont stockées vos données et transferts internationaux (localisation générique, transferts hors UE avec mécanismes art. 46)
 6. Comment protégeons-nous vos données (mesures techniques détaillées : chiffrement AES-256, bcrypt, CSP, RBAC, plan incident)
 7. Vos droits sur vos données personnelles (accès, rectification, effacement, portabilité, opposition, limitation, retrait, réclamation APD)
-8. Cookies et technologies similaires (gestion préférences + tableau HTML des cookies)
+8. Cookies et technologies similaires (référence à /cookies pour liste et gestion)
 9. Politique de la fédération Les Scouts (référence Les Scouts ASBL BE0409580916)
 10. Modifications de cette politique (uniquement changement date)
 
@@ -148,7 +148,7 @@ RÈGLES CRITIQUES (ne JAMAIS déroger) :
 8. **Hébergeur générique** : NE PAS demander à l'admin de remplir. Écrire "La localisation dépend de l'hébergeur sélectionné. Pour toute question, contacter le responsable."
 9. **IA provider** : Utiliser les infos exactes du fournisseur actif ({$providerInfo}, {$modelsInfo}) avec localisation et privacy policy
 10. **Téléphonie** : Si sos_staff actif, utiliser {$phoneProvider} (OVH Télécom ou autre)
-11. **Cookies tableau** : Créer tableau HTML complet (<table>) avec colonnes : Nom | Catégorie | Finalité | Durée
+11. **Cookies** : Section 8 doit référencer la page /cookies pour consulter la liste et gérer les préférences, pas de tableau dans le RGPD
 12. **Sécurité technique** : Garder détails précis (AES-256-CBC, bcrypt, CSP, RBAC, 6 rôles, WebAuthn, PHPStan niveau 6)
 13. **Conservation 5 ans** : Mention obligatoire "5 ans après départ membre" pour archivage
 14. **Base légale** : Chaque traitement doit avoir sa base légale (art. 6 RGPD)

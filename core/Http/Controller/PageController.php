@@ -20,7 +20,6 @@ class PageController extends AbstractController
         protected Environment $twig,
         private EditableContentService $editableContentService,
         private SectionRepository $sectionRepository,
-        private CookieConsentService $cookieConsentService,
         private SettingService $settingService,
         private RgpdContentService $rgpdContentService,
         private ?HomeBannerProvider $bannerProvider = null
@@ -74,18 +73,32 @@ class PageController extends AbstractController
 
         if ($mode === 'default') {
             $content = $this->rgpdContentService->getDefaultContent();
+            $lastUpdated = date('d/m/Y'); // Current date for default mode
         } else {
             $content = $this->editableContentService->get('rgpd.text', '');
             if ($content === '') {
                 $content = $this->rgpdContentService->getDefaultContent();
+                $lastUpdated = date('d/m/Y');
+            } else {
+                // Get last update date from editable_contents
+                $lastUpdated = $this->editableContentService->getLastUpdated('rgpd.text');
+                if ($lastUpdated === null) {
+                    $lastUpdated = date('d/m/Y');
+                } else {
+                    $lastUpdated = date('d/m/Y', strtotime($lastUpdated));
+                }
             }
         }
 
-        $categories = $this->cookieConsentService->getAllDeclaredCookies();
+        // Inject the date into the content
+        $content = str_replace(
+            '<span id="rgpd-last-updated">Date de publication</span>',
+            '<span id="rgpd-last-updated">' . $lastUpdated . '</span>',
+            $content
+        );
 
         return $this->render('pages/rgpd.html.twig', [
             'rgpd_content' => $content,
-            'cookie_categories' => $categories,
         ]);
     }
 }

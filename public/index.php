@@ -675,7 +675,7 @@ $rgpdContentService = new RgpdContentService($moduleManager, $settingService, $c
 $frontController = new FrontController($router, $twig, $config);
 
 // Register controllers with dependencies
-$frontController->registerController(PageController::class, new PageController($twig, $editableContentService, $sectionRepository, $cookieConsentService, $settingService, $rgpdContentService));
+$frontController->registerController(PageController::class, new PageController($twig, $editableContentService, $sectionRepository, $settingService, $rgpdContentService));
 $frontController->registerController(CookieController::class, new CookieController($twig, $cookieConsentService));
 $setupController = new SetupController($twig, $secretManager, $dkimManager, $schemaPath);
 $setupController->setSettingService($settingService);
@@ -869,7 +869,7 @@ if (in_array('banner', $moduleManager->getEnabledModuleIds(), true)) {
     // (ARCHITECTURE.md §7.4): core never depends on the module directly.
     $frontController->registerController(
         PageController::class,
-        new PageController($twig, $editableContentService, $sectionRepository, $cookieConsentService, $settingService, $rgpdContentService, $bannerService)
+        new PageController($twig, $editableContentService, $sectionRepository, $settingService, $rgpdContentService, $bannerService)
     );
 }
 

@@ -50,4 +50,15 @@ class EditableContentService
     {
         $this->repository->delete($key);
     }
+
+    /**
+     * Get the last updated timestamp for a content key.
+     * Returns the modified_at value as a string (Y-m-d H:i:s format) or null if not found.
+     */
+    public function getLastUpdated(string $key): ?string
+    {
+        $row = $this->repository->findByKey($key);
+
+        return $row['modified_at'] ?? null;
+    }
 }
