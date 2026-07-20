@@ -81,7 +81,7 @@
             <h2 class="h6 mb-0">Contenu actuel</h2>
             <div>
                 <button type="button" class="btn btn-sm btn-outline-primary rich-text-field-edit-btn" id="edit-content-btn"
-                        data-key="rgpd.text" data-save-url="" title="Modifier">
+                        data-key="rgpd.text" data-save-url="/config/rgpd/save" title="Modifier">
                     <i class="bi bi-pencil"></i> Modifier
                 </button>
                 <button type="button" class="btn btn-sm btn-outline-secondary" id="reset-btn">
@@ -140,23 +140,52 @@ document.addEventListener('DOMContentLoaded', function() {
     // Override the rich-text-field edit button: open the shared modal but
     // do NOT save via the default URL — we handle save ourselves below.
     editBtn.addEventListener('click', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
         e.stopImmediatePropagation();
+        
         var modalEl = document.getElementById('richTextEditorModal');
         var editorContent = document.getElementById('richTextEditorContent');
         if (!modalEl || !editorContent) return;
         editorContent.innerHTML = preview.innerHTML;
         var modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+        
+        // Hide the default Save button and show our custom one
+        var defaultSaveBtn = document.getElementById('richTextEditorSave');
+        var customSaveBtn = document.getElementById('rgpd-modal-save');
+        if (defaultSaveBtn) defaultSaveBtn.style.display = 'none';
+        if (customSaveBtn) customSaveBtn.style.display = 'inline-block';
+        
         modal.show();
-
-        // Temporarily override the Save button to push back into preview
-        var saveEditorBtn = document.getElementById('richTextEditorSave');
-        var handler = function() {
-            preview.innerHTML = editorContent.innerHTML;
-            modal.hide();
-            saveEditorBtn.removeEventListener('click', handler);
-        };
-        saveEditorBtn.addEventListener('click', handler);
     });
+    
+    // Custom save button for RGPD modal
+    var customSaveBtn = document.createElement('button');
+    customSaveBtn.id = 'rgpd-modal-save';
+    customSaveBtn.className = 'btn btn-primary';
+    customSaveBtn.textContent = 'Enregistrer';
+    customSaveBtn.style.display = 'none';
+    customSaveBtn.addEventListener('click', function() {
+        var modalEl = document.getElementById('richTextEditorModal');
+        var editorContent = document.getElementById('richTextEditorContent');
+        preview.innerHTML = editorContent.innerHTML;
+        var modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+        modal.hide();
+        
+        // Restore default Save button
+        var defaultSaveBtn = document.getElementById('richTextEditorSave');
+        if (defaultSaveBtn) defaultSaveBtn.style.display = 'inline-block';
+        customSaveBtn.style.display = 'none';
+    });
+    
+    // Add custom save button to modal footer
+    var modalFooter = document.querySelector('#richTextEditorModal .modal-footer');
+    if (modalFooter) {
+        var defaultSaveBtn = document.getElementById('richTextEditorSave');
+        if (defaultSaveBtn && defaultSaveBtn.parentNode) {
+            defaultSaveBtn.parentNode.insertBefore(customSaveBtn, defaultSaveBtn);
+        }
+    }
 
     generateBtn.addEventListener('click', function() {
         var prompt = aiPromptTextarea.value;
