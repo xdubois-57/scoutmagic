@@ -1,8 +1,25 @@
+<p class="text-body-secondary"><em>Dernière mise à jour : <span id="rgpd-last-updated">Date de publication</span></em></p>
+<p class="alert alert-info"><strong>Modifications de cette politique</strong> : En cas de modification substantielle de cette politique de confidentialité, les utilisateurs authentifiés seront avertis par email et/ou par un bandeau visible sur le site. Nous vous encourageons à consulter régulièrement cette page.</p>
+
 <h2>1. Qui sommes-nous et objet de cette politique</h2>
-<p>Cette page décrit comment notre unité scoute traite vos données personnelles dans le cadre de ce site web, conformément au Règlement Général sur la Protection des Données (RGPD — Règlement UE 2016/679).</p>
-<p>Notre unité est affiliée à la fédération <a href="https://www.lesscouts.be" target="_blank" rel="noopener">Les Scouts ASBL</a> (Belgique). Nous sommes également soumis à la <a href="https://www.lesscouts.be/fr/ressources-scouts/administratif-1/web-et-vie-privee/protection-des-donnees-personnelles" target="_blank" rel="noopener">politique de protection des données de la fédération</a>, qui s'applique en complément de la présente page.</p>
-<p><strong>Responsable du traitement</strong> : Le chef d'unité (responsable du groupe « chefs d'U »).</p>
-<p><strong>Contact</strong> : Pour toute question relative à vos données personnelles ou pour exercer vos droits, contactez-nous via l'adresse email indiquée sur la page de contact du site.</p>
+<p>Cette politique de confidentialité décrit de manière exhaustive comment notre unité scoute traite vos données personnelles dans le cadre de ce site web, conformément au Règlement Général sur la Protection des Données (RGPD — Règlement UE 2016/679) et à la législation belge en matière de protection de la vie privée.</p>
+
+<h3>1.1. Identité du responsable du traitement</h3>
+<p><strong>Responsable du traitement</strong> : Le chef d'unité (responsable du groupe « chefs d'U ») de notre unité scoute.</p>
+<p><strong>Contact RGPD</strong> : Pour toute question relative à vos données personnelles ou pour exercer vos droits, contactez-nous à l'adresse email indiquée sur la page de contact du site. Nous nous engageons à vous répondre dans un délai d'un mois maximum conformément à l'article 12.3 du RGPD.</p>
+
+<h3>1.2. Cadre légal et fédération</h3>
+<p>Notre unité est affiliée à la fédération <a href="https://www.lesscouts.be" target="_blank" rel="noopener">Les Scouts ASBL</a> (n° d'entreprise BE0409580916, 21 rue de Dublin, 1050 Ixelles). Les données des membres sont également soumises à la <a href="https://www.lesscouts.be/fr/ressources-scouts/administratif-1/web-et-vie-privee/protection-des-donnees-personnelles" target="_blank" rel="noopener">politique de protection des données de la fédération</a>, qui s'applique en complément de la présente page, notamment pour les traitements effectués via la plateforme <a href="https://desk.lesscouts.be" target="_blank" rel="noopener">Desk</a>.</p>
+
+<h3>1.3. Logiciel open source</h3>
+<p>Ce site utilise un logiciel open source développé pour les unités scoutes belges, publié sous licence <a href="https://www.gnu.org/licenses/agpl-3.0.html" target="_blank" rel="noopener">AGPL-3.0</a>. Le code source est disponible publiquement et auditable. Les principales dépendances open source utilisées sont :</p>
+<ul>
+<li><strong>PHP</strong> (≥8.1) — langage de programmation</li>
+<li><strong>Twig</strong> (^3.0) — moteur de templates avec auto-échappement pour prévenir les failles XSS</li>
+<li><strong>PHPMailer</strong> (^6.9) — envoi d'emails sécurisés avec support DKIM</li>
+<li><strong>Bootstrap</strong> (5.3.3) — framework CSS responsive</li>
+</ul>
+<p>Ces composants sont maintenus par leurs communautés respectives et font l'objet de mises à jour de sécurité régulières.</p>
 
 <h2>2. Quelles données collectons-nous et pourquoi</h2>
 
@@ -28,22 +45,67 @@
 </ul>
 <p><strong>Base légale</strong> : Intérêt légitime (gestion de l'unité scoute).</p>
 
-<h3>2.3. Fonctionnalités du site</h3>
+<h3>2.3. Fonctionnalités optionnelles (modules)</h3>
+<p>Les fonctionnalités suivantes peuvent être activées ou désactivées par l'administrateur. Seuls les modules actifs traitent des données.</p>
 
-<h4>Calendrier des activités</h4>
-<p><strong>Finalité</strong> : Permettre aux membres de synchroniser les événements avec leur calendrier personnel.</p>
-<p><strong>Données traitées</strong> : Jeton ICS personnel (unique par utilisateur), adresse email relue depuis la fiche membre pour les rappels (jamais copiée).</p>
-<p><strong>Base légale</strong> : Intérêt légitime (fonctionnement du service).</p>
+<h4>Module Calendrier</h4>
+<p><strong>Finalité</strong> : Permettre aux membres de synchroniser les événements de l'unité avec leur calendrier personnel (Google Calendar, Outlook, etc.) via le protocole standard iCalendar (RFC 5545).</p>
+<p><strong>Données traitées</strong> :</p>
+<ul>
+<li>Jeton ICS personnel (UUID cryptographique unique, stocké en clair dans la base de données, permet l'accès sans authentification)</li>
+<li>Adresse email du membre (relue depuis la fiche membre chiffrée pour l'envoi de rappels, jamais dupliquée ni stockée en clair dans les tables du module)</li>
+<li>Événements créés par les chefs (titre, description, date, lieu) — visibles par tous les membres ayant un jeton</li>
+</ul>
+<p><strong>Base légale</strong> : Intérêt légitime (faciliter la participation aux activités).</p>
+<p><strong>Risque</strong> : Le jeton ICS donne accès aux événements sans authentification. En cas de divulgation involontaire du lien iCal, il doit être régénéré via les préférences du compte.</p>
 
-<h4>Gardes SOS (Staff d'U)</h4>
-<p><strong>Finalité</strong> : Organiser les permanences téléphoniques des chefs et transférer les appels automatiquement.</p>
-<p><strong>Données traitées</strong> : Planning des gardes, numéro de téléphone de repli (chiffré), identifiants API téléphonie (chiffrés), numéro GSM du membre de garde (relu pour transfert, jamais copié).</p>
-<p><strong>Base légale</strong> : Intérêt légitime (organisation interne).</p>
+<h4>Module Gardes SOS (Staff d'Unité)</h4>
+<p><strong>Finalité</strong> : Organiser les permanences téléphoniques des chefs et transférer automatiquement les appels entrants vers le chef de garde via un fournisseur de téléphonie sur IP.</p>
+<p><strong>Fournisseurs de téléphonie supportés</strong> : Actuellement, seul <strong>OVH Télécom</strong> (France, UE) est implémenté. D'autres fournisseurs (Twilio) sont prévus mais non disponibles.</p>
+<p><strong>Données traitées</strong> :</p>
+<ul>
+<li>Planning des gardes (chef assigné par jour, disponibilité)</li>
+<li>Numéro de téléphone de repli (chiffré au repos, utilisé si aucun chef n'est de garde)</li>
+<li>Identifiants API du fournisseur de téléphonie (clé d'application, secret, consumer key — chiffrés au repos avec AES-256-CBC)</li>
+<li>Numéro GSM du membre de garde (relu depuis la fiche membre chiffrée au moment du transfert d'appel, jamais copié dans les tables du module)</li>
+<li>Journal des transferts (date, chef de garde, succès/échec)</li>
+</ul>
+<p><strong>Transfert vers OVH Télécom</strong> : Les identifiants API sont envoyés à l'API OVH (<code>https://eu.api.ovh.com</code>) pour configurer le renvoi d'appel. OVH traite les numéros de téléphone pour le routage. Politique de confidentialité : <a href="https://www.ovhcloud.com/fr/terms-and-conditions/privacy-policy/" target="_blank" rel="noopener">OVH Cloud Privacy Policy</a>.</p>
+<p><strong>Base légale</strong> : Intérêt légitime (organisation interne, joignabilité d'urgence).</p>
 
-<h4>Assistance par intelligence artificielle</h4>
-<p><strong>Finalité</strong> : Automatiser certaines tâches (reconnaissance de texte, génération de contenu).</p>
-<p><strong>Données traitées</strong> : Extraits de documents, noms, montants (selon l'utilisation). Les données peuvent être envoyées à un fournisseur IA tiers (voir section 4). La clé API est chiffrée.</p>
-<p><strong>Base légale</strong> : Intérêt légitime (efficacité administrative).</p>
+<h4>Module Connecteur Intelligence Artificielle</h4>
+<p><strong>Finalité</strong> : Automatiser des tâches administratives répétitives (reconnaissance de texte sur photos de factures, génération de contenu RGPD personnalisé) via des modèles d'intelligence artificielle hébergés par des fournisseurs tiers.</p>
+<p><strong>Fournisseurs IA supportés</strong> :</p>
+<ul>
+<li><strong>Anthropic</strong> (Claude) — API : <code>https://api.anthropic.com</code><br>
+Serveurs : États-Unis (transfert hors UE, encadré par clauses contractuelles types art. 46 RGPD)<br>
+Politique de confidentialité : <a href="https://www.anthropic.com/privacy" target="_blank" rel="noopener">Anthropic Privacy Policy</a><br>
+Modèles : Claude 3.5 Sonnet, Claude 3 Opus, Claude 3 Haiku, Claude 3.5 Haiku</li>
+<li><strong>Mistral AI</strong> — API : <code>https://api.mistral.ai</code><br>
+Serveurs : France (UE)<br>
+Politique de confidentialité : <a href="https://mistral.ai/terms/#privacy-policy" target="_blank" rel="noopener">Mistral AI Privacy Policy</a><br>
+Modèles : Mistral Large, Mistral Small, Pixtral, Ministral</li>
+<li><strong>Scaleway</strong> — API : <code>https://api.scaleway.ai</code><br>
+Serveurs : France et Pays-Bas (UE)<br>
+Politique de confidentialité : <a href="https://www.scaleway.com/en/privacy-policy/" target="_blank" rel="noopener">Scaleway Privacy Policy</a><br>
+Modèles : Llama, Qwen, divers modèles open source</li>
+</ul>
+<p><strong>Données traitées</strong> :</p>
+<ul>
+<li>Clé API du fournisseur (chiffrée au repos avec AES-256-CBC)</li>
+<li>Extraits de texte ou images envoyés pour traitement (factures, documents administratifs, selon l'utilisation)</li>
+<li>Réponses des modèles IA (texte généré, données extraites)</li>
+</ul>
+<p><strong>Transfert vers les fournisseurs IA</strong> : Les données envoyées dépendent de l'utilisation (OCR de factures : montants, noms de commerçants ; génération RGPD : aucune donnée personnelle). Les fournisseurs ne conservent pas les données au-delà du traitement (selon leurs politiques respectives). Pour Anthropic (USA), le transfert est encadré par les Standard Contractual Clauses (SCC) de la Commission européenne.</p>
+<p><strong>Base légale</strong> : Intérêt légitime (efficacité administrative, réduction de la charge de travail des bénévoles).</p>
+
+<h4>Module Trombinoscope</h4>
+<p><strong>Finalité</strong> : Afficher publiquement (accessible sans authentification) les photos, totems, noms et fonctions des chefs de l'unité.</p>
+<p><strong>Données traitées</strong> : Aucune donnée personnelle supplémentaire. Le module lit les données déjà présentes dans les fiches membres (section 2.2) et affiche celles marquées comme "responsable" par le chef d'unité.</p>
+<p><strong>Base légale</strong> : Intérêt légitime (transparence, communication externe) et consentement implicite (les chefs acceptent la fonction en connaissance de cause).</p>
+
+<h4>Modules Banner et Member Stats</h4>
+<p>Ces modules n'ajoutent aucun traitement de données personnelles. Banner affiche des bannières visuelles éditables. Member Stats génère des statistiques anonymisées sur la répartition des membres (par branche, genre, âge).</p>
 
 <h3>2.4. Sécurité et traçabilité</h3>
 <p><strong>Finalité</strong> : Détecter et prévenir les abus, assurer la sécurité du site.</p>
@@ -51,52 +113,163 @@
 <p><strong>Base légale</strong> : Intérêt légitime (sécurité du système).</p>
 
 <h2>3. Combien de temps conservons-nous vos données</h2>
-<p>Nous conservons vos données personnelles uniquement pendant la durée nécessaire aux finalités pour lesquelles elles ont été collectées :</p>
+<p>Conformément au principe de limitation de la conservation (art. 5.1.e RGPD), nous ne conservons vos données personnelles que pendant la durée strictement nécessaire aux finalités pour lesquelles elles ont été collectées, ou lorsque la loi l'impose.</p>
+
+<h3>3.1. Durées de conservation actives</h3>
 <ul>
-<li><strong>Données des membres</strong> : pendant l'année scoute en cours. Les données sont supprimées ou archivées à la fin de chaque cycle annuel.</li>
-<li><strong>Comptes utilisateurs</strong> : jusqu'à suppression manuelle par l'administrateur ou sur demande de l'utilisateur.</li>
-<li><strong>Journal d'audit</strong> : durée configurable, par défaut 2 ans, puis suppression automatique.</li>
-<li><strong>Liens magiques de connexion</strong> : expirés après 15 minutes, nettoyés périodiquement.</li>
-<li><strong>Jetons ICS (calendrier)</strong> : valides tant que le compte utilisateur existe.</li>
+<li><strong>Données des membres actifs</strong> : Conservées pendant toute la durée de la participation active du membre à l'unité, synchronisées annuellement avec la plateforme Desk de la fédération.</li>
+<li><strong>Comptes utilisateurs actifs</strong> : Conservés tant que le compte est utilisé. Un compte inutilisé pendant plus de 2 années scoutes consécutives peut être désactivé par l'administrateur.</li>
+<li><strong>Liens magiques d'authentification</strong> : Expirés et supprimés automatiquement après 15 minutes.</li>
+<li><strong>Jetons ICS (calendrier)</strong> : Valides tant que le compte utilisateur existe. Peuvent être régénérés manuellement à tout moment.</li>
+<li><strong>Photos des membres</strong> : Conservées pour l'année scoute en cours. Les photos des années précédentes peuvent être supprimées lors de l'import annuel ou conservées si pertinentes.</li>
 </ul>
+
+<h3>3.2. Archivage et conservation prolongée</h3>
+<p><strong>Données des anciens membres</strong> : Après le départ d'un membre de l'unité (fin de participation, démission, passage dans une autre unité), ses données personnelles sont conservées pendant une durée maximale de <strong>5 ans</strong> puis supprimées définitivement. Cette période permet :</p>
+<ul>
+<li>La gestion des litiges éventuels (responsabilité civile : prescription de 5 ans en droit belge)</li>
+<li>Les obligations comptables et fiscales (conservation des justificatifs liés aux paiements)</li>
+<li>Le maintien des liens alumni (sur consentement explicite)</li>
+</ul>
+<p>Passé ce délai de 5 ans, toutes les données sont supprimées de manière irréversible, à l'exception des données strictement nécessaires au respect d'une obligation légale (par exemple, conservation des pièces comptables pour l'administration fiscale : 7 ans).</p>
+
+<h3>3.3. Journaux et traces techniques</h3>
+<ul>
+<li><strong>Journal d'audit (actions sensibles)</strong> : Conservé pendant une durée configurable, par défaut 2 ans, puis suppression automatique. Contient l'adresse IP, l'identifiant du compte (pas l'email), la date et l'action.</li>
+<li><strong>Logs serveur (erreurs, accès)</strong> : Conservés 30 jours maximum pour le débogage et la sécurité, puis supprimés automatiquement.</li>
+</ul>
+
+<h3>3.4. Suppression sur demande</h3>
+<p>Vous pouvez demander la suppression anticipée de vos données à tout moment en exerçant votre droit à l'effacement (section 7). La suppression sera effectuée dans un délai d'un mois, sauf obligation légale de conservation.</p>
 
 <h2>4. Avec qui partageons-nous vos données</h2>
 <p>Vos données personnelles ne sont jamais vendues à des tiers. Nous faisons appel à des sous-traitants pour assurer le fonctionnement du site :</p>
 
 <h3>4.1. Sous-traitants essentiels</h3>
+<p><strong>Hébergeur web</strong> : L'hébergeur choisi par l'unité stocke la base de données, les fichiers uploadés et exécute l'application. La localisation précise des serveurs dépend du prestataire sélectionné par l'unité (à préciser dans cette section). En l'absence de garantie, il convient de considérer que les données peuvent être stockées hors de l'UE, auquel cas des garanties appropriées doivent être mises en place (clauses contractuelles types, certification Privacy Shield 2.0 si applicable).</p>
+<p><strong>Relais SMTP</strong> (optionnel) : Si l'unité utilise un service SMTP externe pour l'envoi d'emails (au lieu de l'envoi direct depuis le serveur), les emails transactionnels (liens magiques, notifications) transitent par ce fournisseur. La localisation dépend du fournisseur choisi.</p>
+<p><em>Responsabilité de l'unité</em> : L'administrateur de l'unité doit documenter les sous-traitants effectivement utilisés (nom, localisation, politique de confidentialité) et s'assurer que des garanties appropriées sont en place conformément aux articles 28 et 46 du RGPD.</p>
+
+<h3>4.2. Sous-traitants pour fonctionnalités spécifiques (modules)</h3>
+<p>Ces sous-traitants ne sont sollicités que si les modules correspondants sont activés.</p>
+
+<p><strong>Fournisseurs d'intelligence artificielle</strong> (module llm_connector) :</p>
 <ul>
-<li><strong>Hébergeur web</strong> : stockage et exécution du site. Serveurs situés en Union européenne.</li>
-<li><strong>Relais SMTP</strong> (si configuré) : envoi d'emails transactionnels (liens magiques, notifications). Serveurs situés en Union européenne.</li>
+<li><strong>Anthropic</strong> (si sélectionné) — <a href="https://www.anthropic.com" target="_blank" rel="noopener">www.anthropic.com</a><br>
+Serveurs : États-Unis<br>
+Transfert hors UE encadré par les Standard Contractual Clauses (SCC) de la Commission européenne (art. 46 RGPD)<br>
+Politique de confidentialité : <a href="https://www.anthropic.com/privacy" target="_blank" rel="noopener">Anthropic Privacy Policy</a></li>
+<li><strong>Mistral AI</strong> (si sélectionné) — <a href="https://mistral.ai" target="_blank" rel="noopener">mistral.ai</a><br>
+Serveurs : France (UE)<br>
+Politique de confidentialité : <a href="https://mistral.ai/terms/#privacy-policy" target="_blank" rel="noopener">Mistral AI Privacy Policy</a></li>
+<li><strong>Scaleway</strong> (si sélectionné) — <a href="https://www.scaleway.com" target="_blank" rel="noopener">www.scaleway.com</a><br>
+Serveurs : France et Pays-Bas (UE)<br>
+Politique de confidentialité : <a href="https://www.scaleway.com/en/privacy-policy/" target="_blank" rel="noopener">Scaleway Privacy Policy</a></li>
 </ul>
 
-<h3>4.2. Sous-traitants pour fonctionnalités spécifiques</h3>
+<p><strong>Fournisseur de téléphonie sur IP</strong> (module sos_staff) :</p>
 <ul>
-<li><strong>Fournisseur d'intelligence artificielle</strong> (si configuré) : traitement automatisé de données (reconnaissance de texte, génération de contenu). Selon le fournisseur choisi :
-<ul>
-<li>Anthropic : serveurs aux États-Unis (transfert hors UE encadré par clauses contractuelles types, art. 46 RGPD)</li>
-<li>Mistral AI : serveurs en France (UE)</li>
-<li>Scaleway : serveurs en France et Pays-Bas (UE)</li>
-</ul>
-</li>
-<li><strong>OVH Télécom</strong> (si module SOS activé) : transfert d'appels téléphoniques pour les gardes SOS. Serveurs en France (UE).</li>
+<li><strong>OVH Télécom</strong> (si module SOS activé et OVH sélectionné) — <a href="https://www.ovhtelecom.fr" target="_blank" rel="noopener">www.ovhtelecom.fr</a><br>
+Serveurs : France (UE)<br>
+Politique de confidentialité : <a href="https://www.ovhcloud.com/fr/terms-and-conditions/privacy-policy/" target="_blank" rel="noopener">OVH Cloud Privacy Policy</a></li>
 </ul>
 
-<p>Conformément à la législation en vigueur, nous nous assurons que tous nos sous-traitants s'engagent contractuellement à respecter la sécurité et la confidentialité des données qui leur sont transmises.</p>
+<h3>4.3. Garanties contractuelles</h3>
+<p>Conformément à l'article 28 du RGPD, nous nous assurons que tous nos sous-traitants :</p>
+<ul>
+<li>Présentent des garanties suffisantes quant à la mise en œuvre de mesures techniques et organisationnelles appropriées</li>
+<li>Traitent les données personnelles uniquement sur instruction documentée du responsable du traitement</li>
+<li>Garantissent la confidentialité des personnes autorisées à traiter les données</li>
+<li>Notifient toute violation de données dans les meilleurs délais</li>
+<li>Assistent le responsable dans le respect de ses obligations (droits des personnes, analyse d'impact, etc.)</li>
+</ul>
 
-<h2>5. Où sont stockées vos données</h2>
-<p>Vos données sont stockées sur des serveurs situés en Union européenne, sauf indication contraire mentionnée ci-dessus.</p>
-<p><strong>Transferts hors UE</strong> : Si le fournisseur d'intelligence artificielle configuré est situé hors de l'Union européenne (par exemple Anthropic, États-Unis), le transfert est encadré par des clauses contractuelles types conformément à l'article 46 du RGPD. Aucune autre donnée n'est transférée hors de l'UE.</p>
+<h2>5. Où sont stockées vos données et transferts internationaux</h2>
+
+<h3>5.1. Localisation principale du stockage</h3>
+<p>La base de données et les fichiers sont stockés sur les serveurs de l'hébergeur web choisi par l'unité. <strong>La localisation précise doit être indiquée ici par l'administrateur</strong> (exemple : « Serveurs OVH à Roubaix, France » ou « Serveurs AWS eu-west-1, Irlande »).</p>
+
+<h3>5.2. Transferts hors de l'Union européenne</h3>
+<p>Certains transferts de données peuvent avoir lieu hors de l'Espace économique européen (EEE) dans les cas suivants :</p>
+<ul>
+<li><strong>Utilisation d'Anthropic (IA)</strong> : Si le module llm_connector est activé et qu'Anthropic est sélectionné comme fournisseur, les extraits de texte ou d'images soumis pour traitement sont envoyés aux États-Unis. Ce transfert est encadré par les <strong>Standard Contractual Clauses</strong> (clauses contractuelles types approuvées par la Commission européenne, conformément à l'article 46.2.c du RGPD). Anthropic s'engage à respecter les principes de protection des données de l'UE.</li>
+<li><strong>Hébergement hors UE</strong> (si applicable) : Si l'hébergeur web est situé hors de l'EEE, toutes les données stockées (base de données, fichiers) sont transférées hors UE. Dans ce cas, des garanties appropriées doivent être en place (à documenter par l'administrateur).</li>
+</ul>
+<p>Aucun autre transfert hors UE n'est effectué. Les fournisseurs Mistral AI, Scaleway et OVH Télécom opèrent tous au sein de l'Union européenne.</p>
 
 <h2>6. Comment protégeons-nous vos données</h2>
-<p>Nous mettons en œuvre des mesures techniques et organisationnelles appropriées pour protéger vos données personnelles contre toute destruction, perte, altération, divulgation ou accès non autorisés :</p>
+<p>Conformément à l'article 32 du RGPD, nous mettons en œuvre des mesures techniques et organisationnelles appropriées pour garantir un niveau de sécurité adapté au risque.</p>
+
+<h3>6.1. Mesures techniques de sécurité</h3>
+<p><strong>Chiffrement des données au repos</strong> :</p>
 <ul>
-<li><strong>Chiffrement au repos</strong> : toutes les données personnelles sensibles sont chiffrées (AES-256-CBC).</li>
-<li><strong>Hachage des mots de passe</strong> : les mots de passe sont hachés de manière irréversible (jamais stockés en clair).</li>
-<li><strong>Authentification forte</strong> : accès au site protégé par email + mot de passe ou passkey (WebAuthn).</li>
-<li><strong>Chiffrement des clés API</strong> : tous les identifiants de services externes sont chiffrés.</li>
-<li><strong>Contrôle d'accès (RBAC)</strong> : système de rôles limitant l'accès aux données selon les fonctions.</li>
-<li><strong>Journal d'audit</strong> : traçabilité des actions sensibles pour détecter les anomalies.</li>
-<li><strong>Mises à jour régulières</strong> : application des correctifs de sécurité dès leur disponibilité.</li>
+<li>Toutes les données personnelles sensibles (emails, noms, prénoms, téléphones, adresses, etc.) sont chiffrées dans la base de données avec l'algorithme <strong>AES-256-CBC</strong> (Advanced Encryption Standard, mode Cipher Block Chaining)</li>
+<li>La clé de chiffrement est stockée séparément de la base de données, dans un fichier protégé au niveau du système de fichiers</li>
+<li>Index aveugles (blind index) pour permettre les recherches sur champs chiffrés sans déchiffrer toutes les données</li>
+</ul>
+
+<p><strong>Protection des mots de passe</strong> :</p>
+<ul>
+<li>Hachage irréversible avec l'algorithme <strong>bcrypt</strong> (fonction de dérivation de clé adaptative avec coût configurable)</li>
+<li>Sel aléatoire unique par mot de passe</li>
+<li>Aucun stockage du mot de passe en clair, même temporaire</li>
+</ul>
+
+<p><strong>Protection des API et secrets</strong> :</p>
+<ul>
+<li>Toutes les clés API (IA, téléphonie, SMTP) sont chiffrées au repos avec AES-256-CBC</li>
+<li>Clés DKIM pour l'authentification des emails chiffrées</li>
+<li>Jetons CSRF pour prévenir les attaques de type Cross-Site Request Forgery</li>
+</ul>
+
+<p><strong>Chiffrement en transit</strong> :</p>
+<ul>
+<li>HTTPS obligatoire sur tout le site (TLS 1.2 minimum recommandé)</li>
+<li>Connexions SMTP chiffrées (STARTTLS) pour l'envoi d'emails</li>
+<li>Connexions API vers les fournisseurs tiers chiffrées (HTTPS)</li>
+</ul>
+
+<h3>6.2. Contrôle d'accès et authentification</h3>
+<ul>
+<li><strong>Système de rôles (RBAC)</strong> : 6 niveaux de rôles hiérarchiques (public, identified, intendant, chief, admin, superadmin) limitant l'accès aux fonctionnalités et données selon la fonction</li>
+<li><strong>Authentification multi-facteurs</strong> : Support des passkeys (WebAuthn/FIDO2) pour une authentification forte sans mot de passe</li>
+<li><strong>Liens magiques à usage unique</strong> : Expiration automatique après 15 minutes, invalidés après utilisation</li>
+<li><strong>Throttling des tentatives de connexion</strong> : Protection contre les attaques par force brute</li>
+</ul>
+
+<h3>6.3. Mesures de sécurité applicative</h3>
+<ul>
+<li><strong>Content Security Policy (CSP)</strong> : En-têtes HTTP restrictifs pour prévenir les attaques XSS et injection de scripts</li>
+<li><strong>Auto-échappement des templates</strong> : Twig échappe automatiquement toutes les variables pour prévenir les failles XSS</li>
+<li><strong>Requêtes préparées</strong> : Protection contre les injections SQL (toutes les requêtes utilisent des paramètres liés)</li>
+<li><strong>Validation et sanitisation des entrées</strong> : Toutes les données utilisateur sont validées côté serveur</li>
+<li><strong>Protection des fichiers sensibles</strong> : Stockage hors de la racine web publique</li>
+</ul>
+
+<h3>6.4. Journal d'audit et traçabilité</h3>
+<ul>
+<li>Journalisation de toutes les actions sensibles (création/suppression de comptes, modifications de rôles, accès aux données chiffrées)</li>
+<li>Horodatage précis, identifiant de l'auteur, adresse IP, description de l'action</li>
+<li>Conservation sécurisée pendant 2 ans (par défaut, configurable)</li>
+<li>Consultation restreinte aux administrateurs</li>
+</ul>
+
+<h3>6.5. Mesures organisationnelles</h3>
+<ul>
+<li><strong>Mises à jour de sécurité</strong> : Application régulière des correctifs de sécurité pour PHP, les dépendances et le système d'exploitation</li>
+<li><strong>Analyse statique du code</strong> : PHPStan niveau 6 activé sur l'intégralité du code source (détection automatique des failles)</li>
+<li><strong>Tests automatisés</strong> : Suite de tests unitaires et d'intégration exécutée à chaque modification</li>
+<li><strong>Principe du moindre privilège</strong> : Chaque composant et utilisateur dispose uniquement des droits strictement nécessaires</li>
+<li><strong>Documentation</strong> : Architecture de sécurité documentée dans <code>SECURITY.md</code></li>
+</ul>
+
+<h3>6.6. Plan de réponse aux incidents</h3>
+<p>En cas de violation de données personnelles, nous nous engageons à :</p>
+<ul>
+<li>Notifier l'Autorité de protection des données (APD) dans les 72 heures suivant la découverte de la violation, conformément à l'article 33 du RGPD</li>
+<li>Informer les personnes concernées si la violation présente un risque élevé pour leurs droits et libertés (art. 34 RGPD)</li>
+<li>Documenter la violation, ses effets et les mesures prises</li>
+<li>Prendre des mesures immédiates pour limiter les conséquences et éviter toute nouvelle violation</li>
 </ul>
 
 <h2>7. Vos droits sur vos données personnelles</h2>

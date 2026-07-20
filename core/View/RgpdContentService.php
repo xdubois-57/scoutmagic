@@ -57,11 +57,12 @@ class RgpdContentService
         $providerInfo = $this->getActiveProviderInfo();
         $modelsInfo = $this->getActiveModelsInfo();
         $cookieList = $this->getCookieListText();
+        $phoneProvider = $this->getPhoneProviderInfo();
 
-        $systemPrompt = $this->buildSystemPrompt($baseContent, $activeModules, $providerInfo, $modelsInfo, $cookieList, $userPrompt);
+        $systemPrompt = $this->buildSystemPrompt($baseContent, $activeModules, $providerInfo, $modelsInfo, $cookieList, $phoneProvider, $userPrompt);
 
         $request = new LlmRequest(
-            prompt: "Génère le contenu RGPD complet en HTML.",
+            prompt: "Génère le contenu RGPD complet en HTML selon la structure imposée dans le prompt système.",
             tier: LlmTier::CAPABLE,
             systemPrompt: $systemPrompt
         );
@@ -82,6 +83,7 @@ class RgpdContentService
         string $providerInfo,
         string $modelsInfo,
         string $cookieList,
+        string $phoneProvider,
         string $userPrompt
     ): string {
         $modulesText = implode(', ', $activeModules);
@@ -89,18 +91,19 @@ class RgpdContentService
         $contactEmail = $this->settingService->get('contact_email') ?: '(non configuré)';
 
         return <<<PROMPT
-Tu es un assistant spécialisé en conformité RGPD pour des sites web d'unités scoutes belges.
+Tu es un assistant juridique spécialisé en conformité RGPD pour des sites web d'unités scoutes belges.
 
-Contexte :
+Contexte de l'unité :
 - Nom de l'unité : {$unitName}
-- Email de contact : {$contactEmail}
-- Le responsable du traitement est le chef d'unité (responsable du groupe « chefs d'U »).
-- Le site utilise actuellement les modules suivants (actifs) : {$modulesText}
-- Fournisseur IA configuré : {$providerInfo}
-- Modèles IA utilisés : {$modelsInfo}
-- L'unité est affiliée à la fédération Les Scouts ASBL. Leur politique RGPD s'applique en complément : https://www.lesscouts.be/fr/ressources-scouts/administratif-1/web-et-vie-privee/protection-des-donnees-personnelles
+- Email de contact RGPD : {$contactEmail}
+- Responsable du traitement : chef d'unité (responsable du groupe « chefs d'U »)
+- Affiliation : Les Scouts ASBL (BE0409580916), politique fédération : https://www.lesscouts.be/fr/ressources-scouts/administratif-1/web-et-vie-privee/protection-des-donnees-personnelles
+- Modules actifs : {$modulesText}
+- Fournisseur IA : {$providerInfo}
+- Modèles IA : {$modelsInfo}
+- Fournisseur téléphonie : {$phoneProvider}
 
-Cookies actuellement déclarés sur le site :
+Cookies actuellement déclarés :
 {$cookieList}
 
 Contenu RGPD de référence (couvre TOUS les modules possibles, version la plus complète) :
@@ -110,37 +113,41 @@ Instructions de l'administrateur :
 {$userPrompt}
 
 Tâche :
-Retravaille le contenu de référence ci-dessus pour le personnaliser selon le contexte réel du site. Génère un document RGPD complet, conforme au règlement européen, en HTML bien formaté suivant une structure claire et narrative.
+Personnalise le contenu de référence ci-dessus selon le contexte réel du site. Le document final doit être juridiquement correct, exhaustif et conforme au RGPD (Règlement UE 2016/679).
 
-Structure OBLIGATOIRE (sections numérotées avec <h2>) :
-1. Qui sommes-nous et objet de cette politique
-2. Quelles données collectons-nous et pourquoi (avec sous-sections <h3> par finalité + base légale)
-3. Combien de temps conservons-nous vos données
-4. Avec qui partageons-nous vos données (sous-traitants)
-5. Où sont stockées vos données (localisation + transferts hors UE)
-6. Comment protégeons-nous vos données (mesures de sécurité)
-7. Vos droits sur vos données personnelles (+ comment les exercer)
-8. Cookies et technologies similaires (+ tableau détaillé des cookies)
-9. Politique de la fédération Les Scouts
+Structure OBLIGATOIRE (respecter scrupuleusement) :
+1. Qui sommes-nous et objet de cette politique (avec sous-sections : Identité, Cadre légal, Logiciel open source)
+2. Quelles données collectons-nous et pourquoi (sous-sections par finalité avec données traitées + base légale)
+3. Combien de temps conservons-nous vos données (conservation active, archivage 5 ans, journaux, suppression sur demande)
+4. Avec qui partageons-nous vos données (sous-traitants essentiels, modules, garanties art. 28 RGPD)
+5. Où sont stockées vos données et transferts internationaux (localisation, transferts hors UE avec mécanismes art. 46)
+6. Comment protégeons-nous vos données (mesures techniques détaillées : chiffrement AES-256, bcrypt, CSP, RBAC, plan incident)
+7. Vos droits sur vos données personnelles (accès, rectification, effacement, portabilité, opposition, limitation, retrait, réclamation APD)
+8. Cookies et technologies similaires (gestion préférences + tableau HTML des cookies)
+9. Politique de la fédération Les Scouts (référence Les Scouts ASBL BE0409580916)
 10. Modifications de cette politique
 
-Règles strictes :
-1. RESPECTER LA STRUCTURE ci-dessus. Utiliser le contenu de référence comme base, qui suit déjà cette structure.
-2. Retirer les sous-sections relatives aux modules qui ne sont PAS dans la liste des modules actifs ci-dessus.
-3. Remplacer les mentions génériques (« notre unité », « via l'adresse email indiquée ») par le nom réel de l'unité ({$unitName}) et l'email de contact ({$contactEmail}).
-4. Pour TOUS les sous-traitants (hébergeur, SMTP, IA, téléphonie), mentionner :
-   — La finalité exacte
-   — La localisation des serveurs (cherche sur internet si nécessaire)
-   — Un lien vers leur politique de confidentialité officielle
-5. Si llm_connector est actif, préciser le fournisseur IA exact avec les modèles utilisés ({$modelsInfo}).
-6. Dans la section 8 (Cookies), inclure un tableau HTML complet avec TOUS les cookies ci-dessus (colonnes : Nom, Catégorie, Finalité, Durée).
-7. Appliquer les instructions de l'administrateur (ton, ajouts, précisions) SANS jamais retirer d'informations obligatoires RGPD ni modifier la structure.
-8. Utiliser des balises HTML sémantiques : <h2> (sections numérotées), <h3>/<h4> (sous-sections), <p>, <ul>, <li>, <strong>, <table>.
-9. Ne JAMAIS inventer de données personnelles non collectées par le site.
-10. Le HTML doit être prêt à l'insertion directe (pas de code fence, pas de balise <html> ou <body>).
-11. Rester factuel et précis. Éviter les formulations vagues ou marketing.
+RÈGLES CRITIQUES (ne JAMAIS déroger) :
+1. **Date et notification** : Inclure en haut `<span id="rgpd-last-updated">` et bandeau notification modifications
+2. **Modules actifs uniquement** : Retirer les sections des modules INACTIFS (comparer avec liste modules actifs)
+3. **Personnalisation obligatoire** : Remplacer {$unitName} et {$contactEmail} partout. Ne JAMAIS laisser de placeholder générique
+4. **Sous-traitants** : Pour CHAQUE sous-traitant actif, indiquer : nom, URL, localisation serveurs, lien politique confidentialité. Chercher sur internet si besoin
+5. **Hébergeur** : NE PAS assumer que l'hébergeur est en UE. Écrire "La localisation doit être précisée par l'administrateur" sauf si connue
+6. **IA provider** : Utiliser les infos exactes du fournisseur actif ({$providerInfo}, {$modelsInfo}) avec localisation et privacy policy
+7. **Téléphonie** : Si sos_staff actif, utiliser {$phoneProvider} (OVH Télécom ou autre)
+8. **Cookies tableau** : Créer tableau HTML complet (<table>) avec colonnes : Nom | Catégorie | Finalité | Durée. Utiliser la liste cookies ci-dessus
+9. **Sécurité technique** : Garder les détails techniques précis (AES-256-CBC, bcrypt, CSP, RBAC, 6 rôles, WebAuthn, PHPStan niveau 6)
+10. **Conservation 5 ans** : Conserver la mention "5 ans après départ membre" pour archivage
+11. **Base légale** : Chaque traitement doit avoir sa base légale (art. 6 RGPD : intérêt légitime, contrat, consentement)
+12. **Transferts hors UE** : Si Anthropic ou hébergeur hors UE, mentionner SCC (art. 46.2.c RGPD)
+13. **Open source** : Garder section 1.3 (PHP, Twig, PHPMailer, Bootstrap, licence AGPL-3.0)
+14. **Obligation APD** : Conserver mentions notification 72h (art. 33), information personnes (art. 34), réclamation APD
+15. **Délai réponse** : 1 mois pour réponse droits (art. 12.3)
+16. **Instructions admin** : Appliquer {$userPrompt} SANS compromettre conformité légale ni retirer éléments obligatoires
+17. **HTML pur** : Pas de ```html, pas de <html>/<body>, uniquement contenu <h2> à </p>
+18. **Précision factuelle** : Ne JAMAIS inventer données non collectées, modules non actifs, ou sous-traitants non utilisés
 
-Réponds UNIQUEMENT avec le HTML généré, rien d'autre.
+Réponds UNIQUEMENT avec le HTML généré, prêt à l'insertion directe dans la page.
 PROMPT;
     }
 
@@ -222,6 +229,21 @@ PROMPT;
         }
 
         return implode("\n", $lines);
+    }
+
+    /**
+     * Get info about the phone provider for SOS module
+     */
+    private function getPhoneProviderInfo(): string
+    {
+        // Check if sos_staff module is active
+        if (!in_array('sos_staff', $this->moduleManager->getEnabledModuleIds(), true)) {
+            return 'Aucun (module SOS inactif)';
+        }
+
+        // Currently only OVH is implemented
+        // In the future, check the active provider from sos_provider_credentials table
+        return 'OVH Télécom (France, UE)';
     }
 
     /**
