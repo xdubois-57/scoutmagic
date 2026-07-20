@@ -23,7 +23,7 @@ Before submitting any code:
 
 1. ☐ All SQL uses prepared statements (no concatenation).
 2. ☐ Every new route has `role_min` in `module.json`.
-3. ☐ Personal data fields are `BLOB` + encrypted via `EncryptionService`.
+3. ☐ Personal data fields are `BLOB` + encrypted via `EncryptionService`. Banking data (IBAN, account holder, transaction labels) are always `BLOB` + encrypted too.
 4. ☐ No personal data in log entries, error messages, or journal.
 5. ☐ File access goes through `FileAccessGuard` (`file_url()` helper).
 6. ☐ No uploaded files stored under `public/`.
@@ -48,7 +48,7 @@ The default RGPD content is defined in `Core\View\RgpdContentService::getDefault
 - When adding a new data field to any table that stores personal data → update the "Données collectées" section.
 - When adding a new cookie → the cookie list is generated dynamically from declarations (see Cookie consent above).
 - When adding a new module that processes personal data → update the AI prompt in `RgpdContentService::buildSystemPrompt()` to describe the module's data processing.
-- When adding a new external service integration (API, email relay, etc.) → update the "Sous-traitants" section.
+- When adding a new external service integration (API, email relay, etc.) → update the "Sous-traitants" section. This includes a module that only *optionally* sends data to an external service via another module's public API (e.g. a module calling `llm_connector` — see §7.5 of `ARCHITECTURE.md`): the AI provider(s) reachable through it are still a real sous-traitant relationship whenever that path is exercised, regardless of which module initiated the call.
 - When changing data retention logic → update the "Durée de conservation" section.
 
 This is not optional. A PR that adds personal data processing without updating the RGPD documentation is incomplete.
@@ -68,6 +68,7 @@ When creating a new module:
 9. ☐ No duplicate of core functionality (auth, session, encryption, journal, mail, scheduler, cookie consent).
 10. ☐ RGPD documentation updated if the module processes personal data.
 11. ☐ Automated tests written for all module functionality.
+12. ☐ If the module has an optional dependency on another module, it must degrade gracefully when that other module is absent or disabled — never a hard coupling (see `ARCHITECTURE.md` §7.5).
 
 ## Tests
 

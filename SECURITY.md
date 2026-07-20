@@ -50,6 +50,7 @@ All fields identifying a natural person are encrypted (AES-256-GCM) as BLOB:
 
 - Personal data files: encrypted at rest or strictly temporary.
 - Desk CSV: deleted immediately after import.
+- Finance receipts (`modules/finance`): encrypted at rest via `Core\File\EncryptedFileStorageService` (same master key as `EncryptionService`) — never written to disk in plaintext. Bank statement CSV files uploaded for import: deleted immediately after processing, success or failure, same pattern as the Desk CSV.
 - Public content files: not encrypted.
 
 ### Secrets
@@ -65,6 +66,7 @@ All fields identifying a natural person are encrypted (AES-256-GCM) as BLOB:
 - File links via `file_url($id)` — never direct paths.
 - Upload: true MIME check, random filename, EXIF stripped, size limit, non-executable directory.
 - Access denied: 403 + journal entry (security level).
+- Finance receipts go through `FileAccessGuard` like any other file, gated at `role_min: "intendant"` (`finance` module's `storage` declaration) — same flat floor for every receipt, since a receipt is never tied to a specific bank/cash account in the current implementation (`finance_attachments.account_id` stays null; only movement association ties it to an account indirectly). This differs from `finance_accounts.role_min_view`, which *does* gate each account's own config/balance/movement data individually — a receipt is not currently covered by that per-account floor.
 
 ## 7. Content editing
 

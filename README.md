@@ -16,6 +16,8 @@ Open-source website for Belgian scout units in the "Les Scouts" federation.
 - Automated schema migration
 - Task scheduler (cron + poor man's cron)
 - Audit journal
+- Financial management (bank statement import, receipt tracking, budget overview)
+- Optional AI integration for receipt data extraction
 
 ## Requirements
 

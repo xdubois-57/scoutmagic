@@ -156,6 +156,17 @@ class CalendarController extends AbstractController
 
 Module controllers that need core services must be registered with the FrontController manually, or use constructor injection via the standard pattern. For now, module controllers receive only `$twig` by default. If a module needs additional services, it should document this requirement.
 
+## Optional dependencies between modules
+
+A module may want to use a capability offered by another module — e.g. `finance` optionally calling `llm_connector` to suggest a receipt's amount/date — without ever hard-depending on it (the other module might be disabled, or not installed at all). This is the same pattern `ARCHITECTURE.md` §7.5 describes for core consuming a module's API, just with a module on both ends:
+
+1. The providing module publishes a stable interface under its own `Api` namespace (e.g. `Modules\LlmConnector\Api\LlmConnectorInterface`) — never require the consuming module to know about the providing module's internal classes.
+2. The consuming module's service takes that interface as a **nullable** constructor dependency (`private ?LlmConnectorInterface $llmConnector = null`).
+3. Every code path that uses it checks availability first (e.g. `$this->llmConnector?->isAvailable()`) and degrades to "feature simply unavailable" — never an error — when it's `null` or reports unavailable.
+4. The composition root (`public/index.php`) is the only place that checks `ModuleManager::getEnabledModuleIds()` and wires the concrete implementation in; it passes `null` when the providing module is disabled.
+
+This keeps both modules independently activatable in any combination without either one breaking.
+
 ## Database
 
 - Create a `schema.sql` in the module root with complete table definitions (not incremental migrations).
@@ -163,6 +174,7 @@ Module controllers that need core services must be registered with the FrontCont
 - All table/column names in English, snake_case.
 - Personal data fields must use `BLOB` type and be encrypted/decrypted via `EncryptionService`.
 - Include a `scout_year_id` foreign key on member-related data tables.
+- A module that stores confidential *files* (not just database fields) — receipts, private documents, anything that must never be readable directly off disk — should use `Core\File\EncryptedFileStorageService` (`store()`/`retrieve()`/`delete()`) instead of `UploadHandler`. It uses the same master key as `EncryptionService` and integrates transparently with `FileAccessGuard`/`/files/{id}` — the caller never handles decryption itself.
 
 Example `schema.sql`:
 
