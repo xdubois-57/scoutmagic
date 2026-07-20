@@ -66,7 +66,14 @@ class RgpdContentService
 
         $response = $this->llmConnector->complete($request);
 
-        return $this->sanitizeHtmlOutput($response->content);
+        try {
+            return $this->sanitizeHtmlOutput($response->content);
+        } catch (\RuntimeException $e) {
+            // Log the raw LLM response to help diagnose the issue
+            error_log('RGPD AI Generation Error: ' . $e->getMessage());
+            error_log('Raw LLM Response (first 1000 chars): ' . substr($response->content, 0, 1000));
+            throw $e;
+        }
     }
 
     /**

@@ -135,12 +135,21 @@ class RgpdConfigController extends AbstractController
         try {
             $generatedContent = $this->rgpdContentService->generateWithAi($prompt);
         } catch (\Throwable $e) {
+            // Log detailed error information including stack trace
+            $errorDetails = [
+                'error' => $e->getMessage(),
+                'error_class' => get_class($e),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+                'trace_preview' => array_slice($e->getTrace(), 0, 3), // First 3 stack frames
+            ];
+            
             $this->journalService->log(
                 'core',
                 'rgpd_generation_failed',
-                'info',
+                'error',
                 'Échec de génération du contenu RGPD via IA',
-                ['error' => $e->getMessage()],
+                $errorDetails,
                 $userId
             );
 
