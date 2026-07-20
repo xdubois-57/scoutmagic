@@ -119,6 +119,17 @@ class ModuleManager
                 continue;
             }
 
+            // Auto-migrate when module version is newer than installed version
+            if ($module->installedVersion !== null
+                && version_compare($module->manifest->version, $module->installedVersion, '>')
+            ) {
+                $schemaPath = $this->modulesDir . '/' . $module->manifest->id . '/schema.sql';
+                if (file_exists($schemaPath)) {
+                    $this->migrationRunner->migrate([$schemaPath]);
+                }
+                $this->registryRepo->upsert($module->manifest->id, true, $module->manifest->version, null);
+            }
+
             $this->enabledModuleIds[] = $module->manifest->id;
             $this->loadModule($module->manifest);
         }

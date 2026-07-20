@@ -123,6 +123,8 @@ configuré :
   [Politique de confidentialité](https://www.anthropic.com/legal/privacy).
 - **Mistral AI** : société française, données traitées dans l'Union européenne.
   [Politique de confidentialité](https://legal.mistral.ai/terms/privacy-policy).
+- **Scaleway** : société française, données traitées dans l'Union européenne (France, Pays-Bas).
+  [Politique de confidentialité](https://www.scaleway.com/en/privacy-policy/).
 
 Le contenu des requêtes et réponses n'est **jamais journalisé** dans le journal
 d'audit de ScoutMagic — seules les métadonnées (fournisseur, modèle, nombre de

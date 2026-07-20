@@ -12,4 +12,5 @@ enum LlmTier: string
 {
     case CHEAP = 'cheap';
     case CAPABLE = 'capable';
+    case OCR = 'ocr';
 }

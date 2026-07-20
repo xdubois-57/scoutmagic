@@ -61,10 +61,10 @@ class MistralProviderTest extends TestCase
 
         $tiers = $this->provider->resolveTiers($models);
 
-        // "latest" has no date digits → extractDate returns '00000000'
+        // "latest" is treated as most recent → extractDate returns '99999999'
         // "2402" → '24020000', "2411" → '24110000'
-        $this->assertSame('mistral-small-2402', $tiers['cheap']);
-        $this->assertSame('mistral-large-2411', $tiers['capable']);
+        $this->assertSame('mistral-small-latest', $tiers['cheap']);
+        $this->assertSame('mistral-large-latest', $tiers['capable']);
     }
 
     public function testResolveTiersReturnsNullWhenNoMatch(): void

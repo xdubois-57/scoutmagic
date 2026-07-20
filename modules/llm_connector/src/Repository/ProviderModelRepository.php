@@ -36,7 +36,11 @@ class ProviderModelRepository
      */
     public function findByProviderAndTier(int $providerId, LlmTier $tier): ?array
     {
-        $column = $tier === LlmTier::CHEAP ? 'is_tier_cheap' : 'is_tier_capable';
+        $column = match ($tier) {
+            LlmTier::CHEAP => 'is_tier_cheap',
+            LlmTier::CAPABLE => 'is_tier_capable',
+            LlmTier::OCR => 'is_tier_ocr',
+        };
 
         $stmt = $this->pdo->prepare(
             "SELECT * FROM llm_provider_models WHERE provider_id = ? AND {$column} = 1 LIMIT 1"
@@ -83,7 +87,11 @@ class ProviderModelRepository
      */
     public function assignTier(int $modelId, LlmTier $tier): void
     {
-        $column = $tier === LlmTier::CHEAP ? 'is_tier_cheap' : 'is_tier_capable';
+        $column = match ($tier) {
+            LlmTier::CHEAP => 'is_tier_cheap',
+            LlmTier::CAPABLE => 'is_tier_capable',
+            LlmTier::OCR => 'is_tier_ocr',
+        };
 
         // Get the model's provider_id
         $stmt = $this->pdo->prepare('SELECT provider_id FROM llm_provider_models WHERE id = ?');
@@ -114,7 +122,11 @@ class ProviderModelRepository
      */
     public function unassignTier(int $modelId, LlmTier $tier): void
     {
-        $column = $tier === LlmTier::CHEAP ? 'is_tier_cheap' : 'is_tier_capable';
+        $column = match ($tier) {
+            LlmTier::CHEAP => 'is_tier_cheap',
+            LlmTier::CAPABLE => 'is_tier_capable',
+            LlmTier::OCR => 'is_tier_ocr',
+        };
 
         $stmt = $this->pdo->prepare(
             "UPDATE llm_provider_models SET {$column} = 0 WHERE id = ?"
@@ -127,13 +139,13 @@ class ProviderModelRepository
      * Clears existing tier assignments for the provider, then sets the new ones.
      *
      * @param int $providerId
-     * @param array{cheap: string|null, capable: string|null} $tierMap model_id per tier
+     * @param array{cheap: string|null, capable: string|null, ocr: string|null} $tierMap model_id per tier
      */
     public function autoAssignTiers(int $providerId, array $tierMap): void
     {
         // Clear all tier assignments for this provider
         $stmt = $this->pdo->prepare(
-            'UPDATE llm_provider_models SET is_tier_cheap = 0, is_tier_capable = 0 WHERE provider_id = ?'
+            'UPDATE llm_provider_models SET is_tier_cheap = 0, is_tier_capable = 0, is_tier_ocr = 0 WHERE provider_id = ?'
         );
         $stmt->execute([$providerId]);
 
@@ -150,11 +162,53 @@ class ProviderModelRepository
             );
             $stmt->execute([$providerId, $tierMap['capable']]);
         }
+
+        if ($tierMap['ocr'] !== null) {
+            $stmt = $this->pdo->prepare(
+                'UPDATE llm_provider_models SET is_tier_ocr = 1 WHERE provider_id = ? AND model_id = ?'
+            );
+            $stmt->execute([$providerId, $tierMap['ocr']]);
+        }
+    }
+
+    /**
+     * Delete models for a provider that are NOT in the given list.
+     * Used to clean up models no longer returned by the API.
+     *
+     * @param int $providerId
+     * @param array<int, string> $keepModelIds
+     */
+    public function deleteModelsNotIn(int $providerId, array $keepModelIds): void
+    {
+        if (empty($keepModelIds)) {
+            // Delete all models for this provider
+            $stmt = $this->pdo->prepare('DELETE FROM llm_provider_models WHERE provider_id = ?');
+            $stmt->execute([$providerId]);
+            return;
+        }
+
+        $placeholders = implode(',', array_fill(0, count($keepModelIds), '?'));
+        $stmt = $this->pdo->prepare(
+            "DELETE FROM llm_provider_models WHERE provider_id = ? AND model_id NOT IN ({$placeholders})"
+        );
+        $stmt->execute(array_merge([$providerId], $keepModelIds));
+    }
+
+    /**
+     * Delete models not seen in the last 30 days for a provider.
+     */
+    public function deleteStaleModels(int $providerId): void
+    {
+        $cutoff = date('Y-m-d H:i:s', strtotime('-30 days'));
+        $stmt = $this->pdo->prepare(
+            'DELETE FROM llm_provider_models WHERE provider_id = ? AND last_seen_at < ?'
+        );
+        $stmt->execute([$providerId, $cutoff]);
     }
 
     /**
      * @param array<string, mixed> $row
-     * @return array{id: int, provider_id: int, model_id: string, display_name: string, is_tier_cheap: bool, is_tier_capable: bool, last_seen_at: string}
+     * @return array{id: int, provider_id: int, model_id: string, display_name: string, is_tier_cheap: bool, is_tier_capable: bool, is_tier_ocr: bool, last_seen_at: string}
      */
     private function hydrate(array $row): array
     {
@@ -163,8 +217,9 @@ class ProviderModelRepository
             'provider_id' => (int) $row['provider_id'],
             'model_id' => (string) $row['model_id'],
             'display_name' => (string) $row['display_name'],
-            'is_tier_cheap' => (bool) $row['is_tier_cheap'],
-            'is_tier_capable' => (bool) $row['is_tier_capable'],
+            'is_tier_cheap' => (bool) ($row['is_tier_cheap'] ?? 0),
+            'is_tier_capable' => (bool) ($row['is_tier_capable'] ?? 0),
+            'is_tier_ocr' => (bool) ($row['is_tier_ocr'] ?? 0),
             'last_seen_at' => (string) $row['last_seen_at'],
         ];
     }

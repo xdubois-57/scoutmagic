@@ -28,11 +28,11 @@
 </div>
 
 {# Status summary #}
-<div class="card mb-4">
+<div class="card mb-4" data-summary>
     <div class="card-body">
         <h2 class="h6 mb-3">Résumé</h2>
         <div class="row g-3">
-            <div class="col-sm-6 col-md-3">
+            <div class="col-12 col-md-4">
                 <span class="text-body-secondary small d-block">Statut</span>
                 {% if active_provider and (cheap_model or capable_model) %}
                     <span class="badge bg-success">Actif</span>
@@ -40,17 +40,23 @@
                     <span class="badge bg-secondary">Non configuré</span>
                 {% endif %}
             </div>
-            <div class="col-sm-6 col-md-3">
+            <div class="col-12 col-md-8" data-provider>
                 <span class="text-body-secondary small d-block">Fournisseur</span>
                 <strong>{{ active_provider ? active_provider.name : '—' }}</strong>
             </div>
-            <div class="col-sm-6 col-md-3">
+        </div>
+        <div class="row g-3 mt-2">
+            <div class="col-12 col-md-4" data-cheap>
                 <span class="text-body-secondary small d-block">Modèle économique</span>
                 <strong>{{ cheap_model ? cheap_model.display_name : '—' }}</strong>
             </div>
-            <div class="col-sm-6 col-md-3">
+            <div class="col-12 col-md-4" data-capable>
                 <span class="text-body-secondary small d-block">Modèle performant</span>
                 <strong>{{ capable_model ? capable_model.display_name : '—' }}</strong>
+            </div>
+            <div class="col-12 col-md-4" data-ocr>
+                <span class="text-body-secondary small d-block">Modèle OCR</span>
+                <strong>{{ ocr_model ? ocr_model.display_name : (cheap_model ? cheap_model.display_name ~ ' (fallback)' : '—') }}</strong>
             </div>
         </div>
     </div>
@@ -61,19 +67,23 @@
     <div class="card-body">
         <h2 class="h6 mb-3">Fournisseur</h2>
         <form id="provider-form" class="row g-3">
-            <input type="hidden" id="provider-id" value="{{ active_provider ? active_provider.id : '' }}">
-            <input type="hidden" id="provider-name" value="{{ active_provider ? active_provider.name : '' }}">
-            <input type="hidden" id="provider-endpoint" value="{{ active_provider ? active_provider.api_endpoint : '' }}">
+            <input type="hidden" id="provider-id" value="">
+            <input type="hidden" id="provider-name" value="">
+            <input type="hidden" id="provider-endpoint" value="">
+            <input type="hidden" id="provider-has-key" value="">
 
             <div class="col-md-6">
                 <label for="provider-driver" class="form-label">Fournisseur IA</label>
                 <select class="form-select" id="provider-driver" required>
                     {% for driver in available_drivers %}
+                        {% set saved_provider = providers_by_driver[driver.id] ?? null %}
                         <option value="{{ driver.id }}"
                                 data-endpoint="{{ driver.default_endpoint }}"
                                 data-label="{{ driver.label }}"
+                                data-provider-id="{{ saved_provider ? saved_provider.id : '' }}"
+                                data-has-key="{{ saved_provider ? '1' : '0' }}"
                                 {{ active_provider and active_provider.driver == driver.id ? 'selected' : '' }}>
-                            {{ driver.label }}
+                            {{ driver.label }}{{ saved_provider ? ' (✓)' : '' }}
                         </option>
                     {% endfor %}
                 </select>
@@ -116,18 +126,32 @@
                 </div>
             </div>
 
+            {# Driver-specific help — Scaleway #}
+            <div class="col-12" id="driver-help-scaleway">
+                <div class="alert alert-light border mb-0">
+                    <strong>Comment obtenir votre clé API Scaleway :</strong>
+                    <ol class="mb-2 mt-2">
+                        <li>Connectez-vous ou créez un compte sur <a href="https://console.scaleway.com/" target="_blank" rel="noopener">console.scaleway.com</a>.</li>
+                        <li>Accédez à <a href="https://console.scaleway.com/iam/api-keys" target="_blank" rel="noopener">IAM &rarr; API Keys</a>.</li>
+                        <li>Créez une clé API avec accès au produit « Generative APIs », copiez le <em>Secret Key</em>.</li>
+                        <li>Collez-le ci-dessous.</li>
+                    </ol>
+                    <p class="mb-1 small"><strong>Localisation des serveurs :</strong> Union européenne (France, Pays-Bas). Société française, conforme au RGPD.</p>
+                    <p class="mb-0 small">
+                        <a href="https://www.scaleway.com/en/privacy-policy/" target="_blank" rel="noopener">Politique de confidentialité Scaleway</a>
+                        ·
+                        <a href="https://www.scaleway.com/en/contracts/" target="_blank" rel="noopener">Conditions générales</a>
+                    </p>
+                </div>
+            </div>
+
             <div class="col-md-6">
                 <label for="provider-api-key" class="form-label">Clé API</label>
-                <input type="password" class="form-control" id="provider-api-key"
-                       placeholder="{{ active_provider ? '••••••••' : '' }}">
-                {% if active_provider %}
-                    <div class="form-text">Laisser vide pour conserver la clé actuelle.</div>
-                {% endif %}
-            </div>
-            <div class="col-md-6 d-flex align-items-end gap-2">
-                <button type="submit" class="btn btn-primary">Enregistrer</button>
-                <button type="button" class="btn btn-outline-secondary" id="test-connection-btn"
-                        {{ active_provider ? '' : 'disabled' }}>Tester la connexion</button>
+                <div class="input-group">
+                    <input type="password" class="form-control" id="provider-api-key" placeholder="">
+                    <button type="submit" class="btn btn-primary">Enregistrer</button>
+                </div>
+                <div class="form-text" id="api-key-hint"></div>
             </div>
         </form>
         <div id="provider-message" class="mt-3" style="display:none;"></div>
@@ -135,52 +159,14 @@
 </div>
 
 {# Models section #}
-{% if active_provider %}
 <div class="card mb-4">
     <div class="card-body">
         <h2 class="h6 mb-3">Modèles disponibles</h2>
-
-        {% if models|length > 0 %}
-            <p class="text-body-secondary small mb-3">
-                Les modèles économique et performant sont sélectionnés automatiquement parmi les modèles disponibles du fournisseur.
-            </p>
-            <div class="table-responsive">
-                <table class="table table-sm align-middle mb-0">
-                    <thead>
-                        <tr>
-                            <th>Modèle</th>
-                            <th>Rôle</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for model in models %}
-                            <tr>
-                                <td>
-                                    {{ model.display_name }}
-                                    <span class="text-body-secondary small d-block"><code>{{ model.model_id }}</code></span>
-                                </td>
-                                <td>
-                                    {% if model.is_tier_cheap %}
-                                        <span class="badge bg-info text-dark">Économique</span>
-                                    {% elseif model.is_tier_capable %}
-                                        <span class="badge bg-primary">Performant</span>
-                                    {% else %}
-                                        <span class="text-body-secondary">—</span>
-                                    {% endif %}
-                                </td>
-                            </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-        {% else %}
-            <p class="text-body-secondary mb-0">
-                Aucun modèle découvert. Cliquez sur « Tester la connexion » pour interroger l'API du fournisseur.
-            </p>
-        {% endif %}
+        <div id="models-container">
+            {# Populated dynamically via JavaScript based on selected driver #}
+        </div>
     </div>
 </div>
-{% endif %}
 
 {% endblock %}
 
@@ -188,37 +174,97 @@
 <script nonce="{{ csp_nonce }}">
 const csrf = () => document.querySelector('meta[name="csrf-token"]')?.content;
 
-// Auto-fill hidden name/endpoint and show/hide driver help
+// Models data from server
+const modelsByDriver = {{ models_by_driver|json_encode|raw }};
+
+// Auto-fill hidden name/endpoint, show/hide driver help, update models list
 function updateDriverInfo() {
     const select = document.getElementById('provider-driver');
     const option = select?.selectedOptions[0];
     if (!option) return;
 
+    const driverValue = select.value;
+    const providerId = option.dataset.providerId || '';
+    const hasKey = option.dataset.hasKey === '1';
+
+    // Update hidden fields
+    document.getElementById('provider-id').value = providerId;
     document.getElementById('provider-name').value = option.dataset.label || option.textContent.trim();
     document.getElementById('provider-endpoint').value = option.dataset.endpoint || '';
+    document.getElementById('provider-has-key').value = hasKey ? '1' : '0';
+
+    // Update API key hint
+    const hintEl = document.getElementById('api-key-hint');
+    if (hasKey) {
+        hintEl.textContent = 'Laisser vide pour conserver la clé actuelle.';
+        document.getElementById('provider-api-key').placeholder = '••••••••';
+    } else {
+        hintEl.textContent = '';
+        document.getElementById('provider-api-key').placeholder = '';
+    }
 
     // Show/hide driver-specific help
     document.querySelectorAll('[id^="driver-help-"]').forEach(el => {
-        el.style.display = el.id === 'driver-help-' + select.value ? '' : 'none';
+        el.style.display = el.id === 'driver-help-' + driverValue ? '' : 'none';
     });
 
-    // Disable "Tester la connexion" when no saved provider or driver changed
-    const testBtn = document.getElementById('test-connection-btn');
-    const savedId = document.getElementById('provider-id').value;
-    const savedDriver = '{{ active_provider ? active_provider.driver : '' }}';
-    if (testBtn) {
-        testBtn.disabled = !savedId || select.value !== savedDriver;
-    }
+    // Update models list
+    updateModelsList(driverValue);
 }
+
+function updateModelsList(driver) {
+    const container = document.getElementById('models-container');
+    const models = modelsByDriver[driver] || [];
+
+    if (models.length === 0) {
+        container.innerHTML = '<p class="text-body-secondary mb-0">Aucun modèle découvert. Enregistrez une clé API pour interroger l\'API du fournisseur.</p>';
+        return;
+    }
+
+    let html = '<p class="text-body-secondary small mb-3">Les modèles économique, performant et OCR sont sélectionnés automatiquement parmi les modèles disponibles du fournisseur.</p>';
+    html += '<div class="table-responsive"><table class="table table-sm align-middle mb-0"><thead><tr><th>Modèle</th><th>Rôle</th></tr></thead><tbody>';
+
+    models.forEach(model => {
+        html += '<tr><td>' + escapeHtml(model.display_name) + '<span class="text-body-secondary small d-block"><code>' + escapeHtml(model.model_id) + '</code></span></td><td>';
+        
+        if (model.is_tier_cheap) html += '<span class="badge bg-info text-dark">Économique</span> ';
+        if (model.is_tier_capable) html += '<span class="badge bg-primary">Performant</span> ';
+        if (model.is_tier_ocr) html += '<span class="badge bg-success">OCR</span> ';
+        if (!model.is_tier_cheap && !model.is_tier_capable && !model.is_tier_ocr) {
+            html += '<span class="text-body-secondary">—</span>';
+        }
+        
+        html += '</td></tr>';
+    });
+
+    html += '</tbody></table></div>';
+    container.innerHTML = html;
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
 updateDriverInfo();
 
-document.getElementById('provider-driver')?.addEventListener('change', updateDriverInfo);
+document.getElementById('provider-driver')?.addEventListener('change', () => {
+    updateDriverInfo();
+    // Auto-test if provider has saved key
+    const hasKey = document.getElementById('provider-has-key').value === '1';
+    const providerId = document.getElementById('provider-id').value;
+    if (hasKey && providerId) {
+        testConnection();
+    }
+});
 
-// Provider form
+// Provider form — save then auto-test connection
 document.getElementById('provider-form')?.addEventListener('submit', async (e) => {
     e.preventDefault();
     const msgEl = document.getElementById('provider-message');
-    msgEl.style.display = 'none';
+    msgEl.style.display = 'block';
+    msgEl.innerHTML = '<div class="alert alert-info mb-0">Enregistrement en cours…</div>';
 
     const body = {
         id: document.getElementById('provider-id').value || null,
@@ -235,38 +281,76 @@ document.getElementById('provider-form')?.addEventListener('submit', async (e) =
         body: JSON.stringify(body)
     });
     const data = await res.json();
-    msgEl.style.display = 'block';
-    if (data.success) {
-        msgEl.innerHTML = '<div class="alert alert-success mb-0">Fournisseur enregistré.</div>';
-        setTimeout(() => window.location.reload(), 800);
-    } else {
+    if (!data.success) {
         msgEl.innerHTML = '<div class="alert alert-danger mb-0">' + data.error + '</div>';
+        return;
     }
+
+    // Save succeeded — now test connection
+    const providerId = data.provider_id;
+    document.getElementById('provider-id').value = providerId;
+    msgEl.innerHTML = '<div class="alert alert-info mb-0">Test de connexion en cours…</div>';
+
+    await testConnection(providerId);
 });
 
-// Test connection
-document.getElementById('test-connection-btn')?.addEventListener('click', async () => {
-    const btn = document.getElementById('test-connection-btn');
+// Test connection function (also used on dropdown change)
+async function testConnection(providerId) {
     const msgEl = document.getElementById('provider-message');
-    btn.disabled = true;
-    msgEl.style.display = 'block';
-    msgEl.innerHTML = '<div class="alert alert-info mb-0">Test en cours…</div>';
+    if (!providerId) {
+        providerId = document.getElementById('provider-id').value;
+    }
+    if (!providerId) return;
 
-    const providerId = document.getElementById('provider-id').value;
+    msgEl.style.display = 'block';
+    msgEl.innerHTML = '<div class="alert alert-info mb-0">Test de connexion en cours…</div>';
+
     const res = await fetch('/config/llm/providers/' + providerId + '/test', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ _csrf_token: csrf() })
     });
     const data = await res.json();
-    btn.disabled = false;
     if (data.success) {
-        msgEl.innerHTML = '<div class="alert alert-success mb-0">' + data.message + '</div>';
+        updateSummary(data);
+        msgEl.innerHTML = '<div class="alert alert-success mb-0">Connexion réussie — ' + data.message.replace('Connexion réussie — ', '') + '</div>';
         setTimeout(() => window.location.reload(), 800);
     } else {
         msgEl.innerHTML = '<div class="alert alert-danger mb-0">' + data.error + '</div>';
     }
-});
+}
+
+function updateSummary(data) {
+    const summaryCard = document.querySelector('[data-summary]');
+    if (!summaryCard) return;
+
+    const badge = summaryCard.querySelector('.badge');
+    if (badge) {
+        badge.className = 'badge bg-success';
+        badge.textContent = 'Actif';
+    }
+
+    const providerStrong = summaryCard.querySelector('[data-provider] strong');
+    if (providerStrong && data.provider_name) {
+        providerStrong.textContent = data.provider_name;
+    }
+
+    const cheapStrong = summaryCard.querySelector('[data-cheap] strong');
+    if (cheapStrong) {
+        cheapStrong.textContent = data.cheap_model || '—';
+    }
+
+    const capableStrong = summaryCard.querySelector('[data-capable] strong');
+    if (capableStrong) {
+        capableStrong.textContent = data.capable_model || '—';
+    }
+
+    const ocrStrong = summaryCard.querySelector('[data-ocr] strong');
+    if (ocrStrong) {
+        const ocrText = data.ocr_model || '—';
+        ocrStrong.textContent = data.ocr_fallback ? ocrText + ' (fallback)' : ocrText;
+    }
+}
 
 
 </script>

@@ -30,7 +30,7 @@ interface LlmProviderInterface
      * Given a list of model IDs, return the best model for each tier.
      *
      * @param array<int, string> $modelIds List of available model IDs
-     * @return array{cheap: string|null, capable: string|null}
+     * @return array{cheap: string|null, capable: string|null, ocr: string|null}
      */
     public function resolveTiers(array $modelIds): array;
 }

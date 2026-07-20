@@ -10,8 +10,10 @@ use Core\Http\Response;
 use Core\Journal\JournalService;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
+use Modules\LlmConnector\Api\LlmTier;
 use Modules\LlmConnector\Provider\AnthropicProvider;
 use Modules\LlmConnector\Provider\MistralProvider;
+use Modules\LlmConnector\Provider\ScalewayProvider;
 use Modules\LlmConnector\Repository\ProviderModelRepository;
 use Modules\LlmConnector\Repository\ProviderRepository;
 use Twig\Environment;
@@ -35,33 +37,45 @@ class ConfigController extends AbstractController
     {
         $providers = $this->providerRepo->findAll();
 
-        $models = [];
+        // Group providers and models by driver
+        $providersByDriver = [];
+        $modelsByDriver = [];
+        foreach ($providers as $provider) {
+            $providersByDriver[$provider['driver']] = $provider;
+            $modelsByDriver[$provider['driver']] = $this->modelRepo->findByProvider($provider['id']);
+        }
+
         $activeProvider = null;
+        $cheapModel = null;
+        $capableModel = null;
+        $ocrModel = null;
+
         foreach ($providers as $provider) {
             if ($provider['is_active']) {
                 $activeProvider = $provider;
                 $models = $this->modelRepo->findByProvider($provider['id']);
+                foreach ($models as $model) {
+                    if ($model['is_tier_cheap']) {
+                        $cheapModel = $model;
+                    }
+                    if ($model['is_tier_capable']) {
+                        $capableModel = $model;
+                    }
+                    if ($model['is_tier_ocr']) {
+                        $ocrModel = $model;
+                    }
+                }
                 break;
             }
         }
 
-        $cheapModel = null;
-        $capableModel = null;
-        foreach ($models as $model) {
-            if ($model['is_tier_cheap']) {
-                $cheapModel = $model;
-            }
-            if ($model['is_tier_capable']) {
-                $capableModel = $model;
-            }
-        }
-
         return $this->render('@llm_connector/config/index.html.twig', [
-            'providers' => $providers,
+            'providers_by_driver' => $providersByDriver,
+            'models_by_driver' => $modelsByDriver,
             'active_provider' => $activeProvider,
-            'models' => $models,
             'cheap_model' => $cheapModel,
             'capable_model' => $capableModel,
+            'ocr_model' => $ocrModel,
             'available_drivers' => $this->getAvailableDrivers(),
         ]);
     }
@@ -97,6 +111,9 @@ class ConfigController extends AbstractController
         if (!in_array($driver, $validDrivers, true)) {
             return $this->json(['success' => false, 'error' => 'Driver invalide.']);
         }
+
+        // Deactivate all providers first, then activate the one being saved
+        $this->providerRepo->deactivateAll();
 
         if ($providerId !== null && $providerId > 0) {
             // Update existing — apiKey null means "keep existing"
@@ -156,6 +173,10 @@ class ConfigController extends AbstractController
                 $modelIds[] = $model['id'];
             }
 
+            // Clean up: delete models not returned by API and stale models (>30 days)
+            $this->modelRepo->deleteModelsNotIn($provider['id'], $modelIds);
+            $this->modelRepo->deleteStaleModels($provider['id']);
+
             $tierMap = $driver->resolveTiers($modelIds);
             $this->modelRepo->autoAssignTiers($provider['id'], $tierMap);
 
@@ -168,9 +189,19 @@ class ConfigController extends AbstractController
                 AuthSession::getUserAccountId()
             );
 
+            // Fetch assigned tier models
+            $cheapModel = $this->modelRepo->findByProviderAndTier($provider['id'], LlmTier::CHEAP);
+            $capableModel = $this->modelRepo->findByProviderAndTier($provider['id'], LlmTier::CAPABLE);
+            $ocrModel = $this->modelRepo->findByProviderAndTier($provider['id'], LlmTier::OCR);
+
             return $this->json([
                 'success' => true,
                 'message' => 'Connexion réussie — ' . count($models) . ' modèle(s) trouvé(s).',
+                'provider_name' => $provider['name'],
+                'cheap_model' => $cheapModel ? $cheapModel['display_name'] : null,
+                'capable_model' => $capableModel ? $capableModel['display_name'] : null,
+                'ocr_model' => $ocrModel ? $ocrModel['display_name'] : ($cheapModel ? $cheapModel['display_name'] : null),
+                'ocr_fallback' => $ocrModel === null && $cheapModel !== null,
             ]);
         } catch (\Throwable $e) {
             return $this->json([
@@ -188,6 +219,7 @@ class ConfigController extends AbstractController
         return [
             ['id' => 'anthropic', 'label' => 'Anthropic (Claude)', 'default_endpoint' => 'https://api.anthropic.com'],
             ['id' => 'mistral', 'label' => 'Mistral AI', 'default_endpoint' => 'https://api.mistral.ai'],
+            ['id' => 'scaleway', 'label' => 'Scaleway (EU)', 'default_endpoint' => 'https://api.scaleway.ai'],
         ];
     }
 
@@ -196,6 +228,7 @@ class ConfigController extends AbstractController
         return match ($driver) {
             'anthropic' => new AnthropicProvider($apiEndpoint, $apiKey),
             'mistral' => new MistralProvider($apiEndpoint, $apiKey),
+            'scaleway' => new ScalewayProvider($apiEndpoint, $apiKey),
             default => throw new \RuntimeException("Unknown driver: {$driver}"),
         };
     }

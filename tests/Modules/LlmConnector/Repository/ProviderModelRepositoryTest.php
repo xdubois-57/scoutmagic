@@ -160,6 +160,7 @@ class ProviderModelRepositoryTest extends TestCase
         $this->modelRepo->autoAssignTiers($this->providerId, [
             'cheap' => 'claude-3-5-haiku-20241022',
             'capable' => 'claude-sonnet-4-20250514',
+            'ocr' => null,
         ]);
 
         $cheap = $this->modelRepo->findByProviderAndTier($this->providerId, LlmTier::CHEAP);
@@ -183,11 +184,11 @@ class ProviderModelRepositoryTest extends TestCase
         $this->modelRepo->upsert($this->providerId, 'new-haiku', 'New Haiku');
 
         // First assignment
-        $this->modelRepo->autoAssignTiers($this->providerId, ['cheap' => 'old-haiku', 'capable' => null]);
+        $this->modelRepo->autoAssignTiers($this->providerId, ['cheap' => 'old-haiku', 'capable' => null, 'ocr' => null]);
         $this->assertSame('old-haiku', $this->modelRepo->findByProviderAndTier($this->providerId, LlmTier::CHEAP)['model_id']);
 
         // Reassign — old-haiku should lose its tier
-        $this->modelRepo->autoAssignTiers($this->providerId, ['cheap' => 'new-haiku', 'capable' => null]);
+        $this->modelRepo->autoAssignTiers($this->providerId, ['cheap' => 'new-haiku', 'capable' => null, 'ocr' => null]);
         $cheap = $this->modelRepo->findByProviderAndTier($this->providerId, LlmTier::CHEAP);
         $this->assertSame('new-haiku', $cheap['model_id']);
 
@@ -200,7 +201,7 @@ class ProviderModelRepositoryTest extends TestCase
     {
         $this->modelRepo->upsert($this->providerId, 'some-model', 'Some Model');
 
-        $this->modelRepo->autoAssignTiers($this->providerId, ['cheap' => null, 'capable' => null]);
+        $this->modelRepo->autoAssignTiers($this->providerId, ['cheap' => null, 'capable' => null, 'ocr' => null]);
 
         $this->assertNull($this->modelRepo->findByProviderAndTier($this->providerId, LlmTier::CHEAP));
         $this->assertNull($this->modelRepo->findByProviderAndTier($this->providerId, LlmTier::CAPABLE));
@@ -245,6 +246,7 @@ class ProviderModelRepositoryTest extends TestCase
             display_name TEXT NOT NULL,
             is_tier_cheap INTEGER NOT NULL DEFAULT 0,
             is_tier_capable INTEGER NOT NULL DEFAULT 0,
+            is_tier_ocr INTEGER NOT NULL DEFAULT 0,
             last_seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(provider_id, model_id),
             FOREIGN KEY (provider_id) REFERENCES llm_providers(id) ON DELETE CASCADE

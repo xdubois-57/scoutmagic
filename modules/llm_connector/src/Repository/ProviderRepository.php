@@ -148,4 +148,9 @@ class ProviderRepository
         $stmt = $this->pdo->prepare('DELETE FROM llm_providers WHERE id = ?');
         $stmt->execute([$id]);
     }
+
+    public function deactivateAll(): void
+    {
+        $this->pdo->exec('UPDATE llm_providers SET is_active = 0');
+    }
 }

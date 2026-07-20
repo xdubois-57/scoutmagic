@@ -174,15 +174,22 @@ class AnthropicProvider implements LlmProviderInterface
 
     /**
      * @param array<int, string> $modelIds
-     * @return array{cheap: string|null, capable: string|null}
+     * @return array{cheap: string|null, capable: string|null, ocr: string|null}
      */
     public function resolveTiers(array $modelIds): array
     {
         $bestHaiku = null;
         $bestSonnet = null;
+        $bestOcr = null;
 
         foreach ($modelIds as $id) {
             $lower = strtolower($id);
+
+            if (str_contains($lower, 'ocr')) {
+                if ($bestOcr === null || $this->extractDate($id) > $this->extractDate($bestOcr)) {
+                    $bestOcr = $id;
+                }
+            }
 
             if (str_contains($lower, 'haiku')) {
                 if ($bestHaiku === null || $this->extractDate($id) > $this->extractDate($bestHaiku)) {
@@ -198,15 +205,21 @@ class AnthropicProvider implements LlmProviderInterface
         return [
             'cheap' => $bestHaiku,
             'capable' => $bestSonnet,
+            'ocr' => $bestOcr,
         ];
     }
 
     /**
      * Extract the YYYYMMDD date suffix from an Anthropic model ID.
+     * Models with "latest" in the name are considered the most recent.
      * e.g. "claude-3-5-haiku-20241022" → "20241022"
+     * e.g. "claude-haiku-latest" → "99999999"
      */
     private function extractDate(string $modelId): string
     {
+        if (stripos($modelId, 'latest') !== false) {
+            return '99999999';
+        }
         if (preg_match('/(\d{8})/', $modelId, $matches)) {
             return $matches[1];
         }

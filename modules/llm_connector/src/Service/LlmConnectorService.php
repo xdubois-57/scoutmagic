@@ -51,6 +51,12 @@ class LlmConnectorService implements LlmConnectorInterface
         }
 
         $model = $this->modelRepo->findByProviderAndTier($provider['id'], $request->tier);
+        
+        // Fallback: if OCR tier is requested but no OCR model is assigned, use CHEAP
+        if ($model === null && $request->tier === LlmTier::OCR) {
+            $model = $this->modelRepo->findByProviderAndTier($provider['id'], LlmTier::CHEAP);
+        }
+        
         if ($model === null) {
             throw LlmException::noModel($request->tier);
         }

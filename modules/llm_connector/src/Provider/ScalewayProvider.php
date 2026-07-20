@@ -7,10 +7,11 @@ namespace Modules\LlmConnector\Provider;
 use Modules\LlmConnector\Api\LlmException;
 
 /**
- * Mistral AI provider implementation.
- * Calls /v1/models and /v1/chat/completions on the configured endpoint.
+ * Scaleway Generative APIs provider implementation.
+ * Uses OpenAI-compatible endpoints (/v1/models and /v1/chat/completions).
+ * European cloud — data stays in EU (France).
  */
-class MistralProvider implements LlmProviderInterface
+class ScalewayProvider implements LlmProviderInterface
 {
     private const DEFAULT_TIMEOUT = 30;
 
@@ -35,9 +36,10 @@ class MistralProvider implements LlmProviderInterface
         $models = [];
         foreach ($response['data'] as $model) {
             $id = (string) ($model['id'] ?? '');
+            $displayName = (string) ($model['name'] ?? $id);
             $models[] = [
                 'id' => $id,
-                'display_name' => $id,
+                'display_name' => $displayName,
             ];
         }
 
@@ -108,19 +110,23 @@ class MistralProvider implements LlmProviderInterface
                 }
             }
 
-            // Skip non-chat models, fine-tuned models, embedding models
+            // Skip non-chat models
             if (str_contains($lower, 'embed')
                 || str_contains($lower, 'moderation')
-                || str_contains($lower, 'codestral')
+                || str_contains($lower, 'whisper')
+                || str_contains($lower, 'tts')
             ) {
                 continue;
             }
 
-            if (str_contains($lower, 'small')) {
+            // Cheap tier: small models (mistral-small, ministral, llama-small, etc.)
+            if (str_contains($lower, 'small') || str_contains($lower, 'ministral') || str_contains($lower, 'nemo')) {
                 if ($bestSmall === null || $this->extractDate($id) > $this->extractDate($bestSmall)) {
                     $bestSmall = $id;
                 }
-            } elseif (str_contains($lower, 'large') || str_contains($lower, 'medium')) {
+            }
+            // Capable tier: large/medium models
+            elseif (str_contains($lower, 'large') || str_contains($lower, 'medium')) {
                 if ($bestLarge === null || $this->extractDate($id) > $this->extractDate($bestLarge)) {
                     $bestLarge = $id;
                 }
@@ -135,18 +141,14 @@ class MistralProvider implements LlmProviderInterface
     }
 
     /**
-     * Build the effective system prompt, optionally appending JSON schema instructions.
-     *
      * @param array<string, mixed>|null $responseSchema
      */
     private function buildSystemPrompt(?string $systemPrompt, ?array $responseSchema): ?string
     {
         $parts = [];
-
         if ($systemPrompt !== null && $systemPrompt !== '') {
             $parts[] = $systemPrompt;
         }
-
         if ($responseSchema !== null) {
             $schemaJson = json_encode($responseSchema, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
             $parts[] = "You MUST respond with valid JSON conforming exactly to this schema:\n" . $schemaJson . "\nDo not include any text outside the JSON object.";
@@ -156,7 +158,7 @@ class MistralProvider implements LlmProviderInterface
     }
 
     /**
-     * Extract a YYYYMMDD date from a model ID, or a YYMM pattern.
+     * Extract a date from a model ID.
      * Models with "latest" in the name are considered the most recent.
      */
     private function extractDate(string $modelId): string

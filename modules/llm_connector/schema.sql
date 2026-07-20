@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS llm_providers (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- llm_provider_models: models discovered from a provider's API.
--- is_tier_cheap / is_tier_capable: exactly one model per tier per provider.
+-- is_tier_cheap / is_tier_capable / is_tier_ocr: exactly one model per tier per provider.
 CREATE TABLE IF NOT EXISTS llm_provider_models (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     provider_id INT UNSIGNED NOT NULL,
@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS llm_provider_models (
     display_name VARCHAR(200) NOT NULL,
     is_tier_cheap TINYINT NOT NULL DEFAULT 0,
     is_tier_capable TINYINT NOT NULL DEFAULT 0,
+    is_tier_ocr TINYINT NOT NULL DEFAULT 0,
     last_seen_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE INDEX idx_provider_model (provider_id, model_id),
     CONSTRAINT fk_model_provider FOREIGN KEY (provider_id) REFERENCES llm_providers(id) ON DELETE CASCADE

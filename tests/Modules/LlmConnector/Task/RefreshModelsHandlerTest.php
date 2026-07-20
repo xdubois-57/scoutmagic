@@ -159,6 +159,7 @@ class RefreshModelsHandlerTest extends TestCase
             display_name TEXT NOT NULL,
             is_tier_cheap INTEGER NOT NULL DEFAULT 0,
             is_tier_capable INTEGER NOT NULL DEFAULT 0,
+            is_tier_ocr INTEGER NOT NULL DEFAULT 0,
             last_seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(provider_id, model_id),
             FOREIGN KEY (provider_id) REFERENCES llm_providers(id) ON DELETE CASCADE
