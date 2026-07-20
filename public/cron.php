@@ -106,7 +106,8 @@ $runner->setTaskContext(new TaskContext(
     $mailService,
     $journalService,
     $settingService,
-    $userAccountRepo
+    $userAccountRepo,
+    dirname(__DIR__) . '/storage'
 ));
 
 // Process overdue tasks

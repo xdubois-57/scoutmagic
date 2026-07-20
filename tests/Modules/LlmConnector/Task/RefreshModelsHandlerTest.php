@@ -135,7 +135,8 @@ class RefreshModelsHandlerTest extends TestCase
             $mailService,
             $this->journalService,
             $settingService,
-            $userAccountRepo
+            $userAccountRepo,
+            sys_get_temp_dir()
         );
     }
 

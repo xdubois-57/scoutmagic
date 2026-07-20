@@ -41,7 +41,7 @@ class SchedulerRunnerTest extends TestCase
         $settingRepo = new SettingRepository($this->pdo);
         $settingService = new SettingService($settingRepo);
         $userAccounts = $this->createMock(UserAccountRepository::class);
-        $taskContext = new TaskContext($connection, $encryption, $mailService, $this->journal, $settingService, $userAccounts);
+        $taskContext = new TaskContext($connection, $encryption, $mailService, $this->journal, $settingService, $userAccounts, sys_get_temp_dir());
         $this->runner->setTaskContext($taskContext);
     }
 

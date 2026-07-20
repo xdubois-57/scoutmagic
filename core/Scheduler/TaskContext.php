@@ -19,7 +19,8 @@ class TaskContext
         public readonly MailService $mailService,
         public readonly JournalService $journal,
         public readonly SettingService $settings,
-        public readonly UserAccountRepository $userAccounts
+        public readonly UserAccountRepository $userAccounts,
+        public readonly string $storagePath
     ) {
     }
 }

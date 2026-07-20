@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Core\Http\Controller;
 
+use Core\File\EncryptedFileStorageService;
 use Core\File\FileAccessGuard;
 use Core\Http\Request;
 use Core\Http\Response;
@@ -18,7 +19,8 @@ class FileController extends AbstractController
     public function __construct(
         protected Environment $twig,
         private FileAccessGuard $fileAccessGuard,
-        private string $storagePath
+        private string $storagePath,
+        private EncryptedFileStorageService $encryptedFileStorageService
     ) {
     }
 
@@ -51,15 +53,23 @@ class FileController extends AbstractController
             return (new Response('Forbidden', 403));
         }
 
-        $filePath = $this->storagePath . '/' . $file->relativePath;
+        if ($file->encrypted) {
+            try {
+                $content = $this->encryptedFileStorageService->retrieve($file->id);
+            } catch (\RuntimeException) {
+                return (new Response('Not Found', 404));
+            }
+        } else {
+            $filePath = $this->storagePath . '/' . $file->relativePath;
 
-        if (!file_exists($filePath)) {
-            return (new Response('Not Found', 404));
-        }
+            if (!file_exists($filePath)) {
+                return (new Response('Not Found', 404));
+            }
 
-        $content = file_get_contents($filePath);
-        if ($content === false) {
-            return (new Response('Internal Server Error', 500));
+            $content = file_get_contents($filePath);
+            if ($content === false) {
+                return (new Response('Internal Server Error', 500));
+            }
         }
 
         $isImage = str_starts_with($file->mimeType, 'image/');

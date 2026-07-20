@@ -6,6 +6,8 @@ namespace Tests\Modules\Finance\Controller;
 
 use Core\Badge\MemberBadgeRepository;
 use Core\Database\Connection;
+use Core\File\EncryptedFileStorageService;
+use Core\File\FileRepository;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Member\SectionService;
@@ -15,11 +17,14 @@ use Core\Security\EncryptionService;
 use Modules\Finance\Controller\MovementController;
 use Modules\Finance\Repository\Account;
 use Modules\Finance\Repository\AccountRepository;
+use Modules\Finance\Repository\AttachmentRepository;
 use Modules\Finance\Repository\CategoryRepository;
 use Modules\Finance\Repository\FiscalYearRepository;
 use Modules\Finance\Repository\Transaction;
+use Modules\Finance\Repository\TransactionAttachmentRepository;
 use Modules\Finance\Repository\TransactionRepository;
 use Modules\Finance\Service\FinanceService;
+use Modules\Finance\Service\ReceiptService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Finance\FinanceTestHelper;
@@ -54,9 +59,13 @@ class MovementControllerTest extends TestCase
         $this->transactionRepository = new TransactionRepository($this->pdo, $encryption);
         $this->fiscalYearRepository = new FiscalYearRepository($this->pdo);
         $this->categoryRepository = new CategoryRepository($this->pdo);
+        $attachmentRepository = new AttachmentRepository($this->pdo);
+        $transactionAttachmentRepository = new TransactionAttachmentRepository($this->pdo);
         $journalService = new JournalService(new JournalRepository($this->pdo));
 
         $financeService = new FinanceService($this->accountRepository, $this->categoryRepository, $this->fiscalYearRepository, $sectionService);
+        $fileStorage = new EncryptedFileStorageService(new FileRepository($this->pdo), $encryption, sys_get_temp_dir() . '/finance_movement_test_' . uniqid());
+        $receiptService = new ReceiptService($attachmentRepository, $transactionAttachmentRepository, $fileStorage);
 
         $templateDir = dirname(__DIR__, 4) . '/core/View/templates';
         $moduleViews = dirname(__DIR__, 4) . '/modules/finance/views';
@@ -77,7 +86,8 @@ class MovementControllerTest extends TestCase
         $twig->addFunction(new TwigFunction('file_url', fn() => ''));
 
         $this->controller = new MovementController(
-            $twig, $financeService, $this->transactionRepository, $this->categoryRepository, $this->fiscalYearRepository, $journalService
+            $twig, $financeService, $this->transactionRepository, $this->categoryRepository, $this->fiscalYearRepository,
+            $attachmentRepository, $transactionAttachmentRepository, $receiptService, $journalService
         );
 
         $accountId = $this->accountRepository->create('Compte', Account::TYPE_BANK, null, 'BE00000000000001', 'Titulaire', 'intendant');

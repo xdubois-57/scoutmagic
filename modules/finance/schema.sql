@@ -146,12 +146,15 @@ CREATE TABLE IF NOT EXISTS finance_statement_imports (
 -- physically deleted — only archived (status = 'archived'), so a
 -- mistaken deletion never loses proof of an expense. file_id references
 -- the core files table (Core\File\FileAccessGuard); the file itself is
--- expected to be stored encrypted at rest (files.encrypted — a generic,
--- currently-unused core capability this module is the first to actually
--- need, wired up when the receipts upload flow itself is built in a
--- later iteration, not this one). parent_attachment_id chains a
--- replacement to the receipt it replaces, so the full version history of
--- a given expense's proof is always reconstructable.
+-- stored encrypted at rest via the generic Core\File\
+-- EncryptedFileStorageService (files.encrypted = true for every
+-- attachment's file row). parent_attachment_id chains a replacement to
+-- the receipt it replaces, so the full version history of a given
+-- expense's proof is always reconstructable. suggested_source
+-- distinguishes a manually-typed suggestion (module spec: optional
+-- amount/date fields on the upload form) from one written by
+-- Task\ExtractReceiptDataHandler, so the UI can show "(IA)" only for the
+-- latter — NULL when no suggestion has ever been set.
 CREATE TABLE IF NOT EXISTS finance_attachments (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     account_id INT UNSIGNED NULL,
@@ -160,6 +163,7 @@ CREATE TABLE IF NOT EXISTS finance_attachments (
     original_filename VARCHAR(255) NOT NULL,
     suggested_amount DECIMAL(12, 2) NULL,
     suggested_date DATE NULL,
+    suggested_source ENUM('manual', 'ai') NULL,
     status ENUM('active', 'archived') NOT NULL DEFAULT 'active',
     parent_attachment_id INT UNSIGNED NULL,
     uploaded_by INT UNSIGNED NULL,

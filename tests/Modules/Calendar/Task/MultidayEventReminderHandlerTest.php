@@ -60,7 +60,8 @@ class MultidayEventReminderHandlerTest extends TestCase
             $this->mailService,
             $journalService,
             $settingService,
-            $userAccounts
+            $userAccounts,
+            sys_get_temp_dir()
         ));
 
         $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES ('2025-2026', '2025-09-01', '2026-08-31', 1)");

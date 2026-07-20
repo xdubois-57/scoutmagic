@@ -383,6 +383,7 @@ $storagePath = dirname(__DIR__) . '/storage';
 $fileRepository = new FileRepository($pdo);
 $fileAccessGuard = new FileAccessGuard($fileRepository, Role::fromString(AuthSession::getRole()));
 $uploadHandler = new UploadHandler($fileRepository, $storagePath);
+$encryptedFileStorageService = new \Core\File\EncryptedFileStorageService($fileRepository, $encryptionService, $storagePath);
 
 // Core "photo per person per year" component (ARCHITECTURE.md §8) — see
 // Core\Photo\MemberPhotoService.
@@ -484,7 +485,8 @@ $schedulerRunner->setTaskContext(new TaskContext(
     $mailService,
     $journalService,
     $settingService,
-    $userAccountRepo
+    $userAccountRepo,
+    $storagePath
 ));
 
 // Add dynamic member entries to Espace des animés
@@ -708,7 +710,7 @@ $frontController->registerController(ConfigModeController::class, new ConfigMode
 $editableContentController = new EditableContentController($twig, $editableContentService);
 $editableContentController->setJournalService($journalService);
 $frontController->registerController(EditableContentController::class, $editableContentController);
-$fileController = new FileController($twig, $fileAccessGuard, $storagePath);
+$fileController = new FileController($twig, $fileAccessGuard, $storagePath, $encryptedFileStorageService);
 $fileController->setJournalService($journalService);
 $frontController->registerController(FileController::class, $fileController);
 $uploadController = new UploadController($twig, $uploadHandler, $editableContentService, $memberPhotoService);
@@ -899,6 +901,7 @@ if (in_array('finance', $moduleManager->getEnabledModuleIds(), true)) {
     $financeCheckpointRepo = new \Modules\Finance\Repository\BalanceCheckpointRepository($pdo);
     $financeStatementImportRepo = new \Modules\Finance\Repository\StatementImportRepository($pdo);
     $financeAttachmentRepo = new \Modules\Finance\Repository\AttachmentRepository($pdo);
+    $financeTransactionAttachmentRepo = new \Modules\Finance\Repository\TransactionAttachmentRepository($pdo);
 
     $financeService = new \Modules\Finance\Service\FinanceService(
         $financeAccountRepo, $financeCategoryRepo, $financeFiscalYearRepo, $sectionService
@@ -910,6 +913,15 @@ if (in_array('finance', $moduleManager->getEnabledModuleIds(), true)) {
         $pdo, $encryptionService, $financeParserFactory, $financeTransactionRepo, $financeCheckpointRepo,
         $financeStatementImportRepo, $financeFiscalYearRepo, $financeRuleEngine, $financeBalanceService
     );
+    $financeEncryptedFileStorage = new \Core\File\EncryptedFileStorageService($fileRepository, $encryptionService, $storagePath);
+    $financeReceiptService = new \Modules\Finance\Service\ReceiptService(
+        $financeAttachmentRepo, $financeTransactionAttachmentRepo, $financeEncryptedFileStorage
+    );
+    // Optional dependency on the llm_connector module (ARCHITECTURE.md
+    // §7.5) — reuses the same LlmConnectorInterface instance already
+    // built for RGPD content generation above; extraction is skipped
+    // gracefully whenever it's null/unavailable.
+    $financeReceiptExtractionService = new \Modules\Finance\Service\ReceiptExtractionService($schedulerService, $llmConnectorForRgpd);
 
     $frontController->registerController(
         \Modules\Finance\Controller\DashboardController::class,
@@ -918,7 +930,8 @@ if (in_array('finance', $moduleManager->getEnabledModuleIds(), true)) {
     $frontController->registerController(
         \Modules\Finance\Controller\MovementController::class,
         new \Modules\Finance\Controller\MovementController(
-            $twig, $financeService, $financeTransactionRepo, $financeCategoryRepo, $financeFiscalYearRepo, $journalService
+            $twig, $financeService, $financeTransactionRepo, $financeCategoryRepo, $financeFiscalYearRepo,
+            $financeAttachmentRepo, $financeTransactionAttachmentRepo, $financeReceiptService, $journalService
         )
     );
     $frontController->registerController(
@@ -927,7 +940,10 @@ if (in_array('finance', $moduleManager->getEnabledModuleIds(), true)) {
     );
     $frontController->registerController(
         \Modules\Finance\Controller\ReceiptController::class,
-        new \Modules\Finance\Controller\ReceiptController($twig, $financeAttachmentRepo, $financeService)
+        new \Modules\Finance\Controller\ReceiptController(
+            $twig, $financeAttachmentRepo, $financeTransactionAttachmentRepo,
+            $financeReceiptService, $financeReceiptExtractionService, $journalService
+        )
     );
     $frontController->registerController(
         \Modules\Finance\Controller\ConfigController::class,

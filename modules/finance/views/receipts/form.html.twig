@@ -1,13 +1,111 @@
 {% extends "base.html.twig" %}
 
-{% block title %}Nouveau reçu — Finances — {{ site_name }}{% endblock %}
+{% block title %}{{ replace_id ? 'Remplacer' : 'Nouveau' }} reçu — Finances — {{ site_name }}{% endblock %}
 
 {% block content %}
-    <h1 class="mb-4">Nouveau reçu</h1>
+    <h1 class="mb-4">{{ replace_id ? 'Remplacer le reçu' : 'Nouveau reçu' }}</h1>
 
-    <div class="alert alert-info">
-        L'ajout de reçus n'est pas encore disponible.
-    </div>
+    {% if error %}
+        <div class="alert alert-danger">{{ error }}</div>
+    {% endif %}
 
-    <a href="/finance/receipts" class="btn btn-sm btn-outline-secondary">Retour</a>
+    <form method="post" action="{{ replace_id ? '/finance/receipts/' ~ replace_id ~ '/replace' : '/finance/receipts/new' }}"
+          enctype="multipart/form-data" class="border rounded-3 p-3" id="receipt-form">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <div class="row g-2">
+            <div class="col-12">
+                <label class="form-label small" for="receipt-file">Fichier (PDF, Word, JPEG ou PNG)</label>
+                <input type="file" class="form-control form-control-sm" id="receipt-file" name="receipt" accept=".pdf,.docx,.jpg,.jpeg,.png" required>
+                <div class="form-text small" id="receipt-file-status"></div>
+            </div>
+            {% if not replace_id %}
+                <div class="col-6">
+                    <label class="form-label small" for="receipt-amount">Montant estimé</label>
+                    <input type="text" class="form-control form-control-sm" id="receipt-amount" name="amount" placeholder="12,50">
+                </div>
+                <div class="col-6">
+                    <label class="form-label small" for="receipt-date">Date estimée</label>
+                    <input type="date" class="form-control form-control-sm" id="receipt-date" name="date">
+                </div>
+            {% endif %}
+            <div class="col-12">
+                <button type="submit" class="btn btn-sm btn-primary">{{ replace_id ? 'Remplacer' : 'Ajouter' }}</button>
+                <a href="/finance/receipts" class="btn btn-sm btn-outline-secondary">Annuler</a>
+            </div>
+        </div>
+    </form>
+{% endblock %}
+
+{% block scripts %}
+<script nonce="{{ csp_nonce }}">
+const MAX_WIDTH = 1600;
+const JPEG_QUALITY = 0.75;
+
+function resizeImage(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+            const img = new Image();
+            img.onload = () => {
+                let width = img.width;
+                let height = img.height;
+                if (width > MAX_WIDTH) {
+                    height = Math.round(height * (MAX_WIDTH / width));
+                    width = MAX_WIDTH;
+                }
+                const canvas = document.createElement('canvas');
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext('2d');
+                if (!ctx) {
+                    reject(new Error('Canvas context unavailable'));
+                    return;
+                }
+                ctx.drawImage(img, 0, 0, width, height);
+                canvas.toBlob((blob) => {
+                    if (blob) {
+                        resolve(blob);
+                    } else {
+                        reject(new Error('toBlob failed'));
+                    }
+                }, 'image/jpeg', JPEG_QUALITY);
+            };
+            img.onerror = () => reject(new Error('Image load failed'));
+            img.src = ev.target.result;
+        };
+        reader.onerror = () => reject(new Error('FileReader failed'));
+        reader.readAsDataURL(file);
+    });
+}
+
+const form = document.getElementById('receipt-form');
+const fileInput = document.getElementById('receipt-file');
+const statusEl = document.getElementById('receipt-file-status');
+const supportsResize = !!(window.FileReader && window.HTMLCanvasElement && window.DataTransfer);
+
+form.addEventListener('submit', async (e) => {
+    const file = fileInput.files[0];
+    if (!file || !file.type.startsWith('image/') || !supportsResize) {
+        return; // native submit proceeds — non-image, or no client-side resize support
+    }
+
+    e.preventDefault();
+    statusEl.textContent = 'Compression de l\'image…';
+
+    try {
+        const resizedBlob = await resizeImage(file);
+        const newName = file.name.replace(/\.[^.]+$/, '') + '.jpg';
+        const resizedFile = new File([resizedBlob], newName, { type: 'image/jpeg' });
+        const transfer = new DataTransfer();
+        transfer.items.add(resizedFile);
+        fileInput.files = transfer.files;
+        statusEl.textContent = 'Image compressée (' + Math.round(resizedBlob.size / 1024) + ' Ko).';
+    } catch (err) {
+        // Fallback: upload the original file unmodified.
+        statusEl.textContent = '';
+    }
+
+    form.submit();
+});
+</script>
 {% endblock %}

@@ -3,21 +3,46 @@
 {% block title %}Reçus — Finances — {{ site_name }}{% endblock %}
 
 {% block content %}
-    <h1 class="mb-4">Reçus</h1>
-
-    <p class="text-body-secondary small mb-3">
-        L'ajout de reçus sera disponible dans une prochaine version.
-    </p>
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1 class="mb-0">Reçus</h1>
+        <a href="/finance/receipts/new" class="btn btn-sm btn-primary">Ajouter un reçu</a>
+    </div>
 
     <div class="row g-3">
-        {% for attachment in attachments %}
+        {% for row in rows %}
+            {% set attachment = row.attachment %}
             <div class="col-12 col-md-4">
-                <div class="border rounded-3 p-3 h-100">
-                    <div class="fw-semibold">{{ attachment.originalFilename }}</div>
+                <div class="border rounded-3 p-3 h-100 d-flex flex-column gap-2">
+                    <a href="/files/{{ attachment.fileId }}" target="_blank">
+                        {% if attachment.mimeType starts with 'image/' %}
+                            <img src="/files/{{ attachment.fileId }}" alt="{{ attachment.originalFilename }}" class="img-fluid rounded" style="max-height:160px;object-fit:cover;width:100%;">
+                        {% else %}
+                            <div class="d-flex align-items-center justify-content-center bg-body-secondary rounded" style="height:160px;">
+                                <i class="bi {{ attachment.mimeType == 'application/pdf' ? 'bi-file-earmark-pdf' : 'bi-file-earmark-word' }} fs-1"></i>
+                            </div>
+                        {% endif %}
+                    </a>
+                    <div class="fw-semibold text-truncate" title="{{ attachment.originalFilename }}">{{ attachment.originalFilename }}</div>
                     <div class="text-body-secondary small">{{ attachment.uploadedAt }}</div>
-                    {% if attachment.suggestedAmount %}
-                        <div class="small">{{ attachment.suggestedAmount|number_format(2, ',', ' ') }} €</div>
+                    {% if attachment.suggestedAmount or attachment.suggestedDate %}
+                        <div class="small">
+                            {% if attachment.suggestedAmount %}{{ attachment.suggestedAmount|number_format(2, ',', ' ') }} €{% endif %}
+                            {% if attachment.suggestedDate %} — {{ attachment.suggestedDate }}{% endif %}
+                            {% if attachment.suggestedSource == 'ai' %}<span class="badge text-bg-info">IA</span>{% endif %}
+                        </div>
                     {% endif %}
+                    <div>
+                        {% if row.is_pending %}
+                            <span class="badge text-bg-warning">En attente</span>
+                        {% else %}
+                            <span class="badge text-bg-success">{{ row.movement_count }} mouvement(s) lié(s)</span>
+                        {% endif %}
+                    </div>
+                    <div class="d-flex gap-2 mt-auto">
+                        <button type="button" class="btn btn-sm btn-outline-primary associate-btn" data-id="{{ attachment.id }}">Associer</button>
+                        <a href="/finance/receipts/new?replace={{ attachment.id }}" class="btn btn-sm btn-outline-secondary">Remplacer</a>
+                        <button type="button" class="btn btn-sm btn-outline-danger delete-btn" data-id="{{ attachment.id }}">Supprimer</button>
+                    </div>
                 </div>
             </div>
         {% else %}
@@ -26,4 +51,95 @@
             </div>
         {% endfor %}
     </div>
+
+    <div class="modal fade" id="associate-modal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Associer à un mouvement</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <input type="text" class="form-control form-control-sm mb-2" id="associate-search" placeholder="Rechercher un mouvement (libellé)...">
+                    <div id="associate-results" class="d-flex flex-column gap-1"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+{% endblock %}
+
+{% block scripts %}
+<script nonce="{{ csp_nonce }}">
+const csrf = () => document.querySelector('meta[name="csrf-token"]')?.content;
+let currentAttachmentId = null;
+const associateModalEl = document.getElementById('associate-modal');
+const associateModal = window.bootstrap ? new window.bootstrap.Modal(associateModalEl) : null;
+
+document.querySelectorAll('.associate-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        currentAttachmentId = btn.dataset.id;
+        document.getElementById('associate-search').value = '';
+        document.getElementById('associate-results').innerHTML = '';
+        associateModal ? associateModal.show() : associateModalEl.classList.add('show');
+    });
+});
+
+let searchTimeout = null;
+document.getElementById('associate-search').addEventListener('input', (e) => {
+    clearTimeout(searchTimeout);
+    searchTimeout = setTimeout(() => runSearch(e.target.value), 250);
+});
+
+async function runSearch(query) {
+    const res = await fetch('/finance/movements/search?q=' + encodeURIComponent(query));
+    const data = await res.json();
+    const results = document.getElementById('associate-results');
+    results.innerHTML = '';
+    if (!data.success || data.movements.length === 0) {
+        results.innerHTML = '<p class="text-body-secondary fst-italic mb-0">Aucun résultat.</p>';
+        return;
+    }
+    data.movements.forEach(m => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'btn btn-sm btn-outline-secondary text-start';
+        btn.textContent = m.date + ' — ' + m.label + ' — ' + m.amount.toFixed(2) + ' €';
+        btn.addEventListener('click', () => associateWithMovement(m.id));
+        results.appendChild(btn);
+    });
+}
+
+async function associateWithMovement(movementId) {
+    const res = await fetch('/finance/receipts/' + currentAttachmentId + '/associate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ transaction_ids: [movementId], _csrf_token: csrf() })
+    });
+    const data = await res.json();
+    if (data.success) {
+        window.location.reload();
+    } else {
+        alert(data.error);
+    }
+}
+
+document.querySelectorAll('.delete-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+        if (!confirm('Supprimer ce reçu ?')) {
+            return;
+        }
+        const res = await fetch('/finance/receipts/' + btn.dataset.id, {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ _csrf_token: csrf() })
+        });
+        const data = await res.json();
+        if (data.success) {
+            window.location.reload();
+        } else {
+            alert(data.error);
+        }
+    });
+});
+</script>
 {% endblock %}

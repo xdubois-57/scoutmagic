@@ -42,13 +42,14 @@ class FileRepository
         int $sizeBytes,
         string $roleMin,
         ?string $moduleId,
-        ?int $createdBy
+        ?int $createdBy,
+        bool $encrypted = false
     ): int {
         $stmt = $this->pdo->prepare(
-            'INSERT INTO files (relative_path, original_name, mime_type, size_bytes, role_min, module_id, created_by)
-             VALUES (?, ?, ?, ?, ?, ?, ?)'
+            'INSERT INTO files (relative_path, original_name, mime_type, size_bytes, role_min, module_id, created_by, encrypted)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
         );
-        $stmt->execute([$relativePath, $originalName, $mimeType, $sizeBytes, $roleMin, $moduleId, $createdBy]);
+        $stmt->execute([$relativePath, $originalName, $mimeType, $sizeBytes, $roleMin, $moduleId, $createdBy, $encrypted ? 1 : 0]);
 
         return (int) $this->pdo->lastInsertId();
     }

@@ -54,7 +54,8 @@ class ApplyRedirectHandlerTest extends TestCase
             $mailService,
             $journalService,
             $settingService,
-            $userAccounts
+            $userAccounts,
+            sys_get_temp_dir()
         ));
     }
 

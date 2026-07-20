@@ -105,6 +105,42 @@
       "label": ""
     },
     {
+      "path": "/finance/receipts/{id}/associate",
+      "method": "POST",
+      "controller": "Modules\\Finance\\Controller\\ReceiptController",
+      "action": "associate",
+      "menu": "espace_chefs",
+      "role_min": "intendant",
+      "label": ""
+    },
+    {
+      "path": "/finance/receipts/{id}/dissociate",
+      "method": "POST",
+      "controller": "Modules\\Finance\\Controller\\ReceiptController",
+      "action": "dissociate",
+      "menu": "espace_chefs",
+      "role_min": "intendant",
+      "label": ""
+    },
+    {
+      "path": "/finance/movements/{id}/attachments",
+      "method": "GET",
+      "controller": "Modules\\Finance\\Controller\\MovementController",
+      "action": "attachments",
+      "menu": "espace_chefs",
+      "role_min": "intendant",
+      "label": ""
+    },
+    {
+      "path": "/finance/movements/search",
+      "method": "GET",
+      "controller": "Modules\\Finance\\Controller\\MovementController",
+      "action": "search",
+      "menu": "espace_chefs",
+      "role_min": "intendant",
+      "label": ""
+    },
+    {
       "path": "/config/finance",
       "method": "GET",
       "controller": "Modules\\Finance\\Controller\\ConfigController",
@@ -209,6 +245,10 @@
     {
       "key": "purge_old_movements",
       "handler": "Modules\\Finance\\Task\\PurgeOldMovementsHandler"
+    },
+    {
+      "key": "extract_receipt_data",
+      "handler": "Modules\\Finance\\Task\\ExtractReceiptDataHandler"
     }
   ],
   "storage": {

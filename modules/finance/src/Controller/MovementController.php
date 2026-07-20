@@ -11,14 +11,21 @@ use Core\Journal\JournalService;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\Security\Role;
+use Modules\Finance\Repository\Attachment;
+use Modules\Finance\Repository\AttachmentRepository;
 use Modules\Finance\Repository\CategoryRepository;
 use Modules\Finance\Repository\FiscalYearRepository;
+use Modules\Finance\Repository\Transaction;
+use Modules\Finance\Repository\TransactionAttachmentRepository;
 use Modules\Finance\Repository\TransactionRepository;
 use Modules\Finance\Service\FinanceService;
+use Modules\Finance\Service\ReceiptService;
 
 class MovementController extends AbstractController
 {
     private const PER_PAGE = 50;
+    private const SUGGESTION_AMOUNT_TOLERANCE_RATIO = 0.10;
+    private const SUGGESTION_DATE_TOLERANCE_DAYS = 3;
 
     public function __construct(
         protected \Twig\Environment $twig,
@@ -26,6 +33,9 @@ class MovementController extends AbstractController
         private TransactionRepository $transactionRepository,
         private CategoryRepository $categoryRepository,
         private FiscalYearRepository $fiscalYearRepository,
+        private AttachmentRepository $attachmentRepository,
+        private TransactionAttachmentRepository $transactionAttachmentRepository,
+        private ReceiptService $receiptService,
         private JournalService $journalService
     ) {
     }
@@ -78,12 +88,28 @@ class MovementController extends AbstractController
             $categoriesById[$category->id] = $category;
         }
 
+        $attachmentCounts = $this->transactionAttachmentRepository->countByTransactionIds(
+            array_map(fn(Transaction $transaction) => $transaction->id, $movements)
+        );
+
+        $pendingReceipts = $this->receiptService->listPending();
+
+        $rows = [];
+        foreach ($movements as $movement) {
+            $count = $attachmentCounts[$movement->id] ?? 0;
+            $rows[] = [
+                'movement' => $movement,
+                'attachment_count' => $count,
+                'suggested_receipt' => $count === 0 ? $this->findSuggestedReceipt($movement, $pendingReceipts) : null,
+            ];
+        }
+
         return $this->render('@finance/movements/list.html.twig', [
             'accounts' => $visibleAccounts,
             'fiscal_years' => $this->fiscalYearRepository->findAllOrdered(),
             'categories' => $this->categoryRepository->findAllOrdered(),
             'categories_by_id' => $categoriesById,
-            'movements' => $movements,
+            'rows' => $rows,
             'total_count' => $totalCount,
             'page' => $page,
             'total_pages' => $totalPages,
@@ -91,6 +117,7 @@ class MovementController extends AbstractController
             'filter_fiscal_year_id' => $fiscalYearId,
             'filter_category_id' => $categoryId,
             'filter_search' => $search,
+            'pending_receipts' => $pendingReceipts,
         ]);
     }
 
@@ -156,6 +183,95 @@ class MovementController extends AbstractController
         );
 
         return $this->json(['success' => true]);
+    }
+
+    /**
+     * GET /finance/movements/{id}/attachments — receipts linked to a
+     * movement, for the 📎 panel on the movements page.
+     *
+     * @param array<string, string> $params
+     */
+    public function attachments(Request $request, array $params): Response
+    {
+        $id = (int) ($params['id'] ?? 0);
+        $transaction = $this->transactionRepository->findById($id);
+        if ($transaction === null) {
+            return $this->json(['success' => false, 'error' => 'Mouvement introuvable.'], 404);
+        }
+
+        $role = Role::fromString(AuthSession::getRole());
+        $account = $this->financeService->getAccount($transaction->accountId);
+        if ($account === null || !$role->hasAccess(Role::fromString($account->roleMinView))) {
+            return $this->json(['success' => false, 'error' => 'Accès refusé.'], 403);
+        }
+
+        $attachmentIds = $this->transactionAttachmentRepository->findAttachmentIdsForTransaction($id);
+        $attachments = $this->attachmentRepository->findByIds($attachmentIds);
+
+        return $this->json([
+            'success' => true,
+            'attachments' => array_map(fn(Attachment $attachment) => [
+                'id' => $attachment->id,
+                'file_id' => $attachment->fileId,
+                'original_filename' => $attachment->originalFilename,
+                'mime_type' => $attachment->mimeType,
+            ], $attachments),
+        ]);
+    }
+
+    /**
+     * GET /finance/movements/search?q=... — small result set for the
+     * receipts page's "Associer à un mouvement" picker.
+     *
+     * @param array<string, string> $params
+     */
+    public function search(Request $request, array $params): Response
+    {
+        $role = Role::fromString(AuthSession::getRole());
+        $visibleAccountIds = array_map(fn($account) => $account->id, $this->financeService->getAccountsForUser($role));
+
+        $query = trim((string) $request->getQuery('q', ''));
+        $matches = $this->transactionRepository->findFiltered($visibleAccountIds, null, null, $query !== '' ? $query : null);
+
+        return $this->json([
+            'success' => true,
+            'movements' => array_map(fn(Transaction $transaction) => [
+                'id' => $transaction->id,
+                'date' => $transaction->transactionDate,
+                'label' => $transaction->label,
+                'amount' => $transaction->amount,
+            ], array_slice($matches, 0, 20)),
+        ]);
+    }
+
+    /**
+     * @param Attachment[] $pendingReceipts
+     */
+    private function findSuggestedReceipt(Transaction $transaction, array $pendingReceipts): ?Attachment
+    {
+        $amount = abs($transaction->amount);
+        $transactionDate = new \DateTimeImmutable($transaction->transactionDate);
+
+        foreach ($pendingReceipts as $receipt) {
+            if ($receipt->suggestedAmount === null || $receipt->suggestedDate === null) {
+                continue;
+            }
+
+            $tolerance = $amount * self::SUGGESTION_AMOUNT_TOLERANCE_RATIO;
+            if (abs($receipt->suggestedAmount - $amount) > $tolerance) {
+                continue;
+            }
+
+            $receiptDate = new \DateTimeImmutable($receipt->suggestedDate);
+            $daysDiff = (int) $transactionDate->diff($receiptDate)->format('%a');
+            if ($daysDiff > self::SUGGESTION_DATE_TOLERANCE_DAYS) {
+                continue;
+            }
+
+            return $receipt;
+        }
+
+        return null;
     }
 
     /**

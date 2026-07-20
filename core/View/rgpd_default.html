@@ -133,11 +133,11 @@ Modèles : Llama, Qwen, divers modèles open source</li>
 <li>IBAN et nom du titulaire des comptes bancaires de l'unité (chiffrés au repos avec AES-256-GCM ; un index de recherche chiffré (« blind index ») permet de vérifier qu'un relevé importé correspond bien au bon compte, sans jamais déchiffrer l'IBAN pour cette comparaison)</li>
 <li>Communication bancaire des mouvements (libellé, chiffré au repos — cette communication peut contenir des données personnelles, par exemple le nom d'un membre lors d'un remboursement)</li>
 <li>Montant et date des mouvements financiers</li>
-<li>Reçus et justificatifs de dépense (fichier, montant et date suggérés)</li>
+<li>Reçus et justificatifs de dépense (fichier — PDF, Word, JPEG ou PNG —, montant et date suggérés). Le fichier lui-même est chiffré au repos sur le disque (même clé maître que le reste des données chiffrées) et n'est jamais stocké en clair.</li>
 </ul>
+<p><strong>Extraction automatique par IA (optionnelle)</strong> : si le module <em>Connecteur Intelligence Artificielle</em> est actif, le montant, la date et le nom du commerçant d'un reçu peuvent être suggérés automatiquement après son ajout, par un appel à un modèle IA de niveau « économique » uniquement (le module Finances ne choisit jamais un modèle ou un fournisseur précis — voir la section « Module Connecteur Intelligence Artificielle » pour les fournisseurs et transferts concernés). Cette suggestion reste modifiable ou ignorable par l'utilisateur ; en l'absence du module ou en cas d'échec, la saisie reste entièrement manuelle.</p>
 <p><strong>Visibilité restreinte</strong> : chaque compte n'est visible que par les chefs dont le rôle atteint le niveau minimum configuré par l'administrateur pour ce compte (intendant, chef, ou admin).</p>
-<p><strong>Conservation</strong> : les mouvements financiers sont purgés automatiquement après la durée configurée par l'administrateur (5 ans par défaut). Les reçus ne sont jamais supprimés automatiquement, seulement archivés (masqués de la liste active) si besoin.</p>
-<p><strong>État du module</strong> : l'import automatisé de relevés bancaires et la gestion des reçus sont en cours de développement et pas encore disponibles ; seule la configuration des comptes, catégories, règles et exercices comptables est fonctionnelle à ce stade.</p>
+<p><strong>Conservation</strong> : les mouvements financiers sont purgés automatiquement après la durée configurée par l'administrateur (5 ans par défaut). Les reçus ne sont jamais supprimés automatiquement (ni le fichier, ni la donnée), seulement archivés (masqués de la liste active) si besoin.</p>
 <p><strong>Base légale</strong> : Intérêt légitime (gestion administrative et comptable de l'unité, obligation de transparence financière envers la fédération).</p>
 
 <h3>2.5. Sécurité et traçabilité</h3>

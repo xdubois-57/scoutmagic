@@ -7,6 +7,8 @@ namespace Tests\Modules\Finance\Controller;
 use Core\Badge\MemberBadgeRepository;
 use Core\Config\AppConfig;
 use Core\Database\Connection;
+use Core\File\EncryptedFileStorageService;
+use Core\File\FileRepository;
 use Core\Http\FrontController;
 use Core\Http\Request;
 use Core\Http\Router;
@@ -34,11 +36,14 @@ use Modules\Finance\Repository\CategoryRepository;
 use Modules\Finance\Repository\CategoryRuleRepository;
 use Modules\Finance\Repository\FiscalYearRepository;
 use Modules\Finance\Repository\StatementImportRepository;
+use Modules\Finance\Repository\TransactionAttachmentRepository;
 use Modules\Finance\Repository\TransactionRepository;
 use Modules\Finance\Service\BalanceService;
 use Modules\Finance\Service\CategoryRuleEngine;
 use Modules\Finance\Service\FinanceService;
 use Modules\Finance\Service\ImportService;
+use Modules\Finance\Service\ReceiptExtractionService;
+use Modules\Finance\Service\ReceiptService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Finance\FinanceTestHelper;
@@ -72,6 +77,9 @@ class FinanceRbacTest extends TestCase
     private SchedulerService $schedulerService;
     private ImportService $importService;
     private BankStatementParserFactory $parserFactory;
+    private TransactionAttachmentRepository $transactionAttachmentRepository;
+    private ReceiptService $receiptService;
+    private ReceiptExtractionService $receiptExtractionService;
 
     protected function setUp(): void
     {
@@ -92,6 +100,7 @@ class FinanceRbacTest extends TestCase
         $this->checkpointRepository = new BalanceCheckpointRepository($this->pdo);
         $statementImportRepository = new StatementImportRepository($this->pdo);
         $this->attachmentRepository = new AttachmentRepository($this->pdo);
+        $this->transactionAttachmentRepository = new TransactionAttachmentRepository($this->pdo);
 
         $this->financeService = new FinanceService($accountRepository, $this->categoryRepository, $this->fiscalYearRepository, $this->sectionService);
         $this->balanceService = new BalanceService($this->checkpointRepository, $this->transactionRepository);
@@ -101,6 +110,9 @@ class FinanceRbacTest extends TestCase
             $this->pdo, $encryption, $parserFactory, $this->transactionRepository, $this->checkpointRepository,
             $statementImportRepository, $this->fiscalYearRepository, $this->categoryRuleEngine, $this->balanceService
         );
+        $fileStorage = new EncryptedFileStorageService(new FileRepository($this->pdo), $encryption, sys_get_temp_dir() . '/finance_rbac_test_' . uniqid());
+        $this->receiptService = new ReceiptService($this->attachmentRepository, $this->transactionAttachmentRepository, $fileStorage);
+        $this->receiptExtractionService = new ReceiptExtractionService($this->schedulerService, null);
 
         $templateDir = dirname(__DIR__, 4) . '/core/View/templates';
         $moduleViews = dirname(__DIR__, 4) . '/modules/finance/views';
@@ -202,10 +214,14 @@ class FinanceRbacTest extends TestCase
         return match ($name) {
             'DashboardController' => new DashboardController($this->twig, $this->financeService, $this->balanceService),
             'MovementController' => new MovementController(
-                $this->twig, $this->financeService, $this->transactionRepository, $this->categoryRepository, $this->fiscalYearRepository, $this->journalService
+                $this->twig, $this->financeService, $this->transactionRepository, $this->categoryRepository, $this->fiscalYearRepository,
+                $this->attachmentRepository, $this->transactionAttachmentRepository, $this->receiptService, $this->journalService
             ),
             'ImportController' => new ImportController($this->twig, $this->financeService, $this->importService, $this->parserFactory, $this->checkpointRepository),
-            'ReceiptController' => new ReceiptController($this->twig, $this->attachmentRepository, $this->financeService),
+            'ReceiptController' => new ReceiptController(
+                $this->twig, $this->attachmentRepository, $this->transactionAttachmentRepository,
+                $this->receiptService, $this->receiptExtractionService, $this->journalService
+            ),
             'ConfigController' => new ConfigController($this->twig, $this->financeService, $this->schedulerService),
             'ConfigAccountController' => new ConfigAccountController($this->twig, $this->financeService, $this->sectionService, $this->journalService),
             'ConfigCategoryController' => new ConfigCategoryController($this->twig, $this->financeService, $this->journalService),

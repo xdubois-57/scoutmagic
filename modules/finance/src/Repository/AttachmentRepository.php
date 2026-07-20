@@ -36,15 +36,16 @@ class AttachmentRepository
         ?float $suggestedAmount,
         ?string $suggestedDate,
         ?int $parentAttachmentId,
-        ?int $uploadedBy
+        ?int $uploadedBy,
+        ?string $suggestedSource = null
     ): int {
         $stmt = $this->pdo->prepare(
             'INSERT INTO finance_attachments
-                (account_id, file_id, mime_type, original_filename, suggested_amount, suggested_date, parent_attachment_id, uploaded_by)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+                (account_id, file_id, mime_type, original_filename, suggested_amount, suggested_date, suggested_source, parent_attachment_id, uploaded_by)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([
-            $accountId, $fileId, $mimeType, $originalFilename, $suggestedAmount, $suggestedDate, $parentAttachmentId, $uploadedBy,
+            $accountId, $fileId, $mimeType, $originalFilename, $suggestedAmount, $suggestedDate, $suggestedSource, $parentAttachmentId, $uploadedBy,
         ]);
         return (int) $this->pdo->lastInsertId();
     }
@@ -66,6 +67,32 @@ class AttachmentRepository
     }
 
     /**
+     * @param int[] $ids
+     * @return Attachment[]
+     */
+    public function findByIds(array $ids): array
+    {
+        if ($ids === []) {
+            return [];
+        }
+        $placeholders = implode(',', array_fill(0, count($ids), '?'));
+        $stmt = $this->pdo->prepare("SELECT * FROM finance_attachments WHERE id IN ({$placeholders})");
+        $stmt->execute(array_values($ids));
+        return array_map([$this, 'hydrate'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
+    /**
+     * $suggestedSource distinguishes a manually-typed suggestion from one
+     * written by Task\ExtractReceiptDataHandler (Attachment::
+     * SUGGESTED_SOURCE_MANUAL / SUGGESTED_SOURCE_AI) — null clears it.
+     */
+    public function updateSuggestedData(int $id, ?float $suggestedAmount, ?string $suggestedDate, ?string $suggestedSource = null): void
+    {
+        $stmt = $this->pdo->prepare('UPDATE finance_attachments SET suggested_amount = ?, suggested_date = ?, suggested_source = ? WHERE id = ?');
+        $stmt->execute([$suggestedAmount, $suggestedDate, $suggestedSource, $id]);
+    }
+
+    /**
      * @param array<string, mixed> $row
      */
     private function hydrate(array $row): Attachment
@@ -78,6 +105,7 @@ class AttachmentRepository
             originalFilename: (string) $row['original_filename'],
             suggestedAmount: $row['suggested_amount'] !== null ? (float) $row['suggested_amount'] : null,
             suggestedDate: $row['suggested_date'] !== null ? (string) $row['suggested_date'] : null,
+            suggestedSource: $row['suggested_source'] !== null ? (string) $row['suggested_source'] : null,
             status: (string) $row['status'],
             parentAttachmentId: $row['parent_attachment_id'] !== null ? (int) $row['parent_attachment_id'] : null,
             uploadedBy: $row['uploaded_by'] !== null ? (int) $row['uploaded_by'] : null,

@@ -105,6 +105,7 @@ class FinanceTestHelper
             original_filename TEXT NOT NULL,
             suggested_amount REAL,
             suggested_date TEXT,
+            suggested_source TEXT,
             status TEXT NOT NULL DEFAULT \'active\',
             parent_attachment_id INTEGER,
             uploaded_by INTEGER,

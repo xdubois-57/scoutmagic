@@ -53,10 +53,12 @@
                     <th>Commentaire</th>
                     <th>Exercice</th>
                     <th class="text-end">Montant</th>
+                    <th class="text-center">📎</th>
                 </tr>
             </thead>
             <tbody>
-                {% for movement in movements %}
+                {% for row in rows %}
+                    {% set movement = row.movement %}
                     <tr data-id="{{ movement.id }}" class="{{ movement.categoryId is null ? 'table-warning' : '' }}">
                         <td>{{ movement.transactionDate }}</td>
                         <td>{{ movement.label }}</td>
@@ -81,9 +83,20 @@
                         <td class="text-end {{ movement.amount < 0 ? 'text-danger' : 'text-success' }}">
                             {{ movement.amount|number_format(2, ',', ' ') }} €
                         </td>
+                        <td class="text-center">
+                            <button type="button" class="btn btn-sm btn-link p-0 attachment-btn" data-id="{{ movement.id }}" title="Reçus">
+                                📎{% if row.attachment_count > 0 %} <span class="badge text-bg-secondary">{{ row.attachment_count }}</span>{% endif %}
+                            </button>
+                            {% if row.suggested_receipt %}
+                                <button type="button" class="btn btn-sm btn-outline-primary d-block mt-1 suggest-associate-btn"
+                                        data-movement-id="{{ movement.id }}" data-attachment-id="{{ row.suggested_receipt.id }}">
+                                    Associer ce reçu ?
+                                </button>
+                            {% endif %}
+                        </td>
                     </tr>
                 {% else %}
-                    <tr><td colspan="6" class="text-body-secondary fst-italic">Aucun mouvement.</td></tr>
+                    <tr><td colspan="7" class="text-body-secondary fst-italic">Aucun mouvement.</td></tr>
                 {% endfor %}
             </tbody>
         </table>
@@ -100,6 +113,29 @@
             </ul>
         </nav>
     {% endif %}
+
+    <div class="modal fade" id="attachments-modal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Reçus associés</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="attachments-list" class="d-flex flex-column gap-2 mb-3"></div>
+                    <div class="d-flex gap-2">
+                        <select class="form-select form-select-sm" id="attachments-add-select">
+                            <option value="">Associer un reçu en attente…</option>
+                            {% for receipt in pending_receipts %}
+                                <option value="{{ receipt.id }}">{{ receipt.originalFilename }}</option>
+                            {% endfor %}
+                        </select>
+                        <button type="button" class="btn btn-sm btn-primary" id="attachments-add-btn">Associer</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
 {% endblock %}
 
 {% block scripts %}
@@ -139,6 +175,78 @@ document.querySelectorAll('.movement-comment-input').forEach(input => {
     input.addEventListener('change', () => {
         patchMovement(input.dataset.id, { comment: input.value });
     });
+});
+
+let currentMovementId = null;
+const attachmentsModalEl = document.getElementById('attachments-modal');
+const attachmentsModal = window.bootstrap ? new window.bootstrap.Modal(attachmentsModalEl) : null;
+
+async function loadAttachments(movementId) {
+    currentMovementId = movementId;
+    const res = await fetch('/finance/movements/' + movementId + '/attachments');
+    const data = await res.json();
+    const list = document.getElementById('attachments-list');
+    list.innerHTML = '';
+    if (!data.success || data.attachments.length === 0) {
+        list.innerHTML = '<p class="text-body-secondary fst-italic mb-0">Aucun reçu associé.</p>';
+    } else {
+        data.attachments.forEach(a => {
+            const row = document.createElement('div');
+            row.className = 'd-flex align-items-center gap-2 border rounded p-2';
+            row.innerHTML = '<a href="/files/' + a.file_id + '" target="_blank" class="flex-grow-1">' + a.original_filename + '</a>' +
+                '<button type="button" class="btn btn-sm btn-outline-danger dissociate-btn" data-attachment-id="' + a.id + '">Dissocier</button>';
+            list.appendChild(row);
+        });
+        list.querySelectorAll('.dissociate-btn').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                await fetch('/finance/receipts/' + btn.dataset.attachmentId + '/dissociate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ transaction_id: currentMovementId, _csrf_token: csrf() })
+                });
+                loadAttachments(currentMovementId);
+                window.location.reload();
+            });
+        });
+    }
+}
+
+document.querySelectorAll('.attachment-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        loadAttachments(btn.dataset.id);
+        attachmentsModal ? attachmentsModal.show() : attachmentsModalEl.classList.add('show');
+    });
+});
+
+document.getElementById('attachments-add-btn').addEventListener('click', async () => {
+    const select = document.getElementById('attachments-add-select');
+    if (!select.value || !currentMovementId) {
+        return;
+    }
+    await fetch('/finance/receipts/' + select.value + '/associate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ transaction_ids: [currentMovementId], _csrf_token: csrf() })
+    });
+    window.location.reload();
+});
+
+async function associateSuggestion(movementId, attachmentId) {
+    const res = await fetch('/finance/receipts/' + attachmentId + '/associate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ transaction_ids: [movementId], _csrf_token: csrf() })
+    });
+    const data = await res.json();
+    if (data.success) {
+        window.location.reload();
+    } else {
+        alert(data.error);
+    }
+}
+
+document.querySelectorAll('.suggest-associate-btn').forEach(btn => {
+    btn.addEventListener('click', () => associateSuggestion(btn.dataset.movementId, btn.dataset.attachmentId));
 });
 </script>
 {% endblock %}
