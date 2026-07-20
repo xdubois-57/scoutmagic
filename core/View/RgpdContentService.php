@@ -60,7 +60,7 @@ class RgpdContentService
 
         $request = new LlmRequest(
             prompt: "Génère le contenu RGPD complet en HTML selon la structure imposée dans le prompt système.",
-            tier: LlmTier::CAPABLE,
+            tier: LlmTier::CHEAP,
             systemPrompt: $systemPrompt,
             timeoutSeconds: 90
         );
@@ -169,9 +169,20 @@ RÈGLES CRITIQUES (ne JAMAIS déroger) :
 15. **Transferts hors UE** : Si Anthropic ou hébergeur hors UE, mentionner SCC (art. 46.2.c RGPD)
 16. **Open source** : Garder section 1.5 (PHP, Twig, PHPMailer, Bootstrap, licence AGPL-3.0)
 17. **Obligation APD** : Conserver mentions notification 72h (art. 33), information personnes (art. 34), réclamation APD
-18. **Instructions admin** : Appliquer {$userPrompt} SANS compromettre conformité légale
+18. **Instructions admin — intégration INTÉGRALE obligatoire** : {$userPrompt}
+    Chaque instruction ci-dessus doit être traitée INDIVIDUELLEMENT et intégrée dans le document final, sans exception :
+    - Découpe mentalement les instructions de l'administrateur en une liste de points distincts (chaque phrase ou idée séparée par un point, une virgule de juxtaposition, ou une nouvelle ligne compte comme un point à part).
+    - Pour CHAQUE point, identifie la section existante la plus pertinente (ex : sous-traitants, données collectées, finalités, cookies, sécurité) et intègre l'information à cet endroit. S'il n'existe aucune section pertinente, crée une nouvelle sous-section plutôt que d'omettre l'information.
+    - Ne résume JAMAIS plusieurs points administrateur en une seule phrase vague qui en perd le sens : reste fidèle à chaque détail fourni (noms de services, formats, usages, limitations mentionnées, etc.).
+    - Une instruction qui semble mineure, redondante ou hors-sujet à première vue doit tout de même être traitée : NE JAMAIS l'ignorer silencieusement.
+    - Applique ces instructions SANS compromettre la conformité légale ni retirer les éléments obligatoires listés dans les autres règles ci-dessus.
 19. **HTML pur** : Pas de ```html, pas de <html>/<body>, uniquement contenu direct
 20. **Précision factuelle** : Ne JAMAIS inventer données non collectées, modules non actifs, ou sous-traitants non utilisés
+
+Rappel final — instructions de l'administrateur à intégrer intégralement, point par point (voir règle 18) :
+{$userPrompt}
+
+Avant de répondre, vérifie mentalement que chaque point de ces instructions apparaît bien quelque part dans le document généré.
 
 Réponds UNIQUEMENT avec le HTML généré, prêt à l'insertion directe dans la page.
 PROMPT;
