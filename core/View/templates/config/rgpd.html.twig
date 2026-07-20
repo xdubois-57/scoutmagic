@@ -172,7 +172,11 @@ document.addEventListener('DOMContentLoaded', function() {
         .then(function(result) {
             if (result.success) {
                 preview.innerHTML = result.content;
-                generateStatus.innerHTML = '<span class="text-success"><i class="bi bi-check-circle"></i> Contenu généré</span>';
+                // Switch to AI mode automatically
+                document.getElementById('mode-ai').checked = true;
+                updateUI();
+                generateStatus.innerHTML = '<span class="text-success"><i class="bi bi-check-circle"></i> Contenu généré et enregistré</span>';
+                setTimeout(function() { generateStatus.textContent = ''; }, 5000);
             } else {
                 generateStatus.innerHTML = '<span class="text-danger"><i class="bi bi-exclamation-circle"></i> ' + result.error + '</span>';
             }

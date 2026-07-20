@@ -106,7 +106,7 @@ class RgpdConfigController extends AbstractController
     }
 
     /**
-     * POST /config/rgpd/generate — generate RGPD content via AI
+     * POST /config/rgpd/generate — generate RGPD content via AI and save it automatically
      *
      * @param array<string, string> $params
      */
@@ -122,6 +122,11 @@ class RgpdConfigController extends AbstractController
         }
 
         $prompt = (string) ($data['prompt'] ?? '');
+        $userId = AuthSession::getUserAccountId();
+
+        if ($userId === null) {
+            return $this->json(['success' => false, 'error' => 'Non authentifié.'], 403);
+        }
 
         if (!in_array('llm_connector', $this->moduleManager->getEnabledModuleIds(), true)) {
             return $this->json(['success' => false, 'error' => 'Module IA non activé.'], 400);
@@ -136,7 +141,7 @@ class RgpdConfigController extends AbstractController
                 'info',
                 'Échec de génération du contenu RGPD via IA',
                 ['error' => $e->getMessage()],
-                AuthSession::getUserAccountId()
+                $userId
             );
 
             return $this->json([
@@ -145,13 +150,18 @@ class RgpdConfigController extends AbstractController
             ], 500);
         }
 
+        // Auto-save the generated content
+        $this->settingService->setInternal('rgpd_generation_mode', 'ai');
+        $this->settingService->setInternal('rgpd_custom_prompt', $prompt);
+        $this->editableContentService->set('rgpd.text', $generatedContent, 'rich_text', $userId);
+
         $this->journalService->log(
             'core',
             'rgpd_content_generated',
             'info',
-            'Contenu RGPD généré via IA',
+            'Contenu RGPD généré via IA et enregistré automatiquement',
             ['prompt_length' => strlen($prompt)],
-            AuthSession::getUserAccountId()
+            $userId
         );
 
         return $this->json([

@@ -110,22 +110,35 @@ Instructions de l'administrateur :
 {$userPrompt}
 
 Tâche :
-Retravaille le contenu de référence ci-dessus pour le personnaliser selon le contexte réel du site. Génère un document RGPD complet, conforme au règlement européen, en HTML bien formaté.
+Retravaille le contenu de référence ci-dessus pour le personnaliser selon le contexte réel du site. Génère un document RGPD complet, conforme au règlement européen, en HTML bien formaté suivant une structure claire et narrative.
+
+Structure OBLIGATOIRE (sections numérotées avec <h2>) :
+1. Qui sommes-nous et objet de cette politique
+2. Quelles données collectons-nous et pourquoi (avec sous-sections <h3> par finalité + base légale)
+3. Combien de temps conservons-nous vos données
+4. Avec qui partageons-nous vos données (sous-traitants)
+5. Où sont stockées vos données (localisation + transferts hors UE)
+6. Comment protégeons-nous vos données (mesures de sécurité)
+7. Vos droits sur vos données personnelles (+ comment les exercer)
+8. Cookies et technologies similaires (+ tableau détaillé des cookies)
+9. Politique de la fédération Les Scouts
+10. Modifications de cette politique
 
 Règles strictes :
-1. Utiliser le contenu de référence comme base. Il couvre déjà tous les modules — retire les sections relatives aux modules qui ne sont PAS dans la liste des modules actifs ci-dessus.
-2. Remplacer les mentions génériques (« unité scoute », « email de contact ») par le nom réel de l'unité et l'adresse email fournis ci-dessus.
-3. Si llm_connector est actif, préciser dans la section Sous-traitants le fournisseur IA exact avec les modèles utilisés. Pour chaque fournisseur/modèle, inclure :
-   — la localisation des serveurs (cherche sur internet si nécessaire),
-   — un lien vers leur politique de confidentialité officielle.
-4. Si sos_staff est actif, préciser le fournisseur de téléphonie (OVH Télécom) dans Sous-traitants avec localisation et lien vers leur politique de confidentialité.
-5. Pour TOUS les sous-traitants (hébergeur, SMTP, IA, téléphonie), mentionner clairement la localisation des serveurs et fournir un lien vers leur politique de confidentialité. Tu PEUX chercher sur internet pour trouver ces informations si elles ne sont pas fournies ci-dessus.
-6. Inclure la liste complète des cookies ci-dessus dans une section dédiée avec un tableau HTML (nom, finalité, durée par cookie).
-7. Appliquer les instructions de l'administrateur (ton, ajouts, précisions) SANS jamais retirer d'informations obligatoires RGPD.
-8. Utiliser des balises HTML sémantiques : <h2>, <h3>, <p>, <ul>, <li>, <strong>, <table>.
+1. RESPECTER LA STRUCTURE ci-dessus. Utiliser le contenu de référence comme base, qui suit déjà cette structure.
+2. Retirer les sous-sections relatives aux modules qui ne sont PAS dans la liste des modules actifs ci-dessus.
+3. Remplacer les mentions génériques (« notre unité », « via l'adresse email indiquée ») par le nom réel de l'unité ({$unitName}) et l'email de contact ({$contactEmail}).
+4. Pour TOUS les sous-traitants (hébergeur, SMTP, IA, téléphonie), mentionner :
+   — La finalité exacte
+   — La localisation des serveurs (cherche sur internet si nécessaire)
+   — Un lien vers leur politique de confidentialité officielle
+5. Si llm_connector est actif, préciser le fournisseur IA exact avec les modèles utilisés ({$modelsInfo}).
+6. Dans la section 8 (Cookies), inclure un tableau HTML complet avec TOUS les cookies ci-dessus (colonnes : Nom, Catégorie, Finalité, Durée).
+7. Appliquer les instructions de l'administrateur (ton, ajouts, précisions) SANS jamais retirer d'informations obligatoires RGPD ni modifier la structure.
+8. Utiliser des balises HTML sémantiques : <h2> (sections numérotées), <h3>/<h4> (sous-sections), <p>, <ul>, <li>, <strong>, <table>.
 9. Ne JAMAIS inventer de données personnelles non collectées par le site.
 10. Le HTML doit être prêt à l'insertion directe (pas de code fence, pas de balise <html> ou <body>).
-11. Référencer la politique RGPD de la fédération Les Scouts avec le lien.
+11. Rester factuel et précis. Éviter les formulations vagues ou marketing.
 
 Réponds UNIQUEMENT avec le HTML généré, rien d'autre.
 PROMPT;
