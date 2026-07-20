@@ -96,7 +96,7 @@
     <span class="text-body-secondary ms-3" id="save-status"></span>
 </div>
 
-<script>
+<script nonce="{{ csp_nonce }}">
 document.addEventListener('DOMContentLoaded', function() {
     const modeRadios = document.querySelectorAll('input[name="mode"]');
     const aiPromptCard = document.getElementById('ai-prompt-card');
