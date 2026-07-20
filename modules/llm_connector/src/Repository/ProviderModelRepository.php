@@ -13,7 +13,7 @@ class ProviderModelRepository
     }
 
     /**
-     * @return array<int, array{id: int, provider_id: int, model_id: string, display_name: string, is_tier_cheap: bool, is_tier_capable: bool, last_seen_at: string}>
+     * @return array<int, array{id: int, provider_id: int, model_id: string, display_name: string, is_tier_cheap: bool, is_tier_capable: bool, is_tier_ocr: bool, last_seen_at: string}>
      */
     public function findByProvider(int $providerId): array
     {

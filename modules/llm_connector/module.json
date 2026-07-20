@@ -2,7 +2,7 @@
   "id": "llm_connector",
   "name": "Connecteur IA",
   "description": "Connecteur IA générique et réutilisable — encapsule toute la logique spécifique à un fournisseur de LLM (sélection de modèle, appels API, gestion des erreurs).",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "routes": [
     {
       "path": "/config/llm",

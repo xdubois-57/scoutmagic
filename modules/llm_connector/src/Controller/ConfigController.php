@@ -16,6 +16,8 @@ use Modules\LlmConnector\Provider\MistralProvider;
 use Modules\LlmConnector\Provider\ScalewayProvider;
 use Modules\LlmConnector\Repository\ProviderModelRepository;
 use Modules\LlmConnector\Repository\ProviderRepository;
+use Modules\LlmConnector\Service\OcrModelSelector;
+use Core\Scheduler\SchedulerService;
 use Twig\Environment;
 
 class ConfigController extends AbstractController
@@ -24,6 +26,8 @@ class ConfigController extends AbstractController
         protected Environment $twig,
         private ProviderRepository $providerRepo,
         private ProviderModelRepository $modelRepo,
+        private OcrModelSelector $ocrModelSelector,
+        private SchedulerService $schedulerService,
         private JournalService $journalService
     ) {
     }
@@ -35,6 +39,9 @@ class ConfigController extends AbstractController
      */
     public function index(Request $request, array $params): Response
     {
+        // Ensure weekly refresh task is scheduled
+        $this->ensureWeeklyRefreshScheduled();
+
         $providers = $this->providerRepo->findAll();
 
         // Group providers and models by driver
@@ -177,7 +184,8 @@ class ConfigController extends AbstractController
             $this->modelRepo->deleteModelsNotIn($provider['id'], $modelIds);
             $this->modelRepo->deleteStaleModels($provider['id']);
 
-            $tierMap = $driver->resolveTiers($modelIds);
+            $this->ocrModelSelector->setJournalService($this->journalService, AuthSession::getUserAccountId());
+            $tierMap = $this->ocrModelSelector->selectTiers($driver, $modelIds);
             $this->modelRepo->autoAssignTiers($provider['id'], $tierMap);
 
             $this->journalService->log(
@@ -219,7 +227,7 @@ class ConfigController extends AbstractController
         return [
             ['id' => 'anthropic', 'label' => 'Anthropic (Claude)', 'default_endpoint' => 'https://api.anthropic.com'],
             ['id' => 'mistral', 'label' => 'Mistral AI', 'default_endpoint' => 'https://api.mistral.ai'],
-            ['id' => 'scaleway', 'label' => 'Scaleway (EU)', 'default_endpoint' => 'https://api.scaleway.ai'],
+            ['id' => 'scaleway', 'label' => 'Scaleway', 'default_endpoint' => 'https://api.scaleway.ai'],
         ];
     }
 
@@ -231,5 +239,23 @@ class ConfigController extends AbstractController
             'scaleway' => new ScalewayProvider($apiEndpoint, $apiKey),
             default => throw new \RuntimeException("Unknown driver: {$driver}"),
         };
+    }
+
+    /**
+     * Ensure a weekly model refresh task is scheduled.
+     * If no future task exists, schedule one for 7 days from now.
+     */
+    private function ensureWeeklyRefreshScheduled(): void
+    {
+        $existing = $this->schedulerService->find('llm_connector', 'refresh_models', 'weekly');
+        
+        // If a pending task exists in the future, nothing to do
+        if ($existing !== null && $existing['status'] === 'pending' && strtotime($existing['run_at']) > time()) {
+            return;
+        }
+
+        // Schedule next refresh in 7 days
+        $nextRun = new \DateTimeImmutable('+7 days');
+        $this->schedulerService->schedule('llm_connector', 'refresh_models', $nextRun, [], 'weekly');
     }
 }

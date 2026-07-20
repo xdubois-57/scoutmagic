@@ -853,7 +853,14 @@ if (in_array('llm_connector', $moduleManager->getEnabledModuleIds(), true)) {
 
     $frontController->registerController(
         \Modules\LlmConnector\Controller\ConfigController::class,
-        new \Modules\LlmConnector\Controller\ConfigController($twig, $llmProviderRepo, $llmModelRepo, $journalService)
+        new \Modules\LlmConnector\Controller\ConfigController(
+            $twig,
+            $llmProviderRepo,
+            $llmModelRepo,
+            new \Modules\LlmConnector\Service\OcrModelSelector(),
+            $schedulerService,
+            $journalService
+        )
     );
 }
 

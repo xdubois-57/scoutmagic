@@ -10,8 +10,10 @@ use Core\Security\EncryptionService;
 use Modules\LlmConnector\Provider\AnthropicProvider;
 use Modules\LlmConnector\Provider\LlmProviderInterface;
 use Modules\LlmConnector\Provider\MistralProvider;
+use Modules\LlmConnector\Provider\ScalewayProvider;
 use Modules\LlmConnector\Repository\ProviderModelRepository;
 use Modules\LlmConnector\Repository\ProviderRepository;
+use Modules\LlmConnector\Service\OcrModelSelector;
 
 /**
  * Scheduled task: for each active provider, calls listModels() and upserts
@@ -44,8 +46,9 @@ class RefreshModelsHandler implements TaskHandlerInterface
                     $modelIds[] = $model['id'];
                 }
 
-                // Auto-assign tiers based on driver logic
-                $tierMap = $driver->resolveTiers($modelIds);
+                $ocrSelector = new OcrModelSelector();
+                $ocrSelector->setJournalService($context->journal);
+                $tierMap = $ocrSelector->selectTiers($driver, $modelIds);
                 $modelRepo->autoAssignTiers($provider['id'], $tierMap);
 
                 $context->journal->log(
@@ -67,6 +70,29 @@ class RefreshModelsHandler implements TaskHandlerInterface
                 );
             }
         }
+
+        // Schedule next weekly refresh
+        $this->scheduleNextWeeklyRefresh($context);
+    }
+
+    /**
+     * Schedule the next weekly model refresh (7 days from now).
+     */
+    private function scheduleNextWeeklyRefresh(TaskContext $context): void
+    {
+        $schedulerRepo = new \Core\Scheduler\SchedulerRepository($context->connection->getPdo());
+        $schedulerService = new \Core\Scheduler\SchedulerService($schedulerRepo);
+
+        // Check if a future refresh is already scheduled
+        $existing = $schedulerService->find('llm_connector', 'refresh_models', 'weekly');
+        if ($existing !== null && $existing['status'] === 'pending' && strtotime($existing['run_at']) > time()) {
+            // A future task already exists, don't duplicate
+            return;
+        }
+
+        // Schedule next run in 7 days
+        $nextRun = new \DateTimeImmutable('+7 days');
+        $schedulerService->schedule('llm_connector', 'refresh_models', $nextRun, [], 'weekly');
     }
 
     private function createDriver(string $driver, string $apiEndpoint, string $apiKey): LlmProviderInterface
@@ -74,6 +100,7 @@ class RefreshModelsHandler implements TaskHandlerInterface
         return match ($driver) {
             'anthropic' => new AnthropicProvider($apiEndpoint, $apiKey),
             'mistral' => new MistralProvider($apiEndpoint, $apiKey),
+            'scaleway' => new ScalewayProvider($apiEndpoint, $apiKey),
             default => throw new \RuntimeException("Unknown driver: {$driver}"),
         };
     }

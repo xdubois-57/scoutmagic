@@ -13,6 +13,7 @@ use Modules\LlmConnector\Api\LlmTier;
 use Modules\LlmConnector\Provider\AnthropicProvider;
 use Modules\LlmConnector\Provider\LlmProviderInterface;
 use Modules\LlmConnector\Provider\MistralProvider;
+use Modules\LlmConnector\Provider\ScalewayProvider;
 use Modules\LlmConnector\Repository\ProviderModelRepository;
 use Modules\LlmConnector\Repository\ProviderRepository;
 
@@ -128,6 +129,7 @@ class LlmConnectorService implements LlmConnectorInterface
         return match ($driver) {
             'anthropic' => new AnthropicProvider($apiEndpoint, $apiKey),
             'mistral' => new MistralProvider($apiEndpoint, $apiKey),
+            'scaleway' => new ScalewayProvider($apiEndpoint, $apiKey),
             default => throw LlmException::apiError("Unknown driver: {$driver}"),
         };
     }

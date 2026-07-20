@@ -251,11 +251,11 @@ updateDriverInfo();
 
 document.getElementById('provider-driver')?.addEventListener('change', () => {
     updateDriverInfo();
-    // Auto-test if provider has saved key
+    // Auto-test if provider has saved key, and activate this provider
     const hasKey = document.getElementById('provider-has-key').value === '1';
     const providerId = document.getElementById('provider-id').value;
     if (hasKey && providerId) {
-        testConnection();
+        testConnection(providerId, true);
     }
 });
 
@@ -295,7 +295,7 @@ document.getElementById('provider-form')?.addEventListener('submit', async (e) =
 });
 
 // Test connection function (also used on dropdown change)
-async function testConnection(providerId) {
+async function testConnection(providerId, shouldActivate = false) {
     const msgEl = document.getElementById('provider-message');
     if (!providerId) {
         providerId = document.getElementById('provider-id').value;
@@ -312,6 +312,27 @@ async function testConnection(providerId) {
     });
     const data = await res.json();
     if (data.success) {
+        // If shouldActivate is true (from dropdown change), save provider as active
+        if (shouldActivate) {
+            const saveRes = await fetch('/config/llm/providers', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    id: providerId,
+                    name: document.getElementById('provider-name').value,
+                    driver: document.getElementById('provider-driver').value,
+                    api_endpoint: document.getElementById('provider-endpoint').value,
+                    api_key: '',  // Empty = keep existing key
+                    _csrf_token: csrf()
+                })
+            });
+            const saveData = await saveRes.json();
+            if (!saveData.success) {
+                msgEl.innerHTML = '<div class="alert alert-warning mb-0">Modèles rafraîchis mais échec de l\'activation.</div>';
+                return;
+            }
+        }
+        
         updateSummary(data);
         msgEl.innerHTML = '<div class="alert alert-success mb-0">Connexion réussie — ' + data.message.replace('Connexion réussie — ', '') + '</div>';
         setTimeout(() => window.location.reload(), 800);
