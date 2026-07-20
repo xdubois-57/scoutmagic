@@ -16,17 +16,17 @@
             <div class="form-check">
                 <input class="form-check-input" type="radio" name="mode" id="mode-default" value="default" {{ mode == 'default' ? 'checked' : '' }}>
                 <label class="form-check-label" for="mode-default">
-                    <strong>Par défaut</strong> — Utilise le contenu complet de <code>docs/rgpd.md</code>
+                    <strong>Par défaut</strong> — Contenu RGPD standard couvrant le noyau du site
                 </label>
                 <div class="form-text">
-                    Assume que tous les modules sont actifs. Aucune personnalisation possible.
+                    Aucune personnalisation possible. Couvre les traitements du noyau (pas les modules).
                 </div>
             </div>
 
             <div class="form-check mt-3">
                 <input class="form-check-input" type="radio" name="mode" id="mode-custom" value="custom" {{ mode == 'custom' ? 'checked' : '' }}>
                 <label class="form-check-label" for="mode-custom">
-                    <strong>Personnalisé</strong> — Saisissez votre propre texte
+                    <strong>Personnalisé</strong> — Modifiez le texte librement
                 </label>
                 <div class="form-text">
                     Vous êtes responsable de la conformité RGPD du contenu saisi.
@@ -40,7 +40,7 @@
                     <strong>Généré par IA</strong> — Le contenu est généré automatiquement
                 </label>
                 <div class="form-text">
-                    Basé sur <code>docs/rgpd.md</code>, les modules actifs, et votre prompt personnalisé.
+                    Basé sur le contenu par défaut, les modules actifs et votre prompt personnalisé.
                 </div>
             </div>
             {% else %}
@@ -63,9 +63,9 @@
         <h2 class="h6 mb-3">Prompt de personnalisation (IA)</h2>
         <p class="text-body-secondary">
             Instructions pour personnaliser le contenu généré (ton, ajouts, précisions).
-            Le contenu de base de <code>docs/rgpd.md</code> est toujours inclus.
+            Le contenu par défaut et les modules actifs sont toujours inclus automatiquement.
         </p>
-        <textarea class="form-control font-monospace" id="ai-prompt" rows="6" placeholder="Exemple : Utilise un ton formel et ajoute une section sur les données de santé collectées lors des camps.">{%- if prompt -%}{{ prompt }}{%- endif -%}</textarea>
+        <textarea class="form-control font-monospace" id="ai-prompt" rows="6" placeholder="Exemple : Les photos et les données sont stockées sur Google Workspace. Ajoute les informations de localisation des serveurs Google et un lien vers leur politique de confidentialité dans la section sous-traitants.">{%- if prompt -%}{{ prompt }}{%- endif -%}</textarea>
         <div class="mt-3">
             <button type="button" class="btn btn-primary" id="generate-btn">
                 <i class="bi bi-stars"></i> Générer le contenu
@@ -79,11 +79,17 @@
     <div class="card-body">
         <div class="d-flex justify-content-between align-items-center mb-3">
             <h2 class="h6 mb-0">Contenu actuel</h2>
-            <button type="button" class="btn btn-sm btn-outline-secondary" id="reset-btn">
-                <i class="bi bi-arrow-counterclockwise"></i> Réinitialiser au contenu par défaut
-            </button>
+            <div>
+                <button type="button" class="btn btn-sm btn-outline-primary rich-text-field-edit-btn" id="edit-content-btn"
+                        data-key="rgpd.text" data-save-url="" title="Modifier">
+                    <i class="bi bi-pencil"></i> Modifier
+                </button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" id="reset-btn">
+                    <i class="bi bi-arrow-counterclockwise"></i> Réinitialiser
+                </button>
+            </div>
         </div>
-        <div id="editor-container" style="min-height: 400px; border: 1px solid #dee2e6; border-radius: 0.375rem; padding: 1rem;">
+        <div class="rich-text-field-preview border rounded p-3" data-key="rgpd.text" style="min-height: 200px;">
             {{ current_content|raw }}
         </div>
     </div>
@@ -96,111 +102,134 @@
     <span class="text-body-secondary ms-3" id="save-status"></span>
 </div>
 
+{% include 'partials/rich_text_editor.html.twig' %}
+{% endblock %}
+
+{% block scripts %}
+<script src="/assets/js/rich-text-field.js" defer></script>
 <script nonce="{{ csp_nonce }}">
 document.addEventListener('DOMContentLoaded', function() {
-    const modeRadios = document.querySelectorAll('input[name="mode"]');
-    const aiPromptCard = document.getElementById('ai-prompt-card');
-    const generateBtn = document.getElementById('generate-btn');
-    const resetBtn = document.getElementById('reset-btn');
-    const saveBtn = document.getElementById('save-btn');
-    const editorContainer = document.getElementById('editor-container');
-    const aiPromptTextarea = document.getElementById('ai-prompt');
-    const generateStatus = document.getElementById('generate-status');
-    const saveStatus = document.getElementById('save-status');
+    var modeRadios = document.querySelectorAll('input[name="mode"]');
+    var aiPromptCard = document.getElementById('ai-prompt-card');
+    var generateBtn = document.getElementById('generate-btn');
+    var resetBtn = document.getElementById('reset-btn');
+    var saveBtn = document.getElementById('save-btn');
+    var editBtn = document.getElementById('edit-content-btn');
+    var preview = document.querySelector('.rich-text-field-preview[data-key="rgpd.text"]');
+    var aiPromptTextarea = document.getElementById('ai-prompt');
+    var generateStatus = document.getElementById('generate-status');
+    var saveStatus = document.getElementById('save-status');
 
-    function updateUI() {
-        const selectedMode = document.querySelector('input[name="mode"]:checked').value;
-        aiPromptCard.style.display = selectedMode === 'ai' ? 'block' : 'none';
-        editorContainer.contentEditable = selectedMode === 'custom' || selectedMode === 'ai';
+    var csrfMeta = document.querySelector('meta[name="csrf-token"]');
+    var csrf = csrfMeta ? csrfMeta.content : '';
+
+    function getMode() {
+        var checked = document.querySelector('input[name="mode"]:checked');
+        return checked ? checked.value : 'default';
     }
 
-    modeRadios.forEach(radio => radio.addEventListener('change', updateUI));
+    function updateUI() {
+        var mode = getMode();
+        aiPromptCard.style.display = mode === 'ai' ? 'block' : 'none';
+        editBtn.style.display = (mode === 'custom' || mode === 'ai') ? 'inline-block' : 'none';
+    }
+
+    modeRadios.forEach(function(radio) { radio.addEventListener('change', updateUI); });
     updateUI();
 
-    generateBtn.addEventListener('click', async function() {
-        const prompt = aiPromptTextarea.value;
-        generateStatus.textContent = 'Génération en cours...';
+    // Override the rich-text-field edit button: open the shared modal but
+    // do NOT save via the default URL — we handle save ourselves below.
+    editBtn.addEventListener('click', function(e) {
+        e.stopImmediatePropagation();
+        var modalEl = document.getElementById('richTextEditorModal');
+        var editorContent = document.getElementById('richTextEditorContent');
+        if (!modalEl || !editorContent) return;
+        editorContent.innerHTML = preview.innerHTML;
+        var modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+        modal.show();
+
+        // Temporarily override the Save button to push back into preview
+        var saveEditorBtn = document.getElementById('richTextEditorSave');
+        var handler = function() {
+            preview.innerHTML = editorContent.innerHTML;
+            modal.hide();
+            saveEditorBtn.removeEventListener('click', handler);
+        };
+        saveEditorBtn.addEventListener('click', handler);
+    });
+
+    generateBtn.addEventListener('click', function() {
+        var prompt = aiPromptTextarea.value;
+        generateStatus.textContent = 'Génération en cours…';
         generateBtn.disabled = true;
 
-        try {
-            const response = await fetch('/config/rgpd/generate', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({
-                    _csrf_token: '{{ csrf_token() }}',
-                    prompt: prompt
-                })
-            });
-
-            const result = await response.json();
+        fetch('/config/rgpd/generate', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ _csrf_token: csrf, prompt: prompt })
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(result) {
             if (result.success) {
-                editorContainer.innerHTML = result.content;
+                preview.innerHTML = result.content;
                 generateStatus.innerHTML = '<span class="text-success"><i class="bi bi-check-circle"></i> Contenu généré</span>';
             } else {
                 generateStatus.innerHTML = '<span class="text-danger"><i class="bi bi-exclamation-circle"></i> ' + result.error + '</span>';
             }
-        } catch (error) {
-            generateStatus.innerHTML = '<span class="text-danger"><i class="bi bi-exclamation-circle"></i> Erreur: ' + error.message + '</span>';
-        } finally {
-            generateBtn.disabled = false;
-        }
+        })
+        .catch(function(err) {
+            generateStatus.innerHTML = '<span class="text-danger"><i class="bi bi-exclamation-circle"></i> Erreur : ' + err.message + '</span>';
+        })
+        .finally(function() { generateBtn.disabled = false; });
     });
 
-    resetBtn.addEventListener('click', async function() {
-        if (!confirm('Réinitialiser au contenu par défaut ?')) {
-            return;
-        }
+    resetBtn.addEventListener('click', function() {
+        if (!confirm('Réinitialiser au contenu par défaut ?')) return;
 
-        try {
-            const response = await fetch('/config/rgpd/reset', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({_csrf_token: '{{ csrf_token() }}'})
-            });
-
-            const result = await response.json();
+        fetch('/config/rgpd/reset', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ _csrf_token: csrf })
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(result) {
             if (result.success) {
-                editorContainer.innerHTML = result.content;
+                preview.innerHTML = result.content;
                 saveStatus.innerHTML = '<span class="text-success"><i class="bi bi-check-circle"></i> Réinitialisé</span>';
-                setTimeout(() => saveStatus.textContent = '', 3000);
+                setTimeout(function() { saveStatus.textContent = ''; }, 3000);
             }
-        } catch (error) {
+        })
+        .catch(function() {
             saveStatus.innerHTML = '<span class="text-danger"><i class="bi bi-exclamation-circle"></i> Erreur</span>';
-        }
+        });
     });
 
-    saveBtn.addEventListener('click', async function() {
-        const selectedMode = document.querySelector('input[name="mode"]:checked').value;
-        const content = editorContainer.innerHTML;
-        const prompt = aiPromptTextarea.value;
+    saveBtn.addEventListener('click', function() {
+        var mode = getMode();
+        var content = preview.innerHTML;
+        var prompt = aiPromptTextarea.value;
 
-        saveStatus.textContent = 'Enregistrement...';
+        saveStatus.textContent = 'Enregistrement…';
         saveBtn.disabled = true;
 
-        try {
-            const response = await fetch('/config/rgpd/save', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({
-                    _csrf_token: '{{ csrf_token() }}',
-                    mode: selectedMode,
-                    content: content,
-                    prompt: prompt
-                })
-            });
-
-            const result = await response.json();
+        fetch('/config/rgpd/save', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ _csrf_token: csrf, mode: mode, content: content, prompt: prompt })
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(result) {
             if (result.success) {
                 saveStatus.innerHTML = '<span class="text-success"><i class="bi bi-check-circle"></i> Enregistré</span>';
-                setTimeout(() => saveStatus.textContent = '', 3000);
+                setTimeout(function() { saveStatus.textContent = ''; }, 3000);
             } else {
                 saveStatus.innerHTML = '<span class="text-danger"><i class="bi bi-exclamation-circle"></i> ' + result.error + '</span>';
             }
-        } catch (error) {
+        })
+        .catch(function() {
             saveStatus.innerHTML = '<span class="text-danger"><i class="bi bi-exclamation-circle"></i> Erreur</span>';
-        } finally {
-            saveBtn.disabled = false;
-        }
+        })
+        .finally(function() { saveBtn.disabled = false; });
     });
 });
 </script>

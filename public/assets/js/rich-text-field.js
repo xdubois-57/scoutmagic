@@ -31,6 +31,8 @@
             if (cmd === 'createLink') {
                 var url = prompt('URL du lien :');
                 if (url) document.execCommand(cmd, false, url);
+            } else if (cmd === 'formatBlock') {
+                document.execCommand(cmd, false, '<' + btn.dataset.value + '>');
             } else {
                 document.execCommand(cmd, false, null);
             }

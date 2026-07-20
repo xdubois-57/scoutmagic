@@ -343,7 +343,6 @@ scripts/
 docs/
   specifications.md
   design.md
-  rgpd.md
 
 tests/             Mirrors core/ and modules/ structure
 

@@ -880,14 +880,15 @@ if (in_array('llm_connector', $moduleManager->getEnabledModuleIds(), true)) {
 }
 
 // RGPD configuration (may use LLM if module is active)
-$llmConnector = null;
+$llmConnectorForRgpd = null;
 $llmProviderRepoForRgpd = null;
+$llmModelRepoForRgpd = null;
 if (in_array('llm_connector', $moduleManager->getEnabledModuleIds(), true)) {
     $llmProviderRepoForRgpd = new \Modules\LlmConnector\Repository\ProviderRepository($pdo, $encryptionService);
     $llmModelRepoForRgpd = new \Modules\LlmConnector\Repository\ProviderModelRepository($pdo);
-    $llmConnector = new \Modules\LlmConnector\Service\LlmConnectorService($llmProviderRepoForRgpd, $llmModelRepoForRgpd, $journalService);
+    $llmConnectorForRgpd = new \Modules\LlmConnector\Service\LlmConnectorService($llmProviderRepoForRgpd, $llmModelRepoForRgpd, $journalService);
 }
-$rgpdContentService = new RgpdContentService($moduleManager, $llmConnector, $llmProviderRepoForRgpd);
+$rgpdContentService = new RgpdContentService($moduleManager, $settingService, $cookieConsentService, $llmConnectorForRgpd, $llmProviderRepoForRgpd, $llmModelRepoForRgpd);
 $frontController->registerController(RgpdConfigController::class, new RgpdConfigController($twig, $editableContentService, $rgpdContentService, $settingService, $moduleManager, $journalService));
 
 // Bypass RBAC for /setup routes when site is not initialized or explicitly allowed

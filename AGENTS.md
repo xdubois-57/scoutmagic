@@ -43,11 +43,11 @@ Before submitting any code:
 
 ## RGPD page maintenance
 
-The `docs/rgpd.md` source document and the corresponding editable content on the site must be kept in sync with the actual data processing performed by the codebase. Specifically:
+The default RGPD content is defined in `Core\View\RgpdContentService::getDefaultContent()`. It must be kept in sync with the actual data processing performed by the codebase. Specifically:
 
 - When adding a new data field to any table that stores personal data → update the "Données collectées" section.
 - When adding a new cookie → the cookie list is generated dynamically from declarations (see Cookie consent above).
-- When adding a new module that processes personal data → add a subsection under "Modules actifs".
+- When adding a new module that processes personal data → update the AI prompt in `RgpdContentService::buildSystemPrompt()` to describe the module's data processing.
 - When adding a new external service integration (API, email relay, etc.) → update the "Sous-traitants" section.
 - When changing data retention logic → update the "Durée de conservation" section.
 
