@@ -7,7 +7,21 @@
 
     {% if error %}
         <div class="alert alert-danger">{{ error }}</div>
-    {% endif %}
+        <a href="/finance/import" class="btn btn-sm btn-outline-secondary">Retour</a>
+    {% else %}
+        <div class="alert alert-success">
+            {{ result.linesTotal }} ligne(s) lue(s), {{ result.linesNew }} nouvelle(s), {{ result.linesDuplicate }} déjà présente(s) (ignorée(s)).
+        </div>
 
-    <a href="/finance/import" class="btn btn-sm btn-outline-secondary">Retour</a>
+        {% if balance_discrepancy is not null %}
+            <div class="alert alert-warning">
+                Écart détecté entre le solde fourni et le solde calculé à partir du dernier solde de référence et des mouvements :
+                <strong>{{ balance_discrepancy > 0 ? '+' : '' }}{{ balance_discrepancy|number_format(2, ',', ' ') }} €</strong>.
+                Vérifiez qu'aucun mouvement n'a été oublié.
+            </div>
+        {% endif %}
+
+        <a href="/finance/movements?account_id={{ account.id }}" class="btn btn-sm btn-primary">Voir les mouvements</a>
+        <a href="/finance/import" class="btn btn-sm btn-outline-secondary">Nouvel import</a>
+    {% endif %}
 {% endblock %}

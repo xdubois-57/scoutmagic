@@ -66,6 +66,8 @@ class FinanceRbacTest extends TestCase
     private JournalService $journalService;
     private CategoryRuleRepository $categoryRuleRepository;
     private CategoryRepository $categoryRepository;
+    private FiscalYearRepository $fiscalYearRepository;
+    private BalanceCheckpointRepository $checkpointRepository;
     private CategoryRuleEngine $categoryRuleEngine;
     private SchedulerService $schedulerService;
     private ImportService $importService;
@@ -84,20 +86,20 @@ class FinanceRbacTest extends TestCase
 
         $accountRepository = new AccountRepository($this->pdo, $encryption);
         $this->categoryRepository = new CategoryRepository($this->pdo);
-        $fiscalYearRepository = new FiscalYearRepository($this->pdo);
+        $this->fiscalYearRepository = new FiscalYearRepository($this->pdo);
         $this->categoryRuleRepository = new CategoryRuleRepository($this->pdo);
         $this->transactionRepository = new TransactionRepository($this->pdo, $encryption);
-        $checkpointRepository = new BalanceCheckpointRepository($this->pdo);
+        $this->checkpointRepository = new BalanceCheckpointRepository($this->pdo);
         $statementImportRepository = new StatementImportRepository($this->pdo);
         $this->attachmentRepository = new AttachmentRepository($this->pdo);
 
-        $this->financeService = new FinanceService($accountRepository, $this->categoryRepository, $fiscalYearRepository, $this->sectionService);
-        $this->balanceService = new BalanceService($checkpointRepository, $this->transactionRepository);
-        $this->categoryRuleEngine = new CategoryRuleEngine($this->transactionRepository);
+        $this->financeService = new FinanceService($accountRepository, $this->categoryRepository, $this->fiscalYearRepository, $this->sectionService);
+        $this->balanceService = new BalanceService($this->checkpointRepository, $this->transactionRepository);
+        $this->categoryRuleEngine = new CategoryRuleEngine($this->transactionRepository, $this->categoryRuleRepository);
         $parserFactory = new BankStatementParserFactory();
         $importService = new ImportService(
-            $parserFactory, $accountRepository, $this->transactionRepository, $checkpointRepository,
-            $statementImportRepository, $fiscalYearRepository, $this->categoryRuleEngine
+            $this->pdo, $encryption, $parserFactory, $this->transactionRepository, $this->checkpointRepository,
+            $statementImportRepository, $this->fiscalYearRepository, $this->categoryRuleEngine, $this->balanceService
         );
 
         $templateDir = dirname(__DIR__, 4) . '/core/View/templates';
@@ -199,8 +201,10 @@ class FinanceRbacTest extends TestCase
     {
         return match ($name) {
             'DashboardController' => new DashboardController($this->twig, $this->financeService, $this->balanceService),
-            'MovementController' => new MovementController($this->twig, $this->financeService, $this->transactionRepository),
-            'ImportController' => new ImportController($this->twig, $this->financeService, $this->importService, $this->parserFactory),
+            'MovementController' => new MovementController(
+                $this->twig, $this->financeService, $this->transactionRepository, $this->categoryRepository, $this->fiscalYearRepository, $this->journalService
+            ),
+            'ImportController' => new ImportController($this->twig, $this->financeService, $this->importService, $this->parserFactory, $this->checkpointRepository),
             'ReceiptController' => new ReceiptController($this->twig, $this->attachmentRepository, $this->financeService),
             'ConfigController' => new ConfigController($this->twig, $this->financeService, $this->schedulerService),
             'ConfigAccountController' => new ConfigAccountController($this->twig, $this->financeService, $this->sectionService, $this->journalService),

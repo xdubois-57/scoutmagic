@@ -5,17 +5,13 @@
 {% block content %}
     <h1 class="mb-4">Importer un relevé bancaire</h1>
 
-    <div class="alert alert-info">
-        L'import de relevés bancaires n'est pas encore disponible.
-    </div>
-
-    <form method="post" action="/finance/import" enctype="multipart/form-data" class="border rounded-3 p-3">
+    <form method="post" action="/finance/import" enctype="multipart/form-data" class="border rounded-3 p-3" id="import-form">
         <div class="row g-2">
             <div class="col-12 col-md-4">
                 <label class="form-label small" for="import-account">Compte</label>
                 <select class="form-select form-select-sm" id="import-account" name="account_id">
                     {% for account in accounts %}
-                        <option value="{{ account.id }}">{{ account.name }}</option>
+                        <option value="{{ account.id }}" data-first-import="{{ first_import_by_account_id[account.id] ? '1' : '0' }}">{{ account.name }}</option>
                     {% endfor %}
                 </select>
             </div>
@@ -28,12 +24,37 @@
                 </select>
             </div>
             <div class="col-12 col-md-4">
-                <label class="form-label small" for="import-file">Fichier</label>
-                <input type="file" class="form-control form-control-sm" id="import-file" name="statement">
+                <label class="form-label small" for="import-file">Fichier CSV</label>
+                <input type="file" class="form-control form-control-sm" id="import-file" name="statement" accept=".csv" required>
+            </div>
+            <div class="col-12 col-md-6">
+                <label class="form-label small" for="import-balance">Solde après ce relevé</label>
+                <input type="text" class="form-control form-control-sm" id="import-balance" name="balance" placeholder="1234,56">
+                <div class="form-text small" id="import-balance-hint"></div>
             </div>
             <div class="col-12">
-                <button type="submit" class="btn btn-sm btn-primary" disabled>Importer</button>
+                <button type="submit" class="btn btn-sm btn-primary">Importer</button>
             </div>
         </div>
     </form>
+{% endblock %}
+
+{% block scripts %}
+<script nonce="{{ csp_nonce }}">
+const accountSelect = document.getElementById('import-account');
+const balanceInput = document.getElementById('import-balance');
+const balanceHint = document.getElementById('import-balance-hint');
+
+function updateBalanceRequirement() {
+    const option = accountSelect.options[accountSelect.selectedIndex];
+    const isFirstImport = option && option.dataset.firstImport === '1';
+    balanceInput.required = isFirstImport;
+    balanceHint.textContent = isFirstImport
+        ? "Premier import pour ce compte : le solde est obligatoire."
+        : "Facultatif — laissez vide pour recalculer le solde automatiquement depuis les mouvements.";
+}
+
+accountSelect.addEventListener('change', updateBalanceRequirement);
+updateBalanceRequirement();
+</script>
 {% endblock %}

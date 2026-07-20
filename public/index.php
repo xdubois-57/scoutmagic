@@ -904,11 +904,11 @@ if (in_array('finance', $moduleManager->getEnabledModuleIds(), true)) {
         $financeAccountRepo, $financeCategoryRepo, $financeFiscalYearRepo, $sectionService
     );
     $financeBalanceService = new \Modules\Finance\Service\BalanceService($financeCheckpointRepo, $financeTransactionRepo);
-    $financeRuleEngine = new \Modules\Finance\Service\CategoryRuleEngine($financeTransactionRepo);
+    $financeRuleEngine = new \Modules\Finance\Service\CategoryRuleEngine($financeTransactionRepo, $financeCategoryRuleRepo);
     $financeParserFactory = new \Modules\Finance\Parser\BankStatementParserFactory();
     $financeImportService = new \Modules\Finance\Service\ImportService(
-        $financeParserFactory, $financeAccountRepo, $financeTransactionRepo, $financeCheckpointRepo,
-        $financeStatementImportRepo, $financeFiscalYearRepo, $financeRuleEngine
+        $pdo, $encryptionService, $financeParserFactory, $financeTransactionRepo, $financeCheckpointRepo,
+        $financeStatementImportRepo, $financeFiscalYearRepo, $financeRuleEngine, $financeBalanceService
     );
 
     $frontController->registerController(
@@ -917,11 +917,13 @@ if (in_array('finance', $moduleManager->getEnabledModuleIds(), true)) {
     );
     $frontController->registerController(
         \Modules\Finance\Controller\MovementController::class,
-        new \Modules\Finance\Controller\MovementController($twig, $financeService, $financeTransactionRepo)
+        new \Modules\Finance\Controller\MovementController(
+            $twig, $financeService, $financeTransactionRepo, $financeCategoryRepo, $financeFiscalYearRepo, $journalService
+        )
     );
     $frontController->registerController(
         \Modules\Finance\Controller\ImportController::class,
-        new \Modules\Finance\Controller\ImportController($twig, $financeService, $financeImportService, $financeParserFactory)
+        new \Modules\Finance\Controller\ImportController($twig, $financeService, $financeImportService, $financeParserFactory, $financeCheckpointRepo)
     );
     $frontController->registerController(
         \Modules\Finance\Controller\ReceiptController::class,

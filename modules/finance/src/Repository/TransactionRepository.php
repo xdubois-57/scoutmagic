@@ -58,6 +58,58 @@ class TransactionRepository
         return array_map([$this, 'hydrate'], $rows);
     }
 
+    /**
+     * Movements page filtering (Controller\MovementController::list()).
+     * account_id/fiscal_year_id/category_id are filtered in SQL;
+     * $search is matched against the decrypted label in PHP afterwards —
+     * label is encrypted (non-deterministic ciphertext), so it can never
+     * be matched with a SQL WHERE/LIKE clause. $accountIds is the RBAC
+     * boundary (accounts visible to the caller's role) — null means "no
+     * account restriction" and must never be passed directly from user
+     * input, only from a caller that has already computed the visible
+     * set (see MovementController::list()).
+     *
+     * @param int[]|null $accountIds
+     * @return Transaction[]
+     */
+    public function findFiltered(?array $accountIds, ?int $fiscalYearId, ?int $categoryId, ?string $search): array
+    {
+        $sql = 'SELECT * FROM finance_transactions WHERE 1=1';
+        $params = [];
+
+        if ($accountIds !== null) {
+            if ($accountIds === []) {
+                return [];
+            }
+            $placeholders = implode(',', array_fill(0, count($accountIds), '?'));
+            $sql .= " AND account_id IN ({$placeholders})";
+            array_push($params, ...$accountIds);
+        }
+        if ($fiscalYearId !== null) {
+            $sql .= ' AND fiscal_year_id = ?';
+            $params[] = $fiscalYearId;
+        }
+        if ($categoryId !== null) {
+            $sql .= ' AND category_id = ?';
+            $params[] = $categoryId;
+        }
+
+        $sql .= ' ORDER BY transaction_date DESC, id DESC';
+
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute($params);
+        $transactions = array_map([$this, 'hydrate'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
+
+        if ($search !== null && trim($search) !== '') {
+            $transactions = array_values(array_filter(
+                $transactions,
+                fn(Transaction $transaction) => mb_stripos($transaction->label, $search) !== false
+            ));
+        }
+
+        return $transactions;
+    }
+
     public function create(
         int $accountId,
         int $fiscalYearId,

@@ -6,7 +6,12 @@ namespace Modules\Finance\Parser;
 
 use Modules\Finance\Service\FinanceException;
 
-final class BankStatementParserFactory
+/**
+ * Not final — Tests\Modules\Finance\Service\ImportServiceTest overrides
+ * create() to inject a fake parser without touching the real bnp match
+ * arm below.
+ */
+class BankStatementParserFactory
 {
     /**
      * @return string[] bank codes accepted by import()/create(), for the

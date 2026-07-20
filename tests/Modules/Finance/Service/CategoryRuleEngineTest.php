@@ -5,7 +5,10 @@ declare(strict_types=1);
 namespace Tests\Modules\Finance\Service;
 
 use Core\Security\EncryptionService;
+use Modules\Finance\Parser\StatementLine;
+use Modules\Finance\Repository\CategoryRepository;
 use Modules\Finance\Repository\CategoryRule;
+use Modules\Finance\Repository\CategoryRuleRepository;
 use Modules\Finance\Repository\Transaction;
 use Modules\Finance\Repository\TransactionRepository;
 use Modules\Finance\Service\CategoryRuleEngine;
@@ -19,6 +22,8 @@ use Tests\Modules\Finance\FinanceTestHelper;
 class CategoryRuleEngineTest extends TestCase
 {
     private TransactionRepository $transactionRepository;
+    private CategoryRuleRepository $categoryRuleRepository;
+    private CategoryRepository $categoryRepository;
     private CategoryRuleEngine $engine;
     private int $accountId;
     private int $fiscalYearId;
@@ -30,7 +35,9 @@ class CategoryRuleEngineTest extends TestCase
 
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $this->transactionRepository = new TransactionRepository($pdo, $encryption);
-        $this->engine = new CategoryRuleEngine($this->transactionRepository);
+        $this->categoryRuleRepository = new CategoryRuleRepository($pdo);
+        $this->categoryRepository = new CategoryRepository($pdo);
+        $this->engine = new CategoryRuleEngine($this->transactionRepository, $this->categoryRuleRepository);
 
         $stmt = $pdo->prepare("INSERT INTO finance_accounts (name, account_type) VALUES ('Compte', 'bank')");
         $stmt->execute();
@@ -108,5 +115,66 @@ class CategoryRuleEngineTest extends TestCase
         $this->transactionRepository->create(
             $this->accountId, $this->fiscalYearId, null, '2026-10-01', $label, $amount, null, null, Transaction::SOURCE_MANUAL, null
         );
+    }
+
+    private function line(string $label, float $amount, ?string $counterpartyAccount = null): StatementLine
+    {
+        return new StatementLine('ref-' . spl_object_id(new \stdClass()), new \DateTimeImmutable('2026-10-01'), $amount, $label, $counterpartyAccount);
+    }
+
+    public function testApplyReturnsNullWhenNoRuleMatches(): void
+    {
+        $this->assertNull($this->engine->apply($this->line('Achat divers', -20.0)));
+    }
+
+    public function testApplyMatchesKeywordRule(): void
+    {
+        $categoryId = $this->categoryRepository->create('Alimentation');
+        $this->categoryRuleRepository->create($categoryId, 0, CategoryRule::CONDITION_KEYWORD, 'delhaize');
+
+        $matched = $this->engine->apply($this->line('VIR Delhaize Bruxelles', -20.0));
+
+        $this->assertSame($categoryId, $matched);
+    }
+
+    public function testApplyMatchesCounterpartyAccountRule(): void
+    {
+        $categoryId = $this->categoryRepository->create('Loyer');
+        $this->categoryRuleRepository->create($categoryId, 0, CategoryRule::CONDITION_COUNTERPARTY_ACCOUNT, 'BE92001511757023');
+
+        $matched = $this->engine->apply($this->line('Virement', -500.0, 'BE92001511757023'));
+
+        $this->assertSame($categoryId, $matched);
+    }
+
+    public function testApplyCounterpartyAccountRulePartialMatch(): void
+    {
+        $categoryId = $this->categoryRepository->create('Loyer');
+        $this->categoryRuleRepository->create($categoryId, 0, CategoryRule::CONDITION_COUNTERPARTY_ACCOUNT, '1757023');
+
+        $matched = $this->engine->apply($this->line('Virement', -500.0, 'BE92001511757023'));
+
+        $this->assertSame($categoryId, $matched);
+    }
+
+    public function testApplyRespectsAscendingPriorityFirstMatchWins(): void
+    {
+        $lowPriorityCategory = $this->categoryRepository->create('Général');
+        $highPriorityCategory = $this->categoryRepository->create('Alimentation');
+        $this->categoryRuleRepository->create($lowPriorityCategory, 10, CategoryRule::CONDITION_KEYWORD, 'delhaize');
+        $this->categoryRuleRepository->create($highPriorityCategory, 0, CategoryRule::CONDITION_KEYWORD, 'delhaize');
+
+        $matched = $this->engine->apply($this->line('VIR Delhaize Bruxelles', -20.0));
+
+        $this->assertSame($highPriorityCategory, $matched);
+    }
+
+    public function testApplyIgnoresInactiveRules(): void
+    {
+        $categoryId = $this->categoryRepository->create('Alimentation');
+        $ruleId = $this->categoryRuleRepository->create($categoryId, 0, CategoryRule::CONDITION_KEYWORD, 'delhaize');
+        $this->categoryRuleRepository->setActive($ruleId, false);
+
+        $this->assertNull($this->engine->apply($this->line('VIR Delhaize Bruxelles', -20.0)));
     }
 }
