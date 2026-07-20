@@ -189,7 +189,7 @@ CREATE TABLE IF NOT EXISTS calendar_events (
 ## Cookies
 
 - Declared in `module.json` under the `cookies` section.
-- Automatically appear in the consent banner, preferences page, and RGPD page.
+- Automatically appear in the consent banner and the preferences page (the RGPD page only links to the preferences page).
 - Before setting a cookie: always check `$cookieConsentService->isAllowed('functional')`.
 
 ## Scheduled tasks

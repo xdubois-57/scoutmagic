@@ -212,6 +212,10 @@ Deactivation: unregister routes → log deactivation. **Never** touch tables or 
 
 A module that needs to extend a *core* configuration page (e.g. attach flags to a core entity) must not be depended on by core code directly. Instead, core defines a small interface (e.g. `Core\Module\FunctionFlagsProvider`, used by the Config Desk page to let a module declare a per-function flag without the core page hardcoding any module or function name), the module implements it, and the composition root (`public/index.php`) wires the concrete implementation into the core controller only when that module is enabled. Same precedent as `Core\Scheduler\TaskHandlerInterface`.
 
+### 7.5 Core optionally consuming a module's public API
+
+The reverse direction: a module that offers a capability other code may want to *use* (not extend) publishes a stable public interface under its own `Api` namespace (e.g. `Modules\LlmConnector\Api\LlmConnectorInterface`) rather than core defining the interface. Core code that wants to use the capability (e.g. `Core\View\RgpdContentService` generating text via AI) declares a nullable constructor dependency on that interface and must degrade gracefully (feature simply unavailable) when it is `null`. The composition root (`public/index.php`) instantiates the module's concrete implementation and injects it only when the providing module is enabled in `ModuleManager::getEnabledModuleIds()`; core never references the module's classes when it is disabled.
+
 ## 8. Core services
 
 ### 8.1 Desk CSV import

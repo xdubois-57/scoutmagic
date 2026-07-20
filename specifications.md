@@ -65,7 +65,7 @@ Site-wide settings, modules, functions.
 | Accueil | Editable text and photos (configuration mode) |
 | Contact | Editable text |
 | Sections | Generated from Desk import |
-| RGPD | Editable text + dynamically generated cookie list from all active modules |
+| RGPD | Content set via the RGPD configuration page (§4.5): default reference text, admin-edited custom text, or AI-generated text. Links to the cookie preferences page for the cookie list (no longer embedded inline). |
 
 ### 4.2 Espace des animés
 
@@ -94,6 +94,7 @@ Site-wide settings, modules, functions.
 | Config Desk | Map Desk functions to site roles; rename sections and toggle their visibility across the site. |
 | Paramètres | Key-value settings grouped by module, edit via dialog. |
 | Actions planifiées | Scheduled actions list with status. |
+| Configuration RGPD | Choose the RGPD page's content mode: default reference text, custom rich text, or AI-generated from an admin-provided prompt (requires an AI connector module to be enabled). Auto-saved on every mode/content change; each mode tracks its own last real content-change date/time (UTC), never "today" on every view. |
 
 ### 4.6 Pages outside menus
 
@@ -119,7 +120,7 @@ Displays all cookie categories with description and toggle. Strictly necessary s
 - Mon compte page (for identified users).
 
 ### 5.4 RGPD page integration
-The RGPD page includes a dynamically generated section listing all cookies used by the site, pulled from the same source as the preferences page. This section updates automatically when modules are activated/deactivated or cookies are added/removed.
+The RGPD page does not embed a cookie list inline — it links to the dedicated preferences page (§5.2) for the full, always-current list. Its own textual content is managed separately (§4.5 Configuration RGPD).
 
 ## 6. Configuration mode
 

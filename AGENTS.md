@@ -37,8 +37,8 @@ Before submitting any code:
 
 - Every cookie used by the site (core or module) must be declared: name, category, purpose (in French), and duration.
 - Core cookies are declared in `core/Cookie/CookieRegistry.php`. Module cookies are declared in their `module.json` under the `cookies` section.
-- The cookie preferences page, the RGPD public page, and the consent banner must all display the **complete and current** list of cookies, aggregated from the core registry and all active modules. These three surfaces pull from the same source of truth (`CookieConsentService::getAllDeclaredCookies()`).
-- When adding, removing, or modifying any cookie anywhere in the codebase, you **must** verify that the declaration is updated accordingly. The cookie preferences page, the RGPD page, and the consent banner will then reflect the change automatically.
+- The cookie preferences page and the consent banner must both display the **complete and current** list of cookies, aggregated from the core registry and all active modules. Both surfaces pull from the same source of truth (`CookieConsentService::getAllDeclaredCookies()`). The RGPD public page does not display this list inline — it links to the preferences page.
+- When adding, removing, or modifying any cookie anywhere in the codebase, you **must** verify that the declaration is updated accordingly. The cookie preferences page and the consent banner will then reflect the change automatically.
 - Never set a non-essential cookie without first checking `CookieConsentService::isAllowed($category)`.
 
 ## RGPD page maintenance

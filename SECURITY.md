@@ -88,7 +88,7 @@ Every response: `Content-Security-Policy`, `X-Content-Type-Options: nosniff`, `X
 - Cookies categorized: strictly necessary (no consent), functional (consent required), analytics (consent required).
 - Consent checked via `CookieConsentService::isAllowed()` before setting any non-essential cookie.
 - Consent stored in a strictly-necessary cookie (13-month expiry per ePrivacy directive).
-- Cookie declarations aggregated from core + modules — single source of truth for banner, preferences page, and RGPD page.
+- Cookie declarations aggregated from core + modules — single source of truth for the banner and the preferences page (the RGPD page links to the preferences page rather than duplicating this list).
 
 ## 11. Event journal
 

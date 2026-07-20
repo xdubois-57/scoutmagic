@@ -131,7 +131,7 @@ Poor man's cron: check every page visit (>1 min since last), process after respo
 ## 6. Cookie consent design
 
 ### 6.1 Architecture
-`CookieConsentService` aggregates cookie declarations from `core/Cookie/CookieRegistry.php` and all active modules' `module.json`. Single source of truth used by banner, preferences page, and RGPD page.
+`CookieConsentService` aggregates cookie declarations from `core/Cookie/CookieRegistry.php` and all active modules' `module.json`. Single source of truth used by the banner and the preferences page; the RGPD page only links to the preferences page rather than consuming this data itself.
 
 ### 6.2 Storage
 Consent stored in strictly-necessary cookie `cookie_consent` (JSON: `{"functional": true, "analytics": false}`). 13-month expiry.
