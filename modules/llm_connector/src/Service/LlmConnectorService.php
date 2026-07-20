@@ -70,6 +70,10 @@ class LlmConnectorService implements LlmConnectorInterface
             'response_schema' => $request->responseSchema,
         ];
 
+        if ($request->timeoutSeconds !== null) {
+            $options['timeout'] = $request->timeoutSeconds;
+        }
+
         try {
             $providerResponse = $driverInstance->complete($model['model_id'], $request->prompt, $options);
         } catch (LlmException $e) {

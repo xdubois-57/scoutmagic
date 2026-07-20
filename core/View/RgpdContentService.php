@@ -61,10 +61,24 @@ class RgpdContentService
         $request = new LlmRequest(
             prompt: "Génère le contenu RGPD complet en HTML selon la structure imposée dans le prompt système.",
             tier: LlmTier::CAPABLE,
-            systemPrompt: $systemPrompt
+            systemPrompt: $systemPrompt,
+            timeoutSeconds: 90
         );
 
-        $response = $this->llmConnector->complete($request);
+        // The RGPD system prompt is unusually large (full default content +
+        // detailed rules), so the provider can take longer to respond than
+        // PHP's default 30s max_execution_time. That limit is a hard script
+        // timeout — unlike the provider's own HTTP timeout, it is NOT
+        // catchable and would otherwise produce a raw fatal error page
+        // instead of a normal LlmException. Raise it just for this call.
+        $previousLimit = ini_get('max_execution_time');
+        set_time_limit(120);
+
+        try {
+            $response = $this->llmConnector->complete($request);
+        } finally {
+            set_time_limit((int) $previousLimit);
+        }
 
         try {
             return $this->sanitizeHtmlOutput($response->content);
