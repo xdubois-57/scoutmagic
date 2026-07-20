@@ -85,6 +85,7 @@ dans `CookieRegistry` (core) et `module.json` (modules). Elle est affichée sur 
 | Hébergeur web | Stockage des données, exécution du site |
 | Relais SMTP (configurable) | Envoi d'emails transactionnels |
 | Fournisseur de téléphonie (OVH Télécom, si le module SOS Staff d'U est activé et configuré) | Redirection automatique du numéro SOS de l'unité vers le membre du Staff d'U de garde |
+| Fournisseur IA (si le module Connecteur IA est activé) — Anthropic (États-Unis) ou Mistral AI (France, UE) selon configuration | Analyse automatique de documents (factures, catégorisation). Les données envoyées peuvent contenir des noms, montants et contenus de documents. |
 
 ## Vos droits
 
@@ -102,6 +103,34 @@ Contactez le responsable de l'unité pour exercer ces droits.
 
 Chaque module qui traite des données personnelles doit documenter ses traitements
 dans cette section. Consultez `module.json` pour la liste des modules activés.
+
+### Connecteur IA
+
+Permet aux autres modules d'exploiter un fournisseur d'intelligence artificielle
+générative pour des tâches automatisées (analyse de factures, catégorisation de
+dépenses, extraction d'informations depuis des documents).
+
+| Champ | Finalité |
+|---|---|
+| Clé API du fournisseur (`llm_providers.api_key`, chiffrée) | Authentification auprès de l'API du fournisseur IA |
+| Contenu des requêtes envoyées au fournisseur | Données transmises pour traitement IA — peuvent inclure des noms, montants, contenus de factures selon le module appelant |
+
+**Transfert de données :** lorsque ce module est actif, les données transmises
+au fournisseur IA quittent les serveurs de ScoutMagic. Selon le fournisseur
+configuré :
+
+- **Anthropic** : données traitées aux États-Unis (hors UE).
+  [Politique de confidentialité](https://www.anthropic.com/legal/privacy).
+- **Mistral AI** : société française, données traitées dans l'Union européenne.
+  [Politique de confidentialité](https://legal.mistral.ai/terms/privacy-policy).
+
+Le contenu des requêtes et réponses n'est **jamais journalisé** dans le journal
+d'audit de ScoutMagic — seules les métadonnées (fournisseur, modèle, nombre de
+tokens) sont enregistrées. La clé API est chiffrée au repos (AES-256-CBC).
+
+Base légale : intérêt légitime (automatisation de tâches administratives de
+l'unité). Le super-administrateur est informé du transfert de données lors de
+la configuration du module.
 
 ### Trombinoscope
 

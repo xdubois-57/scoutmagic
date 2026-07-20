@@ -1,0 +1,44 @@
+{
+  "id": "llm_connector",
+  "name": "Connecteur IA",
+  "description": "Connecteur IA générique et réutilisable — encapsule toute la logique spécifique à un fournisseur de LLM (sélection de modèle, appels API, gestion des erreurs).",
+  "version": "1.0.0",
+  "routes": [
+    {
+      "path": "/config/llm",
+      "method": "GET",
+      "controller": "Modules\\LlmConnector\\Controller\\ConfigController",
+      "action": "index",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": "Intelligence artificielle"
+    },
+    {
+      "path": "/config/llm/providers",
+      "method": "POST",
+      "controller": "Modules\\LlmConnector\\Controller\\ConfigController",
+      "action": "saveProvider",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": ""
+    },
+    {
+      "path": "/config/llm/providers/{id}/test",
+      "method": "POST",
+      "controller": "Modules\\LlmConnector\\Controller\\ConfigController",
+      "action": "testConnection",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": ""
+    }
+  ],
+  "settings": [],
+  "cookies": [],
+  "scheduled_tasks": [
+    {
+      "key": "refresh_models",
+      "handler": "Modules\\LlmConnector\\Task\\RefreshModelsHandler"
+    }
+  ],
+  "storage": {}
+}

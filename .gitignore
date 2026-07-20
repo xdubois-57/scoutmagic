@@ -14,11 +14,15 @@ config/app.php
 # IDE files
 .idea/
 .vscode/
+.claude/
 *.swp
 *.swo
 *~
 .DS_Store
 Thumbs.db
+
+# PHPUnit test cache
+.phpunit.result.cache
 
 # PHPStan cache
 storage/temp/phpstan/

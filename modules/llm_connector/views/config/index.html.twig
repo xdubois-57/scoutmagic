@@ -1,0 +1,273 @@
+{% extends "base.html.twig" %}
+
+{% block title %}Intelligence artificielle — {{ site_name }}{% endblock %}
+
+{% block content %}
+<h1 class="h3 mb-4">Intelligence artificielle</h1>
+
+{# Module description #}
+<div class="card mb-4">
+    <div class="card-body">
+        <h2 class="h6 mb-3">À quoi sert ce module ?</h2>
+        <p class="mb-2">
+            Ce module connecte ScoutMagic à un fournisseur d'intelligence artificielle générative.
+            Il permet aux autres modules d'exploiter l'IA pour des tâches telles que :
+        </p>
+        <ul class="mb-3">
+            <li>Analyser automatiquement les factures et extraire les montants, dates et fournisseurs</li>
+            <li>Catégoriser les dépenses dans les bonnes rubriques comptables</li>
+            <li>Générer des résumés ou des suggestions à partir de documents</li>
+        </ul>
+        <div class="alert alert-warning mb-0">
+            <strong>Données personnelles :</strong> lorsque ce module est actif, certaines données
+            (contenu de factures, noms, montants) sont transmises au fournisseur IA sélectionné
+            pour traitement. Ces données quittent les serveurs de ScoutMagic.
+            Consultez la politique de confidentialité du fournisseur choisi ci-dessous avant d'activer ce module.
+        </div>
+    </div>
+</div>
+
+{# Status summary #}
+<div class="card mb-4">
+    <div class="card-body">
+        <h2 class="h6 mb-3">Résumé</h2>
+        <div class="row g-3">
+            <div class="col-sm-6 col-md-3">
+                <span class="text-body-secondary small d-block">Statut</span>
+                {% if active_provider and (cheap_model or capable_model) %}
+                    <span class="badge bg-success">Actif</span>
+                {% else %}
+                    <span class="badge bg-secondary">Non configuré</span>
+                {% endif %}
+            </div>
+            <div class="col-sm-6 col-md-3">
+                <span class="text-body-secondary small d-block">Fournisseur</span>
+                <strong>{{ active_provider ? active_provider.name : '—' }}</strong>
+            </div>
+            <div class="col-sm-6 col-md-3">
+                <span class="text-body-secondary small d-block">Modèle économique</span>
+                <strong>{{ cheap_model ? cheap_model.display_name : '—' }}</strong>
+            </div>
+            <div class="col-sm-6 col-md-3">
+                <span class="text-body-secondary small d-block">Modèle performant</span>
+                <strong>{{ capable_model ? capable_model.display_name : '—' }}</strong>
+            </div>
+        </div>
+    </div>
+</div>
+
+{# Provider form #}
+<div class="card mb-4">
+    <div class="card-body">
+        <h2 class="h6 mb-3">Fournisseur</h2>
+        <form id="provider-form" class="row g-3">
+            <input type="hidden" id="provider-id" value="{{ active_provider ? active_provider.id : '' }}">
+            <input type="hidden" id="provider-name" value="{{ active_provider ? active_provider.name : '' }}">
+            <input type="hidden" id="provider-endpoint" value="{{ active_provider ? active_provider.api_endpoint : '' }}">
+
+            <div class="col-md-6">
+                <label for="provider-driver" class="form-label">Fournisseur IA</label>
+                <select class="form-select" id="provider-driver" required>
+                    {% for driver in available_drivers %}
+                        <option value="{{ driver.id }}"
+                                data-endpoint="{{ driver.default_endpoint }}"
+                                data-label="{{ driver.label }}"
+                                {{ active_provider and active_provider.driver == driver.id ? 'selected' : '' }}>
+                            {{ driver.label }}
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            {# Driver-specific help — Anthropic #}
+            <div class="col-12" id="driver-help-anthropic">
+                <div class="alert alert-light border mb-0">
+                    <strong>Comment obtenir votre clé API Anthropic :</strong>
+                    <ol class="mb-2 mt-2">
+                        <li>Connectez-vous ou créez un compte sur <a href="https://console.anthropic.com/" target="_blank" rel="noopener">console.anthropic.com</a>.</li>
+                        <li>Accédez à la page <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">Settings &rarr; API Keys</a>.</li>
+                        <li>Cliquez sur « Create Key », donnez-lui un nom (ex. « ScoutMagic ») et copiez la clé générée.</li>
+                        <li>Collez-la ci-dessous. La clé est chiffrée avant d'être stockée en base de données.</li>
+                    </ol>
+                    <p class="mb-1 small"><strong>Localisation des serveurs :</strong> États-Unis (hors Union européenne). Les données sont stockées aux USA.</p>
+                    <p class="mb-0 small">
+                        <a href="https://www.anthropic.com/legal/privacy" target="_blank" rel="noopener">Politique de confidentialité Anthropic</a>
+                        ·
+                        <a href="https://www.anthropic.com/legal/commercial-terms" target="_blank" rel="noopener">Conditions commerciales</a>
+                    </p>
+                </div>
+            </div>
+
+            {# Driver-specific help — Mistral #}
+            <div class="col-12" id="driver-help-mistral">
+                <div class="alert alert-light border mb-0">
+                    <strong>Comment obtenir votre clé API Mistral :</strong>
+                    <ol class="mb-2 mt-2">
+                        <li>Connectez-vous ou créez un compte sur <a href="https://console.mistral.ai/" target="_blank" rel="noopener">console.mistral.ai</a>.</li>
+                        <li>Accédez à la page <a href="https://console.mistral.ai/api-keys" target="_blank" rel="noopener">API Keys</a>.</li>
+                        <li>Créez une clé, copiez-la et collez-la ci-dessous.</li>
+                    </ol>
+                    <p class="mb-1 small"><strong>Localisation des serveurs :</strong> Union européenne (France). Société française, conforme au RGPD.</p>
+                    <p class="mb-0 small">
+                        <a href="https://legal.mistral.ai/terms/privacy-policy" target="_blank" rel="noopener">Politique de confidentialité Mistral AI</a>
+                        ·
+                        <a href="https://legal.mistral.ai/terms/data-processing-addendum" target="_blank" rel="noopener">Accord de traitement des données</a>
+                    </p>
+                </div>
+            </div>
+
+            <div class="col-md-6">
+                <label for="provider-api-key" class="form-label">Clé API</label>
+                <input type="password" class="form-control" id="provider-api-key"
+                       placeholder="{{ active_provider ? '••••••••' : '' }}">
+                {% if active_provider %}
+                    <div class="form-text">Laisser vide pour conserver la clé actuelle.</div>
+                {% endif %}
+            </div>
+            <div class="col-md-6 d-flex align-items-end gap-2">
+                <button type="submit" class="btn btn-primary">Enregistrer</button>
+                <button type="button" class="btn btn-outline-secondary" id="test-connection-btn"
+                        {{ active_provider ? '' : 'disabled' }}>Tester la connexion</button>
+            </div>
+        </form>
+        <div id="provider-message" class="mt-3" style="display:none;"></div>
+    </div>
+</div>
+
+{# Models section #}
+{% if active_provider %}
+<div class="card mb-4">
+    <div class="card-body">
+        <h2 class="h6 mb-3">Modèles disponibles</h2>
+
+        {% if models|length > 0 %}
+            <p class="text-body-secondary small mb-3">
+                Les modèles économique et performant sont sélectionnés automatiquement parmi les modèles disponibles du fournisseur.
+            </p>
+            <div class="table-responsive">
+                <table class="table table-sm align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th>Modèle</th>
+                            <th>Rôle</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for model in models %}
+                            <tr>
+                                <td>
+                                    {{ model.display_name }}
+                                    <span class="text-body-secondary small d-block"><code>{{ model.model_id }}</code></span>
+                                </td>
+                                <td>
+                                    {% if model.is_tier_cheap %}
+                                        <span class="badge bg-info text-dark">Économique</span>
+                                    {% elseif model.is_tier_capable %}
+                                        <span class="badge bg-primary">Performant</span>
+                                    {% else %}
+                                        <span class="text-body-secondary">—</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% else %}
+            <p class="text-body-secondary mb-0">
+                Aucun modèle découvert. Cliquez sur « Tester la connexion » pour interroger l'API du fournisseur.
+            </p>
+        {% endif %}
+    </div>
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block scripts %}
+<script nonce="{{ csp_nonce }}">
+const csrf = () => document.querySelector('meta[name="csrf-token"]')?.content;
+
+// Auto-fill hidden name/endpoint and show/hide driver help
+function updateDriverInfo() {
+    const select = document.getElementById('provider-driver');
+    const option = select?.selectedOptions[0];
+    if (!option) return;
+
+    document.getElementById('provider-name').value = option.dataset.label || option.textContent.trim();
+    document.getElementById('provider-endpoint').value = option.dataset.endpoint || '';
+
+    // Show/hide driver-specific help
+    document.querySelectorAll('[id^="driver-help-"]').forEach(el => {
+        el.style.display = el.id === 'driver-help-' + select.value ? '' : 'none';
+    });
+
+    // Disable "Tester la connexion" when no saved provider or driver changed
+    const testBtn = document.getElementById('test-connection-btn');
+    const savedId = document.getElementById('provider-id').value;
+    const savedDriver = '{{ active_provider ? active_provider.driver : '' }}';
+    if (testBtn) {
+        testBtn.disabled = !savedId || select.value !== savedDriver;
+    }
+}
+updateDriverInfo();
+
+document.getElementById('provider-driver')?.addEventListener('change', updateDriverInfo);
+
+// Provider form
+document.getElementById('provider-form')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const msgEl = document.getElementById('provider-message');
+    msgEl.style.display = 'none';
+
+    const body = {
+        id: document.getElementById('provider-id').value || null,
+        name: document.getElementById('provider-name').value,
+        driver: document.getElementById('provider-driver').value,
+        api_endpoint: document.getElementById('provider-endpoint').value,
+        api_key: document.getElementById('provider-api-key').value,
+        _csrf_token: csrf()
+    };
+
+    const res = await fetch('/config/llm/providers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+    });
+    const data = await res.json();
+    msgEl.style.display = 'block';
+    if (data.success) {
+        msgEl.innerHTML = '<div class="alert alert-success mb-0">Fournisseur enregistré.</div>';
+        setTimeout(() => window.location.reload(), 800);
+    } else {
+        msgEl.innerHTML = '<div class="alert alert-danger mb-0">' + data.error + '</div>';
+    }
+});
+
+// Test connection
+document.getElementById('test-connection-btn')?.addEventListener('click', async () => {
+    const btn = document.getElementById('test-connection-btn');
+    const msgEl = document.getElementById('provider-message');
+    btn.disabled = true;
+    msgEl.style.display = 'block';
+    msgEl.innerHTML = '<div class="alert alert-info mb-0">Test en cours…</div>';
+
+    const providerId = document.getElementById('provider-id').value;
+    const res = await fetch('/config/llm/providers/' + providerId + '/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ _csrf_token: csrf() })
+    });
+    const data = await res.json();
+    btn.disabled = false;
+    if (data.success) {
+        msgEl.innerHTML = '<div class="alert alert-success mb-0">' + data.message + '</div>';
+        setTimeout(() => window.location.reload(), 800);
+    } else {
+        msgEl.innerHTML = '<div class="alert alert-danger mb-0">' + data.error + '</div>';
+    }
+});
+
+
+</script>
+{% endblock %}

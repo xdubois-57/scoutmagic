@@ -847,6 +847,16 @@ if (in_array('banner', $moduleManager->getEnabledModuleIds(), true)) {
     );
 }
 
+if (in_array('llm_connector', $moduleManager->getEnabledModuleIds(), true)) {
+    $llmProviderRepo = new \Modules\LlmConnector\Repository\ProviderRepository($pdo, $encryptionService);
+    $llmModelRepo = new \Modules\LlmConnector\Repository\ProviderModelRepository($pdo);
+
+    $frontController->registerController(
+        \Modules\LlmConnector\Controller\ConfigController::class,
+        new \Modules\LlmConnector\Controller\ConfigController($twig, $llmProviderRepo, $llmModelRepo, $journalService)
+    );
+}
+
 // Bypass RBAC for /setup routes when site is not initialized or explicitly allowed
 $allowSetup = (bool) $config->get('allow_setup', false);
 if (!$secretManager->isInitialized() || $allowSetup) {
