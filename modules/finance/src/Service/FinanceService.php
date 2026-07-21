@@ -69,6 +69,30 @@ class FinanceService
     }
 
     /**
+     * The account the "Finances" pages (dashboard, movements, receipts —
+     * one shared account picker across all three) resolve to: the
+     * requested id when it's valid and visible to $role, otherwise the
+     * first visible account, or null when none are visible at all.
+     */
+    public function resolveSelectedAccount(Role $role, ?string $requestedAccountId): ?Account
+    {
+        $accounts = $this->getAccountsForUser($role);
+        if ($accounts === []) {
+            return null;
+        }
+
+        if ($requestedAccountId !== null) {
+            foreach ($accounts as $account) {
+                if ($account->id === (int) $requestedAccountId) {
+                    return $account;
+                }
+            }
+        }
+
+        return $accounts[0];
+    }
+
+    /**
      * Idempotently creates a draft account for every active section that
      * doesn't already have one (module spec: "un compte par section est
      * créé par défaut") — same idempotent-ensure pattern as
@@ -110,6 +134,7 @@ class FinanceService
     ): Account {
         $this->validateAccountFields($name, $accountType, $roleMinView);
         $id = $this->accountRepository->create($name, $accountType, $sectionId, $iban, $holderName, $roleMinView);
+        $this->activateIfEligible($id);
         $account = $this->accountRepository->findById($id);
         \assert($account !== null);
         return $account;
@@ -132,29 +157,32 @@ class FinanceService
         }
         $this->validateAccountFields($name, $accountType, $roleMinView);
         $this->accountRepository->update($id, $name, $accountType, $sectionId, $iban, $holderName, $roleMinView);
+        $this->activateIfEligible($id);
         $account = $this->accountRepository->findById($id);
         \assert($account !== null);
         return $account;
     }
 
     /**
-     * A draft account can only become active once it has both an IBAN and
-     * a holder name — validated here, not just in the form (module spec:
-     * "Un compte ne peut passer en active que si iban et holder_name sont
-     * renseignés").
-     *
-     * @throws FinanceException when the account is missing iban/holder_name, or is unknown
+     * A draft account activates itself the moment it no longer has
+     * anything to wait for: a cash account has no bank details to
+     * collect at all, and a bank account is ready as soon as it has both
+     * an IBAN and a holder name. Never touches an already-active or
+     * archived account.
      */
-    public function activateAccount(int $id): void
+    private function activateIfEligible(int $id): void
     {
         $account = $this->accountRepository->findById($id);
-        if ($account === null) {
-            throw new FinanceException('Compte introuvable.');
+        if ($account === null || $account->status !== Account::STATUS_DRAFT) {
+            return;
         }
-        if ($account->iban === null || $account->iban === '' || $account->holderName === null || $account->holderName === '') {
-            throw new FinanceException("Le compte doit avoir un IBAN et un nom de titulaire avant de pouvoir être activé.");
+
+        $eligible = $account->accountType === Account::TYPE_CASH
+            || ($account->iban !== null && $account->iban !== '' && $account->holderName !== null && $account->holderName !== '');
+
+        if ($eligible) {
+            $this->accountRepository->updateStatus($id, Account::STATUS_ACTIVE);
         }
-        $this->accountRepository->updateStatus($id, Account::STATUS_ACTIVE);
     }
 
     /**
@@ -263,6 +291,9 @@ class FinanceService
     }
 
     // --- Fiscal years ---
+    //
+    // A fiscal year is a scout year — there is nothing for finance to
+    // create or set-current itself; see Repository\FiscalYearRepository.
 
     /**
      * @return FiscalYear[]
@@ -275,35 +306,6 @@ class FinanceService
     public function getCurrentFiscalYear(): ?FiscalYear
     {
         return $this->fiscalYearRepository->findCurrent();
-    }
-
-    /**
-     * @throws FinanceException on an invalid date range
-     */
-    public function createFiscalYear(string $label, string $startDate, string $endDate): FiscalYear
-    {
-        $label = trim($label);
-        if ($label === '') {
-            throw new FinanceException("Le libellé de l'exercice est obligatoire.");
-        }
-        if ($startDate >= $endDate) {
-            throw new FinanceException('La date de fin doit être postérieure à la date de début.');
-        }
-        $id = $this->fiscalYearRepository->create($label, $startDate, $endDate);
-        $fiscalYear = $this->fiscalYearRepository->findById($id);
-        \assert($fiscalYear !== null);
-        return $fiscalYear;
-    }
-
-    /**
-     * @throws FinanceException when the fiscal year is unknown
-     */
-    public function setCurrentFiscalYear(int $id): void
-    {
-        if ($this->fiscalYearRepository->findById($id) === null) {
-            throw new FinanceException('Exercice introuvable.');
-        }
-        $this->fiscalYearRepository->setCurrent($id);
     }
 
     // --- Dashboard statistics ---

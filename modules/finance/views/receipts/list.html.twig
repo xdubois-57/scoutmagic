@@ -3,9 +3,16 @@
 {% block title %}Reçus — Finances — {{ site_name }}{% endblock %}
 
 {% block content %}
+    <h1 class="mb-4">Finances</h1>
+
+    {% include '@finance/_nav.html.twig' %}
+
+    {% if no_accounts %}
+        <p class="text-body-secondary fst-italic">Aucun compte visible pour votre rôle.</p>
+    {% else %}
     <div class="d-flex justify-content-between align-items-center mb-4">
-        <h1 class="mb-0">Reçus</h1>
-        <a href="/finance/receipts/new" class="btn btn-sm btn-primary">Ajouter un reçu</a>
+        <h2 class="h5 mb-0">Reçus — {{ selected_account.name }}</h2>
+        <a href="/finance/receipts/new?account_id={{ selected_account.id }}" class="btn btn-sm btn-primary">Ajouter un reçu</a>
     </div>
 
     <div class="row g-3">
@@ -24,11 +31,14 @@
                     </a>
                     <div class="fw-semibold text-truncate" title="{{ attachment.originalFilename }}">{{ attachment.originalFilename }}</div>
                     <div class="text-body-secondary small">{{ attachment.uploadedAt }}</div>
-                    {% if attachment.suggestedAmount or attachment.suggestedDate %}
+                    {% if attachment.suggestedAmount or attachment.suggestedDate or attachment.suggestedLabel %}
                         <div class="small">
                             {% if attachment.suggestedAmount %}{{ attachment.suggestedAmount|number_format(2, ',', ' ') }} €{% endif %}
                             {% if attachment.suggestedDate %} — {{ attachment.suggestedDate }}{% endif %}
                             {% if attachment.suggestedSource == 'ai' %}<span class="badge text-bg-info">IA</span>{% endif %}
+                            {% if attachment.suggestedLabel %}
+                                <div class="text-body-secondary">{{ attachment.suggestedLabel }}</div>
+                            {% endif %}
                         </div>
                     {% endif %}
                     <div>
@@ -66,11 +76,14 @@
             </div>
         </div>
     </div>
+    {% endif %}
 {% endblock %}
 
 {% block scripts %}
+{% if not no_accounts %}
 <script nonce="{{ csp_nonce }}">
 const csrf = () => document.querySelector('meta[name="csrf-token"]')?.content;
+const currentAccountId = {{ selected_account.id }};
 let currentAttachmentId = null;
 const associateModalEl = document.getElementById('associate-modal');
 const associateModal = window.bootstrap ? new window.bootstrap.Modal(associateModalEl) : null;
@@ -91,7 +104,7 @@ document.getElementById('associate-search').addEventListener('input', (e) => {
 });
 
 async function runSearch(query) {
-    const res = await fetch('/finance/movements/search?q=' + encodeURIComponent(query));
+    const res = await fetch('/finance/movements/search?q=' + encodeURIComponent(query) + '&account_id=' + currentAccountId);
     const data = await res.json();
     const results = document.getElementById('associate-results');
     results.innerHTML = '';
@@ -142,4 +155,5 @@ document.querySelectorAll('.delete-btn').forEach(btn => {
     });
 });
 </script>
+{% endif %}
 {% endblock %}

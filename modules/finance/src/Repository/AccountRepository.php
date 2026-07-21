@@ -70,6 +70,12 @@ class AccountRepository
         return (int) $this->pdo->lastInsertId();
     }
 
+    /**
+     * $iban/$holderName of null means "leave unchanged" — the existing
+     * encrypted value (if any) is preserved rather than wiped, since a
+     * caller with only a partial form (e.g. editing just the name) must
+     * never silently erase the other fields.
+     */
     public function update(
         int $id,
         string $name,
@@ -79,6 +85,10 @@ class AccountRepository
         ?string $holderName,
         string $roleMinView
     ): void {
+        $existingStmt = $this->pdo->prepare('SELECT iban, iban_blind_index, holder_name FROM finance_accounts WHERE id = ?');
+        $existingStmt->execute([$id]);
+        $existing = $existingStmt->fetch(\PDO::FETCH_ASSOC) ?: [];
+
         $stmt = $this->pdo->prepare(
             'UPDATE finance_accounts
              SET name = ?, account_type = ?, section_id = ?, iban = ?, iban_blind_index = ?, holder_name = ?, role_min_view = ?
@@ -88,9 +98,9 @@ class AccountRepository
             $name,
             $accountType,
             $sectionId,
-            $iban !== null ? $this->encryption->encrypt($iban) : null,
-            $iban !== null ? $this->encryption->blindIndex($iban) : null,
-            $holderName !== null ? $this->encryption->encrypt($holderName) : null,
+            $iban !== null ? $this->encryption->encrypt($iban) : ($existing['iban'] ?? null),
+            $iban !== null ? $this->encryption->blindIndex($iban) : ($existing['iban_blind_index'] ?? null),
+            $holderName !== null ? $this->encryption->encrypt($holderName) : ($existing['holder_name'] ?? null),
             $roleMinView,
             $id,
         ]);

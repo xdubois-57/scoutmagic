@@ -1,22 +1,11 @@
 -- finance module
 --
--- finance_fiscal_years: one row per financial year, mirroring the site's
--- own scout-year concept (September-August) but kept as its own table
--- (not scout_years) since a unit's financial year boundaries are an
--- accounting decision an admin controls independently — see
--- ConfigFiscalYearController. Exactly one row has is_current = 1 at a
--- time (enforced in Service\FinanceService, not the DB — a partial unique
--- index on is_current isn't portable to the SQLite test DB, same
--- precedent as the SOS Staff d'U module's single-active-provider rule).
-CREATE TABLE IF NOT EXISTS finance_fiscal_years (
-    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    label VARCHAR(20) NOT NULL,
-    start_date DATE NOT NULL,
-    end_date DATE NOT NULL,
-    is_current BOOLEAN NOT NULL DEFAULT FALSE,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE INDEX idx_ffy_label (label)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+-- A finance "exercice" (fiscal year) is simply a scout year — the core
+-- `scout_years` table — not a module-specific entity an admin creates by
+-- hand. There is no finance_fiscal_years table: finance_transactions
+-- references scout_years(id) directly (see fk_ft_scout_year below).
+-- Repository\FiscalYearRepository is a thin adapter over
+-- Core\Config\ScoutYearService.
 
 -- finance_accounts: a bank or cash account, optionally tied to a section
 -- (e.g. one account per section, per the module spec's "un compte par
@@ -103,7 +92,7 @@ CREATE TABLE IF NOT EXISTS finance_transactions (
     UNIQUE INDEX idx_ft_account_reference (account_id, bank_reference),
     INDEX idx_ft_date (transaction_date),
     CONSTRAINT fk_ft_account FOREIGN KEY (account_id) REFERENCES finance_accounts(id) ON DELETE CASCADE,
-    CONSTRAINT fk_ft_fiscal_year FOREIGN KEY (fiscal_year_id) REFERENCES finance_fiscal_years(id),
+    CONSTRAINT fk_ft_scout_year FOREIGN KEY (fiscal_year_id) REFERENCES scout_years(id),
     CONSTRAINT fk_ft_category FOREIGN KEY (category_id) REFERENCES finance_categories(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -158,7 +147,20 @@ CREATE TABLE IF NOT EXISTS finance_statement_imports (
 -- distinguishes a manually-typed suggestion (module spec: optional
 -- amount/date fields on the upload form) from one written by
 -- Task\ExtractReceiptDataHandler, so the UI can show "(IA)" only for the
--- latter — NULL when no suggestion has ever been set.
+-- latter — NULL when no suggestion has ever been set. account_id is
+-- enforced NOT NULL at the application level (Service\ReceiptService::
+-- upload()/replace() always require one) — kept nullable in the schema
+-- itself only so any pre-existing row from before this requirement
+-- never breaks a migration. A receipt's file inherits its account's
+-- role_min_view as the underlying files.role_min at upload time (and is
+-- re-synced whenever the account's role_min_view changes — see
+-- Controller\ConfigAccountController), so downloading it via
+-- Core\File\FileAccessGuard enforces the same floor as the account
+-- itself. suggested_label is the AI-extracted merchant/reason (e.g.
+-- "Delhaize") — only ever written by Task\ExtractReceiptDataHandler, no
+-- manual-entry counterpart on the upload form (unlike suggested_amount/
+-- suggested_date), so it is always NULL for a suggested_source='manual'
+-- row.
 CREATE TABLE IF NOT EXISTS finance_attachments (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     account_id INT UNSIGNED NULL,
@@ -167,6 +169,7 @@ CREATE TABLE IF NOT EXISTS finance_attachments (
     original_filename VARCHAR(255) NOT NULL,
     suggested_amount DECIMAL(12, 2) NULL,
     suggested_date DATE NULL,
+    suggested_label VARCHAR(255) NULL,
     suggested_source ENUM('manual', 'ai') NULL,
     status ENUM('active', 'archived') NOT NULL DEFAULT 'active',
     parent_attachment_id INT UNSIGNED NULL,

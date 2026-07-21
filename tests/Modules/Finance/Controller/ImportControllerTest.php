@@ -56,7 +56,7 @@ class ImportControllerTest extends TestCase
         $transactionRepository = new TransactionRepository($this->pdo, $encryption);
         $this->checkpointRepository = new BalanceCheckpointRepository($this->pdo);
         $statementImportRepository = new StatementImportRepository($this->pdo);
-        $fiscalYearRepository = new FiscalYearRepository($this->pdo);
+        $fiscalYearRepository = new FiscalYearRepository($this->pdo, new \Core\Config\ScoutYearService($this->pdo));
         $categoryRepository = new CategoryRepository($this->pdo);
         $ruleEngine = new CategoryRuleEngine($transactionRepository, new CategoryRuleRepository($this->pdo));
         $balanceService = new BalanceService($this->checkpointRepository, $transactionRepository);
@@ -94,7 +94,7 @@ class ImportControllerTest extends TestCase
         $this->pdo->prepare("UPDATE finance_accounts SET status = 'active' WHERE id = ?")->execute([$accountId]);
         $this->accountId = $accountId;
 
-        $fiscalYearRepository->create('2026-2027', '2026-09-01', '2027-08-31');
+        FinanceTestHelper::createScoutYear($this->pdo, '2026-2027', '2026-09-01', '2027-08-31');
 
         $this->fixturePath = dirname(__DIR__, 3) . '/fixtures/finance/bnp_statement_sample.csv';
 

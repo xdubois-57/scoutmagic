@@ -42,9 +42,7 @@ class BalanceServiceTest extends TestCase
         $accountId = (int) $this->pdo->lastInsertId();
         $this->account = new Account($accountId, 'Compte', Account::TYPE_BANK, null, null, null, 'intendant', Account::STATUS_ACTIVE);
 
-        $stmt = $this->pdo->prepare("INSERT INTO finance_fiscal_years (label, start_date, end_date) VALUES ('2026-2027', '2026-09-01', '2027-08-31')");
-        $stmt->execute();
-        $this->fiscalYearId = (int) $this->pdo->lastInsertId();
+        $this->fiscalYearId = FinanceTestHelper::createScoutYear($this->pdo, '2026-2027', '2026-09-01', '2027-08-31');
     }
 
     public function testReturnsNullWhenNoCheckpointExists(): void

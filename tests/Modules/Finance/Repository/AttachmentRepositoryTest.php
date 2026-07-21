@@ -43,6 +43,16 @@ class AttachmentRepositoryTest extends TestCase
         $this->assertSame(Attachment::STATUS_ACTIVE, $attachment->status);
     }
 
+    public function testUpdateSuggestedLabelSetsMerchantName(): void
+    {
+        $id = $this->repository->create(null, $this->fileId, 'application/pdf', 'facture.pdf', null, null, null, null);
+        $this->assertNull($this->repository->findById($id)->suggestedLabel);
+
+        $this->repository->updateSuggestedLabel($id, 'Delhaize');
+
+        $this->assertSame('Delhaize', $this->repository->findById($id)->suggestedLabel);
+    }
+
     public function testFindActiveOrderedExcludesArchived(): void
     {
         $id1 = $this->repository->create(null, $this->fileId, 'application/pdf', 'a.pdf', null, null, null, null);

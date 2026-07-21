@@ -49,6 +49,7 @@ class MistralProvider implements LlmProviderInterface
         $url = rtrim($this->apiEndpoint, '/') . '/v1/chat/completions';
         $timeout = (int) ($options['timeout'] ?? self::DEFAULT_TIMEOUT);
         $systemPrompt = $options['system_prompt'] ?? null;
+        $attachments = $options['attachments'] ?? [];
         $responseSchema = $options['response_schema'] ?? null;
 
         $messages = [];
@@ -58,7 +59,7 @@ class MistralProvider implements LlmProviderInterface
             $messages[] = ['role' => 'system', 'content' => $effectiveSystem];
         }
 
-        $messages[] = ['role' => 'user', 'content' => $prompt];
+        $messages[] = ['role' => 'user', 'content' => $this->buildUserContent($prompt, $attachments)];
 
         $body = [
             'model' => $modelId,
@@ -132,6 +133,40 @@ class MistralProvider implements LlmProviderInterface
             'capable' => $bestLarge,
             'ocr' => $bestOcr,
         ];
+    }
+
+    /**
+     * OpenAI-compatible multi-part content: image attachments as
+     * image_url blocks (data URI), followed by the text prompt. Falls
+     * back to a plain string when there are no image attachments,
+     * preserving the exact prior wire format for non-multimodal calls.
+     * Non-image attachments (e.g. a PDF) are skipped — the chat
+     * completions endpoint has no document type, unlike Anthropic's
+     * Messages API (Provider\AnthropicProvider::buildContentBlocks()).
+     *
+     * @param array<int, array{data: string, mime_type: string}> $attachments
+     * @return string|array<int, array<string, mixed>>
+     */
+    private function buildUserContent(string $prompt, array $attachments): string|array
+    {
+        $blocks = [];
+        foreach ($attachments as $attachment) {
+            if (!str_starts_with($attachment['mime_type'], 'image/')) {
+                continue;
+            }
+            $blocks[] = [
+                'type' => 'image_url',
+                'image_url' => ['url' => 'data:' . $attachment['mime_type'] . ';base64,' . $attachment['data']],
+            ];
+        }
+
+        if ($blocks === []) {
+            return $prompt;
+        }
+
+        $blocks[] = ['type' => 'text', 'text' => $prompt];
+
+        return $blocks;
     }
 
     /**

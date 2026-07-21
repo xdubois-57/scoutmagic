@@ -88,8 +88,6 @@ class CategoryRepositoryTest extends TestCase
 
     private function createFiscalYear(): int
     {
-        $stmt = $this->pdo->prepare("INSERT INTO finance_fiscal_years (label, start_date, end_date) VALUES ('2026-2027', '2026-09-01', '2027-08-31')");
-        $stmt->execute();
-        return (int) $this->pdo->lastInsertId();
+        return FinanceTestHelper::createScoutYear($this->pdo, '2026-2027', '2026-09-01', '2027-08-31');
     }
 }

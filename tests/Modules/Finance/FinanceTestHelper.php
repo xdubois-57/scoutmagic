@@ -13,14 +13,9 @@ class FinanceTestHelper
 {
     public static function createTables(\PDO $pdo): void
     {
-        $pdo->exec('CREATE TABLE finance_fiscal_years (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            label TEXT NOT NULL UNIQUE,
-            start_date TEXT NOT NULL,
-            end_date TEXT NOT NULL,
-            is_current INTEGER NOT NULL DEFAULT 0,
-            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-        )');
+        // No finance_fiscal_years table — a fiscal year is a scout year
+        // (the shared core `scout_years` table, already created by
+        // Tests\DatabaseTestHelper::createTestDatabase()).
 
         $pdo->exec('CREATE TABLE finance_accounts (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -70,7 +65,7 @@ class FinanceTestHelper
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(account_id, bank_reference),
             FOREIGN KEY (account_id) REFERENCES finance_accounts(id),
-            FOREIGN KEY (fiscal_year_id) REFERENCES finance_fiscal_years(id),
+            FOREIGN KEY (fiscal_year_id) REFERENCES scout_years(id),
             FOREIGN KEY (category_id) REFERENCES finance_categories(id)
         )');
 
@@ -105,6 +100,7 @@ class FinanceTestHelper
             original_filename TEXT NOT NULL,
             suggested_amount REAL,
             suggested_date TEXT,
+            suggested_label TEXT,
             suggested_source TEXT,
             status TEXT NOT NULL DEFAULT \'active\',
             parent_attachment_id INTEGER,
@@ -122,5 +118,18 @@ class FinanceTestHelper
             FOREIGN KEY (transaction_id) REFERENCES finance_transactions(id),
             FOREIGN KEY (attachment_id) REFERENCES finance_attachments(id)
         )');
+    }
+
+    /**
+     * A fiscal year is a scout year — tests that need one seed
+     * `scout_years` directly (a raw insert, not
+     * Core\Config\ScoutYearService::ensureYear(), so tests can use
+     * arbitrary historical/future date ranges under any label).
+     */
+    public static function createScoutYear(\PDO $pdo, string $label, string $startDate, string $endDate, bool $isCurrent = false): int
+    {
+        $stmt = $pdo->prepare('INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES (?, ?, ?, ?)');
+        $stmt->execute([$label, $startDate, $endDate, $isCurrent ? 1 : 0]);
+        return (int) $pdo->lastInsertId();
     }
 }

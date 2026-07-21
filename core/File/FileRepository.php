@@ -59,4 +59,16 @@ class FileRepository
         $stmt = $this->pdo->prepare('DELETE FROM files WHERE id = ?');
         $stmt->execute([$id]);
     }
+
+    /**
+     * Lets a module re-sync a file's access floor after the fact — e.g.
+     * Modules\Finance\Controller\ConfigAccountController keeping a
+     * receipt's file in sync with its account's role_min_view whenever
+     * that changes.
+     */
+    public function updateRoleMin(int $id, string $roleMin): void
+    {
+        $stmt = $this->pdo->prepare('UPDATE files SET role_min = ? WHERE id = ?');
+        $stmt->execute([$roleMin, $id]);
+    }
 }

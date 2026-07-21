@@ -1,0 +1,39 @@
+{#
+  Shared across the three "Finances" chef-facing pages (dashboard,
+  movements, receipts — only /finance carries the espace_chefs menu
+  label, the other two are sub-pages of it) — same visual/interaction
+  pattern as partials/section_picker.html.twig and
+  @calendar/partials/calendar_picker.html.twig: a row of pill buttons,
+  not a <select>.
+
+  Requires `accounts` and `current_path` in scope; `selected_account` is
+  optional (its absence just means no pill is highlighted/no account
+  query param gets appended).
+#}
+{% set finance_pages = [
+    {'url': '/finance', 'label': 'Tableau de bord'},
+    {'url': '/finance/movements', 'label': 'Mouvements'},
+    {'url': '/finance/receipts', 'label': 'Reçus'},
+    {'url': '/finance/import', 'label': 'Importer'},
+] %}
+<div class="d-flex flex-wrap gap-2 pb-2 mb-2 finance-page-picker">
+    {% for page in finance_pages %}
+        {% set is_active = current_path == page.url %}
+        <a href="{{ page.url }}{{ selected_account is defined and selected_account ? '?account_id=' ~ selected_account.id : '' }}"
+           class="btn btn-sm {{ is_active ? 'btn-primary' : 'btn-outline-secondary' }} text-nowrap text-decoration-none">
+            {{ page.label }}
+        </a>
+    {% endfor %}
+</div>
+
+{% if accounts %}
+    <div class="d-flex flex-wrap gap-2 pb-2 mb-4 finance-account-picker">
+        {% for account in accounts %}
+            {% set is_active = selected_account is defined and selected_account and account.id == selected_account.id %}
+            <a href="{{ current_path }}?account_id={{ account.id }}"
+               class="btn btn-sm {{ is_active ? 'btn-primary' : 'btn-outline-secondary' }} text-nowrap text-decoration-none">
+                {{ account.name }}
+            </a>
+        {% endfor %}
+    </div>
+{% endif %}

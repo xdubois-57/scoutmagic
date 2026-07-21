@@ -5,19 +5,11 @@
 {% block content %}
     <h1 class="mb-4">Finances</h1>
 
+    {% include '@finance/_nav.html.twig' %}
+
     {% if no_accounts %}
         <p class="text-body-secondary fst-italic">Aucun compte visible pour votre rôle.</p>
     {% else %}
-        <div class="d-flex flex-wrap gap-2 pb-2 mb-2 finance-account-picker">
-            {% for account in accounts %}
-                {% set is_active = account.id == selected_account.id %}
-                <a href="/finance?account_id={{ account.id }}{% if selected_fiscal_year %}&fiscal_year_id={{ selected_fiscal_year.id }}{% endif %}"
-                   class="btn btn-sm {{ is_active ? 'btn-primary' : 'btn-outline-secondary' }} text-nowrap text-decoration-none">
-                    {{ account.name }}
-                </a>
-            {% endfor %}
-        </div>
-
         {% if fiscal_years %}
             <div class="d-flex flex-wrap gap-2 pb-2 mb-4 finance-fiscal-year-picker">
                 {% for fiscalYear in fiscal_years %}
@@ -51,8 +43,8 @@
                 </div>
             </div>
             <div class="col-12 col-md-8 d-flex align-items-center gap-2 flex-wrap">
-                <a href="/finance/import" class="btn btn-outline-primary">Importer un extrait bancaire →</a>
-                <a href="/finance/receipts/new" class="btn btn-outline-primary">Ajouter un reçu →</a>
+                <a href="/finance/import?account_id={{ selected_account.id }}" class="btn btn-outline-primary">Importer un extrait bancaire →</a>
+                <a href="/finance/receipts/new?account_id={{ selected_account.id }}" class="btn btn-outline-primary">Ajouter un reçu →</a>
             </div>
         </div>
 
@@ -72,7 +64,7 @@
                         {% for row in category_summary %}
                             <tr>
                                 <td>
-                                    <a href="/finance/movements?fiscal_year_id={{ selected_fiscal_year.id }}{% if row.category_id %}&category_id={{ row.category_id }}{% endif %}">
+                                    <a href="/finance/movements?account_id={{ selected_account.id }}&fiscal_year_id={{ selected_fiscal_year.id }}{% if row.category_id %}&category_id={{ row.category_id }}{% endif %}">
                                         {{ row.category_name ?? 'Non catégorisé' }}
                                     </a>
                                 </td>
@@ -123,7 +115,7 @@
 
         <div class="d-flex justify-content-between align-items-center mb-3">
             <h2 class="h5 mb-0">Derniers mouvements</h2>
-            <a href="/finance/movements" class="small">Voir tout →</a>
+            <a href="/finance/movements?account_id={{ selected_account.id }}" class="small">Voir tout →</a>
         </div>
         <div class="table-responsive">
             <table class="table table-sm align-middle">

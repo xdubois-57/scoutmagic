@@ -20,6 +20,7 @@ final class Attachment
         public readonly string $originalFilename,
         public readonly ?float $suggestedAmount,
         public readonly ?string $suggestedDate,
+        public readonly ?string $suggestedLabel,
         public readonly ?string $suggestedSource,
         public readonly string $status,
         public readonly ?int $parentAttachmentId,

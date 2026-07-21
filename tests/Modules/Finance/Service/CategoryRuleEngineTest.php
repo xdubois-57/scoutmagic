@@ -43,9 +43,7 @@ class CategoryRuleEngineTest extends TestCase
         $stmt->execute();
         $this->accountId = (int) $pdo->lastInsertId();
 
-        $stmt = $pdo->prepare("INSERT INTO finance_fiscal_years (label, start_date, end_date) VALUES ('2026-2027', '2026-09-01', '2027-08-31')");
-        $stmt->execute();
-        $this->fiscalYearId = (int) $pdo->lastInsertId();
+        $this->fiscalYearId = FinanceTestHelper::createScoutYear($pdo, '2026-2027', '2026-09-01', '2027-08-31');
     }
 
     private function rule(string $conditionType, string $conditionValue): CategoryRule

@@ -9,12 +9,11 @@ use Core\Http\Request;
 use Core\Http\Response;
 use Core\Security\AuthSession;
 use Core\Security\Role;
-use Modules\Finance\Repository\Account;
 use Modules\Finance\Repository\FiscalYear;
-use Modules\Finance\Repository\TransactionRepository;
 use Modules\Finance\Service\BalanceService;
 use Modules\Finance\Service\FinanceService;
 use Modules\Finance\Service\ReceiptService;
+use Modules\Finance\Repository\TransactionRepository;
 
 class DashboardController extends AbstractController
 {
@@ -40,12 +39,12 @@ class DashboardController extends AbstractController
     {
         $role = Role::fromString(AuthSession::getRole());
         $accounts = $this->financeService->getAccountsForUser($role);
+        $account = $this->financeService->resolveSelectedAccount($role, $request->getQuery('account_id'));
 
-        if ($accounts === []) {
+        if ($account === null) {
             return $this->render('@finance/dashboard.html.twig', ['accounts' => [], 'no_accounts' => true]);
         }
 
-        $account = $this->resolveSelectedAccount($request, $accounts);
         $fiscalYears = $this->financeService->getFiscalYears();
         $fiscalYear = $this->resolveSelectedFiscalYear($request, $fiscalYears);
 
@@ -85,25 +84,8 @@ class DashboardController extends AbstractController
             'balance_evolution' => $balanceEvolution,
             'recent_movements' => $recentMovements,
             'uncategorized_count' => $uncategorizedCount,
-            'pending_receipts_count' => count($this->receiptService->listPending()),
+            'pending_receipts_count' => count($this->receiptService->listPending($account->id)),
         ]);
-    }
-
-    /**
-     * @param Account[] $accounts
-     */
-    private function resolveSelectedAccount(Request $request, array $accounts): Account
-    {
-        $requestedId = $request->getQuery('account_id');
-        if ($requestedId !== null) {
-            foreach ($accounts as $account) {
-                if ($account->id === (int) $requestedId) {
-                    return $account;
-                }
-            }
-        }
-
-        return $accounts[0];
     }
 
     /**

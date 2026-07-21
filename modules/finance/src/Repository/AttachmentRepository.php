@@ -81,6 +81,31 @@ class AttachmentRepository
     }
 
     /**
+     * @return Attachment[]
+     */
+    public function findActiveByAccountId(int $accountId): array
+    {
+        $stmt = $this->pdo->prepare("SELECT * FROM finance_attachments WHERE status = 'active' AND account_id = ? ORDER BY uploaded_at DESC");
+        $stmt->execute([$accountId]);
+        return array_map([$this, 'hydrate'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
+    /**
+     * Every file_id (active or archived) belonging to an account — used
+     * by Controller\ConfigAccountController to keep a receipt's
+     * underlying file's role_min in sync whenever the account's own
+     * role_min_view changes.
+     *
+     * @return int[]
+     */
+    public function findFileIdsForAccount(int $accountId): array
+    {
+        $stmt = $this->pdo->prepare('SELECT file_id FROM finance_attachments WHERE account_id = ?');
+        $stmt->execute([$accountId]);
+        return array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN));
+    }
+
+    /**
      * @param int[] $ids
      * @return Attachment[]
      */
@@ -107,6 +132,18 @@ class AttachmentRepository
     }
 
     /**
+     * Written only by Task\ExtractReceiptDataHandler — kept separate from
+     * updateSuggestedData() so a manual amount/date edit (Controller\
+     * ReceiptController::update(), which never touches the label) can
+     * never accidentally wipe out an AI-derived merchant/reason.
+     */
+    public function updateSuggestedLabel(int $id, string $suggestedLabel): void
+    {
+        $stmt = $this->pdo->prepare('UPDATE finance_attachments SET suggested_label = ? WHERE id = ?');
+        $stmt->execute([$suggestedLabel, $id]);
+    }
+
+    /**
      * @param array<string, mixed> $row
      */
     private function hydrate(array $row): Attachment
@@ -119,6 +156,7 @@ class AttachmentRepository
             originalFilename: (string) $row['original_filename'],
             suggestedAmount: $row['suggested_amount'] !== null ? (float) $row['suggested_amount'] : null,
             suggestedDate: $row['suggested_date'] !== null ? (string) $row['suggested_date'] : null,
+            suggestedLabel: $row['suggested_label'] !== null ? (string) $row['suggested_label'] : null,
             suggestedSource: $row['suggested_source'] !== null ? (string) $row['suggested_source'] : null,
             status: (string) $row['status'],
             parentAttachmentId: $row['parent_attachment_id'] !== null ? (int) $row['parent_attachment_id'] : null,

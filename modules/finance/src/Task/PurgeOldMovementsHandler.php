@@ -51,7 +51,7 @@ class PurgeOldMovementsHandler implements TaskHandlerInterface
     {
         $pdo = $context->connection->getPdo();
 
-        $fiscalYearRepository = new FiscalYearRepository($pdo);
+        $fiscalYearRepository = new FiscalYearRepository($pdo, new \Core\Config\ScoutYearService($pdo));
         $accountRepository = new AccountRepository($pdo, $context->encryption);
         $transactionRepository = new TransactionRepository($pdo, $context->encryption);
         $transactionAttachmentRepository = new TransactionAttachmentRepository($pdo);

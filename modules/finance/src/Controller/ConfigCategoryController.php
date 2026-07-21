@@ -10,14 +10,24 @@ use Core\Http\Response;
 use Core\Journal\JournalService;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
+use Modules\Finance\Repository\CategoryRule;
+use Modules\Finance\Repository\CategoryRuleRepository;
 use Modules\Finance\Service\FinanceException;
 use Modules\Finance\Service\FinanceService;
 
+/**
+ * GET /config/finance/categories — categories AND categorization rules
+ * on one page (the module spec asked for them merged, since a rule is
+ * meaningless without its target category right next to it). Rule
+ * mutations still post to their own route (POST /config/finance/rules,
+ * Controller\ConfigRuleController::save()) — only the page itself is shared.
+ */
 class ConfigCategoryController extends AbstractController
 {
     public function __construct(
         protected \Twig\Environment $twig,
         private FinanceService $financeService,
+        private CategoryRuleRepository $ruleRepository,
         private JournalService $journalService
     ) {
     }
@@ -27,8 +37,23 @@ class ConfigCategoryController extends AbstractController
      */
     public function index(Request $request, array $params): Response
     {
+        $categories = $this->financeService->getAllCategories();
+
+        $categoriesById = [];
+        foreach ($categories as $category) {
+            $categoriesById[$category->id] = $category;
+        }
+
         return $this->render('@finance/config/categories.html.twig', [
-            'categories' => $this->financeService->getAllCategories(),
+            'categories' => $categories,
+            'active_categories' => $this->financeService->getActiveCategories(),
+            'categories_by_id' => $categoriesById,
+            'rules' => $this->ruleRepository->findAllOrderedByPriority(),
+            'condition_types' => [
+                CategoryRule::CONDITION_KEYWORD => 'Mot-clé',
+                CategoryRule::CONDITION_COUNTERPARTY_ACCOUNT => 'Compte contrepartie',
+                CategoryRule::CONDITION_AMOUNT_RANGE => 'Montant (plage)',
+            ],
         ]);
     }
 

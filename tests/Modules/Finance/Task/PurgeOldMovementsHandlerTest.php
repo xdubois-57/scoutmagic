@@ -57,7 +57,7 @@ class PurgeOldMovementsHandlerTest extends TestCase
 
         $this->encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $this->accountRepository = new AccountRepository($this->pdo, $this->encryption);
-        $this->fiscalYearRepository = new FiscalYearRepository($this->pdo);
+        $this->fiscalYearRepository = new FiscalYearRepository($this->pdo, new \Core\Config\ScoutYearService($this->pdo));
         $this->transactionRepository = new TransactionRepository($this->pdo, $this->encryption);
         $this->transactionAttachmentRepository = new TransactionAttachmentRepository($this->pdo);
         $this->attachmentRepository = new AttachmentRepository($this->pdo);
@@ -111,7 +111,7 @@ class PurgeOldMovementsHandlerTest extends TestCase
 
     public function testHandleIsNoOpWhenNoFiscalYearIsOldEnough(): void
     {
-        $fiscalYearId = $this->fiscalYearRepository->create('2026-2027', '2026-09-01', '2027-08-31');
+        $fiscalYearId = FinanceTestHelper::createScoutYear($this->pdo,'2026-2027', '2026-09-01', '2027-08-31');
         $this->createTransaction($fiscalYearId, '2026-10-01', -20.0);
 
         $handler = new PurgeOldMovementsHandler();
@@ -122,8 +122,8 @@ class PurgeOldMovementsHandlerTest extends TestCase
 
     public function testHandlePurgesOldestQualifyingFiscalYearOnly(): void
     {
-        $oldest = $this->fiscalYearRepository->create('2014-2015', '2014-09-01', '2015-08-31');
-        $middle = $this->fiscalYearRepository->create('2015-2016', '2015-09-01', '2016-08-31');
+        $oldest = FinanceTestHelper::createScoutYear($this->pdo,'2014-2015', '2014-09-01', '2015-08-31');
+        $middle = FinanceTestHelper::createScoutYear($this->pdo,'2015-2016', '2015-09-01', '2016-08-31');
         $this->createTransaction($oldest, '2015-01-01', -10.0);
         $this->createTransaction($middle, '2016-01-01', -20.0);
 
@@ -137,7 +137,7 @@ class PurgeOldMovementsHandlerTest extends TestCase
 
     public function testHandleDeletesTransactionsInPurgedFiscalYear(): void
     {
-        $fiscalYearId = $this->fiscalYearRepository->create('2014-2015', '2014-09-01', '2015-08-31');
+        $fiscalYearId = FinanceTestHelper::createScoutYear($this->pdo,'2014-2015', '2014-09-01', '2015-08-31');
         $this->createTransaction($fiscalYearId, '2015-01-01', -10.0);
         $this->createTransaction($fiscalYearId, '2015-02-01', -20.0);
 
@@ -149,7 +149,7 @@ class PurgeOldMovementsHandlerTest extends TestCase
 
     public function testHandlePhysicallyDeletesOrphanedAttachment(): void
     {
-        $fiscalYearId = $this->fiscalYearRepository->create('2014-2015', '2014-09-01', '2015-08-31');
+        $fiscalYearId = FinanceTestHelper::createScoutYear($this->pdo,'2014-2015', '2014-09-01', '2015-08-31');
         $transactionId = $this->createTransaction($fiscalYearId, '2015-01-01', -10.0);
 
         $fileId = $this->fileStorage->store('receipt content', 'application/pdf', 'r.pdf', 'finance/receipts', 'intendant');
@@ -169,8 +169,8 @@ class PurgeOldMovementsHandlerTest extends TestCase
 
     public function testHandleKeepsAttachmentStillAssociatedWithSurvivingTransaction(): void
     {
-        $oldFiscalYearId = $this->fiscalYearRepository->create('2014-2015', '2014-09-01', '2015-08-31');
-        $recentFiscalYearId = $this->fiscalYearRepository->create('2026-2027', '2026-09-01', '2027-08-31');
+        $oldFiscalYearId = FinanceTestHelper::createScoutYear($this->pdo,'2014-2015', '2014-09-01', '2015-08-31');
+        $recentFiscalYearId = FinanceTestHelper::createScoutYear($this->pdo,'2026-2027', '2026-09-01', '2027-08-31');
         $oldTransactionId = $this->createTransaction($oldFiscalYearId, '2015-01-01', -10.0);
         $recentTransactionId = $this->createTransaction($recentFiscalYearId, '2026-10-01', -5.0);
 
@@ -190,7 +190,7 @@ class PurgeOldMovementsHandlerTest extends TestCase
     {
         // An archived (not active) attachment with zero remaining
         // associations is still purged — "actifs ou archivés" per spec.
-        $fiscalYearId = $this->fiscalYearRepository->create('2014-2015', '2014-09-01', '2015-08-31');
+        $fiscalYearId = FinanceTestHelper::createScoutYear($this->pdo,'2014-2015', '2014-09-01', '2015-08-31');
         $transactionId = $this->createTransaction($fiscalYearId, '2015-01-01', -10.0);
 
         $fileId = $this->fileStorage->store('receipt content', 'application/pdf', 'r.pdf', 'finance/receipts', 'intendant');
@@ -206,7 +206,7 @@ class PurgeOldMovementsHandlerTest extends TestCase
 
     public function testHandleCreatesConsolidatedCheckpointAndRemovesOldOnes(): void
     {
-        $fiscalYearId = $this->fiscalYearRepository->create('2014-2015', '2014-09-01', '2015-08-31');
+        $fiscalYearId = FinanceTestHelper::createScoutYear($this->pdo,'2014-2015', '2014-09-01', '2015-08-31');
         $this->checkpointRepository->create($this->accountId, '2014-09-01', 1000.0, BalanceCheckpoint::SOURCE_MANUAL);
         $this->createTransaction($fiscalYearId, '2015-01-01', -100.0);
 
@@ -221,8 +221,8 @@ class PurgeOldMovementsHandlerTest extends TestCase
 
     public function testHandlePreservesBalanceContinuityAfterPurge(): void
     {
-        $oldFiscalYearId = $this->fiscalYearRepository->create('2014-2015', '2014-09-01', '2015-08-31');
-        $recentFiscalYearId = $this->fiscalYearRepository->create('2026-2027', '2026-09-01', '2027-08-31');
+        $oldFiscalYearId = FinanceTestHelper::createScoutYear($this->pdo,'2014-2015', '2014-09-01', '2015-08-31');
+        $recentFiscalYearId = FinanceTestHelper::createScoutYear($this->pdo,'2026-2027', '2026-09-01', '2027-08-31');
         $this->checkpointRepository->create($this->accountId, '2014-09-01', 1000.0, BalanceCheckpoint::SOURCE_MANUAL);
         $this->createTransaction($oldFiscalYearId, '2015-01-01', -100.0);
         $this->createTransaction($recentFiscalYearId, '2026-10-01', -50.0);
@@ -241,7 +241,7 @@ class PurgeOldMovementsHandlerTest extends TestCase
 
     public function testHandleJournalsThePurge(): void
     {
-        $fiscalYearId = $this->fiscalYearRepository->create('2014-2015', '2014-09-01', '2015-08-31');
+        $fiscalYearId = FinanceTestHelper::createScoutYear($this->pdo,'2014-2015', '2014-09-01', '2015-08-31');
         $this->createTransaction($fiscalYearId, '2015-01-01', -10.0);
 
         $handler = new PurgeOldMovementsHandler();
@@ -286,7 +286,7 @@ class PurgeOldMovementsHandlerTest extends TestCase
         $secondAccountId = $this->accountRepository->create('Deuxième compte', Account::TYPE_BANK, null, 'BE00000000000002', 'Titulaire', 'intendant');
         $this->pdo->prepare("UPDATE finance_accounts SET status = 'active' WHERE id = ?")->execute([$secondAccountId]);
 
-        $oldFiscalYearId = $this->fiscalYearRepository->create('2014-2015', '2014-09-01', '2015-08-31');
+        $oldFiscalYearId = FinanceTestHelper::createScoutYear($this->pdo,'2014-2015', '2014-09-01', '2015-08-31');
         $this->checkpointRepository->create($this->accountId, '2014-09-01', 500.0, BalanceCheckpoint::SOURCE_MANUAL);
         $this->checkpointRepository->create($secondAccountId, '2014-09-01', 200.0, BalanceCheckpoint::SOURCE_MANUAL);
         $this->createTransaction($oldFiscalYearId, '2015-01-01', -50.0);

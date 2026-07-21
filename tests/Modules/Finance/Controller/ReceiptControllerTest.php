@@ -4,18 +4,29 @@ declare(strict_types=1);
 
 namespace Tests\Modules\Finance\Controller;
 
+use Core\Badge\MemberBadgeRepository;
+use Core\Database\Connection;
 use Core\File\EncryptedFileStorageService;
 use Core\File\FileRepository;
 use Core\Http\Request;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
+use Core\Member\SectionService;
 use Core\Scheduler\SchedulerRepository;
 use Core\Scheduler\SchedulerService;
 use Core\Security\AuthSession;
 use Core\Security\EncryptionService;
 use Modules\Finance\Controller\ReceiptController;
+use Modules\Finance\Repository\Account;
+use Modules\Finance\Repository\AccountRepository;
 use Modules\Finance\Repository\AttachmentRepository;
+use Modules\Finance\Repository\BalanceCheckpointRepository;
+use Modules\Finance\Repository\CategoryRepository;
+use Modules\Finance\Repository\FiscalYearRepository;
 use Modules\Finance\Repository\TransactionAttachmentRepository;
+use Modules\Finance\Repository\TransactionRepository;
+use Modules\Finance\Service\BalanceService;
+use Modules\Finance\Service\FinanceService;
 use Modules\Finance\Service\ReceiptExtractionService;
 use Modules\Finance\Service\ReceiptService;
 use PHPUnit\Framework\TestCase;
@@ -32,9 +43,12 @@ class ReceiptControllerTest extends TestCase
 {
     private \PDO $pdo;
     private ReceiptController $controller;
+    private AccountRepository $accountRepository;
     private AttachmentRepository $attachmentRepository;
     private TransactionAttachmentRepository $transactionAttachmentRepository;
+    private TransactionRepository $transactionRepository;
     private string $storagePath;
+    private int $accountId;
 
     protected function setUp(): void
     {
@@ -42,12 +56,23 @@ class ReceiptControllerTest extends TestCase
         FinanceTestHelper::createTables($this->pdo);
 
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $connection = Connection::withPdo($this->pdo);
+        $sectionService = new SectionService($connection, $encryption, new MemberBadgeRepository($this->pdo));
 
+        $this->accountRepository = new AccountRepository($this->pdo, $encryption);
         $this->attachmentRepository = new AttachmentRepository($this->pdo);
         $this->transactionAttachmentRepository = new TransactionAttachmentRepository($this->pdo);
+        $this->transactionRepository = new TransactionRepository($this->pdo, $encryption);
+        $checkpointRepository = new BalanceCheckpointRepository($this->pdo);
+        $fiscalYearRepository = new FiscalYearRepository($this->pdo, new \Core\Config\ScoutYearService($this->pdo));
+        $balanceService = new BalanceService($checkpointRepository, $this->transactionRepository);
+        $financeService = new FinanceService(
+            $this->accountRepository, new CategoryRepository($this->pdo), $fiscalYearRepository, $sectionService, $this->transactionRepository, $balanceService
+        );
+
         $this->storagePath = sys_get_temp_dir() . '/finance_receipt_controller_test_' . uniqid();
         $fileStorage = new EncryptedFileStorageService(new FileRepository($this->pdo), $encryption, $this->storagePath);
-        $receiptService = new ReceiptService($this->attachmentRepository, $this->transactionAttachmentRepository, $fileStorage);
+        $receiptService = new ReceiptService($this->attachmentRepository, $this->accountRepository, $this->transactionAttachmentRepository, $fileStorage);
         $extractionService = new ReceiptExtractionService(new SchedulerService(new SchedulerRepository($this->pdo)), null);
         $journalService = new JournalService(new JournalRepository($this->pdo));
 
@@ -70,8 +95,12 @@ class ReceiptControllerTest extends TestCase
         $twig->addFunction(new TwigFunction('file_url', fn() => ''));
 
         $this->controller = new ReceiptController(
-            $twig, $this->attachmentRepository, $this->transactionAttachmentRepository, $receiptService, $extractionService, $journalService
+            $twig, $this->attachmentRepository, $this->transactionAttachmentRepository, $financeService,
+            $receiptService, $extractionService, $journalService
         );
+
+        $this->accountId = $this->accountRepository->create('Compte', Account::TYPE_BANK, null, null, null, 'intendant');
+        $this->accountRepository->updateStatus($this->accountId, Account::STATUS_ACTIVE);
 
         if (session_status() === PHP_SESSION_NONE) {
             session_start();
@@ -113,11 +142,12 @@ class ReceiptControllerTest extends TestCase
         return $path;
     }
 
-    private function uploadRequest(string $tmpPath, string $csrf, ?string $amount = null, ?string $date = null): Request
+    private function uploadRequest(string $tmpPath, string $csrf, ?string $amount = null, ?string $date = null, ?int $accountId = null): Request
     {
         $request = $this->getMockBuilder(Request::class)
             ->setConstructorArgs(['POST', '/finance/receipts/new', [], [
                 '_csrf_token' => $csrf,
+                'account_id' => (string) ($accountId ?? $this->accountId),
                 'amount' => $amount ?? '',
                 'date' => $date ?? '',
             ], [], []])
@@ -150,6 +180,14 @@ class ReceiptControllerTest extends TestCase
         $this->assertCount(0, $this->attachmentRepository->findActiveOrdered());
     }
 
+    public function testUploadRejectsUnknownAccount(): void
+    {
+        $response = $this->controller->upload($this->uploadRequest($this->tmpPdfFile(), $this->csrfToken(), null, null, 9999), []);
+
+        $this->assertStringContainsString('Compte invalide', $response->getBody());
+        $this->assertCount(0, $this->attachmentRepository->findActiveOrdered());
+    }
+
     private function jsonRequest(string $method, string $path, array $data): Request
     {
         $request = $this->getMockBuilder(Request::class)
@@ -164,7 +202,7 @@ class ReceiptControllerTest extends TestCase
     {
         $this->controller->upload($this->uploadRequest($this->tmpPdfFile(), $this->csrfToken()), []);
 
-        $response = $this->controller->list(new Request('GET', '/finance/receipts', [], [], [], []), []);
+        $response = $this->controller->list(new Request('GET', '/finance/receipts', ['account_id' => (string) $this->accountId], [], [], []), []);
 
         $this->assertSame(200, $response->getStatusCode());
         $this->assertStringContainsString('En attente', $response->getBody());
@@ -187,20 +225,13 @@ class ReceiptControllerTest extends TestCase
         $token = $this->csrfToken();
         $response = $this->controller->delete($this->jsonRequest('DELETE', '/finance/receipts/9999', ['_csrf_token' => $token]), ['id' => '9999']);
 
-        $this->assertSame(400, $response->getStatusCode());
+        $this->assertSame(404, $response->getStatusCode());
     }
 
     private function createTransaction(): int
     {
-        $stmt = $this->pdo->prepare("INSERT INTO finance_accounts (name, account_type) VALUES ('Compte', 'bank')");
-        $stmt->execute();
-        $accountId = (int) $this->pdo->lastInsertId();
-        $stmt = $this->pdo->prepare("INSERT INTO finance_fiscal_years (label, start_date, end_date) VALUES ('2026-2027', '2026-09-01', '2027-08-31')");
-        $stmt->execute();
-        $fiscalYearId = (int) $this->pdo->lastInsertId();
-        $stmt = $this->pdo->prepare('INSERT INTO finance_transactions (account_id, fiscal_year_id, transaction_date, label, amount, source) VALUES (?, ?, ?, ?, ?, ?)');
-        $stmt->execute([$accountId, $fiscalYearId, '2026-10-01', 'x', -1.0, 'manual']);
-        return (int) $this->pdo->lastInsertId();
+        $fiscalYearId = FinanceTestHelper::createScoutYear($this->pdo, '2026-2027', '2026-09-01', '2027-08-31');
+        return $this->transactionRepository->create($this->accountId, $fiscalYearId, 'ref-' . uniqid(), '2026-10-01', 'x', -1.0, null, null, 'manual', null);
     }
 
     public function testAssociateLinksReceiptToMovement(): void
@@ -253,5 +284,19 @@ class ReceiptControllerTest extends TestCase
         $this->assertSame(302, $response->getStatusCode());
         $this->assertSame('archived', $this->attachmentRepository->findById($original->id)->status);
         $this->assertCount(1, $this->attachmentRepository->findActiveOrdered());
+    }
+
+    public function testMutationsRejectAttachmentBelowRoleFloor(): void
+    {
+        $this->controller->upload($this->uploadRequest($this->tmpPdfFile(), $this->csrfToken()), []);
+        $attachment = $this->attachmentRepository->findActiveOrdered()[0];
+
+        $adminAccountId = $this->accountRepository->create('Compte admin', Account::TYPE_BANK, null, null, null, 'admin');
+        $this->pdo->prepare('UPDATE finance_attachments SET account_id = ? WHERE id = ?')->execute([$adminAccountId, $attachment->id]);
+
+        $token = $this->csrfToken();
+        $response = $this->controller->delete($this->jsonRequest('DELETE', '/finance/receipts/' . $attachment->id, ['_csrf_token' => $token]), ['id' => (string) $attachment->id]);
+
+        $this->assertSame(403, $response->getStatusCode());
     }
 }

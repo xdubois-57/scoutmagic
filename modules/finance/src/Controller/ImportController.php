@@ -33,6 +33,7 @@ class ImportController extends AbstractController
     {
         $role = Role::fromString(AuthSession::getRole());
         $accounts = $this->financeService->getAccountsForUser($role);
+        $selectedAccount = $this->financeService->resolveSelectedAccount($role, $request->getQuery('account_id'));
 
         $firstImportByAccountId = [];
         foreach ($accounts as $account) {
@@ -41,6 +42,7 @@ class ImportController extends AbstractController
 
         return $this->render('@finance/import/form.html.twig', [
             'accounts' => $accounts,
+            'selected_account' => $selectedAccount,
             'bank_codes' => $this->parserFactory->getSupportedBankCodes(),
             'first_import_by_account_id' => $firstImportByAccountId,
         ]);

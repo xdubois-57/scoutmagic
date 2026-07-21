@@ -274,6 +274,28 @@ class SqlParserTest extends TestCase
         $this->assertSame([], $this->parser->parseDrops($sql));
     }
 
+    public function testParseDropsExtractsTableAndConstraintForForeignKeyDrop(): void
+    {
+        $sql = 'ALTER TABLE finance_transactions DROP FOREIGN KEY fk_ft_fiscal_year;';
+
+        $drops = $this->parser->parseDrops($sql);
+
+        $this->assertSame([['table' => 'finance_transactions', 'constraint' => 'fk_ft_fiscal_year']], $drops);
+    }
+
+    public function testParseDropsHandlesMixedColumnAndForeignKeyDropsInOrder(): void
+    {
+        $sql = "ALTER TABLE badges DROP COLUMN icon;\nALTER TABLE finance_transactions DROP FOREIGN KEY fk_ft_fiscal_year;\nALTER TABLE members DROP COLUMN legacy_flag;";
+
+        $drops = $this->parser->parseDrops($sql);
+
+        $this->assertSame([
+            ['table' => 'badges', 'column' => 'icon'],
+            ['table' => 'finance_transactions', 'constraint' => 'fk_ft_fiscal_year'],
+            ['table' => 'members', 'column' => 'legacy_flag'],
+        ], $drops);
+    }
+
     public function testParseDropsFileReturnsEmptyArrayForMissingFile(): void
     {
         $this->assertSame([], $this->parser->parseDropsFile('/nonexistent/drops.sql'));

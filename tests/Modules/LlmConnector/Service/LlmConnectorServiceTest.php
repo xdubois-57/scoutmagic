@@ -81,6 +81,17 @@ class LlmConnectorServiceTest extends TestCase
         $this->assertTrue($this->service->isAvailable());
     }
 
+    public function testIsAvailableReturnsTrueWhenOnlyOcrModelAssigned(): void
+    {
+        $providerId = $this->providerRepo->create('Anthropic', 'anthropic', 'https://api.anthropic.com', 'sk-test', true);
+        $this->modelRepo->upsert($providerId, 'claude-haiku', 'Claude Haiku');
+
+        $models = $this->modelRepo->findByProvider($providerId);
+        $this->modelRepo->assignTier($models[0]['id'], LlmTier::OCR);
+
+        $this->assertTrue($this->service->isAvailable());
+    }
+
     public function testCompleteThrowsNoProviderWhenNoneConfigured(): void
     {
         $request = new LlmRequest(LlmTier::CHEAP, 'Hello');
@@ -127,6 +138,45 @@ class LlmConnectorServiceTest extends TestCase
         $this->modelRepo->assignTier($models[0]['id'], LlmTier::CHEAP);
 
         $this->assertFalse($this->service->isAvailable());
+    }
+
+    private function extractJson(string $content): string
+    {
+        $method = new \ReflectionMethod(LlmConnectorService::class, 'extractJson');
+        $method->setAccessible(true);
+
+        return $method->invoke($this->service, $content);
+    }
+
+    public function testExtractJsonReturnsBareJsonUnchanged(): void
+    {
+        $this->assertSame('{"amount": 12.5}', $this->extractJson('{"amount": 12.5}'));
+    }
+
+    public function testExtractJsonStripsMarkdownCodeFence(): void
+    {
+        $content = "```json\n{\"amount\": 12.5}\n```";
+
+        $this->assertSame('{"amount": 12.5}', $this->extractJson($content));
+    }
+
+    public function testExtractJsonStripsCodeFenceWithoutLanguageTag(): void
+    {
+        $content = "```\n{\"amount\": 12.5}\n```";
+
+        $this->assertSame('{"amount": 12.5}', $this->extractJson($content));
+    }
+
+    public function testExtractJsonFindsObjectAmongSurroundingText(): void
+    {
+        $content = "Voici le résultat :\n{\"amount\": 12.5}\nMerci.";
+
+        $this->assertSame('{"amount": 12.5}', $this->extractJson($content));
+    }
+
+    public function testExtractJsonReturnsOriginalContentWhenNoObjectFound(): void
+    {
+        $this->assertSame('not json at all', $this->extractJson('not json at all'));
     }
 
     private function createLlmTables(): void

@@ -397,10 +397,15 @@ class SqlParser
      * MigrationRunner::migrate(), which is the one place these get applied,
      * and only when the column still exists).
      *
-     * Only `ALTER TABLE <table> DROP COLUMN <column>;` statements are
-     * recognized; anything else in the file is ignored.
+     * `ALTER TABLE <table> DROP COLUMN <column>;` and
+     * `ALTER TABLE <table> DROP FOREIGN KEY <constraint>;` statements are
+     * recognized; anything else in the file is ignored. The latter exists
+     * for the one case SchemaComparator can't self-heal: retargeting an FK
+     * to a different table requires renaming the constraint (matched by
+     * name only), which leaves the old, now-undeclared constraint in
+     * place forever — an explicit drop is the only way to remove it.
      *
-     * @return array<array{table: string, column: string}>
+     * @return array<array{table: string, column: string}|array{table: string, constraint: string}>
      */
     public function parseDropsFile(string $filePath): array
     {
@@ -417,17 +422,21 @@ class SqlParser
     }
 
     /**
-     * @return array<array{table: string, column: string}>
+     * @return array<array{table: string, column: string}|array{table: string, constraint: string}>
      */
     public function parseDrops(string $sql): array
     {
         $sql = $this->removeComments($sql);
 
         $drops = [];
-        $pattern = '/ALTER\s+TABLE\s+[`]?(\w+)[`]?\s+DROP\s+COLUMN\s+[`]?(\w+)[`]?/si';
+        $pattern = '/ALTER\s+TABLE\s+[`]?(\w+)[`]?\s+DROP\s+(?:COLUMN\s+[`]?(\w+)[`]?|FOREIGN\s+KEY\s+[`]?(\w+)[`]?)/si';
         if (preg_match_all($pattern, $sql, $matches, PREG_SET_ORDER)) {
             foreach ($matches as $m) {
-                $drops[] = ['table' => $m[1], 'column' => $m[2]];
+                if (($m[2] ?? '') !== '') {
+                    $drops[] = ['table' => $m[1], 'column' => $m[2]];
+                } else {
+                    $drops[] = ['table' => $m[1], 'constraint' => $m[3]];
+                }
             }
         }
 

@@ -40,8 +40,9 @@ class LlmConnectorService implements LlmConnectorInterface
 
         $cheapModel = $this->modelRepo->findByProviderAndTier($provider['id'], LlmTier::CHEAP);
         $capableModel = $this->modelRepo->findByProviderAndTier($provider['id'], LlmTier::CAPABLE);
+        $ocrModel = $this->modelRepo->findByProviderAndTier($provider['id'], LlmTier::OCR);
 
-        return $cheapModel !== null || $capableModel !== null;
+        return $cheapModel !== null || $capableModel !== null || $ocrModel !== null;
     }
 
     public function complete(LlmRequest $request): LlmResponse
@@ -111,7 +112,7 @@ class LlmConnectorService implements LlmConnectorInterface
         // If a response schema was provided, attempt to parse the response as JSON
         $parsed = null;
         if ($request->responseSchema !== null) {
-            $decoded = json_decode($providerResponse->content, true);
+            $decoded = json_decode($this->extractJson($providerResponse->content), true);
             if (is_array($decoded)) {
                 $parsed = $decoded;
             }
@@ -123,6 +124,27 @@ class LlmConnectorService implements LlmConnectorInterface
             inputTokens: $providerResponse->inputTokens,
             outputTokens: $providerResponse->outputTokens
         );
+    }
+
+    /**
+     * Structured output here is prompt-instructed, not enforced by the
+     * provider API, so a model sometimes wraps its JSON in a markdown
+     * code fence (or adds stray text around it) despite being told not
+     * to. Strips that wrapping so json_decode() sees the object itself —
+     * mirrors Service\OcrModelSelector::extractJson() (tier-selection
+     * has the same prompt-instructed-JSON fragility).
+     */
+    private function extractJson(string $content): string
+    {
+        if (preg_match('/```(?:json)?\s*\n?(\{.*?\})\n?\s*```/s', $content, $matches)) {
+            return $matches[1];
+        }
+
+        if (preg_match('/(\{.*\})/s', $content, $matches)) {
+            return $matches[1];
+        }
+
+        return $content;
     }
 
     /**

@@ -3,19 +3,18 @@
 {% block title %}Mouvements — Finances — {{ site_name }}{% endblock %}
 
 {% block content %}
-    <h1 class="mb-4">Mouvements</h1>
+    <h1 class="mb-4">Finances</h1>
+
+    {% include '@finance/_nav.html.twig' %}
+
+    {% if no_accounts %}
+        <p class="text-body-secondary fst-italic">Aucun compte visible pour votre rôle.</p>
+    {% else %}
+    <h2 class="h5 mb-3">Mouvements — {{ selected_account.name }}</h2>
 
     <form method="get" action="/finance/movements" class="row g-2 align-items-end mb-3">
-        <div class="col-6 col-md-3">
-            <label class="form-label small" for="filter-account">Compte</label>
-            <select class="form-select form-select-sm" id="filter-account" name="account_id">
-                <option value="">Tous</option>
-                {% for account in accounts %}
-                    <option value="{{ account.id }}" {{ filter_account_id == account.id ? 'selected' : '' }}>{{ account.name }}</option>
-                {% endfor %}
-            </select>
-        </div>
-        <div class="col-6 col-md-3">
+        <input type="hidden" name="account_id" value="{{ selected_account.id }}">
+        <div class="col-6 col-md-4">
             <label class="form-label small" for="filter-fiscal-year">Exercice</label>
             <select class="form-select form-select-sm" id="filter-fiscal-year" name="fiscal_year_id">
                 <option value="all" {{ filter_fiscal_year_id is null ? 'selected' : '' }}>Tous</option>
@@ -24,7 +23,7 @@
                 {% endfor %}
             </select>
         </div>
-        <div class="col-6 col-md-3">
+        <div class="col-6 col-md-4">
             <label class="form-label small" for="filter-category">Catégorie</label>
             <select class="form-select form-select-sm" id="filter-category" name="category_id">
                 <option value="all">Toutes</option>
@@ -33,13 +32,13 @@
                 {% endfor %}
             </select>
         </div>
-        <div class="col-6 col-md-3">
+        <div class="col-6 col-md-4">
             <label class="form-label small" for="filter-search">Recherche</label>
             <input type="text" class="form-control form-control-sm" id="filter-search" name="q" value="{{ filter_search }}" placeholder="Libellé...">
         </div>
         <div class="col-12">
             <button type="submit" class="btn btn-sm btn-primary">Filtrer</button>
-            <a href="/finance/movements" class="btn btn-sm btn-outline-secondary">Réinitialiser</a>
+            <a href="/finance/movements?account_id={{ selected_account.id }}" class="btn btn-sm btn-outline-secondary">Réinitialiser</a>
         </div>
     </form>
 
@@ -107,7 +106,7 @@
             <ul class="pagination pagination-sm">
                 {% for p in 1..total_pages %}
                     <li class="page-item {{ p == page ? 'active' : '' }}">
-                        <a class="page-link" href="?page={{ p }}{% if filter_account_id %}&account_id={{ filter_account_id }}{% endif %}{% if filter_fiscal_year_id %}&fiscal_year_id={{ filter_fiscal_year_id }}{% endif %}{% if filter_category_id %}&category_id={{ filter_category_id }}{% endif %}{% if filter_search %}&q={{ filter_search }}{% endif %}">{{ p }}</a>
+                        <a class="page-link" href="?page={{ p }}&account_id={{ selected_account.id }}{% if filter_fiscal_year_id %}&fiscal_year_id={{ filter_fiscal_year_id }}{% endif %}{% if filter_category_id %}&category_id={{ filter_category_id }}{% endif %}{% if filter_search %}&q={{ filter_search }}{% endif %}">{{ p }}</a>
                     </li>
                 {% endfor %}
             </ul>
@@ -136,9 +135,11 @@
             </div>
         </div>
     </div>
+    {% endif %}
 {% endblock %}
 
 {% block scripts %}
+{% if not no_accounts %}
 <script nonce="{{ csp_nonce }}">
 const csrf = () => document.querySelector('meta[name="csrf-token"]')?.content;
 
@@ -249,4 +250,5 @@ document.querySelectorAll('.suggest-associate-btn').forEach(btn => {
     btn.addEventListener('click', () => associateSuggestion(btn.dataset.movementId, btn.dataset.attachmentId));
 });
 </script>
+{% endif %}
 {% endblock %}

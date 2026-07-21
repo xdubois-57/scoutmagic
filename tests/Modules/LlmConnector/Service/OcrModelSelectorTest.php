@@ -25,7 +25,7 @@ class OcrModelSelectorTest extends TestCase
                     && str_contains($prompt, 'cheap-model')
                     && str_contains($prompt, 'capable-model'))
             )
-            ->willReturn(new ProviderResponse('{"cheap_model_id":"cheap-model","capable_model_id":"capable-model","ocr_model_id":"ocr-model"}', 1, 1));
+            ->willReturn(new ProviderResponse('{"cheap_model_id":"cheap-model","capable_model_id":"capable-model","ocr_model_id":"vision-model"}', 1, 1));
 
         $journal = $this->createMock(JournalService::class);
         $journal->expects($this->once())
@@ -34,26 +34,26 @@ class OcrModelSelectorTest extends TestCase
                 'llm_connector',
                 'tier_models_selected',
                 'info',
-                "Tiers selected via LLM: cheap='cheap-model', capable='capable-model', ocr='ocr-model'.",
+                "Tiers selected via LLM: cheap='cheap-model', capable='capable-model', ocr='vision-model'.",
                 $this->callback(static fn (array $ctx): bool => $ctx['tier_selection_status'] === 'success'
                     && $ctx['selected_tiers']['cheap'] === 'cheap-model')
             );
 
         $tiers = (new OcrModelSelector($journal))->selectTiers(
             $provider,
-            ['cheap-model', 'capable-model', 'ocr-model']
+            ['cheap-model', 'capable-model', 'vision-model']
         );
 
         $this->assertSame('cheap-model', $tiers['cheap']);
         $this->assertSame('capable-model', $tiers['capable']);
-        $this->assertSame('ocr-model', $tiers['ocr']);
+        $this->assertSame('vision-model', $tiers['ocr']);
     }
 
     public function testExtractsTiersFromMarkdownJsonBlock(): void
     {
         $provider = $this->createMock(LlmProviderInterface::class);
         $provider->method('complete')
-            ->willReturn(new ProviderResponse("```json\n{\"cheap_model_id\":\"cheap-model\",\"capable_model_id\":\"capable-model\",\"ocr_model_id\":\"ocr-model\"}\n```", 1, 1));
+            ->willReturn(new ProviderResponse("```json\n{\"cheap_model_id\":\"cheap-model\",\"capable_model_id\":\"capable-model\",\"ocr_model_id\":\"vision-model\"}\n```", 1, 1));
 
         $journal = $this->createMock(JournalService::class);
         $journal->expects($this->once())
@@ -62,25 +62,25 @@ class OcrModelSelectorTest extends TestCase
                 'llm_connector',
                 'tier_models_selected',
                 'info',
-                "Tiers selected via LLM: cheap='cheap-model', capable='capable-model', ocr='ocr-model'.",
+                "Tiers selected via LLM: cheap='cheap-model', capable='capable-model', ocr='vision-model'.",
                 $this->callback(static fn (array $ctx): bool => $ctx['tier_selection_status'] === 'success')
             );
 
         $tiers = (new OcrModelSelector($journal))->selectTiers(
             $provider,
-            ['cheap-model', 'capable-model', 'ocr-model']
+            ['cheap-model', 'capable-model', 'vision-model']
         );
 
         $this->assertSame('cheap-model', $tiers['cheap']);
         $this->assertSame('capable-model', $tiers['capable']);
-        $this->assertSame('ocr-model', $tiers['ocr']);
+        $this->assertSame('vision-model', $tiers['ocr']);
     }
 
     public function testRejectsUnknownModelAndFallsBackToRuleBased(): void
     {
         $provider = $this->createMock(LlmProviderInterface::class);
         $provider->method('complete')
-            ->willReturn(new ProviderResponse('{"cheap_model_id":"cheap-model","capable_model_id":"unknown-model","ocr_model_id":"ocr-model"}', 1, 1));
+            ->willReturn(new ProviderResponse('{"cheap_model_id":"cheap-model","capable_model_id":"unknown-model","ocr_model_id":"vision-model"}', 1, 1));
 
         $journal = $this->createMock(JournalService::class);
         $journal->expects($this->once())
@@ -95,19 +95,21 @@ class OcrModelSelectorTest extends TestCase
 
         $tiers = (new OcrModelSelector($journal))->selectTiers(
             $provider,
-            ['cheap-model', 'capable-model', 'ocr-model']
+            ['cheap-model', 'capable-model', 'vision-model']
         );
 
         $this->assertSame('cheap-model', $tiers['cheap']);
         $this->assertSame('capable-model', $tiers['capable']);
-        $this->assertSame('ocr-model', $tiers['ocr']);
+        // Fallback's ocr tier reuses the cheap pick, not the LLM's
+        // (discarded) ocr_model_id suggestion.
+        $this->assertSame('cheap-model', $tiers['ocr']);
     }
 
     public function testRejectsTooExpensiveCheapModelAndFallsBack(): void
     {
         $provider = $this->createMock(LlmProviderInterface::class);
         $provider->method('complete')
-            ->willReturn(new ProviderResponse('{"cheap_model_id":"huge-opus-model","capable_model_id":"capable-model","ocr_model_id":"ocr-model"}', 1, 1));
+            ->willReturn(new ProviderResponse('{"cheap_model_id":"huge-opus-model","capable_model_id":"capable-model","ocr_model_id":"vision-model"}', 1, 1));
 
         $journal = $this->createMock(JournalService::class);
         $journal->expects($this->once())
@@ -122,12 +124,12 @@ class OcrModelSelectorTest extends TestCase
 
         $tiers = (new OcrModelSelector($journal))->selectTiers(
             $provider,
-            ['cheap-model', 'huge-opus-model', 'capable-model', 'ocr-model']
+            ['cheap-model', 'huge-opus-model', 'capable-model', 'vision-model']
         );
 
         $this->assertSame('cheap-model', $tiers['cheap']);
         $this->assertSame('capable-model', $tiers['capable']);
-        $this->assertSame('ocr-model', $tiers['ocr']);
+        $this->assertSame('cheap-model', $tiers['ocr']);
     }
 
     public function testFallsBackWhenLlmCallFails(): void
@@ -148,12 +150,43 @@ class OcrModelSelectorTest extends TestCase
 
         $tiers = (new OcrModelSelector($journal))->selectTiers(
             $provider,
-            ['cheap-model', 'capable-model', 'ocr-model']
+            ['cheap-model', 'capable-model', 'vision-model']
         );
 
         $this->assertSame('cheap-model', $tiers['cheap']);
         $this->assertSame('capable-model', $tiers['capable']);
-        $this->assertSame('ocr-model', $tiers['ocr']);
+        $this->assertSame('cheap-model', $tiers['ocr']);
+    }
+
+    public function testRejectsLlmSelectedOcrNamedModelAndFallsBackToCheapPick(): void
+    {
+        // "mistral-ocr-3" is exactly the anti-pattern: a standalone
+        // document-OCR API model, not a chat/vision model reachable via
+        // chat completions. The selector must reject it regardless of
+        // what the selector LLM reasoned.
+        $provider = $this->createMock(LlmProviderInterface::class);
+        $provider->method('complete')
+            ->willReturn(new ProviderResponse('{"cheap_model_id":"cheap-model","capable_model_id":"capable-model","ocr_model_id":"mistral-ocr-3"}', 1, 1));
+
+        $journal = $this->createMock(JournalService::class);
+        $journal->expects($this->once())
+            ->method('log')
+            ->with(
+                'llm_connector',
+                'tier_models_selected',
+                'info',
+                "Selected OCR model 'mistral-ocr-3' looks like a standalone document-OCR API model, not a chat/vision model.",
+                $this->callback(static fn (array $ctx): bool => $ctx['tier_selection_status'] === 'ocr_endpoint_incompatible')
+            );
+
+        $tiers = (new OcrModelSelector($journal))->selectTiers(
+            $provider,
+            ['cheap-model', 'capable-model', 'mistral-ocr-3']
+        );
+
+        $this->assertSame('cheap-model', $tiers['cheap']);
+        $this->assertSame('capable-model', $tiers['capable']);
+        $this->assertSame('cheap-model', $tiers['ocr']);
     }
 
     public function testUsesFallbackForEmptyModelList(): void

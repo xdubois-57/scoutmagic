@@ -893,7 +893,7 @@ if (in_array('llm_connector', $moduleManager->getEnabledModuleIds(), true)) {
 }
 
 if (in_array('finance', $moduleManager->getEnabledModuleIds(), true)) {
-    $financeFiscalYearRepo = new \Modules\Finance\Repository\FiscalYearRepository($pdo);
+    $financeFiscalYearRepo = new \Modules\Finance\Repository\FiscalYearRepository($pdo, $scoutYearService);
     $financeAccountRepo = new \Modules\Finance\Repository\AccountRepository($pdo, $encryptionService);
     $financeCategoryRepo = new \Modules\Finance\Repository\CategoryRepository($pdo);
     $financeCategoryRuleRepo = new \Modules\Finance\Repository\CategoryRuleRepository($pdo);
@@ -915,7 +915,7 @@ if (in_array('finance', $moduleManager->getEnabledModuleIds(), true)) {
     );
     $financeEncryptedFileStorage = new \Core\File\EncryptedFileStorageService($fileRepository, $encryptionService, $storagePath);
     $financeReceiptService = new \Modules\Finance\Service\ReceiptService(
-        $financeAttachmentRepo, $financeTransactionAttachmentRepo, $financeEncryptedFileStorage
+        $financeAttachmentRepo, $financeAccountRepo, $financeTransactionAttachmentRepo, $financeEncryptedFileStorage
     );
     // Optional dependency on the llm_connector module (ARCHITECTURE.md
     // §7.5) — reuses the same LlmConnectorInterface instance already
@@ -941,7 +941,7 @@ if (in_array('finance', $moduleManager->getEnabledModuleIds(), true)) {
     $frontController->registerController(
         \Modules\Finance\Controller\ReceiptController::class,
         new \Modules\Finance\Controller\ReceiptController(
-            $twig, $financeAttachmentRepo, $financeTransactionAttachmentRepo,
+            $twig, $financeAttachmentRepo, $financeTransactionAttachmentRepo, $financeService,
             $financeReceiptService, $financeReceiptExtractionService, $journalService
         )
     );
@@ -951,21 +951,19 @@ if (in_array('finance', $moduleManager->getEnabledModuleIds(), true)) {
     );
     $frontController->registerController(
         \Modules\Finance\Controller\ConfigAccountController::class,
-        new \Modules\Finance\Controller\ConfigAccountController($twig, $financeService, $sectionService, $journalService)
+        new \Modules\Finance\Controller\ConfigAccountController(
+            $twig, $financeService, $sectionService, $financeAttachmentRepo, $fileRepository, $journalService
+        )
     );
     $frontController->registerController(
         \Modules\Finance\Controller\ConfigCategoryController::class,
-        new \Modules\Finance\Controller\ConfigCategoryController($twig, $financeService, $journalService)
+        new \Modules\Finance\Controller\ConfigCategoryController($twig, $financeService, $financeCategoryRuleRepo, $journalService)
     );
     $frontController->registerController(
         \Modules\Finance\Controller\ConfigRuleController::class,
         new \Modules\Finance\Controller\ConfigRuleController(
-            $twig, $financeCategoryRuleRepo, $financeCategoryRepo, $financeRuleEngine, $journalService
+            $twig, $financeCategoryRuleRepo, $financeRuleEngine, $journalService
         )
-    );
-    $frontController->registerController(
-        \Modules\Finance\Controller\ConfigFiscalYearController::class,
-        new \Modules\Finance\Controller\ConfigFiscalYearController($twig, $financeService, $journalService)
     );
     $frontController->registerController(
         \Modules\Finance\Controller\ConfigDangerController::class,

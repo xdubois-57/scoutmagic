@@ -7,6 +7,8 @@ namespace Tests\Modules\Finance\Service;
 use Core\File\EncryptedFileStorageService;
 use Core\File\FileRepository;
 use Core\Security\EncryptionService;
+use Modules\Finance\Repository\Account;
+use Modules\Finance\Repository\AccountRepository;
 use Modules\Finance\Repository\Attachment;
 use Modules\Finance\Repository\AttachmentRepository;
 use Modules\Finance\Repository\TransactionAttachmentRepository;
@@ -23,10 +25,12 @@ class ReceiptServiceTest extends TestCase
 {
     private \PDO $pdo;
     private ReceiptService $service;
+    private AccountRepository $accountRepository;
     private AttachmentRepository $attachmentRepository;
     private TransactionAttachmentRepository $transactionAttachmentRepository;
     private string $storagePath;
     private ?int $sharedFiscalYearId = null;
+    private int $accountId;
 
     protected function setUp(): void
     {
@@ -34,12 +38,15 @@ class ReceiptServiceTest extends TestCase
         FinanceTestHelper::createTables($this->pdo);
 
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $this->accountRepository = new AccountRepository($this->pdo, $encryption);
         $this->attachmentRepository = new AttachmentRepository($this->pdo);
         $this->transactionAttachmentRepository = new TransactionAttachmentRepository($this->pdo);
         $this->storagePath = sys_get_temp_dir() . '/finance_receipt_service_test_' . uniqid();
         $fileStorage = new EncryptedFileStorageService(new FileRepository($this->pdo), $encryption, $this->storagePath);
 
-        $this->service = new ReceiptService($this->attachmentRepository, $this->transactionAttachmentRepository, $fileStorage);
+        $this->service = new ReceiptService($this->attachmentRepository, $this->accountRepository, $this->transactionAttachmentRepository, $fileStorage);
+
+        $this->accountId = $this->accountRepository->create('Compte', Account::TYPE_BANK, null, null, null, 'intendant');
     }
 
     protected function tearDown(): void
@@ -63,59 +70,71 @@ class ReceiptServiceTest extends TestCase
 
     private function createTransaction(): int
     {
-        $stmt = $this->pdo->prepare("INSERT INTO finance_accounts (name, account_type) VALUES ('Compte', 'bank')");
-        $stmt->execute();
-        $accountId = (int) $this->pdo->lastInsertId();
-
         if ($this->sharedFiscalYearId === null) {
-            $stmt = $this->pdo->prepare("INSERT INTO finance_fiscal_years (label, start_date, end_date) VALUES ('2026-2027', '2026-09-01', '2027-08-31')");
-            $stmt->execute();
-            $this->sharedFiscalYearId = (int) $this->pdo->lastInsertId();
+            $this->sharedFiscalYearId = FinanceTestHelper::createScoutYear($this->pdo, '2026-2027', '2026-09-01', '2027-08-31');
         }
 
         $stmt = $this->pdo->prepare('INSERT INTO finance_transactions (account_id, fiscal_year_id, transaction_date, label, amount, source) VALUES (?, ?, ?, ?, ?, ?)');
-        $stmt->execute([$accountId, $this->sharedFiscalYearId, '2026-10-01', 'x', -1.0, 'manual']);
+        $stmt->execute([$this->accountId, $this->sharedFiscalYearId, '2026-10-01', 'x', -1.0, 'manual']);
         return (int) $this->pdo->lastInsertId();
     }
 
     public function testUploadRejectsUnsupportedMimeType(): void
     {
         $this->expectException(FinanceException::class);
-        $this->service->upload('content', 'application/zip', 'a.zip', null, null, 1);
+        $this->service->upload('content', 'application/zip', 'a.zip', $this->accountId, null, null, 1);
+    }
+
+    public function testUploadRejectsUnknownAccount(): void
+    {
+        $this->expectException(FinanceException::class);
+        $this->service->upload('content', 'application/pdf', 'a.pdf', 9999, null, null, 1);
     }
 
     public function testUploadCreatesActiveAttachment(): void
     {
-        $attachment = $this->service->upload('%PDF content', 'application/pdf', 'facture.pdf', 12.5, '2026-10-01', 7);
+        $attachment = $this->service->upload('%PDF content', 'application/pdf', 'facture.pdf', $this->accountId, 12.5, '2026-10-01', 7);
 
         $this->assertSame('facture.pdf', $attachment->originalFilename);
         $this->assertSame(Attachment::STATUS_ACTIVE, $attachment->status);
+        $this->assertSame($this->accountId, $attachment->accountId);
         $this->assertSame(12.5, $attachment->suggestedAmount);
         $this->assertSame(Attachment::SUGGESTED_SOURCE_MANUAL, $attachment->suggestedSource);
         $this->assertSame(7, $attachment->uploadedBy);
     }
 
+    public function testUploadStoresFileWithAccountRoleMinView(): void
+    {
+        $adminAccountId = $this->accountRepository->create('Compte admin', Account::TYPE_BANK, null, null, null, 'admin');
+
+        $attachment = $this->service->upload('content', 'application/pdf', 'a.pdf', $adminAccountId, null, null, 1);
+
+        $file = (new FileRepository($this->pdo))->findById($attachment->fileId);
+        $this->assertSame('admin', $file->roleMin);
+    }
+
     public function testUploadWithoutManualDataHasNullSuggestedSource(): void
     {
-        $attachment = $this->service->upload('content', 'application/pdf', 'a.pdf', null, null, 1);
+        $attachment = $this->service->upload('content', 'application/pdf', 'a.pdf', $this->accountId, null, null, 1);
 
         $this->assertNull($attachment->suggestedSource);
     }
 
     public function testReplaceArchivesOldAndCreatesChainedNewAttachment(): void
     {
-        $original = $this->service->upload('content v1', 'application/pdf', 'v1.pdf', null, null, 1);
+        $original = $this->service->upload('content v1', 'application/pdf', 'v1.pdf', $this->accountId, null, null, 1);
 
         $replacement = $this->service->replace($original->id, 'content v2', 'application/pdf', 'v2.pdf', 1);
 
         $this->assertSame(Attachment::STATUS_ARCHIVED, $this->attachmentRepository->findById($original->id)->status);
         $this->assertSame($original->id, $replacement->parentAttachmentId);
         $this->assertSame(Attachment::STATUS_ACTIVE, $replacement->status);
+        $this->assertSame($this->accountId, $replacement->accountId);
     }
 
     public function testReplaceTransfersMovementAssociations(): void
     {
-        $original = $this->service->upload('content', 'application/pdf', 'v1.pdf', null, null, 1);
+        $original = $this->service->upload('content', 'application/pdf', 'v1.pdf', $this->accountId, null, null, 1);
         $transactionId = $this->createTransaction();
         $this->transactionAttachmentRepository->associate($transactionId, $original->id);
 
@@ -133,7 +152,7 @@ class ReceiptServiceTest extends TestCase
 
     public function testDeleteArchivesButNeverPhysicallyDeletes(): void
     {
-        $attachment = $this->service->upload('content', 'application/pdf', 'a.pdf', null, null, 1);
+        $attachment = $this->service->upload('content', 'application/pdf', 'a.pdf', $this->accountId, null, null, 1);
 
         $this->service->delete($attachment->id);
 
@@ -144,7 +163,7 @@ class ReceiptServiceTest extends TestCase
 
     public function testDeleteRemovesMovementAssociations(): void
     {
-        $attachment = $this->service->upload('content', 'application/pdf', 'a.pdf', null, null, 1);
+        $attachment = $this->service->upload('content', 'application/pdf', 'a.pdf', $this->accountId, null, null, 1);
         $transactionId = $this->createTransaction();
         $this->transactionAttachmentRepository->associate($transactionId, $attachment->id);
 
@@ -161,7 +180,7 @@ class ReceiptServiceTest extends TestCase
 
     public function testAssociateLinksAttachmentToMovements(): void
     {
-        $attachment = $this->service->upload('content', 'application/pdf', 'a.pdf', null, null, 1);
+        $attachment = $this->service->upload('content', 'application/pdf', 'a.pdf', $this->accountId, null, null, 1);
         $t1 = $this->createTransaction();
         $t2 = $this->createTransaction();
 
@@ -178,7 +197,7 @@ class ReceiptServiceTest extends TestCase
 
     public function testDissociateRemovesOneLink(): void
     {
-        $attachment = $this->service->upload('content', 'application/pdf', 'a.pdf', null, null, 1);
+        $attachment = $this->service->upload('content', 'application/pdf', 'a.pdf', $this->accountId, null, null, 1);
         $transactionId = $this->createTransaction();
         $this->service->associate($attachment->id, [$transactionId]);
 
@@ -189,8 +208,8 @@ class ReceiptServiceTest extends TestCase
 
     public function testListPendingExcludesAssociatedAttachments(): void
     {
-        $pending = $this->service->upload('content', 'application/pdf', 'pending.pdf', null, null, 1);
-        $associated = $this->service->upload('content', 'application/pdf', 'associated.pdf', null, null, 1);
+        $pending = $this->service->upload('content', 'application/pdf', 'pending.pdf', $this->accountId, null, null, 1);
+        $associated = $this->service->upload('content', 'application/pdf', 'associated.pdf', $this->accountId, null, null, 1);
         $this->service->associate($associated->id, [$this->createTransaction()]);
 
         $result = $this->service->listPending();
@@ -202,11 +221,23 @@ class ReceiptServiceTest extends TestCase
 
     public function testListPendingExcludesArchivedAttachments(): void
     {
-        $attachment = $this->service->upload('content', 'application/pdf', 'a.pdf', null, null, 1);
+        $attachment = $this->service->upload('content', 'application/pdf', 'a.pdf', $this->accountId, null, null, 1);
         $this->service->delete($attachment->id);
 
         $result = $this->service->listPending();
 
         $this->assertSame([], $result);
+    }
+
+    public function testListPendingScopedToAccount(): void
+    {
+        $otherAccountId = $this->accountRepository->create('Autre compte', Account::TYPE_BANK, null, null, null, 'intendant');
+        $this->service->upload('content', 'application/pdf', 'a.pdf', $this->accountId, null, null, 1);
+        $this->service->upload('content', 'application/pdf', 'b.pdf', $otherAccountId, null, null, 1);
+
+        $result = $this->service->listPending($this->accountId);
+
+        $this->assertCount(1, $result);
+        $this->assertSame($this->accountId, $result[0]->accountId);
     }
 }

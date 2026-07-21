@@ -57,7 +57,7 @@ class MovementControllerTest extends TestCase
 
         $this->accountRepository = new AccountRepository($this->pdo, $encryption);
         $this->transactionRepository = new TransactionRepository($this->pdo, $encryption);
-        $this->fiscalYearRepository = new FiscalYearRepository($this->pdo);
+        $this->fiscalYearRepository = new FiscalYearRepository($this->pdo, new \Core\Config\ScoutYearService($this->pdo));
         $this->categoryRepository = new CategoryRepository($this->pdo);
         $attachmentRepository = new AttachmentRepository($this->pdo);
         $transactionAttachmentRepository = new TransactionAttachmentRepository($this->pdo);
@@ -69,7 +69,7 @@ class MovementControllerTest extends TestCase
             $this->accountRepository, $this->categoryRepository, $this->fiscalYearRepository, $sectionService, $this->transactionRepository, $balanceService
         );
         $fileStorage = new EncryptedFileStorageService(new FileRepository($this->pdo), $encryption, sys_get_temp_dir() . '/finance_movement_test_' . uniqid());
-        $receiptService = new ReceiptService($attachmentRepository, $transactionAttachmentRepository, $fileStorage);
+        $receiptService = new ReceiptService($attachmentRepository, $this->accountRepository, $transactionAttachmentRepository, $fileStorage);
 
         $templateDir = dirname(__DIR__, 4) . '/core/View/templates';
         $moduleViews = dirname(__DIR__, 4) . '/modules/finance/views';
@@ -99,8 +99,7 @@ class MovementControllerTest extends TestCase
         $this->pdo->prepare("UPDATE finance_accounts SET status = 'active' WHERE id = ?")->execute([$accountId]);
         $this->accountId = $accountId;
 
-        $this->fiscalYearId = $this->fiscalYearRepository->create('2026-2027', '2026-09-01', '2027-08-31');
-        $this->fiscalYearRepository->setCurrent($this->fiscalYearId);
+        $this->fiscalYearId = $this->fiscalYearRepository->findCurrent()->id;
 
         if (session_status() === PHP_SESSION_NONE) {
             session_start();
@@ -123,7 +122,7 @@ class MovementControllerTest extends TestCase
     public function testListDefaultsToCurrentFiscalYear(): void
     {
         $this->createTransaction('2026-10-01', -20.0, 'Achat A');
-        $otherYearId = $this->fiscalYearRepository->create('2025-2026', '2025-09-01', '2026-08-31');
+        $otherYearId = FinanceTestHelper::createScoutYear($this->pdo, '2020-2021', '2020-09-01', '2021-08-31');
         $this->transactionRepository->create($this->accountId, $otherYearId, 'ref-old', '2025-10-01', 'Achat ancien exercice', -5.0, null, null, Transaction::SOURCE_MANUAL, null);
 
         $response = $this->controller->list(new Request('GET', '/finance/movements', [], [], [], []), []);
@@ -136,7 +135,7 @@ class MovementControllerTest extends TestCase
     public function testListAllFiscalYearsWhenRequested(): void
     {
         $this->createTransaction('2026-10-01', -20.0, 'Achat A');
-        $otherYearId = $this->fiscalYearRepository->create('2025-2026', '2025-09-01', '2026-08-31');
+        $otherYearId = FinanceTestHelper::createScoutYear($this->pdo, '2020-2021', '2020-09-01', '2021-08-31');
         $this->transactionRepository->create($this->accountId, $otherYearId, 'ref-old', '2025-10-01', 'Achat ancien exercice', -5.0, null, null, Transaction::SOURCE_MANUAL, null);
 
         $response = $this->controller->list(new Request('GET', '/finance/movements', ['fiscal_year_id' => 'all'], [], [], []), []);
@@ -197,7 +196,7 @@ class MovementControllerTest extends TestCase
     public function testUpdateChangesCategoryCommentAndFiscalYear(): void
     {
         $categoryId = $this->categoryRepository->create('Alimentation');
-        $newFiscalYearId = $this->fiscalYearRepository->create('2027-2028', '2027-09-01', '2028-08-31');
+        $newFiscalYearId = FinanceTestHelper::createScoutYear($this->pdo, '2027-2028', '2027-09-01', '2028-08-31');
         $id = $this->createTransaction('2026-10-01', -20.0, 'Achat', null);
 
         $token = $this->csrfToken();

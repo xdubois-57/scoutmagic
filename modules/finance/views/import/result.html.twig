@@ -3,7 +3,11 @@
 {% block title %}Résultat de l'import — Finances — {{ site_name }}{% endblock %}
 
 {% block content %}
-    <h1 class="mb-4">Résultat de l'import</h1>
+    <h1 class="mb-4">Finances</h1>
+
+    {% include '@finance/_nav.html.twig' %}
+
+    <h2 class="h5 mb-3">Résultat de l'import</h2>
 
     {% if error %}
         <div class="alert alert-danger">{{ error }}</div>

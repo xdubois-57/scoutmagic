@@ -9,10 +9,23 @@
         <div class="alert alert-danger">{{ error }}</div>
     {% endif %}
 
+    {% if not replace_id and accounts is empty %}
+        <p class="text-body-secondary fst-italic">Aucun compte visible pour votre rôle.</p>
+    {% else %}
     <form method="post" action="{{ replace_id ? '/finance/receipts/' ~ replace_id ~ '/replace' : '/finance/receipts/new' }}"
           enctype="multipart/form-data" class="border rounded-3 p-3" id="receipt-form">
         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
         <div class="row g-2">
+            {% if not replace_id %}
+                <div class="col-12">
+                    <label class="form-label small" for="receipt-account">Compte</label>
+                    <select class="form-select form-select-sm" id="receipt-account" name="account_id" required>
+                        {% for account in accounts %}
+                            <option value="{{ account.id }}" {{ selected_account and account.id == selected_account.id ? 'selected' : '' }}>{{ account.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            {% endif %}
             <div class="col-12">
                 <label class="form-label small" for="receipt-file">Fichier (PDF, Word, JPEG ou PNG)</label>
                 <input type="file" class="form-control form-control-sm" id="receipt-file" name="receipt" accept=".pdf,.docx,.jpg,.jpeg,.png" required>
@@ -30,13 +43,15 @@
             {% endif %}
             <div class="col-12">
                 <button type="submit" class="btn btn-sm btn-primary">{{ replace_id ? 'Remplacer' : 'Ajouter' }}</button>
-                <a href="/finance/receipts" class="btn btn-sm btn-outline-secondary">Annuler</a>
+                <a href="/finance/receipts{{ selected_account ? '?account_id=' ~ selected_account.id : '' }}" class="btn btn-sm btn-outline-secondary">Annuler</a>
             </div>
         </div>
     </form>
+    {% endif %}
 {% endblock %}
 
 {% block scripts %}
+{% if replace_id or accounts is not empty %}
 <script nonce="{{ csp_nonce }}">
 const MAX_WIDTH = 1600;
 const JPEG_QUALITY = 0.75;
@@ -108,4 +123,5 @@ form.addEventListener('submit', async (e) => {
     form.submit();
 });
 </script>
+{% endif %}
 {% endblock %}

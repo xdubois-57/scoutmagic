@@ -99,6 +99,19 @@ class AccountRepositoryTest extends TestCase
         $this->assertSame('admin', $account->roleMinView);
     }
 
+    public function testUpdateWithNullIbanAndHolderNamePreservesExistingValues(): void
+    {
+        $id = $this->repository->create('Compte', Account::TYPE_BANK, null, 'BE92001511757023', 'Titulaire original', 'intendant');
+
+        $this->repository->update($id, 'Nouveau nom', Account::TYPE_BANK, null, null, null, 'admin');
+
+        $account = $this->repository->findById($id);
+        $this->assertSame('Nouveau nom', $account->name);
+        $this->assertSame('admin', $account->roleMinView);
+        $this->assertSame('BE92001511757023', $account->iban);
+        $this->assertSame('Titulaire original', $account->holderName);
+    }
+
     private function blindIndexFor(Account $account): string
     {
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));

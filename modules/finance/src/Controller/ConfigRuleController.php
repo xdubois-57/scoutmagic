@@ -10,11 +10,16 @@ use Core\Http\Response;
 use Core\Journal\JournalService;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
-use Modules\Finance\Repository\CategoryRepository;
 use Modules\Finance\Repository\CategoryRule;
 use Modules\Finance\Repository\CategoryRuleRepository;
 use Modules\Finance\Service\CategoryRuleEngine;
 
+/**
+ * POST-only — the config UI for rules lives on the same page as
+ * categories (Controller\ConfigCategoryController::index(),
+ * @finance/config/categories.html.twig), so this controller only ever
+ * handles mutations, not rendering.
+ */
 class ConfigRuleController extends AbstractController
 {
     private const VALID_CONDITION_TYPES = [
@@ -26,32 +31,9 @@ class ConfigRuleController extends AbstractController
     public function __construct(
         protected \Twig\Environment $twig,
         private CategoryRuleRepository $ruleRepository,
-        private CategoryRepository $categoryRepository,
         private CategoryRuleEngine $ruleEngine,
         private JournalService $journalService
     ) {
-    }
-
-    /**
-     * @param array<string, string> $params
-     */
-    public function index(Request $request, array $params): Response
-    {
-        $categoriesById = [];
-        foreach ($this->categoryRepository->findAllOrdered() as $category) {
-            $categoriesById[$category->id] = $category;
-        }
-
-        return $this->render('@finance/config/rules.html.twig', [
-            'rules' => $this->ruleRepository->findAllOrderedByPriority(),
-            'categories' => $this->categoryRepository->findActiveOrdered(),
-            'categories_by_id' => $categoriesById,
-            'condition_types' => [
-                CategoryRule::CONDITION_KEYWORD => 'Mot-clé',
-                CategoryRule::CONDITION_COUNTERPARTY_ACCOUNT => 'Compte contrepartie',
-                CategoryRule::CONDITION_AMOUNT_RANGE => 'Montant (plage)',
-            ],
-        ]);
     }
 
     /**

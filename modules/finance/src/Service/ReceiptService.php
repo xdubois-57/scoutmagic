@@ -7,6 +7,7 @@ namespace Modules\Finance\Service;
 use Core\File\EncryptedFileStorageService;
 use Modules\Finance\Repository\Attachment;
 use Modules\Finance\Repository\AttachmentRepository;
+use Modules\Finance\Repository\AccountRepository;
 use Modules\Finance\Repository\TransactionAttachmentRepository;
 
 /**
@@ -15,6 +16,12 @@ use Modules\Finance\Repository\TransactionAttachmentRepository;
  * Core\File\EncryptedFileStorageService (same master key as
  * Core\Security\EncryptionService) — this module was the reason that
  * capability got built, per schema.sql's comment on finance_attachments.
+ *
+ * Every receipt is tied to an account: the underlying file's role_min is
+ * set to that account's role_min_view at upload/replace time, so
+ * downloading it via Core\File\FileAccessGuard enforces the same floor
+ * as the account itself (Controller\ConfigAccountController re-syncs it
+ * for existing receipts whenever an account's role_min_view changes).
  */
 class ReceiptService
 {
@@ -26,35 +33,40 @@ class ReceiptService
     ];
 
     private const STORAGE_SUBDIRECTORY = 'finance/receipts';
-    private const STORAGE_ROLE_MIN = 'intendant';
 
     public function __construct(
         private AttachmentRepository $attachmentRepository,
+        private AccountRepository $accountRepository,
         private TransactionAttachmentRepository $transactionAttachmentRepository,
         private EncryptedFileStorageService $fileStorage
     ) {
     }
 
     /**
-     * @throws FinanceException on an unsupported MIME type
+     * @throws FinanceException on an unsupported MIME type or an unknown account
      */
     public function upload(
         string $content,
         string $mimeType,
         string $originalFilename,
+        int $accountId,
         ?float $suggestedAmount,
         ?string $suggestedDate,
         ?int $uploadedBy
     ): Attachment {
+        $account = $this->accountRepository->findById($accountId);
+        if ($account === null) {
+            throw new FinanceException('Compte introuvable.');
+        }
         $this->assertMimeTypeAllowed($mimeType);
 
         $fileId = $this->fileStorage->store(
-            $content, $mimeType, $originalFilename, self::STORAGE_SUBDIRECTORY, self::STORAGE_ROLE_MIN, 'finance', $uploadedBy
+            $content, $mimeType, $originalFilename, self::STORAGE_SUBDIRECTORY, $account->roleMinView, 'finance', $uploadedBy
         );
 
         $suggestedSource = ($suggestedAmount !== null || $suggestedDate !== null) ? Attachment::SUGGESTED_SOURCE_MANUAL : null;
         $id = $this->attachmentRepository->create(
-            null, $fileId, $mimeType, $originalFilename, $suggestedAmount, $suggestedDate, null, $uploadedBy, $suggestedSource
+            $accountId, $fileId, $mimeType, $originalFilename, $suggestedAmount, $suggestedDate, null, $uploadedBy, $suggestedSource
         );
 
         $attachment = $this->attachmentRepository->findById($id);
@@ -64,22 +76,27 @@ class ReceiptService
 
     /**
      * Archives $attachmentId and creates a new attachment chained to it
-     * via parent_attachment_id, carrying over every movement association
-     * the old version had (module spec: "transfère les associations").
+     * via parent_attachment_id, carrying over the same account and every
+     * movement association the old version had (module spec: "transfère
+     * les associations").
      *
-     * @throws FinanceException when the attachment is unknown or the new
-     *                           file's MIME type is unsupported
+     * @throws FinanceException when the attachment (or its account) is
+     *                           unknown, or the new file's MIME type is unsupported
      */
     public function replace(int $attachmentId, string $content, string $mimeType, string $originalFilename, ?int $uploadedBy): Attachment
     {
         $old = $this->attachmentRepository->findById($attachmentId);
-        if ($old === null) {
+        if ($old === null || $old->accountId === null) {
             throw new FinanceException('Reçu introuvable.');
+        }
+        $account = $this->accountRepository->findById($old->accountId);
+        if ($account === null) {
+            throw new FinanceException('Compte introuvable.');
         }
         $this->assertMimeTypeAllowed($mimeType);
 
         $fileId = $this->fileStorage->store(
-            $content, $mimeType, $originalFilename, self::STORAGE_SUBDIRECTORY, self::STORAGE_ROLE_MIN, 'finance', $uploadedBy
+            $content, $mimeType, $originalFilename, self::STORAGE_SUBDIRECTORY, $account->roleMinView, 'finance', $uploadedBy
         );
 
         $newId = $this->attachmentRepository->create(
@@ -132,16 +149,20 @@ class ReceiptService
     }
 
     /**
-     * Active receipts linked to no movement yet.
+     * Active receipts linked to no movement yet, optionally scoped to a
+     * single account (the "Finances" pages share one account picker).
      *
      * @return Attachment[]
      */
-    public function listPending(): array
+    public function listPending(?int $accountId = null): array
     {
         $associatedIds = $this->transactionAttachmentRepository->findAssociatedAttachmentIds();
+        $attachments = $accountId !== null
+            ? $this->attachmentRepository->findActiveByAccountId($accountId)
+            : $this->attachmentRepository->findActiveOrdered();
 
         return array_values(array_filter(
-            $this->attachmentRepository->findActiveOrdered(),
+            $attachments,
             fn(Attachment $attachment) => !in_array($attachment->id, $associatedIds, true)
         ));
     }

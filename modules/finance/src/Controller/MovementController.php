@@ -47,13 +47,11 @@ class MovementController extends AbstractController
     {
         $role = Role::fromString(AuthSession::getRole());
         $visibleAccounts = $this->financeService->getAccountsForUser($role);
-        $visibleAccountIds = array_map(fn($account) => $account->id, $visibleAccounts);
+        $account = $this->financeService->resolveSelectedAccount($role, $request->getQuery('account_id'));
 
-        $requestedAccountId = $request->getQuery('account_id');
-        $accountId = $requestedAccountId !== null && $requestedAccountId !== '' ? (int) $requestedAccountId : null;
-        $accountIdsFilter = ($accountId !== null && in_array($accountId, $visibleAccountIds, true))
-            ? [$accountId]
-            : $visibleAccountIds;
+        if ($account === null) {
+            return $this->render('@finance/movements/list.html.twig', ['accounts' => [], 'no_accounts' => true]);
+        }
 
         $currentFiscalYear = $this->financeService->getCurrentFiscalYear();
         $fiscalYearParam = $request->getQuery('fiscal_year_id');
@@ -71,7 +69,7 @@ class MovementController extends AbstractController
         $search = trim((string) $request->getQuery('q', ''));
 
         $allMatches = $this->transactionRepository->findFiltered(
-            $accountIdsFilter,
+            [$account->id],
             $fiscalYearId,
             $categoryId,
             $search !== '' ? $search : null
@@ -92,7 +90,7 @@ class MovementController extends AbstractController
             array_map(fn(Transaction $transaction) => $transaction->id, $movements)
         );
 
-        $pendingReceipts = $this->receiptService->listPending();
+        $pendingReceipts = $this->receiptService->listPending($account->id);
 
         $rows = [];
         foreach ($movements as $movement) {
@@ -106,6 +104,7 @@ class MovementController extends AbstractController
 
         return $this->render('@finance/movements/list.html.twig', [
             'accounts' => $visibleAccounts,
+            'selected_account' => $account,
             'fiscal_years' => $this->fiscalYearRepository->findAllOrdered(),
             'categories' => $this->categoryRepository->findAllOrdered(),
             'categories_by_id' => $categoriesById,
@@ -113,7 +112,6 @@ class MovementController extends AbstractController
             'total_count' => $totalCount,
             'page' => $page,
             'total_pages' => $totalPages,
-            'filter_account_id' => $accountId,
             'filter_fiscal_year_id' => $fiscalYearId,
             'filter_category_id' => $categoryId,
             'filter_search' => $search,
@@ -228,10 +226,20 @@ class MovementController extends AbstractController
     public function search(Request $request, array $params): Response
     {
         $role = Role::fromString(AuthSession::getRole());
-        $visibleAccountIds = array_map(fn($account) => $account->id, $this->financeService->getAccountsForUser($role));
+        $visibleAccounts = $this->financeService->getAccountsForUser($role);
+        $visibleAccountIds = array_map(fn($account) => $account->id, $visibleAccounts);
+
+        $requestedAccountId = $request->getQuery('account_id');
+        $accountIdsFilter = $visibleAccountIds;
+        if ($requestedAccountId !== null) {
+            $requestedAccountId = (int) $requestedAccountId;
+            if (in_array($requestedAccountId, $visibleAccountIds, true)) {
+                $accountIdsFilter = [$requestedAccountId];
+            }
+        }
 
         $query = trim((string) $request->getQuery('q', ''));
-        $matches = $this->transactionRepository->findFiltered($visibleAccountIds, null, null, $query !== '' ? $query : null);
+        $matches = $this->transactionRepository->findFiltered($accountIdsFilter, null, null, $query !== '' ? $query : null);
 
         return $this->json([
             'success' => true,

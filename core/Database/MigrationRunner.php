@@ -21,7 +21,7 @@ class MigrationRunner
      * 3. Introspect the current database.
      * 4. Compare and generate DDL.
      * 5. Execute DDL statements.
-     * 6. Apply explicit, reviewed column drops (see applyExplicitDrops()).
+     * 6. Apply explicit, reviewed column/constraint drops (see applyExplicitDrops()).
      * 7. Return a MigrationResult.
      *
      * @param array<string> $schemaFiles
@@ -74,21 +74,22 @@ class MigrationRunner
     }
 
     /**
-     * SchemaComparator deliberately never drops a column or table it finds
-     * in the database but not in the declared schema (a data-loss safety
-     * net — see its class doc comment). This is the one narrow, explicit
-     * exception: for each schema file, a sibling drops.sql (e.g.
-     * schema/core.sql → schema/drops.sql) can declare
-     * `ALTER TABLE <table> DROP COLUMN <column>;` statements that were
-     * hand-written and reviewed as part of the change that stopped
-     * declaring that column. Each drop is only executed if the column
-     * still exists, so this is idempotent and safe to run on every
-     * request — a no-op once applied, and a no-op on fresh installs that
-     * never had the column.
+     * SchemaComparator deliberately never drops a column, FK constraint, or
+     * table it finds in the database but not in the declared schema (a
+     * data-loss safety net — see its class doc comment). This is the one
+     * narrow, explicit exception: for each schema file, a sibling
+     * drops.sql (e.g. schema/core.sql → schema/drops.sql) can declare
+     * `ALTER TABLE <table> DROP COLUMN <column>;` or
+     * `ALTER TABLE <table> DROP FOREIGN KEY <constraint>;` statements that
+     * were hand-written and reviewed as part of the change that stopped
+     * declaring that column/constraint. Each drop is only executed if the
+     * column/constraint still exists, so this is idempotent and safe to
+     * run on every request — a no-op once applied, and a no-op on fresh
+     * installs that never had it.
      *
      * @param array<string> $schemaFiles
      * @param array<string> $warnings
-     * @return array<string> executed DROP COLUMN statements
+     * @return array<string> executed DROP statements
      */
     private function applyExplicitDrops(array $schemaFiles, \PDO $pdo, array &$warnings): array
     {
@@ -97,16 +98,30 @@ class MigrationRunner
         foreach ($schemaFiles as $file) {
             $dropsFile = dirname($file) . '/drops.sql';
             foreach ($this->parser->parseDropsFile($dropsFile) as $drop) {
-                $currentColumns = array_map(
-                    fn(ColumnDefinition $c) => $c->name,
-                    $this->introspector->getColumns($drop['table'])
-                );
+                if (isset($drop['column'])) {
+                    $currentColumns = array_map(
+                        fn(ColumnDefinition $c) => $c->name,
+                        $this->introspector->getColumns($drop['table'])
+                    );
 
-                if (!in_array($drop['column'], $currentColumns, true)) {
-                    continue;
+                    if (!in_array($drop['column'], $currentColumns, true)) {
+                        continue;
+                    }
+
+                    $statement = "ALTER TABLE `{$drop['table']}` DROP COLUMN `{$drop['column']}`";
+                } else {
+                    $currentConstraints = array_map(
+                        fn(ForeignKeyDefinition $fk) => $fk->name,
+                        $this->introspector->getForeignKeys($drop['table'])
+                    );
+
+                    if (!in_array($drop['constraint'], $currentConstraints, true)) {
+                        continue;
+                    }
+
+                    $statement = "ALTER TABLE `{$drop['table']}` DROP FOREIGN KEY `{$drop['constraint']}`";
                 }
 
-                $statement = "ALTER TABLE `{$drop['table']}` DROP COLUMN `{$drop['column']}`";
                 try {
                     $pdo->exec($statement);
                     $executed[] = $statement;

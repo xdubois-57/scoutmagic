@@ -5,19 +5,20 @@ declare(strict_types=1);
 namespace Tests\Modules\LlmConnector\Provider;
 
 use Modules\LlmConnector\Api\LlmException;
-use Modules\LlmConnector\Provider\MistralProvider;
+use Modules\LlmConnector\Provider\ScalewayProvider;
 use PHPUnit\Framework\TestCase;
 
 /**
- * Unit tests for MistralProvider.
+ * Unit tests for ScalewayProvider.
  */
-class MistralProviderTest extends TestCase
+class ScalewayProviderTest extends TestCase
 {
-    private MistralProvider $provider;
+    private ScalewayProvider $provider;
 
     protected function setUp(): void
     {
-        $this->provider = new MistralProvider('http://127.0.0.1:19', 'sk-test-key');
+        // Use localhost on a closed port — connection refused is immediate
+        $this->provider = new ScalewayProvider('http://127.0.0.1:19', 'sk-test-key');
     }
 
     public function testListModelsThrowsOnNetworkFailure(): void
@@ -33,15 +34,18 @@ class MistralProviderTest extends TestCase
         $this->expectException(LlmException::class);
         $this->expectExceptionCode(LlmException::TIMEOUT);
 
-        $this->provider->complete('mistral-small-latest', 'Hello');
+        $this->provider->complete('pixtral-12b-2409', 'Hello');
     }
 
     public function testCompleteAcceptsOptions(): void
     {
         $this->expectException(LlmException::class);
 
-        $this->provider->complete('mistral-small-latest', 'Hello', [
+        $this->provider->complete('pixtral-12b-2409', 'Hello', [
             'system_prompt' => 'You are helpful.',
+            'attachments' => [
+                ['data' => base64_encode('test'), 'mime_type' => 'image/png'],
+            ],
             'response_schema' => ['type' => 'object', 'properties' => ['name' => ['type' => 'string']]],
             'timeout' => 5,
         ]);
@@ -49,7 +53,7 @@ class MistralProviderTest extends TestCase
 
     public function testBuildUserContentReturnsPlainStringWithoutAttachments(): void
     {
-        $method = new \ReflectionMethod(MistralProvider::class, 'buildUserContent');
+        $method = new \ReflectionMethod(ScalewayProvider::class, 'buildUserContent');
         $method->setAccessible(true);
 
         $content = $method->invoke($this->provider, 'Hello', []);
@@ -59,7 +63,7 @@ class MistralProviderTest extends TestCase
 
     public function testBuildUserContentBuildsImageUrlBlockForImageAttachment(): void
     {
-        $method = new \ReflectionMethod(MistralProvider::class, 'buildUserContent');
+        $method = new \ReflectionMethod(ScalewayProvider::class, 'buildUserContent');
         $method->setAccessible(true);
 
         $data = base64_encode('fake-image-bytes');
@@ -74,7 +78,7 @@ class MistralProviderTest extends TestCase
 
     public function testBuildUserContentSkipsNonImageAttachments(): void
     {
-        $method = new \ReflectionMethod(MistralProvider::class, 'buildUserContent');
+        $method = new \ReflectionMethod(ScalewayProvider::class, 'buildUserContent');
         $method->setAccessible(true);
 
         $content = $method->invoke($this->provider, 'Hello', [
@@ -84,51 +88,12 @@ class MistralProviderTest extends TestCase
         $this->assertSame('Hello', $content);
     }
 
-    public function testResolveTiersPicksMostRecentSmallAndLarge(): void
-    {
-        $models = [
-            'mistral-small-2402',
-            'mistral-small-latest',
-            'mistral-large-2411',
-            'mistral-large-latest',
-            'mistral-medium-latest',
-            'mistral-embed',
-            'codestral-latest',
-        ];
-
-        $tiers = $this->provider->resolveTiers($models);
-
-        // "latest" is treated as most recent → extractDate returns '99999999'
-        // "2402" → '24020000', "2411" → '24110000'
-        $this->assertSame('mistral-small-latest', $tiers['cheap']);
-        $this->assertSame('mistral-large-latest', $tiers['capable']);
-    }
-
-    public function testResolveTiersReturnsNullWhenNoMatch(): void
-    {
-        $models = ['mistral-embed', 'codestral-latest'];
-
-        $tiers = $this->provider->resolveTiers($models);
-
-        $this->assertNull($tiers['cheap']);
-        $this->assertNull($tiers['capable']);
-    }
-
     public function testResolveTiersWithEmptyList(): void
     {
         $tiers = $this->provider->resolveTiers([]);
 
         $this->assertNull($tiers['cheap']);
         $this->assertNull($tiers['capable']);
-    }
-
-    public function testResolveTiersMediumCountsAsCapable(): void
-    {
-        $models = ['mistral-medium-20250514'];
-
-        $tiers = $this->provider->resolveTiers($models);
-
-        $this->assertNull($tiers['cheap']);
-        $this->assertSame('mistral-medium-20250514', $tiers['capable']);
+        $this->assertNull($tiers['ocr']);
     }
 }

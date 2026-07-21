@@ -42,9 +42,10 @@
                             <button type="button" class="btn btn-sm btn-outline-secondary edit-account-btn"
                                     data-id="{{ account.id }}" data-name="{{ account.name }}" data-account-type="{{ account.accountType }}"
                                     data-section-id="{{ account.sectionId }}" data-role-min-view="{{ account.roleMinView }}"
+                                    data-iban="{{ account.iban }}" data-holder="{{ account.holderName }}"
                                     title="Modifier"><i class="bi bi-pencil"></i></button>
                             {% if account.status == 'draft' %}
-                                <button type="button" class="btn btn-sm btn-outline-success activate-account-btn" data-id="{{ account.id }}">Activer</button>
+                                <span class="text-body-secondary small fst-italic">IBAN et titulaire requis pour activer</span>
                             {% elseif account.status == 'active' %}
                                 <button type="button" class="btn btn-sm btn-outline-warning archive-account-btn" data-id="{{ account.id }}">Archiver</button>
                             {% endif %}
@@ -55,78 +56,84 @@
         </table>
     </div>
 
-    <div class="border rounded-3 p-3 mb-4 d-none" id="account-form-container">
-        <h3 class="h6" id="account-form-title">Nouveau compte</h3>
-        <form id="account-form">
-            <input type="hidden" id="account-id" value="">
-            <div class="row g-2">
-                <div class="col-12 col-md-6">
-                    <label class="form-label small" for="account-name">Nom</label>
-                    <input type="text" class="form-control form-control-sm" id="account-name" required>
+    <div class="modal fade" id="account-modal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="account-form-title">Nouveau compte</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
-                <div class="col-6 col-md-3">
-                    <label class="form-label small" for="account-type">Type</label>
-                    <select class="form-select form-select-sm" id="account-type">
-                        {% for value, label in account_types %}
-                            <option value="{{ value }}">{{ label }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <div class="col-6 col-md-3">
-                    <label class="form-label small" for="account-section">Section</label>
-                    <select class="form-select form-select-sm" id="account-section">
-                        <option value="">—</option>
-                        {% for id, section in sections_by_id %}
-                            <option value="{{ id }}">{{ section.name ?? section.desk_code }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <div class="col-12 col-md-6">
-                    <label class="form-label small" for="account-iban">IBAN</label>
-                    <input type="text" class="form-control form-control-sm" id="account-iban" placeholder="Laisser vide pour ne pas modifier">
-                </div>
-                <div class="col-12 col-md-6">
-                    <label class="form-label small" for="account-holder">Nom du titulaire</label>
-                    <input type="text" class="form-control form-control-sm" id="account-holder" placeholder="Laisser vide pour ne pas modifier">
-                </div>
-                <div class="col-6 col-md-3">
-                    <label class="form-label small" for="account-role-min-view">Visible à partir de</label>
-                    <select class="form-select form-select-sm" id="account-role-min-view">
-                        {% for value, label in role_min_options %}
-                            <option value="{{ value }}">{{ label }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <div class="col-6 col-md-3 d-flex align-items-end gap-2">
-                    <button type="submit" class="btn btn-sm btn-primary">Enregistrer</button>
-                    <button type="button" class="btn btn-sm btn-outline-secondary" id="cancel-account-form">Annuler</button>
-                </div>
+                <form id="account-form">
+                    <div class="modal-body">
+                        <input type="hidden" id="account-id" value="">
+                        <div class="row g-2">
+                            <div class="col-12">
+                                <label class="form-label small" for="account-name">Nom</label>
+                                <input type="text" class="form-control form-control-sm" id="account-name" required>
+                            </div>
+                            <div class="col-6">
+                                <label class="form-label small" for="account-type">Type</label>
+                                <select class="form-select form-select-sm" id="account-type">
+                                    {% for value, label in account_types %}
+                                        <option value="{{ value }}">{{ label }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="col-6">
+                                <label class="form-label small" for="account-section">Section</label>
+                                <select class="form-select form-select-sm" id="account-section">
+                                    <option value="">—</option>
+                                    {% for id, section in sections_by_id %}
+                                        <option value="{{ id }}">{{ section.name ?? section.desk_code }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label small" for="account-iban">IBAN</label>
+                                <input type="text" class="form-control form-control-sm" id="account-iban">
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label small" for="account-holder">Nom du titulaire</label>
+                                <input type="text" class="form-control form-control-sm" id="account-holder">
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label small" for="account-role-min-view">Visible à partir de</label>
+                                <select class="form-select form-select-sm" id="account-role-min-view">
+                                    {% for value, label in role_min_options %}
+                                        <option value="{{ value }}">{{ label }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                        </div>
+                        <div class="text-danger small mt-2 d-none" id="account-form-error"></div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Annuler</button>
+                        <button type="submit" class="btn btn-sm btn-primary">Enregistrer</button>
+                    </div>
+                </form>
             </div>
-            <div class="text-danger small mt-2 d-none" id="account-form-error"></div>
-        </form>
+        </div>
     </div>
 {% endblock %}
 
 {% block scripts %}
 <script nonce="{{ csp_nonce }}">
 const csrf = () => document.querySelector('meta[name="csrf-token"]')?.content;
-const formContainer = document.getElementById('account-form-container');
+const accountModalEl = document.getElementById('account-modal');
+const accountModal = window.bootstrap ? new window.bootstrap.Modal(accountModalEl) : null;
 const errorBox = document.getElementById('account-form-error');
 
-function showForm(title) {
+function showModal(title) {
     document.getElementById('account-form-title').textContent = title;
-    formContainer.classList.remove('d-none');
     errorBox.classList.add('d-none');
+    accountModal ? accountModal.show() : accountModalEl.classList.add('show');
 }
 
 document.getElementById('new-account-btn').addEventListener('click', () => {
     document.getElementById('account-form').reset();
     document.getElementById('account-id').value = '';
-    showForm('Nouveau compte');
-});
-
-document.getElementById('cancel-account-form').addEventListener('click', () => {
-    formContainer.classList.add('d-none');
+    showModal('Nouveau compte');
 });
 
 document.querySelectorAll('.edit-account-btn').forEach(btn => {
@@ -136,9 +143,9 @@ document.querySelectorAll('.edit-account-btn').forEach(btn => {
         document.getElementById('account-type').value = btn.dataset.accountType;
         document.getElementById('account-section').value = btn.dataset.sectionId || '';
         document.getElementById('account-role-min-view').value = btn.dataset.roleMinView;
-        document.getElementById('account-iban').value = '';
-        document.getElementById('account-holder').value = '';
-        showForm('Modifier le compte');
+        document.getElementById('account-iban').value = btn.dataset.iban || '';
+        document.getElementById('account-holder').value = btn.dataset.holder || '';
+        showModal('Modifier le compte');
     });
 });
 
@@ -184,10 +191,6 @@ async function postAccountAction(action, id) {
         alert(data.error);
     }
 }
-
-document.querySelectorAll('.activate-account-btn').forEach(btn => {
-    btn.addEventListener('click', () => postAccountAction('activate', parseInt(btn.dataset.id, 10)));
-});
 
 document.querySelectorAll('.archive-account-btn').forEach(btn => {
     btn.addEventListener('click', () => {

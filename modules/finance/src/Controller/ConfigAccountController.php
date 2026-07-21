@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Modules\Finance\Controller;
 
+use Core\File\FileRepository;
 use Core\Http\Controller\AbstractController;
 use Core\Http\Request;
 use Core\Http\Response;
@@ -12,6 +13,7 @@ use Core\Member\SectionService;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Modules\Finance\Repository\Account;
+use Modules\Finance\Repository\AttachmentRepository;
 use Modules\Finance\Service\FinanceException;
 use Modules\Finance\Service\FinanceService;
 
@@ -27,6 +29,8 @@ class ConfigAccountController extends AbstractController
         protected \Twig\Environment $twig,
         private FinanceService $financeService,
         private SectionService $sectionService,
+        private AttachmentRepository $attachmentRepository,
+        private FileRepository $fileRepository,
         private JournalService $journalService
     ) {
     }
@@ -88,13 +92,8 @@ class ConfigAccountController extends AbstractController
                         !empty($data['holder_name']) ? (string) $data['holder_name'] : null,
                         (string) ($data['role_min_view'] ?? 'intendant')
                     );
+                    $this->syncReceiptFilesRoleMin($account->id, $account->roleMinView);
                     $this->journalService->log('finance', 'account_updated', 'info', "Compte « {$account->name} » modifié", ['account_id' => $account->id], AuthSession::getUserAccountId());
-                    return $this->json(['success' => true]);
-
-                case 'activate':
-                    $id = (int) ($data['id'] ?? 0);
-                    $this->financeService->activateAccount($id);
-                    $this->journalService->log('finance', 'account_activated', 'info', 'Compte activé', ['account_id' => $id], AuthSession::getUserAccountId());
                     return $this->json(['success' => true]);
 
                 case 'archive':
@@ -108,6 +107,20 @@ class ConfigAccountController extends AbstractController
             }
         } catch (FinanceException $e) {
             return $this->json(['success' => false, 'error' => $e->getMessage()], 400);
+        }
+    }
+
+    /**
+     * A receipt's underlying file's role_min is set from its account's
+     * role_min_view at upload time (Service\ReceiptService) — whenever an
+     * admin changes that floor here, every existing receipt for the
+     * account (active or archived) must follow, or an already-uploaded
+     * receipt would keep enforcing a stale, no-longer-correct floor.
+     */
+    private function syncReceiptFilesRoleMin(int $accountId, string $roleMinView): void
+    {
+        foreach ($this->attachmentRepository->findFileIdsForAccount($accountId) as $fileId) {
+            $this->fileRepository->updateRoleMin($fileId, $roleMinView);
         }
     }
 

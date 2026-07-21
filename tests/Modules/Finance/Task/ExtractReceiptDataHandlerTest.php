@@ -155,6 +155,26 @@ class ExtractReceiptDataHandlerTest extends TestCase
         $this->assertNotFalse($stmt->fetch());
     }
 
+    public function testRequestsTheOcrTierNotCheap(): void
+    {
+        $attachmentId = $this->createAttachment();
+
+        $providerId = $this->providerRepository->create('Unreachable', 'anthropic', 'http://127.0.0.1:19', 'sk-test', true);
+        $this->modelRepository->upsert($providerId, 'test-model', 'Test Model');
+        $models = $this->modelRepository->findByProvider($providerId);
+        $this->modelRepository->assignTier((int) $models[0]['id'], LlmTier::OCR);
+
+        $handler = new ExtractReceiptDataHandler();
+        $handler->handle(['attachment_id' => $attachmentId], $this->createTaskContext());
+
+        $stmt = $this->pdo->prepare("SELECT context FROM event_log WHERE category = 'llm_connector' AND event_type = 'llm_request_failed'");
+        $stmt->execute();
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+        $this->assertNotFalse($row);
+        $context = json_decode((string) $row['context'], true);
+        $this->assertSame('ocr', $context['tier']);
+    }
+
     private function createLlmTables(): void
     {
         $this->pdo->exec('CREATE TABLE llm_providers (
@@ -192,6 +212,7 @@ class ExtractReceiptDataHandlerTest extends TestCase
             original_filename TEXT NOT NULL,
             suggested_amount REAL,
             suggested_date TEXT,
+            suggested_label TEXT,
             suggested_source TEXT,
             status TEXT NOT NULL DEFAULT \'active\',
             parent_attachment_id INTEGER,

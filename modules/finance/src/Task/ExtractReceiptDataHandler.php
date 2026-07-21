@@ -19,12 +19,14 @@ use Modules\LlmConnector\Service\LlmConnectorService;
 
 /**
  * One-shot task (scheduled by Service\ReceiptExtractionService right
- * after an upload) — asks the configured LLM provider (tier CHEAP only;
- * this module never names a model or provider) to read the receipt's
- * amount/date/merchant, then writes suggested_amount/suggested_date back
- * onto the attachment. Any failure (no provider, API error, unparseable
- * response) is journaled and otherwise silently absorbed — a failed
- * extraction never blocks the receipt from being used manually.
+ * after an upload) — asks the configured LLM provider's OCR-tier model
+ * (this module never names a model or provider; LlmConnectorService
+ * falls back to the CHEAP tier when no model is assigned to OCR) to read
+ * the receipt's amount/date/merchant, then writes suggested_amount/
+ * suggested_date/suggested_label back onto the attachment. Any failure
+ * (no provider, API error, unparseable response) is journaled and
+ * otherwise silently absorbed — a failed extraction never blocks the
+ * receipt from being used manually.
  */
 class ExtractReceiptDataHandler implements TaskHandlerInterface
 {
@@ -66,7 +68,7 @@ class ExtractReceiptDataHandler implements TaskHandlerInterface
         }
 
         $request = new LlmRequest(
-            tier: LlmTier::CHEAP,
+            tier: LlmTier::OCR,
             prompt: 'Extrait le montant total, la date, et le nom du commerçant de ce reçu ou de cette facture.',
             attachments: [['data' => base64_encode($content), 'mime_type' => $attachment->mimeType]],
             responseSchema: [
@@ -97,13 +99,19 @@ class ExtractReceiptDataHandler implements TaskHandlerInterface
         $date = isset($parsed['date']) && is_string($parsed['date']) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $parsed['date']) === 1
             ? $parsed['date']
             : null;
+        $merchant = isset($parsed['merchant']) && is_string($parsed['merchant']) && trim($parsed['merchant']) !== ''
+            ? mb_substr(trim($parsed['merchant']), 0, 255)
+            : null;
 
-        if ($amount === null && $date === null) {
+        if ($amount === null && $date === null && $merchant === null) {
             $this->logFailure($context, $attachmentId, 'Aucune donnée exploitable dans la réponse IA.');
             return;
         }
 
         $attachmentRepository->updateSuggestedData($attachmentId, $amount, $date, Attachment::SUGGESTED_SOURCE_AI);
+        if ($merchant !== null) {
+            $attachmentRepository->updateSuggestedLabel($attachmentId, $merchant);
+        }
 
         $context->journal->log(
             'finance',

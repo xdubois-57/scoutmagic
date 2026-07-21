@@ -56,7 +56,7 @@ class DashboardControllerTest extends TestCase
         $sectionService = new SectionService($connection, $encryption, new MemberBadgeRepository($this->pdo));
 
         $this->accountRepository = new AccountRepository($this->pdo, $encryption);
-        $this->fiscalYearRepository = new FiscalYearRepository($this->pdo);
+        $this->fiscalYearRepository = new FiscalYearRepository($this->pdo, new \Core\Config\ScoutYearService($this->pdo));
         $this->categoryRepository = new CategoryRepository($this->pdo);
         $this->transactionRepository = new TransactionRepository($this->pdo, $encryption);
         $this->checkpointRepository = new BalanceCheckpointRepository($this->pdo);
@@ -68,7 +68,7 @@ class DashboardControllerTest extends TestCase
         $attachmentRepository = new AttachmentRepository($this->pdo);
         $transactionAttachmentRepository = new TransactionAttachmentRepository($this->pdo);
         $fileStorage = new EncryptedFileStorageService(new FileRepository($this->pdo), $encryption, sys_get_temp_dir() . '/finance_dashboard_test_' . uniqid());
-        $receiptService = new ReceiptService($attachmentRepository, $transactionAttachmentRepository, $fileStorage);
+        $receiptService = new ReceiptService($attachmentRepository, $this->accountRepository, $transactionAttachmentRepository, $fileStorage);
 
         $templateDir = dirname(__DIR__, 4) . '/core/View/templates';
         $moduleViews = dirname(__DIR__, 4) . '/modules/finance/views';
@@ -118,21 +118,18 @@ class DashboardControllerTest extends TestCase
 
     public function testRendersAccountAndFiscalYearPickers(): void
     {
-        $accountId = $this->createAccount();
-        $this->fiscalYearRepository->create('2026-2027', '2026-09-01', '2027-08-31');
+        $this->createAccount();
+        $currentLabel = \Core\Config\ScoutYearService::labelForDate(new \DateTimeImmutable('today'));
 
         $response = $this->controller->index(new Request('GET', '/finance', [], [], [], []), []);
 
         $this->assertStringContainsString('Compte', $response->getBody());
-        $this->assertStringContainsString('2026-2027', $response->getBody());
+        $this->assertStringContainsString($currentLabel, $response->getBody());
     }
 
     public function testDefaultsToCurrentFiscalYear(): void
     {
         $this->createAccount();
-        $this->fiscalYearRepository->create('2025-2026', '2025-09-01', '2026-08-31');
-        $currentId = $this->fiscalYearRepository->create('2026-2027', '2026-09-01', '2027-08-31');
-        $this->fiscalYearRepository->setCurrent($currentId);
 
         $response = $this->controller->index(new Request('GET', '/finance', [], [], [], []), []);
 
@@ -142,7 +139,7 @@ class DashboardControllerTest extends TestCase
     public function testShowsCategorySummaryAndBilan(): void
     {
         $accountId = $this->createAccount();
-        $fiscalYearId = $this->fiscalYearRepository->create('2026-2027', '2026-09-01', '2027-08-31');
+        $fiscalYearId = $this->fiscalYearRepository->findCurrent()->id;
         $category = $this->categoryRepository->create('Alimentation');
         $this->transactionRepository->create($accountId, $fiscalYearId, 'r1', '2026-10-01', 'x', -20.0, $category, null, Transaction::SOURCE_MANUAL, null);
         $this->transactionRepository->create($accountId, $fiscalYearId, 'r2', '2026-10-02', 'x', 100.0, $category, null, Transaction::SOURCE_MANUAL, null);
@@ -159,7 +156,7 @@ class DashboardControllerTest extends TestCase
     public function testShowsUncategorizedAndPendingReceiptAlerts(): void
     {
         $accountId = $this->createAccount();
-        $fiscalYearId = $this->fiscalYearRepository->create('2026-2027', '2026-09-01', '2027-08-31');
+        $fiscalYearId = $this->fiscalYearRepository->findCurrent()->id;
         $this->transactionRepository->create($accountId, $fiscalYearId, 'r1', '2026-10-01', 'x', -20.0, null, null, Transaction::SOURCE_MANUAL, null);
 
         $response = $this->controller->index(new Request('GET', '/finance', ['account_id' => (string) $accountId, 'fiscal_year_id' => (string) $fiscalYearId], [], [], []), []);
@@ -170,7 +167,7 @@ class DashboardControllerTest extends TestCase
     public function testShowsRecentMovementsAndBalance(): void
     {
         $accountId = $this->createAccount();
-        $fiscalYearId = $this->fiscalYearRepository->create('2026-2027', '2026-09-01', '2027-08-31');
+        $fiscalYearId = $this->fiscalYearRepository->findCurrent()->id;
         $this->checkpointRepository->create($accountId, '2026-10-01', 500.0, BalanceCheckpoint::SOURCE_MANUAL);
         $this->transactionRepository->create($accountId, $fiscalYearId, 'r1', '2026-10-01', 'Achat spécifique', -20.0, null, null, Transaction::SOURCE_MANUAL, null);
 

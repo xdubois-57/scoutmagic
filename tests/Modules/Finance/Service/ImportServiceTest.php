@@ -50,7 +50,7 @@ class ImportServiceTest extends TestCase
         $this->transactionRepository = new TransactionRepository($this->pdo, $encryption);
         $this->checkpointRepository = new BalanceCheckpointRepository($this->pdo);
         $statementImportRepository = new StatementImportRepository($this->pdo);
-        $this->fiscalYearRepository = new FiscalYearRepository($this->pdo);
+        $this->fiscalYearRepository = new FiscalYearRepository($this->pdo, new \Core\Config\ScoutYearService($this->pdo));
         $this->categoryRepository = new CategoryRepository($this->pdo);
         $this->categoryRuleRepository = new CategoryRuleRepository($this->pdo);
         $ruleEngine = new CategoryRuleEngine($this->transactionRepository, $this->categoryRuleRepository);
@@ -65,7 +65,7 @@ class ImportServiceTest extends TestCase
         $accountId = $this->accountRepository->create('Compte', Account::TYPE_BANK, null, 'BE00000000000001', 'Titulaire', 'intendant');
         $this->account = $this->accountRepository->findById($accountId);
 
-        $this->fiscalYearRepository->create('2026-2027', '2026-09-01', '2027-08-31');
+        FinanceTestHelper::createScoutYear($this->pdo, '2026-2027', '2026-09-01', '2027-08-31');
     }
 
     private function tmpCsvFile(): string

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Modules\Finance\Service;
 
 use Core\Badge\MemberBadgeRepository;
+use Core\Config\ScoutYearService;
 use Core\Database\Connection;
 use Core\Member\SectionService;
 use Core\Security\EncryptionService;
@@ -46,7 +47,7 @@ class FinanceServiceTest extends TestCase
         $sectionService = new SectionService($connection, $encryption, new MemberBadgeRepository($this->pdo));
 
         $this->accountRepository = new AccountRepository($this->pdo, $encryption);
-        $this->fiscalYearRepository = new FiscalYearRepository($this->pdo);
+        $this->fiscalYearRepository = new FiscalYearRepository($this->pdo, new ScoutYearService($this->pdo));
         $this->categoryRepository = new CategoryRepository($this->pdo);
         $this->transactionRepository = new TransactionRepository($this->pdo, $encryption);
         $this->checkpointRepository = new BalanceCheckpointRepository($this->pdo);
@@ -91,38 +92,59 @@ class FinanceServiceTest extends TestCase
         }
     }
 
-    public function testActivateAccountRejectsMissingIbanOrHolderName(): void
+    public function testCreateAccountStaysDraftWithoutIbanOrHolderName(): void
     {
         $account = $this->service->createAccount('Compte', Account::TYPE_BANK, null, null, null, 'intendant');
 
-        $this->expectException(FinanceException::class);
-        $this->service->activateAccount($account->id);
+        $this->assertSame(Account::STATUS_DRAFT, $this->accountRepository->findById($account->id)->status);
     }
 
-    public function testActivateAccountRejectsHolderNameAloneWithoutIban(): void
+    public function testCreateAccountStaysDraftWithHolderNameAloneWithoutIban(): void
     {
         $account = $this->service->createAccount('Compte', Account::TYPE_BANK, null, null, 'Titulaire', 'intendant');
 
-        $this->expectException(FinanceException::class);
-        $this->service->activateAccount($account->id);
+        $this->assertSame(Account::STATUS_DRAFT, $this->accountRepository->findById($account->id)->status);
     }
 
-    public function testActivateAccountSucceedsWithIbanAndHolderName(): void
+    public function testCreateAccountActivatesAutomaticallyWithIbanAndHolderName(): void
     {
         $account = $this->service->createAccount('Compte', Account::TYPE_BANK, null, 'BE92001511757023', 'Titulaire', 'intendant');
-
-        $this->service->activateAccount($account->id);
 
         $this->assertSame(Account::STATUS_ACTIVE, $this->accountRepository->findById($account->id)->status);
     }
 
+    public function testCreateCashAccountActivatesImmediatelyWithoutIban(): void
+    {
+        $account = $this->service->createAccount('Caisse', Account::TYPE_CASH, null, null, null, 'intendant');
+
+        $this->assertSame(Account::STATUS_ACTIVE, $this->accountRepository->findById($account->id)->status);
+    }
+
+    public function testUpdateAccountActivatesAutomaticallyOnceIbanAndHolderAreAdded(): void
+    {
+        $account = $this->service->createAccount('Compte', Account::TYPE_BANK, null, null, null, 'intendant');
+        $this->assertSame(Account::STATUS_DRAFT, $this->accountRepository->findById($account->id)->status);
+
+        $this->service->updateAccount($account->id, 'Compte', Account::TYPE_BANK, null, 'BE92001511757023', 'Titulaire', 'intendant');
+
+        $this->assertSame(Account::STATUS_ACTIVE, $this->accountRepository->findById($account->id)->status);
+    }
+
+    public function testUpdateAccountNeverDeactivatesAnAlreadyActiveOrArchivedAccount(): void
+    {
+        $account = $this->service->createAccount('Compte', Account::TYPE_BANK, null, 'BE92001511757023', 'Titulaire', 'intendant');
+        $this->service->archiveAccount($account->id);
+
+        $this->service->updateAccount($account->id, 'Compte', Account::TYPE_BANK, null, 'BE92001511757023', 'Titulaire', 'intendant');
+
+        $this->assertSame(Account::STATUS_ARCHIVED, $this->accountRepository->findById($account->id)->status);
+    }
+
     public function testGetAccountsForUserExcludesDraftAndArchivedAndBelowFloor(): void
     {
-        $draft = $this->service->createAccount('Brouillon', Account::TYPE_BANK, null, 'BE92001511757023', 'Titulaire', 'intendant');
+        $draft = $this->service->createAccount('Brouillon', Account::TYPE_BANK, null, null, null, 'intendant');
         $active = $this->service->createAccount('Actif intendant', Account::TYPE_BANK, null, 'BE92001511757024', 'Titulaire', 'intendant');
-        $this->service->activateAccount($active->id);
         $adminOnly = $this->service->createAccount('Réservé admin', Account::TYPE_BANK, null, 'BE92001511757025', 'Titulaire', 'admin');
-        $this->service->activateAccount($adminOnly->id);
 
         $visibleToIntendant = $this->service->getAccountsForUser(Role::INTENDANT);
         $this->assertCount(1, $visibleToIntendant);
@@ -139,21 +161,12 @@ class FinanceServiceTest extends TestCase
         $stmt = $this->pdo->prepare("INSERT INTO finance_accounts (name, account_type) VALUES ('Compte', 'bank')");
         $stmt->execute();
         $accountId = (int) $this->pdo->lastInsertId();
-        $stmt = $this->pdo->prepare("INSERT INTO finance_fiscal_years (label, start_date, end_date) VALUES ('2026-2027', '2026-09-01', '2027-08-31')");
-        $stmt->execute();
-        $fiscalYearId = (int) $this->pdo->lastInsertId();
+        $fiscalYearId = FinanceTestHelper::createScoutYear($this->pdo, '2026-2027', '2026-09-01', '2027-08-31');
         $stmt = $this->pdo->prepare('INSERT INTO finance_transactions (account_id, fiscal_year_id, transaction_date, label, amount, category_id, source) VALUES (?, ?, ?, ?, ?, ?, ?)');
         $stmt->execute([$accountId, $fiscalYearId, '2026-10-01', 'x', -1.0, $category->id, 'manual']);
 
         $this->expectException(FinanceException::class);
         $this->service->deleteCategory($category->id);
-    }
-
-    public function testCreateFiscalYearRejectsInvertedDateRange(): void
-    {
-        $this->expectException(FinanceException::class);
-
-        $this->service->createFiscalYear('2026-2027', '2027-08-31', '2026-09-01');
     }
 
     public function testEnsureDefaultAccountsForSectionsIsIdempotent(): void
@@ -292,7 +305,7 @@ class FinanceServiceTest extends TestCase
     private function createAccountAndFiscalYear(string $start = '2026-09-01', string $end = '2027-08-31'): array
     {
         $accountId = $this->accountRepository->create('Compte', Account::TYPE_BANK, null, null, null, 'intendant');
-        $fiscalYearId = $this->fiscalYearRepository->create($start . ' - ' . $end, $start, $end);
+        $fiscalYearId = FinanceTestHelper::createScoutYear($this->pdo, $start . ' - ' . $end, $start, $end);
         return [$accountId, $fiscalYearId];
     }
 

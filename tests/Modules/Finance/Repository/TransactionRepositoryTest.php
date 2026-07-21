@@ -32,9 +32,7 @@ class TransactionRepositoryTest extends TestCase
         $stmt->execute();
         $this->accountId = (int) $this->pdo->lastInsertId();
 
-        $stmt = $this->pdo->prepare("INSERT INTO finance_fiscal_years (label, start_date, end_date) VALUES ('2026-2027', '2026-09-01', '2027-08-31')");
-        $stmt->execute();
-        $this->fiscalYearId = (int) $this->pdo->lastInsertId();
+        $this->fiscalYearId = FinanceTestHelper::createScoutYear($this->pdo, '2026-2027', '2026-09-01', '2027-08-31');
     }
 
     public function testCreateAndFindByIdRoundTripsEncryptedLabel(): void
@@ -120,9 +118,7 @@ class TransactionRepositoryTest extends TestCase
     public function testFindIdsByAccountAndFiscalYear(): void
     {
         $id1 = $this->repository->create($this->accountId, $this->fiscalYearId, 'R1', '2026-10-01', 'A', -1.0, null, null, Transaction::SOURCE_MANUAL, null);
-        $stmt = $this->pdo->prepare("INSERT INTO finance_fiscal_years (label, start_date, end_date) VALUES ('other', '2020-01-01', '2020-12-31')");
-        $stmt->execute();
-        $otherFiscalYearId = (int) $this->pdo->lastInsertId();
+        $otherFiscalYearId = FinanceTestHelper::createScoutYear($this->pdo, 'other', '2020-01-01', '2020-12-31');
         $this->repository->create($this->accountId, $otherFiscalYearId, 'R2', '2020-06-01', 'B', -2.0, null, null, Transaction::SOURCE_MANUAL, null);
 
         $ids = $this->repository->findIdsByAccountAndFiscalYear($this->accountId, $this->fiscalYearId);
@@ -133,9 +129,7 @@ class TransactionRepositoryTest extends TestCase
     public function testDeleteByAccountAndFiscalYearOnlyTouchesThatFiscalYear(): void
     {
         $this->repository->create($this->accountId, $this->fiscalYearId, 'R1', '2026-10-01', 'A', -1.0, null, null, Transaction::SOURCE_MANUAL, null);
-        $stmt = $this->pdo->prepare("INSERT INTO finance_fiscal_years (label, start_date, end_date) VALUES ('other', '2020-01-01', '2020-12-31')");
-        $stmt->execute();
-        $otherFiscalYearId = (int) $this->pdo->lastInsertId();
+        $otherFiscalYearId = FinanceTestHelper::createScoutYear($this->pdo, 'other', '2020-01-01', '2020-12-31');
         $this->repository->create($this->accountId, $otherFiscalYearId, 'R2', '2020-06-01', 'B', -2.0, null, null, Transaction::SOURCE_MANUAL, null);
 
         $deleted = $this->repository->deleteByAccountAndFiscalYear($this->accountId, $this->fiscalYearId);

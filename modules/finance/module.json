@@ -2,7 +2,7 @@
   "id": "finance",
   "name": "Finances",
   "description": "Gestion financière de l'unité : comptes, exercices, catégorisation, import de relevés bancaires, mouvements, reçus.",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -21,7 +21,7 @@
       "action": "list",
       "menu": "espace_chefs",
       "role_min": "intendant",
-      "label": "Mouvements"
+      "label": ""
     },
     {
       "path": "/finance/movements/{id}",
@@ -57,7 +57,7 @@
       "action": "list",
       "menu": "espace_chefs",
       "role_min": "intendant",
-      "label": "Reçus"
+      "label": ""
     },
     {
       "path": "/finance/receipts/new",
@@ -187,35 +187,8 @@
     },
     {
       "path": "/config/finance/rules",
-      "method": "GET",
-      "controller": "Modules\\Finance\\Controller\\ConfigRuleController",
-      "action": "index",
-      "menu": "configuration",
-      "role_min": "superadmin",
-      "label": ""
-    },
-    {
-      "path": "/config/finance/rules",
       "method": "POST",
       "controller": "Modules\\Finance\\Controller\\ConfigRuleController",
-      "action": "save",
-      "menu": "configuration",
-      "role_min": "superadmin",
-      "label": ""
-    },
-    {
-      "path": "/config/finance/fiscal-years",
-      "method": "GET",
-      "controller": "Modules\\Finance\\Controller\\ConfigFiscalYearController",
-      "action": "index",
-      "menu": "configuration",
-      "role_min": "superadmin",
-      "label": ""
-    },
-    {
-      "path": "/config/finance/fiscal-years",
-      "method": "POST",
-      "controller": "Modules\\Finance\\Controller\\ConfigFiscalYearController",
       "action": "save",
       "menu": "configuration",
       "role_min": "superadmin",

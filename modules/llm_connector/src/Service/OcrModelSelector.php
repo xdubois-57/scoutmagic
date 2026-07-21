@@ -143,6 +143,25 @@ class OcrModelSelector
             return $fallback;
         }
 
+        // Hard safety net independent of the prompt above: a name like
+        // "mistral-ocr-3" almost always names a standalone document-OCR
+        // API model (a different endpoint than chat completions), which
+        // returns empty/unusable output when called the way
+        // Service\LlmConnectorService::complete() calls every tier.
+        // Reject on the name alone, regardless of what the selector LLM
+        // reasoned — never trust "it has ocr in the name" as a green light.
+        if ($this->looksLikeStandaloneOcrEndpoint($ocr)) {
+            $this->logSelection(
+                $queryModelId,
+                $rawResponse,
+                'ocr_endpoint_incompatible',
+                "Selected OCR model '{$ocr}' looks like a standalone document-OCR API model, not a chat/vision model.",
+                $fallback
+            );
+
+            return $fallback;
+        }
+
         $tierMap = [
             'cheap' => $cheap,
             'capable' => $capable,
@@ -200,12 +219,19 @@ class OcrModelSelector
             $bestLarge ??= $bestSmall;
         }
 
-        $bestOcr = $this->pickBestByPatterns($usableModels, ['ocr']) ?? $bestSmall;
-
+        // OCR reuses the cheap tier's pick rather than matching "ocr" in
+        // the model name: a name like "mistral-ocr-3" usually names a
+        // standalone document-OCR API model (a different endpoint
+        // entirely, e.g. Mistral's /v1/ocr), not a vision-capable chat
+        // model — Service\LlmConnectorService::complete() only ever
+        // calls the chat-completions endpoint, so a name-matched "ocr"
+        // model reliably returns an empty/unusable response there. The
+        // cheap-tier pick is at least a real chat model; whether it also
+        // supports vision can't be determined from the name alone.
         return [
             'cheap' => $bestSmall,
             'capable' => $bestLarge,
-            'ocr' => $bestOcr,
+            'ocr' => $bestSmall,
         ];
     }
 
@@ -245,7 +271,7 @@ Given the list of available models below, choose the best model for each of the 
 
 1. cheap_model_id: the cheapest/small model suitable for simple, high-volume tasks. It should be the most economical choice.
 2. capable_model_id: a model that is noticeably better than the cheap choice for harder tasks, but still reasonably priced. Do NOT pick the most expensive option. Avoid models with "opus", "405b", "70b" or "72b" in the name unless there is no alternative.
-3. ocr_model_id: the best model for OCR of photographed shop receipts. It must understand images and extract text/structured data from low-quality receipt photos. It must remain cheap or at most average cost; never choose a costly/large model. Prefer the smallest vision-capable model. Avoid "large", "opus", "sonnet", or models with 70b/72b/405b in the name unless there is genuinely no cheaper alternative.
+3. ocr_model_id: the best model for OCR of photographed shop receipts. It must understand images and extract text/structured data from low-quality receipt photos. It must remain cheap or at most average cost; never choose a costly/large model. Prefer the smallest vision-capable model. Avoid "large", "opus", "sonnet", or models with 70b/72b/405b in the name unless there is genuinely no cheaper alternative. IMPORTANT: this must be a general-purpose chat/vision model reachable through the same chat-completions API as every other tier — never a standalone document-OCR-only model (e.g. a model literally named "*-ocr-*" that belongs to a dedicated OCR API such as Mistral's /v1/ocr endpoint). Such models return empty or invalid output when called through chat completions, so having "ocr" in the name is not by itself a reason to pick a model — judge actual chat/vision capability instead.
 
 Rules for your answer:
 1. Respond ONLY with a valid JSON object.
@@ -276,6 +302,18 @@ PROMPT;
         }
 
         return null;
+    }
+
+    /**
+     * "ocr" as its own name segment (e.g. "mistral-ocr-3-0",
+     * "provider-ocr-latest") — the pattern several providers use for a
+     * standalone document-OCR API model, distinct from their regular
+     * chat/vision models. Deliberately does NOT match a model whose name
+     * merely contains "ocr" as part of a longer token.
+     */
+    private function looksLikeStandaloneOcrEndpoint(string $modelId): bool
+    {
+        return preg_match('/(?:^|[-_])ocr(?:$|[-_])/i', $modelId) === 1;
     }
 
     private function isCheap(string $modelId): bool

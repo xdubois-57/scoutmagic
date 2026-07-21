@@ -22,7 +22,6 @@ use Core\Security\EncryptionService;
 use Modules\Finance\Controller\ConfigAccountController;
 use Modules\Finance\Controller\ConfigCategoryController;
 use Modules\Finance\Controller\ConfigController;
-use Modules\Finance\Controller\ConfigFiscalYearController;
 use Modules\Finance\Controller\ConfigRuleController;
 use Modules\Finance\Controller\DashboardController;
 use Modules\Finance\Controller\ImportController;
@@ -80,6 +79,8 @@ class FinanceRbacTest extends TestCase
     private TransactionAttachmentRepository $transactionAttachmentRepository;
     private ReceiptService $receiptService;
     private ReceiptExtractionService $receiptExtractionService;
+    private AccountRepository $accountRepository;
+    private FileRepository $fileRepository;
 
     protected function setUp(): void
     {
@@ -93,8 +94,10 @@ class FinanceRbacTest extends TestCase
         $this->schedulerService = new SchedulerService(new SchedulerRepository($this->pdo));
 
         $accountRepository = new AccountRepository($this->pdo, $encryption);
+        $this->accountRepository = $accountRepository;
+        $this->fileRepository = new FileRepository($this->pdo);
         $this->categoryRepository = new CategoryRepository($this->pdo);
-        $this->fiscalYearRepository = new FiscalYearRepository($this->pdo);
+        $this->fiscalYearRepository = new FiscalYearRepository($this->pdo, new \Core\Config\ScoutYearService($this->pdo));
         $this->categoryRuleRepository = new CategoryRuleRepository($this->pdo);
         $this->transactionRepository = new TransactionRepository($this->pdo, $encryption);
         $this->checkpointRepository = new BalanceCheckpointRepository($this->pdo);
@@ -113,7 +116,7 @@ class FinanceRbacTest extends TestCase
             $statementImportRepository, $this->fiscalYearRepository, $this->categoryRuleEngine, $this->balanceService
         );
         $fileStorage = new EncryptedFileStorageService(new FileRepository($this->pdo), $encryption, sys_get_temp_dir() . '/finance_rbac_test_' . uniqid());
-        $this->receiptService = new ReceiptService($this->attachmentRepository, $this->transactionAttachmentRepository, $fileStorage);
+        $this->receiptService = new ReceiptService($this->attachmentRepository, $accountRepository, $this->transactionAttachmentRepository, $fileStorage);
         $this->receiptExtractionService = new ReceiptExtractionService($this->schedulerService, null);
 
         $templateDir = dirname(__DIR__, 4) . '/core/View/templates';
@@ -162,8 +165,6 @@ class FinanceRbacTest extends TestCase
             'config index' => ['/config/finance', 'ConfigController', 'index', 'superadmin', 'admin'],
             'config accounts' => ['/config/finance/accounts', 'ConfigAccountController', 'index', 'superadmin', 'admin'],
             'config categories' => ['/config/finance/categories', 'ConfigCategoryController', 'index', 'superadmin', 'admin'],
-            'config rules' => ['/config/finance/rules', 'ConfigRuleController', 'index', 'superadmin', 'admin'],
-            'config fiscal years' => ['/config/finance/fiscal-years', 'ConfigFiscalYearController', 'index', 'superadmin', 'admin'],
         ];
     }
 
@@ -223,14 +224,15 @@ class FinanceRbacTest extends TestCase
             ),
             'ImportController' => new ImportController($this->twig, $this->financeService, $this->importService, $this->parserFactory, $this->checkpointRepository),
             'ReceiptController' => new ReceiptController(
-                $this->twig, $this->attachmentRepository, $this->transactionAttachmentRepository,
+                $this->twig, $this->attachmentRepository, $this->transactionAttachmentRepository, $this->financeService,
                 $this->receiptService, $this->receiptExtractionService, $this->journalService
             ),
             'ConfigController' => new ConfigController($this->twig, $this->financeService, $this->schedulerService),
-            'ConfigAccountController' => new ConfigAccountController($this->twig, $this->financeService, $this->sectionService, $this->journalService),
-            'ConfigCategoryController' => new ConfigCategoryController($this->twig, $this->financeService, $this->journalService),
-            'ConfigRuleController' => new ConfigRuleController($this->twig, $this->categoryRuleRepository, $this->categoryRepository, $this->categoryRuleEngine, $this->journalService),
-            'ConfigFiscalYearController' => new ConfigFiscalYearController($this->twig, $this->financeService, $this->journalService),
+            'ConfigAccountController' => new ConfigAccountController(
+                $this->twig, $this->financeService, $this->sectionService, $this->attachmentRepository, $this->fileRepository, $this->journalService
+            ),
+            'ConfigCategoryController' => new ConfigCategoryController($this->twig, $this->financeService, $this->categoryRuleRepository, $this->journalService),
+            'ConfigRuleController' => new ConfigRuleController($this->twig, $this->categoryRuleRepository, $this->categoryRuleEngine, $this->journalService),
             default => throw new \RuntimeException("Unknown controller {$name}"),
         };
     }

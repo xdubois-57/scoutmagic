@@ -10,10 +10,12 @@ use Core\Http\Response;
 use Core\Journal\JournalService;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
+use Core\Security\Role;
 use Modules\Finance\Repository\Attachment;
 use Modules\Finance\Repository\AttachmentRepository;
 use Modules\Finance\Repository\TransactionAttachmentRepository;
 use Modules\Finance\Service\FinanceException;
+use Modules\Finance\Service\FinanceService;
 use Modules\Finance\Service\ReceiptExtractionService;
 use Modules\Finance\Service\ReceiptService;
 
@@ -25,6 +27,7 @@ class ReceiptController extends AbstractController
         protected \Twig\Environment $twig,
         private AttachmentRepository $attachmentRepository,
         private TransactionAttachmentRepository $transactionAttachmentRepository,
+        private FinanceService $financeService,
         private ReceiptService $receiptService,
         private ReceiptExtractionService $receiptExtractionService,
         private JournalService $journalService
@@ -36,7 +39,15 @@ class ReceiptController extends AbstractController
      */
     public function list(Request $request, array $params): Response
     {
-        $attachments = $this->attachmentRepository->findActiveOrdered();
+        $role = Role::fromString(AuthSession::getRole());
+        $accounts = $this->financeService->getAccountsForUser($role);
+        $account = $this->financeService->resolveSelectedAccount($role, $request->getQuery('account_id'));
+
+        if ($account === null) {
+            return $this->render('@finance/receipts/list.html.twig', ['accounts' => [], 'no_accounts' => true]);
+        }
+
+        $attachments = $this->attachmentRepository->findActiveByAccountId($account->id);
         $associatedIds = $this->transactionAttachmentRepository->findAssociatedAttachmentIds();
 
         $rows = [];
@@ -49,7 +60,11 @@ class ReceiptController extends AbstractController
             ];
         }
 
-        return $this->render('@finance/receipts/list.html.twig', ['rows' => $rows]);
+        return $this->render('@finance/receipts/list.html.twig', [
+            'accounts' => $accounts,
+            'selected_account' => $account,
+            'rows' => $rows,
+        ]);
     }
 
     /**
@@ -57,9 +72,14 @@ class ReceiptController extends AbstractController
      */
     public function form(Request $request, array $params): Response
     {
+        $role = Role::fromString(AuthSession::getRole());
+        $accounts = $this->financeService->getAccountsForUser($role);
+        $account = $this->financeService->resolveSelectedAccount($role, $request->getQuery('account_id'));
         $replaceId = $request->getQuery('replace');
 
         return $this->render('@finance/receipts/form.html.twig', [
+            'accounts' => $accounts,
+            'selected_account' => $account,
             'replace_id' => $replaceId !== null ? (int) $replaceId : null,
         ]);
     }
@@ -71,6 +91,13 @@ class ReceiptController extends AbstractController
     {
         if (!CsrfGuard::validateToken((string) $request->getBody('_csrf_token', ''))) {
             return $this->render('@finance/receipts/form.html.twig', ['error' => 'Jeton CSRF invalide.']);
+        }
+
+        $role = Role::fromString(AuthSession::getRole());
+        $accountId = (int) $request->getBody('account_id', 0);
+        $account = $this->financeService->getAccount($accountId);
+        if ($account === null || !$role->hasAccess(Role::fromString($account->roleMinView))) {
+            return $this->render('@finance/receipts/form.html.twig', ['error' => 'Compte invalide.']);
         }
 
         $file = $request->getFile('receipt');
@@ -96,16 +123,16 @@ class ReceiptController extends AbstractController
         $date = $date !== '' ? $date : null;
 
         try {
-            $attachment = $this->receiptService->upload($content, $mimeType, (string) $file['name'], $amount, $date, AuthSession::getUserAccountId());
+            $attachment = $this->receiptService->upload($content, $mimeType, (string) $file['name'], $accountId, $amount, $date, AuthSession::getUserAccountId());
         } catch (FinanceException $e) {
             return $this->render('@finance/receipts/form.html.twig', ['error' => $e->getMessage()]);
         }
 
         $this->receiptExtractionService->scheduleExtraction($attachment->id);
 
-        $this->journalService->log('finance', 'receipt_uploaded', 'info', 'Reçu ajouté', ['attachment_id' => $attachment->id], AuthSession::getUserAccountId());
+        $this->journalService->log('finance', 'receipt_uploaded', 'info', 'Reçu ajouté', ['attachment_id' => $attachment->id, 'account_id' => $accountId], AuthSession::getUserAccountId());
 
-        return $this->redirect('/finance/receipts');
+        return $this->redirect('/finance/receipts?account_id=' . $accountId);
     }
 
     /**
@@ -123,8 +150,9 @@ class ReceiptController extends AbstractController
         }
 
         $id = (int) ($params['id'] ?? 0);
-        if ($this->attachmentRepository->findById($id) === null) {
-            return $this->json(['success' => false, 'error' => 'Reçu introuvable.'], 404);
+        $attachment = $this->requireVisibleAttachment($id);
+        if ($attachment instanceof Response) {
+            return $attachment;
         }
 
         $amountRaw = $data['suggested_amount'] ?? null;
@@ -148,6 +176,10 @@ class ReceiptController extends AbstractController
         }
 
         $id = (int) ($params['id'] ?? 0);
+        $attachment = $this->requireVisibleAttachment($id);
+        if ($attachment instanceof Response) {
+            return $attachment;
+        }
 
         try {
             $this->receiptService->delete($id);
@@ -171,6 +203,11 @@ class ReceiptController extends AbstractController
             return $this->render('@finance/receipts/form.html.twig', ['error' => 'Jeton CSRF invalide.', 'replace_id' => $id]);
         }
 
+        $attachment = $this->requireVisibleAttachment($id);
+        if ($attachment instanceof Response) {
+            return $this->render('@finance/receipts/form.html.twig', ['error' => 'Reçu introuvable ou inaccessible.', 'replace_id' => $id]);
+        }
+
         $file = $request->getFile('receipt');
         if ($file === null || (int) ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
             return $this->render('@finance/receipts/form.html.twig', ['error' => 'Aucun fichier fourni ou erreur lors du téléversement.', 'replace_id' => $id]);
@@ -188,16 +225,16 @@ class ReceiptController extends AbstractController
         $mimeType = $finfo->buffer($content) ?: (string) ($file['type'] ?? '');
 
         try {
-            $attachment = $this->receiptService->replace($id, $content, $mimeType, (string) $file['name'], AuthSession::getUserAccountId());
+            $newAttachment = $this->receiptService->replace($id, $content, $mimeType, (string) $file['name'], AuthSession::getUserAccountId());
         } catch (FinanceException $e) {
             return $this->render('@finance/receipts/form.html.twig', ['error' => $e->getMessage(), 'replace_id' => $id]);
         }
 
-        $this->receiptExtractionService->scheduleExtraction($attachment->id);
+        $this->receiptExtractionService->scheduleExtraction($newAttachment->id);
 
-        $this->journalService->log('finance', 'receipt_replaced', 'info', 'Reçu remplacé', ['old_attachment_id' => $id, 'new_attachment_id' => $attachment->id], AuthSession::getUserAccountId());
+        $this->journalService->log('finance', 'receipt_replaced', 'info', 'Reçu remplacé', ['old_attachment_id' => $id, 'new_attachment_id' => $newAttachment->id], AuthSession::getUserAccountId());
 
-        return $this->redirect('/finance/receipts');
+        return $this->redirect('/finance/receipts' . ($newAttachment->accountId !== null ? '?account_id=' . $newAttachment->accountId : ''));
     }
 
     /**
@@ -211,6 +248,11 @@ class ReceiptController extends AbstractController
         }
 
         $id = (int) ($params['id'] ?? 0);
+        $attachment = $this->requireVisibleAttachment($id);
+        if ($attachment instanceof Response) {
+            return $attachment;
+        }
+
         $transactionIds = array_map('intval', (array) ($data['transaction_ids'] ?? []));
 
         try {
@@ -235,11 +277,43 @@ class ReceiptController extends AbstractController
         }
 
         $id = (int) ($params['id'] ?? 0);
+        $attachment = $this->requireVisibleAttachment($id);
+        if ($attachment instanceof Response) {
+            return $attachment;
+        }
+
         $transactionId = (int) ($data['transaction_id'] ?? 0);
 
         $this->receiptService->dissociate($id, $transactionId);
 
         return $this->json(['success' => true]);
+    }
+
+    /**
+     * Loads the attachment and verifies its account is visible to the
+     * current role — every mutation endpoint goes through this so a
+     * receipt tied to an account above the caller's role_min_view can
+     * never be edited/deleted/associated, matching the download-side
+     * enforcement already applied via the file's role_min.
+     *
+     * @return Attachment|Response an error Response to return as-is when denied
+     */
+    private function requireVisibleAttachment(int $attachmentId): Attachment|Response
+    {
+        $attachment = $this->attachmentRepository->findById($attachmentId);
+        if ($attachment === null) {
+            return $this->json(['success' => false, 'error' => 'Reçu introuvable.'], 404);
+        }
+
+        if ($attachment->accountId !== null) {
+            $role = Role::fromString(AuthSession::getRole());
+            $account = $this->financeService->getAccount($attachment->accountId);
+            if ($account === null || !$role->hasAccess(Role::fromString($account->roleMinView))) {
+                return $this->json(['success' => false, 'error' => 'Accès refusé.'], 403);
+            }
+        }
+
+        return $attachment;
     }
 
     /**

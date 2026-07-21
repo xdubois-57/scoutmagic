@@ -1,14 +1,19 @@
+{#
+  Config sub-page picker — same visual/interaction pattern as
+  partials/section_picker.html.twig and @calendar/partials/calendar_picker.html.twig
+  (a row of pill buttons, not Bootstrap nav-pills).
+#}
 {% set finance_nav_items = [
     {'url': '/config/finance', 'label': 'Vue d’ensemble'},
     {'url': '/config/finance/accounts', 'label': 'Comptes'},
     {'url': '/config/finance/categories', 'label': 'Catégories'},
-    {'url': '/config/finance/rules', 'label': 'Règles de catégorisation'},
-    {'url': '/config/finance/fiscal-years', 'label': 'Exercices'},
 ] %}
-<ul class="nav nav-pills mb-4">
+<div class="d-flex flex-wrap gap-2 pb-2 mb-3 finance-config-picker">
     {% for item in finance_nav_items %}
-        <li class="nav-item">
-            <a class="nav-link {{ current_path == item.url ? 'active' : '' }}" href="{{ item.url }}">{{ item.label }}</a>
-        </li>
+        {% set is_active = current_path == item.url %}
+        <a href="{{ item.url }}"
+           class="btn btn-sm {{ is_active ? 'btn-primary' : 'btn-outline-secondary' }} text-nowrap text-decoration-none">
+            {{ item.label }}
+        </a>
     {% endfor %}
-</ul>
+</div>

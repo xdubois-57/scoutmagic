@@ -3,7 +3,11 @@
 {% block title %}Importer un relevé — Finances — {{ site_name }}{% endblock %}
 
 {% block content %}
-    <h1 class="mb-4">Importer un relevé bancaire</h1>
+    <h1 class="mb-4">Finances</h1>
+
+    {% include '@finance/_nav.html.twig' %}
+
+    <h2 class="h5 mb-3">Importer un relevé bancaire</h2>
 
     <form method="post" action="/finance/import" enctype="multipart/form-data" class="border rounded-3 p-3" id="import-form">
         <div class="row g-2">
@@ -11,7 +15,7 @@
                 <label class="form-label small" for="import-account">Compte</label>
                 <select class="form-select form-select-sm" id="import-account" name="account_id">
                     {% for account in accounts %}
-                        <option value="{{ account.id }}" data-first-import="{{ first_import_by_account_id[account.id] ? '1' : '0' }}">{{ account.name }}</option>
+                        <option value="{{ account.id }}" data-first-import="{{ first_import_by_account_id[account.id] ? '1' : '0' }}" {{ selected_account and account.id == selected_account.id ? 'selected' : '' }}>{{ account.name }}</option>
                     {% endfor %}
                 </select>
             </div>
