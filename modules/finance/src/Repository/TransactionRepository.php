@@ -33,6 +33,21 @@ class TransactionRepository
     }
 
     /**
+     * @param int[] $ids
+     * @return Transaction[]
+     */
+    public function findByIds(array $ids): array
+    {
+        if ($ids === []) {
+            return [];
+        }
+        $placeholders = implode(',', array_fill(0, count($ids), '?'));
+        $stmt = $this->pdo->prepare("SELECT * FROM finance_transactions WHERE id IN ({$placeholders}) ORDER BY transaction_date DESC, id DESC");
+        $stmt->execute(array_values($ids));
+        return array_map([$this, 'hydrate'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
+    /**
      * Transactions for an account strictly after a given date — used by
      * Service\BalanceService to add up everything that happened since the
      * closest balance checkpoint.

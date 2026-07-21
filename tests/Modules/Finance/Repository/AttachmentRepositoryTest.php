@@ -4,8 +4,14 @@ declare(strict_types=1);
 
 namespace Tests\Modules\Finance\Repository;
 
+use Core\Security\EncryptionService;
+use Modules\Finance\Repository\Account;
+use Modules\Finance\Repository\AccountRepository;
 use Modules\Finance\Repository\Attachment;
 use Modules\Finance\Repository\AttachmentRepository;
+use Modules\Finance\Repository\Transaction;
+use Modules\Finance\Repository\TransactionAttachmentRepository;
+use Modules\Finance\Repository\TransactionRepository;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Finance\FinanceTestHelper;
@@ -104,5 +110,89 @@ class AttachmentRepositoryTest extends TestCase
         $replacementId = $this->repository->create(null, $this->fileId, 'application/pdf', 'v2.pdf', null, null, $originalId, null);
 
         $this->assertSame($originalId, $this->repository->findById($replacementId)->parentAttachmentId);
+    }
+
+    // --- findFilteredForAccount() / countFilteredForAccount() ---
+
+    private function accountId(): int
+    {
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $accountRepository = new AccountRepository($this->pdo, $encryption);
+        return $accountRepository->create('Compte', Account::TYPE_BANK, null, null, null, 'intendant');
+    }
+
+    public function testFindFilteredForAccountComputesMovementCount(): void
+    {
+        $accountId = $this->accountId();
+        $id = $this->repository->create($accountId, $this->fileId, 'application/pdf', 'facture.pdf', null, null, null, null);
+
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $transactionRepository = new TransactionRepository($this->pdo, $encryption);
+        $transactionAttachmentRepository = new TransactionAttachmentRepository($this->pdo);
+        $fiscalYearId = FinanceTestHelper::createScoutYear($this->pdo, '2026-2027', '2026-09-01', '2027-08-31');
+        $transactionId = $transactionRepository->create($accountId, $fiscalYearId, null, '2026-10-01', 'x', -1.0, null, null, Transaction::SOURCE_MANUAL, null);
+        $transactionAttachmentRepository->associate($transactionId, $id);
+
+        $results = $this->repository->findFilteredForAccount($accountId, false, null, 30, 0);
+
+        $this->assertCount(1, $results);
+        $this->assertSame(1, $results[0]['movement_count']);
+    }
+
+    public function testFindFilteredForAccountPendingOnlyExcludesAssociated(): void
+    {
+        $accountId = $this->accountId();
+        $pendingId = $this->repository->create($accountId, $this->fileId, 'application/pdf', 'pending.pdf', null, null, null, null);
+        $associatedId = $this->repository->create($accountId, $this->fileId, 'application/pdf', 'associated.pdf', null, null, null, null);
+
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $transactionRepository = new TransactionRepository($this->pdo, $encryption);
+        $transactionAttachmentRepository = new TransactionAttachmentRepository($this->pdo);
+        $fiscalYearId = FinanceTestHelper::createScoutYear($this->pdo, '2026-2027', '2026-09-01', '2027-08-31');
+        $transactionId = $transactionRepository->create($accountId, $fiscalYearId, null, '2026-10-01', 'x', -1.0, null, null, Transaction::SOURCE_MANUAL, null);
+        $transactionAttachmentRepository->associate($transactionId, $associatedId);
+
+        $results = $this->repository->findFilteredForAccount($accountId, true, null, 30, 0);
+
+        $this->assertCount(1, $results);
+        $this->assertSame($pendingId, $results[0]['attachment']->id);
+    }
+
+    public function testFindFilteredForAccountSearchesFilenameLabelAndDescription(): void
+    {
+        $accountId = $this->accountId();
+        $byFilename = $this->repository->create($accountId, $this->fileId, 'application/pdf', 'delhaize-facture.pdf', null, null, null, null);
+        $byLabel = $this->repository->create($accountId, $this->fileId, 'application/pdf', 'x.pdf', null, null, null, null);
+        $this->repository->updateSuggestedLabel($byLabel, 'Colruyt Ottignies');
+        $byDescription = $this->repository->create($accountId, $this->fileId, 'application/pdf', 'y.pdf', null, null, null, null);
+        $this->repository->updateSuggestedDescription($byDescription, 'Achat de matériel de camp');
+        $this->repository->create($accountId, $this->fileId, 'application/pdf', 'unrelated.pdf', null, null, null, null);
+
+        $this->assertCount(1, $this->repository->findFilteredForAccount($accountId, false, 'delhaize', 30, 0));
+        $this->assertCount(1, $this->repository->findFilteredForAccount($accountId, false, 'colruyt', 30, 0));
+        $this->assertCount(1, $this->repository->findFilteredForAccount($accountId, false, 'matériel', 30, 0));
+        $this->assertCount(0, $this->repository->findFilteredForAccount($accountId, false, 'introuvable', 30, 0));
+    }
+
+    public function testFindFilteredForAccountIgnoresOtherAccounts(): void
+    {
+        $accountId = $this->accountId();
+        $otherAccountId = $this->accountId();
+        $this->repository->create($otherAccountId, $this->fileId, 'application/pdf', 'a.pdf', null, null, null, null);
+
+        $this->assertSame([], $this->repository->findFilteredForAccount($accountId, false, null, 30, 0));
+        $this->assertSame(0, $this->repository->countFilteredForAccount($accountId, false, null));
+    }
+
+    public function testCountFilteredForAccountMatchesResultCountAcrossPages(): void
+    {
+        $accountId = $this->accountId();
+        for ($i = 0; $i < 5; $i++) {
+            $this->repository->create($accountId, $this->fileId, 'application/pdf', "facture-{$i}.pdf", null, null, null, null);
+        }
+
+        $this->assertSame(5, $this->repository->countFilteredForAccount($accountId, false, null));
+        $this->assertCount(3, $this->repository->findFilteredForAccount($accountId, false, null, 3, 0));
+        $this->assertCount(2, $this->repository->findFilteredForAccount($accountId, false, null, 3, 3));
     }
 }

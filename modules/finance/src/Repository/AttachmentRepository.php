@@ -121,6 +121,78 @@ class AttachmentRepository
     }
 
     /**
+     * Active receipts for one account, optionally restricted to still-
+     * pending ones (no movement association at all) and/or a free-text
+     * search across every receipt-related text field — the single query
+     * backing Controller\ReceiptController::list()/search() (the page's
+     * filter bar and its "N reçus par page" pagination both read from
+     * this, never from a client-side slice of the full set, per the
+     * "filter is global, not per page" requirement). movement_count is
+     * computed in the same query (a LEFT JOIN + GROUP BY) rather than
+     * one extra query per row.
+     *
+     * @return array<int, array{attachment: Attachment, movement_count: int}>
+     */
+    public function findFilteredForAccount(int $accountId, bool $pendingOnly, ?string $search, int $limit, int $offset): array
+    {
+        [$fromWhere, $params] = $this->buildFilterSql($accountId, $pendingOnly, $search);
+
+        $sql = "SELECT fa.*, COUNT(fta.transaction_id) AS movement_count {$fromWhere} ORDER BY fa.uploaded_at DESC LIMIT ? OFFSET ?";
+        $params[] = $limit;
+        $params[] = $offset;
+
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute($params);
+
+        $results = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $results[] = ['attachment' => $this->hydrate($row), 'movement_count' => (int) $row['movement_count']];
+        }
+        return $results;
+    }
+
+    /**
+     * Total number of receipts matching the same filter as
+     * findFilteredForAccount() — the page-count half of that method's
+     * pagination, kept as a separate query since COUNT(*) over a
+     * GROUP BY/HAVING needs to be wrapped in a subquery anyway.
+     */
+    public function countFilteredForAccount(int $accountId, bool $pendingOnly, ?string $search): int
+    {
+        [$fromWhere, $params] = $this->buildFilterSql($accountId, $pendingOnly, $search);
+
+        $stmt = $this->pdo->prepare("SELECT COUNT(*) FROM (SELECT fa.id {$fromWhere}) AS matched");
+        $stmt->execute($params);
+        return (int) $stmt->fetchColumn();
+    }
+
+    /**
+     * @return array{0: string, 1: array<int, mixed>}
+     */
+    private function buildFilterSql(int $accountId, bool $pendingOnly, ?string $search): array
+    {
+        $sql = " FROM finance_attachments fa
+                 LEFT JOIN finance_transaction_attachments fta ON fta.attachment_id = fa.id
+                 WHERE fa.status = 'active' AND fa.account_id = ?";
+        $params = [$accountId];
+
+        $search = $search !== null ? trim($search) : '';
+        if ($search !== '') {
+            $like = '%' . $search . '%';
+            $sql .= ' AND (fa.original_filename LIKE ? OR fa.suggested_label LIKE ? OR fa.suggested_description LIKE ?'
+                . ' OR fa.suggested_date LIKE ? OR fa.suggested_amount LIKE ?)';
+            array_push($params, $like, $like, $like, $like, $like);
+        }
+
+        $sql .= ' GROUP BY fa.id';
+        if ($pendingOnly) {
+            $sql .= ' HAVING COUNT(fta.transaction_id) = 0';
+        }
+
+        return [$sql, $params];
+    }
+
+    /**
      * $suggestedSource distinguishes a manually-typed suggestion from one
      * written by Task\ExtractReceiptDataHandler (Attachment::
      * SUGGESTED_SOURCE_MANUAL / SUGGESTED_SOURCE_AI) — null clears it.

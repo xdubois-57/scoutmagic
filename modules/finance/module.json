@@ -69,6 +69,15 @@
       "label": ""
     },
     {
+      "path": "/finance/receipts/search",
+      "method": "GET",
+      "controller": "Modules\\Finance\\Controller\\ReceiptController",
+      "action": "search",
+      "menu": "espace_chefs",
+      "role_min": "intendant",
+      "label": ""
+    },
+    {
       "path": "/finance/receipts/new",
       "method": "POST",
       "controller": "Modules\\Finance\\Controller\\ReceiptController",
@@ -118,6 +127,15 @@
       "method": "POST",
       "controller": "Modules\\Finance\\Controller\\ReceiptController",
       "action": "dissociate",
+      "menu": "espace_chefs",
+      "role_min": "intendant",
+      "label": ""
+    },
+    {
+      "path": "/finance/receipts/{id}/movements",
+      "method": "GET",
+      "controller": "Modules\\Finance\\Controller\\ReceiptController",
+      "action": "movements",
       "menu": "espace_chefs",
       "role_min": "intendant",
       "label": ""

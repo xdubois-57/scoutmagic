@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Modules\Finance\Controller;
 
 use Core\Http\Controller\AbstractController;
+use Core\Http\FlashMessage;
 use Core\Http\Request;
 use Core\Http\Response;
 use Core\Journal\JournalService;
@@ -13,7 +14,9 @@ use Core\Security\CsrfGuard;
 use Core\Security\Role;
 use Modules\Finance\Repository\Attachment;
 use Modules\Finance\Repository\AttachmentRepository;
+use Modules\Finance\Repository\Transaction;
 use Modules\Finance\Repository\TransactionAttachmentRepository;
+use Modules\Finance\Repository\TransactionRepository;
 use Modules\Finance\Service\FinanceException;
 use Modules\Finance\Service\FinanceService;
 use Modules\Finance\Service\ReceiptExtractionService;
@@ -22,11 +25,14 @@ use Modules\Finance\Service\ReceiptService;
 class ReceiptController extends AbstractController
 {
     private const MAX_SIZE_BYTES = 15 * 1024 * 1024;
+    private const MAX_FILES_PER_UPLOAD = 10;
+    private const PER_PAGE = 30;
 
     public function __construct(
         protected \Twig\Environment $twig,
         private AttachmentRepository $attachmentRepository,
         private TransactionAttachmentRepository $transactionAttachmentRepository,
+        private TransactionRepository $transactionRepository,
         private FinanceService $financeService,
         private ReceiptService $receiptService,
         private ReceiptExtractionService $receiptExtractionService,
@@ -47,24 +53,123 @@ class ReceiptController extends AbstractController
             return $this->render('@finance/receipts/list.html.twig', ['accounts' => [], 'no_accounts' => true]);
         }
 
-        $attachments = $this->attachmentRepository->findActiveByAccountId($account->id);
-        $associatedIds = $this->transactionAttachmentRepository->findAssociatedAttachmentIds();
+        $pendingOnly = $request->getQuery('pending') === '1';
+        $search = trim((string) $request->getQuery('q', ''));
+        $page = max(1, (int) $request->getQuery('page', 1));
 
-        $rows = [];
-        foreach ($attachments as $attachment) {
-            $transactionIds = $this->transactionAttachmentRepository->findTransactionIdsForAttachment($attachment->id);
-            $rows[] = [
-                'attachment' => $attachment,
-                'is_pending' => !in_array($attachment->id, $associatedIds, true),
-                'movement_count' => count($transactionIds),
-            ];
-        }
+        $totalPages = max(1, (int) ceil(
+            $this->attachmentRepository->countFilteredForAccount($account->id, $pendingOnly, $search !== '' ? $search : null) / self::PER_PAGE
+        ));
+        $page = min($page, $totalPages);
+
+        $rows = $this->buildRows($account->id, $pendingOnly, $search, $page);
 
         return $this->render('@finance/receipts/list.html.twig', [
             'accounts' => $accounts,
             'selected_account' => $account,
             'rows' => $rows,
+            'pending_only' => $pendingOnly,
+            'search' => $search,
+            'page' => $page,
+            'total_pages' => $totalPages,
         ]);
+    }
+
+    /**
+     * GET /finance/receipts/search — the receipts page's filter bar
+     * (pending toggle, free-text search, pagination) reads from this via
+     * fetch() rather than a full page reload, so the list refreshes as
+     * the chef types (module spec: "the filter is global and not per
+     * page" — filtering/pagination both happen in the SQL query, never
+     * on a client-side slice of an already-fetched page).
+     *
+     * @param array<string, string> $params
+     */
+    public function search(Request $request, array $params): Response
+    {
+        $role = Role::fromString(AuthSession::getRole());
+        $account = $this->financeService->resolveSelectedAccount($role, $request->getQuery('account_id'));
+        if ($account === null) {
+            return $this->json(['success' => false, 'error' => 'Compte introuvable.'], 404);
+        }
+
+        $pendingOnly = $request->getQuery('pending') === '1';
+        $search = trim((string) $request->getQuery('q', ''));
+        $page = max(1, (int) $request->getQuery('page', 1));
+
+        $total = $this->attachmentRepository->countFilteredForAccount($account->id, $pendingOnly, $search !== '' ? $search : null);
+        $totalPages = max(1, (int) ceil($total / self::PER_PAGE));
+        $page = min($page, $totalPages);
+
+        $rows = $this->buildRows($account->id, $pendingOnly, $search, $page);
+
+        return $this->json([
+            'success' => true,
+            'page' => $page,
+            'total_pages' => $totalPages,
+            'total' => $total,
+            'receipts' => array_map(fn(array $row) => [
+                'id' => $row['attachment']->id,
+                'file_id' => $row['attachment']->fileId,
+                'mime_type' => $row['attachment']->mimeType,
+                'original_filename' => $row['attachment']->originalFilename,
+                'uploaded_at' => $row['attachment']->uploadedAt,
+                'suggested_amount' => $row['attachment']->suggestedAmount,
+                'suggested_date' => $row['attachment']->suggestedDate,
+                'suggested_label' => $row['attachment']->suggestedLabel,
+                'suggested_description' => $row['attachment']->suggestedDescription,
+                'suggested_source' => $row['attachment']->suggestedSource,
+                'matching_ai_attempted' => $row['attachment']->matchingAiAttemptedAt !== null,
+                'is_pending' => $row['is_pending'],
+                'movement_count' => $row['movement_count'],
+            ], $rows),
+        ]);
+    }
+
+    /**
+     * GET /finance/receipts/{id}/movements — backs the receipts page's
+     * "N mouvement(s) lié(s)" dialog (the inverse of Controller\
+     * MovementController::attachments(), which lists a movement's
+     * receipts).
+     *
+     * @param array<string, string> $params
+     */
+    public function movements(Request $request, array $params): Response
+    {
+        $id = (int) ($params['id'] ?? 0);
+        $attachment = $this->requireVisibleAttachment($id);
+        if ($attachment instanceof Response) {
+            return $attachment;
+        }
+
+        $transactionIds = $this->transactionAttachmentRepository->findTransactionIdsForAttachment($id);
+        $transactions = $this->transactionRepository->findByIds($transactionIds);
+
+        return $this->json([
+            'success' => true,
+            'movements' => array_map(fn(Transaction $t) => [
+                'id' => $t->id,
+                'date' => $t->transactionDate,
+                'label' => $t->label,
+                'amount' => $t->amount,
+            ], $transactions),
+        ]);
+    }
+
+    /**
+     * @return array<int, array{attachment: Attachment, movement_count: int, is_pending: bool}>
+     */
+    private function buildRows(int $accountId, bool $pendingOnly, string $search, int $page): array
+    {
+        $results = $this->attachmentRepository->findFilteredForAccount(
+            $accountId, $pendingOnly, $search !== '' ? $search : null, self::PER_PAGE, ($page - 1) * self::PER_PAGE
+        );
+
+        return array_map(fn(array $row) => [
+            'attachment' => $row['attachment'],
+            'movement_count' => $row['movement_count'],
+            'is_pending' => $row['movement_count'] === 0,
+        ], $results);
     }
 
     /**
@@ -85,6 +190,13 @@ class ReceiptController extends AbstractController
     }
 
     /**
+     * Accepts up to MAX_FILES_PER_UPLOAD files in one request (drag-drop
+     * or multi-select on the form) — amount/date are never asked for
+     * here, only ever known from Task\ExtractReceiptDataHandler's AI
+     * extraction (or later manual correction via update()). Every file
+     * is uploaded independently: one rejected file (bad type, too large)
+     * never blocks the others from going through.
+     *
      * @param array<string, string> $params
      */
     public function upload(Request $request, array $params): Response
@@ -100,39 +212,70 @@ class ReceiptController extends AbstractController
             return $this->render('@finance/receipts/form.html.twig', ['error' => 'Compte invalide.']);
         }
 
-        $file = $request->getFile('receipt');
-        if ($file === null || (int) ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+        $files = $request->getFiles('receipts');
+        if ($files === []) {
             return $this->render('@finance/receipts/form.html.twig', ['error' => 'Aucun fichier fourni ou erreur lors du téléversement.']);
         }
-
-        if ((int) ($file['size'] ?? 0) > self::MAX_SIZE_BYTES) {
-            return $this->render('@finance/receipts/form.html.twig', ['error' => 'Le fichier dépasse la taille maximale autorisée (15 Mo).']);
+        if (count($files) > self::MAX_FILES_PER_UPLOAD) {
+            return $this->render('@finance/receipts/form.html.twig', [
+                'error' => 'Vous ne pouvez pas envoyer plus de ' . self::MAX_FILES_PER_UPLOAD . ' reçus à la fois.',
+            ]);
         }
 
-        $content = file_get_contents((string) $file['tmp_name']);
+        $uploadedCount = 0;
+        $errors = [];
+
+        foreach ($files as $file) {
+            $error = $this->uploadOne($file, $accountId);
+            if ($error !== null) {
+                $errors[] = $file['name'] . ' : ' . $error;
+                continue;
+            }
+            $uploadedCount++;
+        }
+
+        if ($uploadedCount === 0) {
+            FlashMessage::set('error', implode(' ', $errors));
+        } elseif ($errors === []) {
+            FlashMessage::set('success', $uploadedCount > 1 ? "{$uploadedCount} reçus ajoutés." : 'Reçu ajouté.');
+        } else {
+            FlashMessage::set('warning', "{$uploadedCount} reçu(s) ajouté(s). " . implode(' ', $errors));
+        }
+
+        return $this->redirect('/finance/receipts?account_id=' . $accountId);
+    }
+
+    /**
+     * @param array{name: string, tmp_name: string, error: int, size: int, type: string} $file
+     * @return string|null an error message, or null on success
+     */
+    private function uploadOne(array $file, int $accountId): ?string
+    {
+        if ($file['error'] !== UPLOAD_ERR_OK) {
+            return 'erreur lors du téléversement.';
+        }
+        if ($file['size'] > self::MAX_SIZE_BYTES) {
+            return 'dépasse la taille maximale autorisée (15 Mo).';
+        }
+
+        $content = file_get_contents($file['tmp_name']);
         if ($content === false) {
-            return $this->render('@finance/receipts/form.html.twig', ['error' => 'Impossible de lire le fichier envoyé.']);
+            return 'impossible de lire le fichier envoyé.';
         }
 
         $finfo = new \finfo(FILEINFO_MIME_TYPE);
-        $mimeType = $finfo->buffer($content) ?: (string) ($file['type'] ?? '');
-
-        $amountRaw = (string) $request->getBody('amount', '');
-        $amount = $amountRaw !== '' ? (float) str_replace(',', '.', $amountRaw) : null;
-        $date = (string) $request->getBody('date', '');
-        $date = $date !== '' ? $date : null;
+        $mimeType = $finfo->buffer($content) ?: $file['type'];
 
         try {
-            $attachment = $this->receiptService->upload($content, $mimeType, (string) $file['name'], $accountId, $amount, $date, AuthSession::getUserAccountId());
+            $attachment = $this->receiptService->upload($content, $mimeType, $file['name'], $accountId, null, null, AuthSession::getUserAccountId());
         } catch (FinanceException $e) {
-            return $this->render('@finance/receipts/form.html.twig', ['error' => $e->getMessage()]);
+            return $e->getMessage();
         }
 
         $this->receiptExtractionService->scheduleExtraction($attachment->id);
-
         $this->journalService->log('finance', 'receipt_uploaded', 'info', 'Reçu ajouté', ['attachment_id' => $attachment->id, 'account_id' => $accountId], AuthSession::getUserAccountId());
 
-        return $this->redirect('/finance/receipts?account_id=' . $accountId);
+        return null;
     }
 
     /**

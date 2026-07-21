@@ -24,6 +24,19 @@ class FinanceService
     private const VALID_ROLE_MIN_VIEW = ['intendant', 'chief', 'admin'];
     private const VALID_ACCOUNT_TYPES = [Account::TYPE_BANK, Account::TYPE_CASH];
 
+    /**
+     * The categorization baseline every unit is expected to start from —
+     * created once, idempotently, the first time the categories config
+     * page loads (same "ensure on read" pattern as
+     * ensureDefaultAccountsForSections()). An admin is free to rename,
+     * deactivate, or delete any of these afterward; they are never
+     * re-created once removed (matched by name at ensure time only).
+     */
+    private const DEFAULT_CATEGORY_NAMES = [
+        "Fête d'unité", 'Camp été', 'Weekend de section', 'Grande journée', 'Formations',
+        'Calendriers', 'Matériel', 'Locaux', 'Subsides', 'Cotisations',
+    ];
+
     public function __construct(
         private AccountRepository $accountRepository,
         private CategoryRepository $categoryRepository,
@@ -118,6 +131,26 @@ class FinanceService
                 null,
                 Role::INTENDANT->value
             );
+        }
+    }
+
+    /**
+     * Seeds DEFAULT_CATEGORY_NAMES the first time the categories page is
+     * ever opened (i.e. only while the category list is still empty) —
+     * unlike ensureDefaultAccountsForSections() this deliberately does
+     * NOT re-merge by name on every load, because a category has no
+     * stable identity besides its name: matching by name forever would
+     * silently resurrect a default category an admin had renamed or
+     * deleted on purpose. A no-op once any category exists.
+     */
+    public function ensureDefaultCategories(): void
+    {
+        if ($this->categoryRepository->findAllOrdered() !== []) {
+            return;
+        }
+
+        foreach (self::DEFAULT_CATEGORY_NAMES as $name) {
+            $this->categoryRepository->create($name);
         }
     }
 

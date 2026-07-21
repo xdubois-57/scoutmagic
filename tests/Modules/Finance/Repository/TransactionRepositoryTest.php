@@ -115,6 +115,25 @@ class TransactionRepositoryTest extends TestCase
         $this->assertCount(0, $this->repository->findByAccountId($this->accountId));
     }
 
+    public function testFindByIdsReturnsMatchingTransactionsWithDecryptedLabels(): void
+    {
+        $id1 = $this->repository->create($this->accountId, $this->fiscalYearId, 'R1', '2026-10-01', 'Achat A', -1.0, null, null, Transaction::SOURCE_MANUAL, null);
+        $id2 = $this->repository->create($this->accountId, $this->fiscalYearId, 'R2', '2026-10-02', 'Achat B', -2.0, null, null, Transaction::SOURCE_MANUAL, null);
+        $this->repository->create($this->accountId, $this->fiscalYearId, 'R3', '2026-10-03', 'Achat C', -3.0, null, null, Transaction::SOURCE_MANUAL, null);
+
+        $results = $this->repository->findByIds([$id1, $id2]);
+
+        $this->assertCount(2, $results);
+        $labels = array_map(fn(Transaction $t) => $t->label, $results);
+        $this->assertContains('Achat A', $labels);
+        $this->assertContains('Achat B', $labels);
+    }
+
+    public function testFindByIdsReturnsEmptyArrayForEmptyInput(): void
+    {
+        $this->assertSame([], $this->repository->findByIds([]));
+    }
+
     public function testFindIdsByAccountAndFiscalYear(): void
     {
         $id1 = $this->repository->create($this->accountId, $this->fiscalYearId, 'R1', '2026-10-01', 'A', -1.0, null, null, Transaction::SOURCE_MANUAL, null);

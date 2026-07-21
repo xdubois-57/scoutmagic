@@ -184,6 +184,41 @@ class FinanceServiceTest extends TestCase
         $this->assertCount(1, $this->service->getAllAccountsForConfig());
     }
 
+    public function testEnsureDefaultCategoriesCreatesTheBaselineSet(): void
+    {
+        $this->service->ensureDefaultCategories();
+
+        $names = array_map(fn($c) => $c->name, $this->service->getAllCategories());
+        foreach (["Fête d'unité", 'Camp été', 'Weekend de section', 'Grande journée', 'Formations',
+                  'Calendriers', 'Matériel', 'Locaux', 'Subsides', 'Cotisations'] as $expected) {
+            $this->assertContains($expected, $names);
+        }
+        $this->assertCount(10, $names);
+    }
+
+    public function testEnsureDefaultCategoriesNeverResurrectsARenamedDefault(): void
+    {
+        $this->service->ensureDefaultCategories();
+        $camp = $this->service->getAllCategories()[0];
+        $this->service->updateCategoryName($camp->id, 'Renommée par un admin');
+
+        $this->service->ensureDefaultCategories();
+
+        $names = array_map(fn($c) => $c->name, $this->service->getAllCategories());
+        $this->assertCount(10, $names);
+        $this->assertContains('Renommée par un admin', $names);
+    }
+
+    public function testEnsureDefaultCategoriesNeverSeedsOnceAnyCategoryExists(): void
+    {
+        $this->service->createCategory('Catégorie personnalisée');
+
+        $this->service->ensureDefaultCategories();
+
+        $names = array_map(fn($c) => $c->name, $this->service->getAllCategories());
+        $this->assertSame(['Catégorie personnalisée'], $names);
+    }
+
     // --- getCategorySummary() ---
 
     public function testGetCategorySummaryReturnsEmptyArrayWhenNoMovements(): void

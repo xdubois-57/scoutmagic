@@ -182,6 +182,12 @@ let currentMovementId = null;
 const attachmentsModalEl = document.getElementById('attachments-modal');
 const attachmentsModal = window.bootstrap ? new window.bootstrap.Modal(attachmentsModalEl) : null;
 
+function escapeHtml(value) {
+    const div = document.createElement('div');
+    div.textContent = value == null ? '' : String(value);
+    return div.innerHTML;
+}
+
 async function loadAttachments(movementId) {
     currentMovementId = movementId;
     const res = await fetch('/finance/movements/' + movementId + '/attachments');
@@ -194,8 +200,18 @@ async function loadAttachments(movementId) {
         data.attachments.forEach(a => {
             const row = document.createElement('div');
             row.className = 'd-flex align-items-center gap-2 border rounded p-2';
-            row.innerHTML = '<a href="/files/' + a.file_id + '" target="_blank" class="flex-grow-1">' + a.original_filename + '</a>' +
-                '<button type="button" class="btn btn-sm btn-outline-danger dissociate-btn" data-attachment-id="' + a.id + '">Dissocier</button>';
+            let info = '<a href="/files/' + a.file_id + '" target="_blank" class="fw-semibold">' + escapeHtml(a.original_filename) + '</a>';
+            if (a.suggested_amount || a.suggested_label) {
+                info += '<div class="small">'
+                    + (a.suggested_amount ? Number(a.suggested_amount).toLocaleString('fr-BE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €' : '')
+                    + (a.suggested_label ? (a.suggested_amount ? ' — ' : '') + escapeHtml(a.suggested_label) : '')
+                    + '</div>';
+            }
+            if (a.suggested_description) {
+                info += '<div class="small text-body-secondary fst-italic">' + escapeHtml(a.suggested_description) + '</div>';
+            }
+            row.innerHTML = '<div class="flex-grow-1">' + info + '</div>'
+                + '<button type="button" class="btn btn-sm btn-outline-danger dissociate-btn" data-attachment-id="' + a.id + '">Dissocier</button>';
             list.appendChild(row);
         });
         list.querySelectorAll('.dissociate-btn').forEach(btn => {

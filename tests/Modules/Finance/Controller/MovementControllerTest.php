@@ -294,4 +294,30 @@ class MovementControllerTest extends TestCase
 
         $this->assertSame(403, $response->getStatusCode());
     }
+
+    public function testAttachmentsIncludesReceiptSuggestedAmountLabelAndDescription(): void
+    {
+        $transactionId = $this->createTransaction('2026-10-01', -12.5, 'Achat');
+
+        $stmt = $this->pdo->prepare(
+            "INSERT INTO files (relative_path, original_name, mime_type, size_bytes) VALUES ('a.pdf', 'a.pdf', 'application/pdf', 100)"
+        );
+        $stmt->execute();
+        $fileId = (int) $this->pdo->lastInsertId();
+
+        $attachmentRepository = new AttachmentRepository($this->pdo);
+        $attachmentId = $attachmentRepository->create($this->accountId, $fileId, 'application/pdf', 'facture.pdf', 12.5, '2026-10-01', null, 1);
+        $attachmentRepository->updateSuggestedLabel($attachmentId, 'Delhaize');
+        $attachmentRepository->updateSuggestedDescription($attachmentId, 'Achat de fournitures de bureau');
+        (new TransactionAttachmentRepository($this->pdo))->associate($transactionId, $attachmentId);
+
+        $response = $this->controller->attachments(new Request('GET', '/finance/movements/' . $transactionId . '/attachments', [], [], [], []), ['id' => (string) $transactionId]);
+        $data = json_decode($response->getBody(), true);
+
+        $this->assertTrue($data['success']);
+        $this->assertCount(1, $data['attachments']);
+        $this->assertSame(12.5, $data['attachments'][0]['suggested_amount']);
+        $this->assertSame('Delhaize', $data['attachments'][0]['suggested_label']);
+        $this->assertSame('Achat de fournitures de bureau', $data['attachments'][0]['suggested_description']);
+    }
 }

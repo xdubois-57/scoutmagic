@@ -25,20 +25,21 @@
                         {% endfor %}
                     </select>
                 </div>
-            {% endif %}
-            <div class="col-12">
-                <label class="form-label small" for="receipt-file">Fichier (PDF, Word, JPEG ou PNG)</label>
-                <input type="file" class="form-control form-control-sm" id="receipt-file" name="receipt" accept=".pdf,.docx,.jpg,.jpeg,.png" required>
-                <div class="form-text small" id="receipt-file-status"></div>
-            </div>
-            {% if not replace_id %}
-                <div class="col-6">
-                    <label class="form-label small" for="receipt-amount">Montant estimé</label>
-                    <input type="text" class="form-control form-control-sm" id="receipt-amount" name="amount" placeholder="12,50">
+                <div class="col-12">
+                    <label class="form-label small">Reçus (PDF, Word, JPEG ou PNG) — jusqu'à 10 à la fois</label>
+                    <div id="drop-zone" class="border border-2 border-dashed rounded-3 p-4 text-center text-body-secondary" role="button" tabindex="0">
+                        <i class="bi bi-cloud-arrow-up fs-2 d-block mb-2"></i>
+                        <span>Glissez-déposez vos reçus ici, ou cliquez pour parcourir</span>
+                        <input type="file" class="d-none" id="receipt-files" name="receipts[]" accept=".pdf,.docx,.jpg,.jpeg,.png" multiple>
+                    </div>
+                    <ul class="list-unstyled small mt-2 mb-0" id="receipt-files-list"></ul>
+                    <div class="form-text small" id="receipt-file-status"></div>
                 </div>
-                <div class="col-6">
-                    <label class="form-label small" for="receipt-date">Date estimée</label>
-                    <input type="date" class="form-control form-control-sm" id="receipt-date" name="date">
+            {% else %}
+                <div class="col-12">
+                    <label class="form-label small" for="receipt-file">Fichier (PDF, Word, JPEG ou PNG)</label>
+                    <input type="file" class="form-control form-control-sm" id="receipt-file" name="receipt" accept=".pdf,.docx,.jpg,.jpeg,.png" required>
+                    <div class="form-text small" id="receipt-file-status"></div>
                 </div>
             {% endif %}
             <div class="col-12">
@@ -55,6 +56,7 @@
 <script nonce="{{ csp_nonce }}">
 const MAX_WIDTH = 1600;
 const JPEG_QUALITY = 0.75;
+const MAX_FILES = 10;
 
 function resizeImage(file) {
     return new Promise((resolve, reject) => {
@@ -94,9 +96,11 @@ function resizeImage(file) {
 }
 
 const form = document.getElementById('receipt-form');
-const fileInput = document.getElementById('receipt-file');
 const statusEl = document.getElementById('receipt-file-status');
 const supportsResize = !!(window.FileReader && window.HTMLCanvasElement && window.DataTransfer);
+
+{% if replace_id %}
+const fileInput = document.getElementById('receipt-file');
 
 form.addEventListener('submit', async (e) => {
     const file = fileInput.files[0];
@@ -116,12 +120,136 @@ form.addEventListener('submit', async (e) => {
         fileInput.files = transfer.files;
         statusEl.textContent = 'Image compressée (' + Math.round(resizedBlob.size / 1024) + ' Ko).';
     } catch (err) {
-        // Fallback: upload the original file unmodified.
         statusEl.textContent = '';
     }
 
     form.submit();
 });
+{% else %}
+const dropZone = document.getElementById('drop-zone');
+const filesInput = document.getElementById('receipt-files');
+const filesList = document.getElementById('receipt-files-list');
+let selectedFiles = [];
+
+function renderFilesList() {
+    filesList.innerHTML = '';
+    selectedFiles.forEach((file, index) => {
+        const li = document.createElement('li');
+        li.className = 'd-flex align-items-center gap-2';
+        const nameSpan = document.createElement('span');
+        nameSpan.textContent = file.name;
+        const removeBtn = document.createElement('button');
+        removeBtn.type = 'button';
+        removeBtn.className = 'btn btn-sm btn-link text-danger p-0';
+        removeBtn.textContent = 'Retirer';
+        removeBtn.addEventListener('click', () => {
+            selectedFiles.splice(index, 1);
+            syncInputAndRender();
+        });
+        li.appendChild(nameSpan);
+        li.appendChild(removeBtn);
+        filesList.appendChild(li);
+    });
+}
+
+function syncInputAndRender() {
+    const transfer = new DataTransfer();
+    selectedFiles.forEach(file => transfer.items.add(file));
+    filesInput.files = transfer.files;
+    renderFilesList();
+}
+
+function addFiles(fileList) {
+    const incoming = Array.from(fileList);
+    let combined = selectedFiles.concat(incoming);
+    if (combined.length > MAX_FILES) {
+        statusEl.textContent = 'Maximum ' + MAX_FILES + ' reçus à la fois — les suivants ont été ignorés.';
+        combined = combined.slice(0, MAX_FILES);
+    } else {
+        statusEl.textContent = '';
+    }
+    selectedFiles = combined;
+    syncInputAndRender();
+}
+
+dropZone.addEventListener('click', () => filesInput.click());
+dropZone.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        filesInput.click();
+    }
+});
+
+filesInput.addEventListener('change', () => {
+    addFiles(filesInput.files);
+});
+
+['dragenter', 'dragover'].forEach(eventName => {
+    dropZone.addEventListener(eventName, (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dropZone.classList.add('border-primary');
+    });
+});
+
+['dragleave', 'drop'].forEach(eventName => {
+    dropZone.addEventListener(eventName, (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dropZone.classList.remove('border-primary');
+    });
+});
+
+dropZone.addEventListener('drop', (e) => {
+    if (e.dataTransfer && e.dataTransfer.files) {
+        addFiles(e.dataTransfer.files);
+    }
+});
+
+form.addEventListener('submit', async (e) => {
+    if (selectedFiles.length === 0) {
+        e.preventDefault();
+        statusEl.textContent = 'Veuillez sélectionner au moins un reçu.';
+        return;
+    }
+
+    if (!supportsResize) {
+        return; // native submit proceeds
+    }
+
+    const hasImages = selectedFiles.some(file => file.type.startsWith('image/'));
+    if (!hasImages) {
+        return;
+    }
+
+    e.preventDefault();
+    statusEl.textContent = 'Compression des images…';
+
+    try {
+        const processed = [];
+        for (const file of selectedFiles) {
+            if (!file.type.startsWith('image/')) {
+                processed.push(file);
+                continue;
+            }
+            try {
+                const resizedBlob = await resizeImage(file);
+                const newName = file.name.replace(/\.[^.]+$/, '') + '.jpg';
+                processed.push(new File([resizedBlob], newName, { type: 'image/jpeg' }));
+            } catch (err) {
+                processed.push(file); // fall back to the original file
+            }
+        }
+        selectedFiles = processed;
+        syncInputAndRender();
+        statusEl.textContent = '';
+    } catch (err) {
+        statusEl.textContent = '';
+    }
+
+    form.submit();
+});
+{% endif %}
 </script>
 {% endif %}
 {% endblock %}

@@ -37,6 +37,7 @@ class ConfigCategoryController extends AbstractController
      */
     public function index(Request $request, array $params): Response
     {
+        $this->financeService->ensureDefaultCategories();
         $categories = $this->financeService->getAllCategories();
 
         $categoriesById = [];

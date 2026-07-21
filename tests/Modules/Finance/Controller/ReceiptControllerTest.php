@@ -19,6 +19,7 @@ use Core\Security\EncryptionService;
 use Modules\Finance\Controller\ReceiptController;
 use Modules\Finance\Repository\Account;
 use Modules\Finance\Repository\AccountRepository;
+use Modules\Finance\Repository\Attachment;
 use Modules\Finance\Repository\AttachmentRepository;
 use Modules\Finance\Repository\BalanceCheckpointRepository;
 use Modules\Finance\Repository\CategoryRepository;
@@ -95,7 +96,7 @@ class ReceiptControllerTest extends TestCase
         $twig->addFunction(new TwigFunction('file_url', fn() => ''));
 
         $this->controller = new ReceiptController(
-            $twig, $this->attachmentRepository, $this->transactionAttachmentRepository, $financeService,
+            $twig, $this->attachmentRepository, $this->transactionAttachmentRepository, $this->transactionRepository, $financeService,
             $receiptService, $extractionService, $journalService
         );
 
@@ -142,29 +143,38 @@ class ReceiptControllerTest extends TestCase
         return $path;
     }
 
-    private function uploadRequest(string $tmpPath, string $csrf, ?string $amount = null, ?string $date = null, ?int $accountId = null): Request
+    private function uploadRequest(string $tmpPath, string $csrf, ?int $accountId = null): Request
     {
+        return $this->uploadRequestMulti([$tmpPath], $csrf, $accountId);
+    }
+
+    /**
+     * @param string[] $tmpPaths
+     */
+    private function uploadRequestMulti(array $tmpPaths, string $csrf, ?int $accountId = null): Request
+    {
+        $files = array_map(fn(string $path) => [
+            'name' => basename($path),
+            'tmp_name' => $path,
+            'error' => UPLOAD_ERR_OK,
+            'size' => filesize($path),
+            'type' => 'application/pdf',
+        ], $tmpPaths);
+
         $request = $this->getMockBuilder(Request::class)
             ->setConstructorArgs(['POST', '/finance/receipts/new', [], [
                 '_csrf_token' => $csrf,
                 'account_id' => (string) ($accountId ?? $this->accountId),
-                'amount' => $amount ?? '',
-                'date' => $date ?? '',
             ], [], []])
-            ->onlyMethods(['getFile'])
+            ->onlyMethods(['getFiles'])
             ->getMock();
-        $request->method('getFile')->willReturn([
-            'tmp_name' => $tmpPath,
-            'name' => 'facture.pdf',
-            'error' => UPLOAD_ERR_OK,
-            'size' => filesize($tmpPath),
-        ]);
+        $request->method('getFiles')->willReturn($files);
         return $request;
     }
 
     public function testUploadCreatesAttachmentAndRedirects(): void
     {
-        $response = $this->controller->upload($this->uploadRequest($this->tmpPdfFile(), $this->csrfToken(), '12,50', '2026-10-01'), []);
+        $response = $this->controller->upload($this->uploadRequest($this->tmpPdfFile(), $this->csrfToken()), []);
 
         $this->assertSame(302, $response->getStatusCode());
         $this->assertCount(1, $this->attachmentRepository->findActiveOrdered());
@@ -182,10 +192,42 @@ class ReceiptControllerTest extends TestCase
 
     public function testUploadRejectsUnknownAccount(): void
     {
-        $response = $this->controller->upload($this->uploadRequest($this->tmpPdfFile(), $this->csrfToken(), null, null, 9999), []);
+        $response = $this->controller->upload($this->uploadRequest($this->tmpPdfFile(), $this->csrfToken(), 9999), []);
 
         $this->assertStringContainsString('Compte invalide', $response->getBody());
         $this->assertCount(0, $this->attachmentRepository->findActiveOrdered());
+    }
+
+    public function testUploadAcceptsMultipleFilesInOneRequest(): void
+    {
+        $paths = [$this->tmpPdfFile(), $this->tmpPdfFile(), $this->tmpPdfFile()];
+
+        $response = $this->controller->upload($this->uploadRequestMulti($paths, $this->csrfToken()), []);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertCount(3, $this->attachmentRepository->findActiveOrdered());
+    }
+
+    public function testUploadRejectsMoreThanTenFilesInOneRequest(): void
+    {
+        $paths = array_map(fn() => $this->tmpPdfFile(), range(1, 11));
+
+        $response = $this->controller->upload($this->uploadRequestMulti($paths, $this->csrfToken()), []);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertStringContainsString('10 reçus', $response->getBody());
+        $this->assertCount(0, $this->attachmentRepository->findActiveOrdered());
+    }
+
+    public function testUploadContinuesOnPartialFailure(): void
+    {
+        $goodPath = $this->tmpPdfFile();
+        $badPath = tempnam(sys_get_temp_dir(), 'receipt_test_');
+        file_put_contents($badPath, 'plain text content, not an allowed receipt format');
+
+        $this->controller->upload($this->uploadRequestMulti([$goodPath, $badPath], $this->csrfToken()), []);
+
+        $this->assertCount(1, $this->attachmentRepository->findActiveOrdered());
     }
 
     private function jsonRequest(string $method, string $path, array $data): Request
@@ -206,6 +248,116 @@ class ReceiptControllerTest extends TestCase
 
         $this->assertSame(200, $response->getStatusCode());
         $this->assertStringContainsString('En attente', $response->getBody());
+    }
+
+    public function testListFiltersToPendingOnly(): void
+    {
+        $this->controller->upload($this->uploadRequest($this->tmpPdfFile(), $this->csrfToken()), []);
+        $pending = $this->attachmentRepository->findActiveOrdered()[0];
+        $this->controller->upload($this->uploadRequest($this->tmpPdfFile(), $this->csrfToken()), []);
+        $attachments = $this->attachmentRepository->findActiveOrdered();
+        $associated = $attachments[0]->id === $pending->id ? $attachments[1] : $attachments[0];
+        $this->transactionAttachmentRepository->associate($this->createTransaction(), $associated->id);
+
+        $response = $this->controller->list(new Request('GET', '/finance/receipts', ['account_id' => (string) $this->accountId, 'pending' => '1'], [], [], []), []);
+
+        $this->assertStringContainsString('data-receipt-id="' . $pending->id . '"', $response->getBody());
+        $this->assertStringNotContainsString('data-receipt-id="' . $associated->id . '"', $response->getBody());
+    }
+
+    public function testListSearchFiltersByFilename(): void
+    {
+        $this->controller->upload($this->uploadRequest($this->tmpPdfFile(), $this->csrfToken()), []);
+        $attachment = $this->attachmentRepository->findActiveOrdered()[0];
+        $this->pdo->prepare('UPDATE finance_attachments SET original_filename = ? WHERE id = ?')->execute(['delhaize-facture.pdf', $attachment->id]);
+
+        $matching = $this->controller->list(new Request('GET', '/finance/receipts', ['account_id' => (string) $this->accountId, 'q' => 'delhaize'], [], [], []), []);
+        $nonMatching = $this->controller->list(new Request('GET', '/finance/receipts', ['account_id' => (string) $this->accountId, 'q' => 'colruyt'], [], [], []), []);
+
+        $this->assertStringContainsString('delhaize-facture.pdf', $matching->getBody());
+        $this->assertStringContainsString('Aucun reçu', $nonMatching->getBody());
+    }
+
+    public function testSearchActionReturnsPendingReceiptAsJson(): void
+    {
+        $this->controller->upload($this->uploadRequest($this->tmpPdfFile(), $this->csrfToken()), []);
+        $attachment = $this->attachmentRepository->findActiveOrdered()[0];
+        // Amount is never entered at upload time — simulate what
+        // Task\ExtractReceiptDataHandler's AI extraction would write.
+        $this->attachmentRepository->updateSuggestedData($attachment->id, 12.5, null, Attachment::SUGGESTED_SOURCE_AI);
+
+        $response = $this->controller->search(new Request('GET', '/finance/receipts/search', ['account_id' => (string) $this->accountId], [], [], []), []);
+        $data = json_decode($response->getBody(), true);
+
+        $this->assertTrue($data['success']);
+        $this->assertCount(1, $data['receipts']);
+        $this->assertTrue($data['receipts'][0]['is_pending']);
+        $this->assertSame(12.5, $data['receipts'][0]['suggested_amount']);
+        $this->assertSame(1, $data['total']);
+        $this->assertSame(1, $data['total_pages']);
+    }
+
+    public function testSearchActionFiltersToPendingOnly(): void
+    {
+        $this->controller->upload($this->uploadRequest($this->tmpPdfFile(), $this->csrfToken()), []);
+        $attachment = $this->attachmentRepository->findActiveOrdered()[0];
+        $this->transactionAttachmentRepository->associate($this->createTransaction(), $attachment->id);
+
+        $response = $this->controller->search(new Request('GET', '/finance/receipts/search', ['account_id' => (string) $this->accountId, 'pending' => '1'], [], [], []), []);
+        $data = json_decode($response->getBody(), true);
+
+        $this->assertSame([], $data['receipts']);
+    }
+
+    public function testSearchActionPaginatesThirtyPerPage(): void
+    {
+        $stmt = $this->pdo->prepare(
+            "INSERT INTO files (relative_path, original_name, mime_type, size_bytes) VALUES ('a.pdf', 'a.pdf', 'application/pdf', 100)"
+        );
+        $stmt->execute();
+        $fileId = (int) $this->pdo->lastInsertId();
+
+        for ($i = 0; $i < 31; $i++) {
+            $this->attachmentRepository->create($this->accountId, $fileId, 'application/pdf', "facture-{$i}.pdf", null, null, null, 1);
+        }
+
+        $page1 = $this->controller->search(new Request('GET', '/finance/receipts/search', ['account_id' => (string) $this->accountId, 'page' => '1'], [], [], []), []);
+        $page2 = $this->controller->search(new Request('GET', '/finance/receipts/search', ['account_id' => (string) $this->accountId, 'page' => '2'], [], [], []), []);
+
+        $data1 = json_decode($page1->getBody(), true);
+        $data2 = json_decode($page2->getBody(), true);
+
+        $this->assertCount(30, $data1['receipts']);
+        $this->assertCount(1, $data2['receipts']);
+        $this->assertSame(2, $data1['total_pages']);
+        $this->assertSame(31, $data1['total']);
+    }
+
+    public function testMovementsActionReturnsLinkedMovements(): void
+    {
+        $this->controller->upload($this->uploadRequest($this->tmpPdfFile(), $this->csrfToken()), []);
+        $attachment = $this->attachmentRepository->findActiveOrdered()[0];
+        $transactionId = $this->createTransaction();
+        $this->transactionAttachmentRepository->associate($transactionId, $attachment->id);
+
+        $response = $this->controller->movements(new Request('GET', '/finance/receipts/' . $attachment->id . '/movements', [], [], [], []), ['id' => (string) $attachment->id]);
+        $data = json_decode($response->getBody(), true);
+
+        $this->assertTrue($data['success']);
+        $this->assertCount(1, $data['movements']);
+        $this->assertSame($transactionId, $data['movements'][0]['id']);
+        $this->assertSame('x', $data['movements'][0]['label']);
+    }
+
+    public function testMovementsActionReturnsEmptyForPendingReceipt(): void
+    {
+        $this->controller->upload($this->uploadRequest($this->tmpPdfFile(), $this->csrfToken()), []);
+        $attachment = $this->attachmentRepository->findActiveOrdered()[0];
+
+        $response = $this->controller->movements(new Request('GET', '/finance/receipts/' . $attachment->id . '/movements', [], [], [], []), ['id' => (string) $attachment->id]);
+        $data = json_decode($response->getBody(), true);
+
+        $this->assertSame([], $data['movements']);
     }
 
     public function testDeleteArchivesAttachment(): void

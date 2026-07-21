@@ -948,7 +948,7 @@ if (in_array('finance', $moduleManager->getEnabledModuleIds(), true)) {
     $frontController->registerController(
         \Modules\Finance\Controller\ReceiptController::class,
         new \Modules\Finance\Controller\ReceiptController(
-            $twig, $financeAttachmentRepo, $financeTransactionAttachmentRepo, $financeService,
+            $twig, $financeAttachmentRepo, $financeTransactionAttachmentRepo, $financeTransactionRepo, $financeService,
             $financeReceiptService, $financeReceiptExtractionService, $journalService
         )
     );

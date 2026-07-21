@@ -77,6 +77,35 @@ class Request
     }
 
     /**
+     * Normalizes a multi-file <input type="file" multiple name="key[]">
+     * field into a list of individual per-file arrays. PHP's own
+     * $_FILES shape for a multi-file field is the reverse of this — one
+     * array per property (name/tmp_name/error/size/type), each holding
+     * one entry per file — so this cannot just delegate to getFile().
+     *
+     * @return array<int, array{name: string, tmp_name: string, error: int, size: int, type: string}>
+     */
+    public function getFiles(string $key): array
+    {
+        $raw = $_FILES[$key] ?? null;
+        if (!is_array($raw) || !is_array($raw['name'] ?? null)) {
+            return [];
+        }
+
+        $files = [];
+        foreach (array_keys($raw['name']) as $index) {
+            $files[] = [
+                'name' => (string) $raw['name'][$index],
+                'tmp_name' => (string) $raw['tmp_name'][$index],
+                'error' => (int) $raw['error'][$index],
+                'size' => (int) $raw['size'][$index],
+                'type' => (string) $raw['type'][$index],
+            ];
+        }
+        return $files;
+    }
+
+    /**
      * Get the raw body content (for JSON requests).
      */
     public function getRawBody(): string

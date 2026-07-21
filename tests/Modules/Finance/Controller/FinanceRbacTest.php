@@ -229,7 +229,7 @@ class FinanceRbacTest extends TestCase
             ),
             'ImportController' => new ImportController($this->twig, $this->financeService, $this->importService, $this->parserFactory, $this->checkpointRepository),
             'ReceiptController' => new ReceiptController(
-                $this->twig, $this->attachmentRepository, $this->transactionAttachmentRepository, $this->financeService,
+                $this->twig, $this->attachmentRepository, $this->transactionAttachmentRepository, $this->transactionRepository, $this->financeService,
                 $this->receiptService, $this->receiptExtractionService, $this->journalService
             ),
             'ConfigController' => new ConfigController($this->twig, $this->financeService, $this->schedulerService),

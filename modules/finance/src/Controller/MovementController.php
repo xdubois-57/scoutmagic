@@ -213,6 +213,9 @@ class MovementController extends AbstractController
                 'file_id' => $attachment->fileId,
                 'original_filename' => $attachment->originalFilename,
                 'mime_type' => $attachment->mimeType,
+                'suggested_amount' => $attachment->suggestedAmount,
+                'suggested_label' => $attachment->suggestedLabel,
+                'suggested_description' => $attachment->suggestedDescription,
             ], $attachments),
         ]);
     }
