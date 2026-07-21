@@ -39,6 +39,9 @@
                             {% if attachment.suggestedLabel %}
                                 <div class="text-body-secondary">{{ attachment.suggestedLabel }}</div>
                             {% endif %}
+                            {% if attachment.suggestedDescription %}
+                                <div class="text-body-secondary fst-italic">{{ attachment.suggestedDescription }}</div>
+                            {% endif %}
                         </div>
                     {% endif %}
                     <div>

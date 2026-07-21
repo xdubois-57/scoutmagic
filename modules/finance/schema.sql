@@ -156,14 +156,17 @@ CREATE TABLE IF NOT EXISTS finance_statement_imports (
 -- re-synced whenever the account's role_min_view changes — see
 -- Controller\ConfigAccountController), so downloading it via
 -- Core\File\FileAccessGuard enforces the same floor as the account
--- itself. suggested_label is the AI-extracted merchant/reason (e.g.
--- "Delhaize") — only ever written by Task\ExtractReceiptDataHandler, no
--- manual-entry counterpart on the upload form (unlike suggested_amount/
--- suggested_date), so it is always NULL for a suggested_source='manual'
--- row. matching_ai_attempted_at marks that Service\ReceiptMatchingService
--- has already spent its one allowed AI-assisted matching attempt on this
--- receipt (rule-based matching has no such limit and is retried on every
--- bank import) — NULL means the AI fallback hasn't been tried yet.
+-- itself. suggested_label is the AI-extracted merchant name (e.g.
+-- "Delhaize"); suggested_description is a one-sentence AI-generated
+-- summary of what the receipt is for (e.g. "Achat de fournitures de
+-- bureau pour l'unité") — both only ever written by Task\
+-- ExtractReceiptDataHandler, no manual-entry counterpart on the upload
+-- form (unlike suggested_amount/suggested_date), so they are always NULL
+-- for a suggested_source='manual' row. matching_ai_attempted_at marks
+-- that Service\ReceiptMatchingService has already spent its one allowed
+-- AI-assisted matching attempt on this receipt (rule-based matching has
+-- no such limit and is retried on every bank import) — NULL means the AI
+-- fallback hasn't been tried yet.
 CREATE TABLE IF NOT EXISTS finance_attachments (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     account_id INT UNSIGNED NULL,
@@ -173,6 +176,7 @@ CREATE TABLE IF NOT EXISTS finance_attachments (
     suggested_amount DECIMAL(12, 2) NULL,
     suggested_date DATE NULL,
     suggested_label VARCHAR(255) NULL,
+    suggested_description VARCHAR(500) NULL,
     suggested_source ENUM('manual', 'ai') NULL,
     matching_ai_attempted_at DATETIME NULL,
     status ENUM('active', 'archived') NOT NULL DEFAULT 'active',

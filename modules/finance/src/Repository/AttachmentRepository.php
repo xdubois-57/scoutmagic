@@ -144,6 +144,17 @@ class AttachmentRepository
     }
 
     /**
+     * Written only by Task\ExtractReceiptDataHandler, same as
+     * updateSuggestedLabel() — a one-sentence AI-generated summary of
+     * what the receipt is for.
+     */
+    public function updateSuggestedDescription(int $id, string $suggestedDescription): void
+    {
+        $stmt = $this->pdo->prepare('UPDATE finance_attachments SET suggested_description = ? WHERE id = ?');
+        $stmt->execute([$suggestedDescription, $id]);
+    }
+
+    /**
      * Marks that Service\ReceiptMatchingService has spent this receipt's
      * one allowed AI-assisted matching attempt — set regardless of
      * whether that attempt found a movement, so it is never retried.
@@ -173,7 +184,8 @@ class AttachmentRepository
             parentAttachmentId: $row['parent_attachment_id'] !== null ? (int) $row['parent_attachment_id'] : null,
             uploadedBy: $row['uploaded_by'] !== null ? (int) $row['uploaded_by'] : null,
             uploadedAt: (string) $row['uploaded_at'],
-            matchingAiAttemptedAt: $row['matching_ai_attempted_at'] !== null ? (string) $row['matching_ai_attempted_at'] : null
+            matchingAiAttemptedAt: $row['matching_ai_attempted_at'] !== null ? (string) $row['matching_ai_attempted_at'] : null,
+            suggestedDescription: $row['suggested_description'] !== null ? (string) $row['suggested_description'] : null
         );
     }
 }

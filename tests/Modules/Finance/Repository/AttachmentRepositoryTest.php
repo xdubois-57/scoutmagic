@@ -53,6 +53,16 @@ class AttachmentRepositoryTest extends TestCase
         $this->assertSame('Delhaize', $this->repository->findById($id)->suggestedLabel);
     }
 
+    public function testUpdateSuggestedDescriptionSetsOneSentenceSummary(): void
+    {
+        $id = $this->repository->create(null, $this->fileId, 'application/pdf', 'facture.pdf', null, null, null, null);
+        $this->assertNull($this->repository->findById($id)->suggestedDescription);
+
+        $this->repository->updateSuggestedDescription($id, 'Achat de fournitures de bureau');
+
+        $this->assertSame('Achat de fournitures de bureau', $this->repository->findById($id)->suggestedDescription);
+    }
+
     public function testFindActiveOrderedExcludesArchived(): void
     {
         $id1 = $this->repository->create(null, $this->fileId, 'application/pdf', 'a.pdf', null, null, null, null);

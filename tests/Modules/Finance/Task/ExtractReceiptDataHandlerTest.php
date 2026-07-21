@@ -175,6 +175,59 @@ class ExtractReceiptDataHandlerTest extends TestCase
         $this->assertSame('ocr', $context['tier']);
     }
 
+    private function normalizeDate(string $rawDate): ?string
+    {
+        $method = new \ReflectionMethod(ExtractReceiptDataHandler::class, 'normalizeDate');
+        $method->setAccessible(true);
+
+        return $method->invoke(new ExtractReceiptDataHandler(), $rawDate);
+    }
+
+    public function testNormalizeDateAcceptsIsoDate(): void
+    {
+        $this->assertSame('2026-10-27', $this->normalizeDate('2026-10-27'));
+    }
+
+    public function testNormalizeDateAcceptsIsoDatetimeWithTimeComponent(): void
+    {
+        $this->assertSame('2026-10-27', $this->normalizeDate('2026-10-27T00:00:00'));
+    }
+
+    public function testNormalizeDateAcceptsEuropeanSlashFormat(): void
+    {
+        $this->assertSame('2026-10-27', $this->normalizeDate('27/10/2026'));
+    }
+
+    public function testNormalizeDateAcceptsEuropeanDashFormat(): void
+    {
+        $this->assertSame('2026-10-27', $this->normalizeDate('27-10-2026'));
+    }
+
+    public function testNormalizeDateAcceptsEuropeanDotFormat(): void
+    {
+        $this->assertSame('2026-10-27', $this->normalizeDate('27.10.2026'));
+    }
+
+    public function testNormalizeDateAcceptsSingleDigitDayAndMonth(): void
+    {
+        $this->assertSame('2026-01-05', $this->normalizeDate('5/1/2026'));
+    }
+
+    public function testNormalizeDateRejectsAnImpossibleCalendarDate(): void
+    {
+        $this->assertNull($this->normalizeDate('30/02/2026'));
+    }
+
+    public function testNormalizeDateRejectsUnrecognizableText(): void
+    {
+        $this->assertNull($this->normalizeDate('27 octobre 2026'));
+    }
+
+    public function testNormalizeDateRejectsEmptyString(): void
+    {
+        $this->assertNull($this->normalizeDate(''));
+    }
+
     private function createLlmTables(): void
     {
         $this->pdo->exec('CREATE TABLE llm_providers (
@@ -213,6 +266,7 @@ class ExtractReceiptDataHandlerTest extends TestCase
             suggested_amount REAL,
             suggested_date TEXT,
             suggested_label TEXT,
+            suggested_description TEXT,
             suggested_source TEXT,
             matching_ai_attempted_at TEXT,
             status TEXT NOT NULL DEFAULT \'active\',

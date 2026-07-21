@@ -26,7 +26,8 @@ final class Attachment
         public readonly ?int $parentAttachmentId,
         public readonly ?int $uploadedBy,
         public readonly string $uploadedAt,
-        public readonly ?string $matchingAiAttemptedAt = null
+        public readonly ?string $matchingAiAttemptedAt = null,
+        public readonly ?string $suggestedDescription = null
     ) {
     }
 }
