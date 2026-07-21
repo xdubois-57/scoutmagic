@@ -78,6 +78,7 @@ class FinanceRbacTest extends TestCase
     private ImportService $importService;
     private BankStatementParserFactory $parserFactory;
     private TransactionAttachmentRepository $transactionAttachmentRepository;
+    private StatementImportRepository $statementImportRepository;
     private ReceiptService $receiptService;
     private ReceiptExtractionService $receiptExtractionService;
     private AccountRepository $accountRepository;
@@ -103,7 +104,8 @@ class FinanceRbacTest extends TestCase
         $this->transactionRepository = new TransactionRepository($this->pdo, $encryption);
         $this->checkpointRepository = new BalanceCheckpointRepository($this->pdo);
         $statementImportRepository = new StatementImportRepository($this->pdo);
-        $this->attachmentRepository = new AttachmentRepository($this->pdo);
+        $this->statementImportRepository = $statementImportRepository;
+        $this->attachmentRepository = new AttachmentRepository($this->pdo, $encryption);
         $this->transactionAttachmentRepository = new TransactionAttachmentRepository($this->pdo);
 
         $this->balanceService = new BalanceService($this->checkpointRepository, $this->transactionRepository);
@@ -221,7 +223,8 @@ class FinanceRbacTest extends TestCase
     {
         return match ($name) {
             'DashboardController' => new DashboardController(
-                $this->twig, $this->financeService, $this->balanceService, $this->transactionRepository, $this->receiptService
+                $this->twig, $this->financeService, $this->balanceService, $this->transactionRepository, $this->receiptService,
+                $this->categoryRepository, $this->attachmentRepository, $this->transactionAttachmentRepository, $this->statementImportRepository
             ),
             'MovementController' => new MovementController(
                 $this->twig, $this->financeService, $this->transactionRepository, $this->categoryRepository, $this->fiscalYearRepository,

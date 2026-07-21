@@ -158,4 +158,125 @@ class TransactionRepositoryTest extends TestCase
         $this->assertCount(1, $remaining);
         $this->assertSame('B', $remaining[0]->label);
     }
+
+    public function testCommentIsStoredEncryptedNotInPlaintext(): void
+    {
+        $id = $this->repository->create(
+            $this->accountId, $this->fiscalYearId, null, '2026-10-01',
+            'A', -10.0, null, 'Commentaire confidentiel', Transaction::SOURCE_MANUAL, null
+        );
+
+        $stmt = $this->pdo->prepare('SELECT comment FROM finance_transactions WHERE id = ?');
+        $stmt->execute([$id]);
+        $rawComment = $stmt->fetchColumn();
+
+        $this->assertStringNotContainsString('Commentaire confidentiel', (string) $rawComment);
+
+        $transaction = $this->repository->findById($id);
+        $this->assertSame('Commentaire confidentiel', $transaction->comment);
+    }
+
+    public function testDecryptOrLegacyPlaintextFallsBackForPreEncryptionComment(): void
+    {
+        $id = $this->repository->create($this->accountId, $this->fiscalYearId, null, '2026-10-01', 'A', -10.0, null, null, Transaction::SOURCE_MANUAL, null);
+        $this->pdo->prepare('UPDATE finance_transactions SET comment = ? WHERE id = ?')->execute(['Commentaire en clair (legacy)', $id]);
+
+        $transaction = $this->repository->findById($id);
+
+        $this->assertSame('Commentaire en clair (legacy)', $transaction->comment);
+    }
+
+    public function testFindFilteredSearchMatchesLabelOrComment(): void
+    {
+        $id1 = $this->repository->create($this->accountId, $this->fiscalYearId, 'R1', '2026-10-01', 'Achat piscine', -1.0, null, null, Transaction::SOURCE_MANUAL, null);
+        $this->repository->create($this->accountId, $this->fiscalYearId, 'R2', '2026-10-02', 'Achat autre', -2.0, null, null, Transaction::SOURCE_MANUAL, null);
+        $id3 = $this->repository->create($this->accountId, $this->fiscalYearId, 'R3', '2026-10-03', 'Achat divers', -3.0, null, null, Transaction::SOURCE_MANUAL, null);
+        $this->repository->updateEditableFields($id3, null, 'Facture piscine communale', $this->fiscalYearId);
+
+        $results = $this->repository->findFiltered([$this->accountId], $this->fiscalYearId, null, 'piscine');
+
+        $this->assertCount(2, $results);
+        $ids = array_map(fn(Transaction $t) => $t->id, $results);
+        $this->assertContains($id1, $ids);
+        $this->assertContains($id3, $ids);
+    }
+
+    public function testFindFilteredUncategorizedOnly(): void
+    {
+        $categorized = $this->repository->create($this->accountId, $this->fiscalYearId, 'R1', '2026-10-01', 'A', -1.0, 5, null, Transaction::SOURCE_MANUAL, null);
+        $uncategorized = $this->repository->create($this->accountId, $this->fiscalYearId, 'R2', '2026-10-02', 'B', -2.0, null, null, Transaction::SOURCE_MANUAL, null);
+
+        $results = $this->repository->findFiltered([$this->accountId], $this->fiscalYearId, null, null, true);
+
+        $this->assertCount(1, $results);
+        $this->assertSame($uncategorized, $results[0]->id);
+    }
+
+    public function testCounterpartyAndExtraDetailsRoundTripEncrypted(): void
+    {
+        $id = $this->repository->create(
+            $this->accountId, $this->fiscalYearId, 'R1', '2026-10-01', 'Achat', -20.0, null, null,
+            Transaction::SOURCE_IMPORT, null, 'Jean Dupont', 'BE00000000000009', 'Type : Virement en euros'
+        );
+
+        $stmt = $this->pdo->prepare('SELECT counterparty_name, counterparty_account, extra_details FROM finance_transactions WHERE id = ?');
+        $stmt->execute([$id]);
+        $raw = $stmt->fetch(\PDO::FETCH_ASSOC);
+        $this->assertStringNotContainsString('Jean Dupont', (string) $raw['counterparty_name']);
+        $this->assertStringNotContainsString('BE00000000000009', (string) $raw['counterparty_account']);
+        $this->assertStringNotContainsString('Virement', (string) $raw['extra_details']);
+
+        $transaction = $this->repository->findById($id);
+        $this->assertSame('Jean Dupont', $transaction->counterpartyName);
+        $this->assertSame('BE00000000000009', $transaction->counterpartyAccount);
+        $this->assertSame('Type : Virement en euros', $transaction->extraDetails);
+    }
+
+    public function testInsertOrSkipPersistsCounterpartyAndExtraDetails(): void
+    {
+        $this->repository->insertOrSkip(
+            $this->accountId, $this->fiscalYearId, 'R1', '2026-10-01', 'Achat', -20.0, null,
+            'Jean Dupont', 'BE00000000000009', 'Type : Virement en euros'
+        );
+
+        $transaction = $this->repository->findByAccountId($this->accountId)[0];
+        $this->assertSame('Jean Dupont', $transaction->counterpartyName);
+        $this->assertSame('BE00000000000009', $transaction->counterpartyAccount);
+        $this->assertSame('Type : Virement en euros', $transaction->extraDetails);
+    }
+
+    public function testFindFilteredSearchMatchesCounterpartyNameAccountAndAmount(): void
+    {
+        $byName = $this->repository->create($this->accountId, $this->fiscalYearId, 'R1', '2026-10-01', 'A', -1.0, null, null, Transaction::SOURCE_MANUAL, null, 'Jean Dupont');
+        $byAccount = $this->repository->create($this->accountId, $this->fiscalYearId, 'R2', '2026-10-02', 'B', -2.0, null, null, Transaction::SOURCE_MANUAL, null, null, 'BE00000000009999');
+        $byExtra = $this->repository->create($this->accountId, $this->fiscalYearId, 'R3', '2026-10-03', 'C', -3.0, null, null, Transaction::SOURCE_MANUAL, null, null, null, 'Type : Virement instantané');
+        $byAmount = $this->repository->create($this->accountId, $this->fiscalYearId, 'R4', '2026-10-04', 'D', -42.17, null, null, Transaction::SOURCE_MANUAL, null);
+
+        $this->assertSame([$byName], array_map(fn(Transaction $t) => $t->id, $this->repository->findFiltered([$this->accountId], null, null, 'Dupont')));
+        $this->assertSame([$byAccount], array_map(fn(Transaction $t) => $t->id, $this->repository->findFiltered([$this->accountId], null, null, '9999')));
+        $this->assertSame([$byExtra], array_map(fn(Transaction $t) => $t->id, $this->repository->findFiltered([$this->accountId], null, null, 'instantané')));
+        $this->assertSame([$byAmount], array_map(fn(Transaction $t) => $t->id, $this->repository->findFiltered([$this->accountId], null, null, '42.17')));
+    }
+
+    public function testCountByAccountId(): void
+    {
+        $this->repository->create($this->accountId, $this->fiscalYearId, 'R1', '2026-10-01', 'A', -1.0, null, null, Transaction::SOURCE_MANUAL, null);
+        $this->repository->create($this->accountId, $this->fiscalYearId, 'R2', '2026-10-02', 'B', -2.0, null, null, Transaction::SOURCE_MANUAL, null);
+        $this->pdo->prepare("INSERT INTO finance_accounts (name, account_type) VALUES ('Autre', 'bank')")->execute();
+        $otherAccountId = (int) $this->pdo->lastInsertId();
+        $this->repository->create($otherAccountId, $this->fiscalYearId, 'R3', '2026-10-03', 'C', -3.0, null, null, Transaction::SOURCE_MANUAL, null);
+
+        $this->assertSame(2, $this->repository->countByAccountId($this->accountId));
+    }
+
+    public function testFindFilteredUncategorizedOnlyTakesPriorityOverCategoryId(): void
+    {
+        $categorized = $this->repository->create($this->accountId, $this->fiscalYearId, 'R1', '2026-10-01', 'A', -1.0, 5, null, Transaction::SOURCE_MANUAL, null);
+        $uncategorized = $this->repository->create($this->accountId, $this->fiscalYearId, 'R2', '2026-10-02', 'B', -2.0, null, null, Transaction::SOURCE_MANUAL, null);
+
+        $results = $this->repository->findFiltered([$this->accountId], $this->fiscalYearId, 5, null, true);
+
+        $this->assertCount(1, $results);
+        $this->assertSame($uncategorized, $results[0]->id);
+    }
 }

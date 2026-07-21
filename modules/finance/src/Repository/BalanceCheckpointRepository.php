@@ -36,6 +36,22 @@ class BalanceCheckpointRepository
         return $row !== false ? $this->hydrate($row) : null;
     }
 
+    /**
+     * The very earliest checkpoint on record — Service\BalanceService's
+     * fallback anchor for a "lowest balance over the last N months" query
+     * when no checkpoint reaches that far back: it starts from whatever
+     * the oldest known reference point is instead of returning null.
+     */
+    public function findEarliestForAccount(int $accountId): ?BalanceCheckpoint
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT * FROM finance_balance_checkpoints WHERE account_id = ? ORDER BY checkpoint_date ASC, id ASC LIMIT 1'
+        );
+        $stmt->execute([$accountId]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+        return $row !== false ? $this->hydrate($row) : null;
+    }
+
     public function hasAnyForAccount(int $accountId): bool
     {
         $stmt = $this->pdo->prepare('SELECT 1 FROM finance_balance_checkpoints WHERE account_id = ? LIMIT 1');

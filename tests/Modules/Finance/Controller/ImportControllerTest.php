@@ -71,7 +71,7 @@ class ImportControllerTest extends TestCase
             $this->accountRepository, $categoryRepository, $fiscalYearRepository, $sectionService, $transactionRepository, $balanceService
         );
         $receiptMatchingService = new ReceiptMatchingService(
-            new AttachmentRepository($this->pdo), $transactionRepository, new TransactionAttachmentRepository($this->pdo),
+            new AttachmentRepository($this->pdo, $encryption), $transactionRepository, new TransactionAttachmentRepository($this->pdo),
             new JournalService(new JournalRepository($this->pdo))
         );
         $importService = new ImportService(

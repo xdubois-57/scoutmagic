@@ -402,4 +402,53 @@ class FinanceService
 
         return $evolution;
     }
+
+    /**
+     * Splits a category summary into a net-per-category pie's two halves
+     * — categories with a positive net (income categories) and
+     * categories with a negative net (expense categories), each capped
+     * at 4 entries (sorted by magnitude) with any remainder folded into
+     * a single "Autres" bucket per side, per the dashboard's net-category
+     * pie spec (top 4 + top 4 + up to 2 "autres" slices, never more).
+     *
+     * @param array<int, array{category_id: ?int, category_name: ?string, income: float, expense: float, total: float}> $categorySummary
+     * @return array{positive: array<int, array{label: string, net: float}>, negative: array<int, array{label: string, net: float}>}
+     */
+    public function buildNetCategoryBreakdown(array $categorySummary): array
+    {
+        $positive = [];
+        $negative = [];
+
+        foreach ($categorySummary as $row) {
+            $label = $row['category_name'] ?? 'Non catégorisé';
+            if ($row['total'] > 0.0) {
+                $positive[] = ['label' => $label, 'net' => $row['total']];
+            } elseif ($row['total'] < 0.0) {
+                $negative[] = ['label' => $label, 'net' => $row['total']];
+            }
+        }
+
+        usort($positive, fn(array $a, array $b) => $b['net'] <=> $a['net']);
+        usort($negative, fn(array $a, array $b) => $a['net'] <=> $b['net']);
+
+        return [
+            'positive' => $this->capWithOthers($positive, 'Autres (+)'),
+            'negative' => $this->capWithOthers($negative, 'Autres (-)'),
+        ];
+    }
+
+    /**
+     * @param array<int, array{label: string, net: float}> $sorted
+     * @return array<int, array{label: string, net: float}>
+     */
+    private function capWithOthers(array $sorted, string $othersLabel): array
+    {
+        if (count($sorted) <= 4) {
+            return $sorted;
+        }
+
+        $top = array_slice($sorted, 0, 4);
+        $top[] = ['label' => $othersLabel, 'net' => array_sum(array_column(array_slice($sorted, 4), 'net'))];
+        return $top;
+    }
 }

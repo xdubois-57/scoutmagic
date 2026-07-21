@@ -39,7 +39,7 @@ class ReceiptServiceTest extends TestCase
 
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $this->accountRepository = new AccountRepository($this->pdo, $encryption);
-        $this->attachmentRepository = new AttachmentRepository($this->pdo);
+        $this->attachmentRepository = new AttachmentRepository($this->pdo, $encryption);
         $this->transactionAttachmentRepository = new TransactionAttachmentRepository($this->pdo);
         $this->storagePath = sys_get_temp_dir() . '/finance_receipt_service_test_' . uniqid();
         $fileStorage = new EncryptedFileStorageService(new FileRepository($this->pdo), $encryption, $this->storagePath);

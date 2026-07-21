@@ -60,7 +60,7 @@ class PurgeOldMovementsHandlerTest extends TestCase
         $this->fiscalYearRepository = new FiscalYearRepository($this->pdo, new \Core\Config\ScoutYearService($this->pdo));
         $this->transactionRepository = new TransactionRepository($this->pdo, $this->encryption);
         $this->transactionAttachmentRepository = new TransactionAttachmentRepository($this->pdo);
-        $this->attachmentRepository = new AttachmentRepository($this->pdo);
+        $this->attachmentRepository = new AttachmentRepository($this->pdo, $this->encryption);
         $this->checkpointRepository = new BalanceCheckpointRepository($this->pdo);
         $this->balanceService = new BalanceService($this->checkpointRepository, $this->transactionRepository);
         $this->storagePath = sys_get_temp_dir() . '/finance_purge_test_' . uniqid();

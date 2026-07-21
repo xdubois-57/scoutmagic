@@ -5,7 +5,7 @@
 {% block content %}
     <h1 class="mb-4">Finances</h1>
 
-    {% include '@finance/_nav.html.twig' %}
+    {% include '@finance/_nav.html.twig' with {'hide_account_picker': true} %}
 
     {% if no_accounts %}
         <p class="text-body-secondary fst-italic">Aucun compte visible pour votre rôle.</p>
@@ -13,8 +13,15 @@
     <h2 class="h5 mb-3">Mouvements — {{ selected_account.name }}</h2>
 
     <form method="get" action="/finance/movements" class="row g-2 align-items-end mb-3">
-        <input type="hidden" name="account_id" value="{{ selected_account.id }}">
-        <div class="col-6 col-md-4">
+        <div class="col-6 col-md-3">
+            <label class="form-label small" for="filter-account">Compte</label>
+            <select class="form-select form-select-sm" id="filter-account" name="account_id" required>
+                {% for account in accounts %}
+                    <option value="{{ account.id }}" {{ selected_account and account.id == selected_account.id ? 'selected' : '' }}>{{ account.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-6 col-md-3">
             <label class="form-label small" for="filter-fiscal-year">Exercice</label>
             <select class="form-select form-select-sm" id="filter-fiscal-year" name="fiscal_year_id">
                 <option value="all" {{ filter_fiscal_year_id is null ? 'selected' : '' }}>Tous</option>
@@ -23,22 +30,23 @@
                 {% endfor %}
             </select>
         </div>
-        <div class="col-6 col-md-4">
+        <div class="col-6 col-md-3">
             <label class="form-label small" for="filter-category">Catégorie</label>
             <select class="form-select form-select-sm" id="filter-category" name="category_id">
-                <option value="all">Toutes</option>
+                <option value="all" {{ filter_category_id == 'all' ? 'selected' : '' }}>Toutes</option>
+                <option value="none" {{ filter_category_id == 'none' ? 'selected' : '' }}>Non catégorisé</option>
                 {% for category in categories %}
                     <option value="{{ category.id }}" {{ filter_category_id == category.id ? 'selected' : '' }}>{{ category.name }}</option>
                 {% endfor %}
             </select>
         </div>
-        <div class="col-6 col-md-4">
+        <div class="col-6 col-md-3">
             <label class="form-label small" for="filter-search">Recherche</label>
             <input type="text" class="form-control form-control-sm" id="filter-search" name="q" value="{{ filter_search }}" placeholder="Libellé...">
         </div>
         <div class="col-12">
             <button type="submit" class="btn btn-sm btn-primary">Filtrer</button>
-            <a href="/finance/movements?account_id={{ selected_account.id }}" class="btn btn-sm btn-outline-secondary">Réinitialiser</a>
+            <a href="/finance/movements" class="btn btn-sm btn-outline-secondary">Réinitialiser</a>
         </div>
     </form>
 
@@ -50,7 +58,6 @@
                     <th>Libellé</th>
                     <th>Catégorie</th>
                     <th>Commentaire</th>
-                    <th>Exercice</th>
                     <th class="text-end">Montant</th>
                     <th class="text-center">📎</th>
                 </tr>
@@ -58,27 +65,23 @@
             <tbody>
                 {% for row in rows %}
                     {% set movement = row.movement %}
-                    <tr data-id="{{ movement.id }}" class="{{ movement.categoryId is null ? 'table-warning' : '' }}">
+                    <tr data-id="{{ movement.id }}"
+                        data-date="{{ movement.transactionDate }}"
+                        data-label="{{ movement.label }}"
+                        data-bank-reference="{{ movement.bankReference }}"
+                        data-amount="{{ movement.amount }}"
+                        data-source="{{ movement.source }}"
+                        data-category-id="{{ movement.categoryId }}"
+                        data-comment="{{ movement.comment }}"
+                        data-fiscal-year-id="{{ movement.fiscalYearId }}"
+                        data-counterparty-name="{{ movement.counterpartyName }}"
+                        data-counterparty-account="{{ movement.counterpartyAccount }}"
+                        data-extra-details="{{ movement.extraDetails }}"
+                        class="movement-row {{ movement.categoryId is null ? 'table-warning' : '' }}" style="cursor: pointer;">
                         <td>{{ movement.transactionDate }}</td>
                         <td>{{ movement.label }}</td>
-                        <td>
-                            <select class="form-select form-select-sm movement-category-select" data-id="{{ movement.id }}">
-                                <option value="">À catégoriser</option>
-                                {% for category in categories %}
-                                    <option value="{{ category.id }}" {{ movement.categoryId == category.id ? 'selected' : '' }}>{{ category.name }}</option>
-                                {% endfor %}
-                            </select>
-                        </td>
-                        <td>
-                            <input type="text" class="form-control form-control-sm movement-comment-input" data-id="{{ movement.id }}" value="{{ movement.comment }}">
-                        </td>
-                        <td>
-                            <select class="form-select form-select-sm movement-fiscal-year-select" data-id="{{ movement.id }}">
-                                {% for fiscalYear in fiscal_years %}
-                                    <option value="{{ fiscalYear.id }}" {{ movement.fiscalYearId == fiscalYear.id ? 'selected' : '' }}>{{ fiscalYear.label }}</option>
-                                {% endfor %}
-                            </select>
-                        </td>
+                        <td>{{ movement.categoryId and categories_by_id[movement.categoryId] is defined ? categories_by_id[movement.categoryId].name : 'À catégoriser' }}</td>
+                        <td>{{ movement.comment }}</td>
                         <td class="text-end {{ movement.amount < 0 ? 'text-danger' : 'text-success' }}">
                             {{ movement.amount|number_format(2, ',', ' ') }} €
                         </td>
@@ -95,7 +98,7 @@
                         </td>
                     </tr>
                 {% else %}
-                    <tr><td colspan="7" class="text-body-secondary fst-italic">Aucun mouvement.</td></tr>
+                    <tr><td colspan="6" class="text-body-secondary fst-italic">Aucun mouvement.</td></tr>
                 {% endfor %}
             </tbody>
         </table>
@@ -106,7 +109,7 @@
             <ul class="pagination pagination-sm">
                 {% for p in 1..total_pages %}
                     <li class="page-item {{ p == page ? 'active' : '' }}">
-                        <a class="page-link" href="?page={{ p }}&account_id={{ selected_account.id }}{% if filter_fiscal_year_id %}&fiscal_year_id={{ filter_fiscal_year_id }}{% endif %}{% if filter_category_id %}&category_id={{ filter_category_id }}{% endif %}{% if filter_search %}&q={{ filter_search }}{% endif %}">{{ p }}</a>
+                        <a class="page-link" href="?page={{ p }}&account_id={{ selected_account.id }}{% if filter_fiscal_year_id %}&fiscal_year_id={{ filter_fiscal_year_id }}{% endif %}{% if filter_category_id and filter_category_id != 'all' %}&category_id={{ filter_category_id }}{% endif %}{% if filter_search %}&q={{ filter_search }}{% endif %}">{{ p }}</a>
                     </li>
                 {% endfor %}
             </ul>
@@ -135,6 +138,54 @@
             </div>
         </div>
     </div>
+
+    <div class="modal fade" id="movement-details-modal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Détails du mouvement</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <dl class="row small mb-3">
+                        <dt class="col-4">Date</dt><dd class="col-8" id="md-date"></dd>
+                        <dt class="col-4">Libellé</dt><dd class="col-8" id="md-label"></dd>
+                        <dt class="col-4">Référence bancaire</dt><dd class="col-8" id="md-bank-reference"></dd>
+                        <dt class="col-4">Montant</dt><dd class="col-8" id="md-amount"></dd>
+                        <dt class="col-4">Origine</dt><dd class="col-8" id="md-source"></dd>
+                        <dt class="col-4">Contrepartie</dt><dd class="col-8" id="md-counterparty-name"></dd>
+                        <dt class="col-4">Compte contrepartie</dt><dd class="col-8" id="md-counterparty-account"></dd>
+                        <dt class="col-4">Autres informations</dt><dd class="col-8" id="md-extra-details"></dd>
+                    </dl>
+                    <div class="mb-2">
+                        <label class="form-label small" for="md-category">Catégorie</label>
+                        <select class="form-select form-select-sm" id="md-category">
+                            <option value="">À catégoriser</option>
+                            {% for category in categories %}
+                                <option value="{{ category.id }}">{{ category.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label small" for="md-comment">Commentaire</label>
+                        <input type="text" class="form-control form-control-sm" id="md-comment">
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label small" for="md-fiscal-year">Exercice</label>
+                        <select class="form-select form-select-sm" id="md-fiscal-year">
+                            {% for fiscalYear in fiscal_years %}
+                                <option value="{{ fiscalYear.id }}">{{ fiscalYear.label }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Annuler</button>
+                    <button type="button" class="btn btn-sm btn-primary" id="md-save-btn">Enregistrer</button>
+                </div>
+            </div>
+        </div>
+    </div>
     {% endif %}
 {% endblock %}
 
@@ -143,39 +194,62 @@
 <script nonce="{{ csp_nonce }}">
 const csrf = () => document.querySelector('meta[name="csrf-token"]')?.content;
 
-async function patchMovement(id, payload) {
-    const res = await fetch('/finance/movements/' + id, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(Object.assign({ _csrf_token: csrf() }, payload))
-    });
-    const data = await res.json();
-    if (!data.success) {
-        alert(data.error);
-    } else {
-        const row = document.querySelector('tr[data-id="' + id + '"]');
-        if (row && payload.category_id !== undefined) {
-            row.classList.toggle('table-warning', payload.category_id === null || payload.category_id === '');
-        }
-    }
+function formatAmountEur(amount) {
+    return Number(amount).toLocaleString('fr-BE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
 }
 
-document.querySelectorAll('.movement-category-select').forEach(select => {
-    select.addEventListener('change', () => {
-        patchMovement(select.dataset.id, { category_id: select.value !== '' ? parseInt(select.value, 10) : null });
+const movementDetailsModalEl = document.getElementById('movement-details-modal');
+const movementDetailsModal = window.bootstrap ? new window.bootstrap.Modal(movementDetailsModalEl) : null;
+let currentDetailsMovementId = null;
+
+function setDetailRow(ddId, value) {
+    const dd = document.getElementById(ddId);
+    const dt = dd.previousElementSibling;
+    const hasValue = value !== undefined && value !== null && value !== '';
+    dd.textContent = hasValue ? value : '';
+    dd.classList.toggle('d-none', !hasValue);
+    dt.classList.toggle('d-none', !hasValue);
+}
+
+document.querySelectorAll('tr.movement-row').forEach(row => {
+    row.addEventListener('click', (e) => {
+        if (e.target.closest('.attachment-btn, .suggest-associate-btn')) {
+            return;
+        }
+        currentDetailsMovementId = row.dataset.id;
+        document.getElementById('md-date').textContent = row.dataset.date;
+        document.getElementById('md-label').textContent = row.dataset.label;
+        document.getElementById('md-bank-reference').textContent = row.dataset.bankReference || '—';
+        document.getElementById('md-amount').textContent = formatAmountEur(row.dataset.amount);
+        document.getElementById('md-source').textContent = row.dataset.source === 'import' ? 'Import bancaire' : 'Manuel';
+        setDetailRow('md-counterparty-name', row.dataset.counterpartyName);
+        setDetailRow('md-counterparty-account', row.dataset.counterpartyAccount);
+        setDetailRow('md-extra-details', row.dataset.extraDetails);
+        document.getElementById('md-category').value = row.dataset.categoryId || '';
+        document.getElementById('md-comment').value = row.dataset.comment || '';
+        document.getElementById('md-fiscal-year').value = row.dataset.fiscalYearId;
+        movementDetailsModal ? movementDetailsModal.show() : movementDetailsModalEl.classList.add('show');
     });
 });
 
-document.querySelectorAll('.movement-fiscal-year-select').forEach(select => {
-    select.addEventListener('change', () => {
-        patchMovement(select.dataset.id, { fiscal_year_id: parseInt(select.value, 10) });
+document.getElementById('md-save-btn').addEventListener('click', async () => {
+    const categoryVal = document.getElementById('md-category').value;
+    const res = await fetch('/finance/movements/' + currentDetailsMovementId, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            category_id: categoryVal !== '' ? parseInt(categoryVal, 10) : null,
+            comment: document.getElementById('md-comment').value,
+            fiscal_year_id: parseInt(document.getElementById('md-fiscal-year').value, 10),
+            _csrf_token: csrf()
+        })
     });
-});
-
-document.querySelectorAll('.movement-comment-input').forEach(input => {
-    input.addEventListener('change', () => {
-        patchMovement(input.dataset.id, { comment: input.value });
-    });
+    const data = await res.json();
+    if (data.success) {
+        window.location.reload();
+    } else {
+        alert(data.error);
+    }
 });
 
 let currentMovementId = null;

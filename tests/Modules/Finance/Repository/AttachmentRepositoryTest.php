@@ -29,7 +29,7 @@ class AttachmentRepositoryTest extends TestCase
     {
         $this->pdo = DatabaseTestHelper::createTestDatabase();
         FinanceTestHelper::createTables($this->pdo);
-        $this->repository = new AttachmentRepository($this->pdo);
+        $this->repository = new AttachmentRepository($this->pdo, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)));
 
         $stmt = $this->pdo->prepare(
             "INSERT INTO files (relative_path, original_name, mime_type, size_bytes) VALUES ('a.pdf', 'a.pdf', 'application/pdf', 100)"
@@ -67,6 +67,42 @@ class AttachmentRepositoryTest extends TestCase
         $this->repository->updateSuggestedDescription($id, 'Achat de fournitures de bureau');
 
         $this->assertSame('Achat de fournitures de bureau', $this->repository->findById($id)->suggestedDescription);
+    }
+
+    public function testSuggestedLabelIsStoredEncryptedNotInPlaintext(): void
+    {
+        $id = $this->repository->create(null, $this->fileId, 'application/pdf', 'facture.pdf', null, null, null, null);
+        $this->repository->updateSuggestedLabel($id, 'LA CADRERIE');
+
+        $stmt = $this->pdo->prepare('SELECT suggested_label FROM finance_attachments WHERE id = ?');
+        $stmt->execute([$id]);
+        $rawLabel = $stmt->fetchColumn();
+
+        $this->assertStringNotContainsString('LA CADRERIE', (string) $rawLabel);
+    }
+
+    public function testSuggestedDescriptionIsStoredEncryptedNotInPlaintext(): void
+    {
+        $id = $this->repository->create(null, $this->fileId, 'application/pdf', 'facture.pdf', null, null, null, null);
+        $this->repository->updateSuggestedDescription($id, 'Achat confidentiel pour un membre');
+
+        $stmt = $this->pdo->prepare('SELECT suggested_description FROM finance_attachments WHERE id = ?');
+        $stmt->execute([$id]);
+        $rawDescription = $stmt->fetchColumn();
+
+        $this->assertStringNotContainsString('Achat confidentiel pour un membre', (string) $rawDescription);
+    }
+
+    public function testDecryptOrLegacyPlaintextFallsBackForPreEncryptionSuggestedFields(): void
+    {
+        $id = $this->repository->create(null, $this->fileId, 'application/pdf', 'facture.pdf', null, null, null, null);
+        $this->pdo->prepare('UPDATE finance_attachments SET suggested_label = ?, suggested_description = ? WHERE id = ?')
+            ->execute(['Fantasia', 'Achat en clair (legacy)', $id]);
+
+        $attachment = $this->repository->findById($id);
+
+        $this->assertSame('Fantasia', $attachment->suggestedLabel);
+        $this->assertSame('Achat en clair (legacy)', $attachment->suggestedDescription);
     }
 
     public function testFindActiveOrderedExcludesArchived(): void
@@ -182,6 +218,18 @@ class AttachmentRepositoryTest extends TestCase
 
         $this->assertSame([], $this->repository->findFilteredForAccount($accountId, false, null, 30, 0));
         $this->assertSame(0, $this->repository->countFilteredForAccount($accountId, false, null));
+    }
+
+    public function testCountActiveByAccountIdOnlyCountsActiveOwnAccountReceipts(): void
+    {
+        $accountId = $this->accountId();
+        $otherAccountId = $this->accountId();
+        $this->repository->create($accountId, $this->fileId, 'application/pdf', 'a.pdf', null, null, null, null);
+        $archivedId = $this->repository->create($accountId, $this->fileId, 'application/pdf', 'b.pdf', null, null, null, null);
+        $this->repository->archive($archivedId);
+        $this->repository->create($otherAccountId, $this->fileId, 'application/pdf', 'c.pdf', null, null, null, null);
+
+        $this->assertSame(1, $this->repository->countActiveByAccountId($accountId));
     }
 
     public function testCountFilteredForAccountMatchesResultCountAcrossPages(): void

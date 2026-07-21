@@ -570,6 +570,7 @@ $router->addRoute('POST', '/cookies/reject-all', CookieController::class, 'rejec
 
 // File serving
 $router->addRoute('GET', '/files/{id}', FileController::class, 'serve', 'public');
+$router->addRoute('GET', '/files/{id}/thumbnail', FileController::class, 'thumbnail', 'public');
 
 // File upload
 $router->addRoute('GET', '/upload', UploadController::class, 'index', 'superadmin');
@@ -900,7 +901,7 @@ if (in_array('finance', $moduleManager->getEnabledModuleIds(), true)) {
     $financeTransactionRepo = new \Modules\Finance\Repository\TransactionRepository($pdo, $encryptionService);
     $financeCheckpointRepo = new \Modules\Finance\Repository\BalanceCheckpointRepository($pdo);
     $financeStatementImportRepo = new \Modules\Finance\Repository\StatementImportRepository($pdo);
-    $financeAttachmentRepo = new \Modules\Finance\Repository\AttachmentRepository($pdo);
+    $financeAttachmentRepo = new \Modules\Finance\Repository\AttachmentRepository($pdo, $encryptionService);
     $financeTransactionAttachmentRepo = new \Modules\Finance\Repository\TransactionAttachmentRepository($pdo);
 
     $financeBalanceService = new \Modules\Finance\Service\BalanceService($financeCheckpointRepo, $financeTransactionRepo);
@@ -932,7 +933,10 @@ if (in_array('finance', $moduleManager->getEnabledModuleIds(), true)) {
 
     $frontController->registerController(
         \Modules\Finance\Controller\DashboardController::class,
-        new \Modules\Finance\Controller\DashboardController($twig, $financeService, $financeBalanceService, $financeTransactionRepo, $financeReceiptService)
+        new \Modules\Finance\Controller\DashboardController(
+            $twig, $financeService, $financeBalanceService, $financeTransactionRepo, $financeReceiptService,
+            $financeCategoryRepo, $financeAttachmentRepo, $financeTransactionAttachmentRepo, $financeStatementImportRepo
+        )
     );
     $frontController->registerController(
         \Modules\Finance\Controller\MovementController::class,

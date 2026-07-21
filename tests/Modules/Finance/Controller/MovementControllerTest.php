@@ -59,7 +59,7 @@ class MovementControllerTest extends TestCase
         $this->transactionRepository = new TransactionRepository($this->pdo, $encryption);
         $this->fiscalYearRepository = new FiscalYearRepository($this->pdo, new \Core\Config\ScoutYearService($this->pdo));
         $this->categoryRepository = new CategoryRepository($this->pdo);
-        $attachmentRepository = new AttachmentRepository($this->pdo);
+        $attachmentRepository = new AttachmentRepository($this->pdo, $encryption);
         $transactionAttachmentRepository = new TransactionAttachmentRepository($this->pdo);
         $journalService = new JournalService(new JournalRepository($this->pdo));
 
@@ -174,6 +174,115 @@ class MovementControllerTest extends TestCase
         $response = $this->controller->list(new Request('GET', '/finance/movements', [], [], [], []), []);
 
         $this->assertStringContainsString('table-warning', $response->getBody());
+    }
+
+    public function testListCategoryFilterNoneShowsOnlyUncategorizedMovements(): void
+    {
+        $categoryId = $this->categoryRepository->create('Alimentation');
+        $this->createTransaction('2026-10-01', -20.0, 'Delhaize', $categoryId);
+        $this->createTransaction('2026-10-02', -10.0, 'Colruyt', null);
+
+        $response = $this->controller->list(new Request('GET', '/finance/movements', ['category_id' => 'none'], [], [], []), []);
+
+        $this->assertStringContainsString('Colruyt', $response->getBody());
+        $this->assertStringNotContainsString('Delhaize', $response->getBody());
+    }
+
+    public function testListDoesNotRenderExerciceColumn(): void
+    {
+        $this->createTransaction('2026-10-01', -20.0, 'Achat A');
+
+        $response = $this->controller->list(new Request('GET', '/finance/movements', [], [], [], []), []);
+
+        $this->assertStringNotContainsString('<th>Exercice</th>', $response->getBody());
+    }
+
+    public function testListRowsCarryMovementDetailsAsDataAttributes(): void
+    {
+        $categoryId = $this->categoryRepository->create('Alimentation');
+        $id = $this->createTransaction('2026-10-01', -20.0, 'Achat détaillé', $categoryId);
+        $this->transactionRepository->updateEditableFields($id, $categoryId, 'Un commentaire', $this->fiscalYearId);
+
+        $response = $this->controller->list(new Request('GET', '/finance/movements', [], [], [], []), []);
+        $body = $response->getBody();
+
+        $this->assertStringContainsString('data-id="' . $id . '"', $body);
+        $this->assertStringContainsString('data-category-id="' . $categoryId . '"', $body);
+        $this->assertStringContainsString('data-comment="Un commentaire"', $body);
+        $this->assertStringContainsString('data-fiscal-year-id="' . $this->fiscalYearId . '"', $body);
+    }
+
+    public function testListRendersAccountFilterDropdown(): void
+    {
+        $response = $this->controller->list(new Request('GET', '/finance/movements', [], [], [], []), []);
+
+        $this->assertStringContainsString('id="filter-account"', $response->getBody());
+        $this->assertStringContainsString('name="account_id"', $response->getBody());
+    }
+
+    public function testListRowsCarryCounterpartyAndExtraDetailsAsDataAttributes(): void
+    {
+        $id = $this->transactionRepository->create(
+            $this->accountId, $this->fiscalYearId, 'R1', '2026-10-01', 'Achat', -20.0, null, null,
+            Transaction::SOURCE_IMPORT, null, 'Jean Dupont', 'BE00000000000009', 'Type : Virement en euros'
+        );
+
+        $response = $this->controller->list(new Request('GET', '/finance/movements', [], [], [], []), []);
+        $body = $response->getBody();
+
+        $this->assertStringContainsString('data-counterparty-name="Jean Dupont"', $body);
+        $this->assertStringContainsString('data-counterparty-account="BE00000000000009"', $body);
+        $this->assertStringContainsString('data-extra-details="Type : Virement en euros"', $body);
+    }
+
+    public function testSearchOrdersByMostRecentWhenQueryGiven(): void
+    {
+        $this->createTransaction('2026-10-01', -20.0, 'Delhaize Bruxelles');
+        $this->createTransaction('2026-10-10', -5.0, 'Delhaize Ottignies');
+
+        $response = $this->controller->search(new Request('GET', '/finance/movements/search', ['q' => 'Delhaize'], [], [], []), []);
+        $data = json_decode($response->getBody(), true);
+
+        $this->assertTrue($data['success']);
+        $this->assertCount(2, $data['movements']);
+        $this->assertSame('Delhaize Ottignies', $data['movements'][0]['label']);
+        $this->assertSame('Delhaize Bruxelles', $data['movements'][1]['label']);
+    }
+
+    public function testSearchWithoutQueryButNearDateReturnsClosestMovementsFirst(): void
+    {
+        $this->createTransaction('2026-10-01', -20.0, 'Loin');
+        $this->createTransaction('2026-10-14', -5.0, 'Proche');
+        $this->createTransaction('2026-10-31', -5.0, 'Très loin');
+
+        $response = $this->controller->search(new Request('GET', '/finance/movements/search', ['near_date' => '2026-10-15'], [], [], []), []);
+        $data = json_decode($response->getBody(), true);
+
+        $this->assertTrue($data['success']);
+        $this->assertSame('Proche', $data['movements'][0]['label']);
+    }
+
+    public function testSearchWithMalformedNearDateFallsBackGracefully(): void
+    {
+        $this->createTransaction('2026-10-01', -20.0, 'Achat');
+
+        $response = $this->controller->search(new Request('GET', '/finance/movements/search', ['near_date' => 'not-a-date'], [], [], []), []);
+        $data = json_decode($response->getBody(), true);
+
+        $this->assertTrue($data['success']);
+        $this->assertCount(1, $data['movements']);
+    }
+
+    public function testSearchWithoutQueryOrNearDateReturnsUpToTwenty(): void
+    {
+        for ($i = 0; $i < 25; $i++) {
+            $this->createTransaction('2026-10-' . str_pad((string) (($i % 28) + 1), 2, '0', STR_PAD_LEFT), -1.0, "Achat {$i}");
+        }
+
+        $response = $this->controller->search(new Request('GET', '/finance/movements/search', [], [], [], []), []);
+        $data = json_decode($response->getBody(), true);
+
+        $this->assertCount(20, $data['movements']);
     }
 
     private function jsonRequest(string $method, array $data): Request
@@ -305,7 +414,7 @@ class MovementControllerTest extends TestCase
         $stmt->execute();
         $fileId = (int) $this->pdo->lastInsertId();
 
-        $attachmentRepository = new AttachmentRepository($this->pdo);
+        $attachmentRepository = new AttachmentRepository($this->pdo, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)));
         $attachmentId = $attachmentRepository->create($this->accountId, $fileId, 'application/pdf', 'facture.pdf', 12.5, '2026-10-01', null, 1);
         $attachmentRepository->updateSuggestedLabel($attachmentId, 'Delhaize');
         $attachmentRepository->updateSuggestedDescription($attachmentId, 'Achat de fournitures de bureau');

@@ -13,9 +13,11 @@
                 <a href="/files/{{ attachment.fileId }}" target="_blank">
                     {% if attachment.mimeType starts with 'image/' %}
                         <img src="/files/{{ attachment.fileId }}" alt="{{ attachment.originalFilename }}" class="img-fluid rounded" style="max-height:160px;object-fit:cover;width:100%;">
+                    {% elseif attachment.mimeType == 'application/pdf' %}
+                        <img src="/files/{{ attachment.fileId }}/thumbnail" alt="{{ attachment.originalFilename }}" class="img-fluid rounded pdf-thumbnail" style="max-height:160px;object-fit:cover;width:100%;">
                     {% else %}
                         <div class="d-flex align-items-center justify-content-center bg-body-secondary rounded" style="height:160px;">
-                            <i class="bi {{ attachment.mimeType == 'application/pdf' ? 'bi-file-earmark-pdf' : 'bi-file-earmark-word' }} fs-1"></i>
+                            <i class="bi bi-file-earmark-word fs-1"></i>
                         </div>
                     {% endif %}
                 </a>
@@ -47,7 +49,7 @@
                     {% endif %}
                 </div>
                 <div class="d-flex gap-2 mt-auto">
-                    <button type="button" class="btn btn-sm btn-outline-primary associate-btn" data-id="{{ attachment.id }}">Associer</button>
+                    <button type="button" class="btn btn-sm btn-outline-primary associate-btn" data-id="{{ attachment.id }}" data-suggested-date="{{ attachment.suggestedDate }}">Associer</button>
                     <a href="/finance/receipts/new?replace={{ attachment.id }}" class="btn btn-sm btn-outline-secondary">Remplacer</a>
                     <button type="button" class="btn btn-sm btn-outline-danger delete-btn" data-id="{{ attachment.id }}">Supprimer</button>
                 </div>

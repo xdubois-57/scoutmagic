@@ -55,7 +55,7 @@ class PurgeOldMovementsHandler implements TaskHandlerInterface
         $accountRepository = new AccountRepository($pdo, $context->encryption);
         $transactionRepository = new TransactionRepository($pdo, $context->encryption);
         $transactionAttachmentRepository = new TransactionAttachmentRepository($pdo);
-        $attachmentRepository = new AttachmentRepository($pdo);
+        $attachmentRepository = new AttachmentRepository($pdo, $context->encryption);
         $checkpointRepository = new BalanceCheckpointRepository($pdo);
         $balanceService = new BalanceService($checkpointRepository, $transactionRepository);
         $fileStorage = new EncryptedFileStorageService(new FileRepository($pdo), $context->encryption, $context->storagePath);

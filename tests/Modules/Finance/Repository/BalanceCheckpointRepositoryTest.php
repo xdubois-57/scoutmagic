@@ -67,6 +67,24 @@ class BalanceCheckpointRepositoryTest extends TestCase
         $this->assertSame(1000.0, $checkpoint->balance);
     }
 
+    public function testFindEarliestForAccountReturnsNullWhenNone(): void
+    {
+        $this->assertNull($this->repository->findEarliestForAccount($this->accountId));
+    }
+
+    public function testFindEarliestForAccountReturnsOldestByDate(): void
+    {
+        $this->repository->create($this->accountId, '2026-10-01', 1000.0, BalanceCheckpoint::SOURCE_IMPORT);
+        $this->repository->create($this->accountId, '2026-09-01', 500.0, BalanceCheckpoint::SOURCE_IMPORT);
+        $this->repository->create($this->accountId, '2026-11-01', 1500.0, BalanceCheckpoint::SOURCE_IMPORT);
+
+        $earliest = $this->repository->findEarliestForAccount($this->accountId);
+
+        $this->assertNotNull($earliest);
+        $this->assertSame('2026-09-01', $earliest->checkpointDate);
+        $this->assertSame(500.0, $earliest->balance);
+    }
+
     public function testDeleteAllForAccountReturnsCount(): void
     {
         $this->repository->create($this->accountId, '2026-10-01', 1000.0, BalanceCheckpoint::SOURCE_IMPORT);

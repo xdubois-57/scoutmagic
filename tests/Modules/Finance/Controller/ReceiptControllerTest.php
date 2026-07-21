@@ -61,7 +61,7 @@ class ReceiptControllerTest extends TestCase
         $sectionService = new SectionService($connection, $encryption, new MemberBadgeRepository($this->pdo));
 
         $this->accountRepository = new AccountRepository($this->pdo, $encryption);
-        $this->attachmentRepository = new AttachmentRepository($this->pdo);
+        $this->attachmentRepository = new AttachmentRepository($this->pdo, $encryption);
         $this->transactionAttachmentRepository = new TransactionAttachmentRepository($this->pdo);
         $this->transactionRepository = new TransactionRepository($this->pdo, $encryption);
         $checkpointRepository = new BalanceCheckpointRepository($this->pdo);

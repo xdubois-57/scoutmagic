@@ -5,22 +5,49 @@
 {% block content %}
     <h1 class="mb-4">Finances</h1>
 
-    {% include '@finance/_nav.html.twig' %}
+    {% include '@finance/_nav.html.twig' with {'hide_account_picker': true} %}
 
     {% if no_accounts %}
         <p class="text-body-secondary fst-italic">Aucun compte visible pour votre rôle.</p>
     {% else %}
-        {% if fiscal_years %}
-            <div class="d-flex flex-wrap gap-2 pb-2 mb-4 finance-fiscal-year-picker">
-                {% for fiscalYear in fiscal_years %}
-                    {% set is_active = selected_fiscal_year and fiscalYear.id == selected_fiscal_year.id %}
-                    <a href="/finance?account_id={{ selected_account.id }}&fiscal_year_id={{ fiscalYear.id }}"
-                       class="btn btn-sm {{ is_active ? 'btn-primary' : 'btn-outline-secondary' }} text-nowrap text-decoration-none">
-                        {{ fiscalYear.label }}
-                    </a>
-                {% endfor %}
+        <h2 class="h5 mb-3">Tableau de bord — {{ selected_account.name }}</h2>
+
+        <form method="get" action="/finance" class="row g-2 align-items-end mb-3">
+            <div class="col-6 col-md-3">
+                <label class="form-label small" for="filter-account">Compte</label>
+                <select class="form-select form-select-sm" id="filter-account" name="account_id" required>
+                    {% for account in accounts %}
+                        <option value="{{ account.id }}" {{ selected_account and account.id == selected_account.id ? 'selected' : '' }}>{{ account.name }}</option>
+                    {% endfor %}
+                </select>
             </div>
-        {% endif %}
+            <div class="col-6 col-md-3">
+                <label class="form-label small" for="filter-fiscal-year">Exercice</label>
+                <select class="form-select form-select-sm" id="filter-fiscal-year" name="fiscal_year_id" required>
+                    {% for fiscalYear in fiscal_years %}
+                        <option value="{{ fiscalYear.id }}" {{ selected_fiscal_year and fiscalYear.id == selected_fiscal_year.id ? 'selected' : '' }}>{{ fiscalYear.label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-6 col-md-3">
+                <label class="form-label small" for="filter-category">Catégorie</label>
+                <select class="form-select form-select-sm" id="filter-category" name="category_id">
+                    <option value="all" {{ filter_category_id == 'all' ? 'selected' : '' }}>Toutes</option>
+                    <option value="none" {{ filter_category_id == 'none' ? 'selected' : '' }}>Non catégorisé</option>
+                    {% for category in categories %}
+                        <option value="{{ category.id }}" {{ filter_category_id == category.id ? 'selected' : '' }}>{{ category.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-6 col-md-3">
+                <label class="form-label small" for="filter-search">Recherche</label>
+                <input type="text" class="form-control form-control-sm" id="filter-search" name="q" value="{{ filter_search }}" placeholder="Libellé, commentaire, reçu...">
+            </div>
+            <div class="col-12">
+                <button type="submit" class="btn btn-sm btn-primary">Filtrer</button>
+                <a href="/finance" class="btn btn-sm btn-outline-secondary">Réinitialiser</a>
+            </div>
+        </form>
 
         {% if uncategorized_count > 0 or pending_receipts_count > 0 %}
             <div class="alert alert-warning d-flex flex-wrap gap-3">
@@ -33,7 +60,7 @@
             </div>
         {% endif %}
 
-        <div class="row g-3 mb-4">
+        <div class="row g-3 mb-3">
             <div class="col-12 col-md-4">
                 <div class="border rounded-3 p-3 h-100">
                     <div class="text-body-secondary small">Solde actuel</div>
@@ -42,11 +69,76 @@
                     </div>
                 </div>
             </div>
-            <div class="col-12 col-md-8 d-flex align-items-center gap-2 flex-wrap">
+            <div class="col-12 col-md-4">
+                <div class="border rounded-3 p-3 h-100">
+                    <div class="text-body-secondary small">Solde le plus bas (18 derniers mois)</div>
+                    <div class="fs-3 fw-semibold">
+                        {{ lowest_balance_18_months is not null ? lowest_balance_18_months|number_format(2, ',', ' ') ~ ' €' : 'Inconnu' }}
+                    </div>
+                </div>
+            </div>
+            <div class="col-12 col-md-4 d-flex flex-column justify-content-center gap-2">
                 <a href="/finance/import?account_id={{ selected_account.id }}" class="btn btn-outline-primary">Importer un extrait bancaire →</a>
                 <a href="/finance/receipts/new?account_id={{ selected_account.id }}" class="btn btn-outline-primary">Ajouter un reçu →</a>
             </div>
         </div>
+
+        <div class="row g-3 mb-4">
+            <div class="col-12 col-md-4">
+                <div class="border rounded-3 p-3 h-100">
+                    <div class="text-body-secondary small">Dernier extrait importé</div>
+                    <div class="fs-5 fw-semibold">
+                        {{ last_import ? last_import.importedAt|date('d/m/Y') : 'Aucun import' }}
+                    </div>
+                    <a href="/finance/import?account_id={{ selected_account.id }}" class="small">Importer →</a>
+                </div>
+            </div>
+            <div class="col-12 col-md-4">
+                <div class="border rounded-3 p-3 h-100">
+                    <div class="text-body-secondary small">Mouvements</div>
+                    <div class="fs-5 fw-semibold">{{ movements_count }}</div>
+                    <a href="/finance/movements?account_id={{ selected_account.id }}&fiscal_year_id=all" class="small">Voir les mouvements →</a>
+                </div>
+            </div>
+            <div class="col-12 col-md-4">
+                <div class="border rounded-3 p-3 h-100">
+                    <div class="text-body-secondary small">Reçus</div>
+                    <div class="fs-5 fw-semibold">{{ receipts_count }}</div>
+                    <a href="/finance/receipts?account_id={{ selected_account.id }}" class="small">Voir les reçus →</a>
+                </div>
+            </div>
+        </div>
+
+        {% if selected_fiscal_year and category_summary %}
+            <div class="row g-3 mb-3">
+                <div class="col-12 col-md-6">
+                    <div class="border rounded-3 p-3 h-100">
+                        <div class="small text-body-secondary mb-2">Évolution du solde</div>
+                        <div style="height: 320px; max-height: 50vh;">
+                            <canvas id="chart-balance-line"></canvas>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-12 col-md-6">
+                    <div class="border rounded-3 p-3 h-100">
+                        <div class="small text-body-secondary mb-2">Répartition nette par catégorie</div>
+                        <div style="height: 320px; max-height: 50vh;">
+                            <canvas id="chart-net-category-pie"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="row g-3 mb-4">
+                <div class="col-12">
+                    <div class="border rounded-3 p-3">
+                        <div class="small text-body-secondary mb-2">Recettes vs dépenses par catégorie</div>
+                        <div style="height: 320px; max-height: 50vh;">
+                            <canvas id="chart-income-expense-bar"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        {% endif %}
 
         {% if selected_fiscal_year %}
             <h2 class="h5 mb-3">Bilan par catégorie — {{ selected_fiscal_year.label }}</h2>
@@ -88,34 +180,51 @@
                     {% endif %}
                 </table>
             </div>
-
-            {% if category_summary %}
-                <div class="row g-3 mb-4">
-                    <div class="col-12 col-md-6">
-                        <div class="border rounded-3 p-3">
-                            <div class="small text-body-secondary mb-2">Répartition des dépenses</div>
-                            <canvas id="chart-expenses-pie" height="220"></canvas>
-                        </div>
-                    </div>
-                    <div class="col-12 col-md-6">
-                        <div class="border rounded-3 p-3">
-                            <div class="small text-body-secondary mb-2">Recettes vs dépenses par catégorie</div>
-                            <canvas id="chart-income-expense-bar" height="220"></canvas>
-                        </div>
-                    </div>
-                    <div class="col-12">
-                        <div class="border rounded-3 p-3">
-                            <div class="small text-body-secondary mb-2">Évolution du solde</div>
-                            <canvas id="chart-balance-line" height="140"></canvas>
-                        </div>
-                    </div>
-                </div>
-            {% endif %}
         {% endif %}
 
         <div class="d-flex justify-content-between align-items-center mb-3">
-            <h2 class="h5 mb-0">Derniers mouvements</h2>
-            <a href="/finance/movements?account_id={{ selected_account.id }}" class="small">Voir tout →</a>
+            <h2 class="h5 mb-0">Reçus en attente</h2>
+            <a href="/finance/receipts?account_id={{ selected_account.id }}&pending=1" class="small">Voir tous →</a>
+        </div>
+        <div class="row g-3 mb-4">
+            {% for attachment in pending_receipts %}
+                <div class="col-12 col-md-4">
+                    <div class="border rounded-3 p-3 h-100 d-flex flex-column gap-2">
+                        <a href="/files/{{ attachment.fileId }}" target="_blank">
+                            {% if attachment.mimeType starts with 'image/' %}
+                                <img src="/files/{{ attachment.fileId }}" alt="{{ attachment.originalFilename }}" class="img-fluid rounded" style="max-height:160px;object-fit:cover;width:100%;">
+                            {% elseif attachment.mimeType == 'application/pdf' %}
+                                <img src="/files/{{ attachment.fileId }}/thumbnail" alt="{{ attachment.originalFilename }}" class="img-fluid rounded pdf-thumbnail" style="max-height:160px;object-fit:cover;width:100%;">
+                            {% else %}
+                                <div class="d-flex align-items-center justify-content-center bg-body-secondary rounded" style="height:160px;">
+                                    <i class="bi bi-file-earmark-word fs-1"></i>
+                                </div>
+                            {% endif %}
+                        </a>
+                        <div class="fw-semibold text-truncate" title="{{ attachment.originalFilename }}">{{ attachment.originalFilename }}</div>
+                        <div class="text-body-secondary small">{{ attachment.uploadedAt }}</div>
+                        {% if attachment.suggestedAmount or attachment.suggestedDate or attachment.suggestedLabel %}
+                            <div class="small">
+                                {% if attachment.suggestedAmount %}{{ attachment.suggestedAmount|number_format(2, ',', ' ') }} €{% endif %}
+                                {% if attachment.suggestedDate %} — {{ attachment.suggestedDate }}{% endif %}
+                                {% if attachment.suggestedSource == 'ai' %}<span class="badge text-bg-info">IA</span>{% endif %}
+                                {% if attachment.suggestedLabel %}<div class="text-body-secondary">{{ attachment.suggestedLabel }}</div>{% endif %}
+                                {% if attachment.suggestedDescription %}<div class="text-body-secondary fst-italic">{{ attachment.suggestedDescription }}</div>{% endif %}
+                            </div>
+                        {% endif %}
+                        <div><span class="badge text-bg-warning">En attente</span></div>
+                    </div>
+                </div>
+            {% else %}
+                <div class="col-12">
+                    <p class="text-body-secondary fst-italic">Aucun reçu en attente.</p>
+                </div>
+            {% endfor %}
+        </div>
+
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h2 class="h5 mb-0">{{ (filter_category_id != 'all' or filter_search) ? 'Mouvements filtrés' : 'Derniers mouvements' }}</h2>
+            <a href="/finance/movements?account_id={{ selected_account.id }}{% if selected_fiscal_year %}&fiscal_year_id={{ selected_fiscal_year.id }}{% endif %}{% if filter_category_id != 'all' %}&category_id={{ filter_category_id }}{% endif %}{% if filter_search %}&q={{ filter_search }}{% endif %}" class="small">Voir tout →</a>
         </div>
         <div class="table-responsive">
             <table class="table table-sm align-middle">
@@ -145,6 +254,19 @@
 {% endblock %}
 
 {% block scripts %}
+    {% if not no_accounts %}
+        <script nonce="{{ csp_nonce }}">
+        document.querySelectorAll('img.pdf-thumbnail').forEach(img => {
+            img.addEventListener('error', () => {
+                const fallback = document.createElement('div');
+                fallback.className = 'd-flex align-items-center justify-content-center bg-body-secondary rounded';
+                fallback.style.height = '160px';
+                fallback.innerHTML = '<i class="bi bi-file-earmark-pdf fs-1"></i>';
+                img.replaceWith(fallback);
+            }, { once: true });
+        });
+        </script>
+    {% endif %}
     {% if selected_fiscal_year and category_summary %}
         <script src="/assets/vendor/chartjs/chart.umd.min.js"></script>
         <script nonce="{{ csp_nonce }}">
@@ -153,16 +275,24 @@
         const categoryExpense = {{ category_summary|map(row => row.expense)|json_encode|raw }};
         const evolutionLabels = {{ balance_evolution|map(point => point.month)|json_encode|raw }};
         const evolutionBalances = {{ balance_evolution|map(point => point.balance)|json_encode|raw }};
+        const netPositive = {{ net_category_breakdown.positive|json_encode|raw }};
+        const netNegative = {{ net_category_breakdown.negative|json_encode|raw }};
 
-        const palette = ['#0d6efd', '#dc3545', '#198754', '#ffc107', '#6f42c1', '#20c997', '#fd7e14', '#0dcaf0'];
+        const positiveColors = ['#198754', '#20c997', '#0d6efd', '#0dcaf0', '#adb5bd'];
+        const negativeColors = ['#dc3545', '#fd7e14', '#6f42c1', '#d63384', '#adb5bd'];
 
-        new Chart(document.getElementById('chart-expenses-pie'), {
+        const netLabels = netPositive.map(row => row.label).concat(netNegative.map(row => row.label));
+        const netValues = netPositive.map(row => row.net).concat(netNegative.map(row => row.net));
+        const netColors = netPositive.map((row, i) => positiveColors[i] ?? positiveColors[positiveColors.length - 1])
+            .concat(netNegative.map((row, i) => negativeColors[i] ?? negativeColors[negativeColors.length - 1]));
+
+        new Chart(document.getElementById('chart-net-category-pie'), {
             type: 'pie',
             data: {
-                labels: categoryLabels,
-                datasets: [{ data: categoryExpense, backgroundColor: palette }]
+                labels: netLabels,
+                datasets: [{ data: netValues, backgroundColor: netColors }]
             },
-            options: { responsive: true }
+            options: { responsive: true, maintainAspectRatio: false }
         });
 
         new Chart(document.getElementById('chart-income-expense-bar'), {
@@ -174,7 +304,7 @@
                     { label: 'Dépenses', data: categoryExpense, backgroundColor: '#dc3545' }
                 ]
             },
-            options: { responsive: true, scales: { y: { beginAtZero: true } } }
+            options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true } } }
         });
 
         new Chart(document.getElementById('chart-balance-line'), {
@@ -183,7 +313,7 @@
                 labels: evolutionLabels,
                 datasets: [{ label: 'Solde', data: evolutionBalances, borderColor: '#0d6efd', tension: 0.2 }]
             },
-            options: { responsive: true }
+            options: { responsive: true, maintainAspectRatio: false }
         });
         </script>
     {% endif %}

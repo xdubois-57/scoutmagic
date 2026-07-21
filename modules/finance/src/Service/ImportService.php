@@ -100,7 +100,10 @@ class ImportService
                         $dateStr,
                         $line->label,
                         $line->amount,
-                        $categoryId
+                        $categoryId,
+                        $line->counterpartyName,
+                        $line->counterpartyAccount,
+                        $line->extraDetails
                     );
 
                     if ($inserted) {

@@ -20,6 +20,7 @@ use Modules\Finance\Repository\BalanceCheckpoint;
 use Modules\Finance\Repository\BalanceCheckpointRepository;
 use Modules\Finance\Repository\CategoryRepository;
 use Modules\Finance\Repository\FiscalYearRepository;
+use Modules\Finance\Repository\StatementImportRepository;
 use Modules\Finance\Repository\Transaction;
 use Modules\Finance\Repository\TransactionAttachmentRepository;
 use Modules\Finance\Repository\TransactionRepository;
@@ -45,6 +46,8 @@ class DashboardControllerTest extends TestCase
     private CategoryRepository $categoryRepository;
     private TransactionRepository $transactionRepository;
     private BalanceCheckpointRepository $checkpointRepository;
+    private AttachmentRepository $attachmentRepository;
+    private TransactionAttachmentRepository $transactionAttachmentRepository;
 
     protected function setUp(): void
     {
@@ -65,10 +68,10 @@ class DashboardControllerTest extends TestCase
             $this->accountRepository, $this->categoryRepository, $this->fiscalYearRepository, $sectionService, $this->transactionRepository, $balanceService
         );
 
-        $attachmentRepository = new AttachmentRepository($this->pdo);
-        $transactionAttachmentRepository = new TransactionAttachmentRepository($this->pdo);
+        $this->attachmentRepository = new AttachmentRepository($this->pdo, $encryption);
+        $this->transactionAttachmentRepository = new TransactionAttachmentRepository($this->pdo);
         $fileStorage = new EncryptedFileStorageService(new FileRepository($this->pdo), $encryption, sys_get_temp_dir() . '/finance_dashboard_test_' . uniqid());
-        $receiptService = new ReceiptService($attachmentRepository, $this->accountRepository, $transactionAttachmentRepository, $fileStorage);
+        $receiptService = new ReceiptService($this->attachmentRepository, $this->accountRepository, $this->transactionAttachmentRepository, $fileStorage);
 
         $templateDir = dirname(__DIR__, 4) . '/core/View/templates';
         $moduleViews = dirname(__DIR__, 4) . '/modules/finance/views';
@@ -88,7 +91,17 @@ class DashboardControllerTest extends TestCase
         $twig->addFunction(new TwigFunction('csrf_token', fn() => 'test'));
         $twig->addFunction(new TwigFunction('file_url', fn() => ''));
 
-        $this->controller = new DashboardController($twig, $financeService, $balanceService, $this->transactionRepository, $receiptService);
+        $this->controller = new DashboardController(
+            $twig,
+            $financeService,
+            $balanceService,
+            $this->transactionRepository,
+            $receiptService,
+            $this->categoryRepository,
+            $this->attachmentRepository,
+            $this->transactionAttachmentRepository,
+            new StatementImportRepository($this->pdo)
+        );
 
         if (session_status() === PHP_SESSION_NONE) {
             session_start();
@@ -150,7 +163,9 @@ class DashboardControllerTest extends TestCase
         $this->assertStringContainsString('Alimentation', $body);
         $this->assertStringContainsString('Bilan', $body);
         // Charts are only rendered when there is category data.
-        $this->assertStringContainsString('chart-expenses-pie', $body);
+        $this->assertStringContainsString('chart-net-category-pie', $body);
+        $this->assertStringContainsString('chart-income-expense-bar', $body);
+        $this->assertStringContainsString('chart-balance-line', $body);
     }
 
     public function testShowsUncategorizedAndPendingReceiptAlerts(): void
@@ -194,5 +209,150 @@ class DashboardControllerTest extends TestCase
         $response = $this->controller->index(new Request('GET', '/finance', ['account_id' => '9999'], [], [], []), []);
 
         $this->assertSame(200, $response->getStatusCode());
+    }
+
+    public function testCategoryFilterNoneShowsOnlyUncategorizedMovements(): void
+    {
+        $accountId = $this->createAccount();
+        $fiscalYearId = $this->fiscalYearRepository->findCurrent()->id;
+        $category = $this->categoryRepository->create('Alimentation');
+        $this->transactionRepository->create($accountId, $fiscalYearId, 'r1', '2026-10-01', 'Catégorisé', -20.0, $category, null, Transaction::SOURCE_MANUAL, null);
+        $this->transactionRepository->create($accountId, $fiscalYearId, 'r2', '2026-10-02', 'Non catégorisé achat', -5.0, null, null, Transaction::SOURCE_MANUAL, null);
+
+        $response = $this->controller->index(new Request('GET', '/finance', [
+            'account_id' => (string) $accountId,
+            'fiscal_year_id' => (string) $fiscalYearId,
+            'category_id' => 'none',
+        ], [], [], []), []);
+        $body = $response->getBody();
+
+        $this->assertStringContainsString('Non catégorisé achat', $body);
+        $this->assertStringNotContainsString('Catégorisé<', $body);
+    }
+
+    public function testCategoryFilterByIdShowsOnlyThatCategory(): void
+    {
+        $accountId = $this->createAccount();
+        $fiscalYearId = $this->fiscalYearRepository->findCurrent()->id;
+        $categoryA = $this->categoryRepository->create('Alimentation');
+        $categoryB = $this->categoryRepository->create('Transport');
+        $this->transactionRepository->create($accountId, $fiscalYearId, 'r1', '2026-10-01', 'Achat nourriture', -20.0, $categoryA, null, Transaction::SOURCE_MANUAL, null);
+        $this->transactionRepository->create($accountId, $fiscalYearId, 'r2', '2026-10-02', 'Achat essence', -30.0, $categoryB, null, Transaction::SOURCE_MANUAL, null);
+
+        $response = $this->controller->index(new Request('GET', '/finance', [
+            'account_id' => (string) $accountId,
+            'fiscal_year_id' => (string) $fiscalYearId,
+            'category_id' => (string) $categoryA,
+        ], [], [], []), []);
+        $body = $response->getBody();
+
+        $this->assertStringContainsString('Achat nourriture', $body);
+        $this->assertStringNotContainsString('Achat essence', $body);
+        $this->assertStringContainsString('Mouvements filtrés', $body);
+    }
+
+    public function testFreeTextSearchMatchesLabelAndComment(): void
+    {
+        $accountId = $this->createAccount();
+        $fiscalYearId = $this->fiscalYearRepository->findCurrent()->id;
+        $transactionId = $this->transactionRepository->create($accountId, $fiscalYearId, 'r1', '2026-10-01', 'Achat divers', -20.0, null, null, Transaction::SOURCE_MANUAL, null);
+        $this->transactionRepository->updateEditableFields($transactionId, null, 'Commentaire secret piscine', $fiscalYearId);
+        $this->transactionRepository->create($accountId, $fiscalYearId, 'r2', '2026-10-02', 'Autre mouvement', -5.0, null, null, Transaction::SOURCE_MANUAL, null);
+
+        $response = $this->controller->index(new Request('GET', '/finance', [
+            'account_id' => (string) $accountId,
+            'fiscal_year_id' => (string) $fiscalYearId,
+            'q' => 'piscine',
+        ], [], [], []), []);
+        $body = $response->getBody();
+
+        $this->assertStringContainsString('Achat divers', $body);
+        $this->assertStringNotContainsString('Autre mouvement', $body);
+    }
+
+    public function testFreeTextSearchMatchesLinkedReceiptMerchant(): void
+    {
+        $accountId = $this->createAccount();
+        $fiscalYearId = $this->fiscalYearRepository->findCurrent()->id;
+        $transactionId = $this->transactionRepository->create($accountId, $fiscalYearId, 'r1', '2026-10-01', 'Achat divers', -20.0, null, null, Transaction::SOURCE_MANUAL, null);
+        $this->transactionRepository->create($accountId, $fiscalYearId, 'r2', '2026-10-02', 'Autre mouvement', -5.0, null, null, Transaction::SOURCE_MANUAL, null);
+
+        $fileId = $this->createFile();
+        $attachmentId = $this->attachmentRepository->create($accountId, $fileId, 'application/pdf', 'recu.pdf', null, null, null, null);
+        $this->attachmentRepository->updateSuggestedLabel($attachmentId, 'Boulangerie Dupont');
+        $this->transactionAttachmentRepository->associate($transactionId, $attachmentId);
+
+        $response = $this->controller->index(new Request('GET', '/finance', [
+            'account_id' => (string) $accountId,
+            'fiscal_year_id' => (string) $fiscalYearId,
+            'q' => 'Boulangerie',
+        ], [], [], []), []);
+        $body = $response->getBody();
+
+        $this->assertStringContainsString('Achat divers', $body);
+        $this->assertStringNotContainsString('Autre mouvement', $body);
+    }
+
+    public function testShowsLowestBalance18MonthsMetric(): void
+    {
+        $accountId = $this->createAccount();
+        $fiscalYearId = $this->fiscalYearRepository->findCurrent()->id;
+        $today = new \DateTimeImmutable('today');
+        $this->checkpointRepository->create($accountId, $today->format('Y-m-d'), 500.0, BalanceCheckpoint::SOURCE_MANUAL);
+        $this->transactionRepository->create($accountId, $fiscalYearId, 'r1', $today->format('Y-m-d'), 'Grosse dépense', -450.0, null, null, Transaction::SOURCE_MANUAL, null);
+
+        $response = $this->controller->index(new Request('GET', '/finance', ['account_id' => (string) $accountId, 'fiscal_year_id' => (string) $fiscalYearId], [], [], []), []);
+
+        $this->assertStringContainsString('Solde le plus bas', $response->getBody());
+        $this->assertStringContainsString('50,00', $response->getBody());
+    }
+
+    public function testShowsLastImportDateAndImportLink(): void
+    {
+        $accountId = $this->createAccount();
+        (new \Modules\Finance\Repository\StatementImportRepository($this->pdo))->create($accountId, 'bnp', 'releve.csv', 10, 10, 0, null);
+
+        $response = $this->controller->index(new Request('GET', '/finance', ['account_id' => (string) $accountId], [], [], []), []);
+        $body = $response->getBody();
+
+        $this->assertStringNotContainsString('Aucun import', $body);
+        $this->assertStringContainsString('/finance/import?account_id=' . $accountId, $body);
+    }
+
+    public function testShowsMovementsAndReceiptsCountMetrics(): void
+    {
+        $accountId = $this->createAccount();
+        $fiscalYearId = $this->fiscalYearRepository->findCurrent()->id;
+        $this->transactionRepository->create($accountId, $fiscalYearId, 'r1', '2026-10-01', 'x', -20.0, null, null, Transaction::SOURCE_MANUAL, null);
+        $this->transactionRepository->create($accountId, $fiscalYearId, 'r2', '2026-10-02', 'x', -5.0, null, null, Transaction::SOURCE_MANUAL, null);
+
+        $response = $this->controller->index(new Request('GET', '/finance', ['account_id' => (string) $accountId], [], [], []), []);
+        $body = $response->getBody();
+
+        $this->assertStringContainsString('/finance/movements?account_id=' . $accountId . '&fiscal_year_id=all', $body);
+        $this->assertStringContainsString('/finance/receipts?account_id=' . $accountId, $body);
+    }
+
+    public function testShowsPendingReceiptsSectionLimitedToThree(): void
+    {
+        $accountId = $this->createAccount();
+        $fileId = $this->createFile();
+        $attachmentRepository = $this->attachmentRepository;
+        for ($i = 0; $i < 4; $i++) {
+            $attachmentRepository->create($accountId, $fileId, 'application/pdf', "recu-{$i}.pdf", null, null, null, null);
+        }
+
+        $response = $this->controller->index(new Request('GET', '/finance', ['account_id' => (string) $accountId], [], [], []), []);
+        $body = $response->getBody();
+
+        $this->assertSame(3, substr_count($body, 'En attente</span>'));
+    }
+
+    private function createFile(): int
+    {
+        $this->pdo->exec(
+            "INSERT INTO files (relative_path, original_name, mime_type, size_bytes) VALUES ('a.pdf', 'a.pdf', 'application/pdf', 100)"
+        );
+        return (int) $this->pdo->lastInsertId();
     }
 }

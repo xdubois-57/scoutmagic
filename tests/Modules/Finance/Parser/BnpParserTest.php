@@ -87,6 +87,24 @@ class BnpParserTest extends TestCase
         $this->assertSame('BE00000000000002', $lines[0]->counterpartyAccount);
     }
 
+    public function testParseExtractsCounterpartyName(): void
+    {
+        $lines = $this->parser->parse($this->fixturePath);
+
+        $this->assertSame('Jean Dupont', $lines[0]->counterpartyName);
+        $this->assertSame('Marie Martin', $lines[1]->counterpartyName);
+    }
+
+    public function testParseConcatenatesUnmappedColumnsIntoExtraDetails(): void
+    {
+        $lines = $this->parser->parse($this->fixturePath);
+
+        // "Date valeur" equals "Date d'exécution" in the fixture, so it's
+        // omitted as noise — only "Type de transaction" shows up.
+        $this->assertSame('Type : Virement en euros', $lines[0]->extraDetails);
+        $this->assertSame('Type : Virement instantané en euros', $lines[1]->extraDetails);
+    }
+
     public function testParseExtractsExecutionDate(): void
     {
         $lines = $this->parser->parse($this->fixturePath);

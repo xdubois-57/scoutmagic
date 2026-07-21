@@ -63,6 +63,13 @@ class FooterTest extends TestCase
         $this->assertStringContainsString('Préférences cookies', $html);
     }
 
+    public function testFooterContainsGithubLink(): void
+    {
+        $html = $this->twig->render('base.html.twig');
+
+        $this->assertStringContainsString('href="https://github.com/xdubois-57/scoutmagic"', $html);
+    }
+
     public function testFooterContainsSiteName(): void
     {
         $html = $this->twig->render('base.html.twig');

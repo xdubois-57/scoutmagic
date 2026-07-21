@@ -8,7 +8,10 @@
 
   Requires `accounts` and `current_path` in scope; `selected_account` is
   optional (its absence just means no pill is highlighted/no account
-  query param gets appended).
+  query param gets appended). Set `hide_account_picker` to suppress the
+  pill row below — every finance page now has its own account <select>
+  (dashboard/movements/receipts filter forms, import's own form field),
+  so showing both would be redundant.
 #}
 {% set finance_pages = [
     {'url': '/finance', 'label': 'Tableau de bord'},
@@ -26,7 +29,7 @@
     {% endfor %}
 </div>
 
-{% if accounts %}
+{% if accounts and not (hide_account_picker is defined and hide_account_picker) %}
     <div class="d-flex flex-wrap gap-2 pb-2 mb-4 finance-account-picker">
         {% for account in accounts %}
             {% set is_active = selected_account is defined and selected_account and account.id == selected_account.id %}

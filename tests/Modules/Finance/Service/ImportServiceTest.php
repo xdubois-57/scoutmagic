@@ -65,7 +65,7 @@ class ImportServiceTest extends TestCase
         $balanceService = new BalanceService($this->checkpointRepository, $this->transactionRepository);
         $this->parserFactory = new FakeBankStatementParserFactory();
 
-        $this->attachmentRepository = new AttachmentRepository($this->pdo);
+        $this->attachmentRepository = new AttachmentRepository($this->pdo, $encryption);
         $this->transactionAttachmentRepository = new TransactionAttachmentRepository($this->pdo);
         $receiptMatchingService = new ReceiptMatchingService(
             $this->attachmentRepository, $this->transactionRepository, $this->transactionAttachmentRepository,
@@ -278,6 +278,21 @@ class ImportServiceTest extends TestCase
         $this->service->import($this->account, 'bnp', $this->tmpCsvFile(), 'a.csv', 1000.0, 1);
 
         $this->assertNotSame([], $this->transactionAttachmentRepository->findTransactionIdsForAttachment($attachmentId));
+    }
+
+    public function testImportPersistsCounterpartyAndExtraDetailsFromStatementLine(): void
+    {
+        $this->parserFactory->iban = $this->account->iban;
+        $this->parserFactory->lines = [
+            new StatementLine('R1', new \DateTimeImmutable('2026-10-01'), -10.0, 'Achat', 'BE00000000000009', 'Jean Dupont', 'Type : Virement en euros'),
+        ];
+
+        $this->service->import($this->account, 'bnp', $this->tmpCsvFile(), 'a.csv', 1000.0, 1);
+
+        $transaction = $this->transactionRepository->findByAccountId($this->account->id)[0];
+        $this->assertSame('Jean Dupont', $transaction->counterpartyName);
+        $this->assertSame('BE00000000000009', $transaction->counterpartyAccount);
+        $this->assertSame('Type : Virement en euros', $transaction->extraDetails);
     }
 
     public function testImportNeverAutoMatchesAReceiptWithNoKnownAmount(): void

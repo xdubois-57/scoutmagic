@@ -334,6 +334,82 @@ class FinanceServiceTest extends TestCase
         $this->assertSame(80.0, $balancesByMonth['2020-03']);
     }
 
+    // --- buildNetCategoryBreakdown() ---
+
+    public function testBuildNetCategoryBreakdownSplitsPositiveAndNegative(): void
+    {
+        $summary = [
+            ['category_id' => 1, 'category_name' => 'Cotisations', 'income' => 200.0, 'expense' => 0.0, 'total' => 200.0],
+            ['category_id' => 2, 'category_name' => 'Matériel', 'income' => 0.0, 'expense' => 50.0, 'total' => -50.0],
+        ];
+
+        $breakdown = $this->service->buildNetCategoryBreakdown($summary);
+
+        $this->assertSame([['label' => 'Cotisations', 'net' => 200.0]], $breakdown['positive']);
+        $this->assertSame([['label' => 'Matériel', 'net' => -50.0]], $breakdown['negative']);
+    }
+
+    public function testBuildNetCategoryBreakdownExcludesZeroNetCategories(): void
+    {
+        $summary = [
+            ['category_id' => 1, 'category_name' => 'Équilibrée', 'income' => 50.0, 'expense' => 50.0, 'total' => 0.0],
+        ];
+
+        $breakdown = $this->service->buildNetCategoryBreakdown($summary);
+
+        $this->assertSame([], $breakdown['positive']);
+        $this->assertSame([], $breakdown['negative']);
+    }
+
+    public function testBuildNetCategoryBreakdownLabelsUncategorizedRow(): void
+    {
+        $summary = [
+            ['category_id' => null, 'category_name' => null, 'income' => 10.0, 'expense' => 0.0, 'total' => 10.0],
+        ];
+
+        $breakdown = $this->service->buildNetCategoryBreakdown($summary);
+
+        $this->assertSame('Non catégorisé', $breakdown['positive'][0]['label']);
+    }
+
+    public function testBuildNetCategoryBreakdownCapsAtFourWithAnOthersBucketPerSide(): void
+    {
+        $summary = [];
+        foreach (range(1, 6) as $i) {
+            $summary[] = ['category_id' => $i, 'category_name' => "Recette {$i}", 'income' => $i * 10.0, 'expense' => 0.0, 'total' => $i * 10.0];
+        }
+        foreach (range(7, 12) as $i) {
+            $summary[] = ['category_id' => $i, 'category_name' => "Dépense {$i}", 'income' => 0.0, 'expense' => $i * 10.0, 'total' => -$i * 10.0];
+        }
+
+        $breakdown = $this->service->buildNetCategoryBreakdown($summary);
+
+        $this->assertCount(5, $breakdown['positive']);
+        $this->assertSame('Recette 6', $breakdown['positive'][0]['label']);
+        $this->assertSame('Autres (+)', $breakdown['positive'][4]['label']);
+        // Others = the two lowest positives (10 + 20 = 30).
+        $this->assertSame(30.0, $breakdown['positive'][4]['net']);
+
+        $this->assertCount(5, $breakdown['negative']);
+        $this->assertSame('Dépense 12', $breakdown['negative'][0]['label']);
+        $this->assertSame('Autres (-)', $breakdown['negative'][4]['label']);
+        // Others = the two least-negative expenses (-70 + -80 = -150).
+        $this->assertSame(-150.0, $breakdown['negative'][4]['net']);
+    }
+
+    public function testBuildNetCategoryBreakdownDoesNotAddOthersBucketAtOrBelowFour(): void
+    {
+        $summary = [];
+        foreach (range(1, 4) as $i) {
+            $summary[] = ['category_id' => $i, 'category_name' => "Recette {$i}", 'income' => $i * 10.0, 'expense' => 0.0, 'total' => $i * 10.0];
+        }
+
+        $breakdown = $this->service->buildNetCategoryBreakdown($summary);
+
+        $this->assertCount(4, $breakdown['positive']);
+        $this->assertSame([], $breakdown['negative']);
+    }
+
     /**
      * @return array{0: int, 1: int}
      */

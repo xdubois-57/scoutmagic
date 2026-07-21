@@ -4,10 +4,14 @@ declare(strict_types=1);
 
 namespace Modules\Finance\Repository;
 
+use Core\Security\EncryptionService;
+
 class AttachmentRepository
 {
-    public function __construct(private \PDO $pdo)
-    {
+    public function __construct(
+        private \PDO $pdo,
+        private EncryptionService $encryption
+    ) {
     }
 
     public function findById(int $id): ?Attachment
@@ -91,6 +95,18 @@ class AttachmentRepository
     }
 
     /**
+     * Backs the dashboard's "Reçus" metric box — a plain COUNT(*), never
+     * findActiveByAccountId()'s full decrypt-every-field hydration, since
+     * only the number is needed here.
+     */
+    public function countActiveByAccountId(int $accountId): int
+    {
+        $stmt = $this->pdo->prepare("SELECT COUNT(*) FROM finance_attachments WHERE status = 'active' AND account_id = ?");
+        $stmt->execute([$accountId]);
+        return (int) $stmt->fetchColumn();
+    }
+
+    /**
      * Every file_id (active or archived) belonging to an account — used
      * by Controller\ConfigAccountController to keep a receipt's
      * underlying file's role_min in sync whenever the account's own
@@ -131,24 +147,37 @@ class AttachmentRepository
      * computed in the same query (a LEFT JOIN + GROUP BY) rather than
      * one extra query per row.
      *
+     * suggested_label/suggested_description are encrypted (non-
+     * deterministic ciphertext), so a search term can never be matched
+     * against them with a SQL WHERE/LIKE clause — when $search is given,
+     * every account/pending-matching row is fetched, decrypted, and
+     * matched in PHP instead (same approach as TransactionRepository::
+     * findFiltered() for the same reason), and pagination is applied to
+     * that filtered PHP array rather than via SQL LIMIT/OFFSET.
+     *
      * @return array<int, array{attachment: Attachment, movement_count: int}>
      */
     public function findFilteredForAccount(int $accountId, bool $pendingOnly, ?string $search, int $limit, int $offset): array
     {
-        [$fromWhere, $params] = $this->buildFilterSql($accountId, $pendingOnly, $search);
+        $search = $search !== null ? trim($search) : null;
 
-        $sql = "SELECT fa.*, COUNT(fta.transaction_id) AS movement_count {$fromWhere} ORDER BY fa.uploaded_at DESC LIMIT ? OFFSET ?";
-        $params[] = $limit;
-        $params[] = $offset;
+        if ($search === null || $search === '') {
+            [$fromWhere, $params] = $this->buildFilterSql($accountId, $pendingOnly);
+            $sql = "SELECT fa.*, COUNT(fta.transaction_id) AS movement_count {$fromWhere} ORDER BY fa.uploaded_at DESC LIMIT ? OFFSET ?";
+            $params[] = $limit;
+            $params[] = $offset;
 
-        $stmt = $this->pdo->prepare($sql);
-        $stmt->execute($params);
+            $stmt = $this->pdo->prepare($sql);
+            $stmt->execute($params);
 
-        $results = [];
-        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
-            $results[] = ['attachment' => $this->hydrate($row), 'movement_count' => (int) $row['movement_count']];
+            $results = [];
+            foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+                $results[] = ['attachment' => $this->hydrate($row), 'movement_count' => (int) $row['movement_count']];
+            }
+            return $results;
         }
-        return $results;
+
+        return array_slice($this->findAllMatchingSearch($accountId, $pendingOnly, $search), $offset, $limit);
     }
 
     /**
@@ -159,32 +188,68 @@ class AttachmentRepository
      */
     public function countFilteredForAccount(int $accountId, bool $pendingOnly, ?string $search): int
     {
-        [$fromWhere, $params] = $this->buildFilterSql($accountId, $pendingOnly, $search);
+        $search = $search !== null ? trim($search) : null;
 
-        $stmt = $this->pdo->prepare("SELECT COUNT(*) FROM (SELECT fa.id {$fromWhere}) AS matched");
+        if ($search === null || $search === '') {
+            [$fromWhere, $params] = $this->buildFilterSql($accountId, $pendingOnly);
+            $stmt = $this->pdo->prepare("SELECT COUNT(*) FROM (SELECT fa.id {$fromWhere}) AS matched");
+            $stmt->execute($params);
+            return (int) $stmt->fetchColumn();
+        }
+
+        return count($this->findAllMatchingSearch($accountId, $pendingOnly, $search));
+    }
+
+    /**
+     * @return array<int, array{attachment: Attachment, movement_count: int}>
+     */
+    private function findAllMatchingSearch(int $accountId, bool $pendingOnly, string $search): array
+    {
+        [$fromWhere, $params] = $this->buildFilterSql($accountId, $pendingOnly);
+        $stmt = $this->pdo->prepare("SELECT fa.*, COUNT(fta.transaction_id) AS movement_count {$fromWhere} ORDER BY fa.uploaded_at DESC");
         $stmt->execute($params);
-        return (int) $stmt->fetchColumn();
+
+        $results = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $attachment = $this->hydrate($row);
+            if ($this->matchesSearch($attachment, $search)) {
+                $results[] = ['attachment' => $attachment, 'movement_count' => (int) $row['movement_count']];
+            }
+        }
+        return $results;
+    }
+
+    private function matchesSearch(Attachment $attachment, string $search): bool
+    {
+        if (mb_stripos($attachment->originalFilename, $search) !== false) {
+            return true;
+        }
+        if ($attachment->suggestedDate !== null && mb_stripos($attachment->suggestedDate, $search) !== false) {
+            return true;
+        }
+        if ($attachment->suggestedAmount !== null && str_contains(number_format($attachment->suggestedAmount, 2, '.', ''), $search)) {
+            return true;
+        }
+        if ($attachment->suggestedLabel !== null && mb_stripos($attachment->suggestedLabel, $search) !== false) {
+            return true;
+        }
+        if ($attachment->suggestedDescription !== null && mb_stripos($attachment->suggestedDescription, $search) !== false) {
+            return true;
+        }
+        return false;
     }
 
     /**
      * @return array{0: string, 1: array<int, mixed>}
      */
-    private function buildFilterSql(int $accountId, bool $pendingOnly, ?string $search): array
+    private function buildFilterSql(int $accountId, bool $pendingOnly): array
     {
         $sql = " FROM finance_attachments fa
                  LEFT JOIN finance_transaction_attachments fta ON fta.attachment_id = fa.id
-                 WHERE fa.status = 'active' AND fa.account_id = ?";
+                 WHERE fa.status = 'active' AND fa.account_id = ?
+                 GROUP BY fa.id";
         $params = [$accountId];
 
-        $search = $search !== null ? trim($search) : '';
-        if ($search !== '') {
-            $like = '%' . $search . '%';
-            $sql .= ' AND (fa.original_filename LIKE ? OR fa.suggested_label LIKE ? OR fa.suggested_description LIKE ?'
-                . ' OR fa.suggested_date LIKE ? OR fa.suggested_amount LIKE ?)';
-            array_push($params, $like, $like, $like, $like, $like);
-        }
-
-        $sql .= ' GROUP BY fa.id';
         if ($pendingOnly) {
             $sql .= ' HAVING COUNT(fta.transaction_id) = 0';
         }
@@ -212,7 +277,7 @@ class AttachmentRepository
     public function updateSuggestedLabel(int $id, string $suggestedLabel): void
     {
         $stmt = $this->pdo->prepare('UPDATE finance_attachments SET suggested_label = ? WHERE id = ?');
-        $stmt->execute([$suggestedLabel, $id]);
+        $stmt->execute([$this->encryption->encrypt($suggestedLabel), $id]);
     }
 
     /**
@@ -223,7 +288,7 @@ class AttachmentRepository
     public function updateSuggestedDescription(int $id, string $suggestedDescription): void
     {
         $stmt = $this->pdo->prepare('UPDATE finance_attachments SET suggested_description = ? WHERE id = ?');
-        $stmt->execute([$suggestedDescription, $id]);
+        $stmt->execute([$this->encryption->encrypt($suggestedDescription), $id]);
     }
 
     /**
@@ -250,14 +315,34 @@ class AttachmentRepository
             originalFilename: (string) $row['original_filename'],
             suggestedAmount: $row['suggested_amount'] !== null ? (float) $row['suggested_amount'] : null,
             suggestedDate: $row['suggested_date'] !== null ? (string) $row['suggested_date'] : null,
-            suggestedLabel: $row['suggested_label'] !== null ? (string) $row['suggested_label'] : null,
+            suggestedLabel: $row['suggested_label'] !== null ? $this->decryptOrLegacyPlaintext((string) $row['suggested_label']) : null,
             suggestedSource: $row['suggested_source'] !== null ? (string) $row['suggested_source'] : null,
             status: (string) $row['status'],
             parentAttachmentId: $row['parent_attachment_id'] !== null ? (int) $row['parent_attachment_id'] : null,
             uploadedBy: $row['uploaded_by'] !== null ? (int) $row['uploaded_by'] : null,
             uploadedAt: (string) $row['uploaded_at'],
             matchingAiAttemptedAt: $row['matching_ai_attempted_at'] !== null ? (string) $row['matching_ai_attempted_at'] : null,
-            suggestedDescription: $row['suggested_description'] !== null ? (string) $row['suggested_description'] : null
+            suggestedDescription: $row['suggested_description'] !== null ? $this->decryptOrLegacyPlaintext((string) $row['suggested_description']) : null
         );
+    }
+
+    /**
+     * suggested_label/suggested_description were plain VARCHAR columns
+     * before this module started encrypting them — an existing row from
+     * before that change holds real plaintext, which is not valid
+     * ciphertext and would otherwise throw DecryptionException on every
+     * read. Falls back to the raw stored value in that case rather than
+     * ever crashing a page over it; a one-time re-encryption pass
+     * (documented alongside the migration, not code the app runs itself)
+     * converts these at rest so this fallback becomes a dead path in the
+     * steady state.
+     */
+    private function decryptOrLegacyPlaintext(string $value): string
+    {
+        try {
+            return $this->encryption->decrypt($value);
+        } catch (\Core\Security\DecryptionException) {
+            return $value;
+        }
     }
 }

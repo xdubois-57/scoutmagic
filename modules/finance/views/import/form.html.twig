@@ -5,7 +5,7 @@
 {% block content %}
     <h1 class="mb-4">Finances</h1>
 
-    {% include '@finance/_nav.html.twig' %}
+    {% include '@finance/_nav.html.twig' with {'hide_account_picker': true} %}
 
     <h2 class="h5 mb-3">Importer un relevé bancaire</h2>
 

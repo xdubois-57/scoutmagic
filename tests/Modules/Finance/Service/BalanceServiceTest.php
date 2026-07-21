@@ -77,4 +77,62 @@ class BalanceServiceTest extends TestCase
         $balance = $this->service->getBalanceAt($this->account, new \DateTimeImmutable('2026-10-31'));
         $this->assertSame(900.0, $balance);
     }
+
+    // --- getLowestBalanceSince() ---
+
+    public function testGetLowestBalanceSinceReturnsNullWhenNoCheckpoint(): void
+    {
+        $this->assertNull($this->service->getLowestBalanceSince($this->account, new \DateTimeImmutable('2026-10-01')));
+    }
+
+    public function testGetLowestBalanceSinceReturnsCheckpointBalanceWhenNoLaterTransactions(): void
+    {
+        $this->checkpointRepository->create($this->account->id, '2026-10-01', 1000.0, BalanceCheckpoint::SOURCE_IMPORT);
+
+        $lowest = $this->service->getLowestBalanceSince($this->account, new \DateTimeImmutable('2026-10-01'));
+
+        $this->assertSame(1000.0, $lowest);
+    }
+
+    public function testGetLowestBalanceSinceTracksTheRunningMinimumAcrossTransactions(): void
+    {
+        $this->checkpointRepository->create($this->account->id, '2026-10-01', 1000.0, BalanceCheckpoint::SOURCE_IMPORT);
+        $this->transactionRepository->create($this->account->id, $this->fiscalYearId, 'R1', '2026-10-05', 'Grosse dépense', -900.0, null, null, Transaction::SOURCE_MANUAL, null);
+        $this->transactionRepository->create($this->account->id, $this->fiscalYearId, 'R2', '2026-10-10', 'Recette', 500.0, null, null, Transaction::SOURCE_MANUAL, null);
+
+        $lowest = $this->service->getLowestBalanceSince($this->account, new \DateTimeImmutable('2026-10-01'));
+
+        $this->assertSame(100.0, $lowest);
+    }
+
+    public function testGetLowestBalanceSinceIgnoresTransactionsBeforeTheWindow(): void
+    {
+        $this->checkpointRepository->create($this->account->id, '2026-01-01', 1000.0, BalanceCheckpoint::SOURCE_IMPORT);
+        $this->transactionRepository->create($this->account->id, $this->fiscalYearId, 'R1', '2026-02-01', 'Avant la fenêtre', -950.0, null, null, Transaction::SOURCE_MANUAL, null);
+        $this->transactionRepository->create($this->account->id, $this->fiscalYearId, 'R2', '2026-10-05', 'Dans la fenêtre', -20.0, null, null, Transaction::SOURCE_MANUAL, null);
+
+        $lowest = $this->service->getLowestBalanceSince($this->account, new \DateTimeImmutable('2026-10-01'));
+
+        $this->assertSame(30.0, $lowest);
+    }
+
+    public function testGetLowestBalanceSinceFallsBackToEarliestCheckpointWhenHistoryIsShorterThanWindow(): void
+    {
+        // Account only has 2 months of history — well short of the
+        // 18-month window a caller might ask for — but a lowest balance
+        // should still be computed from what IS on record.
+        $this->checkpointRepository->create($this->account->id, '2026-08-01', 200.0, BalanceCheckpoint::SOURCE_IMPORT);
+        $this->transactionRepository->create($this->account->id, $this->fiscalYearId, 'R1', '2026-09-15', 'Dépense', -150.0, null, null, Transaction::SOURCE_MANUAL, null);
+
+        $lowest = $this->service->getLowestBalanceSince($this->account, new \DateTimeImmutable('2026-01-01'));
+
+        $this->assertSame(50.0, $lowest);
+    }
+
+    public function testGetLowestBalanceSinceStillNullWithNoCheckpointAtAll(): void
+    {
+        $this->transactionRepository->create($this->account->id, $this->fiscalYearId, 'R1', '2026-10-01', 'Dépense', -20.0, null, null, Transaction::SOURCE_MANUAL, null);
+
+        $this->assertNull($this->service->getLowestBalanceSince($this->account, new \DateTimeImmutable('2026-01-01')));
+    }
 }

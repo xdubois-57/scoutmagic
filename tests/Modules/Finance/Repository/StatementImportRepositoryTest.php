@@ -59,4 +59,30 @@ class StatementImportRepositoryTest extends TestCase
 
         $this->assertCount(2, $this->repository->findByAccountId($this->accountId));
     }
+
+    public function testFindMostRecentForAccountReturnsNullWhenNone(): void
+    {
+        $this->assertNull($this->repository->findMostRecentForAccount($this->accountId));
+    }
+
+    public function testFindMostRecentForAccountReturnsLatestImport(): void
+    {
+        $this->repository->create($this->accountId, 'bnp', 'a.csv', 1, 1, 0, null);
+        $latestId = $this->repository->create($this->accountId, 'bnp', 'b.csv', 2, 2, 0, null);
+
+        $latest = $this->repository->findMostRecentForAccount($this->accountId);
+
+        $this->assertNotNull($latest);
+        $this->assertSame($latestId, $latest->id);
+    }
+
+    public function testFindMostRecentForAccountIgnoresOtherAccounts(): void
+    {
+        $this->repository->create($this->accountId, 'bnp', 'a.csv', 1, 1, 0, null);
+        $stmt = $this->pdo->prepare("INSERT INTO finance_accounts (name, account_type) VALUES ('Autre', 'bank')");
+        $stmt->execute();
+        $otherAccountId = (int) $this->pdo->lastInsertId();
+
+        $this->assertNull($this->repository->findMostRecentForAccount($otherAccountId));
+    }
 }

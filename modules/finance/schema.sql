@@ -63,10 +63,11 @@ CREATE TABLE IF NOT EXISTS finance_category_rules (
     CONSTRAINT fk_fcr_category FOREIGN KEY (category_id) REFERENCES finance_categories(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- finance_transactions: one row per bank/cash movement. label is
--- encrypted — a bank communication line can contain personal or
--- otherwise confidential information (e.g. a member's name in a payment
--- reference). amount is signed (positive = credit, negative = debit),
+-- finance_transactions: one row per bank/cash movement. label and
+-- comment are both encrypted — a bank communication line can contain
+-- personal or otherwise confidential information (e.g. a member's name
+-- in a payment reference), and a chef's free-text comment just as
+-- easily can. amount is signed (positive = credit, negative = debit),
 -- unlike most of this codebase's convention of separate signed/unsigned
 -- fields, because a bank statement's own sign convention is what a
 -- reconciling admin expects to see reproduced as-is. The unique
@@ -75,7 +76,12 @@ CREATE TABLE IF NOT EXISTS finance_category_rules (
 -- statement range must silently skip already-known lines) — manually
 -- entered movements (source = 'manual') have no bank_reference, so it is
 -- nullable and only enforced unique when present (see
--- Repository\TransactionRepository's insert-or-skip).
+-- Repository\TransactionRepository's insert-or-skip). counterparty_name/
+-- counterparty_account (the other party's name/IBAN, when a bank export
+-- provides them — see Parser\StatementLine) and extra_details (whatever
+-- other columns a bank export has that don't get their own dedicated
+-- column, concatenated) are encrypted for the same reason label/comment
+-- are: they routinely contain a person's name or account number.
 CREATE TABLE IF NOT EXISTS finance_transactions (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     account_id INT UNSIGNED NOT NULL,
@@ -85,7 +91,10 @@ CREATE TABLE IF NOT EXISTS finance_transactions (
     label BLOB NOT NULL,
     amount DECIMAL(12, 2) NOT NULL,
     category_id INT UNSIGNED NULL,
-    comment TEXT NULL,
+    comment BLOB NULL,
+    counterparty_name BLOB NULL,
+    counterparty_account BLOB NULL,
+    extra_details BLOB NULL,
     source ENUM('import', 'manual') NOT NULL,
     imported_at DATETIME NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -162,10 +171,13 @@ CREATE TABLE IF NOT EXISTS finance_statement_imports (
 -- bureau pour l'unité") — both only ever written by Task\
 -- ExtractReceiptDataHandler, no manual-entry counterpart on the upload
 -- form (unlike suggested_amount/suggested_date), so they are always NULL
--- for a suggested_source='manual' row. matching_ai_attempted_at marks
--- that Service\ReceiptMatchingService has already spent its one allowed
--- AI-assisted matching attempt on this receipt (rule-based matching has
--- no such limit and is retried on every bank import) — NULL means the AI
+-- for a suggested_source='manual' row. Both are encrypted (BLOB) — a
+-- merchant name or purchase description can reveal personal information
+-- just as easily as a bank transaction label can, so they get the same
+-- treatment. matching_ai_attempted_at marks that Service\
+-- ReceiptMatchingService has already spent its one allowed AI-assisted
+-- matching attempt on this receipt (rule-based matching has no such
+-- limit and is retried on every bank import) — NULL means the AI
 -- fallback hasn't been tried yet.
 CREATE TABLE IF NOT EXISTS finance_attachments (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -175,8 +187,8 @@ CREATE TABLE IF NOT EXISTS finance_attachments (
     original_filename VARCHAR(255) NOT NULL,
     suggested_amount DECIMAL(12, 2) NULL,
     suggested_date DATE NULL,
-    suggested_label VARCHAR(255) NULL,
-    suggested_description VARCHAR(500) NULL,
+    suggested_label BLOB NULL,
+    suggested_description BLOB NULL,
     suggested_source ENUM('manual', 'ai') NULL,
     matching_ai_attempted_at DATETIME NULL,
     status ENUM('active', 'archived') NOT NULL DEFAULT 'active',

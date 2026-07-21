@@ -76,19 +76,28 @@ class TransactionRepository
     /**
      * Movements page filtering (Controller\MovementController::list()).
      * account_id/fiscal_year_id/category_id are filtered in SQL;
-     * $search is matched against the decrypted label in PHP afterwards —
-     * label is encrypted (non-deterministic ciphertext), so it can never
-     * be matched with a SQL WHERE/LIKE clause. $accountIds is the RBAC
-     * boundary (accounts visible to the caller's role) — null means "no
-     * account restriction" and must never be passed directly from user
-     * input, only from a caller that has already computed the visible
-     * set (see MovementController::list()).
+     * $search is matched against the decrypted label/comment in PHP
+     * afterwards — both are encrypted (non-deterministic ciphertext), so
+     * neither can be matched with a SQL WHERE/LIKE clause. $accountIds is
+     * the RBAC boundary (accounts visible to the caller's role) — null
+     * means "no account restriction" and must never be passed directly
+     * from user input, only from a caller that has already computed the
+     * visible set (see MovementController::list()). $uncategorizedOnly
+     * takes priority over $categoryId when both are set (the dashboard's
+     * category filter is one dropdown with an explicit "Non catégorisé"
+     * option, not two independent parameters — see
+     * Controller\DashboardController).
      *
      * @param int[]|null $accountIds
      * @return Transaction[]
      */
-    public function findFiltered(?array $accountIds, ?int $fiscalYearId, ?int $categoryId, ?string $search): array
-    {
+    public function findFiltered(
+        ?array $accountIds,
+        ?int $fiscalYearId,
+        ?int $categoryId,
+        ?string $search,
+        bool $uncategorizedOnly = false
+    ): array {
         $sql = 'SELECT * FROM finance_transactions WHERE 1=1';
         $params = [];
 
@@ -104,7 +113,9 @@ class TransactionRepository
             $sql .= ' AND fiscal_year_id = ?';
             $params[] = $fiscalYearId;
         }
-        if ($categoryId !== null) {
+        if ($uncategorizedOnly) {
+            $sql .= ' AND category_id IS NULL';
+        } elseif ($categoryId !== null) {
             $sql .= ' AND category_id = ?';
             $params[] = $categoryId;
         }
@@ -118,7 +129,7 @@ class TransactionRepository
         if ($search !== null && trim($search) !== '') {
             $transactions = array_values(array_filter(
                 $transactions,
-                fn(Transaction $transaction) => mb_stripos($transaction->label, $search) !== false
+                fn(Transaction $transaction) => $transaction->matchesTextSearch($search)
             ));
         }
 
@@ -171,6 +182,18 @@ class TransactionRepository
         return (int) $stmt->fetchColumn();
     }
 
+    /**
+     * Backs the dashboard's "Mouvements" metric box — a plain COUNT(*),
+     * never findByAccountId()'s full decrypt-every-label hydration, since
+     * only the number is needed here.
+     */
+    public function countByAccountId(int $accountId): int
+    {
+        $stmt = $this->pdo->prepare('SELECT COUNT(*) FROM finance_transactions WHERE account_id = ?');
+        $stmt->execute([$accountId]);
+        return (int) $stmt->fetchColumn();
+    }
+
     public function create(
         int $accountId,
         int $fiscalYearId,
@@ -181,12 +204,15 @@ class TransactionRepository
         ?int $categoryId,
         ?string $comment,
         string $source,
-        ?string $importedAt
+        ?string $importedAt,
+        ?string $counterpartyName = null,
+        ?string $counterpartyAccount = null,
+        ?string $extraDetails = null
     ): int {
         $stmt = $this->pdo->prepare(
             'INSERT INTO finance_transactions
-                (account_id, fiscal_year_id, bank_reference, transaction_date, label, amount, category_id, comment, source, imported_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                (account_id, fiscal_year_id, bank_reference, transaction_date, label, amount, category_id, comment, counterparty_name, counterparty_account, extra_details, source, imported_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([
             $accountId,
@@ -196,7 +222,10 @@ class TransactionRepository
             $this->encryption->encrypt($label),
             $amount,
             $categoryId,
-            $comment,
+            $comment !== null ? $this->encryption->encrypt($comment) : null,
+            $counterpartyName !== null ? $this->encryption->encrypt($counterpartyName) : null,
+            $counterpartyAccount !== null ? $this->encryption->encrypt($counterpartyAccount) : null,
+            $extraDetails !== null ? $this->encryption->encrypt($extraDetails) : null,
             $source,
             $importedAt,
         ]);
@@ -209,6 +238,8 @@ class TransactionRepository
      * "itération 3": re-importing an overlapping statement range must
      * silently skip already-known lines). Returns true when a new row was
      * actually inserted, false when it was a duplicate no-op.
+     * counterpartyName/counterpartyAccount/extraDetails come straight
+     * from Parser\StatementLine — whatever the bank export provides.
      */
     public function insertOrSkip(
         int $accountId,
@@ -217,7 +248,10 @@ class TransactionRepository
         string $transactionDate,
         string $label,
         float $amount,
-        ?int $categoryId
+        ?int $categoryId,
+        ?string $counterpartyName = null,
+        ?string $counterpartyAccount = null,
+        ?string $extraDetails = null
     ): bool {
         $stmt = $this->pdo->prepare('SELECT 1 FROM finance_transactions WHERE account_id = ? AND bank_reference = ?');
         $stmt->execute([$accountId, $bankReference]);
@@ -235,7 +269,10 @@ class TransactionRepository
             $categoryId,
             null,
             Transaction::SOURCE_IMPORT,
-            (new \DateTimeImmutable())->format('Y-m-d H:i:s')
+            (new \DateTimeImmutable())->format('Y-m-d H:i:s'),
+            $counterpartyName,
+            $counterpartyAccount,
+            $extraDetails
         );
         return true;
     }
@@ -250,7 +287,7 @@ class TransactionRepository
         $stmt = $this->pdo->prepare(
             'UPDATE finance_transactions SET category_id = ?, comment = ?, fiscal_year_id = ? WHERE id = ?'
         );
-        $stmt->execute([$categoryId, $comment, $fiscalYearId, $id]);
+        $stmt->execute([$categoryId, $comment !== null ? $this->encryption->encrypt($comment) : null, $fiscalYearId, $id]);
     }
 
     public function deleteAllForAccount(int $accountId): int
@@ -296,9 +333,31 @@ class TransactionRepository
             label: $this->encryption->decrypt($row['label']),
             amount: (float) $row['amount'],
             categoryId: $row['category_id'] !== null ? (int) $row['category_id'] : null,
-            comment: $row['comment'] !== null ? (string) $row['comment'] : null,
+            comment: $row['comment'] !== null ? $this->decryptOrLegacyPlaintext((string) $row['comment']) : null,
             source: (string) $row['source'],
-            importedAt: $row['imported_at'] !== null ? (string) $row['imported_at'] : null
+            importedAt: $row['imported_at'] !== null ? (string) $row['imported_at'] : null,
+            counterpartyName: $row['counterparty_name'] !== null ? $this->encryption->decrypt($row['counterparty_name']) : null,
+            counterpartyAccount: $row['counterparty_account'] !== null ? $this->encryption->decrypt($row['counterparty_account']) : null,
+            extraDetails: $row['extra_details'] !== null ? $this->encryption->decrypt($row['extra_details']) : null
         );
+    }
+
+    /**
+     * comment was a plain TEXT column before this module started
+     * encrypting it — an existing row from before that change holds real
+     * plaintext, which is not valid ciphertext and would otherwise throw
+     * DecryptionException on every read. Falls back to the raw stored
+     * value in that case rather than ever crashing a page over it; a
+     * one-time re-encryption pass (documented alongside the migration,
+     * not code the app runs itself) converts these at rest so this
+     * fallback becomes a dead path in the steady state.
+     */
+    private function decryptOrLegacyPlaintext(string $value): string
+    {
+        try {
+            return $this->encryption->decrypt($value);
+        } catch (\Core\Security\DecryptionException) {
+            return $value;
+        }
     }
 }

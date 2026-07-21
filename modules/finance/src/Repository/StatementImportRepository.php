@@ -35,6 +35,17 @@ class StatementImportRepository
         return $stmt->fetchColumn() !== false;
     }
 
+    /**
+     * Backs the dashboard's "Dernier import" metric box.
+     */
+    public function findMostRecentForAccount(int $accountId): ?StatementImport
+    {
+        $stmt = $this->pdo->prepare('SELECT * FROM finance_statement_imports WHERE account_id = ? ORDER BY imported_at DESC, id DESC LIMIT 1');
+        $stmt->execute([$accountId]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+        return $row !== false ? $this->hydrate($row) : null;
+    }
+
     public function create(
         int $accountId,
         string $bankCode,

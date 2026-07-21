@@ -87,7 +87,7 @@ class ExtractReceiptDataHandler implements TaskHandlerInterface
         }
 
         $pdo = $context->connection->getPdo();
-        $attachmentRepository = new AttachmentRepository($pdo);
+        $attachmentRepository = new AttachmentRepository($pdo, $context->encryption);
 
         $attachment = $attachmentRepository->findById($attachmentId);
         if ($attachment === null || $attachment->status !== Attachment::STATUS_ACTIVE) {

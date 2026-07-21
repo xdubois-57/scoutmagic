@@ -43,7 +43,7 @@ class ExtractReceiptDataHandlerTest extends TestCase
         $this->createFinanceAttachmentTables();
 
         $this->encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
-        $this->attachmentRepository = new AttachmentRepository($this->pdo);
+        $this->attachmentRepository = new AttachmentRepository($this->pdo, $this->encryption);
         $this->providerRepository = new ProviderRepository($this->pdo, $this->encryption);
         $this->modelRepository = new ProviderModelRepository($this->pdo);
         $this->storagePath = sys_get_temp_dir() . '/finance_extraction_test_' . uniqid();

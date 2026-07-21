@@ -7,16 +7,19 @@ namespace Modules\Finance\Parser;
 /**
  * One transaction line extracted from a bank statement export, before it
  * becomes a finance_transactions row. bankReference is whatever the bank
- * uses as a stable per-line identifier (dedup key); counterpartyAccount is
- * transient — only available here, at import time, since
- * finance_transactions has no column for it (see
- * Service\CategoryRuleEngine::countMatches()'s doc comment, which is why
- * that method always returns 0 for the counterparty_account condition
- * type — Service\CategoryRuleEngine::apply() is the counterpart that runs
- * against a StatementLine, before persistence, where this value still
- * exists). balanceAfter is the bank's own running balance after this
- * line, when the format provides one (BNP Fortis does not); currently
- * unused but kept for future parsers/reconciliation.
+ * uses as a stable per-line identifier (dedup key); counterpartyAccount/
+ * counterpartyName are the other party's IBAN/name when the export
+ * provides them — Repository\TransactionRepository persists both
+ * (encrypted, like label/comment) alongside the movement, and Service\
+ * CategoryRuleEngine::apply() also still reads counterpartyAccount off
+ * this object directly, before persistence, for its own condition type
+ * (see CategoryRuleEngine::countMatches()'s doc comment). extraDetails is
+ * a single free-text field a parser concatenates every other column into
+ * that doesn't get its own dedicated field — "whatever else the export
+ * has" without needing a new schema column per bank format. balanceAfter
+ * is the bank's own running balance after this line, when the format
+ * provides one (BNP Fortis does not); currently unused but kept for
+ * future parsers/reconciliation.
  */
 final class StatementLine
 {
@@ -26,6 +29,8 @@ final class StatementLine
         public readonly float $amount,
         public readonly string $label,
         public readonly ?string $counterpartyAccount = null,
+        public readonly ?string $counterpartyName = null,
+        public readonly ?string $extraDetails = null,
         public readonly ?float $balanceAfter = null
     ) {
     }

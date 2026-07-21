@@ -44,7 +44,7 @@ class ReceiptMatchingServiceTest extends TestCase
 
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $accountRepository = new AccountRepository($this->pdo, $encryption);
-        $this->attachmentRepository = new AttachmentRepository($this->pdo);
+        $this->attachmentRepository = new AttachmentRepository($this->pdo, $encryption);
         $this->transactionRepository = new TransactionRepository($this->pdo, $encryption);
         $this->transactionAttachmentRepository = new TransactionAttachmentRepository($this->pdo);
         $this->journalService = new JournalService(new JournalRepository($this->pdo));

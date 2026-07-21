@@ -63,8 +63,9 @@ class MovementController extends AbstractController
             $fiscalYearId = (int) $fiscalYearParam;
         }
 
-        $categoryParam = $request->getQuery('category_id');
-        $categoryId = ($categoryParam !== null && $categoryParam !== '' && $categoryParam !== 'all') ? (int) $categoryParam : null;
+        $categoryParam = (string) $request->getQuery('category_id', 'all');
+        $uncategorizedOnly = $categoryParam === 'none';
+        $categoryId = (!$uncategorizedOnly && $categoryParam !== 'all' && $categoryParam !== '') ? (int) $categoryParam : null;
 
         $search = trim((string) $request->getQuery('q', ''));
 
@@ -72,7 +73,8 @@ class MovementController extends AbstractController
             [$account->id],
             $fiscalYearId,
             $categoryId,
-            $search !== '' ? $search : null
+            $search !== '' ? $search : null,
+            $uncategorizedOnly
         );
 
         $page = max(1, (int) $request->getQuery('page', 1));
@@ -113,7 +115,7 @@ class MovementController extends AbstractController
             'page' => $page,
             'total_pages' => $totalPages,
             'filter_fiscal_year_id' => $fiscalYearId,
-            'filter_category_id' => $categoryId,
+            'filter_category_id' => $categoryParam,
             'filter_search' => $search,
             'pending_receipts' => $pendingReceipts,
         ]);
@@ -222,7 +224,12 @@ class MovementController extends AbstractController
 
     /**
      * GET /finance/movements/search?q=... — small result set for the
-     * receipts page's "Associer à un mouvement" picker.
+     * receipts page's "Associer à un mouvement" picker. With no search
+     * text and a $near_date (the receipt's own suggested date), returns
+     * the 10 movements closest to that date instead of an arbitrary/
+     * empty list — the "most credible" candidates for that receipt.
+     * findFiltered() already orders by transaction_date DESC, so a real
+     * search (non-empty $q) keeps showing the most recent matches first.
      *
      * @param array<string, string> $params
      */
@@ -242,7 +249,20 @@ class MovementController extends AbstractController
         }
 
         $query = trim((string) $request->getQuery('q', ''));
+        $nearDate = $this->parseDateOrNull($request->getQuery('near_date'));
         $matches = $this->transactionRepository->findFiltered($accountIdsFilter, null, null, $query !== '' ? $query : null);
+
+        if ($query === '' && $nearDate !== null) {
+            usort(
+                $matches,
+                fn(Transaction $a, Transaction $b) =>
+                    (new \DateTimeImmutable($a->transactionDate))->diff($nearDate)->days
+                    <=> (new \DateTimeImmutable($b->transactionDate))->diff($nearDate)->days
+            );
+            $matches = array_slice($matches, 0, 10);
+        } else {
+            $matches = array_slice($matches, 0, 20);
+        }
 
         return $this->json([
             'success' => true,
@@ -251,8 +271,20 @@ class MovementController extends AbstractController
                 'date' => $transaction->transactionDate,
                 'label' => $transaction->label,
                 'amount' => $transaction->amount,
-            ], array_slice($matches, 0, 20)),
+            ], $matches),
         ]);
+    }
+
+    private function parseDateOrNull(?string $value): ?\DateTimeImmutable
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+        try {
+            return new \DateTimeImmutable($value);
+        } catch (\Exception) {
+            return null;
+        }
     }
 
     /**

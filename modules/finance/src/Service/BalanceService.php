@@ -49,4 +49,40 @@ class BalanceService
 
         return $balance;
     }
+
+    /**
+     * Lowest balance reached at any point from $since to today — walks
+     * forward from a starting balance, transaction by transaction,
+     * tracking the running minimum (balance only ever changes at a
+     * transaction's date, so checking after each one is enough to find
+     * every local minimum). When there is no checkpoint at or before
+     * $since, this falls back to the account's very earliest checkpoint
+     * instead of giving up — covering as much history as is actually on
+     * record rather than reporting the whole thing unknown just because
+     * it doesn't reach all the way back to $since. Null only when the
+     * account has no checkpoint at all — same "no known reference point"
+     * convention as getBalanceAt().
+     */
+    public function getLowestBalanceSince(Account $account, \DateTimeInterface $since): ?float
+    {
+        $balance = $this->getBalanceAt($account, $since);
+        $anchorDate = $since->format('Y-m-d');
+
+        if ($balance === null) {
+            $earliest = $this->checkpointRepository->findEarliestForAccount($account->id);
+            if ($earliest === null) {
+                return null;
+            }
+            $balance = $earliest->balance;
+            $anchorDate = $earliest->checkpointDate;
+        }
+
+        $lowest = $balance;
+        foreach ($this->transactionRepository->findByAccountAfterDate($account->id, $anchorDate) as $transaction) {
+            $balance += $transaction->amount;
+            $lowest = min($lowest, $balance);
+        }
+
+        return $lowest;
+    }
 }
