@@ -82,10 +82,29 @@ class ExtractReceiptDataHandlerTest extends TestCase
         );
     }
 
+    /**
+     * A generic (non-PDF) attachment — the image path is unconditional
+     * (no text-extraction/rasterization branching), so these tests
+     * exercise the handler's provider/journal plumbing in isolation from
+     * the PDF-specific logic, which has its own dedicated tests below.
+     */
     private function createAttachment(): int
     {
-        $fileId = $this->fileStorage->store('%PDF fake content', 'application/pdf', 'facture.pdf', 'finance/receipts', 'intendant');
+        $fileId = $this->fileStorage->store('fake jpeg bytes', 'image/jpeg', 'facture.jpg', 'finance/receipts', 'intendant');
+        return $this->attachmentRepository->create(null, $fileId, 'image/jpeg', 'facture.jpg', null, null, null, 1);
+    }
+
+    private function createPdfAttachment(string $pdfContent): int
+    {
+        $fileId = $this->fileStorage->store($pdfContent, 'application/pdf', 'facture.pdf', 'finance/receipts', 'intendant');
         return $this->attachmentRepository->create(null, $fileId, 'application/pdf', 'facture.pdf', null, null, null, 1);
+    }
+
+    private function fixture(string $name): string
+    {
+        $content = file_get_contents(dirname(__DIR__, 3) . '/fixtures/pdf/' . $name);
+        \assert($content !== false);
+        return $content;
     }
 
     public function testNoOpWhenPayloadHasNoAttachmentId(): void
@@ -173,6 +192,80 @@ class ExtractReceiptDataHandlerTest extends TestCase
         $this->assertNotFalse($row);
         $context = json_decode((string) $row['context'], true);
         $this->assertSame('ocr', $context['tier']);
+    }
+
+    public function testPdfWithATextLayerRequestsCheapTierNotOcr(): void
+    {
+        $attachmentId = $this->createPdfAttachment($this->fixture('text_receipt.pdf'));
+
+        $providerId = $this->providerRepository->create('Unreachable', 'anthropic', 'http://127.0.0.1:19', 'sk-test', true);
+        $this->modelRepository->upsert($providerId, 'test-model', 'Test Model');
+        $models = $this->modelRepository->findByProvider($providerId);
+        $this->modelRepository->assignTier((int) $models[0]['id'], LlmTier::CHEAP);
+
+        $handler = new ExtractReceiptDataHandler();
+        $handler->handle(['attachment_id' => $attachmentId], $this->createTaskContext());
+
+        $stmt = $this->pdo->prepare("SELECT context FROM event_log WHERE category = 'llm_connector' AND event_type = 'llm_request_failed'");
+        $stmt->execute();
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+        $this->assertNotFalse($row);
+        $context = json_decode((string) $row['context'], true);
+        $this->assertSame('cheap', $context['tier']);
+    }
+
+    public function testPdfWithoutATextLayerFallsBackToOcrTierImage(): void
+    {
+        if (!class_exists(\Imagick::class)) {
+            $this->markTestSkipped('imagick extension not available.');
+        }
+
+        // Structurally valid PDF, blank page — no text layer to extract,
+        // but still a real page Imagick/Ghostscript can rasterize.
+        $blankPdf = "%PDF-1.4\n"
+            . "1 0 obj<< /Type /Catalog /Pages 2 0 R >>endobj\n"
+            . "2 0 obj<< /Type /Pages /Kids [3 0 R] /Count 1 >>endobj\n"
+            . "3 0 obj<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>endobj\n"
+            . "trailer<< /Size 4 /Root 1 0 R >>\n%%EOF";
+        $attachmentId = $this->createPdfAttachment($blankPdf);
+
+        $providerId = $this->providerRepository->create('Unreachable', 'anthropic', 'http://127.0.0.1:19', 'sk-test', true);
+        $this->modelRepository->upsert($providerId, 'test-model', 'Test Model');
+        $models = $this->modelRepository->findByProvider($providerId);
+        $this->modelRepository->assignTier((int) $models[0]['id'], LlmTier::OCR);
+
+        $handler = new ExtractReceiptDataHandler();
+        $handler->handle(['attachment_id' => $attachmentId], $this->createTaskContext());
+
+        $stmt = $this->pdo->prepare("SELECT context FROM event_log WHERE category = 'llm_connector' AND event_type = 'llm_request_failed'");
+        $stmt->execute();
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+        $this->assertNotFalse($row);
+        $context = json_decode((string) $row['context'], true);
+        $this->assertSame('ocr', $context['tier']);
+    }
+
+    public function testUnparseableUnrasterizablePdfIsJournaledWithoutAnyNetworkCall(): void
+    {
+        $attachmentId = $this->createPdfAttachment('%PDF not actually a valid pdf');
+
+        $providerId = $this->providerRepository->create('Unreachable', 'anthropic', 'http://127.0.0.1:19', 'sk-test', true);
+        $this->modelRepository->upsert($providerId, 'test-model', 'Test Model');
+        $models = $this->modelRepository->findByProvider($providerId);
+        $this->modelRepository->assignTier((int) $models[0]['id'], LlmTier::CHEAP);
+
+        $handler = new ExtractReceiptDataHandler();
+        $handler->handle(['attachment_id' => $attachmentId], $this->createTaskContext());
+
+        $networkStmt = $this->pdo->prepare("SELECT * FROM event_log WHERE category = 'llm_connector'");
+        $networkStmt->execute();
+        $this->assertFalse($networkStmt->fetch(), 'No LLM request should have been attempted.');
+
+        $failureStmt = $this->pdo->prepare("SELECT description FROM event_log WHERE category = 'finance' AND event_type = 'receipt_extraction_failed'");
+        $failureStmt->execute();
+        $failure = $failureStmt->fetch(\PDO::FETCH_ASSOC);
+        $this->assertNotFalse($failure);
+        $this->assertStringContainsString('PDF sans texte exploitable', $failure['description']);
     }
 
     private function normalizeDate(string $rawDate): ?string

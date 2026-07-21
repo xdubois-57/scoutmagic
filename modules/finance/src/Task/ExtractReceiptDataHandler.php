@@ -6,6 +6,8 @@ namespace Modules\Finance\Task;
 
 use Core\File\EncryptedFileStorageService;
 use Core\File\FileRepository;
+use Core\File\PdfRasterizer;
+use Core\File\PdfTextExtractor;
 use Core\Scheduler\TaskContext;
 use Core\Scheduler\TaskHandlerInterface;
 use Modules\Finance\Repository\Attachment;
@@ -22,17 +24,58 @@ use Modules\LlmConnector\Service\LlmConnectorService;
 
 /**
  * One-shot task (scheduled by Service\ReceiptExtractionService right
- * after an upload) — asks the configured LLM provider's OCR-tier model
- * (this module never names a model or provider; LlmConnectorService
- * falls back to the CHEAP tier when no model is assigned to OCR) to read
- * the receipt's amount/date/merchant/description, then writes
- * suggested_amount/suggested_date/suggested_label/suggested_description
- * back onto the attachment. Any failure (no provider, API error,
- * unparseable response) is journaled and otherwise silently absorbed —
- * a failed extraction never blocks the receipt from being used manually.
+ * after an upload) — reads the receipt's amount/date/merchant/
+ * description, then writes suggested_amount/suggested_date/
+ * suggested_label/suggested_description back onto the attachment. Any
+ * failure (no provider, API error, unparseable response) is journaled
+ * and otherwise silently absorbed — a failed extraction never blocks
+ * the receipt from being used manually.
+ *
+ * A PDF is handled specially (buildRequestForPdf()): its embedded text
+ * layer, when it has one, is extracted (Core\File\PdfTextExtractor) and
+ * sent as plain text on the CHEAP tier — exact (no hallucination risk)
+ * and provider-agnostic, unlike sending the file itself as an
+ * attachment, which not every provider's chat API actually supports
+ * (confirmed in practice: a provider silently receiving no usable
+ * content still had to invent an answer to satisfy the response
+ * schema). A PDF with no text layer (a scanned/photographed receipt
+ * saved as PDF) falls back to rendering its first page as a JPEG
+ * (Core\File\PdfRasterizer) and going through the same OCR-tier
+ * image path as a real photo upload. Every other supported type
+ * (image/*) goes straight through that image path — this module never
+ * names a model or provider; LlmConnectorService falls back to the
+ * CHEAP tier when no model is assigned to OCR.
  */
 class ExtractReceiptDataHandler implements TaskHandlerInterface
 {
+    private const PROMPT = 'Extrait le montant total, la date, le nom du commerçant, et une description en une phrase '
+        . "de l'objet de cet achat (par exemple « Achat de fournitures de bureau » ou « Cotisation "
+        . 'trimestrielle »). '
+        . 'La date doit être au format AAAA-MM-JJ (ISO 8601), par exemple 2026-10-27. '
+        . 'La description doit être rédigée en français et ne doit jamais mentionner ou répéter le nom '
+        . 'du commerçant (déjà fourni séparément) — elle doit porter uniquement sur la nature de l\'achat.';
+
+    private const RESPONSE_SCHEMA = [
+        'type' => 'object',
+        'properties' => [
+            'amount' => ['type' => 'number'],
+            'date' => ['type' => 'string', 'description' => 'Date au format ISO 8601 AAAA-MM-JJ, par exemple 2026-10-27.'],
+            'merchant' => ['type' => 'string'],
+            'description' => [
+                'type' => 'string',
+                'description' => "Description en une phrase, en français, de la nature de l'achat — "
+                    . 'sans jamais mentionner le nom du commerçant.',
+            ],
+        ],
+        'required' => ['amount', 'date', 'merchant', 'description'],
+    ];
+
+    /**
+     * Cap on the text handed to the LLM — receipts are short; this only
+     * guards against a stray multi-page PDF blowing up the prompt.
+     */
+    private const MAX_EXTRACTED_TEXT_CHARS = 8000;
+
     /**
      * @param array<string, mixed> $payload
      */
@@ -70,30 +113,14 @@ class ExtractReceiptDataHandler implements TaskHandlerInterface
             return;
         }
 
-        $request = new LlmRequest(
-            tier: LlmTier::OCR,
-            prompt: 'Extrait le montant total, la date, le nom du commerçant, et une description en une phrase '
-                . "de l'objet de cet achat (par exemple « Achat de fournitures de bureau » ou « Cotisation "
-                . 'trimestrielle ») à partir de ce reçu ou de cette facture. '
-                . 'La date doit être au format AAAA-MM-JJ (ISO 8601), par exemple 2026-10-27. '
-                . 'La description doit être rédigée en français et ne doit jamais mentionner ou répéter le nom '
-                . 'du commerçant (déjà fourni séparément) — elle doit porter uniquement sur la nature de l\'achat.',
-            attachments: [['data' => base64_encode($content), 'mime_type' => $attachment->mimeType]],
-            responseSchema: [
-                'type' => 'object',
-                'properties' => [
-                    'amount' => ['type' => 'number'],
-                    'date' => ['type' => 'string', 'description' => 'Date au format ISO 8601 AAAA-MM-JJ, par exemple 2026-10-27.'],
-                    'merchant' => ['type' => 'string'],
-                    'description' => [
-                        'type' => 'string',
-                        'description' => "Description en une phrase, en français, de la nature de l'achat — "
-                            . 'sans jamais mentionner le nom du commerçant.',
-                    ],
-                ],
-                'required' => ['amount', 'date', 'merchant', 'description'],
-            ]
-        );
+        $request = $attachment->mimeType === 'application/pdf'
+            ? $this->buildRequestForPdf($content)
+            : $this->buildImageRequest($content, $attachment->mimeType);
+
+        if ($request === null) {
+            $this->logFailure($context, $attachmentId, "PDF sans texte exploitable et impossible à convertir en image pour l'analyse.");
+            return;
+        }
 
         try {
             $response = $llmConnector->complete($request);
@@ -156,6 +183,41 @@ class ExtractReceiptDataHandler implements TaskHandlerInterface
             );
             $matchingService->matchReceipt($updatedAttachment);
         }
+    }
+
+    /**
+     * Text-first, image-fallback (see class doc comment). Returns null
+     * only when the PDF has neither a usable text layer nor a
+     * rasterizable page — the caller treats that as an extraction
+     * failure, same as any other.
+     */
+    private function buildRequestForPdf(string $content): ?LlmRequest
+    {
+        $text = (new PdfTextExtractor())->extractText($content);
+        if ($text !== null) {
+            return new LlmRequest(
+                tier: LlmTier::CHEAP,
+                prompt: self::PROMPT . "\n\nVoici le texte extrait du document :\n\n" . mb_substr($text, 0, self::MAX_EXTRACTED_TEXT_CHARS),
+                responseSchema: self::RESPONSE_SCHEMA
+            );
+        }
+
+        $image = (new PdfRasterizer())->firstPageToJpeg($content);
+        if ($image === null) {
+            return null;
+        }
+
+        return $this->buildImageRequest($image, 'image/jpeg');
+    }
+
+    private function buildImageRequest(string $content, string $mimeType): LlmRequest
+    {
+        return new LlmRequest(
+            tier: LlmTier::OCR,
+            prompt: self::PROMPT,
+            attachments: [['data' => base64_encode($content), 'mime_type' => $mimeType]],
+            responseSchema: self::RESPONSE_SCHEMA
+        );
     }
 
     /**

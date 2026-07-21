@@ -10,13 +10,14 @@ Open-source PHP website for Belgian scout units ("Les Scouts" federation). Same 
 
 ### Dependencies
 
-Only three external dependencies are justified:
+Only a small, explicitly justified set of external dependencies is allowed:
 
 | Dependency | Justification |
 |---|---|
 | Twig | Auto-escaping prevents XSS across all templates; reimplementing a secure template engine with inheritance and contextual escaping is too large and too risky. |
 | Bootstrap 5 | Mobile-first responsive grid, forms, navigation, and table components; compiled CSS+JS files only — no Sass, no webpack, no npm on the server. |
 | PHPMailer | SMTP authentication, STARTTLS, and DKIM signing; reimplementing email delivery correctly is a project in itself with real deliverability risks. |
+| smalot/pdfparser | Extracts a PDF's embedded text layer (`Core\File\PdfTextExtractor`) — parsing PDF's internal object/stream structure correctly (compression filters, font encodings, cross-reference tables) is not something worth hand-rolling for one feature (Modules\Finance\Task\ExtractReceiptDataHandler: reading a receipt/invoice PDF's real text is exact and provider-agnostic, versus sending the file to a vision model and hoping it's supported/accurate). |
 
 Everything else is written in-house. Composer is used for autoloading and dependency resolution during CI build — `vendor/` is built by CI and deployed via FTP; Composer is never required on the hosting server.
 
