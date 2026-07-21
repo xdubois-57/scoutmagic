@@ -10,6 +10,9 @@ use Core\Scheduler\TaskContext;
 use Core\Scheduler\TaskHandlerInterface;
 use Modules\Finance\Repository\Attachment;
 use Modules\Finance\Repository\AttachmentRepository;
+use Modules\Finance\Repository\TransactionAttachmentRepository;
+use Modules\Finance\Repository\TransactionRepository;
+use Modules\Finance\Service\ReceiptMatchingService;
 use Modules\LlmConnector\Api\LlmException;
 use Modules\LlmConnector\Api\LlmRequest;
 use Modules\LlmConnector\Api\LlmTier;
@@ -121,6 +124,21 @@ class ExtractReceiptDataHandler implements TaskHandlerInterface
             ['attachment_id' => $attachmentId],
             null
         );
+
+        // Right after parsing is exactly when matching has something new
+        // to work with — re-fetch to pick up the suggested_amount/date/
+        // label just written above.
+        $updatedAttachment = $attachmentRepository->findById($attachmentId);
+        if ($updatedAttachment !== null) {
+            $matchingService = new ReceiptMatchingService(
+                $attachmentRepository,
+                new TransactionRepository($pdo, $context->encryption),
+                new TransactionAttachmentRepository($pdo),
+                $context->journal,
+                $llmConnector
+            );
+            $matchingService->matchReceipt($updatedAttachment);
+        }
     }
 
     private function logFailure(TaskContext $context, int $attachmentId, string $reason): void

@@ -42,6 +42,7 @@ use Modules\Finance\Service\CategoryRuleEngine;
 use Modules\Finance\Service\FinanceService;
 use Modules\Finance\Service\ImportService;
 use Modules\Finance\Service\ReceiptExtractionService;
+use Modules\Finance\Service\ReceiptMatchingService;
 use Modules\Finance\Service\ReceiptService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
@@ -111,9 +112,13 @@ class FinanceRbacTest extends TestCase
         );
         $this->categoryRuleEngine = new CategoryRuleEngine($this->transactionRepository, $this->categoryRuleRepository);
         $parserFactory = new BankStatementParserFactory();
+        $receiptMatchingService = new ReceiptMatchingService(
+            $this->attachmentRepository, $this->transactionRepository, $this->transactionAttachmentRepository, $this->journalService
+        );
         $importService = new ImportService(
             $this->pdo, $encryption, $parserFactory, $this->transactionRepository, $this->checkpointRepository,
-            $statementImportRepository, $this->fiscalYearRepository, $this->categoryRuleEngine, $this->balanceService
+            $statementImportRepository, $this->fiscalYearRepository, $this->categoryRuleEngine, $this->balanceService,
+            $receiptMatchingService
         );
         $fileStorage = new EncryptedFileStorageService(new FileRepository($this->pdo), $encryption, sys_get_temp_dir() . '/finance_rbac_test_' . uniqid());
         $this->receiptService = new ReceiptService($this->attachmentRepository, $accountRepository, $this->transactionAttachmentRepository, $fileStorage);

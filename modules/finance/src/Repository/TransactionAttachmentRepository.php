@@ -69,6 +69,20 @@ class TransactionAttachmentRepository
     }
 
     /**
+     * Every transaction_id already linked to at least one receipt — used
+     * by Service\ReceiptMatchingService to exclude movements that
+     * already have a receipt from its candidate pool.
+     *
+     * @return int[]
+     */
+    public function findAssociatedTransactionIds(): array
+    {
+        $stmt = $this->pdo->query('SELECT DISTINCT transaction_id FROM finance_transaction_attachments');
+        $rows = $stmt !== false ? $stmt->fetchAll(\PDO::FETCH_COLUMN) : [];
+        return array_map('intval', $rows);
+    }
+
+    /**
      * Attachment counts per transaction, for the movements list's 📎
      * indicator — one query for every row on the page rather than N.
      *

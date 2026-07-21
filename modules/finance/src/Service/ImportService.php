@@ -35,7 +35,8 @@ class ImportService
         private StatementImportRepository $statementImportRepository,
         private FiscalYearRepository $fiscalYearRepository,
         private CategoryRuleEngine $categoryRuleEngine,
-        private BalanceService $balanceService
+        private BalanceService $balanceService,
+        private ReceiptMatchingService $receiptMatchingService
     ) {
     }
 
@@ -144,6 +145,12 @@ class ImportService
 
             $statementImport = $this->statementImportRepository->findById($statementImportId);
             \assert($statementImport !== null);
+
+            // Newly-imported movements may complete a match for a
+            // receipt that was uploaded before this statement existed —
+            // re-attempt matching for every still-pending receipt on
+            // this account now that they do.
+            $this->receiptMatchingService->matchPendingReceiptsForAccount($account->id);
 
             return new ImportResult($statementImport, $balanceDiscrepancy);
         } finally {

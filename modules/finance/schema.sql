@@ -160,7 +160,10 @@ CREATE TABLE IF NOT EXISTS finance_statement_imports (
 -- "Delhaize") — only ever written by Task\ExtractReceiptDataHandler, no
 -- manual-entry counterpart on the upload form (unlike suggested_amount/
 -- suggested_date), so it is always NULL for a suggested_source='manual'
--- row.
+-- row. matching_ai_attempted_at marks that Service\ReceiptMatchingService
+-- has already spent its one allowed AI-assisted matching attempt on this
+-- receipt (rule-based matching has no such limit and is retried on every
+-- bank import) — NULL means the AI fallback hasn't been tried yet.
 CREATE TABLE IF NOT EXISTS finance_attachments (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     account_id INT UNSIGNED NULL,
@@ -171,6 +174,7 @@ CREATE TABLE IF NOT EXISTS finance_attachments (
     suggested_date DATE NULL,
     suggested_label VARCHAR(255) NULL,
     suggested_source ENUM('manual', 'ai') NULL,
+    matching_ai_attempted_at DATETIME NULL,
     status ENUM('active', 'archived') NOT NULL DEFAULT 'active',
     parent_attachment_id INT UNSIGNED NULL,
     uploaded_by INT UNSIGNED NULL,

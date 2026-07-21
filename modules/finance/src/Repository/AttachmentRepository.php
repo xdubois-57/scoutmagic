@@ -144,6 +144,17 @@ class AttachmentRepository
     }
 
     /**
+     * Marks that Service\ReceiptMatchingService has spent this receipt's
+     * one allowed AI-assisted matching attempt — set regardless of
+     * whether that attempt found a movement, so it is never retried.
+     */
+    public function markAiMatchAttempted(int $id): void
+    {
+        $stmt = $this->pdo->prepare('UPDATE finance_attachments SET matching_ai_attempted_at = ? WHERE id = ?');
+        $stmt->execute([(new \DateTimeImmutable())->format('Y-m-d H:i:s'), $id]);
+    }
+
+    /**
      * @param array<string, mixed> $row
      */
     private function hydrate(array $row): Attachment
@@ -161,7 +172,8 @@ class AttachmentRepository
             status: (string) $row['status'],
             parentAttachmentId: $row['parent_attachment_id'] !== null ? (int) $row['parent_attachment_id'] : null,
             uploadedBy: $row['uploaded_by'] !== null ? (int) $row['uploaded_by'] : null,
-            uploadedAt: (string) $row['uploaded_at']
+            uploadedAt: (string) $row['uploaded_at'],
+            matchingAiAttemptedAt: $row['matching_ai_attempted_at'] !== null ? (string) $row['matching_ai_attempted_at'] : null
         );
     }
 }

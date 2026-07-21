@@ -4,22 +4,28 @@ declare(strict_types=1);
 
 namespace Tests\Modules\Finance\Service;
 
+use Core\Journal\JournalRepository;
+use Core\Journal\JournalService;
 use Core\Security\EncryptionService;
 use Modules\Finance\Parser\BankStatementParserFactory;
 use Modules\Finance\Parser\BankStatementParserInterface;
 use Modules\Finance\Parser\StatementLine;
 use Modules\Finance\Repository\Account;
 use Modules\Finance\Repository\AccountRepository;
+use Modules\Finance\Repository\Attachment;
+use Modules\Finance\Repository\AttachmentRepository;
 use Modules\Finance\Repository\BalanceCheckpointRepository;
 use Modules\Finance\Repository\CategoryRepository;
 use Modules\Finance\Repository\CategoryRuleRepository;
 use Modules\Finance\Repository\FiscalYearRepository;
 use Modules\Finance\Repository\StatementImportRepository;
+use Modules\Finance\Repository\TransactionAttachmentRepository;
 use Modules\Finance\Repository\TransactionRepository;
 use Modules\Finance\Service\BalanceService;
 use Modules\Finance\Service\CategoryRuleEngine;
 use Modules\Finance\Service\FinanceException;
 use Modules\Finance\Service\ImportService;
+use Modules\Finance\Service\ReceiptMatchingService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Finance\FinanceTestHelper;
@@ -37,6 +43,8 @@ class ImportServiceTest extends TestCase
     private FiscalYearRepository $fiscalYearRepository;
     private CategoryRepository $categoryRepository;
     private CategoryRuleRepository $categoryRuleRepository;
+    private AttachmentRepository $attachmentRepository;
+    private TransactionAttachmentRepository $transactionAttachmentRepository;
     private FakeBankStatementParserFactory $parserFactory;
     private Account $account;
 
@@ -57,9 +65,17 @@ class ImportServiceTest extends TestCase
         $balanceService = new BalanceService($this->checkpointRepository, $this->transactionRepository);
         $this->parserFactory = new FakeBankStatementParserFactory();
 
+        $this->attachmentRepository = new AttachmentRepository($this->pdo);
+        $this->transactionAttachmentRepository = new TransactionAttachmentRepository($this->pdo);
+        $receiptMatchingService = new ReceiptMatchingService(
+            $this->attachmentRepository, $this->transactionRepository, $this->transactionAttachmentRepository,
+            new JournalService(new JournalRepository($this->pdo))
+        );
+
         $this->service = new ImportService(
             $this->pdo, $encryption, $this->parserFactory, $this->transactionRepository,
-            $this->checkpointRepository, $statementImportRepository, $this->fiscalYearRepository, $ruleEngine, $balanceService
+            $this->checkpointRepository, $statementImportRepository, $this->fiscalYearRepository, $ruleEngine, $balanceService,
+            $receiptMatchingService
         );
 
         $accountId = $this->accountRepository->create('Compte', Account::TYPE_BANK, null, 'BE00000000000001', 'Titulaire', 'intendant');
@@ -78,6 +94,22 @@ class ImportServiceTest extends TestCase
     private function line(string $ref, string $date, float $amount, string $label): StatementLine
     {
         return new StatementLine($ref, new \DateTimeImmutable($date), $amount, $label);
+    }
+
+    private function createPendingReceipt(?float $suggestedAmount, ?string $suggestedDate, string $uploadedAt): int
+    {
+        $stmt = $this->pdo->prepare(
+            "INSERT INTO files (relative_path, original_name, mime_type, size_bytes) VALUES ('a.pdf', 'a.pdf', 'application/pdf', 100)"
+        );
+        $stmt->execute();
+        $fileId = (int) $this->pdo->lastInsertId();
+
+        $attachmentId = $this->attachmentRepository->create(
+            $this->account->id, $fileId, 'application/pdf', 'facture.pdf', $suggestedAmount, $suggestedDate, null, 1
+        );
+        $this->pdo->prepare('UPDATE finance_attachments SET uploaded_at = ? WHERE id = ?')->execute([$uploadedAt, $attachmentId]);
+
+        return $attachmentId;
     }
 
     public function testRejectsIbanMismatch(): void
@@ -234,6 +266,30 @@ class ImportServiceTest extends TestCase
         }
 
         $this->assertFileDoesNotExist($path);
+    }
+
+    public function testImportAutoMatchesAPendingReceiptWithAnExactAmount(): void
+    {
+        $attachmentId = $this->createPendingReceipt(10.0, '2026-10-01', '2026-10-01 12:00:00');
+
+        $this->parserFactory->iban = $this->account->iban;
+        $this->parserFactory->lines = [$this->line('R1', '2026-10-02', -10.0, 'Achat')];
+
+        $this->service->import($this->account, 'bnp', $this->tmpCsvFile(), 'a.csv', 1000.0, 1);
+
+        $this->assertNotSame([], $this->transactionAttachmentRepository->findTransactionIdsForAttachment($attachmentId));
+    }
+
+    public function testImportNeverAutoMatchesAReceiptWithNoKnownAmount(): void
+    {
+        $attachmentId = $this->createPendingReceipt(null, null, '2026-10-01 12:00:00');
+
+        $this->parserFactory->iban = $this->account->iban;
+        $this->parserFactory->lines = [$this->line('R1', '2026-10-02', -10.0, 'Achat')];
+
+        $this->service->import($this->account, 'bnp', $this->tmpCsvFile(), 'a.csv', 1000.0, 1);
+
+        $this->assertSame([], $this->transactionAttachmentRepository->findTransactionIdsForAttachment($attachmentId));
     }
 }
 

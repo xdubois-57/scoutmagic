@@ -44,6 +44,9 @@
                     <div>
                         {% if row.is_pending %}
                             <span class="badge text-bg-warning">En attente</span>
+                            {% if attachment.matchingAiAttemptedAt %}
+                                <span class="badge text-bg-secondary" title="Le rapprochement automatique par IA a déjà été tenté pour ce reçu, sans résultat certain.">IA : aucun mouvement trouvé</span>
+                            {% endif %}
                         {% else %}
                             <span class="badge text-bg-success">{{ row.movement_count }} mouvement(s) lié(s)</span>
                         {% endif %}

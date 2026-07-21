@@ -909,9 +909,16 @@ if (in_array('finance', $moduleManager->getEnabledModuleIds(), true)) {
     );
     $financeRuleEngine = new \Modules\Finance\Service\CategoryRuleEngine($financeTransactionRepo, $financeCategoryRuleRepo);
     $financeParserFactory = new \Modules\Finance\Parser\BankStatementParserFactory();
+    // Optional dependency on the llm_connector module (ARCHITECTURE.md
+    // §7.5), same instance reused for RGPD content generation above —
+    // the AI-assisted matching fallback degrades to rule-based-only
+    // whenever it's null/unavailable.
+    $financeReceiptMatchingService = new \Modules\Finance\Service\ReceiptMatchingService(
+        $financeAttachmentRepo, $financeTransactionRepo, $financeTransactionAttachmentRepo, $journalService, $llmConnectorForRgpd
+    );
     $financeImportService = new \Modules\Finance\Service\ImportService(
         $pdo, $encryptionService, $financeParserFactory, $financeTransactionRepo, $financeCheckpointRepo,
-        $financeStatementImportRepo, $financeFiscalYearRepo, $financeRuleEngine, $financeBalanceService
+        $financeStatementImportRepo, $financeFiscalYearRepo, $financeRuleEngine, $financeBalanceService, $financeReceiptMatchingService
     );
     $financeEncryptedFileStorage = new \Core\File\EncryptedFileStorageService($fileRepository, $encryptionService, $storagePath);
     $financeReceiptService = new \Modules\Finance\Service\ReceiptService(

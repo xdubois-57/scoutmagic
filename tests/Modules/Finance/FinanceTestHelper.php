@@ -102,6 +102,7 @@ class FinanceTestHelper
             suggested_date TEXT,
             suggested_label TEXT,
             suggested_source TEXT,
+            matching_ai_attempted_at TEXT,
             status TEXT NOT NULL DEFAULT \'active\',
             parent_attachment_id INTEGER,
             uploaded_by INTEGER,
