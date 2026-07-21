@@ -75,7 +75,9 @@ class ExtractReceiptDataHandler implements TaskHandlerInterface
             prompt: 'Extrait le montant total, la date, le nom du commerçant, et une description en une phrase '
                 . "de l'objet de cet achat (par exemple « Achat de fournitures de bureau » ou « Cotisation "
                 . 'trimestrielle ») à partir de ce reçu ou de cette facture. '
-                . 'La date doit être au format AAAA-MM-JJ (ISO 8601), par exemple 2026-10-27.',
+                . 'La date doit être au format AAAA-MM-JJ (ISO 8601), par exemple 2026-10-27. '
+                . 'La description doit être rédigée en français et ne doit jamais mentionner ou répéter le nom '
+                . 'du commerçant (déjà fourni séparément) — elle doit porter uniquement sur la nature de l\'achat.',
             attachments: [['data' => base64_encode($content), 'mime_type' => $attachment->mimeType]],
             responseSchema: [
                 'type' => 'object',
@@ -83,7 +85,11 @@ class ExtractReceiptDataHandler implements TaskHandlerInterface
                     'amount' => ['type' => 'number'],
                     'date' => ['type' => 'string', 'description' => 'Date au format ISO 8601 AAAA-MM-JJ, par exemple 2026-10-27.'],
                     'merchant' => ['type' => 'string'],
-                    'description' => ['type' => 'string', 'description' => "Description en une phrase de l'objet de l'achat."],
+                    'description' => [
+                        'type' => 'string',
+                        'description' => "Description en une phrase, en français, de la nature de l'achat — "
+                            . 'sans jamais mentionner le nom du commerçant.',
+                    ],
                 ],
                 'required' => ['amount', 'date', 'merchant', 'description'],
             ]
@@ -110,6 +116,9 @@ class ExtractReceiptDataHandler implements TaskHandlerInterface
         $description = isset($parsed['description']) && is_string($parsed['description']) && trim($parsed['description']) !== ''
             ? mb_substr(trim($parsed['description']), 0, 500)
             : null;
+        if ($description !== null && $merchant !== null) {
+            $description = $this->stripMerchantName($description, $merchant);
+        }
 
         if ($amount === null && $date === null && $merchant === null && $description === null) {
             $this->logFailure($context, $attachmentId, 'Aucune donnée exploitable dans la réponse IA.');
@@ -186,6 +195,28 @@ class ExtractReceiptDataHandler implements TaskHandlerInterface
         }
 
         return sprintf('%04d-%02d-%02d', $year, $month, $day);
+    }
+
+    /**
+     * The prompt already instructs the model never to mention the
+     * merchant name in the description — this is the safety net for
+     * when it does anyway (the same lesson as normalizeDate(): a
+     * requested constraint on model output is never fully guaranteed).
+     * Falls back to the untouched description if removing the merchant
+     * name would leave nothing usable behind.
+     */
+    private function stripMerchantName(string $description, string $merchant): string
+    {
+        $pattern = '/' . preg_quote($merchant, '/') . '/iu';
+        $stripped = preg_replace($pattern, '', $description);
+        if ($stripped === null) {
+            return $description;
+        }
+
+        $stripped = preg_replace('/\s{2,}/', ' ', $stripped) ?? $stripped;
+        $stripped = trim($stripped, " \t\n\r\0\x0B.,;:-–—");
+
+        return $stripped !== '' ? $stripped : $description;
     }
 
     private function logFailure(TaskContext $context, int $attachmentId, string $reason): void

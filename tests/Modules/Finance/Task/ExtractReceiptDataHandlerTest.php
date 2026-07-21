@@ -228,6 +228,42 @@ class ExtractReceiptDataHandlerTest extends TestCase
         $this->assertNull($this->normalizeDate(''));
     }
 
+    private function stripMerchantName(string $description, string $merchant): string
+    {
+        $method = new \ReflectionMethod(ExtractReceiptDataHandler::class, 'stripMerchantName');
+        $method->setAccessible(true);
+
+        return $method->invoke(new ExtractReceiptDataHandler(), $description, $merchant);
+    }
+
+    public function testStripMerchantNameRemovesExactOccurrence(): void
+    {
+        $result = $this->stripMerchantName('Achat de nourriture chez Delhaize', 'Delhaize');
+
+        $this->assertSame('Achat de nourriture chez', $result);
+    }
+
+    public function testStripMerchantNameIsCaseInsensitive(): void
+    {
+        $result = $this->stripMerchantName('Achat de nourriture chez DELHAIZE', 'Delhaize');
+
+        $this->assertStringNotContainsStringIgnoringCase('delhaize', $result);
+    }
+
+    public function testStripMerchantNameLeavesDescriptionUntouchedWhenAbsent(): void
+    {
+        $result = $this->stripMerchantName('Achat de fournitures de bureau', 'Delhaize');
+
+        $this->assertSame('Achat de fournitures de bureau', $result);
+    }
+
+    public function testStripMerchantNameFallsBackToOriginalWhenNothingWouldRemain(): void
+    {
+        $result = $this->stripMerchantName('Delhaize', 'Delhaize');
+
+        $this->assertSame('Delhaize', $result);
+    }
+
     private function createLlmTables(): void
     {
         $this->pdo->exec('CREATE TABLE llm_providers (
