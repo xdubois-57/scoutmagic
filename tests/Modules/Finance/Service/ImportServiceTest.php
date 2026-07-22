@@ -4,14 +4,19 @@ declare(strict_types=1);
 
 namespace Tests\Modules\Finance\Service;
 
+use Core\Config\SettingRepository;
+use Core\Config\SettingService;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
+use Core\Scheduler\SchedulerRepository;
+use Core\Scheduler\SchedulerService;
 use Core\Security\EncryptionService;
 use Modules\Finance\Parser\BankStatementParserFactory;
 use Modules\Finance\Parser\BankStatementParserInterface;
 use Modules\Finance\Parser\StatementLine;
 use Modules\Finance\Repository\Account;
 use Modules\Finance\Repository\AccountRepository;
+use Modules\Finance\Repository\AiCategorySuggestionRepository;
 use Modules\Finance\Repository\Attachment;
 use Modules\Finance\Repository\AttachmentRepository;
 use Modules\Finance\Repository\BalanceCheckpointRepository;
@@ -21,7 +26,9 @@ use Modules\Finance\Repository\FiscalYearRepository;
 use Modules\Finance\Repository\StatementImportRepository;
 use Modules\Finance\Repository\TransactionAttachmentRepository;
 use Modules\Finance\Repository\TransactionRepository;
+use Modules\Finance\Service\AiCategorizationService;
 use Modules\Finance\Service\BalanceService;
+use Modules\Finance\Service\BulkCategorizationService;
 use Modules\Finance\Service\CategoryRuleEngine;
 use Modules\Finance\Service\FinanceException;
 use Modules\Finance\Service\ImportService;
@@ -46,6 +53,7 @@ class ImportServiceTest extends TestCase
     private AttachmentRepository $attachmentRepository;
     private TransactionAttachmentRepository $transactionAttachmentRepository;
     private FakeBankStatementParserFactory $parserFactory;
+    private BulkCategorizationService $bulkCategorizationService;
     private Account $account;
 
     protected function setUp(): void
@@ -72,10 +80,18 @@ class ImportServiceTest extends TestCase
             new JournalService(new JournalRepository($this->pdo))
         );
 
+        $settingService = new SettingService(new SettingRepository($this->pdo));
+        $aiService = new AiCategorizationService(
+            null, $this->categoryRepository, new AiCategorySuggestionRepository($this->pdo), new JournalService(new JournalRepository($this->pdo))
+        );
+        $this->bulkCategorizationService = new BulkCategorizationService(
+            $this->transactionRepository, $ruleEngine, $aiService, $settingService, new SchedulerService(new SchedulerRepository($this->pdo))
+        );
+
         $this->service = new ImportService(
             $this->pdo, $encryption, $this->parserFactory, $this->transactionRepository,
             $this->checkpointRepository, $statementImportRepository, $this->fiscalYearRepository, $ruleEngine, $balanceService,
-            $receiptMatchingService
+            $receiptMatchingService, $this->bulkCategorizationService
         );
 
         $accountId = $this->accountRepository->create('Compte', Account::TYPE_BANK, null, 'BE00000000000001', 'Titulaire', 'intendant');
@@ -220,6 +236,30 @@ class ImportServiceTest extends TestCase
 
         $transaction = $this->transactionRepository->findByAccountId($this->account->id)[0];
         $this->assertSame($categoryId, $transaction->categoryId);
+    }
+
+    public function testImportSchedulesBackgroundCategorizationRunWhenNewLinesAreInserted(): void
+    {
+        $this->parserFactory->iban = $this->account->iban;
+        $this->parserFactory->lines = [$this->line('R1', '2026-10-01', -10.0, 'Achat 1')];
+
+        $this->service->import($this->account, 'bnp', $this->tmpCsvFile(), 'a.csv', 1000.0, 1);
+
+        $this->assertTrue($this->bulkCategorizationService->isRunning());
+    }
+
+    public function testImportDoesNotScheduleBackgroundRunWhenEverythingWasADuplicate(): void
+    {
+        $this->parserFactory->iban = $this->account->iban;
+        $this->parserFactory->lines = [$this->line('R1', '2026-10-01', -10.0, 'Achat 1')];
+        $this->service->import($this->account, 'bnp', $this->tmpCsvFile(), 'a.csv', 1000.0, 1);
+        // Clear the flag the first (real) import set, so the second
+        // (all-duplicate) import's own behavior can be observed cleanly.
+        $this->bulkCategorizationService->runInBackground();
+
+        $this->service->import($this->account, 'bnp', $this->tmpCsvFile(), 'b.csv', null, 1);
+
+        $this->assertFalse($this->bulkCategorizationService->isRunning());
     }
 
     public function testThrowsWhenNoFiscalYearCoversDateAndRollsBackWholeImport(): void

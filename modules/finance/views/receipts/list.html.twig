@@ -7,6 +7,12 @@
 
     {% include '@finance/_nav.html.twig' with {'hide_account_picker': true} %}
 
+    <p class="text-body-secondary small mb-3">
+        Gérez ici les reçus et justificatifs de dépense du compte sélectionné : ajoutez-les (individuellement ou
+        plusieurs à la fois), associez-les aux mouvements correspondants, et suivez ceux qui attendent encore
+        d'être traités.
+    </p>
+
     {% if no_accounts %}
         <p class="text-body-secondary fst-italic">Aucun compte visible pour votre rôle.</p>
     {% else %}
@@ -15,7 +21,7 @@
         <a href="/finance/receipts/new?account_id={{ selected_account.id }}" class="btn btn-sm btn-primary">Ajouter un reçu</a>
     </div>
 
-    <div class="row g-2 align-items-center mb-3">
+    <div class="row g-2 align-items-end mb-3">
         <div class="col-6 col-md-3">
             <label class="form-label small" for="receipts-account">Compte</label>
             <select class="form-select form-select-sm" id="receipts-account">
@@ -24,15 +30,21 @@
                 {% endfor %}
             </select>
         </div>
-        <div class="col-12 col-md-6">
+        <div class="col-12 col-md-5">
             <label class="form-label small" for="receipts-search">Recherche</label>
             <input type="text" class="form-control form-control-sm" id="receipts-search" placeholder="Rechercher (nom de fichier, commerçant, description, date, montant...)" value="{{ search }}">
         </div>
         <div class="col-auto">
+            <label class="form-label small d-block">&nbsp;</label>
             <div class="form-check">
                 <input type="checkbox" class="form-check-input" id="receipts-pending-only" {{ pending_only ? 'checked' : '' }}>
                 <label class="form-check-label small" for="receipts-pending-only">En attente uniquement</label>
             </div>
+        </div>
+        <div class="col-auto">
+            <label class="form-label small d-block">&nbsp;</label>
+            <button type="button" class="btn btn-sm btn-primary" id="receipts-filter-btn">Filtrer</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="receipts-reset-btn">Réinitialiser</button>
         </div>
     </div>
 
@@ -199,6 +211,18 @@ document.getElementById('receipts-account').addEventListener('change', (e) => {
     window.location.href = '/finance/receipts?account_id=' + e.target.value;
 });
 
+document.getElementById('receipts-filter-btn').addEventListener('click', () => {
+    clearTimeout(searchTimeout);
+    fetchReceipts(1);
+});
+
+document.getElementById('receipts-reset-btn').addEventListener('click', () => {
+    clearTimeout(searchTimeout);
+    document.getElementById('receipts-search').value = '';
+    document.getElementById('receipts-pending-only').checked = false;
+    fetchReceipts(1);
+});
+
 function bindGridEvents() {
     document.querySelectorAll('#receipts-grid .page-link').forEach(link => {
         link.addEventListener('click', (e) => {
@@ -267,7 +291,7 @@ async function runAssociateSearch(query) {
         const btn = document.createElement('button');
         btn.type = 'button';
         btn.className = 'btn btn-sm btn-outline-secondary text-start';
-        btn.textContent = m.date + ' — ' + m.label + ' — ' + m.amount.toFixed(2) + ' €';
+        btn.textContent = m.date + ' — ' + m.description + ' — ' + m.amount.toFixed(2) + ' €';
         btn.addEventListener('click', () => associateWithMovement(m.id));
         results.appendChild(btn);
     });
@@ -302,7 +326,7 @@ async function loadMovements(attachmentId) {
         data.movements.forEach(m => {
             const row = document.createElement('div');
             row.className = 'd-flex align-items-center gap-2 border rounded p-2';
-            row.innerHTML = '<div class="flex-grow-1">' + escapeHtml(m.date) + ' — ' + escapeHtml(m.label)
+            row.innerHTML = '<div class="flex-grow-1">' + escapeHtml(m.date) + ' — ' + escapeHtml(m.description)
                 + ' — ' + formatAmount(m.amount) + ' €</div>'
                 + '<button type="button" class="btn btn-sm btn-outline-danger unlink-movement-btn" data-transaction-id="' + m.id + '">Délier</button>';
             list.appendChild(row);

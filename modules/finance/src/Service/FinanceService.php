@@ -11,6 +11,7 @@ use Modules\Finance\Repository\Account;
 use Modules\Finance\Repository\AccountRepository;
 use Modules\Finance\Repository\Category;
 use Modules\Finance\Repository\CategoryRepository;
+use Modules\Finance\Repository\CategoryRule;
 use Modules\Finance\Repository\CategoryRuleRepository;
 use Modules\Finance\Repository\FiscalYear;
 use Modules\Finance\Repository\FiscalYearRepository;
@@ -37,16 +38,29 @@ class FinanceService
      * see ensureDefaultCategories(). An admin is free to rename,
      * deactivate, or delete any of these afterward; they are never
      * re-created once removed (matched by name at ensure time only, and
-     * only that one time).
+     * only that one time). The description on each is what
+     * Service\AiCategorizationService actually sends the model — a short
+     * name alone rarely disambiguates well enough on its own.
+     *
+     * @var array<string, string>
      */
-    private const DEFAULT_CATEGORY_NAMES = [
-        "Fête d'unité", 'Camp été', 'Weekend de section', 'Grande journée', 'Formations',
-        'Calendriers', 'Matériel', 'Locaux', 'Subsides', 'Cotisations',
+    private const DEFAULT_CATEGORY_DESCRIPTIONS = [
+        "Fête d'unité" => "Dépenses et recettes de la fête d'unité annuelle (repas, animations, matériel, décoration).",
+        'Camp été' => 'Dépenses et recettes du camp d\'été (nourriture, transport, hébergement, activités).',
+        'Weekend de section' => 'Dépenses et recettes des weekends organisés par une section.',
+        'Grande journée' => "Dépenses et recettes de la grande journée d'activités de la section.",
+        'Formations' => 'Frais de formation des animateurs (BAFA, formations fédérales, brevets, etc.).',
+        'Calendriers' => 'Dépenses et recettes de la vente annuelle de calendriers.',
+        'Matériel' => 'Achat et entretien du matériel scout (camp, pharmacie, jeux, bricolage).',
+        'Locaux' => "Frais liés aux locaux de l'unité (loyer, entretien, charges, assurance du bâtiment).",
+        'Subsides' => 'Subsides et subventions reçus (commune, fédération, autres organismes).',
+        'Cotisations' => 'Cotisations annuelles payées par les membres.',
+        "Temps d'Unité (TU)" => "Dépenses et recettes du Temps d'Unité (TU), un weekend annuel de formation des animateurs vécu en unité.",
     ];
 
     /**
-     * Auto-categorization rules seeded alongside DEFAULT_CATEGORY_NAMES
-     * (ensureDefaultCategories()) and restorable on demand
+     * Auto-categorization rules seeded alongside
+     * DEFAULT_CATEGORY_DESCRIPTIONS's categories (ensureDefaultCategories()) and restorable on demand
      * (resetDefaultCategoryRules(), the config page's "Réinitialiser les
      * règles par défaut" button) — adapted from a similar unit's own
      * hand-tuned rule set (keyword patterns observed to actually appear
@@ -54,10 +68,10 @@ class FinanceService
      * generic enough to be a sensible starting point for any unit rather
      * than specific to that one (e.g. their own site/vendor names, IBANs,
      * and month-restricted catch-alls were left out). "Locaux" has no
-     * equivalent in that source and gets no seeded rule. Every pattern
-     * targets un-accented text — Belgian bank exports routinely strip
-     * accents from labels, and CategoryRuleEngine's matching isn't
-     * accent-folding, so an accented pattern would silently never match.
+     * equivalent in that source and gets no seeded rule. Every pattern is
+     * written un-accented — CategoryRuleEngine folds accents on both
+     * sides before matching, so this is just for readability, not a
+     * requirement.
      *
      * @var array<string, string[]>
      */
@@ -71,6 +85,7 @@ class FinanceService
         'Matériel' => ['materiel', 'pharmacie'],
         'Subsides' => ['subside|subvention'],
         'Cotisations' => ['cotisation', 'quadri'],
+        "Temps d'Unité (TU)" => ['temps\\s*d.{0,3}u', '(^|\\s)tu(\\s|\\d|$)'],
     ];
 
     private const SEEDED_SETTING_KEY = 'categories_seeded';
@@ -170,46 +185,109 @@ class FinanceService
                 $section['id'],
                 null,
                 null,
-                Role::INTENDANT->value
+                Role::INTENDANT->value,
+                isDefault: true
             );
+        }
+
+        $this->backfillDefaultAccountFlag();
+    }
+
+    /**
+     * An account tied to a section, created before is_default existed,
+     * never got the flag set — backfilled here by the same signal
+     * ensureDefaultAccountsForSections() itself uses to decide "does
+     * this section already have one" (section_id not null), matched
+     * every call rather than once, same idempotent-backfill precedent as
+     * Service\FinanceService::backfillMissingDefaultMetadata() for
+     * categories. Never touches an account already correctly flagged.
+     */
+    private function backfillDefaultAccountFlag(): void
+    {
+        foreach ($this->accountRepository->findAllOrdered() as $account) {
+            if (!$account->isDefault && $account->sectionId !== null) {
+                $this->accountRepository->markDefault($account->id);
+            }
         }
     }
 
     /**
-     * Seeds DEFAULT_CATEGORY_NAMES the first time the categories page is
-     * ever opened, tracked by the internal SEEDED_SETTING_KEY flag rather
-     * than "the table happens to be empty right now" (a bug: an admin who
-     * deletes every category — the whole point of being able to delete a
-     * default category at all — would otherwise see the entire default
-     * set silently resurrected the next time this page loads, undoing
-     * every deletion, not just the defaults'). Unlike
-     * ensureDefaultAccountsForSections() this deliberately does NOT
-     * re-merge by name on every load, because a category has no stable
-     * identity besides its name: matching by name forever would silently
-     * resurrect a default category an admin had renamed or deleted on
-     * purpose. A no-op once the flag is set, which happens exactly once.
+     * Every account's "Virement <compte>" system category/rule normally
+     * follows Service\AccountTransferCategoryService::sync() automatically
+     * on every create/update/activate/deactivate — this catches drift for
+     * an account that became eligible (active + IBAN) some other way, or
+     * before this bookkeeping existed. Called on every categories config
+     * page load, same idempotent-ensure precedent as
+     * ensureDefaultCategories() — sync() itself is a no-op for an account
+     * whose category/rule are already correct.
+     */
+    public function ensureAccountTransferRules(): void
+    {
+        foreach ($this->accountRepository->findAllOrdered() as $account) {
+            $this->accountTransferCategoryService->sync($account);
+        }
+    }
+
+    /**
+     * Seeds DEFAULT_CATEGORY_DESCRIPTIONS's categories the first time the
+     * categories page is ever opened, tracked by the internal
+     * SEEDED_SETTING_KEY flag rather than "the table happens to be empty
+     * right now" (a bug: an admin who deletes every category — the whole
+     * point of being able to delete a default category at all — would
+     * otherwise see the entire default set silently resurrected the next
+     * time this page loads, undoing every deletion, not just the
+     * defaults'). Unlike ensureDefaultAccountsForSections() this
+     * deliberately does NOT re-merge by name on every load, because a
+     * category has no stable identity besides its name: matching by name
+     * forever would silently resurrect a default category an admin had
+     * renamed or deleted on purpose. The seed-once block is a no-op once
+     * the flag is set, which happens exactly once — but
+     * backfillMissingDefaultMetadata() below it always runs, so an
+     * installation whose default categories already existed before
+     * description/is_default were introduced still gets them filled in.
      */
     public function ensureDefaultCategories(): void
     {
-        if ($this->settingService->get(self::SEEDED_SETTING_KEY, 'finance', '0') === '1') {
-            return;
+        if ($this->settingService->get(self::SEEDED_SETTING_KEY, 'finance', '0') !== '1') {
+            if ($this->categoryRepository->findAllOrdered() === []) {
+                foreach (self::DEFAULT_CATEGORY_DESCRIPTIONS as $name => $description) {
+                    $this->categoryRepository->create($name, $description, isDefault: true);
+                }
+            }
+
+            // Not gated behind the block above: on an existing
+            // installation upgrading into this feature, the default
+            // categories already exist from a previous run (so the block
+            // above is skipped) but never got default rules — this still
+            // finds them by name and seeds rules for them, exactly once.
+            $this->seedDefaultCategoryRules();
+
+            $this->settingService->register(self::SEEDED_SETTING_KEY, '0', 'boolean', 'Catégories par défaut initialisées', 'Indicateur interne — ne pas modifier.', 'finance', null, null, false);
+            $this->settingService->setInternal(self::SEEDED_SETTING_KEY, '1', 'finance');
         }
 
-        if ($this->categoryRepository->findAllOrdered() === []) {
-            foreach (self::DEFAULT_CATEGORY_NAMES as $name) {
-                $this->categoryRepository->create($name);
+        $this->backfillMissingDefaultMetadata();
+    }
+
+    /**
+     * A default category created before description/is_default existed
+     * (or recreated by name-match resetDefaultCategories() before that
+     * category's own DEFAULT_CATEGORY_DESCRIPTIONS entry could be
+     * attached) has an empty description and is_default = 0 — this fills
+     * both in, matched by name, without touching a description an admin
+     * has since written themselves (only ever touches a still-blank one).
+     */
+    private function backfillMissingDefaultMetadata(): void
+    {
+        foreach ($this->categoryRepository->findAllOrdered() as $category) {
+            if ($category->description !== '') {
+                continue;
+            }
+            $description = self::DEFAULT_CATEGORY_DESCRIPTIONS[$category->name] ?? null;
+            if ($description !== null) {
+                $this->categoryRepository->backfillDefaultMetadata($category->id, $description);
             }
         }
-
-        // Not gated behind the block above: on an existing installation
-        // upgrading into this feature, the default categories already
-        // exist from a previous run (so the block above is skipped) but
-        // never got default rules — this still finds them by name and
-        // seeds rules for them, exactly once.
-        $this->seedDefaultCategoryRules();
-
-        $this->settingService->register(self::SEEDED_SETTING_KEY, '0', 'boolean', 'Catégories par défaut initialisées', 'Indicateur interne — ne pas modifier.', 'finance', null, null, false);
-        $this->settingService->setInternal(self::SEEDED_SETTING_KEY, '1', 'finance');
     }
 
     /**
@@ -219,32 +297,60 @@ class FinanceService
      * without touching an admin's own custom rules or a category renamed
      * away from its default name (silently skipped, same as
      * seedDefaultCategoryRules() — matched by name, not stable identity).
+     * Also re-groups every is_default rule right after the (always-first,
+     * untouched here) is_system rules, ahead of every custom rule — an
+     * admin may have drag-and-drop-reordered a default rule below their
+     * own custom ones since, and "reset" restores the whole default set's
+     * priority as a group, not just its content.
      */
     public function resetDefaultCategoryRules(): void
     {
         $this->categoryRuleRepository->deleteAllDefault();
         $this->seedDefaultCategoryRules();
+        $this->moveDefaultRulesToTop();
     }
 
     /**
-     * Re-creates whichever of DEFAULT_CATEGORY_NAMES is currently missing
-     * — the config page's "Réinitialiser les catégories par défaut"
-     * button, for undoing an accidental (or since-regretted) deletion of
-     * one of them. Same name-matching caveat as everywhere else in this
-     * class: a default category an admin renamed rather than deleted
-     * looks identical to a deleted one from here, and gets a fresh
-     * same-named category recreated alongside it. Never touches a
-     * default category that's still present, so it never duplicates that
-     * one's rules.
+     * @see resetDefaultCategoryRules(). System rules keep their own fixed
+     * (very negative) priority untouched — CategoryRuleRepository::
+     * reorder() is only ever given non-system rule ids, same as
+     * Controller\ConfigRuleController's own "reorder" action. usort() is
+     * stable (PHP 8+), so rules within the default group, and within the
+     * remaining custom group, keep their existing relative order —
+     * default rules simply move up as a block.
+     */
+    private function moveDefaultRulesToTop(): void
+    {
+        $nonSystemRules = array_values(array_filter(
+            $this->categoryRuleRepository->findAllOrderedByPriority(),
+            fn(CategoryRule $rule) => !$rule->isSystem
+        ));
+
+        usort($nonSystemRules, fn(CategoryRule $a, CategoryRule $b) => ($b->isDefault ? 1 : 0) <=> ($a->isDefault ? 1 : 0));
+
+        $this->categoryRuleRepository->reorder(array_map(fn(CategoryRule $rule) => $rule->id, $nonSystemRules));
+    }
+
+    /**
+     * Re-creates whichever of DEFAULT_CATEGORY_DESCRIPTIONS's categories
+     * is currently missing — the config page's "Réinitialiser les
+     * catégories par défaut" button, for undoing an accidental (or
+     * since-regretted) deletion of one of them. Same name-matching
+     * caveat as everywhere else in this class: a default category an
+     * admin renamed rather than deleted looks identical to a deleted one
+     * from here, and gets a fresh same-named category recreated
+     * alongside it. Never touches a default category that's still
+     * present, so it never duplicates that one's rules or overwrites an
+     * admin-edited description.
      */
     public function resetDefaultCategories(): void
     {
         $existingNames = array_map(fn(Category $category) => $category->name, $this->categoryRepository->findAllOrdered());
 
         $recreatedNames = [];
-        foreach (self::DEFAULT_CATEGORY_NAMES as $name) {
+        foreach (self::DEFAULT_CATEGORY_DESCRIPTIONS as $name => $description) {
             if (!in_array($name, $existingNames, true)) {
-                $this->categoryRepository->create($name);
+                $this->categoryRepository->create($name, $description, isDefault: true);
                 $recreatedNames[] = $name;
             }
         }
@@ -295,6 +401,7 @@ class FinanceService
         string $roleMinView
     ): Account {
         $this->validateAccountFields($name, $accountType, $roleMinView);
+        [$iban, $holderName] = $this->normalizeBankFields($accountType, $iban, $holderName);
         $id = $this->accountRepository->create($name, $accountType, $sectionId, $iban, $holderName, $roleMinView);
         $this->activateIfEligible($id);
         $account = $this->accountRepository->findById($id);
@@ -315,10 +422,29 @@ class FinanceService
         ?string $holderName,
         string $roleMinView
     ): Account {
-        if ($this->accountRepository->findById($id) === null) {
+        $existing = $this->accountRepository->findById($id);
+        if ($existing === null) {
             throw new FinanceException('Compte introuvable.');
         }
+        if ($existing->isDefault) {
+            // A default (one-per-section) account's identity is fixed at
+            // creation time by ensureDefaultAccountsForSections() — the
+            // config page's edit dialog disables these three fields for
+            // such an account; this is the server-side backstop for a
+            // request crafted directly against the endpoint. IBAN,
+            // holder, role_min_view, and active/inactive stay editable.
+            $name = $existing->name;
+            $accountType = $existing->accountType;
+            $sectionId = $existing->sectionId;
+        }
         $this->validateAccountFields($name, $accountType, $roleMinView);
+        [$iban, $holderName] = $this->normalizeBankFields($accountType, $iban, $holderName);
+        if ($accountType === Account::TYPE_CASH) {
+            // update()'s null-means-preserve contract would otherwise
+            // leave a previously-set IBAN/holder in place — see
+            // Repository\AccountRepository::clearBankDetails().
+            $this->accountRepository->clearBankDetails($id);
+        }
         $this->accountRepository->update($id, $name, $accountType, $sectionId, $iban, $holderName, $roleMinView);
         $this->activateIfEligible($id);
         $account = $this->accountRepository->findById($id);
@@ -354,15 +480,33 @@ class FinanceService
     }
 
     /**
-     * @throws FinanceException when the account is unknown
+     * The config page's activate/deactivate toggle (mirrors Category's
+     * own setCategoryActive()) — fully reversible either direction,
+     * unlike the old one-way "archive". Re-syncs the account's own
+     * "Virement <compte>" transfer category either way (Service\
+     * AccountTransferCategoryService::sync() already knows to remove it
+     * for a non-active account and (re)create it for an eligible active
+     * one).
+     *
+     * @throws FinanceException when the account is unknown, or an
+     *                           attempt to activate one that's still
+     *                           draft (no IBAN/holder yet) — it must
+     *                           reach STATUS_ACTIVE the normal way, once
+     *                           eligible (activateIfEligible())
      */
-    public function archiveAccount(int $id): void
+    public function setAccountActive(int $id, bool $active): void
     {
-        if ($this->accountRepository->findById($id) === null) {
+        $account = $this->accountRepository->findById($id);
+        if ($account === null) {
             throw new FinanceException('Compte introuvable.');
         }
-        $this->accountRepository->updateStatus($id, Account::STATUS_ARCHIVED);
-        $this->accountTransferCategoryService->removeFor($id);
+        if ($active && $account->status === Account::STATUS_DRAFT) {
+            throw new FinanceException("Ce compte n'a pas encore d'IBAN et de titulaire — il ne peut pas être activé manuellement.");
+        }
+        $this->accountRepository->updateStatus($id, $active ? Account::STATUS_ACTIVE : Account::STATUS_INACTIVE);
+        $updated = $this->accountRepository->findById($id);
+        \assert($updated !== null);
+        $this->accountTransferCategoryService->sync($updated);
     }
 
     private function validateAccountFields(string $name, string $accountType, string $roleMinView): void
@@ -379,6 +523,37 @@ class FinanceService
         if (!in_array($roleMinView, self::VALID_ROLE_MIN_VIEW, true)) {
             throw new FinanceException("Le rôle minimum de visualisation doit être 'intendant', 'chief' ou 'admin'.");
         }
+    }
+
+    /**
+     * A cash account ("caisse") has no bank details at all — whatever the
+     * client posted for iban/holder_name is discarded server-side rather
+     * than trusted, since the config page only disables those fields in
+     * the UI (Controller\ConfigAccountController), which a direct request
+     * to the endpoint could bypass. A bank account's IBAN, if provided, is
+     * normalized (uppercase, no spaces) and must be a real, checksum-valid
+     * IBAN (Service\IbanNormalizer) — unlike a rule's counterparty account
+     * condition, an account's own IBAN is never a deliberate fragment.
+     *
+     * @return array{0: ?string, 1: ?string}
+     */
+    private function normalizeBankFields(string $accountType, ?string $iban, ?string $holderName): array
+    {
+        if ($accountType === Account::TYPE_CASH) {
+            return [null, null];
+        }
+
+        if ($iban !== null && trim($iban) !== '') {
+            $normalizedIban = IbanNormalizer::normalize($iban);
+            if (!IbanNormalizer::isValidFullIban($normalizedIban)) {
+                throw new FinanceException("L'IBAN saisi n'est pas valide.");
+            }
+            $iban = $normalizedIban;
+        } else {
+            $iban = null;
+        }
+
+        return [$iban, $holderName];
     }
 
     // --- Categories ---
@@ -400,33 +575,48 @@ class FinanceService
     }
 
     /**
-     * @throws FinanceException on an empty name
+     * description is mandatory — it's what Service\AiCategorizationService
+     * actually sends the model to help it tell categories apart, and a
+     * short name alone is rarely enough for that on its own.
+     *
+     * @throws FinanceException on an empty name or description
      */
-    public function createCategory(string $name): Category
+    public function createCategory(string $name, string $description): Category
     {
-        $name = trim($name);
-        if ($name === '') {
-            throw new FinanceException('Le nom de la catégorie est obligatoire.');
-        }
-        $id = $this->categoryRepository->create($name);
+        [$name, $description] = $this->validateCategoryFields($name, $description);
+        $id = $this->categoryRepository->create($name, $description);
         $category = $this->categoryRepository->findById($id);
         \assert($category !== null);
         return $category;
     }
 
     /**
-     * @throws FinanceException on an empty name or unknown category
+     * @throws FinanceException on an empty name/description or unknown category
      */
-    public function updateCategoryName(int $id, string $name): void
+    public function updateCategory(int $id, string $name, string $description): void
     {
         if ($this->categoryRepository->findById($id) === null) {
             throw new FinanceException('Catégorie introuvable.');
         }
+        [$name, $description] = $this->validateCategoryFields($name, $description);
+        $this->categoryRepository->update($id, $name, $description);
+    }
+
+    /**
+     * @return array{0: string, 1: string}
+     * @throws FinanceException on an empty name or description
+     */
+    private function validateCategoryFields(string $name, string $description): array
+    {
         $name = trim($name);
         if ($name === '') {
             throw new FinanceException('Le nom de la catégorie est obligatoire.');
         }
-        $this->categoryRepository->updateName($id, $name);
+        $description = trim($description);
+        if ($description === '') {
+            throw new FinanceException('La description de la catégorie est obligatoire.');
+        }
+        return [$name, $description];
     }
 
     /**
@@ -441,23 +631,25 @@ class FinanceService
     }
 
     /**
-     * Deleting a category — default or custom — always succeeds: any
-     * transaction referencing it falls back to uncategorized
-     * (category_id = NULL, "Non catégorisé" in the UI) rather than
-     * blocking the deletion, cleared explicitly here instead of relying
-     * on the schema's ON DELETE SET NULL so behavior doesn't depend on
-     * the underlying database engine actually enforcing it. Any
-     * categorization rule that targeted this category is deleted too —
-     * a rule with no category to assign is meaningless.
+     * Deleting a category is blocked while any movement still references
+     * it — the config page disables the delete button in that case
+     * (Controller\ConfigCategoryController::index() passes a per-category
+     * reference count), this is the server-side backstop. A category
+     * with zero references (default or custom) deletes cleanly; any
+     * categorization rule that targeted it is deleted too — a rule with
+     * no category to assign is meaningless.
      *
-     * @throws FinanceException when the category is unknown
+     * @throws FinanceException when the category is unknown, or still referenced by a movement
      */
     public function deleteCategory(int $id): void
     {
-        if ($this->categoryRepository->findById($id) === null) {
+        $category = $this->categoryRepository->findById($id);
+        if ($category === null) {
             throw new FinanceException('Catégorie introuvable.');
         }
-        $this->transactionRepository->clearCategory($id);
+        if ($this->transactionRepository->countByCategoryId($id) > 0) {
+            throw new FinanceException("Cette catégorie est utilisée par des mouvements et ne peut pas être supprimée. Désactivez-la plutôt.");
+        }
         $this->categoryRuleRepository->deleteAllForCategory($id);
         $this->categoryRepository->delete($id);
     }

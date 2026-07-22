@@ -85,6 +85,7 @@ class FinanceRbacTest extends TestCase
     private FileRepository $fileRepository;
     private \Modules\Finance\Service\BulkCategorizationService $bulkCategorizationService;
     private \Modules\Finance\Repository\AiCategorySuggestionRepository $aiSuggestionRepository;
+    private \Modules\Finance\Service\FirstReceiptResolver $firstReceiptResolver;
 
     protected function setUp(): void
     {
@@ -109,6 +110,7 @@ class FinanceRbacTest extends TestCase
         $this->statementImportRepository = $statementImportRepository;
         $this->attachmentRepository = new AttachmentRepository($this->pdo, $encryption);
         $this->transactionAttachmentRepository = new TransactionAttachmentRepository($this->pdo);
+        $this->firstReceiptResolver = new \Modules\Finance\Service\FirstReceiptResolver($this->transactionAttachmentRepository, $this->attachmentRepository);
 
         $this->balanceService = new BalanceService($this->checkpointRepository, $this->transactionRepository);
         $settingService = new \Core\Config\SettingService(new \Core\Config\SettingRepository($this->pdo));
@@ -125,7 +127,7 @@ class FinanceRbacTest extends TestCase
             null, $this->categoryRepository, $aiSuggestionRepository, $this->journalService
         );
         $this->bulkCategorizationService = new \Modules\Finance\Service\BulkCategorizationService(
-            $this->transactionRepository, $this->categoryRuleEngine, $aiCategorizationService, $settingService
+            $this->transactionRepository, $this->categoryRuleEngine, $aiCategorizationService, $settingService, $this->schedulerService
         );
         $this->aiSuggestionRepository = $aiSuggestionRepository;
         $parserFactory = new BankStatementParserFactory();
@@ -135,7 +137,7 @@ class FinanceRbacTest extends TestCase
         $importService = new ImportService(
             $this->pdo, $encryption, $parserFactory, $this->transactionRepository, $this->checkpointRepository,
             $statementImportRepository, $this->fiscalYearRepository, $this->categoryRuleEngine, $this->balanceService,
-            $receiptMatchingService
+            $receiptMatchingService, $this->bulkCategorizationService
         );
         $fileStorage = new EncryptedFileStorageService(new FileRepository($this->pdo), $encryption, sys_get_temp_dir() . '/finance_rbac_test_' . uniqid());
         $this->receiptService = new ReceiptService($this->attachmentRepository, $accountRepository, $this->transactionAttachmentRepository, $fileStorage);
@@ -239,16 +241,18 @@ class FinanceRbacTest extends TestCase
         return match ($name) {
             'DashboardController' => new DashboardController(
                 $this->twig, $this->financeService, $this->balanceService, $this->transactionRepository, $this->receiptService,
-                $this->categoryRepository, $this->attachmentRepository, $this->transactionAttachmentRepository, $this->statementImportRepository
+                $this->categoryRepository, $this->attachmentRepository, $this->transactionAttachmentRepository, $this->statementImportRepository,
+                $this->firstReceiptResolver
             ),
             'MovementController' => new MovementController(
                 $this->twig, $this->financeService, $this->transactionRepository, $this->categoryRepository, $this->fiscalYearRepository,
-                $this->attachmentRepository, $this->transactionAttachmentRepository, $this->receiptService, $this->journalService
+                $this->attachmentRepository, $this->transactionAttachmentRepository, $this->receiptService, $this->receiptExtractionService,
+                $this->firstReceiptResolver, $this->journalService
             ),
             'ImportController' => new ImportController($this->twig, $this->financeService, $this->importService, $this->parserFactory, $this->checkpointRepository),
             'ReceiptController' => new ReceiptController(
                 $this->twig, $this->attachmentRepository, $this->transactionAttachmentRepository, $this->transactionRepository, $this->financeService,
-                $this->receiptService, $this->receiptExtractionService, $this->journalService
+                $this->receiptService, $this->receiptExtractionService, $this->firstReceiptResolver, $this->journalService
             ),
             'ConfigController' => new ConfigController($this->twig, $this->financeService, $this->schedulerService),
             'ConfigAccountController' => new ConfigAccountController(
@@ -256,7 +260,7 @@ class FinanceRbacTest extends TestCase
             ),
             'ConfigCategoryController' => new ConfigCategoryController(
                 $this->twig, $this->financeService, $this->categoryRuleRepository, $this->journalService,
-                $this->aiSuggestionRepository, $this->bulkCategorizationService, false
+                $this->aiSuggestionRepository, $this->bulkCategorizationService, $this->transactionRepository, false
             ),
             'ConfigRuleController' => new ConfigRuleController(
                 $this->twig, $this->categoryRuleRepository, $this->categoryRuleEngine, $this->journalService,

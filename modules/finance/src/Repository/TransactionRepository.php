@@ -191,7 +191,7 @@ class TransactionRepository
      */
     public function clearCategory(int $categoryId): void
     {
-        $stmt = $this->pdo->prepare('UPDATE finance_transactions SET category_id = NULL WHERE category_id = ?');
+        $stmt = $this->pdo->prepare('UPDATE finance_transactions SET category_id = NULL, category_source = NULL WHERE category_id = ?');
         $stmt->execute([$categoryId]);
     }
 
@@ -207,6 +207,39 @@ class TransactionRepository
         return (int) $stmt->fetchColumn();
     }
 
+    /**
+     * Backs Service\FinanceService::deleteCategory()'s "referenced by a
+     * movement" guard.
+     */
+    public function countByCategoryId(int $categoryId): int
+    {
+        $stmt = $this->pdo->prepare('SELECT COUNT(*) FROM finance_transactions WHERE category_id = ?');
+        $stmt->execute([$categoryId]);
+        return (int) $stmt->fetchColumn();
+    }
+
+    /**
+     * Every category currently referenced by at least one movement, with
+     * its count — one GROUP BY query rather than one countByCategoryId()
+     * call per category. Backs the categories config page's disabled
+     * delete button (Controller\ConfigCategoryController::index()).
+     *
+     * @return array<int, int> category_id => count
+     */
+    public function countGroupedByCategory(): array
+    {
+        $stmt = $this->pdo->query(
+            'SELECT category_id, COUNT(*) AS c FROM finance_transactions WHERE category_id IS NOT NULL GROUP BY category_id'
+        );
+        $rows = $stmt !== false ? $stmt->fetchAll(\PDO::FETCH_ASSOC) : [];
+
+        $counts = [];
+        foreach ($rows as $row) {
+            $counts[(int) $row['category_id']] = (int) $row['c'];
+        }
+        return $counts;
+    }
+
     public function create(
         int $accountId,
         int $fiscalYearId,
@@ -220,12 +253,13 @@ class TransactionRepository
         ?string $importedAt,
         ?string $counterpartyName = null,
         ?string $counterpartyAccount = null,
-        ?string $extraDetails = null
+        ?string $extraDetails = null,
+        ?string $categorySource = null
     ): int {
         $stmt = $this->pdo->prepare(
             'INSERT INTO finance_transactions
-                (account_id, fiscal_year_id, bank_reference, transaction_date, label, amount, category_id, comment, counterparty_name, counterparty_account, extra_details, source, imported_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                (account_id, fiscal_year_id, bank_reference, transaction_date, label, amount, category_id, category_source, comment, counterparty_name, counterparty_account, extra_details, source, imported_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([
             $accountId,
@@ -235,6 +269,7 @@ class TransactionRepository
             $this->encryption->encrypt($label),
             $amount,
             $categoryId,
+            $categoryId !== null ? $categorySource : null,
             $comment !== null ? $this->encryption->encrypt($comment) : null,
             $counterpartyName !== null ? $this->encryption->encrypt($counterpartyName) : null,
             $counterpartyAccount !== null ? $this->encryption->encrypt($counterpartyAccount) : null,
@@ -252,7 +287,9 @@ class TransactionRepository
      * silently skip already-known lines). Returns true when a new row was
      * actually inserted, false when it was a duplicate no-op.
      * counterpartyName/counterpartyAccount/extraDetails come straight
-     * from Parser\StatementLine — whatever the bank export provides.
+     * from Parser\StatementLine — whatever the bank export provides. A
+     * $categoryId here only ever comes from Service\CategoryRuleEngine::
+     * apply(), so it's always recorded as category_source = 'auto'.
      */
     public function insertOrSkip(
         int $accountId,
@@ -285,7 +322,8 @@ class TransactionRepository
             (new \DateTimeImmutable())->format('Y-m-d H:i:s'),
             $counterpartyName,
             $counterpartyAccount,
-            $extraDetails
+            $extraDetails,
+            Transaction::CATEGORY_SOURCE_AUTO
         );
         return true;
     }
@@ -293,26 +331,36 @@ class TransactionRepository
     /**
      * Updates only the three fields the movements page ever lets an
      * intendant change — amount/date/label/bank_reference are read-only
-     * bank data (module spec follow-up "itération 3").
+     * bank data (module spec follow-up "itération 3"). Always the
+     * "manual" path (an admin editing the movement by hand), so
+     * category_source follows $categoryId: 'manual' when a category is
+     * being set, NULL alongside a cleared one.
      */
     public function updateEditableFields(int $id, ?int $categoryId, ?string $comment, int $fiscalYearId): void
     {
         $stmt = $this->pdo->prepare(
-            'UPDATE finance_transactions SET category_id = ?, comment = ?, fiscal_year_id = ? WHERE id = ?'
+            'UPDATE finance_transactions SET category_id = ?, category_source = ?, comment = ?, fiscal_year_id = ? WHERE id = ?'
         );
-        $stmt->execute([$categoryId, $comment !== null ? $this->encryption->encrypt($comment) : null, $fiscalYearId, $id]);
+        $stmt->execute([
+            $categoryId,
+            $categoryId !== null ? Transaction::CATEGORY_SOURCE_MANUAL : null,
+            $comment !== null ? $this->encryption->encrypt($comment) : null,
+            $fiscalYearId,
+            $id,
+        ]);
     }
 
     /**
      * Used by Service\BulkCategorizationService's "run the rules on every
-     * uncategorized movement" backfill — touches only category_id,
+     * uncategorized movement" backfill — touches only category_id (and
+     * category_source, always 'auto' here: rules or AI, never a human),
      * unlike updateEditableFields() which also expects a comment/fiscal
      * year to write back.
      */
     public function setCategoryId(int $id, ?int $categoryId): void
     {
-        $stmt = $this->pdo->prepare('UPDATE finance_transactions SET category_id = ? WHERE id = ?');
-        $stmt->execute([$categoryId, $id]);
+        $stmt = $this->pdo->prepare('UPDATE finance_transactions SET category_id = ?, category_source = ? WHERE id = ?');
+        $stmt->execute([$categoryId, $categoryId !== null ? Transaction::CATEGORY_SOURCE_AUTO : null, $id]);
     }
 
     /**
@@ -378,7 +426,8 @@ class TransactionRepository
             importedAt: $row['imported_at'] !== null ? (string) $row['imported_at'] : null,
             counterpartyName: $row['counterparty_name'] !== null ? $this->encryption->decrypt($row['counterparty_name']) : null,
             counterpartyAccount: $row['counterparty_account'] !== null ? $this->encryption->decrypt($row['counterparty_account']) : null,
-            extraDetails: $row['extra_details'] !== null ? $this->encryption->decrypt($row['extra_details']) : null
+            extraDetails: $row['extra_details'] !== null ? $this->encryption->decrypt($row['extra_details']) : null,
+            categorySource: $row['category_source'] !== null ? (string) $row['category_source'] : null
         );
     }
 

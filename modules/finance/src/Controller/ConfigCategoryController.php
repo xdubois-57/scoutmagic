@@ -12,6 +12,7 @@ use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Modules\Finance\Repository\AiCategorySuggestionRepository;
 use Modules\Finance\Repository\CategoryRuleRepository;
+use Modules\Finance\Repository\TransactionRepository;
 use Modules\Finance\Service\BulkCategorizationService;
 use Modules\Finance\Service\FinanceException;
 use Modules\Finance\Service\FinanceService;
@@ -32,6 +33,7 @@ class ConfigCategoryController extends AbstractController
         private JournalService $journalService,
         private AiCategorySuggestionRepository $aiSuggestionRepository,
         private BulkCategorizationService $bulkCategorizationService,
+        private TransactionRepository $transactionRepository,
         private bool $aiModuleEnabled
     ) {
     }
@@ -42,6 +44,7 @@ class ConfigCategoryController extends AbstractController
     public function index(Request $request, array $params): Response
     {
         $this->financeService->ensureDefaultCategories();
+        $this->financeService->ensureAccountTransferRules();
         $categories = $this->financeService->getAllCategories();
 
         $categoriesById = [];
@@ -53,6 +56,7 @@ class ConfigCategoryController extends AbstractController
             'categories' => $categories,
             'active_categories' => $this->financeService->getActiveCategories(),
             'categories_by_id' => $categoriesById,
+            'category_movement_counts' => $this->transactionRepository->countGroupedByCategory(),
             'rules' => $this->ruleRepository->findAllOrderedByPriority(),
             'ai_module_enabled' => $this->aiModuleEnabled,
             'ai_rule_enabled' => $this->bulkCategorizationService->isAiRuleEnabled(),
@@ -75,13 +79,16 @@ class ConfigCategoryController extends AbstractController
         try {
             switch ($action) {
                 case 'create':
-                    $category = $this->financeService->createCategory((string) ($data['name'] ?? ''));
+                    $category = $this->financeService->createCategory(
+                        (string) ($data['name'] ?? ''),
+                        (string) ($data['description'] ?? '')
+                    );
                     $this->journalService->log('finance', 'category_created', 'info', "Catégorie « {$category->name} » créée", ['category_id' => $category->id], AuthSession::getUserAccountId());
                     return $this->json(['success' => true, 'category_id' => $category->id]);
 
                 case 'update':
                     $id = (int) ($data['id'] ?? 0);
-                    $this->financeService->updateCategoryName($id, (string) ($data['name'] ?? ''));
+                    $this->financeService->updateCategory($id, (string) ($data['name'] ?? ''), (string) ($data['description'] ?? ''));
                     $this->journalService->log('finance', 'category_updated', 'info', 'Catégorie modifiée', ['category_id' => $id], AuthSession::getUserAccountId());
                     return $this->json(['success' => true]);
 

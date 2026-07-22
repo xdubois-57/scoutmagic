@@ -16,6 +16,7 @@ use Modules\Finance\Controller\ImportController;
 use Modules\Finance\Parser\BankStatementParserFactory;
 use Modules\Finance\Repository\Account;
 use Modules\Finance\Repository\AccountRepository;
+use Modules\Finance\Repository\AiCategorySuggestionRepository;
 use Modules\Finance\Repository\AttachmentRepository;
 use Modules\Finance\Repository\BalanceCheckpointRepository;
 use Modules\Finance\Repository\CategoryRepository;
@@ -23,12 +24,16 @@ use Modules\Finance\Repository\FiscalYearRepository;
 use Modules\Finance\Repository\StatementImportRepository;
 use Modules\Finance\Repository\TransactionAttachmentRepository;
 use Modules\Finance\Repository\TransactionRepository;
+use Modules\Finance\Service\AiCategorizationService;
 use Modules\Finance\Service\BalanceService;
+use Modules\Finance\Service\BulkCategorizationService;
 use Modules\Finance\Service\CategoryRuleEngine;
 use Modules\Finance\Repository\CategoryRuleRepository;
 use Modules\Finance\Service\FinanceService;
 use Modules\Finance\Service\ImportService;
 use Modules\Finance\Service\ReceiptMatchingService;
+use Core\Scheduler\SchedulerRepository;
+use Core\Scheduler\SchedulerService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Finance\FinanceTestHelper;
@@ -80,10 +85,16 @@ class ImportControllerTest extends TestCase
             new AttachmentRepository($this->pdo, $encryption), $transactionRepository, new TransactionAttachmentRepository($this->pdo),
             new JournalService(new JournalRepository($this->pdo))
         );
+        $aiService = new AiCategorizationService(
+            null, $categoryRepository, new AiCategorySuggestionRepository($this->pdo), new JournalService(new JournalRepository($this->pdo))
+        );
+        $bulkCategorizationService = new BulkCategorizationService(
+            $transactionRepository, $ruleEngine, $aiService, $settingService, new SchedulerService(new SchedulerRepository($this->pdo))
+        );
         $importService = new ImportService(
             $this->pdo, $encryption, $parserFactory, $transactionRepository,
             $this->checkpointRepository, $statementImportRepository, $fiscalYearRepository, $ruleEngine, $balanceService,
-            $receiptMatchingService
+            $receiptMatchingService, $bulkCategorizationService
         );
 
         $templateDir = dirname(__DIR__, 4) . '/core/View/templates';

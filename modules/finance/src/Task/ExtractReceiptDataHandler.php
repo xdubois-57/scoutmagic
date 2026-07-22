@@ -114,25 +114,21 @@ class ExtractReceiptDataHandler implements TaskHandlerInterface
         }
 
         $request = $attachment->mimeType === 'application/pdf'
-            ? $this->buildRequestForPdf($content)
-            : $this->buildImageRequest($content, $attachment->mimeType);
+            ? $this->buildRequestForPdf($content, $attachment->originalFilename)
+            : $this->buildImageRequest($content, $attachment->mimeType, $attachment->originalFilename);
 
+        $parsed = null;
         if ($request === null) {
             $this->logFailure($context, $attachmentId, "PDF sans texte exploitable et impossible à convertir en image pour l'analyse.");
-            return;
-        }
-
-        try {
-            $response = $llmConnector->complete($request);
-        } catch (LlmException $e) {
-            $this->logFailure($context, $attachmentId, $e->getMessage());
-            return;
-        }
-
-        $parsed = $response->parsed;
-        if ($parsed === null) {
-            $this->logFailure($context, $attachmentId, 'Réponse IA non structurée.');
-            return;
+        } else {
+            try {
+                $parsed = $llmConnector->complete($request)->parsed;
+                if ($parsed === null) {
+                    $this->logFailure($context, $attachmentId, 'Réponse IA non structurée.');
+                }
+            } catch (LlmException $e) {
+                $this->logFailure($context, $attachmentId, $e->getMessage());
+            }
         }
 
         $amount = isset($parsed['amount']) && is_numeric($parsed['amount']) ? (float) $parsed['amount'] : null;
@@ -148,30 +144,40 @@ class ExtractReceiptDataHandler implements TaskHandlerInterface
         }
 
         if ($amount === null && $date === null && $merchant === null && $description === null) {
-            $this->logFailure($context, $attachmentId, 'Aucune donnée exploitable dans la réponse IA.');
-            return;
+            if ($parsed !== null) {
+                // $request/complete() succeeded but yielded nothing
+                // exploitable — the two other failure branches above
+                // already logged their own reason.
+                $this->logFailure($context, $attachmentId, 'Aucune donnée exploitable dans la réponse IA.');
+            }
+        } else {
+            $attachmentRepository->updateSuggestedData($attachmentId, $amount, $date, Attachment::SUGGESTED_SOURCE_AI);
+            if ($merchant !== null) {
+                $attachmentRepository->updateSuggestedLabel($attachmentId, $merchant);
+            }
+            if ($description !== null) {
+                $attachmentRepository->updateSuggestedDescription($attachmentId, $description);
+            }
+
+            $context->journal->log(
+                'finance',
+                'receipt_extracted',
+                'info',
+                'Montant/date suggérés automatiquement pour un reçu',
+                ['attachment_id' => $attachmentId],
+                null
+            );
         }
 
-        $attachmentRepository->updateSuggestedData($attachmentId, $amount, $date, Attachment::SUGGESTED_SOURCE_AI);
-        if ($merchant !== null) {
-            $attachmentRepository->updateSuggestedLabel($attachmentId, $merchant);
-        }
-        if ($description !== null) {
-            $attachmentRepository->updateSuggestedDescription($attachmentId, $description);
-        }
-
-        $context->journal->log(
-            'finance',
-            'receipt_extracted',
-            'info',
-            'Montant/date suggérés automatiquement pour un reçu',
-            ['attachment_id' => $attachmentId],
-            null
-        );
-
-        // Right after parsing is exactly when matching has something new
-        // to work with — re-fetch to pick up the suggested_amount/date/
-        // label just written above.
+        // Attempted regardless of whether extraction itself succeeded
+        // (PDF or image alike — a PDF with no usable text/image, or an
+        // unreadable photo, still deserves a matching attempt and the
+        // "IA : aucun mouvement trouvé" indicator once it's tried,
+        // exactly like a receipt whose extraction did succeed but whose
+        // amount matches nothing — ReceiptMatchingService tolerates a
+        // receipt with no known amount/date/merchant just fine, the AI
+        // match prompt sends "inconnu" in their place). Only re-fetched
+        // here to pick up whatever updateSuggestedData() above just wrote.
         $updatedAttachment = $attachmentRepository->findById($attachmentId);
         if ($updatedAttachment !== null) {
             $matchingService = new ReceiptMatchingService(
@@ -191,13 +197,14 @@ class ExtractReceiptDataHandler implements TaskHandlerInterface
      * rasterizable page — the caller treats that as an extraction
      * failure, same as any other.
      */
-    private function buildRequestForPdf(string $content): ?LlmRequest
+    private function buildRequestForPdf(string $content, string $originalFilename): ?LlmRequest
     {
         $text = (new PdfTextExtractor())->extractText($content);
         if ($text !== null) {
             return new LlmRequest(
                 tier: LlmTier::CHEAP,
-                prompt: self::PROMPT . "\n\nVoici le texte extrait du document :\n\n" . mb_substr($text, 0, self::MAX_EXTRACTED_TEXT_CHARS),
+                prompt: self::PROMPT . $this->filenameHint($originalFilename)
+                    . "\n\nVoici le texte extrait du document :\n\n" . mb_substr($text, 0, self::MAX_EXTRACTED_TEXT_CHARS),
                 responseSchema: self::RESPONSE_SCHEMA
             );
         }
@@ -207,17 +214,29 @@ class ExtractReceiptDataHandler implements TaskHandlerInterface
             return null;
         }
 
-        return $this->buildImageRequest($image, 'image/jpeg');
+        return $this->buildImageRequest($image, 'image/jpeg', $originalFilename);
     }
 
-    private function buildImageRequest(string $content, string $mimeType): LlmRequest
+    private function buildImageRequest(string $content, string $mimeType, string $originalFilename): LlmRequest
     {
         return new LlmRequest(
             tier: LlmTier::OCR,
-            prompt: self::PROMPT,
+            prompt: self::PROMPT . $this->filenameHint($originalFilename),
             attachments: [['data' => base64_encode($content), 'mime_type' => $mimeType]],
             responseSchema: self::RESPONSE_SCHEMA
         );
+    }
+
+    /**
+     * The uploader's original filename sometimes carries information the
+     * document body itself doesn't state explicitly (a merchant name, a
+     * purchase category, a date) — worth passing along as extra context,
+     * never as a substitute for what's actually written on the receipt.
+     */
+    private function filenameHint(string $originalFilename): string
+    {
+        return "\n\nNom du fichier envoyé par l'utilisateur (peut contenir des indices utiles, ex. nom du magasin) : "
+            . $originalFilename;
     }
 
     /**

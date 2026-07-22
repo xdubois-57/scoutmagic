@@ -12,6 +12,8 @@ use Core\Http\Request;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Member\SectionService;
+use Core\Scheduler\SchedulerRepository;
+use Core\Scheduler\SchedulerService;
 use Core\Security\EncryptionService;
 use Modules\Finance\Controller\ConfigRuleController;
 use Modules\Finance\Repository\Account;
@@ -42,6 +44,8 @@ class ConfigRuleControllerTest extends TestCase
     private CategoryRuleRepository $categoryRuleRepository;
     private FinanceService $financeService;
     private AccountRepository $accountRepository;
+    private \Modules\Finance\Service\BulkCategorizationService $bulkCategorizationService;
+    private SchedulerService $schedulerService;
 
     protected function setUp(): void
     {
@@ -75,13 +79,14 @@ class ConfigRuleControllerTest extends TestCase
         $aiCategorizationService = new \Modules\Finance\Service\AiCategorizationService(
             null, $this->categoryRepository, $aiSuggestionRepository, $journalService
         );
-        $bulkCategorizationService = new \Modules\Finance\Service\BulkCategorizationService(
-            $transactionRepository, $ruleEngine, $aiCategorizationService, $settingService
+        $this->schedulerService = new SchedulerService(new SchedulerRepository($this->pdo));
+        $this->bulkCategorizationService = new \Modules\Finance\Service\BulkCategorizationService(
+            $transactionRepository, $ruleEngine, $aiCategorizationService, $settingService, $this->schedulerService
         );
 
         $this->controller = new ConfigRuleController(
             new Environment(new ArrayLoader([])), $this->categoryRuleRepository, $ruleEngine, $journalService, $this->financeService,
-            $bulkCategorizationService
+            $this->bulkCategorizationService
         );
 
         if (session_status() === PHP_SESSION_NONE) {
@@ -125,6 +130,69 @@ class ConfigRuleControllerTest extends TestCase
         $this->assertSame('delhaize', $rule->keywordPattern);
         $this->assertSame('BE71096123456769', $rule->counterpartyAccountPattern);
         $this->assertSame('10-50', $rule->amountRange);
+    }
+
+    public function testCreateSavesKeywordPatternLowercased(): void
+    {
+        $categoryId = $this->categoryRepository->create('Alimentation');
+
+        $response = $this->controller->save($this->jsonRequest([
+            'action' => 'create',
+            'category_id' => $categoryId,
+            'keyword_pattern' => 'DELHAIZE|Colruyt',
+            '_csrf_token' => $this->csrfToken(),
+        ]), []);
+
+        $data = json_decode($response->getBody(), true);
+        $rule = $this->categoryRuleRepository->findById($data['rule_id']);
+        $this->assertSame('delhaize|colruyt', $rule->keywordPattern);
+    }
+
+    public function testCreateNormalizesCounterpartyAccountPattern(): void
+    {
+        $categoryId = $this->categoryRepository->create('Alimentation');
+
+        $response = $this->controller->save($this->jsonRequest([
+            'action' => 'create',
+            'category_id' => $categoryId,
+            'counterparty_account_pattern' => 'be71 0961 2345 6769',
+            '_csrf_token' => $this->csrfToken(),
+        ]), []);
+
+        $data = json_decode($response->getBody(), true);
+        $rule = $this->categoryRuleRepository->findById($data['rule_id']);
+        $this->assertSame('BE71096123456769', $rule->counterpartyAccountPattern);
+    }
+
+    public function testCreateRejectsInvalidFullLengthIban(): void
+    {
+        $categoryId = $this->categoryRepository->create('Alimentation');
+
+        $response = $this->controller->save($this->jsonRequest([
+            'action' => 'create',
+            'category_id' => $categoryId,
+            'counterparty_account_pattern' => 'BE71096123456760',
+            '_csrf_token' => $this->csrfToken(),
+        ]), []);
+
+        $this->assertSame(400, $response->getStatusCode());
+    }
+
+    public function testCreateAllowsShortPartialCounterpartyFragment(): void
+    {
+        $categoryId = $this->categoryRepository->create('Alimentation');
+
+        $response = $this->controller->save($this->jsonRequest([
+            'action' => 'create',
+            'category_id' => $categoryId,
+            'counterparty_account_pattern' => 'be71 0000',
+            '_csrf_token' => $this->csrfToken(),
+        ]), []);
+
+        $data = json_decode($response->getBody(), true);
+        $this->assertTrue($data['success']);
+        $rule = $this->categoryRuleRepository->findById($data['rule_id']);
+        $this->assertSame('BE710000', $rule->counterpartyAccountPattern);
     }
 
     public function testCreateRejectsWhenNoConditionSet(): void
@@ -221,7 +289,52 @@ class ConfigRuleControllerTest extends TestCase
         $this->assertSame('1', $settingService->get('ai_categorization_enabled', 'finance', '0'));
     }
 
-    public function testRunOnUncategorizedReturnsSummaryCounts(): void
+    public function testRunOnUncategorizedSchedulesInBackgroundAndMarksRunning(): void
+    {
+        $response = $this->controller->save($this->jsonRequest([
+            'action' => 'run_on_uncategorized',
+            '_csrf_token' => $this->csrfToken(),
+        ]), []);
+
+        $data = json_decode($response->getBody(), true);
+        $this->assertTrue($data['success']);
+        $this->assertTrue($this->bulkCategorizationService->isRunning());
+
+        $scheduled = $this->schedulerService->findAllForTask('finance', 'run_categorization_rules');
+        $this->assertCount(1, $scheduled);
+    }
+
+    public function testRunOnUncategorizedRejectsWhenAlreadyRunning(): void
+    {
+        $this->bulkCategorizationService->markRunning();
+
+        $response = $this->controller->save($this->jsonRequest([
+            'action' => 'run_on_uncategorized',
+            '_csrf_token' => $this->csrfToken(),
+        ]), []);
+
+        $this->assertSame(400, $response->getStatusCode());
+    }
+
+    public function testRunStatusReflectsRunningAndLastResult(): void
+    {
+        $notRunning = $this->controller->save($this->jsonRequest([
+            'action' => 'run_status',
+            '_csrf_token' => $this->csrfToken(),
+        ]), []);
+        $data = json_decode($notRunning->getBody(), true);
+        $this->assertFalse($data['running']);
+        $this->assertNull($data['last_result']);
+
+        $this->bulkCategorizationService->markRunning();
+        $running = $this->controller->save($this->jsonRequest([
+            'action' => 'run_status',
+            '_csrf_token' => $this->csrfToken(),
+        ]), []);
+        $this->assertTrue(json_decode($running->getBody(), true)['running']);
+    }
+
+    public function testRunInBackgroundEndToEndCategorizesAndClearsRunningFlag(): void
     {
         $categoryId = $this->categoryRepository->create('Alimentation');
         $this->categoryRuleRepository->create($categoryId, 0, 'delhaize', null, null);
@@ -230,16 +343,14 @@ class ConfigRuleControllerTest extends TestCase
         $fiscalYearId = FinanceTestHelper::createScoutYear($this->pdo, '2026-2027', '2026-09-01', '2027-08-31');
         $transactionRepository->create($accountId, $fiscalYearId, 'r1', '2026-10-01', 'VIR Delhaize', -20.0, null, null, 'manual', null);
 
-        $response = $this->controller->save($this->jsonRequest([
-            'action' => 'run_on_uncategorized',
-            '_csrf_token' => $this->csrfToken(),
-        ]), []);
+        $this->bulkCategorizationService->markRunning();
+        $this->bulkCategorizationService->runInBackground();
 
-        $data = json_decode($response->getBody(), true);
-        $this->assertTrue($data['success']);
-        $this->assertSame(1, $data['categorized_by_rules']);
-        $this->assertSame(0, $data['categorized_by_ai']);
-        $this->assertSame(0, $data['still_uncategorized']);
+        $this->assertFalse($this->bulkCategorizationService->isRunning());
+        $result = $this->bulkCategorizationService->getLastResult();
+        $this->assertSame(1, $result['categorized_by_rules']);
+        $this->assertSame(0, $result['categorized_by_ai']);
+        $this->assertSame(0, $result['still_uncategorized']);
     }
 
     public function testReorderExcludesSystemRulesFromTheOrdering(): void

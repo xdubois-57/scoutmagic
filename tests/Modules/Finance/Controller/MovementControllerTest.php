@@ -43,6 +43,7 @@ class MovementControllerTest extends TestCase
     private AccountRepository $accountRepository;
     private FiscalYearRepository $fiscalYearRepository;
     private CategoryRepository $categoryRepository;
+    private TransactionAttachmentRepository $transactionAttachmentRepository;
     private int $accountId;
     private int $fiscalYearId;
 
@@ -61,6 +62,7 @@ class MovementControllerTest extends TestCase
         $this->categoryRepository = new CategoryRepository($this->pdo);
         $attachmentRepository = new AttachmentRepository($this->pdo, $encryption);
         $transactionAttachmentRepository = new TransactionAttachmentRepository($this->pdo);
+        $this->transactionAttachmentRepository = $transactionAttachmentRepository;
         $journalService = new JournalService(new JournalRepository($this->pdo));
 
         $checkpointRepository = new \Modules\Finance\Repository\BalanceCheckpointRepository($this->pdo);
@@ -76,6 +78,10 @@ class MovementControllerTest extends TestCase
         );
         $fileStorage = new EncryptedFileStorageService(new FileRepository($this->pdo), $encryption, sys_get_temp_dir() . '/finance_movement_test_' . uniqid());
         $receiptService = new ReceiptService($attachmentRepository, $this->accountRepository, $transactionAttachmentRepository, $fileStorage);
+        $receiptExtractionService = new \Modules\Finance\Service\ReceiptExtractionService(
+            new \Core\Scheduler\SchedulerService(new \Core\Scheduler\SchedulerRepository($this->pdo)), null
+        );
+        $firstReceiptResolver = new \Modules\Finance\Service\FirstReceiptResolver($transactionAttachmentRepository, $attachmentRepository);
 
         $templateDir = dirname(__DIR__, 4) . '/core/View/templates';
         $moduleViews = dirname(__DIR__, 4) . '/modules/finance/views';
@@ -97,7 +103,8 @@ class MovementControllerTest extends TestCase
 
         $this->controller = new MovementController(
             $twig, $financeService, $this->transactionRepository, $this->categoryRepository, $this->fiscalYearRepository,
-            $attachmentRepository, $transactionAttachmentRepository, $receiptService, $journalService
+            $attachmentRepository, $transactionAttachmentRepository, $receiptService, $receiptExtractionService,
+            $firstReceiptResolver, $journalService
         );
 
         $accountId = $this->accountRepository->create('Compte', Account::TYPE_BANK, null, 'BE00000000000001', 'Titulaire', 'intendant');
@@ -218,6 +225,33 @@ class MovementControllerTest extends TestCase
         $this->assertStringContainsString('data-fiscal-year-id="' . $this->fiscalYearId . '"', $body);
     }
 
+    public function testListShowsAutoBadgeForAutomaticallyCategorizedMovement(): void
+    {
+        $categoryId = $this->categoryRepository->create('Alimentation');
+        $id = $this->transactionRepository->create(
+            $this->accountId, $this->fiscalYearId, 'ref-auto', '2026-10-01', 'Achat auto', -20.0, $categoryId, null,
+            Transaction::SOURCE_MANUAL, null, null, null, null, Transaction::CATEGORY_SOURCE_AUTO
+        );
+
+        $response = $this->controller->list(new Request('GET', '/finance/movements', [], [], [], []), []);
+        $body = $response->getBody();
+
+        $this->assertStringContainsString('data-category-source="auto"', $body);
+        $this->assertStringContainsString('>Auto<', $body);
+        $this->assertStringContainsString('data-id="' . $id . '"', $body);
+    }
+
+    public function testListDoesNotShowAutoBadgeForManuallyCategorizedMovement(): void
+    {
+        $categoryId = $this->categoryRepository->create('Alimentation');
+        $this->createTransaction('2026-10-01', -20.0, 'Achat manuel', $categoryId);
+
+        $response = $this->controller->list(new Request('GET', '/finance/movements', [], [], [], []), []);
+        $body = $response->getBody();
+
+        $this->assertStringNotContainsString('>Auto<', $body);
+    }
+
     public function testListRendersAccountFilterDropdown(): void
     {
         $response = $this->controller->list(new Request('GET', '/finance/movements', [], [], [], []), []);
@@ -277,6 +311,18 @@ class MovementControllerTest extends TestCase
 
         $this->assertTrue($data['success']);
         $this->assertCount(1, $data['movements']);
+    }
+
+    public function testSearchExcludesIncomeMovements(): void
+    {
+        $this->createTransaction('2026-10-01', -20.0, 'Achat Delhaize');
+        $this->createTransaction('2026-10-02', 50.0, 'Cotisation Delhaize');
+
+        $response = $this->controller->search(new Request('GET', '/finance/movements/search', ['q' => 'Delhaize'], [], [], []), []);
+        $data = json_decode($response->getBody(), true);
+
+        $this->assertCount(1, $data['movements']);
+        $this->assertSame('Achat Delhaize', $data['movements'][0]['label']);
     }
 
     public function testSearchWithoutQueryOrNearDateReturnsUpToTwenty(): void
@@ -434,5 +480,71 @@ class MovementControllerTest extends TestCase
         $this->assertSame(12.5, $data['attachments'][0]['suggested_amount']);
         $this->assertSame('Delhaize', $data['attachments'][0]['suggested_label']);
         $this->assertSame('Achat de fournitures de bureau', $data['attachments'][0]['suggested_description']);
+    }
+
+    private function tmpPdfFile(): string
+    {
+        $path = tempnam(sys_get_temp_dir(), 'movement_receipt_test_');
+        file_put_contents($path, '%PDF-1.4 fake receipt content');
+        return $path;
+    }
+
+    private function fileUploadRequest(int $transactionId, string $tmpPath, string $csrf): Request
+    {
+        $request = $this->getMockBuilder(Request::class)
+            ->setConstructorArgs(['POST', '/finance/movements/' . $transactionId . '/attachments', [], ['_csrf_token' => $csrf], [], []])
+            ->onlyMethods(['getFiles'])
+            ->getMock();
+        $request->method('getFiles')->willReturn([[
+            'name' => basename($tmpPath),
+            'tmp_name' => $tmpPath,
+            'error' => UPLOAD_ERR_OK,
+            'size' => filesize($tmpPath),
+            'type' => 'application/pdf',
+        ]]);
+        return $request;
+    }
+
+    public function testUploadAttachmentCreatesAndAssociatesReceipt(): void
+    {
+        $transactionId = $this->createTransaction('2026-10-01', -12.5, 'Achat');
+        $token = $this->csrfToken();
+
+        $response = $this->controller->uploadAttachment(
+            $this->fileUploadRequest($transactionId, $this->tmpPdfFile(), $token),
+            ['id' => (string) $transactionId]
+        );
+        $data = json_decode($response->getBody(), true);
+
+        $this->assertTrue($data['success']);
+        $attachments = $this->transactionAttachmentRepository->findAttachmentIdsForTransaction($transactionId);
+        $this->assertCount(1, $attachments);
+        $this->assertSame($data['attachment_id'], $attachments[0]);
+    }
+
+    public function testUploadAttachmentRejectsInvalidCsrfToken(): void
+    {
+        $transactionId = $this->createTransaction('2026-10-01', -12.5, 'Achat');
+        $this->csrfToken();
+
+        $response = $this->controller->uploadAttachment(
+            $this->fileUploadRequest($transactionId, $this->tmpPdfFile(), 'bad-token'),
+            ['id' => (string) $transactionId]
+        );
+
+        $this->assertSame(403, $response->getStatusCode());
+        $this->assertCount(0, $this->transactionAttachmentRepository->findAttachmentIdsForTransaction($transactionId));
+    }
+
+    public function testUploadAttachmentRejectsUnknownMovement(): void
+    {
+        $token = $this->csrfToken();
+
+        $response = $this->controller->uploadAttachment(
+            $this->fileUploadRequest(9999, $this->tmpPdfFile(), $token),
+            ['id' => '9999']
+        );
+
+        $this->assertSame(404, $response->getStatusCode());
     }
 }

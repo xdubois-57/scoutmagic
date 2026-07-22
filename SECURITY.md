@@ -66,7 +66,7 @@ All fields identifying a natural person are encrypted (AES-256-GCM) as BLOB:
 - File links via `file_url($id)` — never direct paths.
 - Upload: true MIME check, random filename, EXIF stripped, size limit, non-executable directory.
 - Access denied: 403 + journal entry (security level).
-- Finance receipts go through `FileAccessGuard` like any other file, gated at `role_min: "intendant"` (`finance` module's `storage` declaration) — same flat floor for every receipt, since a receipt is never tied to a specific bank/cash account in the current implementation (`finance_attachments.account_id` stays null; only movement association ties it to an account indirectly). This differs from `finance_accounts.role_min_view`, which *does* gate each account's own config/balance/movement data individually — a receipt is not currently covered by that per-account floor.
+- Finance receipts go through `FileAccessGuard` like any other file. Every receipt is tied to an account at upload time (`finance_attachments.account_id`), and its underlying file's `role_min` is set to that account's own `role_min_view` — not the module's flat `"intendant"` `storage` declaration, which is only the fallback floor for a not-yet-account-scoped case. Whenever an account's `role_min_view` is changed, every existing receipt file tied to that account is updated to match (`ConfigAccountController::syncReceiptFilesRoleMin()`), so access stays in sync retroactively.
 
 ## 7. Content editing
 

@@ -2,7 +2,7 @@
   "id": "finance",
   "name": "Finances",
   "description": "Gestion financière de l'unité : comptes, exercices, catégorisation, import de relevés bancaires, mouvements, reçus.",
-  "version": "1.7.0",
+  "version": "1.11.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -150,6 +150,15 @@
       "label": ""
     },
     {
+      "path": "/finance/movements/{id}/attachments",
+      "method": "POST",
+      "controller": "Modules\\Finance\\Controller\\MovementController",
+      "action": "uploadAttachment",
+      "menu": "espace_chefs",
+      "role_min": "intendant",
+      "label": ""
+    },
+    {
       "path": "/finance/movements/search",
       "method": "GET",
       "controller": "Modules\\Finance\\Controller\\MovementController",
@@ -240,6 +249,10 @@
     {
       "key": "extract_receipt_data",
       "handler": "Modules\\Finance\\Task\\ExtractReceiptDataHandler"
+    },
+    {
+      "key": "run_categorization_rules",
+      "handler": "Modules\\Finance\\Task\\RunCategorizationRulesHandler"
     }
   ],
   "storage": {

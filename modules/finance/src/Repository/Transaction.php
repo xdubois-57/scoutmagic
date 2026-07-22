@@ -9,6 +9,9 @@ final class Transaction
     public const SOURCE_IMPORT = 'import';
     public const SOURCE_MANUAL = 'manual';
 
+    public const CATEGORY_SOURCE_MANUAL = 'manual';
+    public const CATEGORY_SOURCE_AUTO = 'auto';
+
     public function __construct(
         public readonly int $id,
         public readonly int $accountId,
@@ -23,8 +26,21 @@ final class Transaction
         public readonly ?string $importedAt,
         public readonly ?string $counterpartyName = null,
         public readonly ?string $counterpartyAccount = null,
-        public readonly ?string $extraDetails = null
+        public readonly ?string $extraDetails = null,
+        public readonly ?string $categorySource = null
     ) {
+    }
+
+    /**
+     * Whether category_id was set by Service\CategoryRuleEngine (at
+     * import) or Service\BulkCategorizationService (rules or AI,
+     * backfilling) rather than an admin picking it by hand on the
+     * movements page — Controller\MovementController's "Automatique"
+     * badge.
+     */
+    public function isCategoryAutoAssigned(): bool
+    {
+        return $this->categorySource === self::CATEGORY_SOURCE_AUTO;
     }
 
     /**

@@ -106,7 +106,8 @@ class DashboardControllerTest extends TestCase
             $this->categoryRepository,
             $this->attachmentRepository,
             $this->transactionAttachmentRepository,
-            new StatementImportRepository($this->pdo)
+            new StatementImportRepository($this->pdo),
+            new \Modules\Finance\Service\FirstReceiptResolver($this->transactionAttachmentRepository, $this->attachmentRepository)
         );
 
         if (session_status() === PHP_SESSION_NONE) {
@@ -174,6 +175,37 @@ class DashboardControllerTest extends TestCase
         $this->assertStringContainsString('chart-balance-line', $body);
     }
 
+    public function testCategorySummaryLinksUncategorizedRowToFilteredMovementsPage(): void
+    {
+        $accountId = $this->createAccount();
+        $fiscalYearId = $this->fiscalYearRepository->findCurrent()->id;
+        $this->transactionRepository->create($accountId, $fiscalYearId, 'r1', '2026-10-01', 'x', -20.0, null, null, Transaction::SOURCE_MANUAL, null);
+
+        $response = $this->controller->index(new Request('GET', '/finance', ['account_id' => (string) $accountId, 'fiscal_year_id' => (string) $fiscalYearId], [], [], []), []);
+        $body = $response->getBody();
+
+        $this->assertStringContainsString(
+            '/finance/movements?account_id=' . $accountId . '&fiscal_year_id=' . $fiscalYearId . '&category_id=none',
+            $body
+        );
+    }
+
+    public function testCategorySummaryLinksCategorizedRowToItsOwnCategoryId(): void
+    {
+        $accountId = $this->createAccount();
+        $fiscalYearId = $this->fiscalYearRepository->findCurrent()->id;
+        $categoryId = $this->categoryRepository->create('Alimentation');
+        $this->transactionRepository->create($accountId, $fiscalYearId, 'r1', '2026-10-01', 'x', -20.0, $categoryId, null, Transaction::SOURCE_MANUAL, null);
+
+        $response = $this->controller->index(new Request('GET', '/finance', ['account_id' => (string) $accountId, 'fiscal_year_id' => (string) $fiscalYearId], [], [], []), []);
+        $body = $response->getBody();
+
+        $this->assertStringContainsString(
+            '/finance/movements?account_id=' . $accountId . '&fiscal_year_id=' . $fiscalYearId . '&category_id=' . $categoryId,
+            $body
+        );
+    }
+
     public function testShowsUncategorizedAndPendingReceiptAlerts(): void
     {
         $accountId = $this->createAccount();
@@ -195,6 +227,67 @@ class DashboardControllerTest extends TestCase
         $response = $this->controller->index(new Request('GET', '/finance', ['account_id' => (string) $accountId, 'fiscal_year_id' => (string) $fiscalYearId], [], [], []), []);
 
         $this->assertStringContainsString('Achat spécifique', $response->getBody());
+    }
+
+    public function testRecentMovementsShowsUncategorizedExpenseWithoutReceipt(): void
+    {
+        $accountId = $this->createAccount();
+        $fiscalYearId = $this->fiscalYearRepository->findCurrent()->id;
+        $this->transactionRepository->create($accountId, $fiscalYearId, 'r1', '2026-10-01', 'Dépense sans reçu', -20.0, null, null, Transaction::SOURCE_MANUAL, null);
+
+        $response = $this->controller->index(new Request('GET', '/finance', ['account_id' => (string) $accountId, 'fiscal_year_id' => (string) $fiscalYearId], [], [], []), []);
+
+        $this->assertStringContainsString('Dépense sans reçu', $response->getBody());
+    }
+
+    public function testRecentMovementsHidesCategorizedIncomeWithoutReceipt(): void
+    {
+        $accountId = $this->createAccount();
+        $fiscalYearId = $this->fiscalYearRepository->findCurrent()->id;
+        $categoryId = $this->categoryRepository->create('Cotisations', 'Description');
+        $this->transactionRepository->create($accountId, $fiscalYearId, 'r1', '2026-10-01', 'Recette catégorisée', 20.0, $categoryId, null, Transaction::SOURCE_MANUAL, null);
+
+        $response = $this->controller->index(new Request('GET', '/finance', ['account_id' => (string) $accountId, 'fiscal_year_id' => (string) $fiscalYearId], [], [], []), []);
+
+        $this->assertStringNotContainsString('Recette catégorisée', $response->getBody());
+    }
+
+    public function testRecentMovementsHidesCategorizedExpenseWithReceipt(): void
+    {
+        $accountId = $this->createAccount();
+        $fiscalYearId = $this->fiscalYearRepository->findCurrent()->id;
+        $categoryId = $this->categoryRepository->create('Matériel', 'Description');
+        $transactionId = $this->transactionRepository->create(
+            $accountId, $fiscalYearId, 'r1', '2026-10-01', 'Dépense avec reçu', -20.0, $categoryId, null, Transaction::SOURCE_MANUAL, null
+        );
+        $stmt = $this->pdo->prepare(
+            "INSERT INTO files (relative_path, original_name, mime_type, size_bytes) VALUES ('a.pdf', 'a.pdf', 'application/pdf', 100)"
+        );
+        $stmt->execute();
+        $fileId = (int) $this->pdo->lastInsertId();
+        $attachmentId = $this->attachmentRepository->create($accountId, $fileId, 'application/pdf', 'facture.pdf', null, null, null, 1);
+        $this->transactionAttachmentRepository->associate($transactionId, $attachmentId);
+
+        $response = $this->controller->index(new Request('GET', '/finance', ['account_id' => (string) $accountId, 'fiscal_year_id' => (string) $fiscalYearId], [], [], []), []);
+
+        $this->assertStringNotContainsString('Dépense avec reçu', $response->getBody());
+    }
+
+    public function testRecentMovementsShowsOrdinaryFilteredListWhenACategoryFilterIsActive(): void
+    {
+        $accountId = $this->createAccount();
+        $fiscalYearId = $this->fiscalYearRepository->findCurrent()->id;
+        $categoryId = $this->categoryRepository->create('Cotisations', 'Description');
+        $this->transactionRepository->create($accountId, $fiscalYearId, 'r1', '2026-10-01', 'Recette catégorisée', 20.0, $categoryId, null, Transaction::SOURCE_MANUAL, null);
+
+        $response = $this->controller->index(new Request(
+            'GET', '/finance',
+            ['account_id' => (string) $accountId, 'fiscal_year_id' => (string) $fiscalYearId, 'category_id' => (string) $categoryId],
+            [], [], []
+        ), []);
+
+        $this->assertStringContainsString('Recette catégorisée', $response->getBody());
+        $this->assertStringContainsString('Mouvements filtrés', $response->getBody());
     }
 
     public function testFiltersRespectAccountRoleFloor(): void

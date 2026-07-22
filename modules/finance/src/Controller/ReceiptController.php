@@ -19,6 +19,8 @@ use Modules\Finance\Repository\TransactionAttachmentRepository;
 use Modules\Finance\Repository\TransactionRepository;
 use Modules\Finance\Service\FinanceException;
 use Modules\Finance\Service\FinanceService;
+use Modules\Finance\Service\FirstReceiptResolver;
+use Modules\Finance\Service\MovementPresenter;
 use Modules\Finance\Service\ReceiptExtractionService;
 use Modules\Finance\Service\ReceiptService;
 
@@ -36,6 +38,7 @@ class ReceiptController extends AbstractController
         private FinanceService $financeService,
         private ReceiptService $receiptService,
         private ReceiptExtractionService $receiptExtractionService,
+        private FirstReceiptResolver $firstReceiptResolver,
         private JournalService $journalService
     ) {
     }
@@ -145,6 +148,8 @@ class ReceiptController extends AbstractController
         $transactionIds = $this->transactionAttachmentRepository->findTransactionIdsForAttachment($id);
         $transactions = $this->transactionRepository->findByIds($transactionIds);
 
+        $firstReceipts = $this->firstReceiptResolver->resolve(array_map(fn(Transaction $t) => $t->id, $transactions));
+
         return $this->json([
             'success' => true,
             'movements' => array_map(fn(Transaction $t) => [
@@ -152,6 +157,7 @@ class ReceiptController extends AbstractController
                 'date' => $t->transactionDate,
                 'label' => $t->label,
                 'amount' => $t->amount,
+                'description' => MovementPresenter::description($t, $firstReceipts[$t->id] ?? null),
             ], $transactions),
         ]);
     }

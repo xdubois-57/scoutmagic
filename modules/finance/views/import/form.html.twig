@@ -7,6 +7,12 @@
 
     {% include '@finance/_nav.html.twig' with {'hide_account_picker': true} %}
 
+    <p class="text-body-secondary small mb-3">
+        Importez ici un relevé bancaire (export de votre banque) pour ajouter automatiquement les nouveaux
+        mouvements au compte sélectionné — les mouvements déjà importés sont ignorés, et les règles de
+        catégorisation configurées s'appliquent automatiquement à chaque ligne importée.
+    </p>
+
     <h2 class="h5 mb-3">Importer un relevé bancaire</h2>
 
     <form method="post" action="/finance/import" enctype="multipart/form-data" class="border rounded-3 p-3" id="import-form">

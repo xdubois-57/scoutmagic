@@ -9,9 +9,11 @@ final class Category
     public function __construct(
         public readonly int $id,
         public readonly string $name,
+        public readonly string $description,
         public readonly bool $isActive,
         public readonly int $sortOrder,
-        public readonly ?int $accountId = null
+        public readonly ?int $accountId = null,
+        public readonly bool $isDefault = false
     ) {
     }
 }

@@ -26,19 +26,19 @@
                     </select>
                 </div>
                 <div class="col-12">
-                    <label class="form-label small">Reçus (PDF, Word, JPEG ou PNG) — jusqu'à 10 à la fois</label>
+                    <label class="form-label small">Reçus (PDF, JPEG ou PNG) — jusqu'à 10 à la fois</label>
                     <div id="drop-zone" class="border border-2 border-dashed rounded-3 p-4 text-center text-body-secondary" role="button" tabindex="0">
                         <i class="bi bi-cloud-arrow-up fs-2 d-block mb-2"></i>
                         <span>Glissez-déposez vos reçus ici, ou cliquez pour parcourir</span>
-                        <input type="file" class="d-none" id="receipt-files" name="receipts[]" accept=".pdf,.docx,.jpg,.jpeg,.png" multiple>
+                        <input type="file" class="d-none" id="receipt-files" name="receipts[]" accept=".pdf,.jpg,.jpeg,.png" multiple>
                     </div>
                     <ul class="list-unstyled small mt-2 mb-0" id="receipt-files-list"></ul>
                     <div class="form-text small" id="receipt-file-status"></div>
                 </div>
             {% else %}
                 <div class="col-12">
-                    <label class="form-label small" for="receipt-file">Fichier (PDF, Word, JPEG ou PNG)</label>
-                    <input type="file" class="form-control form-control-sm" id="receipt-file" name="receipt" accept=".pdf,.docx,.jpg,.jpeg,.png" required>
+                    <label class="form-label small" for="receipt-file">Fichier (PDF, JPEG ou PNG)</label>
+                    <input type="file" class="form-control form-control-sm" id="receipt-file" name="receipt" accept=".pdf,.jpg,.jpeg,.png" required>
                     <div class="form-text small" id="receipt-file-status"></div>
                 </div>
             {% endif %}

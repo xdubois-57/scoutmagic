@@ -25,9 +25,14 @@ use Modules\Finance\Repository\TransactionAttachmentRepository;
  */
 class ReceiptService
 {
+    /**
+     * PDF and image only — a receipt is always a scan/photo or a PDF
+     * export of one, never a general-purpose document; also keeps every
+     * receipt renderable as a thumbnail (Core\File\PdfRasterizer for PDF,
+     * direct <img> for these two) without a third code path.
+     */
     private const ALLOWED_MIME_TYPES = [
         'application/pdf',
-        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
         'image/jpeg',
         'image/png',
     ];

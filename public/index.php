@@ -921,9 +921,29 @@ if (in_array('finance', $moduleManager->getEnabledModuleIds(), true)) {
     $financeReceiptMatchingService = new \Modules\Finance\Service\ReceiptMatchingService(
         $financeAttachmentRepo, $financeTransactionRepo, $financeTransactionAttachmentRepo, $journalService, $llmConnectorForRgpd
     );
+
+    // Optional dependency on the llm_connector module (ARCHITECTURE.md
+    // §7.5), same reused instance — the config page's AI categorization
+    // rule is simply never shown/reachable whenever it's null. Also an
+    // optional dependency on the calendar module (nullable, reuses the
+    // instances built above) — the AI prompt simply omits the "nearby
+    // section calendar events" section when calendar is disabled.
+    $financeAiSuggestionRepo = new \Modules\Finance\Repository\AiCategorySuggestionRepository($pdo);
+    $financeCalendarRepoForAi = in_array('calendar', $moduleManager->getEnabledModuleIds(), true) ? $calendarRepo : null;
+    $financeCalendarEventRepoForAi = in_array('calendar', $moduleManager->getEnabledModuleIds(), true) ? $calendarEventRepo : null;
+    $financeAiCategorizationService = new \Modules\Finance\Service\AiCategorizationService(
+        $llmConnectorForRgpd, $financeCategoryRepo, $financeAiSuggestionRepo, $journalService,
+        $financeAccountRepo, $financeTransactionAttachmentRepo, $financeAttachmentRepo,
+        $financeCalendarRepoForAi, $financeCalendarEventRepoForAi
+    );
+    $financeBulkCategorizationService = new \Modules\Finance\Service\BulkCategorizationService(
+        $financeTransactionRepo, $financeRuleEngine, $financeAiCategorizationService, $settingService, $schedulerService
+    );
+
     $financeImportService = new \Modules\Finance\Service\ImportService(
         $pdo, $encryptionService, $financeParserFactory, $financeTransactionRepo, $financeCheckpointRepo,
-        $financeStatementImportRepo, $financeFiscalYearRepo, $financeRuleEngine, $financeBalanceService, $financeReceiptMatchingService
+        $financeStatementImportRepo, $financeFiscalYearRepo, $financeRuleEngine, $financeBalanceService, $financeReceiptMatchingService,
+        $financeBulkCategorizationService
     );
     $financeEncryptedFileStorage = new \Core\File\EncryptedFileStorageService($fileRepository, $encryptionService, $storagePath);
     $financeReceiptService = new \Modules\Finance\Service\ReceiptService(
@@ -934,30 +954,22 @@ if (in_array('finance', $moduleManager->getEnabledModuleIds(), true)) {
     // built for RGPD content generation above; extraction is skipped
     // gracefully whenever it's null/unavailable.
     $financeReceiptExtractionService = new \Modules\Finance\Service\ReceiptExtractionService($schedulerService, $llmConnectorForRgpd);
-
-    // Optional dependency on the llm_connector module (ARCHITECTURE.md
-    // §7.5), same reused instance — the config page's AI categorization
-    // rule is simply never shown/reachable whenever it's null.
-    $financeAiSuggestionRepo = new \Modules\Finance\Repository\AiCategorySuggestionRepository($pdo);
-    $financeAiCategorizationService = new \Modules\Finance\Service\AiCategorizationService(
-        $llmConnectorForRgpd, $financeCategoryRepo, $financeAiSuggestionRepo, $journalService
-    );
-    $financeBulkCategorizationService = new \Modules\Finance\Service\BulkCategorizationService(
-        $financeTransactionRepo, $financeRuleEngine, $financeAiCategorizationService, $settingService
-    );
+    $financeFirstReceiptResolver = new \Modules\Finance\Service\FirstReceiptResolver($financeTransactionAttachmentRepo, $financeAttachmentRepo);
 
     $frontController->registerController(
         \Modules\Finance\Controller\DashboardController::class,
         new \Modules\Finance\Controller\DashboardController(
             $twig, $financeService, $financeBalanceService, $financeTransactionRepo, $financeReceiptService,
-            $financeCategoryRepo, $financeAttachmentRepo, $financeTransactionAttachmentRepo, $financeStatementImportRepo
+            $financeCategoryRepo, $financeAttachmentRepo, $financeTransactionAttachmentRepo, $financeStatementImportRepo,
+            $financeFirstReceiptResolver
         )
     );
     $frontController->registerController(
         \Modules\Finance\Controller\MovementController::class,
         new \Modules\Finance\Controller\MovementController(
             $twig, $financeService, $financeTransactionRepo, $financeCategoryRepo, $financeFiscalYearRepo,
-            $financeAttachmentRepo, $financeTransactionAttachmentRepo, $financeReceiptService, $journalService
+            $financeAttachmentRepo, $financeTransactionAttachmentRepo, $financeReceiptService, $financeReceiptExtractionService,
+            $financeFirstReceiptResolver, $journalService
         )
     );
     $frontController->registerController(
@@ -968,7 +980,7 @@ if (in_array('finance', $moduleManager->getEnabledModuleIds(), true)) {
         \Modules\Finance\Controller\ReceiptController::class,
         new \Modules\Finance\Controller\ReceiptController(
             $twig, $financeAttachmentRepo, $financeTransactionAttachmentRepo, $financeTransactionRepo, $financeService,
-            $financeReceiptService, $financeReceiptExtractionService, $journalService
+            $financeReceiptService, $financeReceiptExtractionService, $financeFirstReceiptResolver, $journalService
         )
     );
     $frontController->registerController(
@@ -985,13 +997,14 @@ if (in_array('finance', $moduleManager->getEnabledModuleIds(), true)) {
         \Modules\Finance\Controller\ConfigCategoryController::class,
         new \Modules\Finance\Controller\ConfigCategoryController(
             $twig, $financeService, $financeCategoryRuleRepo, $journalService, $financeAiSuggestionRepo,
-            $financeBulkCategorizationService, $llmConnectorForRgpd !== null
+            $financeBulkCategorizationService, $financeTransactionRepo, $llmConnectorForRgpd !== null
         )
     );
     $frontController->registerController(
         \Modules\Finance\Controller\ConfigRuleController::class,
         new \Modules\Finance\Controller\ConfigRuleController(
-            $twig, $financeCategoryRuleRepo, $financeRuleEngine, $journalService, $financeService, $financeBulkCategorizationService
+            $twig, $financeCategoryRuleRepo, $financeRuleEngine, $journalService, $financeService, $financeBulkCategorizationService,
+            $schedulerService
         )
     );
     $frontController->registerController(

@@ -96,10 +96,16 @@ class ConfigAccountController extends AbstractController
                     $this->journalService->log('finance', 'account_updated', 'info', "Compte « {$account->name} » modifié", ['account_id' => $account->id], AuthSession::getUserAccountId());
                     return $this->json(['success' => true]);
 
-                case 'archive':
+                case 'activate':
                     $id = (int) ($data['id'] ?? 0);
-                    $this->financeService->archiveAccount($id);
-                    $this->journalService->log('finance', 'account_archived', 'info', 'Compte archivé', ['account_id' => $id], AuthSession::getUserAccountId());
+                    $this->financeService->setAccountActive($id, true);
+                    $this->journalService->log('finance', 'account_activated', 'info', 'Compte activé', ['account_id' => $id], AuthSession::getUserAccountId());
+                    return $this->json(['success' => true]);
+
+                case 'deactivate':
+                    $id = (int) ($data['id'] ?? 0);
+                    $this->financeService->setAccountActive($id, false);
+                    $this->journalService->log('finance', 'account_deactivated', 'info', 'Compte désactivé', ['account_id' => $id], AuthSession::getUserAccountId());
                     return $this->json(['success' => true]);
 
                 default:

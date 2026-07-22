@@ -16,7 +16,17 @@
 -- clause. role_min_view/status are validated in Service\FinanceService,
 -- not just the form: role_min_view can never go below 'intendant' (the
 -- module's own access floor), and status can only become 'active' once
--- iban and holder_name are both set.
+-- iban and holder_name are both set. status's 'archived' value is kept
+-- as-is for schema stability, but is only ever reached/left via the
+-- config page's reversible activate/deactivate toggle now — see
+-- Repository\Account::STATUS_INACTIVE and Service\FinanceService::
+-- setAccountActive(); there is no longer a one-way "archive" action.
+-- is_default marks one of the one-per-section accounts
+-- Service\FinanceService::ensureDefaultAccountsForSections() creates —
+-- for the config page's "Par défaut" badge, and to lock that account's
+-- name/type/section from being edited (Service\FinanceService::
+-- updateAccount()); IBAN, holder, role_min_view, and active/inactive
+-- stay editable regardless.
 CREATE TABLE IF NOT EXISTS finance_accounts (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(100) NOT NULL,
@@ -27,6 +37,7 @@ CREATE TABLE IF NOT EXISTS finance_accounts (
     holder_name BLOB NULL,
     role_min_view ENUM('intendant', 'chief', 'admin') NOT NULL DEFAULT 'intendant',
     status ENUM('draft', 'active', 'archived') NOT NULL DEFAULT 'draft',
+    is_default BOOLEAN NOT NULL DEFAULT FALSE,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_fa_iban_blind (iban_blind_index),
     CONSTRAINT fk_fa_section FOREIGN KEY (section_id) REFERENCES sections(id) ON DELETE SET NULL
@@ -41,11 +52,25 @@ CREATE TABLE IF NOT EXISTS finance_accounts (
 -- account (one per account, never for the default/custom categories an
 -- admin manages by hand) — it's how that service finds "the" category for
 -- a given account again later without matching on name, which can be
--- freely renamed.
+-- freely renamed. description is mandatory at the application level
+-- (Service\FinanceService::createCategory()/updateCategory() reject a
+-- blank one) — it's what Service\AiCategorizationService sends the model
+-- so it can actually tell categories apart by more than a short name;
+-- the column itself stays NOT NULL DEFAULT '' so the schema migration
+-- never breaks on a pre-existing row — VARCHAR rather than TEXT
+-- specifically so that default is portable (vanilla MySQL, unlike
+-- MariaDB, rejects a DEFAULT on a TEXT/BLOB column: error 1101).
+-- is_default marks one of
+-- FinanceService::DEFAULT_CATEGORY_NAMES, for the config page's "Par
+-- défaut" badge — set at creation time (ensureDefaultCategories()/
+-- resetDefaultCategories()), backfilled once by name for a category
+-- that already existed before this column did.
 CREATE TABLE IF NOT EXISTS finance_categories (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(100) NOT NULL,
+    description VARCHAR(500) NOT NULL DEFAULT '',
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    is_default BOOLEAN NOT NULL DEFAULT FALSE,
     sort_order INT NOT NULL DEFAULT 0,
     account_id INT UNSIGNED NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -111,6 +136,13 @@ CREATE TABLE IF NOT EXISTS finance_category_rules (
 -- other columns a bank export has that don't get their own dedicated
 -- column, concatenated) are encrypted for the same reason label/comment
 -- are: they routinely contain a person's name or account number.
+-- category_source records how category_id got set — 'auto' for
+-- Service\CategoryRuleEngine (at import) or Service\
+-- BulkCategorizationService (rules or AI, backfilling uncategorized
+-- movements), 'manual' for an admin picking one by hand on the movements
+-- page — NULL alongside category_id while uncategorized. Not enforced
+-- anywhere yet beyond the movements page's "Automatique" badge; kept for
+-- future use (module spec follow-up).
 CREATE TABLE IF NOT EXISTS finance_transactions (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     account_id INT UNSIGNED NOT NULL,
@@ -120,6 +152,7 @@ CREATE TABLE IF NOT EXISTS finance_transactions (
     label BLOB NOT NULL,
     amount DECIMAL(12, 2) NOT NULL,
     category_id INT UNSIGNED NULL,
+    category_source ENUM('manual', 'auto') NULL,
     comment BLOB NULL,
     counterparty_name BLOB NULL,
     counterparty_account BLOB NULL,

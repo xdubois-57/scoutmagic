@@ -11,7 +11,16 @@ final class Account
 
     public const STATUS_DRAFT = 'draft';
     public const STATUS_ACTIVE = 'active';
-    public const STATUS_ARCHIVED = 'archived';
+
+    /**
+     * Reversible, like a category's is_active — an admin toggles an
+     * account between active/inactive (Controller\ConfigAccountController's
+     * "activate"/"deactivate" actions), never a one-way archive. The
+     * stored value stays 'archived' (unchanged schema.sql ENUM — nothing
+     * to gain from a data migration just to rename it) even though
+     * nothing in the app calls it that anymore.
+     */
+    public const STATUS_INACTIVE = 'archived';
 
     public function __construct(
         public readonly int $id,
@@ -21,7 +30,8 @@ final class Account
         public readonly ?string $iban,
         public readonly ?string $holderName,
         public readonly string $roleMinView,
-        public readonly string $status
+        public readonly string $status,
+        public readonly bool $isDefault = false
     ) {
     }
 }

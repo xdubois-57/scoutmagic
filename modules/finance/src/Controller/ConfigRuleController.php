@@ -15,6 +15,7 @@ use Modules\Finance\Repository\CategoryRuleRepository;
 use Modules\Finance\Service\BulkCategorizationService;
 use Modules\Finance\Service\CategoryRuleEngine;
 use Modules\Finance\Service\FinanceService;
+use Modules\Finance\Service\IbanNormalizer;
 
 /**
  * POST-only — the config UI for rules lives on the same page as
@@ -133,24 +134,28 @@ class ConfigRuleController extends AbstractController
                 return $this->json(['success' => true]);
 
             case 'run_on_uncategorized': {
-                $result = $this->bulkCategorizationService->runOnUncategorized();
+                // Runs in the background (Service\BulkCategorizationService::
+                // scheduleBackgroundRun(), picked up by the poor man's cron —
+                // public/index.php) rather than inline here: the AI rule
+                // makes one LLM call per uncategorized movement, which could
+                // otherwise make this request hang for a very long time.
+                if (!$this->bulkCategorizationService->scheduleBackgroundRun()) {
+                    return $this->json(['success' => false, 'error' => 'Une exécution est déjà en cours.'], 400);
+                }
                 $this->journalService->log(
-                    'finance', 'rules_run_on_uncategorized', 'info',
-                    'Règles de catégorisation appliquées aux mouvements non catégorisés',
-                    [
-                        'categorized_by_rules' => $result->categorizedByRules,
-                        'categorized_by_ai' => $result->categorizedByAi,
-                        'still_uncategorized' => $result->stillUncategorized,
-                    ],
-                    AuthSession::getUserAccountId()
+                    'finance', 'rules_run_on_uncategorized_started', 'info',
+                    'Exécution des règles de catégorisation sur les mouvements non catégorisés lancée en arrière-plan',
+                    [], AuthSession::getUserAccountId()
                 );
+                return $this->json(['success' => true]);
+            }
+
+            case 'run_status':
                 return $this->json([
                     'success' => true,
-                    'categorized_by_rules' => $result->categorizedByRules,
-                    'categorized_by_ai' => $result->categorizedByAi,
-                    'still_uncategorized' => $result->stillUncategorized,
+                    'running' => $this->bulkCategorizationService->isRunning(),
+                    'last_result' => $this->bulkCategorizationService->getLastResult(),
                 ]);
-            }
 
             case 'test': {
                 $conditions = $this->extractConditions($data);
@@ -182,7 +187,16 @@ class ConfigRuleController extends AbstractController
      * never match anything), and a set keyword_pattern must be a
      * well-formed regular expression — rejected here, at save time,
      * rather than saved and silently never matching anything at import
-     * time.
+     * time. keyword_pattern is stored lowercased (CategoryRuleEngine
+     * folds case at match time regardless, so this is purely a storage
+     * convention — makes the saved pattern's own casing consistent no
+     * matter how an admin typed it). counterparty_account_pattern is
+     * always normalize()d (uppercase, no spaces/punctuation); it is
+     * additionally checksum-validated as a real IBAN only when it's long
+     * enough to plausibly be a complete one (Service\IbanNormalizer::
+     * looksLikeFullIban()) — the config page's own help text explicitly
+     * allows a shorter fragment (e.g. a bank sort-code prefix), which a
+     * full IBAN checksum can never validate.
      *
      * @param array<string, mixed> $data
      * @return array{0: ?string, 1: ?string, 2: ?string}|Response
@@ -197,8 +211,18 @@ class ConfigRuleController extends AbstractController
             return $this->json(['success' => false, 'error' => 'Au moins une condition est requise.'], 400);
         }
 
-        if ($keywordPattern !== null && !CategoryRuleEngine::isValidKeywordPattern($keywordPattern)) {
-            return $this->json(['success' => false, 'error' => 'Expression régulière invalide pour le mot-clé.'], 400);
+        if ($keywordPattern !== null) {
+            if (!CategoryRuleEngine::isValidKeywordPattern($keywordPattern)) {
+                return $this->json(['success' => false, 'error' => 'Expression régulière invalide pour le mot-clé.'], 400);
+            }
+            $keywordPattern = mb_strtolower($keywordPattern);
+        }
+
+        if ($counterpartyAccountPattern !== null) {
+            $counterpartyAccountPattern = IbanNormalizer::normalize($counterpartyAccountPattern);
+            if (IbanNormalizer::looksLikeFullIban($counterpartyAccountPattern) && !IbanNormalizer::isValidFullIban($counterpartyAccountPattern)) {
+                return $this->json(['success' => false, 'error' => "Le compte contrepartie n'est pas un IBAN valide."], 400);
+            }
         }
 
         return [$keywordPattern, $counterpartyAccountPattern, $amountRange];

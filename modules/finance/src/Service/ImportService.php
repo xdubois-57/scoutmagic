@@ -36,7 +36,8 @@ class ImportService
         private FiscalYearRepository $fiscalYearRepository,
         private CategoryRuleEngine $categoryRuleEngine,
         private BalanceService $balanceService,
-        private ReceiptMatchingService $receiptMatchingService
+        private ReceiptMatchingService $receiptMatchingService,
+        private BulkCategorizationService $bulkCategorizationService
     ) {
     }
 
@@ -154,6 +155,20 @@ class ImportService
             // re-attempt matching for every still-pending receipt on
             // this account now that they do.
             $this->receiptMatchingService->matchPendingReceiptsForAccount($account->id);
+
+            // Regular rules already ran inline per line above; this
+            // catches anything they didn't (in particular the AI rule,
+            // deliberately never run inline — see Service\
+            // BulkCategorizationService's own doc comment) the same way
+            // the config page's "Exécuter les règles" button does,
+            // without making this request wait for it. Skipped when
+            // nothing new was actually inserted (e.g. a re-imported,
+            // fully-duplicate statement) — and silently skipped, not
+            // surfaced as an error, when a run is already in progress;
+            // whichever run happens next will still pick these up.
+            if ($linesNew > 0) {
+                $this->bulkCategorizationService->scheduleBackgroundRun();
+            }
 
             return new ImportResult($statementImport, $balanceDiscrepancy);
         } finally {

@@ -131,6 +131,37 @@ class FinanceServiceTest extends TestCase
         $this->assertSame(Account::STATUS_ACTIVE, $this->accountRepository->findById($account->id)->status);
     }
 
+    public function testCreateAccountNormalizesIbanCaseAndSpaces(): void
+    {
+        $account = $this->service->createAccount('Compte', Account::TYPE_BANK, null, 'be71 0961 2345 6769', 'Titulaire', 'intendant');
+
+        $this->assertSame('BE71096123456769', $account->iban);
+    }
+
+    public function testCreateAccountRejectsInvalidIban(): void
+    {
+        $this->expectException(FinanceException::class);
+        $this->service->createAccount('Compte', Account::TYPE_BANK, null, 'BE71096123456760', 'Titulaire', 'intendant');
+    }
+
+    public function testCreateCashAccountDiscardsIbanAndHolderNameEvenIfPosted(): void
+    {
+        $account = $this->service->createAccount('Caisse', Account::TYPE_CASH, null, 'BE71096123456769', 'Titulaire', 'intendant');
+
+        $this->assertNull($account->iban);
+        $this->assertNull($account->holderName);
+    }
+
+    public function testUpdateAccountToCashDiscardsExistingIbanAndHolderName(): void
+    {
+        $account = $this->service->createAccount('Compte', Account::TYPE_BANK, null, 'BE71096123456769', 'Titulaire', 'intendant');
+
+        $updated = $this->service->updateAccount($account->id, 'Caisse', Account::TYPE_CASH, null, 'BE71096123456769', 'Titulaire', 'intendant');
+
+        $this->assertNull($updated->iban);
+        $this->assertNull($updated->holderName);
+    }
+
     public function testUpdateAccountActivatesAutomaticallyOnceIbanAndHolderAreAdded(): void
     {
         $account = $this->service->createAccount('Compte', Account::TYPE_BANK, null, null, null, 'intendant');
@@ -141,21 +172,21 @@ class FinanceServiceTest extends TestCase
         $this->assertSame(Account::STATUS_ACTIVE, $this->accountRepository->findById($account->id)->status);
     }
 
-    public function testUpdateAccountNeverDeactivatesAnAlreadyActiveOrArchivedAccount(): void
+    public function testUpdateAccountNeverDeactivatesAnAlreadyActiveOrInactiveAccount(): void
     {
         $account = $this->service->createAccount('Compte', Account::TYPE_BANK, null, 'BE92001511757023', 'Titulaire', 'intendant');
-        $this->service->archiveAccount($account->id);
+        $this->service->setAccountActive($account->id, false);
 
         $this->service->updateAccount($account->id, 'Compte', Account::TYPE_BANK, null, 'BE92001511757023', 'Titulaire', 'intendant');
 
-        $this->assertSame(Account::STATUS_ARCHIVED, $this->accountRepository->findById($account->id)->status);
+        $this->assertSame(Account::STATUS_INACTIVE, $this->accountRepository->findById($account->id)->status);
     }
 
     public function testGetAccountsForUserExcludesDraftAndArchivedAndBelowFloor(): void
     {
         $draft = $this->service->createAccount('Brouillon', Account::TYPE_BANK, null, null, null, 'intendant');
-        $active = $this->service->createAccount('Actif intendant', Account::TYPE_BANK, null, 'BE92001511757024', 'Titulaire', 'intendant');
-        $adminOnly = $this->service->createAccount('Réservé admin', Account::TYPE_BANK, null, 'BE92001511757025', 'Titulaire', 'admin');
+        $active = $this->service->createAccount('Actif intendant', Account::TYPE_BANK, null, 'BE65001511757024', 'Titulaire', 'intendant');
+        $adminOnly = $this->service->createAccount('Réservé admin', Account::TYPE_BANK, null, 'BE38001511757025', 'Titulaire', 'admin');
 
         $visibleToIntendant = $this->service->getAccountsForUser(Role::INTENDANT);
         $this->assertCount(1, $visibleToIntendant);
@@ -165,9 +196,40 @@ class FinanceServiceTest extends TestCase
         $this->assertCount(2, $visibleToAdmin);
     }
 
-    public function testDeleteCategoryUnlinksReferencingTransactionsInsteadOfBlocking(): void
+    public function testCreateCategoryRejectsEmptyDescription(): void
     {
-        $category = $this->service->createCategory('Alimentation');
+        $this->expectException(FinanceException::class);
+
+        $this->service->createCategory('Alimentation', '   ');
+    }
+
+    public function testCreateCategoryPersistsDescription(): void
+    {
+        $category = $this->service->createCategory('Alimentation', 'Achats de nourriture pour les activités.');
+
+        $this->assertSame('Achats de nourriture pour les activités.', $category->description);
+    }
+
+    public function testUpdateCategoryRejectsEmptyDescription(): void
+    {
+        $category = $this->service->createCategory('Alimentation', 'Description de test');
+
+        $this->expectException(FinanceException::class);
+        $this->service->updateCategory($category->id, 'Alimentation', '');
+    }
+
+    public function testUpdateCategoryPersistsNewDescription(): void
+    {
+        $category = $this->service->createCategory('Alimentation', 'Ancienne description');
+
+        $this->service->updateCategory($category->id, 'Alimentation', 'Nouvelle description');
+
+        $this->assertSame('Nouvelle description', $this->categoryRepository->findById($category->id)->description);
+    }
+
+    public function testDeleteCategoryRejectsWhenReferencedByTransaction(): void
+    {
+        $category = $this->service->createCategory('Alimentation', 'Description de test');
 
         $stmt = $this->pdo->prepare("INSERT INTO finance_accounts (name, account_type) VALUES ('Compte', 'bank')");
         $stmt->execute();
@@ -177,16 +239,18 @@ class FinanceServiceTest extends TestCase
             $accountId, $fiscalYearId, null, '2026-10-01', 'x', -1.0, $category->id, null, Transaction::SOURCE_MANUAL, null
         );
 
-        $this->service->deleteCategory($category->id);
-
-        $this->assertNull($this->categoryRepository->findById($category->id));
-        $transaction = $this->transactionRepository->findById($transactionId);
-        $this->assertNull($transaction->categoryId);
+        $this->expectException(FinanceException::class);
+        try {
+            $this->service->deleteCategory($category->id);
+        } finally {
+            $this->assertNotNull($this->categoryRepository->findById($category->id));
+            $this->assertSame($category->id, $this->transactionRepository->findById($transactionId)->categoryId);
+        }
     }
 
     public function testDeleteCategoryRemovesRulesTargetingIt(): void
     {
-        $category = $this->service->createCategory('Alimentation');
+        $category = $this->service->createCategory('Alimentation', 'Description de test');
         $ruleId = $this->categoryRuleRepository->create($category->id, 0, 'delhaize', null, null);
 
         $this->service->deleteCategory($category->id);
@@ -221,28 +285,65 @@ class FinanceServiceTest extends TestCase
 
         $names = array_map(fn($c) => $c->name, $this->service->getAllCategories());
         foreach (["Fête d'unité", 'Camp été', 'Weekend de section', 'Grande journée', 'Formations',
-                  'Calendriers', 'Matériel', 'Locaux', 'Subsides', 'Cotisations'] as $expected) {
+                  'Calendriers', 'Matériel', 'Locaux', 'Subsides', 'Cotisations', "Temps d'Unité (TU)"] as $expected) {
             $this->assertContains($expected, $names);
         }
-        $this->assertCount(10, $names);
+        $this->assertCount(11, $names);
+    }
+
+    public function testEnsureDefaultCategoriesSeedsNonEmptyDescriptionsAndIsDefaultFlag(): void
+    {
+        $this->service->ensureDefaultCategories();
+
+        foreach ($this->service->getAllCategories() as $category) {
+            $this->assertNotSame('', $category->description, "Category '{$category->name}' has no description");
+            $this->assertTrue($category->isDefault);
+        }
+    }
+
+    public function testEnsureDefaultCategoriesBackfillsDescriptionForPreExistingDefaultCategory(): void
+    {
+        // Simulates an installation whose default categories were created
+        // before description/is_default existed — inserted directly, the
+        // way ensureDefaultCategories() itself used to before this schema
+        // change (no description, no is_default flag set).
+        $id = $this->categoryRepository->create('Camp été');
+        $this->assertSame('', $this->categoryRepository->findById($id)->description);
+
+        $this->service->ensureDefaultCategories();
+
+        $category = $this->categoryRepository->findById($id);
+        $this->assertNotSame('', $category->description);
+        $this->assertTrue($category->isDefault);
+    }
+
+    public function testEnsureDefaultCategoriesNeverOverwritesAnAdminWrittenDescription(): void
+    {
+        $this->service->ensureDefaultCategories();
+        $camp = current(array_filter($this->service->getAllCategories(), fn($c) => $c->name === 'Camp été'));
+        $this->service->updateCategory($camp->id, 'Camp été', 'Ma propre description');
+
+        $this->service->ensureDefaultCategories();
+
+        $this->assertSame('Ma propre description', $this->categoryRepository->findById($camp->id)->description);
     }
 
     public function testEnsureDefaultCategoriesNeverResurrectsARenamedDefault(): void
     {
         $this->service->ensureDefaultCategories();
         $camp = $this->service->getAllCategories()[0];
-        $this->service->updateCategoryName($camp->id, 'Renommée par un admin');
+        $this->service->updateCategory($camp->id, 'Renommée par un admin', 'Description de test');
 
         $this->service->ensureDefaultCategories();
 
         $names = array_map(fn($c) => $c->name, $this->service->getAllCategories());
-        $this->assertCount(10, $names);
+        $this->assertCount(11, $names);
         $this->assertContains('Renommée par un admin', $names);
     }
 
     public function testEnsureDefaultCategoriesNeverSeedsOnceAnyCategoryExists(): void
     {
-        $this->service->createCategory('Catégorie personnalisée');
+        $this->service->createCategory('Catégorie personnalisée', 'Description de test');
 
         $this->service->ensureDefaultCategories();
 
@@ -295,7 +396,7 @@ class FinanceServiceTest extends TestCase
     public function testResetDefaultCategoryRulesNeverTouchesCustomRules(): void
     {
         $this->service->ensureDefaultCategories();
-        $custom = $this->service->createCategory('Ma catégorie perso');
+        $custom = $this->service->createCategory('Ma catégorie perso', 'Description de test');
         $customRuleId = $this->categoryRuleRepository->create($custom->id, 999, 'mon-mot-cle', null, null);
 
         $this->service->resetDefaultCategoryRules();
@@ -318,6 +419,93 @@ class FinanceServiceTest extends TestCase
         $this->assertNotNull($this->categoryRuleRepository->findById($systemRule->id));
     }
 
+    public function testResetDefaultCategoryRulesMovesDefaultRulesAboveCustomOnes(): void
+    {
+        $this->service->ensureDefaultCategories();
+        $custom = $this->service->createCategory('Ma catégorie perso', 'Description de test');
+        // Placed ahead of every default rule at creation time.
+        $customRuleId = $this->categoryRuleRepository->create($custom->id, -1, 'mon-mot-cle', null, null);
+
+        $this->service->resetDefaultCategoryRules();
+
+        $ordered = $this->categoryRuleRepository->findAllOrderedByPriority();
+        $customIndex = null;
+        $firstDefaultIndex = null;
+        foreach ($ordered as $index => $rule) {
+            if ($rule->id === $customRuleId) {
+                $customIndex = $index;
+            }
+            if ($rule->isDefault && $firstDefaultIndex === null) {
+                $firstDefaultIndex = $index;
+            }
+        }
+        $this->assertNotNull($customIndex);
+        $this->assertNotNull($firstDefaultIndex);
+        $this->assertLessThan($customIndex, $firstDefaultIndex);
+    }
+
+    public function testResetDefaultCategoryRulesKeepsSystemRulesAheadOfDefaultOnes(): void
+    {
+        $account = $this->service->createAccount('Compte', Account::TYPE_BANK, null, 'BE71096123456769', 'Titulaire', 'intendant');
+        $this->service->ensureDefaultCategories();
+
+        $this->service->resetDefaultCategoryRules();
+
+        $ordered = $this->categoryRuleRepository->findAllOrderedByPriority();
+        $this->assertTrue($ordered[0]->isSystem);
+    }
+
+    // --- ensureAccountTransferRules() ---
+
+    public function testEnsureAccountTransferRulesCreatesMissingSystemRuleForAnEligibleAccount(): void
+    {
+        $account = $this->service->createAccount('Compte', Account::TYPE_BANK, null, 'BE71096123456769', 'Titulaire', 'intendant');
+        $category = $this->categoryRepository->findByAccountId($account->id);
+        $this->assertNotNull($category);
+        // Simulates drift: the category/rule existed once but were lost
+        // some other way (or never existed for an account that predates
+        // this bookkeeping) — deleting them directly bypasses sync().
+        $this->categoryRuleRepository->deleteAllForCategory($category->id);
+        $this->categoryRepository->delete($category->id);
+        $this->assertNull($this->categoryRepository->findByAccountId($account->id));
+
+        $this->service->ensureAccountTransferRules();
+
+        $recreated = $this->categoryRepository->findByAccountId($account->id);
+        $this->assertNotNull($recreated);
+        $this->assertNotNull($this->categoryRuleRepository->findSystemRuleForCategory($recreated->id));
+    }
+
+    public function testEnsureAccountTransferRulesIsANoOpForAnIneligibleAccount(): void
+    {
+        $this->service->createAccount('Compte', Account::TYPE_BANK, null, null, null, 'intendant');
+
+        $this->service->ensureAccountTransferRules();
+
+        $this->assertCount(0, $this->categoryRuleRepository->findAllOrderedByPriority());
+    }
+
+    // --- default account flag backfill ---
+
+    public function testEnsureDefaultAccountsForSectionsBackfillsIsDefaultForPreExistingSectionAccount(): void
+    {
+        $branchStmt = $this->pdo->prepare("INSERT INTO age_branches (desk_code, label, sort_order) VALUES ('LOU', 'Louveteaux', 1)");
+        $branchStmt->execute();
+        $branchId = (int) $this->pdo->lastInsertId();
+        $sectionStmt = $this->pdo->prepare("INSERT INTO sections (desk_code, age_branch_id, name) VALUES ('LOU01', ?, 'Louveteaux')");
+        $sectionStmt->execute([$branchId]);
+        $sectionId = (int) $this->pdo->lastInsertId();
+
+        // Simulates an account created before is_default existed: tied to
+        // a section, but not flagged (bypasses ensureDefaultAccountsForSections()).
+        $accountId = $this->accountRepository->create('Louveteaux', Account::TYPE_BANK, $sectionId, null, null, 'intendant');
+        $this->assertFalse($this->accountRepository->findById($accountId)->isDefault);
+
+        $this->service->ensureDefaultAccountsForSections();
+
+        $this->assertTrue($this->accountRepository->findById($accountId)->isDefault);
+    }
+
     // --- resetDefaultCategories() ---
 
     public function testResetDefaultCategoriesRecreatesADeletedOne(): void
@@ -325,12 +513,12 @@ class FinanceServiceTest extends TestCase
         $this->service->ensureDefaultCategories();
         $camp = current(array_filter($this->service->getAllCategories(), fn($c) => $c->name === 'Camp été'));
         $this->service->deleteCategory($camp->id);
-        $this->assertCount(9, $this->service->getAllCategories());
+        $this->assertCount(10, $this->service->getAllCategories());
 
         $this->service->resetDefaultCategories();
 
         $names = array_map(fn($c) => $c->name, $this->service->getAllCategories());
-        $this->assertCount(10, $names);
+        $this->assertCount(11, $names);
         $this->assertContains('Camp été', $names);
     }
 
@@ -340,12 +528,12 @@ class FinanceServiceTest extends TestCase
 
         $this->service->resetDefaultCategories();
 
-        $this->assertCount(10, $this->service->getAllCategories());
+        $this->assertCount(11, $this->service->getAllCategories());
     }
 
     public function testResetDefaultCategoriesNeverTouchesCustomCategories(): void
     {
-        $custom = $this->service->createCategory('Ma catégorie perso');
+        $custom = $this->service->createCategory('Ma catégorie perso', 'Description de test');
 
         $this->service->resetDefaultCategories();
 
@@ -396,21 +584,63 @@ class FinanceServiceTest extends TestCase
         $account = $this->service->createAccount('Louveteaux', Account::TYPE_BANK, null, 'BE71096123456769', 'Titulaire', 'intendant');
         $category = $this->categoryRepository->findByAccountId($account->id);
 
-        $this->service->updateAccount($account->id, 'Louveteaux', Account::TYPE_BANK, null, 'BE18001234567892', 'Titulaire', 'intendant');
+        $this->service->updateAccount($account->id, 'Louveteaux', Account::TYPE_BANK, null, 'BE43001234567892', 'Titulaire', 'intendant');
 
         $rule = $this->categoryRuleRepository->findSystemRuleForCategory($category->id);
-        $this->assertSame('BE18001234567892', $rule->counterpartyAccountPattern);
+        $this->assertSame('BE43001234567892', $rule->counterpartyAccountPattern);
     }
 
-    public function testArchiveAccountRemovesTransferCategoryAndRule(): void
+    public function testDeactivateAccountRemovesTransferCategoryAndRule(): void
     {
         $account = $this->service->createAccount('Louveteaux', Account::TYPE_BANK, null, 'BE71096123456769', 'Titulaire', 'intendant');
         $categoryId = $this->categoryRepository->findByAccountId($account->id)->id;
 
-        $this->service->archiveAccount($account->id);
+        $this->service->setAccountActive($account->id, false);
 
         $this->assertNull($this->categoryRepository->findByAccountId($account->id));
         $this->assertNull($this->categoryRepository->findById($categoryId));
+    }
+
+    public function testReactivateAccountRecreatesTransferCategoryAndRule(): void
+    {
+        $account = $this->service->createAccount('Louveteaux', Account::TYPE_BANK, null, 'BE71096123456769', 'Titulaire', 'intendant');
+        $this->service->setAccountActive($account->id, false);
+
+        $this->service->setAccountActive($account->id, true);
+
+        $category = $this->categoryRepository->findByAccountId($account->id);
+        $this->assertNotNull($category);
+        $rule = $this->categoryRuleRepository->findSystemRuleForCategory($category->id);
+        $this->assertNotNull($rule);
+    }
+
+    public function testSetAccountActiveRejectsActivatingAStillDraftAccount(): void
+    {
+        $account = $this->service->createAccount('Compte', Account::TYPE_BANK, null, null, null, 'intendant');
+
+        $this->expectException(FinanceException::class);
+        $this->service->setAccountActive($account->id, true);
+    }
+
+    public function testUpdateAccountNeverChangesNameTypeOrSectionOfADefaultAccount(): void
+    {
+        $branchStmt = $this->pdo->prepare("INSERT INTO age_branches (desk_code, label, sort_order) VALUES ('LOU', 'Louveteaux', 1)");
+        $branchStmt->execute();
+        $branchId = (int) $this->pdo->lastInsertId();
+        $sectionStmt = $this->pdo->prepare("INSERT INTO sections (desk_code, age_branch_id, name) VALUES ('LOU01', ?, 'Louveteaux')");
+        $sectionStmt->execute([$branchId]);
+        $sectionId = (int) $this->pdo->lastInsertId();
+
+        $this->service->ensureDefaultAccountsForSections();
+        $account = current(array_filter($this->service->getAllAccountsForConfig(), fn($a) => $a->sectionId === $sectionId));
+        $this->assertTrue($account->isDefault);
+
+        $updated = $this->service->updateAccount($account->id, 'Nom modifié', Account::TYPE_CASH, null, null, null, 'admin');
+
+        $this->assertSame($account->name, $updated->name);
+        $this->assertSame(Account::TYPE_BANK, $updated->accountType);
+        $this->assertSame($sectionId, $updated->sectionId);
+        $this->assertSame('admin', $updated->roleMinView);
     }
 
     // --- getCategorySummary() ---
@@ -425,7 +655,7 @@ class FinanceServiceTest extends TestCase
     public function testGetCategorySummaryAggregatesIncomeAndExpensePerCategory(): void
     {
         [$accountId, $fiscalYearId] = $this->createAccountAndFiscalYear();
-        $alimentation = $this->service->createCategory('Alimentation');
+        $alimentation = $this->service->createCategory('Alimentation', 'Description de test');
         $this->createMovement($accountId, $fiscalYearId, -20.0, $alimentation->id);
         $this->createMovement($accountId, $fiscalYearId, -30.0, $alimentation->id);
         $this->createMovement($accountId, $fiscalYearId, 100.0, $alimentation->id);
@@ -454,8 +684,8 @@ class FinanceServiceTest extends TestCase
     public function testGetCategorySummarySortedByIncomeDescending(): void
     {
         [$accountId, $fiscalYearId] = $this->createAccountAndFiscalYear();
-        $low = $this->service->createCategory('Faibles recettes');
-        $high = $this->service->createCategory('Fortes recettes');
+        $low = $this->service->createCategory('Faibles recettes', 'Description de test');
+        $high = $this->service->createCategory('Fortes recettes', 'Description de test');
         $this->createMovement($accountId, $fiscalYearId, 10.0, $low->id);
         $this->createMovement($accountId, $fiscalYearId, 500.0, $high->id);
 

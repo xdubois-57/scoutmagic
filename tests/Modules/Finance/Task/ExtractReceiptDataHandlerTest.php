@@ -16,12 +16,14 @@ use Core\Scheduler\TaskContext;
 use Core\Security\EncryptionService;
 use Core\Security\UserAccountRepository;
 use Modules\Finance\Repository\AttachmentRepository;
+use Modules\Finance\Repository\TransactionRepository;
 use Modules\Finance\Task\ExtractReceiptDataHandler;
 use Modules\LlmConnector\Api\LlmTier;
 use Modules\LlmConnector\Repository\ProviderModelRepository;
 use Modules\LlmConnector\Repository\ProviderRepository;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
+use Tests\Modules\Finance\FinanceTestHelper;
 
 /**
  * @group database
@@ -40,7 +42,7 @@ class ExtractReceiptDataHandlerTest extends TestCase
     {
         $this->pdo = DatabaseTestHelper::createTestDatabase();
         $this->createLlmTables();
-        $this->createFinanceAttachmentTables();
+        FinanceTestHelper::createTables($this->pdo);
 
         $this->encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $this->attachmentRepository = new AttachmentRepository($this->pdo, $this->encryption);
@@ -268,6 +270,38 @@ class ExtractReceiptDataHandlerTest extends TestCase
         $this->assertStringContainsString('PDF sans texte exploitable', $failure['description']);
     }
 
+    /**
+     * A PDF that fails extraction entirely must still get an AI-matching
+     * attempt (and so the receipts page's "IA : aucun mouvement trouvé"
+     * badge), exactly like an image whose OCR came back empty — matching
+     * must not silently depend on extraction having actually produced
+     * something usable.
+     */
+    public function testUnreadablePdfStillAttemptsMatchingWhenAFutureCandidateExists(): void
+    {
+        $accountRepository = new \Modules\Finance\Repository\AccountRepository($this->pdo, $this->encryption);
+        $accountId = $accountRepository->create('Compte', 'bank', null, null, null, 'intendant');
+        $fiscalYearId = FinanceTestHelper::createScoutYear($this->pdo, '2026-2027', '2026-09-01', '2027-08-31');
+        $transactionRepository = new TransactionRepository($this->pdo, $this->encryption);
+        $transactionRepository->create(
+            $accountId, $fiscalYearId, 'r1', '2026-10-05', 'Achat', -10.0, null, null, 'manual', null
+        );
+
+        $fileId = $this->fileStorage->store('%PDF not actually a valid pdf', 'application/pdf', 'facture.pdf', 'finance/receipts', 'intendant');
+        $attachmentId = $this->attachmentRepository->create($accountId, $fileId, 'application/pdf', 'facture.pdf', null, null, null, 1);
+
+        $providerId = $this->providerRepository->create('Unreachable', 'anthropic', 'http://127.0.0.1:19', 'sk-test', true);
+        $this->modelRepository->upsert($providerId, 'test-model', 'Test Model');
+        $models = $this->modelRepository->findByProvider($providerId);
+        $this->modelRepository->assignTier((int) $models[0]['id'], LlmTier::CHEAP);
+
+        $handler = new ExtractReceiptDataHandler();
+        $handler->handle(['attachment_id' => $attachmentId], $this->createTaskContext());
+
+        $attachment = $this->attachmentRepository->findById($attachmentId);
+        $this->assertNotNull($attachment->matchingAiAttemptedAt);
+    }
+
     private function normalizeDate(string $rawDate): ?string
     {
         $method = new \ReflectionMethod(ExtractReceiptDataHandler::class, 'normalizeDate');
@@ -384,24 +418,4 @@ class ExtractReceiptDataHandlerTest extends TestCase
         )');
     }
 
-    private function createFinanceAttachmentTables(): void
-    {
-        $this->pdo->exec('CREATE TABLE finance_attachments (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            account_id INTEGER,
-            file_id INTEGER NOT NULL,
-            mime_type TEXT NOT NULL,
-            original_filename TEXT NOT NULL,
-            suggested_amount REAL,
-            suggested_date TEXT,
-            suggested_label TEXT,
-            suggested_description TEXT,
-            suggested_source TEXT,
-            matching_ai_attempted_at TEXT,
-            status TEXT NOT NULL DEFAULT \'active\',
-            parent_attachment_id INTEGER,
-            uploaded_by INTEGER,
-            uploaded_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-        )');
-    }
 }

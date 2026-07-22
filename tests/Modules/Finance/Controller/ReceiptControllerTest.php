@@ -104,7 +104,9 @@ class ReceiptControllerTest extends TestCase
 
         $this->controller = new ReceiptController(
             $twig, $this->attachmentRepository, $this->transactionAttachmentRepository, $this->transactionRepository, $financeService,
-            $receiptService, $extractionService, $journalService
+            $receiptService, $extractionService,
+            new \Modules\Finance\Service\FirstReceiptResolver($this->transactionAttachmentRepository, $this->attachmentRepository),
+            $journalService
         );
 
         $this->accountId = $this->accountRepository->create('Compte', Account::TYPE_BANK, null, null, null, 'intendant');

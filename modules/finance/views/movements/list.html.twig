@@ -7,6 +7,12 @@
 
     {% include '@finance/_nav.html.twig' with {'hide_account_picker': true} %}
 
+    <p class="text-body-secondary small mb-3">
+        Cette page liste tous les mouvements du compte sélectionné (import bancaire ou saisie manuelle). Vous
+        pouvez catégoriser chaque mouvement, y ajouter un commentaire, lui associer un ou plusieurs reçus, et
+        rechercher dans tout l'historique.
+    </p>
+
     {% if no_accounts %}
         <p class="text-body-secondary fst-italic">Aucun compte visible pour votre rôle.</p>
     {% else %}
@@ -55,9 +61,9 @@
             <thead>
                 <tr>
                     <th>Date</th>
-                    <th>Libellé</th>
                     <th>Catégorie</th>
-                    <th>Commentaire</th>
+                    <th>Contrepartie</th>
+                    <th>Description</th>
                     <th class="text-end">Montant</th>
                     <th class="text-center">📎</th>
                 </tr>
@@ -72,6 +78,7 @@
                         data-amount="{{ movement.amount }}"
                         data-source="{{ movement.source }}"
                         data-category-id="{{ movement.categoryId }}"
+                        data-category-source="{{ movement.categorySource }}"
                         data-comment="{{ movement.comment }}"
                         data-fiscal-year-id="{{ movement.fiscalYearId }}"
                         data-counterparty-name="{{ movement.counterpartyName }}"
@@ -79,9 +86,14 @@
                         data-extra-details="{{ movement.extraDetails }}"
                         class="movement-row {{ movement.categoryId is null ? 'table-warning' : '' }}" style="cursor: pointer;">
                         <td>{{ movement.transactionDate }}</td>
-                        <td>{{ movement.label }}</td>
-                        <td>{{ movement.categoryId and categories_by_id[movement.categoryId] is defined ? categories_by_id[movement.categoryId].name : 'À catégoriser' }}</td>
-                        <td>{{ movement.comment }}</td>
+                        <td>
+                            {{ movement.categoryId and categories_by_id[movement.categoryId] is defined ? categories_by_id[movement.categoryId].name : 'À catégoriser' }}
+                            {% if movement.isCategoryAutoAssigned %}
+                                <span class="badge text-bg-light border" title="Catégorie attribuée automatiquement (règle ou IA)">Auto</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ row.counterparty }}</td>
+                        <td>{{ row.description }}</td>
                         <td class="text-end {{ movement.amount < 0 ? 'text-danger' : 'text-success' }}">
                             {{ movement.amount|number_format(2, ',', ' ') }} €
                         </td>
@@ -125,15 +137,23 @@
                 </div>
                 <div class="modal-body">
                     <div id="attachments-list" class="d-flex flex-column gap-2 mb-3"></div>
-                    <div class="d-flex gap-2">
+                    <div class="d-flex gap-2 mb-2">
                         <select class="form-select form-select-sm" id="attachments-add-select">
                             <option value="">Associer un reçu en attente…</option>
                             {% for receipt in pending_receipts %}
-                                <option value="{{ receipt.id }}">{{ receipt.originalFilename }}</option>
+                                <option value="{{ receipt.id }}">
+                                    {{ receipt.originalFilename }}{% if receipt.suggestedDate %} — {{ receipt.suggestedDate }}{% endif %}{% if receipt.suggestedLabel %} — {{ receipt.suggestedLabel }}{% endif %}{% if receipt.suggestedAmount %} — {{ receipt.suggestedAmount|number_format(2, ',', ' ') }} €{% endif %}
+                                </option>
                             {% endfor %}
                         </select>
                         <button type="button" class="btn btn-sm btn-primary" id="attachments-add-btn">Associer</button>
                     </div>
+                    <div class="text-body-secondary small text-center mb-2">— ou —</div>
+                    <div class="d-flex gap-2">
+                        <input type="file" class="form-control form-control-sm" id="attachments-upload-input" accept=".pdf,.jpg,.jpeg,.png">
+                        <button type="button" class="btn btn-sm btn-outline-primary text-nowrap" id="attachments-upload-btn">Téléverser et associer</button>
+                    </div>
+                    <div class="text-danger small mt-2 d-none" id="attachments-upload-error"></div>
                 </div>
             </div>
         </div>
@@ -165,6 +185,7 @@
                                 <option value="{{ category.id }}">{{ category.name }}</option>
                             {% endfor %}
                         </select>
+                        <div class="form-text small d-none" id="md-category-auto">Catégorie attribuée automatiquement (règle ou IA). Changer la catégorie ici la rendra manuelle.</div>
                     </div>
                     <div class="mb-2">
                         <label class="form-label small" for="md-comment">Commentaire</label>
@@ -226,6 +247,7 @@ document.querySelectorAll('tr.movement-row').forEach(row => {
         setDetailRow('md-counterparty-account', row.dataset.counterpartyAccount);
         setDetailRow('md-extra-details', row.dataset.extraDetails);
         document.getElementById('md-category').value = row.dataset.categoryId || '';
+        document.getElementById('md-category-auto').classList.toggle('d-none', row.dataset.categorySource !== 'auto');
         document.getElementById('md-comment').value = row.dataset.comment || '';
         document.getElementById('md-fiscal-year').value = row.dataset.fiscalYearId;
         movementDetailsModal ? movementDetailsModal.show() : movementDetailsModalEl.classList.add('show');
@@ -262,6 +284,16 @@ function escapeHtml(value) {
     return div.innerHTML;
 }
 
+function attachmentThumbnailHtml(a) {
+    if (a.mime_type.startsWith('image/')) {
+        return '<img src="/files/' + a.file_id + '" alt="" class="rounded pdf-thumbnail" style="width:64px;height:64px;object-fit:cover;">';
+    }
+    if (a.mime_type === 'application/pdf') {
+        return '<img src="/files/' + a.file_id + '/thumbnail" alt="" class="rounded pdf-thumbnail" style="width:64px;height:64px;object-fit:cover;">';
+    }
+    return '<div class="d-flex align-items-center justify-content-center bg-body-secondary rounded" style="width:64px;height:64px;"><i class="bi bi-file-earmark fs-4"></i></div>';
+}
+
 async function loadAttachments(movementId) {
     currentMovementId = movementId;
     const res = await fetch('/finance/movements/' + movementId + '/attachments');
@@ -275,21 +307,35 @@ async function loadAttachments(movementId) {
             const row = document.createElement('div');
             row.className = 'd-flex align-items-center gap-2 border rounded p-2';
             let info = '<a href="/files/' + a.file_id + '" target="_blank" class="fw-semibold">' + escapeHtml(a.original_filename) + '</a>';
-            if (a.suggested_amount || a.suggested_label) {
+            if (a.suggested_amount || a.suggested_date || a.suggested_label) {
                 info += '<div class="small">'
                     + (a.suggested_amount ? Number(a.suggested_amount).toLocaleString('fr-BE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €' : '')
-                    + (a.suggested_label ? (a.suggested_amount ? ' — ' : '') + escapeHtml(a.suggested_label) : '')
+                    + (a.suggested_date ? ((a.suggested_amount ? ' — ' : '') + escapeHtml(a.suggested_date)) : '')
+                    + (a.suggested_label ? ((a.suggested_amount || a.suggested_date ? ' — ' : '') + escapeHtml(a.suggested_label)) : '')
                     + '</div>';
             }
             if (a.suggested_description) {
                 info += '<div class="small text-body-secondary fst-italic">' + escapeHtml(a.suggested_description) + '</div>';
             }
-            row.innerHTML = '<div class="flex-grow-1">' + info + '</div>'
+            row.innerHTML = attachmentThumbnailHtml(a) + '<div class="flex-grow-1">' + info + '</div>'
                 + '<button type="button" class="btn btn-sm btn-outline-danger dissociate-btn" data-attachment-id="' + a.id + '">Dissocier</button>';
             list.appendChild(row);
         });
+        list.querySelectorAll('img.pdf-thumbnail').forEach(img => {
+            img.addEventListener('error', () => {
+                const fallback = document.createElement('div');
+                fallback.className = 'd-flex align-items-center justify-content-center bg-body-secondary rounded';
+                fallback.style.width = '64px';
+                fallback.style.height = '64px';
+                fallback.innerHTML = '<i class="bi bi-file-earmark-pdf fs-4"></i>';
+                img.replaceWith(fallback);
+            }, { once: true });
+        });
         list.querySelectorAll('.dissociate-btn').forEach(btn => {
             btn.addEventListener('click', async () => {
+                if (!confirm('Délier ce reçu de ce mouvement ?')) {
+                    return;
+                }
                 await fetch('/finance/receipts/' + btn.dataset.attachmentId + '/dissociate', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -320,6 +366,37 @@ document.getElementById('attachments-add-btn').addEventListener('click', async (
         body: JSON.stringify({ transaction_ids: [currentMovementId], _csrf_token: csrf() })
     });
     window.location.reload();
+});
+
+document.getElementById('attachments-upload-btn').addEventListener('click', async () => {
+    const input = document.getElementById('attachments-upload-input');
+    const errorBox = document.getElementById('attachments-upload-error');
+    errorBox.classList.add('d-none');
+    if (!input.files.length || !currentMovementId) {
+        return;
+    }
+
+    const formData = new FormData();
+    formData.append('receipt', input.files[0]);
+    formData.append('_csrf_token', csrf());
+
+    const btn = document.getElementById('attachments-upload-btn');
+    btn.disabled = true;
+    try {
+        const res = await fetch('/finance/movements/' + currentMovementId + '/attachments', {
+            method: 'POST',
+            body: formData
+        });
+        const data = await res.json();
+        if (data.success) {
+            window.location.reload();
+        } else {
+            errorBox.textContent = data.error;
+            errorBox.classList.remove('d-none');
+        }
+    } finally {
+        btn.disabled = false;
+    }
 });
 
 async function associateSuggestion(movementId, attachmentId) {

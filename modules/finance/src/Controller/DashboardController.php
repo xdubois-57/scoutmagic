@@ -18,6 +18,8 @@ use Modules\Finance\Repository\Transaction;
 use Modules\Finance\Repository\TransactionAttachmentRepository;
 use Modules\Finance\Service\BalanceService;
 use Modules\Finance\Service\FinanceService;
+use Modules\Finance\Service\FirstReceiptResolver;
+use Modules\Finance\Service\MovementPresenter;
 use Modules\Finance\Service\ReceiptService;
 use Modules\Finance\Repository\TransactionRepository;
 
@@ -36,7 +38,8 @@ class DashboardController extends AbstractController
         private CategoryRepository $categoryRepository,
         private AttachmentRepository $attachmentRepository,
         private TransactionAttachmentRepository $transactionAttachmentRepository,
-        private StatementImportRepository $statementImportRepository
+        private StatementImportRepository $statementImportRepository,
+        private FirstReceiptResolver $firstReceiptResolver
     ) {
     }
 
@@ -86,17 +89,34 @@ class DashboardController extends AbstractController
         $uncategorizedCount = 0;
         $netCategoryBreakdown = ['positive' => [], 'negative' => []];
 
+        $isFiltered = $categoryId !== null || $uncategorizedOnly || $search !== '';
+        $attachmentCountsByMovementId = [];
+
         if ($fiscalYear !== null) {
             $categorySummary = $this->financeService->getCategorySummary($account->id, $fiscalYear->id);
             $balanceEvolution = $this->financeService->getBalanceEvolution($account->id, $fiscalYear->id);
             $recentMovements = array_slice(
-                $this->findMatchingMovements($account->id, $fiscalYear->id, $categoryId, $uncategorizedOnly, $search),
+                $isFiltered
+                    ? $this->findMatchingMovements($account->id, $fiscalYear->id, $categoryId, $uncategorizedOnly, $search)
+                    : $this->findActionNeededMovements($account->id, $fiscalYear->id),
                 0,
                 self::RECENT_MOVEMENTS_LIMIT
+            );
+            $attachmentCountsByMovementId = $this->transactionAttachmentRepository->countByTransactionIds(
+                array_map(fn(Transaction $movement) => $movement->id, $recentMovements)
             );
             $uncategorizedCount = $this->transactionRepository->countUncategorized($account->id, $fiscalYear->id);
             $netCategoryBreakdown = $this->financeService->buildNetCategoryBreakdown($categorySummary);
         }
+
+        $firstReceiptsByMovementId = $this->firstReceiptResolver->resolve(
+            array_map(fn(Transaction $movement) => $movement->id, $recentMovements)
+        );
+        $recentMovementRows = array_map(fn(Transaction $movement) => [
+            'movement' => $movement,
+            'counterparty' => MovementPresenter::counterparty($movement, $firstReceiptsByMovementId[$movement->id] ?? null, $account->name),
+            'description' => MovementPresenter::description($movement, $firstReceiptsByMovementId[$movement->id] ?? null),
+        ], $recentMovements);
 
         $bilan = ['income' => 0.0, 'expense' => 0.0, 'total' => 0.0];
         foreach ($categorySummary as $row) {
@@ -108,12 +128,19 @@ class DashboardController extends AbstractController
         $allPendingReceipts = $this->receiptService->listPending($account->id);
         $pendingReceipts = array_slice($allPendingReceipts, 0, self::PENDING_RECEIPTS_LIMIT);
 
+        $categories = $this->categoryRepository->findAllOrdered();
+        $categoriesById = [];
+        foreach ($categories as $category) {
+            $categoriesById[$category->id] = $category;
+        }
+
         return $this->render('@finance/dashboard.html.twig', [
             'accounts' => $accounts,
             'selected_account' => $account,
             'fiscal_years' => $fiscalYears,
             'selected_fiscal_year' => $fiscalYear,
-            'categories' => $this->categoryRepository->findAllOrdered(),
+            'categories' => $categories,
+            'categories_by_id' => $categoriesById,
             'filter_category_id' => $categoryParam,
             'filter_search' => $search,
             'balance' => $balance,
@@ -126,10 +153,38 @@ class DashboardController extends AbstractController
             'net_category_breakdown' => $netCategoryBreakdown,
             'balance_evolution' => $balanceEvolution,
             'recent_movements' => $recentMovements,
+            'recent_movement_rows' => $recentMovementRows,
+            'recent_movements_is_action_list' => !$isFiltered,
+            'recent_movements_attachment_counts' => $attachmentCountsByMovementId,
             'uncategorized_count' => $uncategorizedCount,
             'pending_receipts' => $pendingReceipts,
             'pending_receipts_count' => count($allPendingReceipts),
         ]);
+    }
+
+    /**
+     * The dashboard's default (unfiltered) "Derniers mouvements" list —
+     * not simply the most recent movements, but the most recent ones
+     * that actually need an admin's attention: uncategorized, or an
+     * expense with no receipt attached yet (income never needs a
+     * receipt). Replaced by the ordinary filtered list the moment the
+     * admin picks a category or types a search (module spec follow-up).
+     *
+     * @return Transaction[]
+     */
+    private function findActionNeededMovements(int $accountId, int $fiscalYearId): array
+    {
+        $movements = $this->transactionRepository->findFiltered([$accountId], $fiscalYearId, null, null, false);
+
+        $attachmentCounts = $this->transactionAttachmentRepository->countByTransactionIds(
+            array_map(fn(Transaction $movement) => $movement->id, $movements)
+        );
+
+        return array_values(array_filter(
+            $movements,
+            fn(Transaction $movement) => $movement->categoryId === null
+                || ($movement->amount < 0 && ($attachmentCounts[$movement->id] ?? 0) === 0)
+        ));
     }
 
     /**

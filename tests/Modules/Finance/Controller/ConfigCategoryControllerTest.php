@@ -12,6 +12,8 @@ use Core\Http\Request;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Member\SectionService;
+use Core\Scheduler\SchedulerRepository;
+use Core\Scheduler\SchedulerService;
 use Core\Security\EncryptionService;
 use Modules\Finance\Controller\ConfigCategoryController;
 use Modules\Finance\Repository\AccountRepository;
@@ -44,6 +46,8 @@ class ConfigCategoryControllerTest extends TestCase
     private CategoryRuleRepository $categoryRuleRepository;
     private AiCategorySuggestionRepository $suggestionRepository;
     private FinanceService $financeService;
+    private TransactionRepository $transactionRepository;
+    private AccountRepository $accountRepository;
 
     private function buildController(bool $aiModuleEnabled): ConfigCategoryController
     {
@@ -51,8 +55,10 @@ class ConfigCategoryControllerTest extends TestCase
         $connection = Connection::withPdo($this->pdo);
         $sectionService = new SectionService($connection, $encryption, new MemberBadgeRepository($this->pdo));
         $accountRepository = new AccountRepository($this->pdo, $encryption);
+        $this->accountRepository = $accountRepository;
         $fiscalYearRepository = new FiscalYearRepository($this->pdo, new \Core\Config\ScoutYearService($this->pdo));
         $transactionRepository = new TransactionRepository($this->pdo, $encryption);
+        $this->transactionRepository = $transactionRepository;
         $checkpointRepository = new BalanceCheckpointRepository($this->pdo);
         $balanceService = new BalanceService($checkpointRepository, $transactionRepository);
         $settingService = new SettingService(new SettingRepository($this->pdo));
@@ -68,7 +74,9 @@ class ConfigCategoryControllerTest extends TestCase
 
         $ruleEngine = new CategoryRuleEngine($transactionRepository, $this->categoryRuleRepository);
         $aiService = new AiCategorizationService(null, $this->categoryRepository, $this->suggestionRepository, $journalService);
-        $bulkService = new BulkCategorizationService($transactionRepository, $ruleEngine, $aiService, $settingService);
+        $bulkService = new BulkCategorizationService(
+            $transactionRepository, $ruleEngine, $aiService, $settingService, new SchedulerService(new SchedulerRepository($this->pdo))
+        );
 
         $templateDir = dirname(__DIR__, 4) . '/core/View/templates';
         $moduleViews = dirname(__DIR__, 4) . '/modules/finance/views';
@@ -90,7 +98,7 @@ class ConfigCategoryControllerTest extends TestCase
 
         return new ConfigCategoryController(
             $twig, $this->financeService, $this->categoryRuleRepository, $journalService,
-            $this->suggestionRepository, $bulkService, $aiModuleEnabled
+            $this->suggestionRepository, $bulkService, $transactionRepository, $aiModuleEnabled
         );
     }
 
@@ -159,5 +167,38 @@ class ConfigCategoryControllerTest extends TestCase
         $this->assertTrue($data['success']);
         $names = array_map(fn($c) => $c->name, $this->financeService->getAllCategories());
         $this->assertContains('Camp été', $names);
+    }
+
+    public function testIndexDisablesDeleteButtonForCategoryReferencedByAMovement(): void
+    {
+        $controller = $this->buildController(false);
+        $category = $this->financeService->createCategory('Alimentation', 'Description de test');
+        $accountId = $this->accountRepository->create('Compte', 'bank', null, null, null, 'intendant');
+        $fiscalYearId = FinanceTestHelper::createScoutYear($this->pdo, '2026-2027', '2026-09-01', '2027-08-31');
+        $this->transactionRepository->create(
+            $accountId, $fiscalYearId, 'r1', '2026-10-01', 'Achat', -20.0, $category->id, null, 'manual', null
+        );
+
+        $response = $controller->index(new Request('GET', '/config/finance/categories', [], [], [], []), []);
+        $body = $response->getBody();
+
+        $this->assertMatchesRegularExpression(
+            '/data-id="' . $category->id . '"\s+disabled/',
+            $body
+        );
+    }
+
+    public function testIndexLeavesDeleteButtonEnabledForUnreferencedCategory(): void
+    {
+        $controller = $this->buildController(false);
+        $category = $this->financeService->createCategory('Alimentation', 'Description de test');
+
+        $response = $controller->index(new Request('GET', '/config/finance/categories', [], [], [], []), []);
+        $body = $response->getBody();
+
+        $this->assertDoesNotMatchRegularExpression(
+            '/data-id="' . $category->id . '"\s+disabled/',
+            $body
+        );
     }
 }

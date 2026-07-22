@@ -8,6 +8,8 @@ use Core\Config\SettingRepository;
 use Core\Config\SettingService;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
+use Core\Scheduler\SchedulerRepository;
+use Core\Scheduler\SchedulerService;
 use Core\Security\EncryptionService;
 use Modules\Finance\Repository\AiCategorySuggestionRepository;
 use Modules\Finance\Repository\CategoryRepository;
@@ -60,7 +62,10 @@ class BulkCategorizationServiceTest extends TestCase
             $llmConnector, $this->categoryRepository, new AiCategorySuggestionRepository($this->pdo),
             new JournalService(new JournalRepository($this->pdo))
         );
-        return new BulkCategorizationService($this->transactionRepository, $ruleEngine, $aiService, $this->settingService);
+        return new BulkCategorizationService(
+            $this->transactionRepository, $ruleEngine, $aiService, $this->settingService,
+            new SchedulerService(new SchedulerRepository($this->pdo))
+        );
     }
 
     private function createTransaction(string $label): int
@@ -150,5 +155,40 @@ class BulkCategorizationServiceTest extends TestCase
 
         $this->assertSame(0, $result->categorizedByRules + $result->categorizedByAi + $result->stillUncategorized);
         $this->assertSame($categoryId, $this->transactionRepository->findById($id)->categoryId);
+    }
+
+    public function testIsRunningFalseByDefault(): void
+    {
+        $this->assertFalse($this->service()->isRunning());
+    }
+
+    public function testMarkRunningSetsRunningFlag(): void
+    {
+        $service = $this->service();
+        $service->markRunning();
+
+        $this->assertTrue($this->service()->isRunning());
+    }
+
+    public function testGetLastResultNullBeforeAnyRun(): void
+    {
+        $this->assertNull($this->service()->getLastResult());
+    }
+
+    public function testRunInBackgroundStoresResultAndClearsRunningFlag(): void
+    {
+        $categoryId = $this->categoryRepository->create('Alimentation');
+        $this->categoryRuleRepository->create($categoryId, 0, 'delhaize', null, null);
+        $this->createTransaction('VIR Delhaize');
+
+        $service = $this->service();
+        $service->markRunning();
+        $service->runInBackground();
+
+        $this->assertFalse($service->isRunning());
+        $result = $service->getLastResult();
+        $this->assertSame(1, $result['categorized_by_rules']);
+        $this->assertSame(0, $result['categorized_by_ai']);
+        $this->assertSame(0, $result['still_uncategorized']);
     }
 }

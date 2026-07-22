@@ -27,6 +27,7 @@ class FinanceTestHelper
             holder_name BLOB,
             role_min_view TEXT NOT NULL DEFAULT \'intendant\',
             status TEXT NOT NULL DEFAULT \'draft\',
+            is_default INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (section_id) REFERENCES sections(id)
         )');
@@ -34,7 +35,9 @@ class FinanceTestHelper
         $pdo->exec('CREATE TABLE finance_categories (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
+            description TEXT NOT NULL DEFAULT \'\',
             is_active INTEGER NOT NULL DEFAULT 1,
+            is_default INTEGER NOT NULL DEFAULT 0,
             sort_order INTEGER NOT NULL DEFAULT 0,
             account_id INTEGER,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -64,6 +67,7 @@ class FinanceTestHelper
             label BLOB NOT NULL,
             amount REAL NOT NULL,
             category_id INTEGER,
+            category_source TEXT,
             comment TEXT,
             counterparty_name TEXT,
             counterparty_account TEXT,

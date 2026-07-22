@@ -52,11 +52,12 @@ class AccountRepository
         ?int $sectionId,
         ?string $iban,
         ?string $holderName,
-        string $roleMinView
+        string $roleMinView,
+        bool $isDefault = false
     ): int {
         $stmt = $this->pdo->prepare(
-            'INSERT INTO finance_accounts (name, account_type, section_id, iban, iban_blind_index, holder_name, role_min_view)
-             VALUES (?, ?, ?, ?, ?, ?, ?)'
+            'INSERT INTO finance_accounts (name, account_type, section_id, iban, iban_blind_index, holder_name, role_min_view, is_default)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([
             $name,
@@ -66,6 +67,7 @@ class AccountRepository
             $iban !== null ? $this->encryption->blindIndex($iban) : null,
             $holderName !== null ? $this->encryption->encrypt($holderName) : null,
             $roleMinView,
+            $isDefault ? 1 : 0,
         ]);
         return (int) $this->pdo->lastInsertId();
     }
@@ -113,6 +115,30 @@ class AccountRepository
     }
 
     /**
+     * The one narrow exception to update()'s "null means leave unchanged"
+     * contract — Service\FinanceService::updateAccount() calls this
+     * explicitly when an account is switched to "caisse" (cash), which
+     * has no bank details at all, so a previously-set IBAN/holder from
+     * when it was a bank account must actually be wiped, not preserved.
+     */
+    public function clearBankDetails(int $id): void
+    {
+        $stmt = $this->pdo->prepare('UPDATE finance_accounts SET iban = NULL, iban_blind_index = NULL, holder_name = NULL WHERE id = ?');
+        $stmt->execute([$id]);
+    }
+
+    /**
+     * Used only by Service\FinanceService's one-time-per-account backfill
+     * for an account created before is_default existed — see
+     * backfillDefaultAccountFlag().
+     */
+    public function markDefault(int $id): void
+    {
+        $stmt = $this->pdo->prepare('UPDATE finance_accounts SET is_default = 1 WHERE id = ?');
+        $stmt->execute([$id]);
+    }
+
+    /**
      * @param array<string, mixed> $row
      */
     private function hydrate(array $row): Account
@@ -125,7 +151,8 @@ class AccountRepository
             iban: $row['iban'] !== null ? $this->encryption->decrypt($row['iban']) : null,
             holderName: $row['holder_name'] !== null ? $this->encryption->decrypt($row['holder_name']) : null,
             roleMinView: (string) $row['role_min_view'],
-            status: (string) $row['status']
+            status: (string) $row['status'],
+            isDefault: (bool) $row['is_default']
         );
     }
 }

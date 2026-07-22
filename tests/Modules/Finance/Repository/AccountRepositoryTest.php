@@ -112,6 +112,41 @@ class AccountRepositoryTest extends TestCase
         $this->assertSame('Titulaire original', $account->holderName);
     }
 
+    public function testClearBankDetailsWipesIbanAndHolderName(): void
+    {
+        $id = $this->repository->create('Compte', Account::TYPE_BANK, null, 'BE92001511757023', 'Titulaire', 'intendant');
+
+        $this->repository->clearBankDetails($id);
+
+        $account = $this->repository->findById($id);
+        $this->assertNull($account->iban);
+        $this->assertNull($account->holderName);
+    }
+
+    public function testCreateWithIsDefaultPersistsFlag(): void
+    {
+        $id = $this->repository->create('Compte', Account::TYPE_BANK, null, null, null, 'intendant', isDefault: true);
+
+        $this->assertTrue($this->repository->findById($id)->isDefault);
+    }
+
+    public function testCreateWithoutIsDefaultDefaultsToFalse(): void
+    {
+        $id = $this->repository->create('Compte', Account::TYPE_BANK, null, null, null, 'intendant');
+
+        $this->assertFalse($this->repository->findById($id)->isDefault);
+    }
+
+    public function testMarkDefaultSetsFlag(): void
+    {
+        $id = $this->repository->create('Compte', Account::TYPE_BANK, null, null, null, 'intendant');
+        $this->assertFalse($this->repository->findById($id)->isDefault);
+
+        $this->repository->markDefault($id);
+
+        $this->assertTrue($this->repository->findById($id)->isDefault);
+    }
+
     private function blindIndexFor(Account $account): string
     {
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));

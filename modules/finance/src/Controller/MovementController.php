@@ -18,7 +18,11 @@ use Modules\Finance\Repository\FiscalYearRepository;
 use Modules\Finance\Repository\Transaction;
 use Modules\Finance\Repository\TransactionAttachmentRepository;
 use Modules\Finance\Repository\TransactionRepository;
+use Modules\Finance\Service\FinanceException;
 use Modules\Finance\Service\FinanceService;
+use Modules\Finance\Service\FirstReceiptResolver;
+use Modules\Finance\Service\MovementPresenter;
+use Modules\Finance\Service\ReceiptExtractionService;
 use Modules\Finance\Service\ReceiptService;
 
 class MovementController extends AbstractController
@@ -26,6 +30,7 @@ class MovementController extends AbstractController
     private const PER_PAGE = 50;
     private const SUGGESTION_AMOUNT_TOLERANCE_RATIO = 0.10;
     private const SUGGESTION_DATE_TOLERANCE_DAYS = 3;
+    private const MAX_ATTACHMENT_SIZE_BYTES = 15 * 1024 * 1024;
 
     public function __construct(
         protected \Twig\Environment $twig,
@@ -36,6 +41,8 @@ class MovementController extends AbstractController
         private AttachmentRepository $attachmentRepository,
         private TransactionAttachmentRepository $transactionAttachmentRepository,
         private ReceiptService $receiptService,
+        private ReceiptExtractionService $receiptExtractionService,
+        private FirstReceiptResolver $firstReceiptResolver,
         private JournalService $journalService
     ) {
     }
@@ -88,19 +95,22 @@ class MovementController extends AbstractController
             $categoriesById[$category->id] = $category;
         }
 
-        $attachmentCounts = $this->transactionAttachmentRepository->countByTransactionIds(
-            array_map(fn(Transaction $transaction) => $transaction->id, $movements)
-        );
+        $movementIds = array_map(fn(Transaction $transaction) => $transaction->id, $movements);
+        $attachmentCounts = $this->transactionAttachmentRepository->countByTransactionIds($movementIds);
+        $firstReceiptsByMovementId = $this->firstReceiptResolver->resolve($movementIds);
 
         $pendingReceipts = $this->receiptService->listPending($account->id);
 
         $rows = [];
         foreach ($movements as $movement) {
             $count = $attachmentCounts[$movement->id] ?? 0;
+            $firstReceipt = $firstReceiptsByMovementId[$movement->id] ?? null;
             $rows[] = [
                 'movement' => $movement,
                 'attachment_count' => $count,
                 'suggested_receipt' => $count === 0 ? $this->findSuggestedReceipt($movement, $pendingReceipts) : null,
+                'counterparty' => MovementPresenter::counterparty($movement, $firstReceipt, $account->name),
+                'description' => MovementPresenter::description($movement, $firstReceipt),
             ];
         }
 
@@ -216,6 +226,7 @@ class MovementController extends AbstractController
                 'original_filename' => $attachment->originalFilename,
                 'mime_type' => $attachment->mimeType,
                 'suggested_amount' => $attachment->suggestedAmount,
+                'suggested_date' => $attachment->suggestedDate,
                 'suggested_label' => $attachment->suggestedLabel,
                 'suggested_description' => $attachment->suggestedDescription,
             ], $attachments),
@@ -223,13 +234,83 @@ class MovementController extends AbstractController
     }
 
     /**
+     * POST /finance/movements/{id}/attachments — the movements page's
+     * receipt dialog can upload a brand new receipt directly (rather
+     * than only associating an already-uploaded pending one), which is
+     * then immediately associated with this movement in the same
+     * request — one round trip instead of "upload on the receipts page,
+     * come back here, associate". Mirrors Controller\ReceiptController::
+     * uploadOne() (same size/MIME validation via Service\
+     * ReceiptService::upload(), same AI extraction scheduling) but
+     * returns JSON instead of a redirect, and associates immediately
+     * instead of leaving the receipt pending.
+     *
+     * @param array<string, string> $params
+     */
+    public function uploadAttachment(Request $request, array $params): Response
+    {
+        if (!CsrfGuard::validateToken((string) $request->getBody('_csrf_token', ''))) {
+            return $this->json(['success' => false, 'error' => 'Jeton CSRF invalide.'], 403);
+        }
+
+        $id = (int) ($params['id'] ?? 0);
+        $transaction = $this->transactionRepository->findById($id);
+        if ($transaction === null) {
+            return $this->json(['success' => false, 'error' => 'Mouvement introuvable.'], 404);
+        }
+
+        $role = Role::fromString(AuthSession::getRole());
+        $account = $this->financeService->getAccount($transaction->accountId);
+        if ($account === null || !$role->hasAccess(Role::fromString($account->roleMinView))) {
+            return $this->json(['success' => false, 'error' => 'Accès refusé.'], 403);
+        }
+
+        $files = $request->getFiles('receipt');
+        if ($files === []) {
+            return $this->json(['success' => false, 'error' => 'Aucun fichier fourni ou erreur lors du téléversement.'], 400);
+        }
+        $file = $files[0];
+        if ($file['error'] !== UPLOAD_ERR_OK) {
+            return $this->json(['success' => false, 'error' => 'Erreur lors du téléversement.'], 400);
+        }
+        if ($file['size'] > self::MAX_ATTACHMENT_SIZE_BYTES) {
+            return $this->json(['success' => false, 'error' => 'Le fichier dépasse la taille maximale autorisée (15 Mo).'], 400);
+        }
+
+        $content = file_get_contents($file['tmp_name']);
+        if ($content === false) {
+            return $this->json(['success' => false, 'error' => 'Impossible de lire le fichier envoyé.'], 400);
+        }
+
+        $finfo = new \finfo(FILEINFO_MIME_TYPE);
+        $mimeType = $finfo->buffer($content) ?: $file['type'];
+
+        try {
+            $attachment = $this->receiptService->upload($content, $mimeType, $file['name'], $account->id, null, null, AuthSession::getUserAccountId());
+            $this->receiptService->associate($attachment->id, [$id]);
+        } catch (FinanceException $e) {
+            return $this->json(['success' => false, 'error' => $e->getMessage()], 400);
+        }
+
+        $this->receiptExtractionService->scheduleExtraction($attachment->id);
+        $this->journalService->log(
+            'finance', 'receipt_uploaded', 'info', 'Reçu ajouté et associé depuis la page des mouvements',
+            ['attachment_id' => $attachment->id, 'transaction_id' => $id], AuthSession::getUserAccountId()
+        );
+
+        return $this->json(['success' => true, 'attachment_id' => $attachment->id]);
+    }
+
+    /**
      * GET /finance/movements/search?q=... — small result set for the
-     * receipts page's "Associer à un mouvement" picker. With no search
-     * text and a $near_date (the receipt's own suggested date), returns
-     * the 10 movements closest to that date instead of an arbitrary/
-     * empty list — the "most credible" candidates for that receipt.
-     * findFiltered() already orders by transaction_date DESC, so a real
-     * search (non-empty $q) keeps showing the most recent matches first.
+     * receipts page's "Associer à un mouvement" picker. Only ever offers
+     * expenses (negative amount) — a receipt is proof of an expense,
+     * never a candidate for an income movement. With no search text and
+     * a $near_date (the receipt's own suggested date), returns the 10
+     * movements closest to that date instead of an arbitrary/empty list
+     * — the "most credible" candidates for that receipt. findFiltered()
+     * already orders by transaction_date DESC, so a real search
+     * (non-empty $q) keeps showing the most recent matches first.
      *
      * @param array<string, string> $params
      */
@@ -250,7 +331,12 @@ class MovementController extends AbstractController
 
         $query = trim((string) $request->getQuery('q', ''));
         $nearDate = $this->parseDateOrNull($request->getQuery('near_date'));
-        $matches = $this->transactionRepository->findFiltered($accountIdsFilter, null, null, $query !== '' ? $query : null);
+        $matches = array_values(array_filter(
+            // A receipt is proof of an expense — income never needs one,
+            // so it's never worth offering as an association candidate.
+            $this->transactionRepository->findFiltered($accountIdsFilter, null, null, $query !== '' ? $query : null),
+            fn(Transaction $transaction) => $transaction->amount < 0
+        ));
 
         if ($query === '' && $nearDate !== null) {
             usort(
@@ -264,6 +350,12 @@ class MovementController extends AbstractController
             $matches = array_slice($matches, 0, 20);
         }
 
+        $accountNamesById = [];
+        foreach ($visibleAccounts as $visibleAccount) {
+            $accountNamesById[$visibleAccount->id] = $visibleAccount->name;
+        }
+        $firstReceipts = $this->firstReceiptResolver->resolve(array_map(fn(Transaction $t) => $t->id, $matches));
+
         return $this->json([
             'success' => true,
             'movements' => array_map(fn(Transaction $transaction) => [
@@ -271,6 +363,10 @@ class MovementController extends AbstractController
                 'date' => $transaction->transactionDate,
                 'label' => $transaction->label,
                 'amount' => $transaction->amount,
+                'counterparty' => MovementPresenter::counterparty(
+                    $transaction, $firstReceipts[$transaction->id] ?? null, $accountNamesById[$transaction->accountId] ?? ''
+                ),
+                'description' => MovementPresenter::description($transaction, $firstReceipts[$transaction->id] ?? null),
             ], $matches),
         ]);
     }

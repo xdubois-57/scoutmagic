@@ -10,10 +10,12 @@
     <p class="text-body-secondary small mb-3">
         Un compte représente un compte bancaire (avec IBAN) ou une caisse de l'unité. Un compte reste en
         « Brouillon » tant qu'il lui manque un IBAN et un titulaire (une caisse, elle, s'active immédiatement) ;
-        seuls les comptes actifs apparaissent dans le tableau de bord et permettent d'importer des relevés.
+        seuls les comptes actifs apparaissent dans le tableau de bord et permettent d'importer des relevés — un
+        compte actif peut être désactivé temporairement (et réactivé) plutôt que supprimé, comme les catégories.
         « Visible à partir de » définit le rôle minimum requis pour voir ce compte. Activer un compte avec IBAN
         crée automatiquement une catégorie « Virement {{ '<nom du compte>' }} » avec une règle qui reconnaît les
-        mouvements vers/depuis les autres comptes de l'unité — voir la page Catégories.
+        mouvements vers/depuis les autres comptes de l'unité — voir la page Catégories. Les comptes « Par défaut »
+        (un par section) ne peuvent pas changer de nom, de type ou de section.
     </p>
 
     <div class="d-flex justify-content-between align-items-center mb-3">
@@ -37,13 +39,16 @@
             <tbody>
                 {% for account in accounts %}
                     <tr>
-                        <td>{{ account.name }}</td>
+                        <td>
+                            {{ account.name }}
+                            {% if account.isDefault %}<span class="badge text-bg-light border">Par défaut</span>{% endif %}
+                        </td>
                         <td>{{ account_types[account.accountType] ?? account.accountType }}</td>
                         <td>{{ account.sectionId and sections_by_id[account.sectionId] is defined ? (sections_by_id[account.sectionId].name ?? sections_by_id[account.sectionId].desk_code) : '—' }}</td>
                         <td>{{ account.iban ? account.iban|slice(0, 4) ~ ' •••• ' ~ account.iban|slice(-4) : '—' }}</td>
                         <td>
                             <span class="badge {{ account.status == 'active' ? 'text-bg-success' : (account.status == 'archived' ? 'text-bg-secondary' : 'text-bg-warning') }}">
-                                {{ {'draft': 'Brouillon', 'active': 'Actif', 'archived': 'Archivé'}[account.status] ?? account.status }}
+                                {{ {'draft': 'Brouillon', 'active': 'Actif', 'archived': 'Inactif'}[account.status] ?? account.status }}
                             </span>
                         </td>
                         <td>{{ role_min_options[account.roleMinView] ?? account.roleMinView }}</td>
@@ -52,11 +57,16 @@
                                     data-id="{{ account.id }}" data-name="{{ account.name }}" data-account-type="{{ account.accountType }}"
                                     data-section-id="{{ account.sectionId }}" data-role-min-view="{{ account.roleMinView }}"
                                     data-iban="{{ account.iban }}" data-holder="{{ account.holderName }}"
+                                    data-is-default="{{ account.isDefault ? '1' : '0' }}"
                                     title="Modifier"><i class="bi bi-pencil"></i></button>
                             {% if account.status == 'draft' %}
                                 <span class="text-body-secondary small fst-italic">IBAN et titulaire requis pour activer</span>
-                            {% elseif account.status == 'active' %}
-                                <button type="button" class="btn btn-sm btn-outline-warning archive-account-btn" data-id="{{ account.id }}">Archiver</button>
+                            {% else %}
+                                <button type="button" class="btn btn-sm {{ account.status == 'active' ? 'btn-outline-success' : 'btn-outline-secondary' }} toggle-account-btn"
+                                        data-id="{{ account.id }}" data-active="{{ account.status == 'active' ? '1' : '0' }}"
+                                        title="{{ account.status == 'active' ? 'Actif — cliquer pour désactiver' : 'Inactif — cliquer pour activer' }}">
+                                    <i class="bi {{ account.status == 'active' ? 'bi-toggle-on' : 'bi-toggle-off' }}"></i>
+                                </button>
                             {% endif %}
                         </td>
                     </tr>
@@ -99,7 +109,7 @@
                             </div>
                             <div class="col-12">
                                 <label class="form-label small" for="account-iban">IBAN</label>
-                                <input type="text" class="form-control form-control-sm" id="account-iban">
+                                <input type="text" class="form-control form-control-sm" id="account-iban" placeholder="ex. BE71 0961 2345 6769">
                             </div>
                             <div class="col-12">
                                 <label class="form-label small" for="account-holder">Nom du titulaire</label>
@@ -139,9 +149,39 @@ function showModal(title) {
     accountModal ? accountModal.show() : accountModalEl.classList.add('show');
 }
 
+const accountTypeSelect = document.getElementById('account-type');
+const accountIbanInput = document.getElementById('account-iban');
+const accountHolderInput = document.getElementById('account-holder');
+const accountNameInput = document.getElementById('account-name');
+const accountSectionSelect = document.getElementById('account-section');
+
+function updateBankFieldsAvailability() {
+    const isCash = accountTypeSelect.value === 'cash';
+    accountIbanInput.disabled = isCash;
+    accountHolderInput.disabled = isCash;
+    if (isCash) {
+        accountIbanInput.value = '';
+        accountHolderInput.value = '';
+    }
+}
+
+function updateIdentityFieldsAvailability(isDefault) {
+    // A default (one-per-section) account's name/type/section are fixed
+    // — Service\FinanceService::updateAccount() ignores any change to
+    // them for such an account anyway; disabling here just keeps the
+    // form honest about what will actually happen.
+    accountNameInput.disabled = isDefault;
+    accountTypeSelect.disabled = isDefault;
+    accountSectionSelect.disabled = isDefault;
+}
+
+accountTypeSelect.addEventListener('change', updateBankFieldsAvailability);
+
 document.getElementById('new-account-btn').addEventListener('click', () => {
     document.getElementById('account-form').reset();
     document.getElementById('account-id').value = '';
+    updateBankFieldsAvailability();
+    updateIdentityFieldsAvailability(false);
     showModal('Nouveau compte');
 });
 
@@ -154,6 +194,8 @@ document.querySelectorAll('.edit-account-btn').forEach(btn => {
         document.getElementById('account-role-min-view').value = btn.dataset.roleMinView;
         document.getElementById('account-iban').value = btn.dataset.iban || '';
         document.getElementById('account-holder').value = btn.dataset.holder || '';
+        updateBankFieldsAvailability();
+        updateIdentityFieldsAvailability(btn.dataset.isDefault === '1');
         showModal('Modifier le compte');
     });
 });
@@ -201,11 +243,9 @@ async function postAccountAction(action, id) {
     }
 }
 
-document.querySelectorAll('.archive-account-btn').forEach(btn => {
+document.querySelectorAll('.toggle-account-btn').forEach(btn => {
     btn.addEventListener('click', () => {
-        if (confirm('Archiver ce compte ?')) {
-            postAccountAction('archive', parseInt(btn.dataset.id, 10));
-        }
+        postAccountAction(btn.dataset.active === '1' ? 'deactivate' : 'activate', parseInt(btn.dataset.id, 10));
     });
 });
 </script>

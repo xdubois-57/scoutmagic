@@ -35,12 +35,25 @@ class CategoryRepositoryTest extends TestCase
         $this->assertLessThan($categories[1]->sortOrder, $categories[0]->sortOrder);
     }
 
-    public function testUpdateName(): void
+    public function testUpdate(): void
     {
-        $id = $this->repository->create('Ancien nom');
-        $this->repository->updateName($id, 'Nouveau nom');
+        $id = $this->repository->create('Ancien nom', 'Ancienne description');
+        $this->repository->update($id, 'Nouveau nom', 'Nouvelle description');
 
-        $this->assertSame('Nouveau nom', $this->repository->findById($id)->name);
+        $category = $this->repository->findById($id);
+        $this->assertSame('Nouveau nom', $category->name);
+        $this->assertSame('Nouvelle description', $category->description);
+    }
+
+    public function testBackfillDefaultMetadata(): void
+    {
+        $id = $this->repository->create('Camp été');
+
+        $this->repository->backfillDefaultMetadata($id, 'Description par défaut');
+
+        $category = $this->repository->findById($id);
+        $this->assertSame('Description par défaut', $category->description);
+        $this->assertTrue($category->isDefault);
     }
 
     public function testSetActive(): void
@@ -72,7 +85,7 @@ class CategoryRepositoryTest extends TestCase
     public function testFindByAccountIdFindsTheLinkedCategory(): void
     {
         $accountId = $this->createAccount();
-        $id = $this->repository->create('Virement Louveteaux', $accountId);
+        $id = $this->repository->create('Virement Louveteaux', 'Description', $accountId);
 
         $category = $this->repository->findByAccountId($accountId);
 

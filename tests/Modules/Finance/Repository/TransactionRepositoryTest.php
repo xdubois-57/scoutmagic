@@ -269,6 +269,28 @@ class TransactionRepositoryTest extends TestCase
         $this->assertSame(2, $this->repository->countByAccountId($this->accountId));
     }
 
+    public function testCountByCategoryId(): void
+    {
+        $this->repository->create($this->accountId, $this->fiscalYearId, 'R1', '2026-10-01', 'A', -1.0, 5, null, Transaction::SOURCE_MANUAL, null);
+        $this->repository->create($this->accountId, $this->fiscalYearId, 'R2', '2026-10-02', 'B', -2.0, 5, null, Transaction::SOURCE_MANUAL, null);
+        $this->repository->create($this->accountId, $this->fiscalYearId, 'R3', '2026-10-03', 'C', -3.0, 9, null, Transaction::SOURCE_MANUAL, null);
+
+        $this->assertSame(2, $this->repository->countByCategoryId(5));
+        $this->assertSame(0, $this->repository->countByCategoryId(999));
+    }
+
+    public function testCountGroupedByCategory(): void
+    {
+        $this->repository->create($this->accountId, $this->fiscalYearId, 'R1', '2026-10-01', 'A', -1.0, 5, null, Transaction::SOURCE_MANUAL, null);
+        $this->repository->create($this->accountId, $this->fiscalYearId, 'R2', '2026-10-02', 'B', -2.0, 5, null, Transaction::SOURCE_MANUAL, null);
+        $this->repository->create($this->accountId, $this->fiscalYearId, 'R3', '2026-10-03', 'C', -3.0, 9, null, Transaction::SOURCE_MANUAL, null);
+        $this->repository->create($this->accountId, $this->fiscalYearId, 'R4', '2026-10-04', 'D', -4.0, null, null, Transaction::SOURCE_MANUAL, null);
+
+        $counts = $this->repository->countGroupedByCategory();
+
+        $this->assertSame(['5' => 2, '9' => 1], array_combine(array_map('strval', array_keys($counts)), $counts));
+    }
+
     public function testSetCategoryId(): void
     {
         $id = $this->repository->create($this->accountId, $this->fiscalYearId, 'R1', '2026-10-01', 'A', -1.0, null, null, Transaction::SOURCE_MANUAL, null);
@@ -278,6 +300,60 @@ class TransactionRepositoryTest extends TestCase
 
         $this->repository->setCategoryId($id, null);
         $this->assertNull($this->repository->findById($id)->categoryId);
+    }
+
+    public function testSetCategoryIdRecordsAutoSource(): void
+    {
+        $id = $this->repository->create($this->accountId, $this->fiscalYearId, 'R1', '2026-10-01', 'A', -1.0, null, null, Transaction::SOURCE_MANUAL, null);
+
+        $this->repository->setCategoryId($id, 42);
+        $transaction = $this->repository->findById($id);
+        $this->assertSame(Transaction::CATEGORY_SOURCE_AUTO, $transaction->categorySource);
+        $this->assertTrue($transaction->isCategoryAutoAssigned());
+
+        $this->repository->setCategoryId($id, null);
+        $this->assertNull($this->repository->findById($id)->categorySource);
+    }
+
+    public function testInsertOrSkipRecordsAutoSourceWhenCategorized(): void
+    {
+        $this->repository->insertOrSkip($this->accountId, $this->fiscalYearId, 'R1', '2026-10-01', 'A', -1.0, 5);
+
+        $transaction = $this->repository->findByAccountId($this->accountId)[0];
+        $this->assertSame(Transaction::CATEGORY_SOURCE_AUTO, $transaction->categorySource);
+    }
+
+    public function testInsertOrSkipLeavesCategorySourceNullWhenUncategorized(): void
+    {
+        $this->repository->insertOrSkip($this->accountId, $this->fiscalYearId, 'R1', '2026-10-01', 'A', -1.0, null);
+
+        $transaction = $this->repository->findByAccountId($this->accountId)[0];
+        $this->assertNull($transaction->categorySource);
+    }
+
+    public function testUpdateEditableFieldsRecordsManualSource(): void
+    {
+        $id = $this->repository->create($this->accountId, $this->fiscalYearId, 'R1', '2026-10-01', 'A', -1.0, null, null, Transaction::SOURCE_IMPORT, null);
+
+        $this->repository->updateEditableFields($id, 42, null, $this->fiscalYearId);
+        $transaction = $this->repository->findById($id);
+        $this->assertSame(Transaction::CATEGORY_SOURCE_MANUAL, $transaction->categorySource);
+        $this->assertFalse($transaction->isCategoryAutoAssigned());
+
+        $this->repository->updateEditableFields($id, null, null, $this->fiscalYearId);
+        $this->assertNull($this->repository->findById($id)->categorySource);
+    }
+
+    public function testClearCategoryAlsoClearsCategorySource(): void
+    {
+        $id = $this->repository->create($this->accountId, $this->fiscalYearId, 'R1', '2026-10-01', 'A', -1.0, null, null, Transaction::SOURCE_MANUAL, null);
+        $this->repository->setCategoryId($id, 42);
+
+        $this->repository->clearCategory(42);
+
+        $transaction = $this->repository->findById($id);
+        $this->assertNull($transaction->categoryId);
+        $this->assertNull($transaction->categorySource);
     }
 
     public function testFindAllUncategorized(): void
