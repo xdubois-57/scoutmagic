@@ -211,7 +211,7 @@ class ImportServiceTest extends TestCase
     public function testAppliesCategoryRuleEngineDuringImport(): void
     {
         $categoryId = $this->categoryRepository->create('Alimentation');
-        $this->categoryRuleRepository->create($categoryId, 0, 'keyword', 'delhaize');
+        $this->categoryRuleRepository->create($categoryId, 0, 'delhaize', null, null);
 
         $this->parserFactory->iban = $this->account->iban;
         $this->parserFactory->lines = [$this->line('R1', '2026-10-01', -10.0, 'VIR Delhaize')];

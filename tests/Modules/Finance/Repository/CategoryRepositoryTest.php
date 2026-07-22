@@ -4,9 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Modules\Finance\Repository;
 
-use Core\Security\EncryptionService;
 use Modules\Finance\Repository\CategoryRepository;
-use Modules\Finance\Repository\TransactionRepository;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Finance\FinanceTestHelper;
@@ -65,18 +63,22 @@ class CategoryRepositoryTest extends TestCase
         $this->assertNull($this->repository->findById($id));
     }
 
-    public function testIsReferencedByTransactions(): void
+    public function testFindByAccountIdReturnsNullWhenNoAutoCategoryExists(): void
     {
-        $categoryId = $this->repository->create('Catégorie');
-        $this->assertFalse($this->repository->isReferencedByTransactions($categoryId));
-
-        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
-        $transactionRepository = new TransactionRepository($this->pdo, $encryption);
         $accountId = $this->createAccount();
-        $fiscalYearId = $this->createFiscalYear();
-        $transactionRepository->create($accountId, $fiscalYearId, null, '2026-01-15', 'Achat', -20.0, $categoryId, null, 'manual', null);
+        $this->assertNull($this->repository->findByAccountId($accountId));
+    }
 
-        $this->assertTrue($this->repository->isReferencedByTransactions($categoryId));
+    public function testFindByAccountIdFindsTheLinkedCategory(): void
+    {
+        $accountId = $this->createAccount();
+        $id = $this->repository->create('Virement Louveteaux', $accountId);
+
+        $category = $this->repository->findByAccountId($accountId);
+
+        $this->assertNotNull($category);
+        $this->assertSame($id, $category->id);
+        $this->assertSame($accountId, $category->accountId);
     }
 
     private function createAccount(): int

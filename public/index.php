@@ -905,8 +905,12 @@ if (in_array('finance', $moduleManager->getEnabledModuleIds(), true)) {
     $financeTransactionAttachmentRepo = new \Modules\Finance\Repository\TransactionAttachmentRepository($pdo);
 
     $financeBalanceService = new \Modules\Finance\Service\BalanceService($financeCheckpointRepo, $financeTransactionRepo);
+    $financeAccountTransferCategoryService = new \Modules\Finance\Service\AccountTransferCategoryService(
+        $financeCategoryRepo, $financeCategoryRuleRepo, $financeTransactionRepo
+    );
     $financeService = new \Modules\Finance\Service\FinanceService(
-        $financeAccountRepo, $financeCategoryRepo, $financeFiscalYearRepo, $sectionService, $financeTransactionRepo, $financeBalanceService
+        $financeAccountRepo, $financeCategoryRepo, $financeFiscalYearRepo, $sectionService, $financeTransactionRepo, $financeBalanceService,
+        $settingService, $financeCategoryRuleRepo, $financeAccountTransferCategoryService
     );
     $financeRuleEngine = new \Modules\Finance\Service\CategoryRuleEngine($financeTransactionRepo, $financeCategoryRuleRepo);
     $financeParserFactory = new \Modules\Finance\Parser\BankStatementParserFactory();
@@ -930,6 +934,17 @@ if (in_array('finance', $moduleManager->getEnabledModuleIds(), true)) {
     // built for RGPD content generation above; extraction is skipped
     // gracefully whenever it's null/unavailable.
     $financeReceiptExtractionService = new \Modules\Finance\Service\ReceiptExtractionService($schedulerService, $llmConnectorForRgpd);
+
+    // Optional dependency on the llm_connector module (ARCHITECTURE.md
+    // §7.5), same reused instance — the config page's AI categorization
+    // rule is simply never shown/reachable whenever it's null.
+    $financeAiSuggestionRepo = new \Modules\Finance\Repository\AiCategorySuggestionRepository($pdo);
+    $financeAiCategorizationService = new \Modules\Finance\Service\AiCategorizationService(
+        $llmConnectorForRgpd, $financeCategoryRepo, $financeAiSuggestionRepo, $journalService
+    );
+    $financeBulkCategorizationService = new \Modules\Finance\Service\BulkCategorizationService(
+        $financeTransactionRepo, $financeRuleEngine, $financeAiCategorizationService, $settingService
+    );
 
     $frontController->registerController(
         \Modules\Finance\Controller\DashboardController::class,
@@ -968,12 +983,15 @@ if (in_array('finance', $moduleManager->getEnabledModuleIds(), true)) {
     );
     $frontController->registerController(
         \Modules\Finance\Controller\ConfigCategoryController::class,
-        new \Modules\Finance\Controller\ConfigCategoryController($twig, $financeService, $financeCategoryRuleRepo, $journalService)
+        new \Modules\Finance\Controller\ConfigCategoryController(
+            $twig, $financeService, $financeCategoryRuleRepo, $journalService, $financeAiSuggestionRepo,
+            $financeBulkCategorizationService, $llmConnectorForRgpd !== null
+        )
     );
     $frontController->registerController(
         \Modules\Finance\Controller\ConfigRuleController::class,
         new \Modules\Finance\Controller\ConfigRuleController(
-            $twig, $financeCategoryRuleRepo, $financeRuleEngine, $journalService
+            $twig, $financeCategoryRuleRepo, $financeRuleEngine, $journalService, $financeService, $financeBulkCategorizationService
         )
     );
     $frontController->registerController(

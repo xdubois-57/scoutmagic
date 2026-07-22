@@ -269,6 +269,28 @@ class TransactionRepositoryTest extends TestCase
         $this->assertSame(2, $this->repository->countByAccountId($this->accountId));
     }
 
+    public function testSetCategoryId(): void
+    {
+        $id = $this->repository->create($this->accountId, $this->fiscalYearId, 'R1', '2026-10-01', 'A', -1.0, null, null, Transaction::SOURCE_MANUAL, null);
+
+        $this->repository->setCategoryId($id, 42);
+        $this->assertSame(42, $this->repository->findById($id)->categoryId);
+
+        $this->repository->setCategoryId($id, null);
+        $this->assertNull($this->repository->findById($id)->categoryId);
+    }
+
+    public function testFindAllUncategorized(): void
+    {
+        $uncategorized = $this->repository->create($this->accountId, $this->fiscalYearId, 'R1', '2026-10-01', 'A', -1.0, null, null, Transaction::SOURCE_MANUAL, null);
+        $this->repository->create($this->accountId, $this->fiscalYearId, 'R2', '2026-10-02', 'B', -2.0, 5, null, Transaction::SOURCE_MANUAL, null);
+
+        $results = $this->repository->findAllUncategorized();
+
+        $this->assertCount(1, $results);
+        $this->assertSame($uncategorized, $results[0]->id);
+    }
+
     public function testFindFilteredUncategorizedOnlyTakesPriorityOverCategoryId(): void
     {
         $categorized = $this->repository->create($this->accountId, $this->fiscalYearId, 'R1', '2026-10-01', 'A', -1.0, 5, null, Transaction::SOURCE_MANUAL, null);

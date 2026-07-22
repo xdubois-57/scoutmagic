@@ -83,6 +83,8 @@ class FinanceRbacTest extends TestCase
     private ReceiptExtractionService $receiptExtractionService;
     private AccountRepository $accountRepository;
     private FileRepository $fileRepository;
+    private \Modules\Finance\Service\BulkCategorizationService $bulkCategorizationService;
+    private \Modules\Finance\Repository\AiCategorySuggestionRepository $aiSuggestionRepository;
 
     protected function setUp(): void
     {
@@ -109,10 +111,23 @@ class FinanceRbacTest extends TestCase
         $this->transactionAttachmentRepository = new TransactionAttachmentRepository($this->pdo);
 
         $this->balanceService = new BalanceService($this->checkpointRepository, $this->transactionRepository);
+        $settingService = new \Core\Config\SettingService(new \Core\Config\SettingRepository($this->pdo));
+        $accountTransferCategoryService = new \Modules\Finance\Service\AccountTransferCategoryService(
+            $this->categoryRepository, $this->categoryRuleRepository, $this->transactionRepository
+        );
         $this->financeService = new FinanceService(
-            $accountRepository, $this->categoryRepository, $this->fiscalYearRepository, $this->sectionService, $this->transactionRepository, $this->balanceService
+            $accountRepository, $this->categoryRepository, $this->fiscalYearRepository, $this->sectionService, $this->transactionRepository, $this->balanceService,
+            $settingService, $this->categoryRuleRepository, $accountTransferCategoryService
         );
         $this->categoryRuleEngine = new CategoryRuleEngine($this->transactionRepository, $this->categoryRuleRepository);
+        $aiSuggestionRepository = new \Modules\Finance\Repository\AiCategorySuggestionRepository($this->pdo);
+        $aiCategorizationService = new \Modules\Finance\Service\AiCategorizationService(
+            null, $this->categoryRepository, $aiSuggestionRepository, $this->journalService
+        );
+        $this->bulkCategorizationService = new \Modules\Finance\Service\BulkCategorizationService(
+            $this->transactionRepository, $this->categoryRuleEngine, $aiCategorizationService, $settingService
+        );
+        $this->aiSuggestionRepository = $aiSuggestionRepository;
         $parserFactory = new BankStatementParserFactory();
         $receiptMatchingService = new ReceiptMatchingService(
             $this->attachmentRepository, $this->transactionRepository, $this->transactionAttachmentRepository, $this->journalService
@@ -239,8 +254,14 @@ class FinanceRbacTest extends TestCase
             'ConfigAccountController' => new ConfigAccountController(
                 $this->twig, $this->financeService, $this->sectionService, $this->attachmentRepository, $this->fileRepository, $this->journalService
             ),
-            'ConfigCategoryController' => new ConfigCategoryController($this->twig, $this->financeService, $this->categoryRuleRepository, $this->journalService),
-            'ConfigRuleController' => new ConfigRuleController($this->twig, $this->categoryRuleRepository, $this->categoryRuleEngine, $this->journalService),
+            'ConfigCategoryController' => new ConfigCategoryController(
+                $this->twig, $this->financeService, $this->categoryRuleRepository, $this->journalService,
+                $this->aiSuggestionRepository, $this->bulkCategorizationService, false
+            ),
+            'ConfigRuleController' => new ConfigRuleController(
+                $this->twig, $this->categoryRuleRepository, $this->categoryRuleEngine, $this->journalService,
+                $this->financeService, $this->bulkCategorizationService
+            ),
             default => throw new \RuntimeException("Unknown controller {$name}"),
         };
     }

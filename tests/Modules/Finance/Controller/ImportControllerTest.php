@@ -63,12 +63,18 @@ class ImportControllerTest extends TestCase
         $statementImportRepository = new StatementImportRepository($this->pdo);
         $fiscalYearRepository = new FiscalYearRepository($this->pdo, new \Core\Config\ScoutYearService($this->pdo));
         $categoryRepository = new CategoryRepository($this->pdo);
-        $ruleEngine = new CategoryRuleEngine($transactionRepository, new CategoryRuleRepository($this->pdo));
+        $categoryRuleRepository = new CategoryRuleRepository($this->pdo);
+        $ruleEngine = new CategoryRuleEngine($transactionRepository, $categoryRuleRepository);
         $balanceService = new BalanceService($this->checkpointRepository, $transactionRepository);
         $parserFactory = new BankStatementParserFactory();
 
+        $settingService = new \Core\Config\SettingService(new \Core\Config\SettingRepository($this->pdo));
+        $accountTransferCategoryService = new \Modules\Finance\Service\AccountTransferCategoryService(
+            $categoryRepository, $categoryRuleRepository, $transactionRepository
+        );
         $financeService = new FinanceService(
-            $this->accountRepository, $categoryRepository, $fiscalYearRepository, $sectionService, $transactionRepository, $balanceService
+            $this->accountRepository, $categoryRepository, $fiscalYearRepository, $sectionService, $transactionRepository, $balanceService,
+            $settingService, $categoryRuleRepository, $accountTransferCategoryService
         );
         $receiptMatchingService = new ReceiptMatchingService(
             new AttachmentRepository($this->pdo, $encryption), $transactionRepository, new TransactionAttachmentRepository($this->pdo),

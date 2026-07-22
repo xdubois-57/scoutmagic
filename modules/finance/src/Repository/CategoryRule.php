@@ -4,19 +4,24 @@ declare(strict_types=1);
 
 namespace Modules\Finance\Repository;
 
+/**
+ * A rule can combine up to three independent conditions at once — every
+ * one of keywordPattern/counterpartyAccountPattern/amountRange that is
+ * non-null must match for the rule as a whole to match (AND, not OR).
+ * See Service\CategoryRuleEngine.
+ */
 final class CategoryRule
 {
-    public const CONDITION_KEYWORD = 'keyword';
-    public const CONDITION_COUNTERPARTY_ACCOUNT = 'counterparty_account';
-    public const CONDITION_AMOUNT_RANGE = 'amount_range';
-
     public function __construct(
         public readonly int $id,
         public readonly int $categoryId,
         public readonly int $priority,
-        public readonly string $conditionType,
-        public readonly string $conditionValue,
-        public readonly bool $isActive
+        public readonly ?string $keywordPattern,
+        public readonly ?string $counterpartyAccountPattern,
+        public readonly ?string $amountRange,
+        public readonly bool $isActive,
+        public readonly bool $isSystem = false,
+        public readonly bool $isDefault = false
     ) {
     }
 }

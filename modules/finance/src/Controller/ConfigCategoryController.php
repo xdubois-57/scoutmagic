@@ -10,8 +10,9 @@ use Core\Http\Response;
 use Core\Journal\JournalService;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
-use Modules\Finance\Repository\CategoryRule;
+use Modules\Finance\Repository\AiCategorySuggestionRepository;
 use Modules\Finance\Repository\CategoryRuleRepository;
+use Modules\Finance\Service\BulkCategorizationService;
 use Modules\Finance\Service\FinanceException;
 use Modules\Finance\Service\FinanceService;
 
@@ -28,7 +29,10 @@ class ConfigCategoryController extends AbstractController
         protected \Twig\Environment $twig,
         private FinanceService $financeService,
         private CategoryRuleRepository $ruleRepository,
-        private JournalService $journalService
+        private JournalService $journalService,
+        private AiCategorySuggestionRepository $aiSuggestionRepository,
+        private BulkCategorizationService $bulkCategorizationService,
+        private bool $aiModuleEnabled
     ) {
     }
 
@@ -50,11 +54,9 @@ class ConfigCategoryController extends AbstractController
             'active_categories' => $this->financeService->getActiveCategories(),
             'categories_by_id' => $categoriesById,
             'rules' => $this->ruleRepository->findAllOrderedByPriority(),
-            'condition_types' => [
-                CategoryRule::CONDITION_KEYWORD => 'Mot-clé',
-                CategoryRule::CONDITION_COUNTERPARTY_ACCOUNT => 'Compte contrepartie',
-                CategoryRule::CONDITION_AMOUNT_RANGE => 'Montant (plage)',
-            ],
+            'ai_module_enabled' => $this->aiModuleEnabled,
+            'ai_rule_enabled' => $this->bulkCategorizationService->isAiRuleEnabled(),
+            'recent_ai_suggestions' => $this->aiSuggestionRepository->findRecent(),
         ]);
     }
 
@@ -97,6 +99,11 @@ class ConfigCategoryController extends AbstractController
                     $id = (int) ($data['id'] ?? 0);
                     $this->financeService->deleteCategory($id);
                     $this->journalService->log('finance', 'category_deleted', 'info', 'Catégorie supprimée', ['category_id' => $id], AuthSession::getUserAccountId());
+                    return $this->json(['success' => true]);
+
+                case 'reset_defaults':
+                    $this->financeService->resetDefaultCategories();
+                    $this->journalService->log('finance', 'categories_reset_to_defaults', 'info', 'Catégories par défaut réinitialisées', [], AuthSession::getUserAccountId());
                     return $this->json(['success' => true]);
 
                 default:

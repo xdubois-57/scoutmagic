@@ -11,16 +11,16 @@ use Modules\Finance\Repository\Transaction;
 use Modules\Finance\Repository\TransactionRepository;
 
 /**
- * Evaluates category rules. Two entry points, for two different moments
- * in a movement's life:
+ * Evaluates category rules. A rule can combine up to three independent
+ * conditions (keyword/regex on the label, counterparty account, amount
+ * range) — every condition the rule actually sets must match (AND, not
+ * OR); a rule with none set never matches anything. Two entry points, for
+ * two different moments in a movement's life:
  * - countMatches() backs the config page's "Tester" button — evaluated
  *   against already-persisted transactions.
  * - apply() runs during import (Service\ImportService), evaluated
  *   against a not-yet-persisted StatementLine, in ascending priority
- *   order; the first active rule that matches wins. Only apply() can
- *   evaluate "counterparty_account" — that data is never persisted on
- *   finance_transactions (see countMatches()'s doc comment), so it only
- *   ever exists at this transient, pre-persistence stage.
+ *   order; the first active rule that matches wins.
  */
 class CategoryRuleEngine
 {
@@ -31,22 +31,13 @@ class CategoryRuleEngine
     }
 
     /**
-     * How many existing transactions this rule's condition would match —
-     * "keyword" and "amount_range" are evaluated against the persisted
-     * label/amount; "counterparty_account" always returns 0 here, since
-     * the counterparty IBAN is only ever available at import time (from
-     * the freshly-parsed bank statement line), never persisted on the
-     * transaction itself afterwards.
+     * How many existing transactions this rule's conditions would match.
      */
     public function countMatches(CategoryRule $rule): int
     {
-        if ($rule->conditionType === CategoryRule::CONDITION_COUNTERPARTY_ACCOUNT) {
-            return 0;
-        }
-
         $count = 0;
         foreach ($this->transactionRepository->findAll() as $transaction) {
-            if ($this->matchesTransaction($transaction, $rule->conditionType, $rule->conditionValue)) {
+            if ($this->matches($rule, $transaction->label, $transaction->amount, $transaction->counterpartyAccount)) {
                 $count++;
             }
         }
@@ -54,14 +45,14 @@ class CategoryRuleEngine
     }
 
     /**
-     * The first active rule (ascending priority) whose condition matches
-     * $line, or null when none does — the movement is then imported with
-     * category_id = NULL ("À catégoriser" in the UI).
+     * The first active rule (ascending priority) whose conditions all
+     * match $line, or null when none does — the movement is then
+     * imported with category_id = NULL ("À catégoriser" in the UI).
      */
     public function apply(StatementLine $line): ?int
     {
         foreach ($this->categoryRuleRepository->findActiveOrderedByPriority() as $rule) {
-            if ($this->matchesStatementLine($line, $rule->conditionType, $rule->conditionValue)) {
+            if ($this->matches($rule, $line->label, $line->amount, $line->counterpartyAccount)) {
                 return $rule->categoryId;
             }
         }
@@ -69,31 +60,106 @@ class CategoryRuleEngine
         return null;
     }
 
-    private function matchesTransaction(Transaction $transaction, string $conditionType, string $conditionValue): bool
+    /**
+     * Same as apply(), against an already-persisted Transaction instead
+     * of a not-yet-imported StatementLine — Service\
+     * BulkCategorizationService's "run the rules on every uncategorized
+     * movement" backfill.
+     */
+    public function applyToTransaction(Transaction $transaction): ?int
     {
-        return match ($conditionType) {
-            CategoryRule::CONDITION_KEYWORD => $this->matchesKeyword($transaction->label, $conditionValue),
-            CategoryRule::CONDITION_AMOUNT_RANGE => $this->matchesAmountRange(abs($transaction->amount), $conditionValue),
-            default => false,
-        };
-    }
-
-    private function matchesStatementLine(StatementLine $line, string $conditionType, string $conditionValue): bool
-    {
-        return match ($conditionType) {
-            CategoryRule::CONDITION_KEYWORD => $this->matchesKeyword($line->label, $conditionValue),
-            CategoryRule::CONDITION_AMOUNT_RANGE => $this->matchesAmountRange(abs($line->amount), $conditionValue),
-            CategoryRule::CONDITION_COUNTERPARTY_ACCOUNT => $this->matchesCounterpartyAccount($line->counterpartyAccount, $conditionValue),
-            default => false,
-        };
-    }
-
-    private function matchesKeyword(string $label, string $keyword): bool
-    {
-        if (trim($keyword) === '') {
-            return false;
+        foreach ($this->categoryRuleRepository->findActiveOrderedByPriority() as $rule) {
+            if ($this->matches($rule, $transaction->label, $transaction->amount, $transaction->counterpartyAccount)) {
+                return $rule->categoryId;
+            }
         }
-        return mb_stripos($label, $keyword) !== false;
+
+        return null;
+    }
+
+    /**
+     * A regex pattern is well-formed on its own — the delimiter/flags
+     * CategoryRuleEngine wraps it in are always the same, so this is
+     * exactly what Controller\ConfigRuleController validates against at
+     * save time to reject a broken pattern immediately, rather than
+     * silently saving a rule that can never match.
+     */
+    public static function isValidKeywordPattern(string $pattern): bool
+    {
+        return @preg_match(self::delimit(self::normalize($pattern)), '') !== false;
+    }
+
+    private function matches(CategoryRule $rule, string $label, float $amount, ?string $counterpartyAccount): bool
+    {
+        $hasCondition = false;
+
+        if ($rule->keywordPattern !== null && trim($rule->keywordPattern) !== '') {
+            $hasCondition = true;
+            if (!$this->matchesKeywordPattern($label, $rule->keywordPattern)) {
+                return false;
+            }
+        }
+
+        if ($rule->amountRange !== null && trim($rule->amountRange) !== '') {
+            $hasCondition = true;
+            if (!$this->matchesAmountRange(abs($amount), $rule->amountRange)) {
+                return false;
+            }
+        }
+
+        if ($rule->counterpartyAccountPattern !== null && trim($rule->counterpartyAccountPattern) !== '') {
+            $hasCondition = true;
+            if (!$this->matchesCounterpartyAccount($counterpartyAccount, $rule->counterpartyAccountPattern)) {
+                return false;
+            }
+        }
+
+        return $hasCondition;
+    }
+
+    /**
+     * $pattern is a regular expression (no delimiters — CategoryRuleEngine
+     * supplies its own). A plain word with no regex metacharacters, e.g.
+     * "delhaize", is itself already a valid pattern that matches that
+     * substring — the simple "keyword" use case needs no special syntax.
+     * Both sides are normalize()d first — trimmed, lowercased, and
+     * stripped of accents — so "café" written by an admin matches a bank
+     * label of "CAFE" or "Café" alike; the 'i' flag alone only handles
+     * case, not accents. An invalid pattern (should never happen —
+     * Controller\ConfigRuleController validates at save time) never
+     * matches rather than crashing the import.
+     */
+    private function matchesKeywordPattern(string $label, string $pattern): bool
+    {
+        return @preg_match(self::delimit(self::normalize($pattern)), self::normalize($label)) === 1;
+    }
+
+    private static function delimit(string $pattern): string
+    {
+        return '~' . str_replace('~', '\~', $pattern) . '~u';
+    }
+
+    /**
+     * Trims, lowercases, and strips accents/diacritics (canonical
+     * decomposition, then drops the resulting combining marks) — the
+     * shared normalization every keyword comparison goes through, on
+     * both the stored pattern and the text it's matched against, so
+     * neither side's accents/casing/stray whitespace can cause a false
+     * negative. Falls back to a plain trim+lowercase if the intl
+     * extension's Normalizer is unavailable, which only means accented
+     * characters stop folding to their unaccented equivalent — matching
+     * still works for everything else.
+     */
+    private static function normalize(string $value): string
+    {
+        $value = trim($value);
+        if (class_exists(\Normalizer::class)) {
+            $decomposed = \Normalizer::normalize($value, \Normalizer::FORM_D);
+            if ($decomposed !== false) {
+                $value = preg_replace('/\p{Mn}/u', '', $decomposed) ?? $decomposed;
+            }
+        }
+        return mb_strtolower($value);
     }
 
     /**
@@ -121,18 +187,18 @@ class CategoryRuleEngine
     }
 
     /**
-     * Exact or partial match on the counterparty's IBAN — conditionValue
-     * may be a full IBAN or a fragment of one (spaces and case ignored on
-     * both sides).
+     * Exact or partial match on the counterparty's IBAN — $pattern may be
+     * a full IBAN or a fragment of one (spaces and case ignored on both
+     * sides).
      */
-    private function matchesCounterpartyAccount(?string $counterpartyAccount, string $conditionValue): bool
+    private function matchesCounterpartyAccount(?string $counterpartyAccount, string $pattern): bool
     {
-        if ($counterpartyAccount === null || trim($conditionValue) === '') {
+        if ($counterpartyAccount === null) {
             return false;
         }
 
         $normalize = fn(string $value): string => strtoupper(str_replace(' ', '', $value));
 
-        return str_contains($normalize($counterpartyAccount), $normalize($conditionValue));
+        return str_contains($normalize($counterpartyAccount), $normalize($pattern));
     }
 }

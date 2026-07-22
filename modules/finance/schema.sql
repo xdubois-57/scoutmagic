@@ -33,31 +33,60 @@ CREATE TABLE IF NOT EXISTS finance_accounts (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- finance_categories: simple, flat category list for movement
--- classification. Deactivated (never deleted) once referenced by a
--- transaction, same "used elsewhere, deactivate instead" pattern as
--- Core\Badge.
+-- classification. Deleting one un-links it from every transaction that
+-- referenced it (falls back to uncategorized) rather than being blocked —
+-- see Service\FinanceService::deleteCategory(). account_id is set only
+-- for the auto-generated "Virement <compte>" category
+-- Service\AccountTransferCategoryService keeps in sync with each active
+-- account (one per account, never for the default/custom categories an
+-- admin manages by hand) — it's how that service finds "the" category for
+-- a given account again later without matching on name, which can be
+-- freely renamed.
 CREATE TABLE IF NOT EXISTS finance_categories (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(100) NOT NULL,
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
     sort_order INT NOT NULL DEFAULT 0,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    account_id INT UNSIGNED NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE INDEX idx_fc_account (account_id),
+    CONSTRAINT fk_fc_account FOREIGN KEY (account_id) REFERENCES finance_accounts(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- finance_category_rules: auto-categorization rules evaluated in
 -- ascending priority order by Service\CategoryRuleEngine during import
 -- (module spec follow-up "itération 3") — the first matching rule wins.
--- condition_value's meaning depends on condition_type: a keyword to
--- search in the movement's label, an IBAN (full or partial) to match
--- against the counterparty account, or a numeric range like ">100" or
--- "50-200" for amount_range (evaluated against the absolute amount).
+-- A rule can combine up to three independent conditions at once — all of
+-- the ones that are non-NULL must match for the rule as a whole to match
+-- (AND, not OR); a rule with all three NULL never matches anything.
+-- keyword_pattern is a regular expression matched against the movement's
+-- label (case-insensitive, Unicode) — a plain word like "delhaize" is
+-- itself already a valid regex matching that substring, so this doubles
+-- as the simple "keyword" mode with no special syntax required.
+-- counterparty_account_pattern is an IBAN, full or partial (spaces/case
+-- ignored). amount_range is ">100" (strictly greater than) or "50-200"
+-- (inclusive), evaluated against the absolute amount. is_system marks a
+-- rule as maintained by the app itself rather than an admin — currently
+-- only the one Service\AccountTransferCategoryService keeps in sync with
+-- an active account's IBAN — the config UI hides its edit/delete controls
+-- (it would just be recreated/corrected on the next account save anyway,
+-- since it's derived data, not a standing admin decision). is_default
+-- marks a rule as originating from Service\FinanceService::
+-- DEFAULT_CATEGORY_RULE_PATTERNS (seeded once alongside the default
+-- categories) — unlike is_system it's freely editable/deactivatable, but
+-- lets the config page's "Réinitialiser les règles par défaut" button
+-- find exactly the rules it's allowed to replace, leaving any other
+-- admin-authored rule untouched.
 CREATE TABLE IF NOT EXISTS finance_category_rules (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     category_id INT UNSIGNED NOT NULL,
     priority INT NOT NULL DEFAULT 0,
-    condition_type ENUM('keyword', 'counterparty_account', 'amount_range') NOT NULL,
-    condition_value VARCHAR(255) NOT NULL,
+    keyword_pattern VARCHAR(255) NULL,
+    counterparty_account_pattern VARCHAR(255) NULL,
+    amount_range VARCHAR(50) NULL,
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    is_system BOOLEAN NOT NULL DEFAULT FALSE,
+    is_default BOOLEAN NOT NULL DEFAULT FALSE,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_fcr_priority (priority),
     CONSTRAINT fk_fcr_category FOREIGN KEY (category_id) REFERENCES finance_categories(id) ON DELETE CASCADE
@@ -209,4 +238,18 @@ CREATE TABLE IF NOT EXISTS finance_transaction_attachments (
     PRIMARY KEY (transaction_id, attachment_id),
     CONSTRAINT fk_fta_transaction FOREIGN KEY (transaction_id) REFERENCES finance_transactions(id) ON DELETE CASCADE,
     CONSTRAINT fk_fta_attachment FOREIGN KEY (attachment_id) REFERENCES finance_attachments(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- finance_ai_category_suggestions: a rolling log of "no existing category
+-- fit" suggestions from Service\AiCategorizationService (the AI
+-- categorization rule's CHEAP-tier prompt asks for one in the same
+-- request whenever it can't pick an existing category) — Service\
+-- FinanceService keeps only the 10 most recent (oldest pruned on
+-- insert), surfaced as one-click suggestions in the "new category"
+-- dialog. Not a queue and never referenced by id elsewhere — just a
+-- short list of names, so no encryption or FK needed.
+CREATE TABLE IF NOT EXISTS finance_ai_category_suggestions (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    suggested_name VARCHAR(100) NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

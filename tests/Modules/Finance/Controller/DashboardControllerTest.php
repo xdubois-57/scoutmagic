@@ -64,8 +64,14 @@ class DashboardControllerTest extends TestCase
         $this->transactionRepository = new TransactionRepository($this->pdo, $encryption);
         $this->checkpointRepository = new BalanceCheckpointRepository($this->pdo);
         $balanceService = new BalanceService($this->checkpointRepository, $this->transactionRepository);
+        $categoryRuleRepository = new \Modules\Finance\Repository\CategoryRuleRepository($this->pdo);
+        $settingService = new \Core\Config\SettingService(new \Core\Config\SettingRepository($this->pdo));
+        $accountTransferCategoryService = new \Modules\Finance\Service\AccountTransferCategoryService(
+            $this->categoryRepository, $categoryRuleRepository, $this->transactionRepository
+        );
         $financeService = new FinanceService(
-            $this->accountRepository, $this->categoryRepository, $this->fiscalYearRepository, $sectionService, $this->transactionRepository, $balanceService
+            $this->accountRepository, $this->categoryRepository, $this->fiscalYearRepository, $sectionService, $this->transactionRepository, $balanceService,
+            $settingService, $categoryRuleRepository, $accountTransferCategoryService
         );
 
         $this->attachmentRepository = new AttachmentRepository($this->pdo, $encryption);

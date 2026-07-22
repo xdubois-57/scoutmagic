@@ -67,8 +67,15 @@ class ReceiptControllerTest extends TestCase
         $checkpointRepository = new BalanceCheckpointRepository($this->pdo);
         $fiscalYearRepository = new FiscalYearRepository($this->pdo, new \Core\Config\ScoutYearService($this->pdo));
         $balanceService = new BalanceService($checkpointRepository, $this->transactionRepository);
+        $categoryRepository = new CategoryRepository($this->pdo);
+        $categoryRuleRepository = new \Modules\Finance\Repository\CategoryRuleRepository($this->pdo);
+        $settingService = new \Core\Config\SettingService(new \Core\Config\SettingRepository($this->pdo));
+        $accountTransferCategoryService = new \Modules\Finance\Service\AccountTransferCategoryService(
+            $categoryRepository, $categoryRuleRepository, $this->transactionRepository
+        );
         $financeService = new FinanceService(
-            $this->accountRepository, new CategoryRepository($this->pdo), $fiscalYearRepository, $sectionService, $this->transactionRepository, $balanceService
+            $this->accountRepository, $categoryRepository, $fiscalYearRepository, $sectionService, $this->transactionRepository, $balanceService,
+            $settingService, $categoryRuleRepository, $accountTransferCategoryService
         );
 
         $this->storagePath = sys_get_temp_dir() . '/finance_receipt_controller_test_' . uniqid();

@@ -4,12 +4,14 @@ declare(strict_types=1);
 
 namespace Modules\Finance\Service;
 
+use Core\Config\SettingService;
 use Core\Member\SectionService;
 use Core\Security\Role;
 use Modules\Finance\Repository\Account;
 use Modules\Finance\Repository\AccountRepository;
 use Modules\Finance\Repository\Category;
 use Modules\Finance\Repository\CategoryRepository;
+use Modules\Finance\Repository\CategoryRuleRepository;
 use Modules\Finance\Repository\FiscalYear;
 use Modules\Finance\Repository\FiscalYearRepository;
 use Modules\Finance\Repository\TransactionRepository;
@@ -26,16 +28,52 @@ class FinanceService
 
     /**
      * The categorization baseline every unit is expected to start from —
-     * created once, idempotently, the first time the categories config
-     * page loads (same "ensure on read" pattern as
-     * ensureDefaultAccountsForSections()). An admin is free to rename,
+     * created once ever, the first time the categories config page loads,
+     * tracked via the internal 'categories_seeded' setting rather than
+     * "the table happens to be empty right now": an admin emptying the
+     * list out entirely (deleting every category, default or custom) must
+     * never be mistaken for "never seeded" and have the whole default set
+     * silently resurrected out from under them on the next page load —
+     * see ensureDefaultCategories(). An admin is free to rename,
      * deactivate, or delete any of these afterward; they are never
-     * re-created once removed (matched by name at ensure time only).
+     * re-created once removed (matched by name at ensure time only, and
+     * only that one time).
      */
     private const DEFAULT_CATEGORY_NAMES = [
         "Fête d'unité", 'Camp été', 'Weekend de section', 'Grande journée', 'Formations',
         'Calendriers', 'Matériel', 'Locaux', 'Subsides', 'Cotisations',
     ];
+
+    /**
+     * Auto-categorization rules seeded alongside DEFAULT_CATEGORY_NAMES
+     * (ensureDefaultCategories()) and restorable on demand
+     * (resetDefaultCategoryRules(), the config page's "Réinitialiser les
+     * règles par défaut" button) — adapted from a similar unit's own
+     * hand-tuned rule set (keyword patterns observed to actually appear
+     * in real Belgian bank statement labels), trimmed to the patterns
+     * generic enough to be a sensible starting point for any unit rather
+     * than specific to that one (e.g. their own site/vendor names, IBANs,
+     * and month-restricted catch-alls were left out). "Locaux" has no
+     * equivalent in that source and gets no seeded rule. Every pattern
+     * targets un-accented text — Belgian bank exports routinely strip
+     * accents from labels, and CategoryRuleEngine's matching isn't
+     * accent-folding, so an accented pattern would silently never match.
+     *
+     * @var array<string, string[]>
+     */
+    private const DEFAULT_CATEGORY_RULE_PATTERNS = [
+        "Fête d'unité" => ['fete\\s*d.{0,3}u', '(^|\\s)fu(\\s|\\d|$)'],
+        'Camp été' => ['camp'],
+        'Weekend de section' => ['(we($|\\s)|weekend|week-end|w-e|wk)'],
+        'Grande journée' => ['grande journee'],
+        'Formations' => ['formation'],
+        'Calendriers' => ['calendrier'],
+        'Matériel' => ['materiel', 'pharmacie'],
+        'Subsides' => ['subside|subvention'],
+        'Cotisations' => ['cotisation', 'quadri'],
+    ];
+
+    private const SEEDED_SETTING_KEY = 'categories_seeded';
 
     public function __construct(
         private AccountRepository $accountRepository,
@@ -43,7 +81,10 @@ class FinanceService
         private FiscalYearRepository $fiscalYearRepository,
         private SectionService $sectionService,
         private TransactionRepository $transactionRepository,
-        private BalanceService $balanceService
+        private BalanceService $balanceService,
+        private SettingService $settingService,
+        private CategoryRuleRepository $categoryRuleRepository,
+        private AccountTransferCategoryService $accountTransferCategoryService
     ) {
     }
 
@@ -136,21 +177,109 @@ class FinanceService
 
     /**
      * Seeds DEFAULT_CATEGORY_NAMES the first time the categories page is
-     * ever opened (i.e. only while the category list is still empty) —
-     * unlike ensureDefaultAccountsForSections() this deliberately does
-     * NOT re-merge by name on every load, because a category has no
-     * stable identity besides its name: matching by name forever would
-     * silently resurrect a default category an admin had renamed or
-     * deleted on purpose. A no-op once any category exists.
+     * ever opened, tracked by the internal SEEDED_SETTING_KEY flag rather
+     * than "the table happens to be empty right now" (a bug: an admin who
+     * deletes every category — the whole point of being able to delete a
+     * default category at all — would otherwise see the entire default
+     * set silently resurrected the next time this page loads, undoing
+     * every deletion, not just the defaults'). Unlike
+     * ensureDefaultAccountsForSections() this deliberately does NOT
+     * re-merge by name on every load, because a category has no stable
+     * identity besides its name: matching by name forever would silently
+     * resurrect a default category an admin had renamed or deleted on
+     * purpose. A no-op once the flag is set, which happens exactly once.
      */
     public function ensureDefaultCategories(): void
     {
-        if ($this->categoryRepository->findAllOrdered() !== []) {
+        if ($this->settingService->get(self::SEEDED_SETTING_KEY, 'finance', '0') === '1') {
             return;
         }
 
+        if ($this->categoryRepository->findAllOrdered() === []) {
+            foreach (self::DEFAULT_CATEGORY_NAMES as $name) {
+                $this->categoryRepository->create($name);
+            }
+        }
+
+        // Not gated behind the block above: on an existing installation
+        // upgrading into this feature, the default categories already
+        // exist from a previous run (so the block above is skipped) but
+        // never got default rules — this still finds them by name and
+        // seeds rules for them, exactly once.
+        $this->seedDefaultCategoryRules();
+
+        $this->settingService->register(self::SEEDED_SETTING_KEY, '0', 'boolean', 'Catégories par défaut initialisées', 'Indicateur interne — ne pas modifier.', 'finance', null, null, false);
+        $this->settingService->setInternal(self::SEEDED_SETTING_KEY, '1', 'finance');
+    }
+
+    /**
+     * Re-creates every is_default rule from DEFAULT_CATEGORY_RULE_PATTERNS
+     * from scratch — the config page's "Réinitialiser les règles par
+     * défaut" button, for undoing edits/deletions to that specific set
+     * without touching an admin's own custom rules or a category renamed
+     * away from its default name (silently skipped, same as
+     * seedDefaultCategoryRules() — matched by name, not stable identity).
+     */
+    public function resetDefaultCategoryRules(): void
+    {
+        $this->categoryRuleRepository->deleteAllDefault();
+        $this->seedDefaultCategoryRules();
+    }
+
+    /**
+     * Re-creates whichever of DEFAULT_CATEGORY_NAMES is currently missing
+     * — the config page's "Réinitialiser les catégories par défaut"
+     * button, for undoing an accidental (or since-regretted) deletion of
+     * one of them. Same name-matching caveat as everywhere else in this
+     * class: a default category an admin renamed rather than deleted
+     * looks identical to a deleted one from here, and gets a fresh
+     * same-named category recreated alongside it. Never touches a
+     * default category that's still present, so it never duplicates that
+     * one's rules.
+     */
+    public function resetDefaultCategories(): void
+    {
+        $existingNames = array_map(fn(Category $category) => $category->name, $this->categoryRepository->findAllOrdered());
+
+        $recreatedNames = [];
         foreach (self::DEFAULT_CATEGORY_NAMES as $name) {
-            $this->categoryRepository->create($name);
+            if (!in_array($name, $existingNames, true)) {
+                $this->categoryRepository->create($name);
+                $recreatedNames[] = $name;
+            }
+        }
+
+        if ($recreatedNames !== []) {
+            $this->seedDefaultCategoryRulesFor($recreatedNames);
+        }
+    }
+
+    private function seedDefaultCategoryRules(): void
+    {
+        $this->seedDefaultCategoryRulesFor(array_keys(self::DEFAULT_CATEGORY_RULE_PATTERNS));
+    }
+
+    /**
+     * @param string[] $categoryNames
+     */
+    private function seedDefaultCategoryRulesFor(array $categoryNames): void
+    {
+        $categoriesByName = [];
+        foreach ($this->categoryRepository->findAllOrdered() as $category) {
+            $categoriesByName[$category->name] = $category;
+        }
+
+        foreach ($categoryNames as $categoryName) {
+            $patterns = self::DEFAULT_CATEGORY_RULE_PATTERNS[$categoryName] ?? null;
+            $category = $categoriesByName[$categoryName] ?? null;
+            if ($patterns === null || $category === null) {
+                continue;
+            }
+
+            foreach ($patterns as $pattern) {
+                $priority = count($this->categoryRuleRepository->findAllOrderedByPriority());
+                $this->categoryRuleRepository->create($category->id, $priority, $pattern, null, null, isSystem: false, isDefault: true);
+            }
         }
     }
 
@@ -170,6 +299,7 @@ class FinanceService
         $this->activateIfEligible($id);
         $account = $this->accountRepository->findById($id);
         \assert($account !== null);
+        $this->accountTransferCategoryService->sync($account);
         return $account;
     }
 
@@ -193,6 +323,11 @@ class FinanceService
         $this->activateIfEligible($id);
         $account = $this->accountRepository->findById($id);
         \assert($account !== null);
+        // Covers both "just activated" and "IBAN changed on an account
+        // that was already active" — activateIfEligible() only ever acts
+        // on a still-draft account, so this is the only place that also
+        // catches the second case.
+        $this->accountTransferCategoryService->sync($account);
         return $account;
     }
 
@@ -227,6 +362,7 @@ class FinanceService
             throw new FinanceException('Compte introuvable.');
         }
         $this->accountRepository->updateStatus($id, Account::STATUS_ARCHIVED);
+        $this->accountTransferCategoryService->removeFor($id);
     }
 
     private function validateAccountFields(string $name, string $accountType, string $roleMinView): void
@@ -305,21 +441,24 @@ class FinanceService
     }
 
     /**
-     * A category referenced by at least one transaction can never be
-     * deleted, only deactivated (module spec: "Désactivation plutôt que
-     * suppression si des transactions référencent la catégorie") — same
-     * "used elsewhere" pattern as Core\Badge.
+     * Deleting a category — default or custom — always succeeds: any
+     * transaction referencing it falls back to uncategorized
+     * (category_id = NULL, "Non catégorisé" in the UI) rather than
+     * blocking the deletion, cleared explicitly here instead of relying
+     * on the schema's ON DELETE SET NULL so behavior doesn't depend on
+     * the underlying database engine actually enforcing it. Any
+     * categorization rule that targeted this category is deleted too —
+     * a rule with no category to assign is meaningless.
      *
-     * @throws FinanceException when referenced by transactions, or unknown
+     * @throws FinanceException when the category is unknown
      */
     public function deleteCategory(int $id): void
     {
         if ($this->categoryRepository->findById($id) === null) {
             throw new FinanceException('Catégorie introuvable.');
         }
-        if ($this->categoryRepository->isReferencedByTransactions($id)) {
-            throw new FinanceException('Cette catégorie est utilisée par des mouvements — désactivez-la au lieu de la supprimer.');
-        }
+        $this->transactionRepository->clearCategory($id);
+        $this->categoryRuleRepository->deleteAllForCategory($id);
         $this->categoryRepository->delete($id);
     }
 

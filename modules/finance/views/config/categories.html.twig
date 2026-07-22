@@ -7,9 +7,20 @@
 
     {% include '@finance/config/_nav.html.twig' %}
 
+    <p class="text-body-secondary small mb-4">
+        Une <strong>catégorie</strong> classe les mouvements pour le bilan du tableau de bord (« Fête d'unité »,
+        « Matériel », etc.). Une catégorie <strong>inactive</strong> reste utilisable pour les mouvements qui
+        l'ont déjà, mais n'est plus proposée pour en catégoriser de nouveaux. Les <strong>règles de
+        catégorisation</strong>, ci-dessous, attribuent automatiquement une catégorie à un mouvement importé selon
+        son libellé, sa contrepartie ou son montant.
+    </p>
+
     <div class="d-flex justify-content-between align-items-center mb-3">
         <h2 class="h5 mb-0">Catégories</h2>
-        <button type="button" class="btn btn-sm btn-primary" id="new-category-btn">Nouvelle catégorie</button>
+        <div class="d-flex gap-2">
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="reset-default-categories-btn">Réinitialiser les catégories par défaut</button>
+            <button type="button" class="btn btn-sm btn-primary" id="new-category-btn">Nouvelle catégorie</button>
+        </div>
     </div>
 
     <div class="d-flex flex-column gap-2 mb-4">
@@ -33,78 +44,152 @@
         {% endfor %}
     </div>
 
-    <div class="border rounded-3 p-3 mb-4 d-none" id="category-form-container">
-        <form id="category-form" class="row g-2 align-items-end">
-            <input type="hidden" id="category-id" value="">
-            <div class="col-12 col-md-6">
-                <label class="form-label small" for="category-name">Nom</label>
-                <input type="text" class="form-control form-control-sm" id="category-name" required>
+    <div class="modal fade" id="category-modal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="category-form-title">Nouvelle catégorie</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <form id="category-form">
+                    <div class="modal-body">
+                        <input type="hidden" id="category-id" value="">
+                        <label class="form-label small" for="category-name">Nom</label>
+                        <input type="text" class="form-control form-control-sm" id="category-name" required>
+                        {% if recent_ai_suggestions %}
+                            <div class="mt-2" id="category-suggestions">
+                                <div class="text-body-secondary small mb-1">Suggestions récentes de l'IA :</div>
+                                <div class="d-flex flex-wrap gap-1">
+                                    {% for suggestion in recent_ai_suggestions %}
+                                        <button type="button" class="btn btn-sm btn-outline-secondary category-suggestion-btn" data-name="{{ suggestion }}">{{ suggestion }}</button>
+                                    {% endfor %}
+                                </div>
+                            </div>
+                        {% endif %}
+                        <div class="text-danger small mt-2 d-none" id="category-form-error"></div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Annuler</button>
+                        <button type="submit" class="btn btn-sm btn-primary">Enregistrer</button>
+                    </div>
+                </form>
             </div>
-            <div class="col-auto">
-                <button type="submit" class="btn btn-sm btn-primary">Enregistrer</button>
-            </div>
-            <div class="col-auto">
-                <button type="button" class="btn btn-sm btn-outline-secondary" id="cancel-category-form">Annuler</button>
-            </div>
-            <div class="col-12 text-danger small d-none" id="category-form-error"></div>
-        </form>
+        </div>
     </div>
 
     <hr class="my-4">
 
     <div class="d-flex justify-content-between align-items-center mb-3">
         <h2 class="h5 mb-0">Règles de catégorisation</h2>
-        <button type="button" class="btn btn-sm btn-primary" id="new-rule-btn">Nouvelle règle</button>
+        <div class="d-flex gap-2">
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="run-rules-btn">Exécuter les règles sur les mouvements non catégorisés</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="reset-default-rules-btn">Réinitialiser les règles par défaut</button>
+            <button type="button" class="btn btn-sm btn-primary" id="new-rule-btn">Nouvelle règle</button>
+        </div>
     </div>
-    <p class="text-body-secondary small mb-3">
-        Les règles sont évaluées dans l'ordre ci-dessous ; la première dont la condition correspond détermine la catégorie.
+    <p class="text-body-secondary small mb-2">
+        Les règles sont évaluées dans l'ordre ci-dessous (glisser-déposer pour réordonner) ; la première qui
+        correspond entièrement détermine la catégorie.
+    </p>
+    <div class="alert alert-info small mb-3">
+        <p class="mb-1">
+            Une règle peut combiner jusqu'à <strong>3 conditions à la fois</strong> — elles doivent
+            <strong>toutes</strong> être remplies pour que la règle s'applique. Une règle sans aucune condition
+            remplie ne s'applique jamais.
+        </p>
+        <ul class="mb-0 ps-3">
+            <li>
+                <strong>Mot-clé / expression régulière</strong> — comparé au libellé du mouvement, sans tenir
+                compte de la casse ni des accents. Un mot simple comme <code>delhaize</code> fonctionne tel quel
+                (il correspond à tout libellé qui contient ce mot, accentué ou non). Pour aller plus loin, c'est
+                une expression régulière complète : <code>^VIR.*DUPONT$</code> (commence par « VIR » et finit par
+                « DUPONT »), <code>REF[0-9]{6}</code> (« REF » suivi de 6 chiffres),
+                <code>café|boulangerie</code> (l'un ou l'autre mot).
+            </li>
+            <li><strong>Compte contrepartie</strong> — tout ou partie de l'IBAN de la contrepartie (espaces et casse ignorés), ex. <code>BE71 0000 0000 0000</code>.</li>
+            <li><strong>Montant</strong> — <code>&gt;100</code> (strictement plus de 100 €) ou <code>10-50</code> (entre 10 et 50 € inclus), toujours comparé à la valeur absolue du montant.</li>
+        </ul>
+    </div>
+
+    <p class="text-body-secondary small mb-2">
+        <i class="bi bi-gear-fill me-1"></i> Les règles marquées « Automatique » sont générées et maintenues par
+        l'application (une par compte configuré, pour reconnaître les virements entre les comptes de l'unité) —
+        elles ne sont pas modifiables ici. Les règles marquées « Par défaut » font partie du jeu de règles fourni
+        avec l'application ; le bouton « Réinitialiser les règles par défaut » les recrée telles quelles, sans
+        toucher à vos propres règles.
+        {% if ai_module_enabled %}
+            La règle « IA », toujours en dernier, demande à l'intelligence artificielle de choisir une catégorie
+            existante pour chaque mouvement qu'aucune autre règle n'a su classer (ou de proposer une nouvelle
+            catégorie) — désactivée par défaut, elle ne peut être ni déplacée ni supprimée, seulement activée/désactivée.
+        {% endif %}
     </p>
 
     <div class="d-flex flex-column gap-2 mb-4" id="rules-list">
         {% for rule in rules %}
-            <div class="border rounded-3 p-2 d-flex align-items-center gap-2" data-id="{{ rule.id }}">
-                <div class="d-flex flex-column">
-                    <button type="button" class="btn btn-sm btn-link p-0 move-rule-btn" data-id="{{ rule.id }}" data-direction="up" title="Monter"><i class="bi bi-caret-up-fill"></i></button>
-                    <button type="button" class="btn btn-sm btn-link p-0 move-rule-btn" data-id="{{ rule.id }}" data-direction="down" title="Descendre"><i class="bi bi-caret-down-fill"></i></button>
-                </div>
+            <div class="border rounded-3 p-2 d-flex align-items-center gap-2 {{ rule.isSystem ? 'bg-body-secondary bg-opacity-25' : '' }}" data-id="{{ rule.id }}" draggable="true">
+                <i class="bi bi-grip-vertical text-body-secondary drag-handle" style="cursor: grab;"></i>
                 <div class="flex-grow-1">
-                    <span class="badge text-bg-light">{{ condition_types[rule.conditionType] ?? rule.conditionType }}</span>
-                    <span class="fw-semibold">{{ rule.conditionValue }}</span>
+                    {% if rule.isSystem %}<span class="badge text-bg-secondary"><i class="bi bi-gear-fill me-1"></i>Automatique</span>{% endif %}
+                    {% if rule.isDefault %}<span class="badge text-bg-light border">Par défaut</span>{% endif %}
+                    {% if rule.keywordPattern %}<span class="badge text-bg-light">Mot-clé : {{ rule.keywordPattern }}</span>{% endif %}
+                    {% if rule.counterpartyAccountPattern %}<span class="badge text-bg-light">Contrepartie : {{ rule.counterpartyAccountPattern }}</span>{% endif %}
+                    {% if rule.amountRange %}<span class="badge text-bg-light">Montant : {{ rule.amountRange }}</span>{% endif %}
                     <i class="bi bi-arrow-right mx-1"></i>
                     <span>{{ categories_by_id[rule.categoryId] is defined ? categories_by_id[rule.categoryId].name : '—' }}</span>
                 </div>
-                <button type="button" class="btn btn-sm btn-outline-secondary edit-rule-btn"
-                        data-id="{{ rule.id }}" data-condition-type="{{ rule.conditionType }}" data-condition-value="{{ rule.conditionValue }}" data-category-id="{{ rule.categoryId }}"
-                        title="Modifier"><i class="bi bi-pencil"></i></button>
-                <button type="button" class="btn btn-sm {{ rule.isActive ? 'btn-outline-success' : 'btn-outline-secondary' }} toggle-rule-btn"
-                        data-id="{{ rule.id }}" data-active="{{ rule.isActive ? '1' : '0' }}"
-                        title="{{ rule.isActive ? 'Actif — cliquer pour désactiver' : 'Inactif — cliquer pour activer' }}">
-                    <i class="bi {{ rule.isActive ? 'bi-toggle-on' : 'bi-toggle-off' }}"></i>
-                </button>
-                <button type="button" class="btn btn-sm btn-outline-danger delete-rule-btn" data-id="{{ rule.id }}" title="Supprimer"><i class="bi bi-trash"></i></button>
+                {% if not rule.isSystem %}
+                    <button type="button" class="btn btn-sm btn-outline-secondary edit-rule-btn"
+                            data-id="{{ rule.id }}"
+                            data-keyword-pattern="{{ rule.keywordPattern }}"
+                            data-counterparty-account-pattern="{{ rule.counterpartyAccountPattern }}"
+                            data-amount-range="{{ rule.amountRange }}"
+                            data-category-id="{{ rule.categoryId }}"
+                            title="Modifier"><i class="bi bi-pencil"></i></button>
+                    <button type="button" class="btn btn-sm {{ rule.isActive ? 'btn-outline-success' : 'btn-outline-secondary' }} toggle-rule-btn"
+                            data-id="{{ rule.id }}" data-active="{{ rule.isActive ? '1' : '0' }}"
+                            title="{{ rule.isActive ? 'Actif — cliquer pour désactiver' : 'Inactif — cliquer pour activer' }}">
+                        <i class="bi {{ rule.isActive ? 'bi-toggle-on' : 'bi-toggle-off' }}"></i>
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline-danger delete-rule-btn" data-id="{{ rule.id }}" title="Supprimer"><i class="bi bi-trash"></i></button>
+                {% endif %}
             </div>
         {% else %}
             <p class="text-body-secondary fst-italic mb-0">Aucune règle configurée.</p>
         {% endfor %}
     </div>
 
+    {% if ai_module_enabled %}
+        <div class="border rounded-3 p-2 d-flex align-items-center gap-2 mb-4 bg-body-secondary bg-opacity-25">
+            <i class="bi bi-grip-vertical text-body-secondary" style="visibility: hidden;"></i>
+            <div class="flex-grow-1">
+                <span class="badge text-bg-info"><i class="bi bi-robot me-1"></i>IA</span>
+                <span>Choisit une catégorie existante avec l'IA, ou propose une nouvelle catégorie — toujours évaluée en dernier</span>
+            </div>
+            <button type="button" class="btn btn-sm {{ ai_rule_enabled ? 'btn-outline-success' : 'btn-outline-secondary' }}" id="toggle-ai-rule-btn"
+                    data-active="{{ ai_rule_enabled ? '1' : '0' }}"
+                    title="{{ ai_rule_enabled ? 'Actif — cliquer pour désactiver' : 'Inactif — cliquer pour activer' }}">
+                <i class="bi {{ ai_rule_enabled ? 'bi-toggle-on' : 'bi-toggle-off' }}"></i>
+            </button>
+        </div>
+    {% endif %}
+
     <div class="border rounded-3 p-3 mb-4 d-none" id="rule-form-container">
         <form id="rule-form">
             <input type="hidden" id="rule-id" value="">
             <div class="row g-2">
-                <div class="col-12 col-md-3">
-                    <label class="form-label small" for="rule-condition-type">Type de condition</label>
-                    <select class="form-select form-select-sm" id="rule-condition-type">
-                        {% for value, label in condition_types %}
-                            <option value="{{ value }}">{{ label }}</option>
-                        {% endfor %}
-                    </select>
+                <div class="col-12 col-md-4">
+                    <label class="form-label small" for="rule-keyword-pattern">Mot-clé / expression régulière (libellé)</label>
+                    <input type="text" class="form-control form-control-sm" id="rule-keyword-pattern" placeholder="ex. delhaize ou ^VIR.*DUPONT$">
                 </div>
                 <div class="col-12 col-md-4">
-                    <label class="form-label small" for="rule-condition-value">Valeur</label>
-                    <input type="text" class="form-control form-control-sm" id="rule-condition-value" placeholder="mot-clé, >100, ou 10-50">
+                    <label class="form-label small" for="rule-counterparty-account-pattern">Compte contrepartie</label>
+                    <input type="text" class="form-control form-control-sm" id="rule-counterparty-account-pattern" placeholder="ex. BE71 0000">
                 </div>
-                <div class="col-12 col-md-3">
+                <div class="col-12 col-md-4">
+                    <label class="form-label small" for="rule-amount-range">Montant</label>
+                    <input type="text" class="form-control form-control-sm" id="rule-amount-range" placeholder="ex. >100 ou 10-50">
+                </div>
+                <div class="col-12 col-md-8">
                     <label class="form-label small" for="rule-category">Catégorie</label>
                     <select class="form-select form-select-sm" id="rule-category">
                         {% for category in active_categories %}
@@ -112,7 +197,7 @@
                         {% endfor %}
                     </select>
                 </div>
-                <div class="col-12 col-md-2 d-flex align-items-end gap-2">
+                <div class="col-12 col-md-4 d-flex align-items-end gap-2">
                     <button type="button" class="btn btn-sm btn-outline-primary" id="test-rule-btn">Tester</button>
                 </div>
             </div>
@@ -131,26 +216,33 @@
 const csrf = () => document.querySelector('meta[name="csrf-token"]')?.content;
 
 // --- Categories ---
-const categoryFormContainer = document.getElementById('category-form-container');
+const categoryModalEl = document.getElementById('category-modal');
+const categoryModal = window.bootstrap ? new window.bootstrap.Modal(categoryModalEl) : null;
 const categoryErrorBox = document.getElementById('category-form-error');
+
+function showCategoryModal(title) {
+    document.getElementById('category-form-title').textContent = title;
+    categoryErrorBox.classList.add('d-none');
+    categoryModal ? categoryModal.show() : categoryModalEl.classList.add('show');
+}
 
 document.getElementById('new-category-btn').addEventListener('click', () => {
     document.getElementById('category-id').value = '';
     document.getElementById('category-name').value = '';
-    categoryFormContainer.classList.remove('d-none');
-    categoryErrorBox.classList.add('d-none');
-});
-
-document.getElementById('cancel-category-form').addEventListener('click', () => {
-    categoryFormContainer.classList.add('d-none');
+    showCategoryModal('Nouvelle catégorie');
 });
 
 document.querySelectorAll('.edit-category-btn').forEach(btn => {
     btn.addEventListener('click', () => {
         document.getElementById('category-id').value = btn.dataset.id;
         document.getElementById('category-name').value = btn.dataset.name;
-        categoryFormContainer.classList.remove('d-none');
-        categoryErrorBox.classList.add('d-none');
+        showCategoryModal('Modifier la catégorie');
+    });
+});
+
+document.querySelectorAll('.category-suggestion-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.getElementById('category-name').value = btn.dataset.name;
     });
 });
 
@@ -204,6 +296,23 @@ document.querySelectorAll('.delete-category-btn').forEach(btn => {
     });
 });
 
+document.getElementById('reset-default-categories-btn').addEventListener('click', async () => {
+    if (!confirm('Recréer les catégories par défaut qui auraient été supprimées ? Les catégories existantes ne sont pas modifiées.')) {
+        return;
+    }
+    const res = await fetch('/config/finance/categories', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'reset_defaults', _csrf_token: csrf() })
+    });
+    const data = await res.json();
+    if (data.success) {
+        window.location.reload();
+    } else {
+        alert(data.error);
+    }
+});
+
 // --- Categorization rules ---
 const ruleFormContainer = document.getElementById('rule-form-container');
 const ruleErrorBox = document.getElementById('rule-form-error');
@@ -216,6 +325,54 @@ document.getElementById('new-rule-btn').addEventListener('click', () => {
     ruleErrorBox.classList.add('d-none');
 });
 
+document.getElementById('reset-default-rules-btn').addEventListener('click', async () => {
+    if (!confirm("Réinitialiser les règles par défaut ? Toute modification apportée aux règles marquées « Par défaut » sera perdue. Vos propres règles ne seront pas touchées.")) {
+        return;
+    }
+    const res = await fetch('/config/finance/rules', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'reset_defaults', _csrf_token: csrf() })
+    });
+    const data = await res.json();
+    if (data.success) {
+        window.location.reload();
+    } else {
+        alert(data.error);
+    }
+});
+
+document.getElementById('run-rules-btn').addEventListener('click', async () => {
+    if (!confirm("Appliquer les règles de catégorisation à tous les mouvements non catégorisés ? Cette opération peut prendre du temps si la règle IA est active.")) {
+        return;
+    }
+    const btn = document.getElementById('run-rules-btn');
+    const originalText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Exécution en cours…';
+
+    const res = await fetch('/config/finance/rules', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'run_on_uncategorized', _csrf_token: csrf() })
+    });
+    const data = await res.json();
+
+    btn.disabled = false;
+    btn.textContent = originalText;
+
+    if (data.success) {
+        alert(
+            data.categorized_by_rules + ' mouvement(s) catégorisé(s) par les règles, '
+            + data.categorized_by_ai + ' par l\'IA, '
+            + data.still_uncategorized + ' toujours non catégorisé(s).'
+        );
+        window.location.reload();
+    } else {
+        alert(data.error);
+    }
+});
+
 document.getElementById('cancel-rule-form').addEventListener('click', () => {
     ruleFormContainer.classList.add('d-none');
 });
@@ -223,8 +380,9 @@ document.getElementById('cancel-rule-form').addEventListener('click', () => {
 document.querySelectorAll('.edit-rule-btn').forEach(btn => {
     btn.addEventListener('click', () => {
         document.getElementById('rule-id').value = btn.dataset.id;
-        document.getElementById('rule-condition-type').value = btn.dataset.conditionType;
-        document.getElementById('rule-condition-value').value = btn.dataset.conditionValue;
+        document.getElementById('rule-keyword-pattern').value = btn.dataset.keywordPattern;
+        document.getElementById('rule-counterparty-account-pattern').value = btn.dataset.counterpartyAccountPattern;
+        document.getElementById('rule-amount-range').value = btn.dataset.amountRange;
         document.getElementById('rule-category').value = btn.dataset.categoryId;
         document.getElementById('test-rule-result').textContent = '';
         ruleFormContainer.classList.remove('d-none');
@@ -232,16 +390,19 @@ document.querySelectorAll('.edit-rule-btn').forEach(btn => {
     });
 });
 
+function ruleConditionsPayload() {
+    return {
+        keyword_pattern: document.getElementById('rule-keyword-pattern').value,
+        counterparty_account_pattern: document.getElementById('rule-counterparty-account-pattern').value,
+        amount_range: document.getElementById('rule-amount-range').value
+    };
+}
+
 document.getElementById('test-rule-btn').addEventListener('click', async () => {
     const res = await fetch('/config/finance/rules', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            action: 'test',
-            condition_type: document.getElementById('rule-condition-type').value,
-            condition_value: document.getElementById('rule-condition-value').value,
-            _csrf_token: csrf()
-        })
+        body: JSON.stringify(Object.assign({ action: 'test', _csrf_token: csrf() }, ruleConditionsPayload()))
     });
     const data = await res.json();
     const resultBox = document.getElementById('test-rule-result');
@@ -255,13 +416,11 @@ document.getElementById('test-rule-btn').addEventListener('click', async () => {
 document.getElementById('rule-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const id = document.getElementById('rule-id').value;
-    const payload = {
+    const payload = Object.assign({
         action: id ? 'update' : 'create',
-        condition_type: document.getElementById('rule-condition-type').value,
-        condition_value: document.getElementById('rule-condition-value').value,
         category_id: parseInt(document.getElementById('rule-category').value, 10),
         _csrf_token: csrf()
-    };
+    }, ruleConditionsPayload());
     if (id) payload.id = parseInt(id, 10);
 
     const res = await fetch('/config/finance/rules', {
@@ -296,6 +455,21 @@ document.querySelectorAll('.toggle-rule-btn').forEach(btn => {
     btn.addEventListener('click', () => postRuleAction(btn.dataset.active === '1' ? 'deactivate' : 'activate', { id: parseInt(btn.dataset.id, 10) }));
 });
 
+document.getElementById('toggle-ai-rule-btn')?.addEventListener('click', async (e) => {
+    const btn = e.currentTarget;
+    const res = await fetch('/config/finance/rules', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'set_ai_enabled', enabled: btn.dataset.active !== '1', _csrf_token: csrf() })
+    });
+    const data = await res.json();
+    if (data.success) {
+        window.location.reload();
+    } else {
+        alert(data.error);
+    }
+});
+
 document.querySelectorAll('.delete-rule-btn').forEach(btn => {
     btn.addEventListener('click', () => {
         if (confirm('Supprimer cette règle ?')) {
@@ -304,16 +478,31 @@ document.querySelectorAll('.delete-rule-btn').forEach(btn => {
     });
 });
 
-document.querySelectorAll('.move-rule-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-        const rows = Array.from(document.querySelectorAll('#rules-list > div[data-id]'));
-        const ids = rows.map(row => parseInt(row.dataset.id, 10));
-        const index = ids.indexOf(parseInt(btn.dataset.id, 10));
-        const swapWith = btn.dataset.direction === 'up' ? index - 1 : index + 1;
-        if (swapWith < 0 || swapWith >= ids.length) {
+// --- Drag-and-drop reordering ---
+const rulesList = document.getElementById('rules-list');
+let draggedRow = null;
+
+rulesList.querySelectorAll('div[data-id]').forEach(row => {
+    row.addEventListener('dragstart', () => {
+        draggedRow = row;
+        row.classList.add('opacity-50');
+    });
+    row.addEventListener('dragend', () => {
+        row.classList.remove('opacity-50');
+        draggedRow = null;
+    });
+    row.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        if (!draggedRow || draggedRow === row) {
             return;
         }
-        [ids[index], ids[swapWith]] = [ids[swapWith], ids[index]];
+        const rect = row.getBoundingClientRect();
+        const before = (e.clientY - rect.top) < rect.height / 2;
+        row.parentNode.insertBefore(draggedRow, before ? row : row.nextSibling);
+    });
+    row.addEventListener('drop', (e) => {
+        e.preventDefault();
+        const ids = Array.from(rulesList.querySelectorAll('div[data-id]')).map(r => parseInt(r.dataset.id, 10));
         postRuleAction('reorder', { ordered_ids: ids });
     });
 });

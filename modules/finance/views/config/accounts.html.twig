@@ -7,6 +7,15 @@
 
     {% include '@finance/config/_nav.html.twig' %}
 
+    <p class="text-body-secondary small mb-3">
+        Un compte représente un compte bancaire (avec IBAN) ou une caisse de l'unité. Un compte reste en
+        « Brouillon » tant qu'il lui manque un IBAN et un titulaire (une caisse, elle, s'active immédiatement) ;
+        seuls les comptes actifs apparaissent dans le tableau de bord et permettent d'importer des relevés.
+        « Visible à partir de » définit le rôle minimum requis pour voir ce compte. Activer un compte avec IBAN
+        crée automatiquement une catégorie « Virement {{ '<nom du compte>' }} » avec une règle qui reconnaît les
+        mouvements vers/depuis les autres comptes de l'unité — voir la page Catégories.
+    </p>
+
     <div class="d-flex justify-content-between align-items-center mb-3">
         <h2 class="h5 mb-0">Comptes</h2>
         <button type="button" class="btn btn-sm btn-primary" id="new-account-btn">Nouveau compte</button>

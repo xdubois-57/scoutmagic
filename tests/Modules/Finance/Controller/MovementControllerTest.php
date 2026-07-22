@@ -65,8 +65,14 @@ class MovementControllerTest extends TestCase
 
         $checkpointRepository = new \Modules\Finance\Repository\BalanceCheckpointRepository($this->pdo);
         $balanceService = new \Modules\Finance\Service\BalanceService($checkpointRepository, $this->transactionRepository);
+        $categoryRuleRepository = new \Modules\Finance\Repository\CategoryRuleRepository($this->pdo);
+        $settingService = new \Core\Config\SettingService(new \Core\Config\SettingRepository($this->pdo));
+        $accountTransferCategoryService = new \Modules\Finance\Service\AccountTransferCategoryService(
+            $this->categoryRepository, $categoryRuleRepository, $this->transactionRepository
+        );
         $financeService = new FinanceService(
-            $this->accountRepository, $this->categoryRepository, $this->fiscalYearRepository, $sectionService, $this->transactionRepository, $balanceService
+            $this->accountRepository, $this->categoryRepository, $this->fiscalYearRepository, $sectionService, $this->transactionRepository, $balanceService,
+            $settingService, $categoryRuleRepository, $accountTransferCategoryService
         );
         $fileStorage = new EncryptedFileStorageService(new FileRepository($this->pdo), $encryption, sys_get_temp_dir() . '/finance_movement_test_' . uniqid());
         $receiptService = new ReceiptService($attachmentRepository, $this->accountRepository, $transactionAttachmentRepository, $fileStorage);

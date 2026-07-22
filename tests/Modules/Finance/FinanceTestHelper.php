@@ -36,16 +36,21 @@ class FinanceTestHelper
             name TEXT NOT NULL,
             is_active INTEGER NOT NULL DEFAULT 1,
             sort_order INTEGER NOT NULL DEFAULT 0,
-            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            account_id INTEGER,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (account_id) REFERENCES finance_accounts(id)
         )');
 
         $pdo->exec('CREATE TABLE finance_category_rules (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             category_id INTEGER NOT NULL,
             priority INTEGER NOT NULL DEFAULT 0,
-            condition_type TEXT NOT NULL,
-            condition_value TEXT NOT NULL,
+            keyword_pattern TEXT,
+            counterparty_account_pattern TEXT,
+            amount_range TEXT,
             is_active INTEGER NOT NULL DEFAULT 1,
+            is_system INTEGER NOT NULL DEFAULT 0,
+            is_default INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (category_id) REFERENCES finance_categories(id)
         )');
@@ -122,6 +127,12 @@ class FinanceTestHelper
             PRIMARY KEY (transaction_id, attachment_id),
             FOREIGN KEY (transaction_id) REFERENCES finance_transactions(id),
             FOREIGN KEY (attachment_id) REFERENCES finance_attachments(id)
+        )');
+
+        $pdo->exec('CREATE TABLE finance_ai_category_suggestions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            suggested_name TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )');
     }
 

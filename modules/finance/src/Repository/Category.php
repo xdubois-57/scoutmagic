@@ -10,7 +10,8 @@ final class Category
         public readonly int $id,
         public readonly string $name,
         public readonly bool $isActive,
-        public readonly int $sortOrder
+        public readonly int $sortOrder,
+        public readonly ?int $accountId = null
     ) {
     }
 }

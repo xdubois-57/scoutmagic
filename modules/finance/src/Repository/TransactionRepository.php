@@ -183,6 +183,19 @@ class TransactionRepository
     }
 
     /**
+     * Un-links every transaction from a category about to be deleted
+     * (Service\FinanceService::deleteCategory()) — done explicitly here
+     * rather than relying on the schema's ON DELETE SET NULL, so the
+     * behavior doesn't depend on the underlying database engine actually
+     * enforcing that FK action.
+     */
+    public function clearCategory(int $categoryId): void
+    {
+        $stmt = $this->pdo->prepare('UPDATE finance_transactions SET category_id = NULL WHERE category_id = ?');
+        $stmt->execute([$categoryId]);
+    }
+
+    /**
      * Backs the dashboard's "Mouvements" metric box — a plain COUNT(*),
      * never findByAccountId()'s full decrypt-every-label hydration, since
      * only the number is needed here.
@@ -288,6 +301,33 @@ class TransactionRepository
             'UPDATE finance_transactions SET category_id = ?, comment = ?, fiscal_year_id = ? WHERE id = ?'
         );
         $stmt->execute([$categoryId, $comment !== null ? $this->encryption->encrypt($comment) : null, $fiscalYearId, $id]);
+    }
+
+    /**
+     * Used by Service\BulkCategorizationService's "run the rules on every
+     * uncategorized movement" backfill — touches only category_id,
+     * unlike updateEditableFields() which also expects a comment/fiscal
+     * year to write back.
+     */
+    public function setCategoryId(int $id, ?int $categoryId): void
+    {
+        $stmt = $this->pdo->prepare('UPDATE finance_transactions SET category_id = ? WHERE id = ?');
+        $stmt->execute([$categoryId, $id]);
+    }
+
+    /**
+     * Every uncategorized transaction, across every account — Service\
+     * BulkCategorizationService's "run the rules on every uncategorized
+     * movement" backfill isn't scoped to one account, unlike everywhere
+     * else category_id is queried.
+     *
+     * @return Transaction[]
+     */
+    public function findAllUncategorized(): array
+    {
+        $stmt = $this->pdo->query('SELECT * FROM finance_transactions WHERE category_id IS NULL ORDER BY transaction_date ASC, id ASC');
+        $rows = $stmt !== false ? $stmt->fetchAll(\PDO::FETCH_ASSOC) : [];
+        return array_map([$this, 'hydrate'], $rows);
     }
 
     public function deleteAllForAccount(int $accountId): int

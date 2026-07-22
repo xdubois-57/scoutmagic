@@ -38,21 +38,33 @@ class CategoryRuleRepository
         return $row !== false ? $this->hydrate($row) : null;
     }
 
-    public function create(int $categoryId, int $priority, string $conditionType, string $conditionValue): int
-    {
+    public function create(
+        int $categoryId,
+        int $priority,
+        ?string $keywordPattern,
+        ?string $counterpartyAccountPattern,
+        ?string $amountRange,
+        bool $isSystem = false,
+        bool $isDefault = false
+    ): int {
         $stmt = $this->pdo->prepare(
-            'INSERT INTO finance_category_rules (category_id, priority, condition_type, condition_value) VALUES (?, ?, ?, ?)'
+            'INSERT INTO finance_category_rules (category_id, priority, keyword_pattern, counterparty_account_pattern, amount_range, is_system, is_default) VALUES (?, ?, ?, ?, ?, ?, ?)'
         );
-        $stmt->execute([$categoryId, $priority, $conditionType, $conditionValue]);
+        $stmt->execute([$categoryId, $priority, $keywordPattern, $counterpartyAccountPattern, $amountRange, $isSystem ? 1 : 0, $isDefault ? 1 : 0]);
         return (int) $this->pdo->lastInsertId();
     }
 
-    public function update(int $id, int $categoryId, string $conditionType, string $conditionValue): void
-    {
+    public function update(
+        int $id,
+        int $categoryId,
+        ?string $keywordPattern,
+        ?string $counterpartyAccountPattern,
+        ?string $amountRange
+    ): void {
         $stmt = $this->pdo->prepare(
-            'UPDATE finance_category_rules SET category_id = ?, condition_type = ?, condition_value = ? WHERE id = ?'
+            'UPDATE finance_category_rules SET category_id = ?, keyword_pattern = ?, counterparty_account_pattern = ?, amount_range = ? WHERE id = ?'
         );
-        $stmt->execute([$categoryId, $conditionType, $conditionValue, $id]);
+        $stmt->execute([$categoryId, $keywordPattern, $counterpartyAccountPattern, $amountRange, $id]);
     }
 
     public function setActive(int $id, bool $active): void
@@ -65,6 +77,32 @@ class CategoryRuleRepository
     {
         $stmt = $this->pdo->prepare('DELETE FROM finance_category_rules WHERE id = ?');
         $stmt->execute([$id]);
+    }
+
+    /**
+     * Used by Service\FinanceService::deleteCategory() — a rule with no
+     * category left to assign is meaningless, so it's deleted along with
+     * the category rather than left dangling (done explicitly here rather
+     * than relying on the schema's ON DELETE CASCADE, so behavior doesn't
+     * depend on the underlying database engine actually enforcing it).
+     */
+    public function deleteAllForCategory(int $categoryId): void
+    {
+        $stmt = $this->pdo->prepare('DELETE FROM finance_category_rules WHERE category_id = ?');
+        $stmt->execute([$categoryId]);
+    }
+
+    /**
+     * The one system rule Service\AccountTransferCategoryService keeps in
+     * sync for a given account's auto-generated category, if it's created
+     * one yet.
+     */
+    public function findSystemRuleForCategory(int $categoryId): ?CategoryRule
+    {
+        $stmt = $this->pdo->prepare('SELECT * FROM finance_category_rules WHERE category_id = ? AND is_system = 1 LIMIT 1');
+        $stmt->execute([$categoryId]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+        return $row !== false ? $this->hydrate($row) : null;
     }
 
     /**
@@ -82,6 +120,18 @@ class CategoryRuleRepository
     }
 
     /**
+     * Used by Service\FinanceService::resetDefaultCategoryRules() — wipes
+     * every rule it seeded (is_default = 1) so it can recreate them fresh
+     * from DEFAULT_CATEGORY_RULE_PATTERNS, undoing any admin edits/
+     * deletions to that specific set. Never touches an admin's own custom
+     * rules or a Service\AccountTransferCategoryService system rule.
+     */
+    public function deleteAllDefault(): void
+    {
+        $this->pdo->exec('DELETE FROM finance_category_rules WHERE is_default = 1');
+    }
+
+    /**
      * @param array<string, mixed> $row
      */
     private function hydrate(array $row): CategoryRule
@@ -90,9 +140,12 @@ class CategoryRuleRepository
             id: (int) $row['id'],
             categoryId: (int) $row['category_id'],
             priority: (int) $row['priority'],
-            conditionType: (string) $row['condition_type'],
-            conditionValue: (string) $row['condition_value'],
-            isActive: (bool) $row['is_active']
+            keywordPattern: $row['keyword_pattern'] !== null ? (string) $row['keyword_pattern'] : null,
+            counterpartyAccountPattern: $row['counterparty_account_pattern'] !== null ? (string) $row['counterparty_account_pattern'] : null,
+            amountRange: $row['amount_range'] !== null ? (string) $row['amount_range'] : null,
+            isActive: (bool) $row['is_active'],
+            isSystem: (bool) $row['is_system'],
+            isDefault: (bool) $row['is_default']
         );
     }
 }

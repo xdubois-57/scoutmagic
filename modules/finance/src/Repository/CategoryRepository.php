@@ -38,13 +38,19 @@ class CategoryRepository
         return $row !== false ? $this->hydrate($row) : null;
     }
 
-    public function create(string $name): int
+    /**
+     * $accountId is set only by Service\AccountTransferCategoryService,
+     * for the one auto-generated "Virement <compte>" category it keeps in
+     * sync with an active account — never for a default/custom category
+     * an admin creates by hand.
+     */
+    public function create(string $name, ?int $accountId = null): int
     {
         $stmt = $this->pdo->query('SELECT COALESCE(MAX(sort_order), -1) FROM finance_categories');
         $nextOrder = ((int) ($stmt !== false ? $stmt->fetchColumn() : -1)) + 1;
 
-        $stmt = $this->pdo->prepare('INSERT INTO finance_categories (name, sort_order) VALUES (?, ?)');
-        $stmt->execute([$name, $nextOrder]);
+        $stmt = $this->pdo->prepare('INSERT INTO finance_categories (name, sort_order, account_id) VALUES (?, ?, ?)');
+        $stmt->execute([$name, $nextOrder, $accountId]);
         return (int) $this->pdo->lastInsertId();
     }
 
@@ -52,6 +58,20 @@ class CategoryRepository
     {
         $stmt = $this->pdo->prepare('UPDATE finance_categories SET name = ? WHERE id = ?');
         $stmt->execute([$name, $id]);
+    }
+
+    /**
+     * Finds the auto-generated "Virement <compte>" category for an
+     * account, if Service\AccountTransferCategoryService has created one
+     * yet — used to update-in-place (name change, IBAN change) rather
+     * than ever matching by name, which is free text an admin can rename.
+     */
+    public function findByAccountId(int $accountId): ?Category
+    {
+        $stmt = $this->pdo->prepare('SELECT * FROM finance_categories WHERE account_id = ?');
+        $stmt->execute([$accountId]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+        return $row !== false ? $this->hydrate($row) : null;
     }
 
     public function setActive(int $id, bool $active): void
@@ -67,18 +87,6 @@ class CategoryRepository
     }
 
     /**
-     * Whether any transaction (any status) currently references this
-     * category — used to decide whether deletion is even offered, same
-     * "used elsewhere, deactivate instead" pattern as Core\Badge.
-     */
-    public function isReferencedByTransactions(int $id): bool
-    {
-        $stmt = $this->pdo->prepare('SELECT 1 FROM finance_transactions WHERE category_id = ? LIMIT 1');
-        $stmt->execute([$id]);
-        return $stmt->fetchColumn() !== false;
-    }
-
-    /**
      * @param array<string, mixed> $row
      */
     private function hydrate(array $row): Category
@@ -87,7 +95,8 @@ class CategoryRepository
             id: (int) $row['id'],
             name: (string) $row['name'],
             isActive: (bool) $row['is_active'],
-            sortOrder: (int) $row['sort_order']
+            sortOrder: (int) $row['sort_order'],
+            accountId: $row['account_id'] !== null ? (int) $row['account_id'] : null
         );
     }
 }
