@@ -11,12 +11,13 @@
   branch-colored dot on its button. Callers that don't set it get the plain
   (uncolored) button, unchanged.
 #}
-<div class="d-flex flex-wrap gap-2 pb-2 mb-3 section-picker">
+<div class="d-flex flex-nowrap flex-lg-wrap gap-2 pb-2 mb-3 overflow-x-auto section-picker" style="-webkit-overflow-scrolling:touch;">
     {% for section in sections %}
         {% set is_active = section.id == selected_id %}
         <a href="{{ base_url }}{{ section.id }}"
            class="btn btn-sm {{ is_active ? 'btn-primary' : 'btn-outline-secondary' }} text-nowrap d-flex flex-column align-items-center px-3 py-2 text-decoration-none"
-           style="min-width:0;">
+           style="min-width:0;min-height:44px;"
+           {{ is_active ? 'aria-current="true"' : '' }}>
             <span class="small fw-semibold">
                 {% if section.color is defined and section.color %}
                     <span class="d-inline-block rounded-circle" style="width:0.55rem;height:0.55rem;background-color:{{ section.color }};"></span>

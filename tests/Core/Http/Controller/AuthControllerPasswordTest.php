@@ -72,6 +72,7 @@ class AuthControllerPasswordTest extends TestCase
             'email' => 'valid@example.com',
             'password' => 'CorrectPassword',
             '_csrf_token' => $this->csrfToken,
+            'rgpd_consent' => true,
         ]);
 
         $response = $this->controller->loginWithPassword($request, []);
@@ -80,6 +81,26 @@ class AuthControllerPasswordTest extends TestCase
         $this->assertSame(200, $response->getStatusCode());
         $this->assertTrue($data['success']);
         $this->assertTrue(AuthSession::isAuthenticated());
+    }
+
+    public function testLoginWithoutRgpdConsentReturnsFailure(): void
+    {
+        $account = $this->userRepo->create('valid2@example.com');
+        $hash = password_hash('CorrectPassword', PASSWORD_DEFAULT);
+        $this->userRepo->updatePasswordHash($account->id, $hash);
+
+        $request = $this->createJsonRequest('/login/password', [
+            'email' => 'valid2@example.com',
+            'password' => 'CorrectPassword',
+            '_csrf_token' => $this->csrfToken,
+        ]);
+
+        $response = $this->controller->loginWithPassword($request, []);
+        $data = json_decode($response->getBody(), true);
+
+        $this->assertFalse($data['success']);
+        $this->assertStringContainsString('protection des données', $data['error']);
+        $this->assertFalse(AuthSession::isAuthenticated());
     }
 
     public function testLoginWithWrongPasswordReturnsFailure(): void
@@ -92,6 +113,7 @@ class AuthControllerPasswordTest extends TestCase
             'email' => 'wrong@example.com',
             'password' => 'WrongPassword',
             '_csrf_token' => $this->csrfToken,
+            'rgpd_consent' => true,
         ]);
 
         $response = $this->controller->loginWithPassword($request, []);
@@ -109,6 +131,7 @@ class AuthControllerPasswordTest extends TestCase
             'email' => 'unknown@example.com',
             'password' => 'SomePassword',
             '_csrf_token' => $this->csrfToken,
+            'rgpd_consent' => true,
         ]);
 
         $response = $this->controller->loginWithPassword($request, []);
@@ -136,6 +159,7 @@ class AuthControllerPasswordTest extends TestCase
             'email' => 'locked@example.com',
             'password' => 'Password',
             '_csrf_token' => $this->csrfToken,
+            'rgpd_consent' => true,
         ]);
 
         $response = $this->controller->loginWithPassword($request, []);

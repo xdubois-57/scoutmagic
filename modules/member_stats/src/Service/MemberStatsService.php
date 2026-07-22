@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Modules\MemberStats\Service;
 
 use Core\Member\MemberYearService;
+use Core\Member\SectionService;
 use Modules\MemberStats\Repository\MemberStatsRepository;
 
 /**
@@ -21,6 +22,7 @@ class MemberStatsService
 {
     public function __construct(
         private MemberStatsRepository $repository,
+        private SectionService $sectionService,
         private MemberYearService $memberYearService = new MemberYearService()
     ) {
     }
@@ -81,8 +83,9 @@ class MemberStatsService
         $totals = ['total' => 0, 'male' => 0, 'female' => 0, 'other' => 0];
         $maxCount = 0;
         $branches = [];
+        $allSections = $this->sectionService->getAllWithBranches();
 
-        foreach (MemberYearService::BRANCHES as $branch) {
+        foreach (MemberYearService::BRANCHES as $branchIndex => $branch) {
             $rows = [];
             $years = $branch['age_max'] - $branch['age_min'] + 1;
             for ($y = 1; $y <= $years; $y++) {
@@ -108,7 +111,7 @@ class MemberStatsService
             $branches[] = [
                 'name' => $branch['name'],
                 'age_range' => $branch['age_min'] . '–' . $branch['age_max'],
-                'color' => $branch['color'],
+                'color' => $this->resolveBranchColor($branchIndex, $allSections),
                 'rows' => $rows,
             ];
         }
@@ -118,6 +121,33 @@ class MemberStatsService
             'max_count' => $maxCount,
             'branches' => $branches,
         ];
+    }
+
+    /**
+     * The color of this branch's bar — the same one the section picker
+     * shows for its representative section (Core\Member\SectionService::
+     * colorForSection(), which itself falls back to
+     * MemberYearService::colorForBranchSortOrder() when a section has no
+     * explicit override), rather than a hardcoded default that would
+     * silently ignore an admin's per-section color override
+     * (Configuration > Config Desk). A branch usually has exactly one
+     * section; if it has several (e.g. two Louveteaux packs with
+     * different colors), the first by desk_code wins — consistent,
+     * deterministic, but arbitrary among them.
+     *
+     * @param array<int, array{id: int, desk_code: string, branch_sort_order: int, color: ?string}> $allSections
+     */
+    private function resolveBranchColor(int $branchIndex, array $allSections): string
+    {
+        $sortOrder = ($branchIndex + 1) * 10;
+        $branchSections = array_values(array_filter($allSections, fn(array $s) => $s['branch_sort_order'] === $sortOrder));
+        if ($branchSections === []) {
+            return MemberYearService::colorForBranchSortOrder($sortOrder);
+        }
+
+        usort($branchSections, fn(array $a, array $b) => $a['desk_code'] <=> $b['desk_code']);
+
+        return SectionService::colorForSection($branchSections[0]);
     }
 
     private function classifyGender(?string $gender): string

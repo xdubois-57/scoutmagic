@@ -1,0 +1,133 @@
+{% extends "base.html.twig" %}
+
+{% block title %}Suivi — {{ email.subject }} — {{ site_name }}{% endblock %}
+
+{% block content %}
+    {% set badgeClass = email.status == 'draft' ? 'text-bg-secondary' : (email.status == 'test' ? 'text-bg-warning' : (email.status == 'sending' ? 'text-bg-info' : 'text-bg-success')) %}
+    {% set statusLabel = email.status == 'draft' ? 'Brouillon' : (email.status == 'test' ? 'Test' : (email.status == 'sending' ? 'Envoi en cours' : 'Envoyé')) %}
+
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <a href="/mass-mail" class="btn btn-sm btn-outline-secondary mb-2"><i class="bi bi-arrow-left"></i> Retour</a>
+            <h1 class="mb-0 h3">{{ email.subject }} <span class="badge {{ badgeClass }}">{{ statusLabel }}</span></h1>
+        </div>
+    </div>
+
+    <div class="progress mb-2" style="height: 1.5rem;">
+        {% set total = counts.total > 0 ? counts.total : 1 %}
+        <div class="progress-bar bg-success" style="width:{{ (counts.sent / total * 100) }}%"></div>
+        <div class="progress-bar bg-danger" style="width:{{ (counts.error / total * 100) }}%"></div>
+        <div class="progress-bar bg-secondary" style="width:{{ (counts.pending / total * 100) }}%"></div>
+    </div>
+    <p class="text-body-secondary small mb-4">
+        {{ counts.sent }} envoyés · {{ counts.error }} erreurs · {{ counts.pending }} en attente — {{ counts.total }} au total
+    </p>
+
+    <div class="row g-3 mb-4">
+        <div class="col-6 col-md-3">
+            <div class="card text-center"><div class="card-body py-3"><div class="fs-4 fw-semibold">{{ counts.total }}</div><div class="small text-body-secondary">Total</div></div></div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="card text-center"><div class="card-body py-3"><div class="fs-4 fw-semibold text-success">{{ counts.sent }}</div><div class="small text-body-secondary">Envoyés</div></div></div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="card text-center"><div class="card-body py-3"><div class="fs-4 fw-semibold text-secondary">{{ counts.pending }}</div><div class="small text-body-secondary">En attente</div></div></div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="card text-center"><div class="card-body py-3"><div class="fs-4 fw-semibold text-danger">{{ counts.error }}</div><div class="small text-body-secondary">Erreurs</div></div></div>
+        </div>
+    </div>
+
+    <div class="row g-2 align-items-end mb-3">
+        <div class="col-6 col-md-4">
+            <label class="form-label small" for="mmt-search">Recherche</label>
+            <input type="text" class="form-control form-control-sm" id="mmt-search" placeholder="Nom, section, adresse...">
+        </div>
+        <div class="col-6 col-md-3">
+            <label class="form-label small" for="mmt-status">Statut</label>
+            <select class="form-select form-select-sm" id="mmt-status">
+                <option value="">Tous</option>
+                <option value="pending">En attente</option>
+                <option value="sent">Envoyé</option>
+                <option value="error">Erreur</option>
+            </select>
+        </div>
+    </div>
+
+    <div class="table-responsive">
+        <table class="table table-sm align-middle" id="mmt-table">
+            <thead>
+                <tr>
+                    <th>Destinataire</th>
+                    <th>Adresse</th>
+                    <th>Statut</th>
+                    <th>Détail</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in recipients %}
+                    {% set r = item.recipient %}
+                    <tr data-search="{{ (item.display_name ~ ' ' ~ (item.section_name ?? '') ~ ' ' ~ (r.emailAddress ?? ''))|lower }}" data-status="{{ r.status }}">
+                        <td>{{ item.display_name }}{% if item.section_name %} <span class="text-body-secondary">({{ item.section_name }})</span>{% endif %}</td>
+                        <td>{{ r.emailAddress ?? '—' }}</td>
+                        <td>
+                            {% set rBadge = r.status == 'sent' ? 'text-bg-success' : (r.status == 'error' ? 'text-bg-danger' : 'text-bg-secondary') %}
+                            {% set rLabel = r.status == 'sent' ? 'Envoyé' : (r.status == 'error' ? 'Erreur' : 'En attente') %}
+                            <span class="badge {{ rBadge }}">{{ rLabel }}</span>
+                        </td>
+                        <td>
+                            {% if r.status == 'sent' %}{{ r.sentAt|date('d/m/Y H:i') }}
+                            {% elseif r.status == 'error' %}{{ r.errorMessage ?? '—' }}
+                            {% else %}—
+                            {% endif %}
+                        </td>
+                        <td class="text-end">
+                            {% if r.status in ['error', 'sent'] %}
+                                <button type="button" class="btn btn-sm btn-outline-secondary mmt-resend-btn" data-id="{{ r.id }}">Renvoyer</button>
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% else %}
+                    <tr><td colspan="5" class="text-body-secondary fst-italic">Aucun destinataire.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+{% endblock %}
+
+{% block scripts %}
+<script nonce="{{ csp_nonce }}">
+const csrf = () => document.querySelector('meta[name="csrf-token"]')?.content;
+
+function applyFilter() {
+    const search = document.getElementById('mmt-search').value.trim().toLowerCase();
+    const status = document.getElementById('mmt-status').value;
+    document.querySelectorAll('#mmt-table tbody tr[data-status]').forEach(row => {
+        const matchesSearch = !search || row.dataset.search.includes(search);
+        const matchesStatus = !status || row.dataset.status === status;
+        row.classList.toggle('d-none', !(matchesSearch && matchesStatus));
+    });
+}
+document.getElementById('mmt-search').addEventListener('input', applyFilter);
+document.getElementById('mmt-status').addEventListener('change', applyFilter);
+
+document.querySelectorAll('.mmt-resend-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+        btn.disabled = true;
+        const res = await fetch('/mass-mail/recipients/' + btn.dataset.id + '/resend', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ _csrf_token: csrf() })
+        });
+        const data = await res.json();
+        if (!data.success) {
+            alert(data.error || 'Erreur.');
+            btn.disabled = false;
+            return;
+        }
+        window.location.reload();
+    });
+});
+</script>
+{% endblock %}

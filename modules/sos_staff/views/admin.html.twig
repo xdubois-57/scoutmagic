@@ -107,7 +107,39 @@
         </a>
     </div>
 
-    <div class="sos-grid-wrapper mb-4">
+    {# Mobile: day-by-day card list — each day shows staff members with 44px state buttons #}
+    <div class="d-md-none mb-4" id="sos-mobile-grid">
+        {% for day in days %}
+            <div class="border rounded-3 p-2 mb-2 {{ day.is_today ? 'border-warning' : '' }} {{ day.is_weekend ? 'bg-body-tertiary' : '' }}">
+                <div class="d-flex align-items-center justify-content-between mb-1">
+                    <span class="fw-semibold small">{{ day.day_name }} {{ day.day_number }}</span>
+                    {% set day_events = [] %}
+                    {% for column in section_activity %}
+                        {% set titles = column.events_by_day[day.date] ?? [] %}
+                        {% if titles|length > 0 %}{% set day_events = day_events|merge(titles) %}{% endif %}
+                    {% endfor %}
+                    {% if day_events|length > 0 %}
+                        <span class="badge text-bg-warning small">{{ day_events|join(', ') }}</span>
+                    {% endif %}
+                </div>
+                <div class="d-flex flex-wrap gap-1">
+                    {% for option in staff_options %}
+                        {% set state = states[day.date][option.member_id] ?? null %}
+                        <button type="button"
+                                class="btn btn-sm {{ state == 'oncall' ? 'btn-success' : (state == 'unavailable' ? 'btn-danger' : 'btn-outline-secondary') }} sos-oncall-cell"
+                                data-member-id="{{ option.member_id }}" data-date="{{ day.date }}"
+                                style="min-width:44px;min-height:44px;">
+                            <span class="d-block small" style="font-size:0.65rem;">{{ option.label|split(' ')|first }}</span>
+                            <span>{{ state == 'oncall' ? '✓' : (state == 'unavailable' ? '✗' : '—') }}</span>
+                        </button>
+                    {% endfor %}
+                </div>
+            </div>
+        {% endfor %}
+    </div>
+
+    {# Desktop: original compact grid — hidden below md #}
+    <div class="sos-grid-wrapper mb-4 d-none d-md-block">
         <table class="sos-grid">
             <thead>
                 <tr>
@@ -218,15 +250,21 @@ document.querySelectorAll('.sos-oncall-cell').forEach(cell => {
             cellStates[date][memberId] = next;
         }
 
-        cell.classList.remove('state-oncall', 'state-unavailable');
-        cell.textContent = '';
-        if (next === 'oncall') {
-            cell.classList.add('state-oncall');
-            cell.textContent = '✓';
-        } else if (next === 'unavailable') {
-            cell.classList.add('state-unavailable');
-            cell.textContent = '✗';
-        }
+        // Update all matching cells/buttons (mobile + desktop share same class)
+        document.querySelectorAll('.sos-oncall-cell[data-date="'+date+'"][data-member-id="'+memberId+'"]').forEach(el => {
+            el.classList.remove('state-oncall', 'state-unavailable', 'btn-success', 'btn-danger', 'btn-outline-secondary');
+            if (el.tagName === 'TD') {
+                el.textContent = '';
+                if (next === 'oncall') { el.classList.add('state-oncall'); el.textContent = '✓'; }
+                else if (next === 'unavailable') { el.classList.add('state-unavailable'); el.textContent = '✗'; }
+            } else {
+                const label = el.querySelector('.d-block');
+                const stateSpan = el.lastElementChild !== label ? el.lastElementChild : null;
+                if (next === 'oncall') { el.classList.add('btn-success'); if (stateSpan) stateSpan.textContent = '✓'; }
+                else if (next === 'unavailable') { el.classList.add('btn-danger'); if (stateSpan) stateSpan.textContent = '✗'; }
+                else { el.classList.add('btn-outline-secondary'); if (stateSpan) stateSpan.textContent = '—'; }
+            }
+        });
 
         saveOnCall();
     });

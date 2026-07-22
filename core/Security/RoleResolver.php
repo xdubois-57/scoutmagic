@@ -91,4 +91,30 @@ class RoleResolver
 
         return array_map(fn(array $my) => $my['id'], $memberYears);
     }
+
+    /**
+     * Login gate (module addendum): a user_accounts row with a valid
+     * password/passkey/magic-link is not enough on its own — the email
+     * must also correspond to a real member of the unit this scout year,
+     * UNLESS the account is a super-admin (site operators are not
+     * necessarily Desk members themselves, and must never be locked out
+     * by this check). Deliberately the same current-year matching
+     * resolve() itself uses — a member who dropped out has no current-year
+     * row and is correctly rejected here too.
+     */
+    public function isEmailAuthorizedToLogin(string $email, int $currentScoutYearId): bool
+    {
+        $normalizedEmail = strtolower(trim($email));
+        $blindIndex = $this->encryption->blindIndex($normalizedEmail);
+
+        $stmt = $this->pdo->prepare('SELECT is_super_admin FROM user_accounts WHERE email_blind_index = ?');
+        $stmt->execute([$blindIndex]);
+        $userRow = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+        if ($userRow !== false && (bool) $userRow['is_super_admin']) {
+            return true;
+        }
+
+        return count($this->memberYearRepo->findAllByEmail($blindIndex, $currentScoutYearId)) > 0;
+    }
 }

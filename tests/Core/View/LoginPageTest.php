@@ -54,6 +54,7 @@ class LoginPageTest extends TestCase
     {
         $html = $this->twig->render('auth/login.html.twig', [
             'csrf_token' => 'test_token',
+            'default_login_method' => 'magic-link',
         ]);
 
         // All three tabs should be present and active (no 'disabled' class)
@@ -67,12 +68,13 @@ class LoginPageTest extends TestCase
     {
         $html = $this->twig->render('auth/login.html.twig', [
             'csrf_token' => 'test_token',
+            'default_login_method' => 'magic-link',
         ]);
 
         // Magic link tab button should have 'active' class
         $this->assertMatchesRegularExpression('/data-tab="magic-link"[^>]*>Lien magique/', $html);
         // Magic link tab content should NOT have d-none
-        $this->assertStringContainsString('id="tab-magic-link">', $html);
+        $this->assertStringContainsString('id="tab-magic-link" class="">', $html);
         // Password and passkey tab contents should have d-none
         $this->assertStringContainsString('id="tab-password" class="d-none"', $html);
         $this->assertStringContainsString('id="tab-passkey" class="d-none"', $html);
@@ -82,6 +84,7 @@ class LoginPageTest extends TestCase
     {
         $html = $this->twig->render('auth/login.html.twig', [
             'csrf_token' => 'test_token',
+            'default_login_method' => 'magic-link',
         ]);
 
         $this->assertStringContainsString('id="password-email"', $html);
@@ -93,6 +96,7 @@ class LoginPageTest extends TestCase
     {
         $html = $this->twig->render('auth/login.html.twig', [
             'csrf_token' => 'test_token',
+            'default_login_method' => 'magic-link',
         ]);
 
         $this->assertStringContainsString('bi-fingerprint', $html);
@@ -104,8 +108,48 @@ class LoginPageTest extends TestCase
     {
         $html = $this->twig->render('auth/login.html.twig', [
             'csrf_token' => 'test_token_123',
+            'default_login_method' => 'magic-link',
         ]);
 
         $this->assertStringContainsString('test_token_123', $html);
+    }
+
+    public function testRgpdConsentCheckboxIsPresentInEachLoginBoxAndLinksToRgpdPage(): void
+    {
+        $html = $this->twig->render('auth/login.html.twig', [
+            'csrf_token' => 'test_token',
+            'default_login_method' => 'magic-link',
+        ]);
+
+        // Module addendum: one checkbox per tab, each placed inside its own
+        // login box just above that tab's submit button — not a single
+        // shared checkbox outside the boxes.
+        $this->assertStringContainsString('id="rgpd-consent-checkbox-magic-link"', $html);
+        $this->assertStringContainsString('id="rgpd-consent-checkbox-password"', $html);
+        $this->assertStringContainsString('id="rgpd-consent-checkbox-passkey"', $html);
+        $this->assertStringContainsString('href="/rgpd"', $html);
+    }
+
+    public function testPasswordTabIsPreselectedWhenDefaultLoginMethodIsPassword(): void
+    {
+        $html = $this->twig->render('auth/login.html.twig', [
+            'csrf_token' => 'test_token',
+            'default_login_method' => 'password',
+        ]);
+
+        $this->assertStringContainsString('id="tab-password" class="">', $html);
+        $this->assertStringContainsString('id="tab-magic-link" class="d-none"', $html);
+        $this->assertStringContainsString('id="tab-passkey" class="d-none"', $html);
+    }
+
+    public function testForgotPasswordLinkIsPresentOnPasswordTab(): void
+    {
+        $html = $this->twig->render('auth/login.html.twig', [
+            'csrf_token' => 'test_token',
+            'default_login_method' => 'magic-link',
+        ]);
+
+        $this->assertStringContainsString('id="forgot-password-link"', $html);
+        $this->assertStringContainsString('id="forgot-password-form"', $html);
     }
 }

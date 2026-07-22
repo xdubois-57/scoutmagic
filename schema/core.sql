@@ -26,6 +26,10 @@ CREATE TABLE user_accounts (
     first_name_encrypted BLOB,
     last_name_encrypted BLOB,
     password_hash VARCHAR(255),
+    -- When password_hash was last set (initial set, account-page change, or
+    -- password-reset link) — shown on the account page, never used for
+    -- expiry/rotation logic.
+    password_changed_at DATETIME,
     is_super_admin BOOLEAN NOT NULL DEFAULT FALSE,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     last_login_at DATETIME,
@@ -39,6 +43,24 @@ CREATE TABLE magic_links (
     expires_at DATETIME NOT NULL,
     used BOOLEAN NOT NULL DEFAULT FALSE,
     confirmed_at DATETIME,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_token_hash (token_hash),
+    INDEX idx_email_blind (email_blind_index),
+    INDEX idx_expires (expires_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- password_reset_tokens: same generation/hashing/single-use conventions as
+-- magic_links (bin2hex(random_bytes(32)) hashed with password_hash() before
+-- storage, consumed via the "used" flag) but a deliberately separate table —
+-- a magic link logs the user straight in, this only ever lets them set a
+-- new password, and the two have different validity windows (see
+-- Core\Security\PasswordResetService).
+CREATE TABLE password_reset_tokens (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    email_blind_index CHAR(64) NOT NULL,
+    token_hash VARCHAR(255) NOT NULL,
+    expires_at DATETIME NOT NULL,
+    used BOOLEAN NOT NULL DEFAULT FALSE,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_token_hash (token_hash),
     INDEX idx_email_blind (email_blind_index),

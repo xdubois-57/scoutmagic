@@ -1,0 +1,494 @@
+{% extends "base.html.twig" %}
+
+{% block title %}Envoi de mails — {{ site_name }}{% endblock %}
+
+{% block content %}
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1 class="mb-0">Envoi de mails</h1>
+        <button type="button" class="btn btn-primary" id="mm-new-btn"><i class="bi bi-plus-lg"></i> Nouvel email</button>
+    </div>
+
+    <form method="get" action="/mass-mail" class="row g-2 align-items-end mb-3">
+        <div class="col-12 col-md-4">
+            <label class="form-label small" for="mm-filter-search">Recherche</label>
+            <input type="text" class="form-control form-control-sm" id="mm-filter-search" name="search" value="{{ search }}" placeholder="Sujet, section, liste...">
+        </div>
+        <div class="col-6 col-md-3">
+            <label class="form-label small" for="mm-filter-status">Statut</label>
+            <select class="form-select form-select-sm" id="mm-filter-status" name="status">
+                <option value="">Tous</option>
+                {% for s in statuses %}
+                    <option value="{{ s }}" {{ status == s ? 'selected' : '' }}>{{ s == 'draft' ? 'Brouillon' : (s == 'test' ? 'Test' : (s == 'sending' ? 'Envoi en cours' : 'Envoyé')) }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-6 col-md-3">
+            <label class="form-label small" for="mm-filter-section">Section</label>
+            <select class="form-select form-select-sm" id="mm-filter-section" name="section_id">
+                <option value="">Toutes</option>
+                {% for section in sections %}
+                    <option value="{{ section.id }}" {{ section_id == section.id ? 'selected' : '' }}>{{ section.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-12 col-md-2">
+            <button type="submit" class="btn btn-sm btn-primary">Filtrer</button>
+            <a href="/mass-mail" class="btn btn-sm btn-outline-secondary">Réinitialiser</a>
+        </div>
+    </form>
+
+    <div class="table-responsive">
+        <table class="table table-sm align-middle">
+            <thead>
+                <tr>
+                    <th>Sujet</th>
+                    <th>Section</th>
+                    <th>Liste</th>
+                    <th>Année</th>
+                    <th>Statut</th>
+                    <th class="text-end">Destinataires</th>
+                    <th>Date</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for email in emails %}
+                    <tr>
+                        <td>{{ email.subject }}</td>
+                        <td>{{ sections_by_id[email.sectionId] ?? '—' }}</td>
+                        <td>
+                            {% if email.listType == 'default_active_members' %}Membres actifs
+                            {% elseif email.listType == 'default_chiefs' %}Chefs uniquement
+                            {% elseif email.listType == 'default_section' %}Section - {{ sections_by_id[email.listSectionId] ?? '?' }}
+                            {% else %}{{ custom_lists_by_id[email.listId] ?? 'Liste personnalisée' }}
+                            {% endif %}
+                        </td>
+                        <td>{{ email.scoutYearIds|map(yid => scout_years_by_id[yid] ?? '?')|join(', ') }}</td>
+                        <td>
+                            {% set badgeClass = email.status == 'draft' ? 'text-bg-secondary' : (email.status == 'test' ? 'text-bg-warning' : (email.status == 'sending' ? 'text-bg-info' : 'text-bg-success')) %}
+                            <span class="badge {{ badgeClass }}">
+                                {{ email.status == 'draft' ? 'Brouillon' : (email.status == 'test' ? 'Test' : (email.status == 'sending' ? 'Envoi en cours' : 'Envoyé')) }}
+                            </span>
+                        </td>
+                        <td class="text-end">{{ recipient_counts[email.id] ?? 0 }}</td>
+                        <td>{{ email.createdAt|date('d/m/Y') }}</td>
+                        <td class="text-end text-nowrap">
+                            <button type="button" class="btn btn-sm btn-outline-secondary mm-open-btn" data-id="{{ email.id }}" title="Ouvrir"><i class="bi bi-eye"></i></button>
+                            {% if email.status in ['sending', 'sent'] %}
+                                <a href="/mass-mail/{{ email.id }}/tracking" class="btn btn-sm btn-outline-secondary" title="Suivi"><i class="bi bi-bar-chart-line"></i></a>
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% else %}
+                    <tr><td colspan="8" class="text-body-secondary fst-italic">Aucun email.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    {% if total_pages > 1 %}
+        <nav>
+            <ul class="pagination pagination-sm">
+                {% for p in 1..total_pages %}
+                    <li class="page-item {{ p == page ? 'active' : '' }}">
+                        <a class="page-link" href="?page={{ p }}{% if search %}&search={{ search }}{% endif %}{% if status %}&status={{ status }}{% endif %}{% if section_id %}&section_id={{ section_id }}{% endif %}">{{ p }}</a>
+                    </li>
+                {% endfor %}
+            </ul>
+        </nav>
+    {% endif %}
+
+    {% include '@mass_mail/_compose_dialog.html.twig' %}
+{% endblock %}
+
+{% block scripts %}
+<script nonce="{{ csp_nonce }}">
+const MM_DATA = {
+    sections: {{ sections|json_encode|raw }},
+    defaultLists: {{ default_lists|json_encode|raw }},
+    customLists: {{ custom_lists|map(l => {id: l.id, name: l.name, description: l.description})|json_encode|raw }},
+    scoutYears: {{ scout_years|json_encode|raw }},
+    currentUserEmail: {{ current_user_email|json_encode|raw }},
+    unrestricted: {{ unrestricted|json_encode|raw }},
+    userSectionIds: {{ user_section_ids|json_encode|raw }},
+    forcedSectionId: {{ forced_section_id|json_encode|raw }},
+    previousYearCutoff: {{ previous_year_cutoff|json_encode|raw }}
+};
+const csrf = () => document.querySelector('meta[name="csrf-token"]')?.content;
+const statusLabel = (s) => ({ draft: 'Brouillon', test: 'Test', sending: 'Envoi en cours', sent: 'Envoyé' })[s] || s;
+const statusBadgeClass = (s) => ({ draft: 'text-bg-secondary', test: 'text-bg-warning', sending: 'text-bg-info', sent: 'text-bg-success' })[s] || 'text-bg-secondary';
+
+function escapeHtml(value) {
+    const div = document.createElement('div');
+    div.textContent = value == null ? '' : String(value);
+    return div.innerHTML;
+}
+
+const mmModalEl = document.getElementById('mm-modal');
+const mmModal = window.bootstrap ? new window.bootstrap.Modal(mmModalEl) : null;
+let mmCurrentId = null;
+let mmCurrentStatus = null;
+let mmSelectedYearIds = [];
+
+// Except for a chef d'unité (or above), the sender section is locked to
+// the account's own (highest-role) section — not a free choice.
+function populateSectionSelect(currentSectionId) {
+    const select = document.getElementById('mm-section');
+    if (MM_DATA.unrestricted) {
+        select.innerHTML = MM_DATA.sections.map(s => '<option value="' + s.id + '">' + escapeHtml(s.name) + '</option>').join('');
+        select.disabled = false;
+        return;
+    }
+
+    const forced = MM_DATA.forcedSectionId;
+    const options = new Map();
+    if (forced !== null) {
+        const forcedSection = MM_DATA.sections.find(s => s.id === forced);
+        options.set(forced, forcedSection ? forcedSection.name : ('Section #' + forced));
+    }
+    // A draft created (e.g. by a chef d'unité) targeting a different
+    // section is still shown correctly when reopened — the select stays
+    // fully locked either way, this only avoids silently switching the
+    // section away from what's actually stored on save.
+    if (currentSectionId != null && !options.has(currentSectionId)) {
+        const currentSection = MM_DATA.sections.find(s => s.id === currentSectionId);
+        options.set(currentSectionId, currentSection ? currentSection.name : ('Section #' + currentSectionId));
+    }
+
+    select.innerHTML = Array.from(options.entries())
+        .map(([id, name]) => '<option value="' + id + '">' + escapeHtml(name) + '</option>')
+        .join('');
+    select.disabled = true;
+}
+
+function isListAllowed(listType, listSectionId) {
+    if (MM_DATA.unrestricted) return true;
+    if (listType === 'default_chiefs') return true;
+    if (listType === 'default_section') return MM_DATA.userSectionIds.includes(listSectionId);
+    return false; // "Membres actifs" and every custom list
+}
+
+function populateListSelect() {
+    const select = document.getElementById('mm-list');
+    let html = '';
+    MM_DATA.defaultLists.forEach(l => {
+        const disabled = !isListAllowed(l.list_type, l.list_section_id) ? 'disabled' : '';
+        html += '<option value="' + l.list_type + ':' + (l.list_section_id ?? '') + '" data-type="' + l.list_type + '" '
+            + 'data-list-section-id="' + (l.list_section_id ?? '') + '" title="' + escapeHtml(l.description) + '" ' + disabled + '>'
+            + escapeHtml(l.label) + '</option>';
+    });
+    MM_DATA.customLists.forEach(l => {
+        const disabled = !isListAllowed('custom', null) ? 'disabled' : '';
+        html += '<option value="custom:' + l.id + '" data-type="custom" data-list-id="' + l.id + '" '
+            + 'title="' + escapeHtml(l.description) + '" ' + disabled + '>' + escapeHtml(l.name) + '</option>';
+    });
+    select.innerHTML = html;
+}
+
+// Multi-select (module addendum) — several years can be checked at once;
+// their lists are merged/deduplicated server-side at send time
+// (Service\MailingListService::resolveMembersForYears()). Defaults to
+// "current" only.
+function populateScoutYearCheckboxes() {
+    const group = document.getElementById('mm-scout-year-group');
+    const entries = [
+        { key: 'previous', label: MM_DATA.scoutYears.previous.label, id: MM_DATA.scoutYears.previous.id, available: MM_DATA.scoutYears.previous.available },
+        { key: 'current', label: MM_DATA.scoutYears.current.label, id: MM_DATA.scoutYears.current.id, available: MM_DATA.scoutYears.current.available },
+        { key: 'next', label: MM_DATA.scoutYears.next.label, id: MM_DATA.scoutYears.next.id, available: MM_DATA.scoutYears.next.available },
+    ];
+    // "available: false" (module addendum — next year needs a Desk import
+    // first) is a permanent lock, independent from setFieldsEditable()'s
+    // temporary read-only lock — unlike a disabled *button*, a disabled
+    // *checkbox* still shows its checked state clearly, so no extra
+    // pointer-events workaround is needed for the read-only case below.
+    group.innerHTML = entries.map(e => (
+        '<div class="form-check form-check-inline">'
+        + '<input class="form-check-input mm-year-checkbox" type="checkbox" value="' + e.id + '" id="mm-year-' + e.key + '" '
+        + (e.available ? '' : 'disabled title="Desk n\'a pas encore été importé pour cette année scoute."') + '>'
+        + '<label class="form-check-label" for="mm-year-' + e.key + '">' + escapeHtml(e.label) + '</label>'
+        + '</div>'
+    )).join('');
+    selectScoutYears([MM_DATA.scoutYears.current.id]);
+
+    const [cutoffMonth, cutoffDay] = MM_DATA.previousYearCutoff.split('-');
+    document.getElementById('mm-previous-year-note').textContent =
+        'Année précédente (' + MM_DATA.scoutYears.previous.label + ') : les personnes actives lors du dernier import '
+        + 'Desk de cette année scoute (généralement autour du ' + cutoffDay + '/' + cutoffMonth + ', ajustable dans '
+        + 'Configuration > Réglages).';
+}
+
+function selectScoutYears(yearIds) {
+    mmSelectedYearIds = yearIds;
+    document.querySelectorAll('#mm-scout-year-group .mm-year-checkbox').forEach(cb => {
+        cb.checked = yearIds.includes(parseInt(cb.value, 10));
+    });
+}
+
+// Delegated (checkboxes are rebuilt on every populateScoutYearCheckboxes() call).
+document.getElementById('mm-scout-year-group').addEventListener('change', (e) => {
+    if (!e.target.classList.contains('mm-year-checkbox')) return;
+    mmSelectedYearIds = Array.from(document.querySelectorAll('#mm-scout-year-group .mm-year-checkbox:checked'))
+        .map(cb => parseInt(cb.value, 10));
+});
+
+// Rich text toolbar — same execCommand engine as partials/rich_text_editor.html.twig.
+document.querySelectorAll('#mm-body-toolbar [data-command]').forEach(btn => {
+    btn.addEventListener('click', () => {
+        const cmd = btn.dataset.command;
+        const bodyContent = document.getElementById('mm-body-content');
+        if (cmd === 'createLink') {
+            const url = prompt('URL du lien :');
+            if (url) document.execCommand(cmd, false, url);
+        } else if (cmd === 'formatBlock') {
+            document.execCommand(cmd, false, '<' + btn.dataset.value + '>');
+        } else {
+            document.execCommand(cmd, false, null);
+        }
+        bodyContent.focus();
+    });
+});
+
+function setFieldsEditable(editable) {
+    // The sender section select stays permanently disabled for a
+    // restricted (non chef d'unité) account — populateSectionSelect()
+    // already locked it; never re-enable it here.
+    document.getElementById('mm-section').disabled = MM_DATA.unrestricted ? !editable : true;
+    document.getElementById('mm-list').disabled = !editable;
+    document.getElementById('mm-subject').disabled = !editable;
+    document.getElementById('mm-body-content').setAttribute('contenteditable', editable ? 'true' : 'false');
+    // A checkbox's checked state stays clearly visible even when disabled
+    // (unlike a button's ".active" highlight), so read-only mode can just
+    // disable it directly — except a year already permanently unavailable
+    // (no Desk import yet) stays disabled regardless of editable.
+    document.querySelectorAll('#mm-scout-year-group .mm-year-checkbox').forEach(cb => {
+        if (!editable) {
+            cb.disabled = true;
+        } else {
+            const entry = [MM_DATA.scoutYears.previous, MM_DATA.scoutYears.current, MM_DATA.scoutYears.next]
+                .find(y => y.id === parseInt(cb.value, 10));
+            cb.disabled = entry ? !entry.available : false;
+        }
+    });
+    document.getElementById('mm-body-toolbar').classList.toggle('d-none', !editable);
+}
+
+function renderAttachments(attachments) {
+    const list = document.getElementById('mm-attachments-list');
+    if (!attachments.length) {
+        list.innerHTML = '<p class="text-body-secondary fst-italic small mb-0">Aucune pièce jointe.</p>';
+        return;
+    }
+    list.innerHTML = attachments.map(a =>
+        '<div class="d-flex justify-content-between align-items-center border rounded px-2 py-1">'
+        + '<a href="/files/' + a.file_id + '" target="_blank">' + escapeHtml(a.name) + '</a>'
+        + '<button type="button" class="btn btn-sm btn-outline-danger mm-attachment-delete-btn" data-id="' + a.id + '"><i class="bi bi-trash"></i></button>'
+        + '</div>'
+    ).join('');
+    list.querySelectorAll('.mm-attachment-delete-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            await fetch('/mass-mail/attachments/' + btn.dataset.id, {
+                method: 'DELETE',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ _csrf_token: csrf() })
+            });
+            openEmail(mmCurrentId);
+        });
+    });
+}
+
+function applyStatusUi(status) {
+    mmCurrentStatus = status;
+    const badge = document.getElementById('mm-status-badge');
+    badge.textContent = statusLabel(status);
+    badge.className = 'badge ms-2 ' + statusBadgeClass(status);
+    badge.classList.toggle('d-none', status === null);
+
+    const isDraft = status === null || status === 'draft';
+    const isTest = status === 'test';
+    const isSendingOrSent = status === 'sending' || status === 'sent';
+
+    setFieldsEditable(isDraft);
+
+    document.getElementById('mm-save-btn').classList.toggle('d-none', !isDraft);
+    document.getElementById('mm-to-test-btn').classList.toggle('d-none', !isDraft || mmCurrentId === null);
+    document.getElementById('mm-to-draft-btn').classList.toggle('d-none', !isTest);
+    document.getElementById('mm-start-sending-btn').classList.toggle('d-none', !isTest);
+    document.getElementById('mm-test-send-zone').classList.toggle('d-none', !isTest);
+    document.getElementById('mm-progress-zone').classList.toggle('d-none', !isSendingOrSent);
+    document.getElementById('mm-attachment-upload-zone').classList.toggle('d-none', !isDraft || mmCurrentId === null);
+    document.getElementById('mm-attachment-hint').classList.toggle('d-none', mmCurrentId !== null || !isDraft);
+
+    if (isSendingOrSent) {
+        document.getElementById('mm-tracking-link').href = '/mass-mail/' + mmCurrentId + '/tracking';
+    }
+}
+
+function renderProgress(counts) {
+    if (!counts || !counts.total) {
+        document.getElementById('mm-progress-text').textContent = 'Aucun destinataire.';
+        return;
+    }
+    const pct = (n) => (n / counts.total * 100).toFixed(1) + '%';
+    document.getElementById('mm-progress-sent').style.width = pct(counts.sent);
+    document.getElementById('mm-progress-error').style.width = pct(counts.error);
+    document.getElementById('mm-progress-pending').style.width = pct(counts.pending);
+    document.getElementById('mm-progress-text').textContent =
+        counts.sent + ' envoyés · ' + counts.error + ' erreurs · ' + counts.pending + ' en attente — ' + counts.total + ' au total';
+}
+
+function resetModal() {
+    mmCurrentId = null;
+    document.getElementById('mm-modal-title').textContent = 'Nouvel email';
+    document.getElementById('mm-error').classList.add('d-none');
+    document.getElementById('mm-subject').value = '';
+    document.getElementById('mm-body-content').innerHTML = '';
+    document.getElementById('mm-test-send-email').value = MM_DATA.currentUserEmail;
+    populateSectionSelect(null);
+    populateListSelect();
+    // A restricted account's first list option isn't necessarily an
+    // allowed one (browsers don't reliably skip a disabled first option
+    // for the implicit default selection) — force it explicitly.
+    if (!MM_DATA.unrestricted) {
+        const firstAllowed = document.querySelector('#mm-list option:not([disabled])');
+        if (firstAllowed) document.getElementById('mm-list').value = firstAllowed.value;
+    }
+    populateScoutYearCheckboxes();
+    renderAttachments([]);
+    applyStatusUi(null);
+}
+
+async function openEmail(id) {
+    const res = await fetch('/mass-mail/' + id);
+    const data = await res.json();
+    if (!data.success) {
+        alert(data.error || 'Email introuvable.');
+        return;
+    }
+    mmCurrentId = data.email.id;
+    document.getElementById('mm-modal-title').textContent = data.email.subject;
+    document.getElementById('mm-error').classList.add('d-none');
+    populateSectionSelect(data.email.section_id);
+    populateListSelect();
+    populateScoutYearCheckboxes();
+    document.getElementById('mm-section').value = data.email.section_id;
+    document.getElementById('mm-list').value = data.email.list_type + ':' + (data.email.list_type === 'custom' ? data.email.list_id : (data.email.list_section_id ?? ''));
+    selectScoutYears(data.email.scout_year_ids);
+    document.getElementById('mm-subject').value = data.email.subject;
+    document.getElementById('mm-body-content').innerHTML = data.email.body_html;
+    document.getElementById('mm-test-send-email').value = MM_DATA.currentUserEmail;
+    renderAttachments(data.attachments);
+    renderProgress(data.counts);
+    applyStatusUi(data.email.status);
+    mmModal ? mmModal.show() : mmModalEl.classList.add('show');
+}
+
+document.getElementById('mm-new-btn').addEventListener('click', () => {
+    resetModal();
+    mmModal ? mmModal.show() : mmModalEl.classList.add('show');
+});
+
+document.querySelectorAll('.mm-open-btn').forEach(btn => {
+    btn.addEventListener('click', () => openEmail(btn.dataset.id));
+});
+
+function showError(message) {
+    const box = document.getElementById('mm-error');
+    box.textContent = message;
+    box.classList.remove('d-none');
+}
+
+function currentListSelection() {
+    const option = document.getElementById('mm-list').selectedOptions[0];
+    if (!option) return { list_type: null, list_id: null, list_section_id: null };
+    return {
+        list_type: option.dataset.type,
+        list_id: option.dataset.listId ? parseInt(option.dataset.listId, 10) : null,
+        list_section_id: option.dataset.listSectionId ? parseInt(option.dataset.listSectionId, 10) : null,
+    };
+}
+
+document.getElementById('mm-save-btn').addEventListener('click', async () => {
+    const listSelection = currentListSelection();
+    const payload = {
+        subject: document.getElementById('mm-subject').value,
+        body_html: document.getElementById('mm-body-content').innerHTML,
+        section_id: parseInt(document.getElementById('mm-section').value, 10),
+        list_type: listSelection.list_type,
+        list_id: listSelection.list_id,
+        list_section_id: listSelection.list_section_id,
+        scout_year_ids: mmSelectedYearIds,
+        _csrf_token: csrf()
+    };
+
+    if (mmSelectedYearIds.length === 0) {
+        showError('Au moins une année scoute doit être sélectionnée.');
+        return;
+    }
+
+    const url = mmCurrentId ? '/mass-mail/' + mmCurrentId : '/mass-mail';
+    const method = mmCurrentId ? 'PATCH' : 'POST';
+    const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    const data = await res.json();
+    if (!data.success) {
+        showError(data.error || 'Erreur.');
+        return;
+    }
+    window.location.reload();
+});
+
+// Refreshes the dialog in place (never a full page reload/close) — the
+// underlying list table catches up next time the page itself reloads.
+async function postStatusAction(action, confirmMessage) {
+    if (confirmMessage && !confirm(confirmMessage)) return;
+    const res = await fetch('/mass-mail/' + mmCurrentId + '/status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, _csrf_token: csrf() })
+    });
+    const data = await res.json();
+    if (!data.success) {
+        showError(data.error || 'Erreur.');
+        return;
+    }
+    await openEmail(mmCurrentId);
+}
+
+document.getElementById('mm-to-test-btn').addEventListener('click', () => postStatusAction('to_test'));
+document.getElementById('mm-to-draft-btn').addEventListener('click', () => postStatusAction('to_draft'));
+document.getElementById('mm-start-sending-btn').addEventListener('click', () =>
+    postStatusAction('start_sending', 'Lancer l\'envoi ? La liste des destinataires sera figée et l\'envoi ne pourra plus être annulé.')
+);
+
+document.getElementById('mm-test-send-btn').addEventListener('click', async () => {
+    const res = await fetch('/mass-mail/' + mmCurrentId + '/test-send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ to: document.getElementById('mm-test-send-email').value, _csrf_token: csrf() })
+    });
+    const data = await res.json();
+    if (!data.success) {
+        showError(data.error || 'Erreur.');
+        return;
+    }
+    alert('Email de test envoyé.');
+});
+
+document.getElementById('mm-attachment-upload-btn').addEventListener('click', async () => {
+    const input = document.getElementById('mm-attachment-file');
+    if (!input.files.length || !mmCurrentId) return;
+
+    const formData = new FormData();
+    formData.append('file', input.files[0]);
+    formData.append('_csrf_token', csrf());
+
+    const res = await fetch('/mass-mail/' + mmCurrentId + '/attachments', { method: 'POST', body: formData });
+    const data = await res.json();
+    if (!data.success) {
+        showError(data.error || 'Erreur.');
+        return;
+    }
+    input.value = '';
+    openEmail(mmCurrentId);
+});
+</script>
+{% endblock %}

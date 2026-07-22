@@ -18,8 +18,13 @@
         <div class="card">
             <div class="card-body text-center py-4">
                 <div style="font-size: 3rem; color: #dc3545;" class="mb-3">✗</div>
-                <h3 class="h5 mb-3">Lien invalide</h3>
-                <p>Ce lien de connexion n'est plus valide. Il a peut-être expiré ou a déjà été utilisé.</p>
+                {% if not_a_member is defined and not_a_member %}
+                    <h3 class="h5 mb-3">Compte non autorisé</h3>
+                    <p>Aucun membre actif n'est associé à cette adresse email. Contactez un(e) responsable de l'unité.</p>
+                {% else %}
+                    <h3 class="h5 mb-3">Lien invalide</h3>
+                    <p>Ce lien de connexion n'est plus valide. Il a peut-être expiré ou a déjà été utilisé.</p>
+                {% endif %}
                 <a href="/login" class="btn btn-outline-primary">Retour à la connexion</a>
             </div>
         </div>

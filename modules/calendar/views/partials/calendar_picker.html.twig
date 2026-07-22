@@ -12,11 +12,13 @@
       extra_query: '&month=' ~ month_param
   } %}
 #}
-<div class="d-flex flex-wrap gap-2 pb-2 mb-3 calendar-picker">
+<div class="d-flex flex-nowrap flex-lg-wrap gap-2 pb-2 mb-3 overflow-x-auto calendar-picker" style="-webkit-overflow-scrolling:touch;">
     {% for option in options %}
         {% set is_active = option.id == selected_id %}
         <a href="{{ base_url }}{{ option.id }}{{ extra_query|default('') }}"
-           class="btn btn-sm {{ is_active ? 'btn-primary' : 'btn-outline-secondary' }} text-nowrap d-flex align-items-center gap-1 text-decoration-none">
+           class="btn btn-sm {{ is_active ? 'btn-primary' : 'btn-outline-secondary' }} text-nowrap d-flex align-items-center gap-1 text-decoration-none"
+           style="min-height:44px;"
+           {{ is_active ? 'aria-current="true"' : '' }}>
             {% if option.color %}
                 <span class="d-inline-block rounded-circle" style="width:0.55rem;height:0.55rem;background-color:{{ option.color }};"></span>
             {% endif %}

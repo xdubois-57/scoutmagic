@@ -13,6 +13,7 @@ use Core\Member\MemberYearService;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\Security\Role;
+use Modules\MassMail\Api\MassMailQueryInterface;
 use Twig\Environment;
 
 class MemberController extends AbstractController
@@ -21,7 +22,8 @@ class MemberController extends AbstractController
         protected Environment $twig,
         private MemberService $memberService,
         private MemberYearService $memberYearService,
-        private JournalService $journalService
+        private JournalService $journalService,
+        private ?MassMailQueryInterface $massMailQuery = null
     ) {
     }
 
@@ -57,10 +59,18 @@ class MemberController extends AbstractController
         // Addresses: visible only to self and chiefs/admin
         $showAddresses = $isSelf || $isChiefOrAbove;
 
+        // "Emails reçus" section — only when mass_mail is enabled (§7.5:
+        // the section simply doesn't appear otherwise) and only to self or
+        // a chief/admin, same visibility rule as contact info.
+        $recentMassMailEmails = $showContact && $this->massMailQuery !== null
+            ? $this->massMailQuery->getRecentEmailsForMember($profile->memberId, 10)
+            : [];
+
         return $this->render('members/show.html.twig', [
             'member' => $profile,
             'show_contact' => $showContact,
             'show_addresses' => $showAddresses,
+            'recent_mass_mail_emails' => $recentMassMailEmails,
         ]);
     }
 

@@ -24,6 +24,15 @@
         return document.getElementById('csrf-token').value;
     }
 
+    // --- Mandatory RGPD consent (module addendum) — one checkbox per tab, each inside its own login box. ---
+    function hasRgpdConsent(tab) {
+        var checkbox = document.getElementById('rgpd-consent-checkbox-' + tab);
+        var error = document.getElementById('rgpd-consent-error-' + tab);
+        var ok = checkbox.checked;
+        error.classList.toggle('d-none', ok);
+        return ok;
+    }
+
     // --- Magic Link ---
     var stateEmail = document.getElementById('state-email');
     var stateWaiting = document.getElementById('state-waiting');
@@ -56,6 +65,10 @@
         var email = emailInput.value.trim();
         var csrf = getCsrf();
 
+        if (!hasRgpdConsent('magic-link')) {
+            return;
+        }
+
         if (!email) {
             showError('Veuillez entrer une adresse email.');
             return;
@@ -67,7 +80,7 @@
         fetch('/login/magic-link', {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: 'email=' + encodeURIComponent(email) + '&_csrf_token=' + encodeURIComponent(csrf)
+            body: 'email=' + encodeURIComponent(email) + '&_csrf_token=' + encodeURIComponent(csrf) + '&rgpd_consent=1'
         })
         .then(function(r) { return r.json(); })
         .then(function(data) {
@@ -142,6 +155,10 @@
             errorEl.classList.add('d-none');
             lockoutEl.classList.add('d-none');
 
+            if (!hasRgpdConsent('password')) {
+                return;
+            }
+
             if (!email || !password) {
                 errorEl.textContent = 'Veuillez remplir tous les champs.';
                 errorEl.classList.remove('d-none');
@@ -152,7 +169,7 @@
                 var res = await fetch('/login/password', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ email: email, password: password, _csrf_token: csrf })
+                    body: JSON.stringify({ email: email, password: password, _csrf_token: csrf, rgpd_consent: true })
                 });
                 var data = await res.json();
 
@@ -178,6 +195,53 @@
         });
     }
 
+    // --- "Mot de passe oublié ?" (module addendum) ---
+    var forgotLink = document.getElementById('forgot-password-link');
+    var forgotForm = document.getElementById('forgot-password-form');
+    if (forgotLink && forgotForm) {
+        forgotLink.addEventListener('click', function (e) {
+            e.preventDefault();
+            forgotForm.classList.toggle('d-none');
+            if (!forgotForm.classList.contains('d-none')) {
+                var prefill = document.getElementById('password-email').value.trim();
+                if (prefill) document.getElementById('forgot-password-email').value = prefill;
+                document.getElementById('forgot-password-email').focus();
+            }
+        });
+
+        document.getElementById('forgot-password-submit-btn').addEventListener('click', async function () {
+            var email = document.getElementById('forgot-password-email').value.trim();
+            var messageEl = document.getElementById('forgot-password-message');
+            messageEl.classList.add('d-none');
+
+            if (!email) return;
+
+            var btn = this;
+            btn.disabled = true;
+            try {
+                var res = await fetch('/password-reset/request', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: 'email=' + encodeURIComponent(email) + '&_csrf_token=' + encodeURIComponent(getCsrf())
+                });
+                var data = await res.json();
+                messageEl.textContent = data.success
+                    ? 'Si cette adresse correspond à un compte, un email de réinitialisation vient d\'être envoyé.'
+                    : (data.error || 'Une erreur est survenue.');
+                messageEl.classList.remove('text-danger', 'text-success');
+                messageEl.classList.add(data.success ? 'text-success' : 'text-danger');
+                messageEl.classList.remove('d-none');
+            } catch (err) {
+                messageEl.textContent = 'Erreur réseau. Veuillez réessayer.';
+                messageEl.classList.remove('text-success');
+                messageEl.classList.add('text-danger');
+                messageEl.classList.remove('d-none');
+            } finally {
+                btn.disabled = false;
+            }
+        });
+    }
+
     // --- Passkey login ---
     var passkeyBtn = document.getElementById('passkey-login-btn');
     if (passkeyBtn) {
@@ -189,6 +253,10 @@
         passkeyBtn.addEventListener('click', async function() {
             var errorEl = document.getElementById('passkey-error');
             errorEl.classList.add('d-none');
+
+            if (!hasRgpdConsent('passkey')) {
+                return;
+            }
 
             try {
                 var optRes = await fetch('/login/passkey/options');
@@ -216,7 +284,8 @@
                             userHandle: credential.response.userHandle
                                 ? bufferToBase64(credential.response.userHandle) : null
                         },
-                        type: credential.type
+                        type: credential.type,
+                        rgpd_consent: true
                     })
                 });
                 var result = await verifyRes.json();

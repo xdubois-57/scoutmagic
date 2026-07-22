@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Core\Http\Controller;
 
+use Core\Cookie\CookieConsentService;
 use Core\Http\FlashMessage;
 use Core\Http\Request;
 use Core\Http\Response;
@@ -12,6 +13,7 @@ use Core\ScoutYear\ScoutYearSession;
 use Core\Security\AuthService;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
+use Core\Security\LastLoginMethodCookie;
 use Core\Security\LoginThrottler;
 use Core\Security\PasswordAuthMethod;
 use Core\Security\RoleResolver;
@@ -27,7 +29,8 @@ class AuthController extends AbstractController
         protected Environment $twig,
         private AuthService $authService,
         private ?RoleResolver $roleResolver = null,
-        private ?ScoutYearResolver $scoutYearResolver = null
+        private ?ScoutYearResolver $scoutYearResolver = null,
+        private ?CookieConsentService $cookieConsentService = null
     ) {
     }
 
@@ -56,6 +59,7 @@ class AuthController extends AbstractController
 
         return $this->render('auth/login.html.twig', [
             'csrf_token' => $csrfToken,
+            'default_login_method' => LastLoginMethodCookie::read() ?? 'magic-link',
         ]);
     }
 
@@ -72,6 +76,10 @@ class AuthController extends AbstractController
             return $this->json(['success' => false, 'error' => 'Session expirée. Veuillez recharger la page.'], 403);
         }
 
+        if (!$this->hasRgpdConsent($request)) {
+            return $this->json(['success' => false, 'error' => 'Vous devez accepter la politique de protection des données pour vous connecter.']);
+        }
+
         $email = trim((string) $request->getBody('email', ''));
 
         if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
@@ -83,6 +91,8 @@ class AuthController extends AbstractController
         if (!$result->success) {
             return $this->json(['success' => false, 'error' => $result->error]);
         }
+
+        $this->rememberLoginMethod('magic-link');
 
         return $this->json(['success' => true, 'poll_id' => $result->magicLinkId]);
     }
@@ -105,6 +115,10 @@ class AuthController extends AbstractController
 
         if ($verified === null) {
             return $this->render('auth/verify.html.twig', ['valid' => false]);
+        }
+
+        if (!$this->isMemberAuthorized($verified->email)) {
+            return $this->render('auth/verify.html.twig', ['valid' => false, 'not_a_member' => true]);
         }
 
         // Create session on this device (Device B)
@@ -140,7 +154,7 @@ class AuthController extends AbstractController
         // If this device (Device A) is not yet authenticated, create session
         if (!AuthSession::isAuthenticated()) {
             $user = $this->authService->getUserForConfirmedLink($id);
-            if ($user !== null) {
+            if ($user !== null && $this->isMemberAuthorized($user->email)) {
                 $role = $this->resolveRole($user->email, $user->id);
                 AuthSession::login($user->id, $user->email, $role);
                 $this->storeLinkedMembers($user->email);
@@ -172,6 +186,10 @@ class AuthController extends AbstractController
             return $this->json(['success' => false, 'error' => 'Session expirée. Veuillez recharger la page.'], 403);
         }
 
+        if (!$this->hasRgpdConsent($request, $body)) {
+            return $this->json(['success' => false, 'error' => 'Vous devez accepter la politique de protection des données pour vous connecter.']);
+        }
+
         $email = trim((string) ($body['email'] ?? ''));
         $password = (string) ($body['password'] ?? '');
 
@@ -197,11 +215,17 @@ class AuthController extends AbstractController
             return $this->json(['success' => false, 'error' => 'Identifiants invalides.']);
         }
 
-        // Login successful
         $account = $result['account'];
+
+        if (!$this->isMemberAuthorized($account->email)) {
+            return $this->json(['success' => false, 'error' => 'Aucun membre actif n\'est associé à cette adresse email. Contactez un(e) responsable de l\'unité.']);
+        }
+
+        // Login successful
         $role = $this->resolveRole($account->email, $account->id);
         AuthSession::login($account->id, $account->email, $role);
         $this->storeLinkedMembers($account->email);
+        $this->rememberLoginMethod('password');
 
         return $this->json(['success' => true]);
     }
@@ -237,15 +261,24 @@ class AuthController extends AbstractController
             return $this->json(['success' => false, 'error' => 'Données invalides.']);
         }
 
+        if (!$this->hasRgpdConsent($request, $body)) {
+            return $this->json(['success' => false, 'error' => 'Vous devez accepter la politique de protection des données pour vous connecter.']);
+        }
+
         $account = $this->webAuthnService->verifyAuthentication($body);
 
         if ($account === null) {
             return $this->json(['success' => false, 'error' => 'L\'authentification a échoué.']);
         }
 
+        if (!$this->isMemberAuthorized($account->email)) {
+            return $this->json(['success' => false, 'error' => 'Aucun membre actif n\'est associé à cette adresse email. Contactez un(e) responsable de l\'unité.']);
+        }
+
         $role = $this->resolveRole($account->email, $account->id);
         AuthSession::login($account->id, $account->email, $role);
         $this->storeLinkedMembers($account->email);
+        $this->rememberLoginMethod('passkey');
 
         return $this->json(['success' => true]);
     }
@@ -298,6 +331,48 @@ class AuthController extends AbstractController
             $currentYear = $this->scoutYearResolver->getCurrentPublicYear();
             $linked = $this->roleResolver->getLinkedMemberYears($email, $currentYear['id']);
             AuthSession::setLinkedMembers($linked);
+        }
+    }
+
+    /**
+     * Module addendum: the RGPD policy checkbox is mandatory on every
+     * login submission, every method. $jsonBody is passed for the two
+     * methods whose payload is raw JSON rather than a form body.
+     *
+     * @param array<string, mixed>|null $jsonBody
+     */
+    private function hasRgpdConsent(Request $request, ?array $jsonBody = null): bool
+    {
+        $value = $jsonBody !== null ? ($jsonBody['rgpd_consent'] ?? null) : $request->getBody('rgpd_consent');
+
+        return $value === true || $value === '1' || $value === 1 || $value === 'true';
+    }
+
+    /**
+     * Module addendum: a user_accounts row alone (password/passkey/magic
+     * link) is not sufficient — the email must also match a real member,
+     * unless the account is a super-admin. Degrades to "allow" when no
+     * role/member system is configured (mirrors resolveRole()'s own
+     * fallback), since there's nothing to check against.
+     */
+    private function isMemberAuthorized(string $email): bool
+    {
+        if ($this->roleResolver === null || $this->scoutYearResolver === null) {
+            return true;
+        }
+
+        $currentYear = $this->scoutYearResolver->getCurrentPublicYear();
+        return $this->roleResolver->isEmailAuthorizedToLogin($email, $currentYear['id']);
+    }
+
+    /**
+     * Best-effort — never blocks a login over this (see
+     * Core\Security\LastLoginMethodCookie).
+     */
+    private function rememberLoginMethod(string $method): void
+    {
+        if ($this->cookieConsentService !== null) {
+            LastLoginMethodCookie::remember($method, $this->cookieConsentService);
         }
     }
 }

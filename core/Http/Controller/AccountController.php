@@ -9,6 +9,7 @@ use Core\Http\Request;
 use Core\Http\Response;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
+use Core\Security\PasswordPolicy;
 use Core\Security\UserAccountRepository;
 use Core\Security\WebAuthnCredentialRepository;
 use Core\Security\WebAuthnService;
@@ -48,6 +49,7 @@ class AccountController extends AbstractController
             'account' => $account,
             'has_password' => $hasPassword,
             'passkeys' => $passkeys,
+            'password_changed_at' => $account->passwordChangedAt,
         ]);
     }
 
@@ -113,8 +115,8 @@ class AccountController extends AbstractController
         }
 
         // Validate new password
-        if (strlen($newPassword) < 8) {
-            FlashMessage::set('error', 'Le mot de passe doit contenir au moins 8 caractères.');
+        if (!PasswordPolicy::isValid($newPassword)) {
+            FlashMessage::set('error', 'Le mot de passe ne respecte pas les critères de sécurité requis.');
             return $this->redirect('/account');
         }
 

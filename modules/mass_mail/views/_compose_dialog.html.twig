@@ -1,0 +1,98 @@
+{# Shared create/edit dialog — module spec: "même dialogue pour les deux". #}
+<div class="modal fade" id="mm-modal" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="mm-modal-title">Nouvel email</h5>
+                <span class="badge text-bg-secondary ms-2 d-none" id="mm-status-badge"></span>
+                <button type="button" class="btn-close ms-auto" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-danger d-none" id="mm-error"></div>
+
+                <div class="mb-3">
+                    <label class="form-label small" for="mm-section">Section expéditrice</label>
+                    <select class="form-select form-select-sm" id="mm-section"></select>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label small" for="mm-list">Liste de diffusion</label>
+                    <select class="form-select form-select-sm" id="mm-list"></select>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label small d-block">Année(s) scoute(s)</label>
+                    <div class="d-flex flex-wrap gap-3" id="mm-scout-year-group"></div>
+                    <p class="form-text small mb-1">
+                        Plusieurs années peuvent être sélectionnées à la fois : les listes correspondantes sont
+                        fusionnées et dédupliquées par adresse, pour n'envoyer qu'un seul email par personne — utile
+                        par exemple pour inviter d'anciens et de nouveaux membres à un même événement (montage dias
+                        de fin d'année, retrouvailles...).
+                    </p>
+                    <p class="form-text small mb-0" id="mm-previous-year-note"></p>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label small" for="mm-subject">Sujet</label>
+                    <input type="text" class="form-control form-control-sm" id="mm-subject">
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label small">Message</label>
+                    <div class="rich-text-toolbar mb-2" id="mm-body-toolbar">
+                        <button type="button" data-command="formatBlock" data-value="h2" class="btn btn-sm btn-outline-secondary" title="Titre 2"><strong>H2</strong></button>
+                        <button type="button" data-command="formatBlock" data-value="h3" class="btn btn-sm btn-outline-secondary" title="Titre 3"><strong>H3</strong></button>
+                        <button type="button" data-command="formatBlock" data-value="p" class="btn btn-sm btn-outline-secondary" title="Paragraphe"><i class="bi bi-text-paragraph"></i></button>
+                        <span class="mx-1"></span>
+                        <button type="button" data-command="bold" class="btn btn-sm btn-outline-secondary" title="Gras"><i class="bi bi-type-bold"></i></button>
+                        <button type="button" data-command="italic" class="btn btn-sm btn-outline-secondary" title="Italique"><i class="bi bi-type-italic"></i></button>
+                        <button type="button" data-command="underline" class="btn btn-sm btn-outline-secondary" title="Souligné"><i class="bi bi-type-underline"></i></button>
+                        <span class="mx-1"></span>
+                        <button type="button" data-command="insertUnorderedList" class="btn btn-sm btn-outline-secondary" title="Liste à puces"><i class="bi bi-list-ul"></i></button>
+                        <button type="button" data-command="insertOrderedList" class="btn btn-sm btn-outline-secondary" title="Liste numérotée"><i class="bi bi-list-ol"></i></button>
+                        <span class="mx-1"></span>
+                        <button type="button" data-command="createLink" class="btn btn-sm btn-outline-secondary" title="Lien"><i class="bi bi-link-45deg"></i></button>
+                        <button type="button" data-command="removeFormat" class="btn btn-sm btn-outline-secondary" title="Supprimer le formatage"><i class="bi bi-eraser"></i></button>
+                    </div>
+                    <div id="mm-body-content" contenteditable="true" class="form-control" style="min-height:180px;"></div>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label small d-block">Pièces jointes</label>
+                    <div id="mm-attachments-list" class="d-flex flex-column gap-1 mb-2"></div>
+                    <div class="d-flex gap-2" id="mm-attachment-upload-zone">
+                        <input type="file" class="form-control form-control-sm" id="mm-attachment-file">
+                        <button type="button" class="btn btn-sm btn-outline-primary text-nowrap" id="mm-attachment-upload-btn">Ajouter</button>
+                    </div>
+                    <div class="form-text small" id="mm-attachment-hint">Enregistrez d'abord le brouillon pour ajouter des pièces jointes.</div>
+                </div>
+
+                <div class="d-none" id="mm-progress-zone">
+                    <label class="form-label small d-block">Progression de l'envoi</label>
+                    <div class="progress mb-2" style="height: 1.25rem;">
+                        <div class="progress-bar bg-success" id="mm-progress-sent" style="width:0%"></div>
+                        <div class="progress-bar bg-danger" id="mm-progress-error" style="width:0%"></div>
+                        <div class="progress-bar bg-secondary" id="mm-progress-pending" style="width:0%"></div>
+                    </div>
+                    <p class="small text-body-secondary" id="mm-progress-text"></p>
+                    <a href="#" class="btn btn-sm btn-outline-secondary" id="mm-tracking-link">Voir le suivi détaillé</a>
+                </div>
+
+                <div class="d-none border-top pt-3" id="mm-test-send-zone">
+                    <label class="form-label small" for="mm-test-send-email">Envoyer un email de test à</label>
+                    <div class="d-flex gap-2">
+                        <input type="email" class="form-control form-control-sm" id="mm-test-send-email">
+                        <button type="button" class="btn btn-sm btn-outline-primary text-nowrap" id="mm-test-send-btn">Envoyer le test</button>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Fermer</button>
+                <button type="button" class="btn btn-sm btn-outline-secondary d-none" id="mm-to-draft-btn">Retour au brouillon</button>
+                <button type="button" class="btn btn-sm btn-primary d-none" id="mm-save-btn">Enregistrer</button>
+                <button type="button" class="btn btn-sm btn-warning d-none" id="mm-to-test-btn">Passer en mode test</button>
+                <button type="button" class="btn btn-sm btn-danger d-none" id="mm-start-sending-btn">Lancer l'envoi</button>
+            </div>
+        </div>
+    </div>
+</div>

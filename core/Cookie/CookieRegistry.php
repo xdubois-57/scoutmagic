@@ -32,6 +32,12 @@ class CookieRegistry
                 'purpose' => 'Mémorisation de vos choix concernant les cookies.',
                 'duration' => '13 mois',
             ],
+            [
+                'name' => 'last_login_method',
+                'category' => 'functional',
+                'purpose' => 'Mémorisation de la méthode de connexion utilisée la dernière fois, pour la présélectionner sur la page de connexion.',
+                'duration' => '13 mois',
+            ],
         ];
     }
 }

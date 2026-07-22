@@ -51,3 +51,145 @@
 .step-item--upcoming {
     opacity: 0.65;
 }
+
+/* ============================================================
+   MOBILE TOUCH-TARGET BASELINE
+   Enforces AGENTS.md 44px minimum on coarse-pointer devices.
+   Restored to compact at lg (≥992px) where mouse usage is expected.
+   ============================================================ */
+
+@media (pointer: coarse) {
+    /* Buttons */
+    .btn-sm {
+        min-height: 44px;
+        min-width: 44px;
+        padding-top: 0.5rem;
+        padding-bottom: 0.5rem;
+    }
+
+    /* Form controls */
+    .form-control-sm,
+    .form-select-sm {
+        min-height: 44px;
+        padding-top: 0.5rem;
+        padding-bottom: 0.5rem;
+    }
+
+    /* Pagination links */
+    .pagination .page-link {
+        min-height: 44px;
+        min-width: 44px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    /* Bootstrap switches & checkboxes: enlarge touch area */
+    .form-check-input {
+        min-width: 44px;
+        min-height: 44px;
+    }
+    .form-switch .form-check-input {
+        min-width: 3rem;
+        min-height: 44px;
+    }
+
+    /* List-group interactive items */
+    .list-group-item-action {
+        min-height: 44px;
+    }
+
+    /* Icon-only buttons (ensure square minimum) */
+    .btn-sm:has(> i:only-child),
+    .btn-sm:has(> .bi:only-child) {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+    }
+}
+
+/* Restore compact sizes on large screens (mouse/trackpad assumed) */
+@media (min-width: 992px) {
+    .btn-sm {
+        min-height: revert;
+        min-width: revert;
+    }
+    .form-control-sm,
+    .form-select-sm {
+        min-height: revert;
+    }
+    .pagination .page-link {
+        min-height: revert;
+        min-width: revert;
+    }
+    .form-check-input {
+        min-width: revert;
+        min-height: revert;
+    }
+    .form-switch .form-check-input {
+        min-width: revert;
+        min-height: revert;
+    }
+}
+
+/* ============================================================
+   SAFE OVERFLOW FOR LONG CONTENT
+   Prevents horizontal overflow from IBANs, filenames, URLs, etc.
+   ============================================================ */
+.overflow-wrap-anywhere {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+
+/* Code blocks in tables/cards: prevent blow-out */
+td code,
+.card code {
+    overflow-wrap: anywhere;
+    word-break: break-all;
+}
+
+/* ============================================================
+   MODAL MOBILE ENHANCEMENTS
+   ============================================================ */
+@media (max-width: 575.98px) {
+    /* Stack modal footer buttons vertically on very narrow screens */
+    .modal-footer {
+        flex-wrap: wrap;
+        gap: 0.5rem;
+    }
+    .modal-footer > .btn {
+        flex: 1 1 100%;
+    }
+    /* Destructive buttons stand alone at full width */
+    .modal-footer > .btn-outline-danger {
+        order: 10;
+    }
+}
+
+/* ============================================================
+   SAFE-AREA INSETS
+   For fixed-bottom elements (cookie banner, sticky footers)
+   ============================================================ */
+.fixed-bottom {
+    padding-bottom: env(safe-area-inset-bottom, 0);
+}
+
+/* ============================================================
+   UTILITY: full-width stacking for action bar buttons on mobile
+   ============================================================ */
+@media (max-width: 575.98px) {
+    .action-bar-wrap {
+        flex-wrap: wrap;
+    }
+    .action-bar-wrap > .btn,
+    .action-bar-wrap > a.btn {
+        flex: 1 1 100%;
+    }
+}
+
+/* ============================================================
+   UTILITY: responsive width auto (Bootstrap has w-100 but no w-sm-auto)
+   ============================================================ */
+@media (min-width: 576px) {
+    .w-sm-auto { width: auto !important; }
+}

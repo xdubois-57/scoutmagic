@@ -12,12 +12,12 @@
             <form method="post" action="/account/profile">
                 {{ csrf_field() }}
                 <div class="row g-3 mb-3">
-                    <div class="col-6">
+                    <div class="col-12 col-sm-6">
                         <label class="form-label">Prénom</label>
                         <input type="text" name="first_name" class="form-control"
                                value="{{ account.firstName }}">
                     </div>
-                    <div class="col-6">
+                    <div class="col-12 col-sm-6">
                         <label class="form-label">Nom</label>
                         <input type="text" name="last_name" class="form-control"
                                value="{{ account.lastName }}">
@@ -33,43 +33,52 @@
         <div class="card-body">
             <h2 class="h5 mb-3">Mot de passe</h2>
             {% if has_password %}
-                <p class="text-body-secondary small mb-3">
+                <p class="text-body-secondary small mb-1">
                     Mot de passe configuré. Vous pouvez le changer ci-dessous.
                 </p>
-                <form method="post" action="/account/password">
+                {% if password_changed_at %}
+                    <p class="text-body-secondary small mb-3">
+                        Dernière modification : {{ password_changed_at|date('d/m/Y à H:i') }}
+                    </p>
+                {% endif %}
+                <form method="post" action="/account/password" id="account-password-form">
                     {{ csrf_field() }}
                     <div class="mb-3">
                         <label class="form-label">Mot de passe actuel</label>
-                        <input type="password" name="current_password" class="form-control" required>
+                        <input type="password" name="current_password" class="form-control" required autocomplete="current-password">
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Nouveau mot de passe</label>
-                        <input type="password" name="new_password" class="form-control"
-                               minlength="8" required>
+                        <input type="password" name="new_password" class="form-control" id="account-new-password" required autocomplete="new-password">
+                    </div>
+                    <div class="mb-3">
+                        {% include 'partials/password_complexity_checklist.html.twig' with {list_id: 'account-password-checklist'} %}
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Confirmer le nouveau mot de passe</label>
-                        <input type="password" name="confirm_password" class="form-control"
-                               minlength="8" required>
+                        <input type="password" name="confirm_password" class="form-control" id="account-confirm-password" required autocomplete="new-password">
                     </div>
+                    <div class="text-danger small mb-2 d-none" id="account-password-mismatch-error">Les mots de passe ne correspondent pas.</div>
                     <button type="submit" class="btn btn-primary">Changer le mot de passe</button>
                 </form>
             {% else %}
                 <p class="text-body-secondary small mb-3">
                     Non configuré — le lien magique reste utilisable pour se connecter.
                 </p>
-                <form method="post" action="/account/password">
+                <form method="post" action="/account/password" id="account-password-form">
                     {{ csrf_field() }}
                     <div class="mb-3">
                         <label class="form-label">Nouveau mot de passe</label>
-                        <input type="password" name="new_password" class="form-control"
-                               minlength="8" required>
+                        <input type="password" name="new_password" class="form-control" id="account-new-password" required autocomplete="new-password">
+                    </div>
+                    <div class="mb-3">
+                        {% include 'partials/password_complexity_checklist.html.twig' with {list_id: 'account-password-checklist'} %}
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Confirmer le mot de passe</label>
-                        <input type="password" name="confirm_password" class="form-control"
-                               minlength="8" required>
+                        <input type="password" name="confirm_password" class="form-control" id="account-confirm-password" required autocomplete="new-password">
                     </div>
+                    <div class="text-danger small mb-2 d-none" id="account-password-mismatch-error">Les mots de passe ne correspondent pas.</div>
                     <button type="submit" class="btn btn-primary">Définir un mot de passe</button>
                 </form>
             {% endif %}
@@ -142,6 +151,28 @@
 {% endblock %}
 
 {% block scripts %}
+{% if has_password is defined %}
+<script src="/assets/js/password-complexity.js" nonce="{{ csp_nonce }}"></script>
+<script nonce="{{ csp_nonce }}">
+(function () {
+    var checklist = initPasswordComplexityChecklist('account-new-password', 'account-password-checklist');
+    var form = document.getElementById('account-password-form');
+    if (!form) return;
+    form.addEventListener('submit', function (e) {
+        var mismatchError = document.getElementById('account-password-mismatch-error');
+        mismatchError.classList.add('d-none');
+        if (checklist && !checklist.isValid()) {
+            e.preventDefault();
+            return;
+        }
+        if (document.getElementById('account-new-password').value !== document.getElementById('account-confirm-password').value) {
+            e.preventDefault();
+            mismatchError.classList.remove('d-none');
+        }
+    });
+})();
+</script>
+{% endif %}
 <script nonce="{{ csp_nonce }}">
 (function() {
     function getCsrf() {

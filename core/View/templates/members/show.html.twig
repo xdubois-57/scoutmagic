@@ -126,4 +126,20 @@
 
     {# Module sections will be injected here in future iterations #}
     {# Each module can add cards to the member page via a hook #}
+
+    {% if recent_mass_mail_emails is defined and recent_mass_mail_emails|length > 0 %}
+        <div class="card mb-3">
+            <div class="card-body">
+                <h2 class="h5 mb-3">Emails reçus</h2>
+                <ul class="list-unstyled mb-0 small">
+                    {% for item in recent_mass_mail_emails %}
+                        <li class="d-flex justify-content-between border-bottom py-2">
+                            <span>{{ item.subject }}</span>
+                            <span class="text-body-secondary">{{ item.section_name }} · {{ item.sent_at|date('d/m/Y') }}</span>
+                        </li>
+                    {% endfor %}
+                </ul>
+            </div>
+        </div>
+    {% endif %}
 {% endblock %}

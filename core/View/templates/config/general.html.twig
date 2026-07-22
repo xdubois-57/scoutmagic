@@ -35,8 +35,8 @@
 
     <div class="d-flex flex-column gap-2 mb-3" id="badge-list">
         {% for badge in badges %}
-            <div class="border rounded-3 p-3 d-flex align-items-center gap-3 badge-row" data-id="{{ badge.id }}" data-default="{{ badge.isDefault ? '1' : '0' }}">
-                <input type="text" class="form-control form-control-sm badge-name-input" style="max-width:220px;" value="{{ badge.name }}" {{ badge.isDefault ? 'readonly' : '' }}>
+            <div class="border rounded-3 p-3 d-flex flex-wrap align-items-center gap-2 gap-md-3 badge-row" data-id="{{ badge.id }}" data-default="{{ badge.isDefault ? '1' : '0' }}">
+                <input type="text" class="form-control form-control-sm badge-name-input flex-grow-1" style="max-width:220px;min-width:120px;" value="{{ badge.name }}" {{ badge.isDefault ? 'readonly' : '' }}>
                 {% if badge.isDefault %}
                     <span class="badge bg-secondary-subtle text-secondary-emphasis">Par défaut</span>
                 {% endif %}
@@ -57,7 +57,7 @@
                             </button>
                         </span>
                     {% else %}
-                        <button type="button" class="btn btn-sm btn-outline-danger badge-delete-btn" title="Supprimer">
+                        <button type="button" class="btn btn-sm btn-outline-danger badge-delete-btn" title="Supprimer" aria-label="Supprimer">
                             <i class="bi bi-trash"></i>
                         </button>
                     {% endif %}
@@ -66,8 +66,8 @@
         {% endfor %}
     </div>
 
-    <div class="border rounded-3 p-3 d-flex align-items-center gap-2 mb-4" id="badge-add-form">
-        <input type="text" class="form-control form-control-sm" id="new-badge-name" placeholder="Communication" style="max-width:220px;">
+    <div class="border rounded-3 p-3 d-flex flex-wrap align-items-center gap-2 mb-4" id="badge-add-form">
+        <input type="text" class="form-control form-control-sm flex-grow-1" id="new-badge-name" placeholder="Communication" style="max-width:220px;min-width:120px;">
         <button type="button" class="btn btn-sm btn-primary" id="badge-add-btn">
             <i class="bi bi-plus-lg"></i> Ajouter
         </button>

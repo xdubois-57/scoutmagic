@@ -117,7 +117,7 @@ class AuthControllerTest extends TestCase
         $this->startTestSession();
         $token = CsrfGuard::generateToken();
 
-        $request = new Request('POST', '/login/magic-link', [], ['email' => '', '_csrf_token' => $token], [], []);
+        $request = new Request('POST', '/login/magic-link', [], ['email' => '', '_csrf_token' => $token, 'rgpd_consent' => '1'], [], []);
         $response = $this->controller->requestMagicLink($request, []);
 
         $body = json_decode($response->getBody(), true);
@@ -133,12 +133,25 @@ class AuthControllerTest extends TestCase
         $this->authService->method('requestMagicLink')
             ->willReturn(new \Core\Security\MagicLinkResult(true, 42, null));
 
-        $request = new Request('POST', '/login/magic-link', [], ['email' => 'user@test.com', '_csrf_token' => $token], [], []);
+        $request = new Request('POST', '/login/magic-link', [], ['email' => 'user@test.com', '_csrf_token' => $token, 'rgpd_consent' => '1'], [], []);
         $response = $this->controller->requestMagicLink($request, []);
 
         $body = json_decode($response->getBody(), true);
         $this->assertTrue($body['success']);
         $this->assertSame(42, $body['poll_id']);
+    }
+
+    public function testRequestMagicLinkWithoutRgpdConsentReturnsError(): void
+    {
+        $this->startTestSession();
+        $token = CsrfGuard::generateToken();
+
+        $request = new Request('POST', '/login/magic-link', [], ['email' => 'user@test.com', '_csrf_token' => $token], [], []);
+        $response = $this->controller->requestMagicLink($request, []);
+
+        $body = json_decode($response->getBody(), true);
+        $this->assertFalse($body['success']);
+        $this->assertStringContainsString('protection des données', $body['error']);
     }
 
     public function testLogoutClearsSessionAndRedirects(): void

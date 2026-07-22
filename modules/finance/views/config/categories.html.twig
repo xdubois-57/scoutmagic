@@ -17,9 +17,9 @@
         montant.
     </p>
 
-    <div class="d-flex justify-content-between align-items-center mb-3">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
         <h2 class="h5 mb-0">Catégories</h2>
-        <div class="d-flex gap-2">
+        <div class="d-flex flex-wrap gap-2">
             <button type="button" class="btn btn-sm btn-outline-secondary" id="reset-default-categories-btn">Réinitialiser les catégories par défaut</button>
             <button type="button" class="btn btn-sm btn-primary" id="new-category-btn">Nouvelle catégorie</button>
         </div>
@@ -33,12 +33,13 @@
                     {% if category.isDefault %}<span class="badge text-bg-light border">Par défaut</span>{% endif %}
                     <div class="text-body-secondary small">{{ category.description }}</div>
                 </div>
-                <button type="button" class="btn btn-sm btn-outline-secondary edit-category-btn" data-id="{{ category.id }}" data-name="{{ category.name }}" data-description="{{ category.description }}" title="Modifier">
+                <button type="button" class="btn btn-sm btn-outline-secondary edit-category-btn" data-id="{{ category.id }}" data-name="{{ category.name }}" data-description="{{ category.description }}" title="Modifier" aria-label="Modifier">
                     <i class="bi bi-pencil"></i>
                 </button>
                 <button type="button" class="btn btn-sm {{ category.isActive ? 'btn-outline-success' : 'btn-outline-secondary' }} toggle-category-btn"
                         data-id="{{ category.id }}" data-active="{{ category.isActive ? '1' : '0' }}"
-                        title="{{ category.isActive ? 'Actif — cliquer pour désactiver' : 'Inactif — cliquer pour activer' }}">
+                        title="{{ category.isActive ? 'Actif — cliquer pour désactiver' : 'Inactif — cliquer pour activer' }}"
+                        aria-label="{{ category.isActive ? 'Actif — cliquer pour désactiver' : 'Inactif — cliquer pour activer' }}">
                     <i class="bi {{ category.isActive ? 'bi-toggle-on' : 'bi-toggle-off' }}"></i>
                 </button>
                 {% set movement_count = category_movement_counts[category.id] ?? 0 %}
@@ -54,7 +55,7 @@
     </div>
 
     <div class="modal fade" id="category-modal" tabindex="-1">
-        <div class="modal-dialog">
+        <div class="modal-dialog modal-fullscreen-sm-down modal-dialog-scrollable">
             <div class="modal-content">
                 <div class="modal-header">
                     <h5 class="modal-title" id="category-form-title">Nouvelle catégorie</h5>
@@ -93,15 +94,15 @@
 
     <hr class="my-4">
 
-    <div class="d-flex justify-content-between align-items-center mb-3">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
         <h2 class="h5 mb-0">Règles de catégorisation</h2>
-        <div class="d-flex align-items-center gap-2">
+        <div class="d-flex flex-wrap align-items-center gap-2">
             <span class="text-body-secondary small d-none" id="run-rules-status">
                 <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
                 Exécution en arrière-plan…
             </span>
-            <button type="button" class="btn btn-sm btn-outline-secondary" id="run-rules-btn">Exécuter les règles sur les mouvements non catégorisés</button>
-            <button type="button" class="btn btn-sm btn-outline-secondary" id="reset-default-rules-btn">Réinitialiser les règles par défaut</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="run-rules-btn">Exécuter les règles</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="reset-default-rules-btn">Réinitialiser par défaut</button>
             <button type="button" class="btn btn-sm btn-primary" id="new-rule-btn">Nouvelle règle</button>
         </div>
     </div>
@@ -146,8 +147,13 @@
 
     <div class="d-flex flex-column gap-2 mb-4" id="rules-list">
         {% for rule in rules %}
-            <div class="border rounded-3 p-2 d-flex align-items-center gap-2 {{ rule.isSystem ? 'bg-body-secondary bg-opacity-25' : '' }}" data-id="{{ rule.id }}" draggable="true">
-                <i class="bi bi-grip-vertical text-body-secondary drag-handle" style="cursor: grab;"></i>
+            <div class="border rounded-3 p-2 d-flex align-items-center gap-2 {{ rule.isSystem ? 'bg-body-secondary bg-opacity-25' : '' }} rule-item" data-id="{{ rule.id }}" draggable="true">
+                <i class="bi bi-grip-vertical text-body-secondary drag-handle d-none d-lg-inline" style="cursor: grab;"></i>
+                {# Touch reorder: move up/down buttons below lg #}
+                <span class="d-lg-none d-inline-flex flex-column gap-0 flex-shrink-0 rule-move-btns">
+                    <button type="button" class="btn btn-sm btn-link text-body-secondary p-0 rule-move-up" aria-label="Monter"{% if loop.first %} disabled{% endif %}><i class="bi bi-chevron-up"></i></button>
+                    <button type="button" class="btn btn-sm btn-link text-body-secondary p-0 rule-move-down" aria-label="Descendre"{% if loop.last %} disabled{% endif %}><i class="bi bi-chevron-down"></i></button>
+                </span>
                 <div class="flex-grow-1">
                     {% if rule.isSystem %}<span class="badge text-bg-secondary"><i class="bi bi-gear-fill me-1"></i>Automatique</span>{% endif %}
                     {% if rule.isDefault %}<span class="badge text-bg-light border">Par défaut</span>{% endif %}
@@ -164,13 +170,14 @@
                             data-counterparty-account-pattern="{{ rule.counterpartyAccountPattern }}"
                             data-amount-range="{{ rule.amountRange }}"
                             data-category-id="{{ rule.categoryId }}"
-                            title="Modifier"><i class="bi bi-pencil"></i></button>
+                            title="Modifier" aria-label="Modifier"><i class="bi bi-pencil"></i></button>
                     <button type="button" class="btn btn-sm {{ rule.isActive ? 'btn-outline-success' : 'btn-outline-secondary' }} toggle-rule-btn"
                             data-id="{{ rule.id }}" data-active="{{ rule.isActive ? '1' : '0' }}"
-                            title="{{ rule.isActive ? 'Actif — cliquer pour désactiver' : 'Inactif — cliquer pour activer' }}">
+                            title="{{ rule.isActive ? 'Actif — cliquer pour désactiver' : 'Inactif — cliquer pour activer' }}"
+                            aria-label="{{ rule.isActive ? 'Actif — cliquer pour désactiver' : 'Inactif — cliquer pour activer' }}">
                         <i class="bi {{ rule.isActive ? 'bi-toggle-on' : 'bi-toggle-off' }}"></i>
                     </button>
-                    <button type="button" class="btn btn-sm btn-outline-danger delete-rule-btn" data-id="{{ rule.id }}" title="Supprimer"><i class="bi bi-trash"></i></button>
+                    <button type="button" class="btn btn-sm btn-outline-danger delete-rule-btn" data-id="{{ rule.id }}" title="Supprimer" aria-label="Supprimer"><i class="bi bi-trash"></i></button>
                 {% endif %}
             </div>
         {% else %}
@@ -194,7 +201,7 @@
     {% endif %}
 
     <div class="modal fade" id="rule-modal" tabindex="-1">
-        <div class="modal-dialog">
+        <div class="modal-dialog modal-fullscreen-sm-down modal-dialog-scrollable">
             <div class="modal-content">
                 <div class="modal-header">
                     <h5 class="modal-title" id="rule-form-title">Nouvelle règle</h5>
@@ -597,6 +604,47 @@ rulesList.querySelectorAll('div[data-id]').forEach(row => {
         }
         // On success the list is already visually reordered by the
         // drag-and-drop handlers above — no reload needed.
+    });
+});
+
+// --- Move up/down (touch-friendly alternative to drag-and-drop for rules) ---
+function persistRuleOrder() {
+    const ids = Array.from(rulesList.querySelectorAll('div[data-id]')).map(r => parseInt(r.dataset.id, 10));
+    fetch('/config/finance/rules', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'reorder', ordered_ids: ids, _csrf_token: csrf() })
+    }).then(r => r.json()).then(d => { if (!d.success) alert(d.error); });
+}
+function updateRuleMoveButtons() {
+    const items = Array.from(rulesList.querySelectorAll('.rule-item'));
+    items.forEach((item, i) => {
+        const up = item.querySelector('.rule-move-up');
+        const down = item.querySelector('.rule-move-down');
+        if (up) up.disabled = (i === 0);
+        if (down) down.disabled = (i === items.length - 1);
+    });
+}
+rulesList.querySelectorAll('.rule-move-up').forEach(btn => {
+    btn.addEventListener('click', () => {
+        const item = btn.closest('.rule-item');
+        const prev = item.previousElementSibling;
+        if (prev && prev.classList.contains('rule-item')) {
+            rulesList.insertBefore(item, prev);
+            persistRuleOrder();
+            updateRuleMoveButtons();
+        }
+    });
+});
+rulesList.querySelectorAll('.rule-move-down').forEach(btn => {
+    btn.addEventListener('click', () => {
+        const item = btn.closest('.rule-item');
+        const next = item.nextElementSibling;
+        if (next && next.classList.contains('rule-item')) {
+            rulesList.insertBefore(next, item);
+            persistRuleOrder();
+            updateRuleMoveButtons();
+        }
     });
 });
 </script>

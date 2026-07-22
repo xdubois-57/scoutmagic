@@ -1,0 +1,189 @@
+{
+  "id": "mass_mail",
+  "name": "Envoi de mails",
+  "description": "Envoi de mails groupés aux membres de l'unité : listes de diffusion par défaut ou personnalisées, mode test, envoi en arrière-plan par lots, suivi détaillé des envois.",
+  "version": "1.1.0",
+  "enabled_by_default": false,
+  "routes": [
+    {
+      "path": "/mass-mail",
+      "method": "GET",
+      "controller": "Modules\\MassMail\\Controller\\MassMailController",
+      "action": "index",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": "Envoi de mails"
+    },
+    {
+      "path": "/mass-mail",
+      "method": "POST",
+      "controller": "Modules\\MassMail\\Controller\\MassMailController",
+      "action": "create",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/mass-mail/{id}",
+      "method": "GET",
+      "controller": "Modules\\MassMail\\Controller\\MassMailController",
+      "action": "show",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/mass-mail/{id}",
+      "method": "PATCH",
+      "controller": "Modules\\MassMail\\Controller\\MassMailController",
+      "action": "update",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/mass-mail/{id}/status",
+      "method": "POST",
+      "controller": "Modules\\MassMail\\Controller\\MassMailController",
+      "action": "changeStatus",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/mass-mail/{id}/test-send",
+      "method": "POST",
+      "controller": "Modules\\MassMail\\Controller\\MassMailController",
+      "action": "testSend",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/mass-mail/{id}/attachments",
+      "method": "POST",
+      "controller": "Modules\\MassMail\\Controller\\MassMailController",
+      "action": "uploadAttachment",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/mass-mail/attachments/{id}",
+      "method": "DELETE",
+      "controller": "Modules\\MassMail\\Controller\\MassMailController",
+      "action": "deleteAttachment",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/mass-mail/{id}/tracking",
+      "method": "GET",
+      "controller": "Modules\\MassMail\\Controller\\MassMailController",
+      "action": "tracking",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/mass-mail/recipients/{id}/resend",
+      "method": "POST",
+      "controller": "Modules\\MassMail\\Controller\\MassMailController",
+      "action": "resend",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/config/mass-mail",
+      "method": "GET",
+      "controller": "Modules\\MassMail\\Controller\\ConfigController",
+      "action": "index",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": "Envoi de mails"
+    },
+    {
+      "path": "/config/mass-mail/lists",
+      "method": "POST",
+      "controller": "Modules\\MassMail\\Controller\\ConfigController",
+      "action": "createList",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": ""
+    },
+    {
+      "path": "/config/mass-mail/lists/{id}",
+      "method": "PATCH",
+      "controller": "Modules\\MassMail\\Controller\\ConfigController",
+      "action": "updateList",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": ""
+    },
+    {
+      "path": "/config/mass-mail/lists/{id}/toggle",
+      "method": "POST",
+      "controller": "Modules\\MassMail\\Controller\\ConfigController",
+      "action": "toggleList",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": ""
+    },
+    {
+      "path": "/config/mass-mail/lists/{id}",
+      "method": "DELETE",
+      "controller": "Modules\\MassMail\\Controller\\ConfigController",
+      "action": "deleteList",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": ""
+    },
+    {
+      "path": "/config/mass-mail/settings",
+      "method": "POST",
+      "controller": "Modules\\MassMail\\Controller\\ConfigController",
+      "action": "saveSettings",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": ""
+    }
+  ],
+  "settings": [
+    {
+      "key": "batch_size",
+      "default_value": "20",
+      "type": "number",
+      "label": "Taille des lots d'envoi",
+      "description": "Nombre d'emails envoyés à chaque passage du planificateur. Réglage global à tout le site."
+    },
+    {
+      "key": "batch_interval_minutes",
+      "default_value": "5",
+      "type": "number",
+      "label": "Intervalle entre les lots (minutes)",
+      "description": "Délai entre deux lots d'envoi. Réglage global à tout le site, s'applique à tous les emails de masse en cours d'envoi."
+    },
+    {
+      "key": "previous_year_active_cutoff",
+      "default_value": "07-31",
+      "type": "text",
+      "validation_regex": "^(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$",
+      "label": "Date de référence « année précédente » (MM-JJ)",
+      "description": "Repère indicatif affiché dans la fenêtre d'envoi pour expliquer ce que représente la liste de l'année scoute précédente (les membres actifs lors du dernier import Desk de cette année, généralement autour de cette date). N'affecte pas la résolution réelle de la liste."
+    }
+  ],
+  "cookies": [],
+  "scheduled_tasks": [
+    {
+      "key": "send_batch",
+      "handler": "Modules\\MassMail\\Task\\SendBatchHandler"
+    }
+  ],
+  "storage": {
+    "attachments": {
+      "role_min": "chief"
+    }
+  }
+}

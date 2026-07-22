@@ -1,6 +1,6 @@
 {# Mobile header bar — visible below lg #}
 <header class="d-lg-none d-flex align-items-center px-3 border-bottom bg-white" style="height:56px;">
-    <button class="btn btn-link text-dark p-0 me-auto" type="button" data-bs-toggle="offcanvas" data-bs-target="#navOffcanvas" aria-label="Menu">
+    <button class="btn btn-link text-dark p-2 me-auto d-inline-flex align-items-center justify-content-center" type="button" data-bs-toggle="offcanvas" data-bs-target="#navOffcanvas" aria-label="Menu" style="min-width:44px;min-height:44px;">
         <i class="bi bi-list fs-3"></i>
     </button>
     <span class="fw-semibold">{{ site_name }}</span>
@@ -47,8 +47,8 @@
                                 {% if page.isSeparator %}
                                     <li class="list-group-item p-0"><hr class="my-1"></li>
                                 {% elseif page.isDynamic %}
-                                    <li class="list-group-item list-group-item-action border-0 ps-4{% if current_path == page.url %} active{% endif %}">
-                                        <a href="{{ page.url }}" class="d-flex align-items-center gap-2 text-decoration-none{% if current_path == page.url %} fw-semibold text-primary{% else %} text-dark{% endif %}">
+                                    <li class="list-group-item list-group-item-action border-0 ps-4{% if current_path == page.url %} active{% endif %}" style="min-height:44px;">
+                                        <a href="{{ page.url }}" class="d-flex align-items-center gap-2 text-decoration-none{% if current_path == page.url %} fw-semibold text-primary{% else %} text-dark{% endif %}"{{ current_path == page.url ? ' aria-current="page"' : '' }}>
                                             <div class="rounded-circle bg-primary-subtle d-flex align-items-center justify-content-center"
                                                  style="width:32px;height:32px;min-width:32px;">
                                                 <span class="small fw-semibold text-primary">{{ page.label[:2] }}</span>
@@ -62,8 +62,8 @@
                                         </a>
                                     </li>
                                 {% else %}
-                                    <li class="list-group-item list-group-item-action border-0 ps-4{% if current_path == page.url %} active{% endif %}">
-                                        <a href="{{ page.url }}" class="text-decoration-none d-block{% if current_path == page.url %} fw-semibold text-primary{% else %} text-dark{% endif %}">{{ page.label }}</a>
+                                    <li class="list-group-item list-group-item-action border-0 ps-4 d-flex align-items-center{% if current_path == page.url %} active{% endif %}" style="min-height:44px;">
+                                        <a href="{{ page.url }}" class="text-decoration-none d-block{% if current_path == page.url %} fw-semibold text-primary{% else %} text-dark{% endif %}"{{ current_path == page.url ? ' aria-current="page"' : '' }}>{{ page.label }}</a>
                                     </li>
                                 {% endif %}
                             {% endfor %}

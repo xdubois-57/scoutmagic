@@ -83,7 +83,8 @@ class AuthControllerPasskeyTest extends TestCase
                 'clientDataJSON' => 'e30',
                 'authenticatorData' => 'dGVzdA',
                 'signature' => 'dGVzdA',
-            ]
+            ],
+            'rgpd_consent' => true,
         ]));
 
         $response = $this->controller->passkeyVerify($request, []);
@@ -91,6 +92,22 @@ class AuthControllerPasskeyTest extends TestCase
 
         $this->assertFalse($data['success']);
         $this->assertArrayHasKey('error', $data);
+    }
+
+    public function testPasskeyVerifyWithoutRgpdConsentReturnsError(): void
+    {
+        $request = $this->getMockBuilder(Request::class)
+            ->setConstructorArgs(['POST', '/login/passkey/verify', [], [], [], []])
+            ->onlyMethods(['getRawBody'])
+            ->getMock();
+
+        $request->method('getRawBody')->willReturn(json_encode(['id' => 'x', 'type' => 'public-key', 'rawId' => 'x', 'response' => []]));
+
+        $response = $this->controller->passkeyVerify($request, []);
+        $data = json_decode($response->getBody(), true);
+
+        $this->assertFalse($data['success']);
+        $this->assertStringContainsString('protection des données', $data['error']);
     }
 
     public function testPasskeyVerifyWithNullBodyReturnsError(): void

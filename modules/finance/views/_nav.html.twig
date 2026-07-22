@@ -19,22 +19,24 @@
     {'url': '/finance/receipts', 'label': 'Reçus'},
     {'url': '/finance/import', 'label': 'Importer'},
 ] %}
-<div class="d-flex flex-wrap gap-2 pb-2 mb-2 finance-page-picker">
+<div class="d-flex flex-nowrap flex-lg-wrap gap-2 pb-2 mb-2 overflow-x-auto finance-page-picker" style="-webkit-overflow-scrolling:touch;">
     {% for page in finance_pages %}
         {% set is_active = current_path == page.url %}
         <a href="{{ page.url }}{{ selected_account is defined and selected_account ? '?account_id=' ~ selected_account.id : '' }}"
-           class="btn btn-sm {{ is_active ? 'btn-primary' : 'btn-outline-secondary' }} text-nowrap text-decoration-none">
+           class="btn btn-sm {{ is_active ? 'btn-primary' : 'btn-outline-secondary' }} text-nowrap text-decoration-none"
+           {{ is_active ? 'aria-current="page"' : '' }}>
             {{ page.label }}
         </a>
     {% endfor %}
 </div>
 
 {% if accounts and not (hide_account_picker is defined and hide_account_picker) %}
-    <div class="d-flex flex-wrap gap-2 pb-2 mb-4 finance-account-picker">
+    <div class="d-flex flex-nowrap flex-lg-wrap gap-2 pb-2 mb-4 overflow-x-auto finance-account-picker" style="-webkit-overflow-scrolling:touch;">
         {% for account in accounts %}
             {% set is_active = selected_account is defined and selected_account and account.id == selected_account.id %}
             <a href="{{ current_path }}?account_id={{ account.id }}"
-               class="btn btn-sm {{ is_active ? 'btn-primary' : 'btn-outline-secondary' }} text-nowrap text-decoration-none">
+               class="btn btn-sm {{ is_active ? 'btn-primary' : 'btn-outline-secondary' }} text-nowrap text-decoration-none"
+               {{ is_active ? 'aria-current="true"' : '' }}>
                 {{ account.name }}
             </a>
         {% endfor %}

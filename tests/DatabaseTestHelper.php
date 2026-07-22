@@ -37,6 +37,7 @@ class DatabaseTestHelper
             first_name_encrypted BLOB,
             last_name_encrypted BLOB,
             password_hash TEXT,
+            password_changed_at TEXT,
             is_super_admin INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             last_login_at TEXT
@@ -49,6 +50,15 @@ class DatabaseTestHelper
             expires_at TEXT NOT NULL,
             used INTEGER NOT NULL DEFAULT 0,
             confirmed_at TEXT,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )');
+
+        $pdo->exec('CREATE TABLE password_reset_tokens (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email_blind_index TEXT NOT NULL,
+            token_hash TEXT NOT NULL,
+            expires_at TEXT NOT NULL,
+            used INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )');
 

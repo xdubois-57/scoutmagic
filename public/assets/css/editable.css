@@ -20,3 +20,17 @@
 .editable-image:hover .editable-overlay {
     opacity: 1;
 }
+/* Touch devices: no hover — make overlays always visible and ensure
+   the edit button meets the 44px minimum touch target. */
+@media (pointer: coarse) {
+    .editable-overlay {
+        opacity: 1;
+    }
+    .editable-overlay .btn {
+        min-width: 44px;
+        min-height: 44px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+    }
+}

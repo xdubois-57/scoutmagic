@@ -7,23 +7,23 @@
 
     <h1 class="mb-4 text-center">Se connecter</h1>
 
-    {# Tabs #}
+    {# Tabs — data-default marks which one the server pre-selected (module addendum: remembers the last method used, via an optional functional cookie). #}
     <ul class="nav nav-pills nav-fill mb-4" role="tablist">
         <li class="nav-item" role="presentation">
-            <button class="nav-link active" type="button" role="tab" data-tab="magic-link">Lien magique</button>
+            <button class="nav-link {{ default_login_method == 'magic-link' ? 'active' : '' }}" type="button" role="tab" data-tab="magic-link">Lien magique</button>
         </li>
         <li class="nav-item" role="presentation">
-            <button class="nav-link" type="button" role="tab" data-tab="password">Mot de passe</button>
+            <button class="nav-link {{ default_login_method == 'password' ? 'active' : '' }}" type="button" role="tab" data-tab="password">Mot de passe</button>
         </li>
         <li class="nav-item" role="presentation">
-            <button class="nav-link" type="button" role="tab" data-tab="passkey">Clé numérique</button>
+            <button class="nav-link {{ default_login_method == 'passkey' ? 'active' : '' }}" type="button" role="tab" data-tab="passkey">Clé numérique</button>
         </li>
     </ul>
 
     <input type="hidden" id="csrf-token" value="{{ csrf_token }}">
 
     {# Magic Link tab #}
-    <div id="tab-magic-link">
+    <div id="tab-magic-link" class="{{ default_login_method != 'magic-link' ? 'd-none' : '' }}">
         {# State 1: Email input #}
         <div id="state-email">
             <div class="card">
@@ -33,6 +33,16 @@
                         <input type="email" class="form-control" id="email" name="email" placeholder="nom@exemple.be" required autocomplete="email">
                     </div>
                     <div id="email-error" class="text-danger small mb-2 d-none"></div>
+
+                    {# Mandatory RGPD consent — module addendum. #}
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" id="rgpd-consent-checkbox-magic-link">
+                        <label class="form-check-label small" for="rgpd-consent-checkbox-magic-link">
+                            J'accepte la <a href="/rgpd" target="_blank" rel="noopener">politique de protection des données</a>
+                        </label>
+                    </div>
+                    <div id="rgpd-consent-error-magic-link" class="text-danger small mb-3 d-none">Vous devez accepter la politique de protection des données pour vous connecter.</div>
+
                     <button type="button" class="btn btn-primary w-100" id="send-magic-link">
                         Envoyer le lien de connexion
                     </button>
@@ -70,26 +80,47 @@
     </div>
 
     {# Password tab #}
-    <div id="tab-password" class="d-none">
+    <div id="tab-password" class="{{ default_login_method != 'password' ? 'd-none' : '' }}">
         <div class="card">
             <div class="card-body">
                 <div class="mb-3">
                     <label class="form-label">Adresse email</label>
                     <input type="email" name="email" class="form-control" id="password-email" placeholder="nom@exemple.be" required autocomplete="email">
                 </div>
-                <div class="mb-3">
+                <div class="mb-2">
                     <label class="form-label">Mot de passe</label>
                     <input type="password" name="password" class="form-control" id="password-input" required autocomplete="current-password">
                 </div>
+                <div class="mb-3 text-end">
+                    <a href="#" id="forgot-password-link" class="small">Mot de passe oublié ?</a>
+                </div>
+
+                {# Mandatory RGPD consent — module addendum. #}
+                <div class="form-check mb-3">
+                    <input class="form-check-input" type="checkbox" id="rgpd-consent-checkbox-password">
+                    <label class="form-check-label small" for="rgpd-consent-checkbox-password">
+                        J'accepte la <a href="/rgpd" target="_blank" rel="noopener">politique de protection des données</a>
+                    </label>
+                </div>
+                <div id="rgpd-consent-error-password" class="text-danger small mb-3 d-none">Vous devez accepter la politique de protection des données pour vous connecter.</div>
+
                 <button type="button" class="btn btn-primary w-100" id="password-login-btn">Se connecter</button>
                 <div id="password-error" class="text-danger small mt-2 d-none"></div>
                 <div id="password-lockout" class="text-warning small mt-2 d-none"></div>
+
+                {# Inline "forgot password" mini-form — module addendum. #}
+                <div id="forgot-password-form" class="d-none mt-3 pt-3 border-top">
+                    <label class="form-label small">Adresse email du compte</label>
+                    <input type="email" class="form-control form-control-sm mb-2" id="forgot-password-email" placeholder="nom@exemple.be">
+                    <button type="button" class="btn btn-sm btn-outline-primary w-100" id="forgot-password-submit-btn">Recevoir un lien de réinitialisation</button>
+                    <div id="forgot-password-message" class="small mt-2 d-none"></div>
+                </div>
             </div>
         </div>
     </div>
 
     {# Passkey tab #}
-    <div id="tab-passkey" class="d-none">
+    <div id="tab-passkey" class="{{ default_login_method != 'passkey' ? 'd-none' : '' }}">
         <div class="card">
             <div class="card-body text-center py-3">
                 <div class="rounded-circle bg-primary-subtle d-flex align-items-center justify-content-center mx-auto mb-3"
@@ -99,6 +130,16 @@
                 <p class="text-body-secondary mb-3">
                     Utilisez votre empreinte, visage ou clé de sécurité.
                 </p>
+
+                {# Mandatory RGPD consent — module addendum. #}
+                <div class="form-check mb-3 text-start">
+                    <input class="form-check-input" type="checkbox" id="rgpd-consent-checkbox-passkey">
+                    <label class="form-check-label small" for="rgpd-consent-checkbox-passkey">
+                        J'accepte la <a href="/rgpd" target="_blank" rel="noopener">politique de protection des données</a>
+                    </label>
+                </div>
+                <div id="rgpd-consent-error-passkey" class="text-danger small mb-3 d-none">Vous devez accepter la politique de protection des données pour vous connecter.</div>
+
                 <button type="button" class="btn btn-primary w-100" id="passkey-login-btn">Utiliser ma clé</button>
                 <div id="passkey-error" class="text-danger small mt-2 d-none"></div>
                 <div id="passkey-unsupported" class="text-warning small mt-2 d-none">

@@ -182,6 +182,7 @@ RÈGLES CRITIQUES (ne JAMAIS déroger) :
 8. **Hébergeur générique** : NE PAS demander à l'admin de remplir. Écrire "La localisation dépend de l'hébergeur sélectionné. Pour toute question, contacter le responsable."
 9. **IA provider** : Utiliser les infos exactes du fournisseur actif ({$providerInfo}, {$modelsInfo}) avec localisation et privacy policy
 10. **Téléphonie** : Si sos_staff actif, utiliser {$phoneProvider} (OVH Télécom ou autre)
+10bis. **Envoi de mails** : Si mass_mail actif, conserver explicitement dans la section 2.4 : (a) que l'adresse email de chaque destinataire est copiée depuis la fiche membre chiffrée au moment précis du lancement de l'envoi (et non relue à chaque envoi individuel) puis conservée chiffrée dans une table dédiée aux destinataires ; (b) que l'adresse d'expédition (From) utilisée est celle de la section expéditrice choisie pour l'email, et non l'adresse d'expédition générale du site ; (c) qu'il n'existe à ce jour aucune purge automatique dédiée aux anciens envois — ils sont conservés au même titre que le reste des données actives de l'unité (section 3.1)
 11. **Cookies** : Section 8 doit référencer la page /cookies pour consulter la liste et gérer les préférences, pas de tableau dans le RGPD
 12. **Sécurité technique** : Garder détails précis (AES-256-CBC, bcrypt, CSP, RBAC, 6 rôles, WebAuthn, PHPStan niveau 6)
 13. **Conservation 5 ans** : Mention obligatoire "5 ans après départ membre" pour archivage

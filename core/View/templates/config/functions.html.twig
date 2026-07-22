@@ -124,16 +124,18 @@
                 <h2 class="h6 mb-2">{{ group.branch_name }}</h2>
                 <div class="border rounded-3 overflow-hidden">
                     {% for section in group.sections %}
-                        <div class="d-flex align-items-center gap-3 p-3 border-bottom section-row" data-id="{{ section.id }}">
+                        <div class="d-flex flex-wrap align-items-center gap-2 gap-md-3 p-3 border-bottom section-row" data-id="{{ section.id }}">
                             <span class="text-body-secondary small text-nowrap">{{ section.desk_code }}</span>
-                            <input type="text" class="form-control form-control-sm section-name-input"
-                                   value="{{ section.name }}" placeholder="{{ section.desk_code }}">
+                            <input type="text" class="form-control form-control-sm section-name-input flex-grow-1"
+                                   value="{{ section.name }}" placeholder="{{ section.desk_code }}"
+                                   style="min-width:120px;">
                             <div class="d-flex align-items-center gap-1">
                                 <input type="color" class="form-control form-control-color section-color-input"
                                        value="{{ section.effective_color }}" title="Couleur de la section"
+                                       aria-label="Couleur de la section"
                                        data-has-override="{{ section.color ? '1' : '0' }}">
                                 <button type="button" class="btn btn-sm btn-outline-secondary section-color-reset"
-                                        title="Revenir à la couleur par défaut" {{ section.color ? '' : 'disabled' }}>
+                                        title="Revenir à la couleur par défaut" aria-label="Revenir à la couleur par défaut" {{ section.color ? '' : 'disabled' }}>
                                     <i class="bi bi-arrow-counterclockwise"></i>
                                 </button>
                             </div>

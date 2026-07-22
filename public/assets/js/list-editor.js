@@ -60,6 +60,40 @@
             });
         }
 
+        // --- Move up/down (touch-friendly alternative to drag-and-drop) ---
+        itemsEl.querySelectorAll('.list-editor-move-up').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                var item = btn.closest('.list-editor-item');
+                var prev = item.previousElementSibling;
+                if (prev && prev.classList.contains('list-editor-item')) {
+                    itemsEl.insertBefore(item, prev);
+                    persistOrder();
+                    updateMoveButtons();
+                }
+            });
+        });
+        itemsEl.querySelectorAll('.list-editor-move-down').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                var item = btn.closest('.list-editor-item');
+                var next = item.nextElementSibling;
+                if (next && next.classList.contains('list-editor-item')) {
+                    itemsEl.insertBefore(next, item);
+                    persistOrder();
+                    updateMoveButtons();
+                }
+            });
+        });
+
+        function updateMoveButtons() {
+            var items = Array.from(itemsEl.querySelectorAll('.list-editor-item'));
+            items.forEach(function (item, index) {
+                var upBtn = item.querySelector('.list-editor-move-up');
+                var downBtn = item.querySelector('.list-editor-move-down');
+                if (upBtn) upBtn.disabled = (index === 0);
+                if (downBtn) downBtn.disabled = (index === items.length - 1);
+            });
+        }
+
         // --- Active toggle (icon button, not a checkbox) ---
         itemsEl.querySelectorAll('.list-editor-active-toggle').forEach(function (toggle) {
             toggle.addEventListener('click', function () {

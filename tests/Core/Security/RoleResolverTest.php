@@ -157,4 +157,33 @@ class RoleResolverTest extends TestCase
         $ids = $this->resolver->getLinkedMemberYears('notfound@test.com', $this->scoutYearId);
         $this->assertEmpty($ids);
     }
+
+    // --- isEmailAuthorizedToLogin() (module addendum: login must fail with no matching member) ---
+
+    public function testSuperAdminIsAlwaysAuthorizedEvenWithNoMatchingMember(): void
+    {
+        $this->createUserAccount('admin-no-member@test.com', true);
+
+        $this->assertTrue($this->resolver->isEmailAuthorizedToLogin('admin-no-member@test.com', $this->scoutYearId));
+    }
+
+    public function testMemberWithCurrentYearRowIsAuthorized(): void
+    {
+        $this->createUserAccount('member@test.com');
+        $this->createMemberWithFunction('member@test.com', 'Animé', 'identified', true);
+
+        $this->assertTrue($this->resolver->isEmailAuthorizedToLogin('member@test.com', $this->scoutYearId));
+    }
+
+    public function testAccountWithNoMatchingMemberIsNotAuthorized(): void
+    {
+        $this->createUserAccount('orphan@test.com', false);
+
+        $this->assertFalse($this->resolver->isEmailAuthorizedToLogin('orphan@test.com', $this->scoutYearId));
+    }
+
+    public function testUnknownEmailIsNotAuthorized(): void
+    {
+        $this->assertFalse($this->resolver->isEmailAuthorizedToLogin('never-seen@test.com', $this->scoutYearId));
+    }
 }

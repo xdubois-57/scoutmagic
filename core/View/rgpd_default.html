@@ -141,6 +141,18 @@ Modèles : Llama, Qwen, divers modèles open source</li>
 <p><strong>Conservation</strong> : chaque mois, l'exercice comptable le plus ancien dépassant la durée de conservation configurée par l'administrateur (5 ans par défaut) est purgé intégralement (mouvements et soldes de référence). Un reçu archivé ou actif qui ne se rattache plus à aucun mouvement après cette purge est alors définitivement supprimé (fichier chiffré et donnée) — c'est le seul cas où un reçu est réellement effacé ; une suppression manuelle par un utilisateur ne fait, elle, toujours qu'archiver le reçu.</p>
 <p><strong>Base légale</strong> : Intérêt légitime (gestion administrative et comptable de l'unité, obligation de transparence financière envers la fédération).</p>
 
+<h4>Module Envoi de mails</h4>
+<p><strong>Finalité</strong> : Permettre aux chefs d'envoyer des communications groupées (par email) aux membres de l'unité, à partir de listes de diffusion par section, par fonction, ou personnalisées.</p>
+<p><strong>Données traitées</strong> :</p>
+<ul>
+<li>Sujet et contenu du message (rédigés par un chef, non chiffrés — il ne s'agit pas de données personnelles importées mais d'un contenu éditorial créé par un responsable de l'unité)</li>
+<li>Adresse email de chaque destinataire, <strong>copiée depuis la fiche membre chiffrée au moment précis du lancement de l'envoi</strong> (et non relue à chaque envoi individuel), et conservée chiffrée au repos (AES-256-CBC) dans une table dédiée aux destinataires de cet envoi</li>
+<li>Statut d'envoi par destinataire (en attente, envoyé, erreur) et, en cas d'erreur, un message technique générique (jamais l'adresse elle-même ni tout autre contenu personnel)</li>
+<li>Pièces jointes éventuelles (fichiers ajoutés par le chef à l'email, non chiffrées — il ne s'agit pas de données personnelles importées)</li>
+</ul>
+<p><strong>Conservation</strong> : les emails envoyés et la liste de leurs destinataires (y compris l'adresse copiée au moment de l'envoi) sont conservés indéfiniment, au même titre que le reste des données actives de l'unité (section 3.1) — il n'existe pas, à ce jour, de purge automatique dédiée aux anciens envois groupés. Une suppression peut être demandée par un membre auprès du responsable du traitement (section 7).</p>
+<p><strong>Base légale</strong> : Intérêt légitime (communication interne de l'unité, nécessaire à son organisation et à la participation aux activités).</p>
+
 <h3>2.5. Sécurité et traçabilité</h3>
 <p><strong>Finalité</strong> : Détecter et prévenir les abus, assurer la sécurité du site.</p>
 <p><strong>Données traitées</strong> : Journal d'audit contenant l'adresse IP, l'identifiant du compte (jamais l'email en clair), la date et l'action effectuée.</p>

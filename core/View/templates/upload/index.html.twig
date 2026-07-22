@@ -16,14 +16,16 @@
                 <i class="bi bi-cloud-arrow-up display-4 text-muted"></i>
                 <p class="mt-2">Glissez-déposez un fichier ici</p>
                 <p class="text-muted">ou</p>
-                <label class="btn btn-outline-primary">
-                    Choisir un fichier
-                    <input type="file" name="file" accept="image/*" class="d-none" id="file-input">
-                </label>
-                <label class="btn btn-outline-secondary ms-2">
-                    <i class="bi bi-camera"></i> Prendre une photo
-                    <input type="file" name="file_camera" accept="image/*" capture="environment" class="d-none" id="camera-input">
-                </label>
+                <div class="d-flex flex-column flex-sm-row gap-2 justify-content-center">
+                    <label class="btn btn-outline-primary">
+                        Choisir un fichier
+                        <input type="file" name="file" accept="image/*" class="d-none" id="file-input">
+                    </label>
+                    <label class="btn btn-outline-secondary">
+                        <i class="bi bi-camera"></i> Prendre une photo
+                        <input type="file" name="file_camera" accept="image/*" capture="environment" class="d-none" id="camera-input">
+                    </label>
+                </div>
             </div>
 
             <div id="preview-container" class="mb-3 d-none text-center">

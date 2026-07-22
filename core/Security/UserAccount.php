@@ -13,7 +13,8 @@ class UserAccount
         public readonly ?string $lastName,
         public readonly ?string $passwordHash,
         public readonly bool $isSuperAdmin,
-        public readonly ?\DateTimeImmutable $lastLoginAt
+        public readonly ?\DateTimeImmutable $lastLoginAt,
+        public readonly ?\DateTimeImmutable $passwordChangedAt = null
     ) {
     }
 }

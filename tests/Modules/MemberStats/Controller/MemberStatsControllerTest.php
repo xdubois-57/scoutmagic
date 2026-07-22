@@ -8,6 +8,7 @@ use Core\Config\AppConfig;
 use Core\Http\FrontController;
 use Core\Http\Request;
 use Core\Http\Router;
+use Core\Member\SectionService;
 use Core\ScoutYear\EffectiveScoutYear;
 use Core\ScoutYear\ScoutYearResolver;
 use Core\Security\AuthSession;
@@ -72,7 +73,18 @@ class MemberStatsControllerTest extends TestCase
         // Mirrors the module.json route (role_min: chief).
         $router->addRoute('GET', '/chiefs/stats', MemberStatsController::class, 'index', 'chief');
 
-        $service = new MemberStatsService($this->stubRepository());
+        $sectionService = new class () extends SectionService {
+            public function __construct()
+            {
+                // No DB in this test.
+            }
+
+            public function getAllWithBranches(bool $includeHidden = false): array
+            {
+                return [];
+            }
+        };
+        $service = new MemberStatsService($this->stubRepository(), $sectionService);
         $resolver = $this->stubResolver();
 
         $fc = new FrontController($router, $this->twig, $this->config);

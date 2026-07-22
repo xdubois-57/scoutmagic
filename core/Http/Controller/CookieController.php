@@ -9,6 +9,7 @@ use Core\Http\FlashMessage;
 use Core\Http\Request;
 use Core\Http\Response;
 use Core\Security\CsrfGuard;
+use Core\Security\LastLoginMethodCookie;
 use Twig\Environment;
 
 class CookieController extends AbstractController
@@ -66,6 +67,9 @@ class CookieController extends AbstractController
         ];
 
         $this->cookieConsentService->saveConsent($choices);
+        if (!$choices['functional']) {
+            LastLoginMethodCookie::forget();
+        }
         FlashMessage::set('success', 'Vos préférences cookies ont été enregistrées.');
 
         return $this->redirect('/cookies');
@@ -99,6 +103,7 @@ class CookieController extends AbstractController
         }
 
         $this->cookieConsentService->rejectAll();
+        LastLoginMethodCookie::forget();
 
         return $this->json(['success' => true]);
     }

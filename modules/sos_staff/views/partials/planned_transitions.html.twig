@@ -8,7 +8,7 @@
 {% else %}
     <ul class="list-group mb-2">
         {% for transition in planned_transitions %}
-            <li class="list-group-item d-flex justify-content-between align-items-center{{ transition.is_next ? ' sos-next-transition' : '' }}">
+            <li class="list-group-item d-flex flex-wrap justify-content-between align-items-center gap-1{{ transition.is_next ? ' sos-next-transition' : '' }}" style="min-height:44px;">
                 <div>
                     <span class="fw-semibold">{{ transition.run_at }}</span> — {{ transition.label }}
                     {% if transition.is_next %}<span class="badge bg-warning text-dark ms-2">Prochain changement</span>{% endif %}
@@ -22,11 +22,21 @@
     {% if planned_transitions_total_pages > 1 %}
         <nav aria-label="Pagination des redirections planifiées" class="mb-4">
             <ul class="pagination pagination-sm">
+                <li class="page-item {{ planned_transitions_page <= 1 ? 'disabled' : '' }}">
+                    <a class="page-link" href="#" data-transitions-page="{{ planned_transitions_page - 1 }}" aria-label="Précédent"><i class="bi bi-chevron-left"></i></a>
+                </li>
                 {% for p in 1..planned_transitions_total_pages %}
-                    <li class="page-item {{ p == planned_transitions_page ? 'active' : '' }}">
-                        <a class="page-link" href="#" data-transitions-page="{{ p }}">{{ p }}</a>
-                    </li>
+                    {% if p == 1 or p == planned_transitions_total_pages or (p >= planned_transitions_page - 2 and p <= planned_transitions_page + 2) %}
+                        <li class="page-item {{ p == planned_transitions_page ? 'active' : '' }}">
+                            <a class="page-link" href="#" data-transitions-page="{{ p }}">{{ p }}</a>
+                        </li>
+                    {% elseif p == planned_transitions_page - 3 or p == planned_transitions_page + 3 %}
+                        <li class="page-item disabled"><span class="page-link">…</span></li>
+                    {% endif %}
                 {% endfor %}
+                <li class="page-item {{ planned_transitions_page >= planned_transitions_total_pages ? 'disabled' : '' }}">
+                    <a class="page-link" href="#" data-transitions-page="{{ planned_transitions_page + 1 }}" aria-label="Suivant"><i class="bi bi-chevron-right"></i></a>
+                </li>
             </ul>
         </nav>
     {% else %}

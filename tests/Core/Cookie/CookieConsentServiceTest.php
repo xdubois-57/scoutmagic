@@ -102,9 +102,9 @@ class CookieConsentServiceTest extends TestCase
         $this->assertArrayHasKey('functional', $groups);
         $this->assertArrayHasKey('analytics', $groups);
 
-        // Core cookies are all 'necessary'
+        // Core cookies are mostly 'necessary', except last_login_method (functional).
         $this->assertNotEmpty($groups['necessary']['cookies']);
-        $this->assertEmpty($groups['functional']['cookies']);
+        $this->assertNotEmpty($groups['functional']['cookies']);
         $this->assertEmpty($groups['analytics']['cookies']);
 
         // Verify label and description exist
@@ -125,8 +125,10 @@ class CookieConsentServiceTest extends TestCase
         ]);
 
         $groups = $service->getAllDeclaredCookies();
-        $this->assertCount(1, $groups['functional']['cookies']);
-        $this->assertSame('calendar_view', $groups['functional']['cookies'][0]['name']);
+        // last_login_method (core) + calendar_view (module) are both 'functional'.
+        $this->assertCount(2, $groups['functional']['cookies']);
+        $names = array_column($groups['functional']['cookies'], 'name');
+        $this->assertContains('calendar_view', $names);
     }
 
     public function testConsentReadFromExistingCookieJar(): void

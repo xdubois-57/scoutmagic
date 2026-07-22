@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Modules\MemberStats\Service;
 
 use Core\Member\MemberYearService;
+use Core\Member\SectionService;
 use Modules\MemberStats\Repository\MemberStatsRepository;
 use Modules\MemberStats\Service\MemberStatsService;
 use PHPUnit\Framework\TestCase;
@@ -37,7 +38,22 @@ class MemberStatsServiceTest extends TestCase
             }
         };
 
-        return new MemberStatsService($repo, new MemberYearService());
+        // No sections configured → resolveBranchColor() falls back to
+        // MemberYearService::colorForBranchSortOrder(), same hardcoded
+        // defaults this test file already asserts on.
+        $sectionService = new class () extends SectionService {
+            public function __construct()
+            {
+                // Intentionally skip parent constructor: no DB/encryption in unit tests.
+            }
+
+            public function getAllWithBranches(bool $includeHidden = false): array
+            {
+                return [];
+            }
+        };
+
+        return new MemberStatsService($repo, $sectionService, new MemberYearService());
     }
 
     /**
@@ -82,6 +98,41 @@ class MemberStatsServiceTest extends TestCase
         $this->assertSame('#1D9E75', $stats['branches'][2]['color']);
         $this->assertSame('16–17', $stats['branches'][3]['age_range']);
         $this->assertSame('#D85A30', $stats['branches'][3]['color']);
+    }
+
+    public function testBranchColorHonorsTheSectionsOwnColorOverride(): void
+    {
+        $repo = new class ([]) extends MemberStatsRepository {
+            public function __construct(private array $stubRows)
+            {
+            }
+
+            public function getMemberBranchData(int $scoutYearId): array
+            {
+                return $this->stubRows;
+            }
+        };
+        $sectionService = new class () extends SectionService {
+            public function __construct()
+            {
+            }
+
+            public function getAllWithBranches(bool $includeHidden = false): array
+            {
+                return [
+                    // Louveteaux (branch_sort_order 20) — two sections, "LOU01" wins by desk_code,
+                    // and its explicit override (#FF00FF) beats the branch default (#639922).
+                    ['id' => 2, 'desk_code' => 'LOU02', 'branch_sort_order' => 20, 'color' => null],
+                    ['id' => 1, 'desk_code' => 'LOU01', 'branch_sort_order' => 20, 'color' => '#FF00FF'],
+                ];
+            }
+        };
+
+        $stats = (new MemberStatsService($repo, $sectionService, new MemberYearService()))->getStatistics(1, self::REFERENCE_YEAR);
+
+        $this->assertSame('#FF00FF', $stats['branches'][1]['color']);
+        // Untouched branches (no matching sections) still fall back to the hardcoded default.
+        $this->assertSame('#378ADD', $stats['branches'][0]['color']);
     }
 
     public function testBirthYearLabelsPerRow(): void

@@ -131,6 +131,20 @@
     cursor: pointer;
 }
 
+/* On touch devices, enlarge event bars for reliable tap targets */
+@media (pointer: coarse) {
+    .calendar-event-bar {
+        line-height: 2rem;
+        font-size: 0.72rem;
+        padding: 0.15rem 0.4rem;
+    }
+    .calendar-event-bar--clickable {
+        min-height: 44px;
+        display: flex;
+        align-items: center;
+    }
+}
+
 @media (min-width: 768px) {
     .calendar-day-number { min-height: 1.75rem; padding: 0.3rem 0.5rem; font-size: 0.85rem; }
     .calendar-event-bar { font-size: 0.75rem; }

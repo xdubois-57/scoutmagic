@@ -33,7 +33,8 @@
         {% for day in week.days %}
             <div class="calendar-day-cell{{ days_clickable ? ' calendar-day-cell--clickable' : '' }}{{ not day.in_month ? ' is-padding' : '' }}{{ day.is_today ? ' is-today' : '' }}"
                  style="grid-column: {{ loop.index }}; grid-row: 1 / span {{ week.row_count + 1 }};"
-                 data-date="{{ day.date }}"></div>
+                 data-date="{{ day.date }}"
+                 {%- if days_clickable %} tabindex="0" role="button" aria-label="Ajouter un évènement le {{ day.date }}"{% endif %}></div>
         {% endfor %}
         {% for day in week.days %}
             <div class="calendar-day-number" style="grid-column: {{ loop.index }}; grid-row: 1;">
@@ -47,6 +48,7 @@
             <div class="calendar-event-bar{{ events_clickable ? ' calendar-event-bar--clickable' : '' }}{{ bar.continues_before ? ' continues-before' : '' }}{{ bar.continues_after ? ' continues-after' : '' }}"
                  style="grid-column: {{ bar.col_start }} / span {{ bar.col_span }}; grid-row: {{ bar.row + 2 }}; background-color: {{ bar.event.color }};"
                  title="{{ bar.event.tooltip ?? bar.event.label }}"
+                 {%- if events_clickable %} tabindex="0" role="button" aria-label="{{ bar.event.label }}"{% endif %}
                  {%- for key, value in bar.event.data %} data-{{ key }}="{{ value }}"{% endfor %}>
                 {{ bar.event.label }}
             </div>

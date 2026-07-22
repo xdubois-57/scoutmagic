@@ -155,12 +155,14 @@ class UserAccountRepository
     }
 
     /**
-     * Update the password hash for a user.
+     * Update the password hash for a user — always also stamps
+     * password_changed_at (initial set, account-page change, or a
+     * password-reset link all count), shown on the account page.
      */
     public function updatePasswordHash(int $id, string $passwordHash): void
     {
         $stmt = $this->pdo->prepare(
-            'UPDATE user_accounts SET password_hash = ? WHERE id = ?'
+            'UPDATE user_accounts SET password_hash = ?, password_changed_at = CURRENT_TIMESTAMP WHERE id = ?'
         );
         $stmt->execute([$passwordHash, $id]);
     }
@@ -200,6 +202,11 @@ class UserAccountRepository
             $lastLoginAt = new \DateTimeImmutable($row['last_login_at']);
         }
 
+        $passwordChangedAt = null;
+        if (!empty($row['password_changed_at'])) {
+            $passwordChangedAt = new \DateTimeImmutable($row['password_changed_at']);
+        }
+
         return new UserAccount(
             id: (int) $row['id'],
             email: $decryptedEmail,
@@ -207,7 +214,8 @@ class UserAccountRepository
             lastName: $lastName,
             passwordHash: $row['password_hash'] ?? null,
             isSuperAdmin: (bool) $row['is_super_admin'],
-            lastLoginAt: $lastLoginAt
+            lastLoginAt: $lastLoginAt,
+            passwordChangedAt: $passwordChangedAt
         );
     }
 }

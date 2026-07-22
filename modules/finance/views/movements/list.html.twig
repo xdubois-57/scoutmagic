@@ -56,7 +56,51 @@
         </div>
     </form>
 
-    <div class="table-responsive">
+    {# Mobile card view — visible below md #}
+    <div class="d-md-none d-flex flex-column gap-2 mb-3">
+        {% for row in rows %}
+            {% set movement = row.movement %}
+            <div class="border rounded-3 p-3 movement-row {{ movement.categoryId is null ? 'bg-warning-subtle' : '' }}"
+                 style="cursor:pointer;"
+                 data-id="{{ movement.id }}"
+                 data-date="{{ movement.transactionDate }}"
+                 data-label="{{ movement.label }}"
+                 data-bank-reference="{{ movement.bankReference }}"
+                 data-amount="{{ movement.amount }}"
+                 data-source="{{ movement.source }}"
+                 data-category-id="{{ movement.categoryId }}"
+                 data-category-source="{{ movement.categorySource }}"
+                 data-comment="{{ movement.comment }}"
+                 data-fiscal-year-id="{{ movement.fiscalYearId }}"
+                 data-counterparty-name="{{ movement.counterpartyName }}"
+                 data-counterparty-account="{{ movement.counterpartyAccount }}"
+                 data-extra-details="{{ movement.extraDetails }}">
+                <div class="d-flex justify-content-between align-items-start mb-1">
+                    <span class="text-body-secondary small">{{ movement.transactionDate }}</span>
+                    <span class="fw-semibold {{ movement.amount < 0 ? 'text-danger' : 'text-success' }}">
+                        {{ movement.amount|number_format(2, ',', ' ') }} €
+                    </span>
+                </div>
+                <div class="fw-semibold small text-truncate">{{ row.counterparty ?: row.description }}</div>
+                <div class="d-flex align-items-center gap-2 mt-1">
+                    <span class="badge {{ movement.categoryId ? 'text-bg-light border' : 'text-bg-warning' }}">
+                        {{ movement.categoryId and categories_by_id[movement.categoryId] is defined ? categories_by_id[movement.categoryId].name : 'À catégoriser' }}
+                    </span>
+                    {% if row.attachment_count > 0 %}
+                        <span class="text-body-secondary small">📎 {{ row.attachment_count }}</span>
+                    {% endif %}
+                    {% if movement.isCategoryAutoAssigned %}
+                        <span class="badge text-bg-light border">Auto</span>
+                    {% endif %}
+                </div>
+            </div>
+        {% else %}
+            <p class="text-body-secondary fst-italic">Aucun mouvement.</p>
+        {% endfor %}
+    </div>
+
+    {# Desktop table view — visible from md up #}
+    <div class="table-responsive d-none d-md-block">
         <table class="table table-sm align-middle">
             <thead>
                 <tr>
@@ -98,7 +142,7 @@
                             {{ movement.amount|number_format(2, ',', ' ') }} €
                         </td>
                         <td class="text-center">
-                            <button type="button" class="btn btn-sm btn-link p-0 attachment-btn" data-id="{{ movement.id }}" title="Reçus">
+                            <button type="button" class="btn btn-sm btn-link p-0 attachment-btn" data-id="{{ movement.id }}" title="Reçus" aria-label="Reçus">
                                 📎{% if row.attachment_count > 0 %} <span class="badge text-bg-secondary">{{ row.attachment_count }}</span>{% endif %}
                             </button>
                             {% if row.suggested_receipt %}
@@ -117,19 +161,30 @@
     </div>
 
     {% if total_pages > 1 %}
-        <nav>
+        {% set page_url = '?account_id=' ~ selected_account.id ~ (filter_fiscal_year_id ? '&fiscal_year_id=' ~ filter_fiscal_year_id : '') ~ (filter_category_id and filter_category_id != 'all' ? '&category_id=' ~ filter_category_id : '') ~ (filter_search ? '&q=' ~ filter_search : '') %}
+        <nav aria-label="Pagination des mouvements">
             <ul class="pagination pagination-sm">
+                <li class="page-item {{ page <= 1 ? 'disabled' : '' }}">
+                    <a class="page-link" href="{{ page_url }}&page={{ page - 1 }}" aria-label="Précédent"><i class="bi bi-chevron-left"></i></a>
+                </li>
                 {% for p in 1..total_pages %}
-                    <li class="page-item {{ p == page ? 'active' : '' }}">
-                        <a class="page-link" href="?page={{ p }}&account_id={{ selected_account.id }}{% if filter_fiscal_year_id %}&fiscal_year_id={{ filter_fiscal_year_id }}{% endif %}{% if filter_category_id and filter_category_id != 'all' %}&category_id={{ filter_category_id }}{% endif %}{% if filter_search %}&q={{ filter_search }}{% endif %}">{{ p }}</a>
-                    </li>
+                    {% if p == 1 or p == total_pages or (p >= page - 2 and p <= page + 2) %}
+                        <li class="page-item {{ p == page ? 'active' : '' }}">
+                            <a class="page-link" href="{{ page_url }}&page={{ p }}">{{ p }}</a>
+                        </li>
+                    {% elseif p == page - 3 or p == page + 3 %}
+                        <li class="page-item disabled"><span class="page-link">…</span></li>
+                    {% endif %}
                 {% endfor %}
+                <li class="page-item {{ page >= total_pages ? 'disabled' : '' }}">
+                    <a class="page-link" href="{{ page_url }}&page={{ page + 1 }}" aria-label="Suivant"><i class="bi bi-chevron-right"></i></a>
+                </li>
             </ul>
         </nav>
     {% endif %}
 
     <div class="modal fade" id="attachments-modal" tabindex="-1">
-        <div class="modal-dialog">
+        <div class="modal-dialog modal-fullscreen-sm-down modal-dialog-scrollable">
             <div class="modal-content">
                 <div class="modal-header">
                     <h5 class="modal-title">Reçus associés</h5>
@@ -160,7 +215,7 @@
     </div>
 
     <div class="modal fade" id="movement-details-modal" tabindex="-1">
-        <div class="modal-dialog">
+        <div class="modal-dialog modal-fullscreen-sm-down modal-dialog-scrollable">
             <div class="modal-content">
                 <div class="modal-header">
                     <h5 class="modal-title">Détails du mouvement</h5>

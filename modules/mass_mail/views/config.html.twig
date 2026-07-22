@@ -1,0 +1,246 @@
+{% extends "base.html.twig" %}
+
+{% block title %}Configuration envoi de mails — {{ site_name }}{% endblock %}
+
+{% block content %}
+    <h1 class="mb-4">Configuration envoi de mails</h1>
+
+    <div class="card mb-4">
+        <div class="card-body">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h2 class="h5 mb-0">Listes de diffusion</h2>
+                <button type="button" class="btn btn-sm btn-primary" id="cfg-new-list-btn"><i class="bi bi-plus-lg"></i> Nouvelle liste</button>
+            </div>
+
+            <ul class="list-group mb-2">
+                {% for list in default_lists %}
+                    <li class="list-group-item">
+                        <div class="d-flex align-items-center">
+                            <i class="bi bi-lock text-body-secondary me-2" title="Liste par défaut — non modifiable"></i>
+                            <span>{{ list.label }}</span>
+                        </div>
+                        <p class="text-body-secondary small mb-0 mt-1">{{ list.description }}</p>
+                    </li>
+                {% endfor %}
+            </ul>
+
+            <ul class="list-group" id="cfg-custom-lists">
+                {% for list in custom_lists %}
+                    <li class="list-group-item" data-id="{{ list.id }}">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <span>{{ list.name }}{% if not list.isActive %} <span class="badge text-bg-secondary">Désactivée</span>{% endif %}</span>
+                            <span class="text-nowrap">
+                                <button type="button" class="btn btn-sm btn-outline-secondary cfg-edit-list-btn"
+                                        data-id="{{ list.id }}" data-name="{{ list.name }}" data-description="{{ list.description }}"
+                                        data-function-ids="{{ custom_list_criteria[list.id].function_ids|join(',') }}"
+                                        data-section-ids="{{ custom_list_criteria[list.id].section_ids|join(',') }}">
+                                    <i class="bi bi-pencil"></i>
+                                </button>
+                                <button type="button" class="btn btn-sm btn-outline-secondary cfg-toggle-list-btn" data-id="{{ list.id }}" data-active="{{ list.isActive ? '1' : '0' }}">
+                                    <i class="bi {{ list.isActive ? 'bi-eye-slash' : 'bi-eye' }}"></i>
+                                </button>
+                                <button type="button" class="btn btn-sm btn-outline-danger cfg-delete-list-btn" data-id="{{ list.id }}"><i class="bi bi-trash"></i></button>
+                            </span>
+                        </div>
+                        <p class="text-body-secondary small mb-0 mt-1">{{ list.description }}</p>
+                    </li>
+                {% else %}
+                    <li class="list-group-item text-body-secondary fst-italic">Aucune liste personnalisée.</li>
+                {% endfor %}
+            </ul>
+        </div>
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-body">
+            <h2 class="h5 mb-3">Vitesse d'envoi</h2>
+            <p class="text-body-secondary small">
+                Ce réglage est <strong>global à tout le site</strong> — il s'applique à tous les emails de masse en cours d'envoi, quel que soit leur expéditeur.
+            </p>
+            <form id="cfg-settings-form" class="d-flex align-items-center flex-wrap gap-2">
+                <span>Envoyer</span>
+                <input type="number" min="1" class="form-control form-control-sm" style="width:6rem;" id="cfg-batch-size" value="{{ batch_size }}">
+                <span>emails toutes les</span>
+                <input type="number" min="1" class="form-control form-control-sm" style="width:6rem;" id="cfg-batch-interval">
+                <span id="cfg-batch-interval-label">minutes</span>
+                <button type="submit" class="btn btn-sm btn-primary ms-2">Enregistrer</button>
+            </form>
+        </div>
+    </div>
+
+    <div class="modal fade" id="cfg-list-modal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="cfg-list-modal-title">Nouvelle liste</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="alert alert-danger d-none" id="cfg-list-error"></div>
+                    <div class="mb-3">
+                        <label class="form-label small" for="cfg-list-name">Nom</label>
+                        <input type="text" class="form-control form-control-sm" id="cfg-list-name">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small" for="cfg-list-description">Description</label>
+                        <textarea class="form-control form-control-sm" id="cfg-list-description" rows="2" maxlength="500"
+                                  placeholder="À qui s'adresse cette liste, dans quel but — affiché aux chefs qui la choisissent."></textarea>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small d-block">Fonctions (au moins une)</label>
+                        <div class="border rounded p-2" style="max-height:160px;overflow-y:auto;">
+                            {% for f in all_functions %}
+                                <div class="form-check">
+                                    <input class="form-check-input cfg-function-checkbox" type="checkbox" value="{{ f.id }}" id="cfg-fn-{{ f.id }}">
+                                    <label class="form-check-label small" for="cfg-fn-{{ f.id }}">{{ f.label }}</label>
+                                </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small d-block">Sections (au moins une)</label>
+                        <div class="border rounded p-2" style="max-height:160px;overflow-y:auto;">
+                            {% for s in all_sections %}
+                                <div class="form-check">
+                                    <input class="form-check-input cfg-section-checkbox" type="checkbox" value="{{ s.id }}" id="cfg-sec-{{ s.id }}">
+                                    <label class="form-check-label small" for="cfg-sec-{{ s.id }}">{{ s.name }}</label>
+                                </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Annuler</button>
+                    <button type="button" class="btn btn-sm btn-primary" id="cfg-list-save-btn">Enregistrer</button>
+                </div>
+            </div>
+        </div>
+    </div>
+{% endblock %}
+
+{% block scripts %}
+<script nonce="{{ csp_nonce }}">
+const csrf = () => document.querySelector('meta[name="csrf-token"]')?.content;
+document.getElementById('cfg-batch-interval').value = {{ batch_interval_minutes|json_encode|raw }};
+
+const cfgModalEl = document.getElementById('cfg-list-modal');
+const cfgModal = window.bootstrap ? new window.bootstrap.Modal(cfgModalEl) : null;
+let cfgCurrentListId = null;
+
+function cfgShowError(message) {
+    const box = document.getElementById('cfg-list-error');
+    box.textContent = message;
+    box.classList.remove('d-none');
+}
+
+function cfgResetModal() {
+    cfgCurrentListId = null;
+    document.getElementById('cfg-list-modal-title').textContent = 'Nouvelle liste';
+    document.getElementById('cfg-list-error').classList.add('d-none');
+    document.getElementById('cfg-list-name').value = '';
+    document.getElementById('cfg-list-description').value = '';
+    document.querySelectorAll('.cfg-function-checkbox, .cfg-section-checkbox').forEach(cb => { cb.checked = false; });
+}
+
+document.getElementById('cfg-new-list-btn').addEventListener('click', () => {
+    cfgResetModal();
+    cfgModal ? cfgModal.show() : cfgModalEl.classList.add('show');
+});
+
+document.querySelectorAll('.cfg-edit-list-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        cfgResetModal();
+        cfgCurrentListId = btn.dataset.id;
+        document.getElementById('cfg-list-modal-title').textContent = 'Modifier la liste';
+        document.getElementById('cfg-list-name').value = btn.dataset.name;
+        document.getElementById('cfg-list-description').value = btn.dataset.description || '';
+        const functionIds = btn.dataset.functionIds ? btn.dataset.functionIds.split(',') : [];
+        const sectionIds = btn.dataset.sectionIds ? btn.dataset.sectionIds.split(',') : [];
+        functionIds.forEach(id => {
+            const cb = document.getElementById('cfg-fn-' + id);
+            if (cb) cb.checked = true;
+        });
+        sectionIds.forEach(id => {
+            const cb = document.getElementById('cfg-sec-' + id);
+            if (cb) cb.checked = true;
+        });
+        cfgModal ? cfgModal.show() : cfgModalEl.classList.add('show');
+    });
+});
+
+document.getElementById('cfg-list-save-btn').addEventListener('click', async () => {
+    const functionIds = Array.from(document.querySelectorAll('.cfg-function-checkbox:checked')).map(cb => parseInt(cb.value, 10));
+    const sectionIds = Array.from(document.querySelectorAll('.cfg-section-checkbox:checked')).map(cb => parseInt(cb.value, 10));
+    const payload = {
+        name: document.getElementById('cfg-list-name').value,
+        description: document.getElementById('cfg-list-description').value,
+        function_ids: functionIds,
+        section_ids: sectionIds,
+        _csrf_token: csrf()
+    };
+
+    const url = cfgCurrentListId ? '/config/mass-mail/lists/' + cfgCurrentListId : '/config/mass-mail/lists';
+    const method = cfgCurrentListId ? 'PATCH' : 'POST';
+    const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    const data = await res.json();
+    if (!data.success) {
+        cfgShowError(data.error || 'Erreur.');
+        return;
+    }
+    window.location.reload();
+});
+
+document.querySelectorAll('.cfg-toggle-list-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+        const active = btn.dataset.active === '1';
+        const res = await fetch('/config/mass-mail/lists/' + btn.dataset.id + '/toggle', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ active: !active, _csrf_token: csrf() })
+        });
+        const data = await res.json();
+        if (!data.success) {
+            alert(data.error || 'Erreur.');
+            return;
+        }
+        window.location.reload();
+    });
+});
+
+document.querySelectorAll('.cfg-delete-list-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+        if (!confirm('Supprimer cette liste ?')) return;
+        const res = await fetch('/config/mass-mail/lists/' + btn.dataset.id, {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ _csrf_token: csrf() })
+        });
+        const data = await res.json();
+        if (!data.success) {
+            alert(data.error || 'Erreur.');
+            return;
+        }
+        window.location.reload();
+    });
+});
+
+document.getElementById('cfg-settings-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const res = await fetch('/config/mass-mail/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            batch_size: parseInt(document.getElementById('cfg-batch-size').value, 10),
+            batch_interval_minutes: parseInt(document.getElementById('cfg-batch-interval').value, 10),
+            _csrf_token: csrf()
+        })
+    });
+    const data = await res.json();
+    if (!data.success) {
+        alert(data.error || 'Erreur.');
+        return;
+    }
+    alert('Réglages enregistrés.');
+});
+</script>
+{% endblock %}

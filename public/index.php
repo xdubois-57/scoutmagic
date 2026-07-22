@@ -24,6 +24,7 @@ use Core\Photo\MemberPhotoService;
 use Core\Config\ScoutYearService;
 use Core\Http\Controller\AccountController;
 use Core\Http\Controller\AuthController;
+use Core\Http\Controller\PasswordResetController;
 use Core\Http\Controller\ConfigGeneralController;
 use Core\Http\Controller\RgpdConfigController;
 use Core\Http\Controller\FunctionsController;
@@ -78,6 +79,7 @@ use Core\Http\Router;
 use Core\Mail\DkimManager;
 use Core\Mail\MailServiceFactory;
 use Core\Security\AuthService;
+use Core\Security\PasswordResetService;
 use Core\Security\AuthSession;
 use Core\Security\EncryptionService;
 use Core\Security\LoginThrottler;
@@ -318,6 +320,16 @@ $authService = new AuthService(
     (string) $settingService->get('site_name')
 );
 
+// Create PasswordResetService ("Mot de passe oublié" flow)
+$passwordResetService = new PasswordResetService(
+    $connection,
+    $encryptionService,
+    $mailService,
+    $twig,
+    (string) $settingService->get('base_url'),
+    (string) $settingService->get('site_name')
+);
+
 // Create cookie consent service
 $cookieConsentService = new CookieConsentService();
 
@@ -542,6 +554,11 @@ $router->addRoute('GET', '/auth/verify', AuthController::class, 'verifyMagicLink
 $router->addRoute('GET', '/auth/poll/{id}', AuthController::class, 'pollMagicLink', 'public');
 $router->addRoute('POST', '/logout', AuthController::class, 'logout', 'identified');
 
+// Password reset ("Mot de passe oublié")
+$router->addRoute('POST', '/password-reset/request', PasswordResetController::class, 'request', 'public');
+$router->addRoute('GET', '/password-reset/{id}', PasswordResetController::class, 'show', 'public');
+$router->addRoute('POST', '/password-reset/{id}', PasswordResetController::class, 'submit', 'public');
+
 // Account routes
 $router->addRoute('GET', '/account', AccountController::class, 'index', 'identified');
 $router->addRoute('POST', '/account/profile', AccountController::class, 'updateProfile', 'identified');
@@ -686,6 +703,7 @@ $setupController->setJournalService($journalService);
 $frontController->registerController(SetupController::class, $setupController);
 // Build auth dependencies
 $authService->setJournalService($journalService);
+$passwordResetService->setJournalService($journalService);
 $loginThrottler = new LoginThrottler($connection);
 $passwordAuthMethod = new PasswordAuthMethod($userAccountRepo, $encryptionService, $loginThrottler);
 $passwordAuthMethod->setJournalService($journalService);
@@ -699,11 +717,12 @@ $webAuthnService = new WebAuthnService(
     $webAuthnBaseUrl
 );
 
-$authController = new AuthController($twig, $authService, $roleResolver, $scoutYearResolver);
+$authController = new AuthController($twig, $authService, $roleResolver, $scoutYearResolver, $cookieConsentService);
 $authController->setPasswordAuth($passwordAuthMethod);
 $authController->setWebAuthnService($webAuthnService);
 $frontController->registerController(AuthController::class, $authController);
 $frontController->registerController(AccountController::class, new AccountController($twig, $userAccountRepo, $webAuthnCredentialRepo, $webAuthnService));
+$frontController->registerController(PasswordResetController::class, new PasswordResetController($twig, $passwordResetService));
 $frontController->registerController(ImportController::class, new ImportController($twig, $importService, $scoutYearResolver, $importJournalRepo, $functionRepo, $storagePath));
 $frontController->registerController(MemberController::class, new MemberController($twig, $memberService, $memberYearService, $journalService));
 $frontController->registerController(StaffsController::class, new StaffsController($twig, $sectionService, $memberService, $scoutYearResolver, $journalService, $badgeService, $unitStaffSectionService));
@@ -730,6 +749,7 @@ $frontController->registerController(PlaceholderController::class, new Placehold
 if (in_array('member_stats', $moduleManager->getEnabledModuleIds(), true)) {
     $memberStatsService = new \Modules\MemberStats\Service\MemberStatsService(
         new \Modules\MemberStats\Repository\MemberStatsRepository($connection, $encryptionService),
+        $sectionService,
         $memberYearService
     );
     $frontController->registerController(
@@ -1011,6 +1031,49 @@ if (in_array('finance', $moduleManager->getEnabledModuleIds(), true)) {
         \Modules\Finance\Controller\ConfigDangerController::class,
         new \Modules\Finance\Controller\ConfigDangerController(
             $twig, $financeTransactionRepo, $financeCheckpointRepo, $financeAttachmentRepo, $journalService
+        )
+    );
+}
+
+if (in_array('mass_mail', $moduleManager->getEnabledModuleIds(), true)) {
+    $massMailListRepo = new \Modules\MassMail\Repository\MailingListRepository($pdo);
+    $massMailResolutionRepo = new \Modules\MassMail\Repository\MemberResolutionRepository($pdo, $encryptionService);
+    $massMailEmailRepo = new \Modules\MassMail\Repository\EmailRepository($pdo);
+    $massMailRecipientRepo = new \Modules\MassMail\Repository\RecipientRepository($pdo, $encryptionService);
+    $massMailAttachmentRepo = new \Modules\MassMail\Repository\EmailAttachmentRepository($pdo);
+    $massMailFunctionRepo = new \Core\Import\FunctionRepository($pdo);
+
+    $massMailListService = new \Modules\MassMail\Service\MailingListService(
+        $massMailListRepo, $massMailResolutionRepo, $sectionService, $massMailFunctionRepo
+    );
+    $massMailAccessService = new \Modules\MassMail\Service\MassMailAccessService($memberService, $sectionService);
+    $massMailService = new \Modules\MassMail\Service\MassMailService(
+        $massMailEmailRepo, $massMailRecipientRepo, $massMailAttachmentRepo, $fileRepository,
+        $massMailListService, $memberService, $sectionService, $mailService, $schedulerService, $journalService,
+        new \Core\Security\HtmlSanitizer(), $scoutYearService, $importJournalRepo, $storagePath
+    );
+
+    $frontController->registerController(
+        \Modules\MassMail\Controller\MassMailController::class,
+        new \Modules\MassMail\Controller\MassMailController(
+            $twig, $massMailService, $massMailListService, $massMailAccessService, $memberService, $sectionService,
+            $scoutYearService, $importJournalRepo, $settingService, $uploadHandler, $fileRepository
+        )
+    );
+    $frontController->registerController(
+        \Modules\MassMail\Controller\ConfigController::class,
+        new \Modules\MassMail\Controller\ConfigController($twig, $massMailListService, $settingService)
+    );
+
+    // Re-registers MemberController with the mass_mail public API
+    // (ARCHITECTURE.md §7.5) so the member page's "Emails reçus" section
+    // can render — core never depends on the module directly, only on
+    // Modules\MassMail\Api\MassMailQueryInterface.
+    $frontController->registerController(
+        MemberController::class,
+        new MemberController(
+            $twig, $memberService, $memberYearService, $journalService,
+            new \Modules\MassMail\Service\MassMailQueryService($massMailRecipientRepo)
         )
     );
 }

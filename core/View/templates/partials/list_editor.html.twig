@@ -60,8 +60,17 @@
         {% for item in items %}
             {% set can_delete = item.can_delete is not defined or item.can_delete %}
             <div class="list-editor-item border rounded-3 p-3 d-flex align-items-start gap-2" draggable="true" data-id="{{ item.id }}">
-                <span class="list-editor-drag-handle text-body-secondary" title="Glisser pour réordonner" style="cursor:grab;">
+                <span class="list-editor-drag-handle text-body-secondary d-none d-lg-inline" title="Glisser pour réordonner" style="cursor:grab;">
                     <i class="bi bi-grip-vertical"></i>
+                </span>
+                {# Touch reorder: move up/down buttons visible only on coarse pointer / below lg #}
+                <span class="list-editor-move-btns d-lg-none d-inline-flex flex-column gap-0 flex-shrink-0">
+                    <button type="button" class="btn btn-sm btn-link text-body-secondary p-0 list-editor-move-up" data-id="{{ item.id }}" aria-label="Monter"{% if loop.first %} disabled{% endif %}>
+                        <i class="bi bi-chevron-up"></i>
+                    </button>
+                    <button type="button" class="btn btn-sm btn-link text-body-secondary p-0 list-editor-move-down" data-id="{{ item.id }}" aria-label="Descendre"{% if loop.last %} disabled{% endif %}>
+                        <i class="bi bi-chevron-down"></i>
+                    </button>
                 </span>
                 <div class="list-editor-item-content flex-grow-1">
                     {% block item_content %}{% endblock %}
@@ -70,11 +79,14 @@
                     {% block item_edit %}{% endblock %}
                     <button type="button" class="btn btn-sm {{ item.is_active ? 'btn-outline-success' : 'btn-outline-secondary' }} list-editor-active-toggle"
                             data-id="{{ item.id }}" data-active="{{ item.is_active ? '1' : '0' }}"
+                            aria-label="{{ item.is_active ? 'Actif — cliquer pour désactiver' : 'Inactif — cliquer pour activer' }}"
                             title="{{ item.is_active ? 'Actif — cliquer pour désactiver' : 'Inactif — cliquer pour activer' }}">
                         <i class="bi {{ item.is_active ? 'bi-toggle-on' : 'bi-toggle-off' }}"></i>
                     </button>
                     <button type="button" class="btn btn-sm btn-outline-danger list-editor-delete-btn" data-id="{{ item.id }}"
-                            {{ can_delete ? '' : 'disabled' }} title="{{ can_delete ? 'Supprimer' : item.delete_blocked_reason|default('Suppression impossible.') }}">
+                            {{ can_delete ? '' : 'disabled' }}
+                            aria-label="{{ can_delete ? 'Supprimer' : item.delete_blocked_reason|default('Suppression impossible.') }}"
+                            title="{{ can_delete ? 'Supprimer' : item.delete_blocked_reason|default('Suppression impossible.') }}">
                         <i class="bi bi-trash"></i>
                     </button>
                 </div>

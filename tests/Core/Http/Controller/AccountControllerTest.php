@@ -109,8 +109,8 @@ class AccountControllerTest extends TestCase
 
         $request = new Request('POST', '/account/password', [], [
             '_csrf_token' => $csrfToken,
-            'new_password' => 'MySecurePass',
-            'confirm_password' => 'MySecurePass',
+            'new_password' => 'MySecureP@ss1',
+            'confirm_password' => 'MySecureP@ss1',
         ], [], []);
 
         $response = $this->controller->updatePassword($request, []);
@@ -130,8 +130,8 @@ class AccountControllerTest extends TestCase
         $request = new Request('POST', '/account/password', [], [
             '_csrf_token' => $csrfToken,
             'current_password' => 'OldPassword',
-            'new_password' => 'NewPassword',
-            'confirm_password' => 'NewPassword',
+            'new_password' => 'NewSecureP@ss1',
+            'confirm_password' => 'NewSecureP@ss1',
         ], [], []);
 
         $response = $this->controller->updatePassword($request, []);
@@ -140,7 +140,7 @@ class AccountControllerTest extends TestCase
 
         // Verify new password works
         $account = $this->userRepo->findById($this->userId);
-        $this->assertTrue(password_verify('NewPassword', $account->passwordHash));
+        $this->assertTrue(password_verify('NewSecureP@ss1', $account->passwordHash));
     }
 
     public function testUpdatePasswordFailsWhenCurrentPasswordIsWrong(): void
@@ -197,6 +197,40 @@ class AccountControllerTest extends TestCase
 
         $this->assertSame(302, $response->getStatusCode());
         $this->assertFalse($this->userRepo->hasPassword($this->userId));
+    }
+
+    public function testUpdatePasswordFailsWhenComplexityRulesNotMet(): void
+    {
+        $csrfToken = CsrfGuard::generateToken();
+
+        // 12+ chars but no digit/symbol — fails Core\Security\PasswordPolicy
+        // even though it passes the old 8-char-only rule.
+        $request = new Request('POST', '/account/password', [], [
+            '_csrf_token' => $csrfToken,
+            'new_password' => 'OnlyLettersHere',
+            'confirm_password' => 'OnlyLettersHere',
+        ], [], []);
+
+        $response = $this->controller->updatePassword($request, []);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertFalse($this->userRepo->hasPassword($this->userId));
+    }
+
+    public function testUpdatePasswordStampsPasswordChangedAt(): void
+    {
+        $csrfToken = CsrfGuard::generateToken();
+
+        $request = new Request('POST', '/account/password', [], [
+            '_csrf_token' => $csrfToken,
+            'new_password' => 'MySecureP@ss1',
+            'confirm_password' => 'MySecureP@ss1',
+        ], [], []);
+
+        $this->controller->updatePassword($request, []);
+
+        $account = $this->userRepo->findById($this->userId);
+        $this->assertNotNull($account->passwordChangedAt);
     }
 
     public function testCsrfValidatedOnProfileUpdate(): void

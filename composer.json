@@ -21,6 +21,7 @@
             "Modules\\Calendar\\": "modules/calendar/src/",
             "Modules\\Finance\\": "modules/finance/src/",
             "Modules\\LlmConnector\\": "modules/llm_connector/src/",
+            "Modules\\MassMail\\": "modules/mass_mail/src/",
             "Modules\\MemberStats\\": "modules/member_stats/src/",
             "Modules\\SosStaff\\": "modules/sos_staff/src/",
             "Modules\\Trombinoscope\\": "modules/trombinoscope/src/"

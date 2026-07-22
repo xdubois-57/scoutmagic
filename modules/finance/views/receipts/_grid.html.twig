@@ -48,7 +48,7 @@
                         </button>
                     {% endif %}
                 </div>
-                <div class="d-flex gap-2 mt-auto">
+                <div class="d-flex flex-wrap gap-2 mt-auto">
                     <button type="button" class="btn btn-sm btn-outline-primary associate-btn" data-id="{{ attachment.id }}" data-suggested-date="{{ attachment.suggestedDate }}">Associer</button>
                     <a href="/finance/receipts/new?replace={{ attachment.id }}" class="btn btn-sm btn-outline-secondary">Remplacer</a>
                     <button type="button" class="btn btn-sm btn-outline-danger delete-btn" data-id="{{ attachment.id }}">Supprimer</button>
@@ -63,13 +63,23 @@
 </div>
 
 {% if total_pages > 1 %}
-    <nav>
+    <nav aria-label="Pagination des reçus">
         <ul class="pagination pagination-sm">
+            <li class="page-item {{ page <= 1 ? 'disabled' : '' }}">
+                <a class="page-link" href="#" data-page="{{ page - 1 }}" aria-label="Précédent"><i class="bi bi-chevron-left"></i></a>
+            </li>
             {% for p in 1..total_pages %}
-                <li class="page-item {{ p == page ? 'active' : '' }}">
-                    <a class="page-link" href="#" data-page="{{ p }}">{{ p }}</a>
-                </li>
+                {% if p == 1 or p == total_pages or (p >= page - 2 and p <= page + 2) %}
+                    <li class="page-item {{ p == page ? 'active' : '' }}">
+                        <a class="page-link" href="#" data-page="{{ p }}">{{ p }}</a>
+                    </li>
+                {% elseif p == page - 3 or p == page + 3 %}
+                    <li class="page-item disabled"><span class="page-link">…</span></li>
+                {% endif %}
             {% endfor %}
+            <li class="page-item {{ page >= total_pages ? 'disabled' : '' }}">
+                <a class="page-link" href="#" data-page="{{ page + 1 }}" aria-label="Suivant"><i class="bi bi-chevron-right"></i></a>
+            </li>
         </ul>
     </nav>
 {% endif %}

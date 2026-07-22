@@ -136,6 +136,18 @@ class ScoutYearService
     }
 
     /**
+     * Compute the label of the year preceding the given one.
+     * "2025-2026" → "2024-2025".
+     */
+    public static function previousLabel(string $label): string
+    {
+        $parts = explode('-', $label);
+        $startYear = (int) $parts[0];
+
+        return sprintf('%d-%d', $startYear - 1, $startYear);
+    }
+
+    /**
      * Determine the scout year label for a given date.
      * September 2025 → "2025-2026". August 2026 → "2025-2026".
      */
