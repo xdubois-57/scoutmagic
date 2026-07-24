@@ -138,6 +138,18 @@ class FinanceTestHelper
             suggested_name TEXT NOT NULL,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )');
+
+        $pdo->exec('CREATE TABLE finance_expected_receivables (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source_module TEXT NOT NULL,
+            source_reference_id INTEGER NOT NULL,
+            account_id INTEGER NOT NULL,
+            amount_due_cents INTEGER NOT NULL,
+            communication TEXT NOT NULL,
+            label_encrypted BLOB NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (account_id) REFERENCES finance_accounts(id)
+        )');
     }
 
     /**

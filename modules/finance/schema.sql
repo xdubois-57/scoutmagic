@@ -286,3 +286,35 @@ CREATE TABLE IF NOT EXISTS finance_ai_category_suggestions (
     suggested_name VARCHAR(100) NOT NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- finance_expected_receivables: generic "money we expect to receive"
+-- registry, keyed by (source_module, source_reference_id) so any module
+-- can register an expectation without Finance knowing anything about it
+-- (Modules\Finance\Api\ExpectedReceivableInterface — ARCHITECTURE.md
+-- §7.5, a module offering an API to others). Introduced for the news
+-- module's paid form fields (one receivable per form response), but not
+-- specific to it — a future membership-fee or event-registration feature
+-- reuses this unchanged. amount_due_cents/communication are not personal
+-- data (a payment reference and an integer), so no encryption needed;
+-- label is caller-supplied free text that may identify the payer (e.g.
+-- "Jean Dupont — Camp d'été"), so — same convention as finance_
+-- transactions.counterparty_name — it is encrypted (SECURITY.md §5),
+-- transparently, inside Service\ExpectedReceivableService; callers of
+-- the public interface only ever see/pass a plain string. Status (paid/
+-- partial/unpaid) is never stored — always computed live from matched
+-- finance_transactions sharing the same communication (Service\
+-- ExpectedReceivableService::getReceivableStatus()), since a receivable
+-- can be settled across several bank transactions over time.
+CREATE TABLE IF NOT EXISTS finance_expected_receivables (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    source_module VARCHAR(50) NOT NULL,
+    source_reference_id INT UNSIGNED NOT NULL,
+    account_id INT UNSIGNED NOT NULL,
+    amount_due_cents INT UNSIGNED NOT NULL,
+    communication VARCHAR(24) NOT NULL,
+    label_encrypted BLOB NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_fer_source (source_module, source_reference_id),
+    INDEX idx_fer_communication (communication),
+    CONSTRAINT fk_fer_account FOREIGN KEY (account_id) REFERENCES finance_accounts(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

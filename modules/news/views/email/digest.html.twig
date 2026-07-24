@@ -1,0 +1,11 @@
+{% extends 'email/base.html.twig' %}
+{% block content %}
+    <h2 style="margin:0 0 16px;font-size:20px;">Nouvelles réponses — {{ article_title }}</h2>
+    <p>{{ count }} nouvelle{{ count > 1 ? 's' : '' }} réponse{{ count > 1 ? 's' : '' }} {{ count > 1 ? 'ont' : 'a' }} été soumise{{ count > 1 ? 's' : '' }} depuis le dernier résumé.</p>
+    <p style="text-align:center;margin:24px 0;">
+        <a href="{{ responses_url }}"
+           style="display:inline-block;padding:12px 32px;background-color:#0d6efd;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:bold;">
+            Voir les réponses
+        </a>
+    </p>
+{% endblock %}

@@ -1,0 +1,88 @@
+{% extends "base.html.twig" %}
+
+{% block title %}{{ article.title }} — {{ site_name }}{% endblock %}
+
+{% block head_meta %}
+    {% if not article.isEffectivelyIndexed() %}
+        <meta name="robots" content="noindex">
+    {% elseif article.seoKeywords %}
+        <meta name="keywords" content="{{ article.seoKeywords }}">
+    {% endif %}
+{% endblock %}
+
+{% block content %}
+    <div class="mx-auto" style="max-width: 720px;">
+        <h1 class="mb-1">{{ article.title }}</h1>
+        <p class="text-body-secondary small mb-4">
+            {{ article.createdAt|french_date }}{% if author_name %} · {{ author_name }}{% endif %}
+        </p>
+
+        <div class="news-article-body mb-4">{{ body_html|raw }}</div>
+
+        {% if form %}
+            <hr class="my-4">
+            <div class="news-form-section bg-body-tertiary rounded-3 p-3 p-sm-4">
+                <h2 class="h4 mb-3">Formulaire</h2>
+
+                {% if submit_error %}
+                    <div class="alert alert-danger">{{ submit_error }}</div>
+                {% endif %}
+
+                {% if requires_login %}
+                    <div class="alert alert-info">
+                        Connectez-vous pour remplir ce formulaire.
+                        <a href="/login" class="alert-link">Se connecter</a>
+                    </div>
+                {% elseif not form_open %}
+                    <div class="alert alert-secondary">
+                        Ce formulaire est fermé et n'accepte plus de réponses.
+                        {% if form.closesAt %}Il a été fermé le {{ form.closesAt|french_date }}.{% endif %}
+                    </div>
+                {% elseif already_responded %}
+                    <div class="alert alert-info">
+                        Vous avez déjà répondu à ce formulaire.
+                    </div>
+                {% else %}
+                    <form method="POST" action="/news/{{ article.id }}/form/submit" id="news-form">
+                        <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+
+                        <div class="mb-3">
+                            <label class="form-label" for="contact_email">Email de contact <span class="text-danger">*</span></label>
+                            <input type="email" class="form-control" id="contact_email" name="contact_email" value="{{ contact_email_default }}" required>
+                        </div>
+
+                        {% if requires_member_selector %}
+                            <div class="mb-3">
+                                <label class="form-label" for="member_year_id">Membre concerné <span class="text-danger">*</span></label>
+                                <select class="form-select" id="member_year_id" name="member_year_id" required>
+                                    <option value="">Choisissez…</option>
+                                    {% for member_id, member_name in member_options %}
+                                        <option value="{{ member_id }}">{{ member_name }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                        {% endif %}
+
+                        {% for row in fields %}
+                            {% include '@news/partials/_field.html.twig' with {field: row.field, options: row.options, remaining_capacity: row.remaining_capacity} %}
+                        {% endfor %}
+
+                        {% if payment_available %}
+                            <div class="border rounded-3 p-3 mb-3" id="news-payment-summary">
+                                <div id="news-payment-lines"></div>
+                                <p class="fw-bold mb-1">Total à payer : <span id="news-payment-total">0,00</span> €</p>
+                                <p class="text-body-secondary small mb-0">Les informations de paiement vous seront communiquées après l'envoi.</p>
+                            </div>
+                        {% endif %}
+
+                        <button type="submit" class="btn btn-primary w-100 w-sm-auto float-sm-end">Envoyer</button>
+                    </form>
+                {% endif %}
+            </div>
+        {% endif %}
+    </div>
+{% endblock %}
+
+{% block scripts %}
+    <script src="/assets/js/news-form-builder.js" defer></script>
+{% endblock %}

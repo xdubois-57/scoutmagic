@@ -18,6 +18,9 @@ Only a small, explicitly justified set of external dependencies is allowed:
 | Bootstrap 5 | Mobile-first responsive grid, forms, navigation, and table components; compiled CSS+JS files only — no Sass, no webpack, no npm on the server. |
 | PHPMailer | SMTP authentication, STARTTLS, and DKIM signing; reimplementing email delivery correctly is a project in itself with real deliverability risks. |
 | smalot/pdfparser | Extracts a PDF's embedded text layer (`Core\File\PdfTextExtractor`) — parsing PDF's internal object/stream structure correctly (compression filters, font encodings, cross-reference tables) is not something worth hand-rolling for one feature (Modules\Finance\Task\ExtractReceiptDataHandler: reading a receipt/invoice PDF's real text is exact and provider-agnostic, versus sending the file to a vision model and hoping it's supported/accurate). |
+| dompdf/dompdf | Renders HTML+CSS to PDF for printable A4 posters (`Core\Pdf\PosterPdfService`); pure PHP, no system binaries required on shared hosting. |
+| endroid/qr-code | Generates QR code images (PNG/SVG) server-side for posters and SEPA payment codes; pure PHP, no external API call. |
+| phpoffice/phpspreadsheet | Reads and writes XLSX files with formula and style support; needed for form response export (`Modules\News`) and future financial spreadsheet imports. |
 
 Everything else is written in-house. Composer is used for autoloading and dependency resolution during CI build — `vendor/` is built by CI and deployed via FTP; Composer is never required on the hosting server.
 

@@ -1,0 +1,169 @@
+{% extends "base.html.twig" %}
+
+{% block title %}{{ article ? 'Éditer' : 'Nouvel article' }} — Actualités — {{ site_name }}{% endblock %}
+
+{% block content %}
+    <h1 class="h4 mb-3">{{ article ? 'Éditer l\'article' : 'Nouvel article' }}</h1>
+
+    {% include '@news/partials/_form_tabs.html.twig' with {article_id: article ? article.id : null, active: preview is defined and preview ? 'preview' : 'edit', can_view_responses: form is not null} %}
+
+    {% if preview is defined and preview %}
+        {% include '@news/partials/_editor_preview.html.twig' %}
+    {% else %}
+        <form method="POST" action="{{ article ? '/news/' ~ article.id : '/news' }}" id="news-editor-form">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="body_html" id="body_html_input" value="{{ body_html }}">
+            <input type="hidden" name="fields_json" id="fields_json_input" value="">
+
+            {% if submit_error %}<div class="alert alert-danger">{{ submit_error }}</div>{% endif %}
+
+            <div class="card mb-3">
+                <div class="card-body">
+                    <h2 class="h6">Contenu de l'article</h2>
+                    <input type="text" class="form-control form-control-lg mb-3" name="title" placeholder="Titre de l'article"
+                           value="{{ article ? article.title : '' }}" required>
+
+                    <div class="news-editor-toolbar mb-2 d-flex flex-wrap gap-1">
+                        <button type="button" data-command="formatBlock" data-value="h2" class="btn btn-sm btn-outline-secondary" title="Titre 2"><strong>H2</strong></button>
+                        <button type="button" data-command="formatBlock" data-value="h3" class="btn btn-sm btn-outline-secondary" title="Titre 3"><strong>H3</strong></button>
+                        <button type="button" data-command="formatBlock" data-value="p" class="btn btn-sm btn-outline-secondary" title="Paragraphe"><i class="bi bi-text-paragraph"></i></button>
+                        <span class="mx-1"></span>
+                        <button type="button" data-command="bold" class="btn btn-sm btn-outline-secondary" title="Gras"><i class="bi bi-type-bold"></i></button>
+                        <button type="button" data-command="italic" class="btn btn-sm btn-outline-secondary" title="Italique"><i class="bi bi-type-italic"></i></button>
+                        <button type="button" data-command="underline" class="btn btn-sm btn-outline-secondary" title="Souligné"><i class="bi bi-type-underline"></i></button>
+                        <span class="mx-1"></span>
+                        <button type="button" data-command="insertUnorderedList" class="btn btn-sm btn-outline-secondary" title="Liste à puces"><i class="bi bi-list-ul"></i></button>
+                        <button type="button" data-command="insertOrderedList" class="btn btn-sm btn-outline-secondary" title="Liste numérotée"><i class="bi bi-list-ol"></i></button>
+                        <span class="mx-1"></span>
+                        <button type="button" data-command="createLink" class="btn btn-sm btn-outline-secondary" title="Lien"><i class="bi bi-link-45deg"></i></button>
+                        <button type="button" data-command="removeFormat" class="btn btn-sm btn-outline-secondary" title="Supprimer le formatage"><i class="bi bi-eraser"></i></button>
+                    </div>
+                    <div id="news-body-editor" contenteditable="true" class="form-control" style="min-height:150px;">{{ body_html|raw }}</div>
+                </div>
+            </div>
+
+            <div class="card mb-3">
+                <div class="card-body">
+                    <h2 class="h6">Visibilité</h2>
+                    <div class="btn-group d-flex flex-wrap" role="group" id="news-visibility-group">
+                        {% set visibility = article ? article.visibility : 'public' %}
+                        <input type="radio" class="btn-check" name="visibility" id="vis-public" value="public" {{ visibility == 'public' ? 'checked' : '' }}>
+                        <label class="btn btn-outline-primary" for="vis-public">Public</label>
+                        <input type="radio" class="btn-check" name="visibility" id="vis-chief" value="chief" {{ visibility == 'chief' ? 'checked' : '' }}>
+                        <label class="btn btn-outline-primary" for="vis-chief">Chefs</label>
+                        <input type="radio" class="btn-check" name="visibility" id="vis-admin" value="admin" {{ visibility == 'admin' ? 'checked' : '' }}>
+                        <label class="btn btn-outline-primary" for="vis-admin">Chefs d'Unité</label>
+                        <input type="radio" class="btn-check" name="visibility" id="vis-direct_link" value="direct_link" {{ visibility == 'direct_link' ? 'checked' : '' }}>
+                        <label class="btn btn-outline-primary" for="vis-direct_link">Lien direct</label>
+                    </div>
+                    <p class="form-text d-none" id="news-direct-link-help">
+                        Cet article n'apparaîtra dans aucune liste. Il sera accessible uniquement par son URL ou via le QR code de l'affiche.
+                    </p>
+                </div>
+            </div>
+
+            <div class="card mb-3" id="news-seo-section">
+                <div class="card-body">
+                    <h2 class="h6">Référencement</h2>
+                    <div class="form-check form-switch mb-2">
+                        <input class="form-check-input" type="checkbox" role="switch" name="is_indexed" id="is_indexed" value="1"
+                               {{ article and article.isIndexed ? 'checked' : '' }}>
+                        <label class="form-check-label" for="is_indexed">Indexer cette page dans les moteurs de recherche</label>
+                    </div>
+                    <div id="news-seo-fields" class="{{ article and article.isIndexed ? '' : 'd-none' }}">
+                        <div class="mb-2">
+                            <label class="form-label" for="seo_keywords">Mots-clés</label>
+                            <div class="d-flex gap-2">
+                                <input type="text" class="form-control" name="seo_keywords" id="seo_keywords" value="{{ article ? article.seoKeywords : '' }}" placeholder="camp, été, inscription">
+                                {% if seo_ai_available %}
+                                    <button type="button" class="btn btn-outline-secondary text-nowrap" id="news-ai-keywords-btn">Générer avec l'IA</button>
+                                {% endif %}
+                            </div>
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label" for="seo_stop_date">Arrêter l'indexation le</label>
+                            <input type="date" class="form-control" name="seo_stop_date" id="seo_stop_date" value="{{ article ? article.seoStopDate : '' }}">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {% if article %}
+                <div class="card mb-3">
+                    <div class="card-body">
+                        <h2 class="h6">Affiche &amp; QR code</h2>
+                        {% if short_url %}
+                            <p class="mb-2">Affiche A4 avec QR code vers {{ short_url }}</p>
+                            <a href="/news/{{ article.id }}/poster" class="btn btn-outline-secondary">
+                                <i class="bi bi-file-earmark-pdf"></i> Télécharger le PDF
+                            </a>
+                        {% else %}
+                            <p class="text-body-secondary mb-0">Enregistrez l'article pour générer le lien court.</p>
+                        {% endif %}
+                    </div>
+                </div>
+            {% endif %}
+
+            <div class="card mb-3">
+                <div class="card-body">
+                    <div class="form-check form-switch mb-3">
+                        <input class="form-check-input" type="checkbox" role="switch" id="has_form" name="has_form" value="1" {{ form ? 'checked' : '' }}>
+                        <label class="form-check-label fw-bold" for="has_form">Ajouter un formulaire à cet article</label>
+                    </div>
+
+                    <div id="news-form-builder" class="{{ form ? '' : 'd-none' }} border rounded-3 p-3">
+                        {% include '@news/partials/_form_builder.html.twig' %}
+                    </div>
+                </div>
+            </div>
+
+            <div class="d-flex flex-column flex-sm-row gap-2 justify-content-between">
+                <button type="submit" class="btn btn-primary">Enregistrer</button>
+                {% if article %}
+                    <button type="button" class="btn btn-outline-danger" data-bs-toggle="modal" data-bs-target="#news-delete-modal">Supprimer</button>
+                {% endif %}
+            </div>
+        </form>
+
+        {% if article %}
+            <div class="modal fade" id="news-delete-modal" tabindex="-1">
+                <div class="modal-dialog">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title">Confirmer la suppression</h5>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                        </div>
+                        <div class="modal-body">
+                            Supprimer cet article et son formulaire ? Cette action est irréversible.
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Annuler</button>
+                            <button type="button" class="btn btn-danger" id="news-delete-confirm-btn" data-id="{{ article.id }}">Supprimer</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        {% endif %}
+    {% endif %}
+{% endblock %}
+
+{% block scripts %}
+    <script nonce="{{ csp_nonce }}">
+        window.NEWS_EDITOR_DATA = {
+            articleId: {{ article ? article.id : 'null' }},
+            fields: {{ fields|map(f => {
+                id: f.id, field_type: f.fieldType, label: f.label, is_required: f.isRequired,
+                options_source: f.optionsSource, options_manual: f.optionsManual,
+                capacity_max: f.capacityMax, price_per_unit: f.pricePerUnit, confirmation_text: f.confirmationText
+            })|json_encode|raw }},
+            financeAvailable: {{ finance_available ? 'true' : 'false' }},
+            financeAccounts: {{ finance_accounts|json_encode|raw }},
+            form: {{ form ? {
+                access: form.access, response_limit: form.responseLimit, opens_at: form.opensAt, closes_at: form.closesAt,
+                is_force_closed: form.isForceClosed, response_role_min: form.responseRoleMin,
+                daily_digest_enabled: form.dailyDigestEnabled, finance_account_id: form.financeAccountId
+            }|json_encode|raw : 'null' }}
+        };
+    </script>
+    <script src="/assets/js/news-form-builder.js" defer></script>
+{% endblock %}

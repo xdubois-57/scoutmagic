@@ -114,5 +114,5 @@ Every response: `Content-Security-Policy`, `X-Content-Type-Options: nosniff`, `X
 ## 14. Dependency security
 
 - `composer audit` in CI on every PR.
-- Only three external dependencies.
+- Only a small, explicitly justified set of external dependencies — see the table in `ARCHITECTURE.md` §1 for the complete, current list and each one's justification.
 - Bootstrap: compiled files, pinned version.

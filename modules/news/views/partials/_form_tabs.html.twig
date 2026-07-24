@@ -1,0 +1,18 @@
+{# Tab-like navigation row between the form builder's three views (module
+   spec §11.5/§11.6 header). `active` is one of 'edit'|'preview'|'responses'.
+   Preview/Responses only make sense once the article has been saved. #}
+<ul class="nav nav-pills mb-3">
+    <li class="nav-item">
+        <a class="nav-link {{ active == 'edit' ? 'active' : '' }}" href="/news/{{ article_id }}/edit">Édition</a>
+    </li>
+    {% if article_id %}
+        <li class="nav-item">
+            <a class="nav-link {{ active == 'preview' ? 'active' : '' }}" href="/news/{{ article_id }}/edit?tab=preview">Aperçu</a>
+        </li>
+        {% if can_view_responses %}
+            <li class="nav-item">
+                <a class="nav-link {{ active == 'responses' ? 'active' : '' }}" href="/news/{{ article_id }}/form/responses">Réponses</a>
+            </li>
+        {% endif %}
+    {% endif %}
+</ul>

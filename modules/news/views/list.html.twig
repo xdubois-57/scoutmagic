@@ -1,0 +1,65 @@
+{% extends "base.html.twig" %}
+
+{% block title %}Actualités — {{ site_name }}{% endblock %}
+
+{% block content %}
+    <div class="d-flex flex-column flex-sm-row justify-content-between align-items-sm-center mb-4 gap-2">
+        <h1 class="mb-0">Actualités</h1>
+        {% if manage %}
+            <a href="/news/create" class="btn btn-primary w-100 w-sm-auto">
+                <i class="bi bi-plus-lg"></i> Nouvel article
+            </a>
+        {% endif %}
+    </div>
+
+    {% if articles is empty %}
+        <p class="text-body-secondary text-center py-5">
+            {% if manage %}
+                Aucune actualité. Créez la première !
+                <br class="d-none d-sm-block">
+                <a href="/news/create" class="btn btn-primary mt-3">
+                    <i class="bi bi-plus-lg"></i> Nouvel article
+                </a>
+            {% else %}
+                Aucune actualité pour le moment.
+            {% endif %}
+        </p>
+    {% else %}
+        <div class="d-flex flex-column gap-3 mx-auto" style="max-width: 720px;">
+            {% for row in articles %}
+                {% set article = row.article %}
+                <div class="card">
+                    <div class="card-body">
+                        <h2 class="h5 mb-1">
+                            <a href="/news/{{ article.id }}" class="text-decoration-none stretched-link">{{ article.title }}</a>
+                        </h2>
+                        <div class="d-flex flex-wrap align-items-center gap-2 small text-body-secondary mb-2">
+                            <span>{{ article.createdAt|french_date }}</span>
+                            {% if row.form_badge == 'open' %}
+                                <span class="badge rounded-pill bg-success-subtle text-success-emphasis">Formulaire ouvert</span>
+                            {% elseif row.form_badge == 'closed' %}
+                                <span class="badge rounded-pill bg-secondary-subtle text-secondary">Formulaire fermé</span>
+                            {% endif %}
+                            {% if manage %}
+                                <span class="badge rounded-pill bg-light text-dark border">
+                                    {% if article.visibility == 'public' %}Public
+                                    {% elseif article.visibility == 'chief' %}Chefs
+                                    {% elseif article.visibility == 'admin' %}Chefs d'Unité
+                                    {% else %}Lien direct
+                                    {% endif %}
+                                </span>
+                                {% if row.author_name %}<span>· {{ row.author_name }}</span>{% endif %}
+                            {% endif %}
+                        </div>
+                        <p class="mb-2">{{ row.excerpt }}</p>
+                        {% if manage %}
+                            <a href="/news/{{ article.id }}/edit" class="btn btn-sm btn-outline-secondary position-relative" style="z-index:2;">
+                                <i class="bi bi-pencil"></i> Éditer
+                            </a>
+                        {% endif %}
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+    {% endif %}
+{% endblock %}

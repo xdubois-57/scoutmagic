@@ -7,7 +7,10 @@
         "php": ">=8.1",
         "twig/twig": "^3.0",
         "phpmailer/phpmailer": "^6.9",
-        "smalot/pdfparser": "^2.12"
+        "smalot/pdfparser": "^2.12",
+        "dompdf/dompdf": "^3.1",
+        "endroid/qr-code": "^6.1",
+        "phpoffice/phpspreadsheet": "^5.9"
     },
     "require-dev": {
         "phpunit/phpunit": "^10.0",
@@ -23,6 +26,7 @@
             "Modules\\LlmConnector\\": "modules/llm_connector/src/",
             "Modules\\MassMail\\": "modules/mass_mail/src/",
             "Modules\\MemberStats\\": "modules/member_stats/src/",
+            "Modules\\News\\": "modules/news/src/",
             "Modules\\SosStaff\\": "modules/sos_staff/src/",
             "Modules\\Trombinoscope\\": "modules/trombinoscope/src/"
         }

@@ -1,0 +1,152 @@
+{
+  "id": "news",
+  "name": "Actualités",
+  "description": "Articles d'actualité avec formulaires intégrés (inscriptions, paiements optionnels), référencement SEO et affiche A4 avec QR code.",
+  "version": "1.0.0",
+  "enabled_by_default": true,
+  "routes": [
+    {
+      "path": "/news",
+      "method": "GET",
+      "controller": "Modules\\News\\Controller\\NewsController",
+      "action": "index",
+      "menu": "notre_unite",
+      "role_min": "public",
+      "label": "Actualités"
+    },
+    {
+      "path": "/news/manage",
+      "method": "GET",
+      "controller": "Modules\\News\\Controller\\NewsController",
+      "action": "manage",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": "Actualités"
+    },
+    {
+      "path": "/news/create",
+      "method": "GET",
+      "controller": "Modules\\News\\Controller\\NewsController",
+      "action": "create",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/news",
+      "method": "POST",
+      "controller": "Modules\\News\\Controller\\NewsController",
+      "action": "store",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/news/{id}",
+      "method": "GET",
+      "controller": "Modules\\News\\Controller\\NewsController",
+      "action": "show",
+      "menu": "notre_unite",
+      "role_min": "public",
+      "label": ""
+    },
+    {
+      "path": "/news/{id}/edit",
+      "method": "GET",
+      "controller": "Modules\\News\\Controller\\NewsController",
+      "action": "edit",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/news/{id}",
+      "method": "POST",
+      "controller": "Modules\\News\\Controller\\NewsController",
+      "action": "update",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/news/{id}",
+      "method": "DELETE",
+      "controller": "Modules\\News\\Controller\\NewsController",
+      "action": "delete",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/news/{id}/poster",
+      "method": "GET",
+      "controller": "Modules\\News\\Controller\\NewsController",
+      "action": "poster",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/news/{id}/form/submit",
+      "method": "POST",
+      "controller": "Modules\\News\\Controller\\FormController",
+      "action": "submit",
+      "menu": "notre_unite",
+      "role_min": "public",
+      "label": ""
+    },
+    {
+      "path": "/news/{id}/form/responses",
+      "method": "GET",
+      "controller": "Modules\\News\\Controller\\FormController",
+      "action": "responses",
+      "menu": "espace_chefs",
+      "role_min": "intendant",
+      "label": ""
+    },
+    {
+      "path": "/news/{id}/form/responses/export",
+      "method": "GET",
+      "controller": "Modules\\News\\Controller\\FormController",
+      "action": "exportResponses",
+      "menu": "espace_chefs",
+      "role_min": "intendant",
+      "label": ""
+    },
+    {
+      "path": "/news/{id}/form/responses/{response_id}/edit",
+      "method": "GET",
+      "controller": "Modules\\News\\Controller\\FormController",
+      "action": "editResponse",
+      "menu": "notre_unite",
+      "role_min": "public",
+      "label": ""
+    },
+    {
+      "path": "/news/{id}/form/responses/{response_id}/edit",
+      "method": "POST",
+      "controller": "Modules\\News\\Controller\\FormController",
+      "action": "updateResponse",
+      "menu": "notre_unite",
+      "role_min": "public",
+      "label": ""
+    },
+    {
+      "path": "/news/{id}/form/fields/reorder",
+      "method": "PATCH",
+      "controller": "Modules\\News\\Controller\\FormController",
+      "action": "reorderFields",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    }
+  ],
+  "settings": [],
+  "cookies": [],
+  "scheduled_tasks": [
+    {
+      "key": "send_response_digest",
+      "handler": "Modules\\News\\Task\\SendResponseDigestHandler"
+    }
+  ]
+}

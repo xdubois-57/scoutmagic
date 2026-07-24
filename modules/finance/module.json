@@ -2,7 +2,7 @@
   "id": "finance",
   "name": "Finances",
   "description": "Gestion financière de l'unité : comptes, exercices, catégorisation, import de relevés bancaires, mouvements, reçus.",
-  "version": "1.11.0",
+  "version": "1.12.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -13,6 +13,15 @@
       "menu": "espace_chefs",
       "role_min": "intendant",
       "label": "Finances"
+    },
+    {
+      "path": "/finance/receivables",
+      "method": "GET",
+      "controller": "Modules\\Finance\\Controller\\ReceivablesController",
+      "action": "index",
+      "menu": "espace_chefs",
+      "role_min": "intendant",
+      "label": "Paiements attendus"
     },
     {
       "path": "/finance/movements",

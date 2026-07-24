@@ -41,8 +41,12 @@ use Core\Http\Controller\ScheduledActionsController;
 use Core\Http\Controller\ScoutYearController;
 use Core\Http\Controller\SettingsController;
 use Core\Http\Controller\SetupController;
+use Core\Http\Controller\ShortUrlController;
 use Core\Http\Controller\StaffsController;
 use Core\Http\Controller\UploadController;
+use Core\Pdf\PosterPdfService;
+use Core\Url\ShortUrlRepository;
+use Core\Url\ShortUrlService;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Module\ModuleManager;
@@ -330,6 +334,13 @@ $passwordResetService = new PasswordResetService(
     (string) $settingService->get('site_name')
 );
 
+// Create generic short-URL service (Core\Url) and A4 poster PDF service
+// (Core\Pdf) — not module-specific, see schema/core.sql's short_urls table
+// doc comment.
+$shortUrlRepository = new ShortUrlRepository($pdo);
+$shortUrlService = new ShortUrlService($shortUrlRepository);
+$posterPdfService = new PosterPdfService();
+
 // Create cookie consent service
 $cookieConsentService = new CookieConsentService();
 
@@ -589,6 +600,9 @@ $router->addRoute('POST', '/cookies/reject-all', CookieController::class, 'rejec
 $router->addRoute('GET', '/files/{id}', FileController::class, 'serve', 'public');
 $router->addRoute('GET', '/files/{id}/thumbnail', FileController::class, 'thumbnail', 'public');
 
+// Generic short-URL redirector (Core\Url)
+$router->addRoute('GET', '/s/{code}', ShortUrlController::class, 'resolve', 'public');
+
 // File upload
 $router->addRoute('GET', '/upload', UploadController::class, 'index', 'superadmin');
 $router->addRoute('POST', '/upload', UploadController::class, 'store', 'superadmin');
@@ -723,6 +737,7 @@ $authController->setWebAuthnService($webAuthnService);
 $frontController->registerController(AuthController::class, $authController);
 $frontController->registerController(AccountController::class, new AccountController($twig, $userAccountRepo, $webAuthnCredentialRepo, $webAuthnService));
 $frontController->registerController(PasswordResetController::class, new PasswordResetController($twig, $passwordResetService));
+$frontController->registerController(ShortUrlController::class, new ShortUrlController($twig, $shortUrlService));
 $frontController->registerController(ImportController::class, new ImportController($twig, $importService, $scoutYearResolver, $importJournalRepo, $functionRepo, $storagePath));
 $frontController->registerController(MemberController::class, new MemberController($twig, $memberService, $memberYearService, $journalService));
 $frontController->registerController(StaffsController::class, new StaffsController($twig, $sectionService, $memberService, $scoutYearResolver, $journalService, $badgeService, $unitStaffSectionService));
@@ -913,6 +928,15 @@ if (in_array('llm_connector', $moduleManager->getEnabledModuleIds(), true)) {
     );
 }
 
+// Optional dependency on the finance module (ARCHITECTURE.md §7.5) — set
+// below only when 'finance' is enabled; every consumer (e.g. the news
+// module's payment feature) takes these as nullable constructor deps and
+// degrades to "feature simply unavailable" when they stay null.
+$financeStructuredCommunicationForOthers = null;
+$financeExpectedReceivableForOthers = null;
+$financeSepaQrCodeForOthers = null;
+$financeAccountForOthers = null;
+
 if (in_array('finance', $moduleManager->getEnabledModuleIds(), true)) {
     $financeFiscalYearRepo = new \Modules\Finance\Repository\FiscalYearRepository($pdo, $scoutYearService);
     $financeAccountRepo = new \Modules\Finance\Repository\AccountRepository($pdo, $encryptionService);
@@ -1032,6 +1056,20 @@ if (in_array('finance', $moduleManager->getEnabledModuleIds(), true)) {
         new \Modules\Finance\Controller\ConfigDangerController(
             $twig, $financeTransactionRepo, $financeCheckpointRepo, $financeAttachmentRepo, $journalService
         )
+    );
+
+    // Public API implementations (ARCHITECTURE.md §7.5) — instantiated
+    // here so other modules (news) can consume them as nullable deps.
+    $financeExpectedReceivableRepo = new \Modules\Finance\Repository\ExpectedReceivableRepository($pdo, $encryptionService);
+    $financeStructuredCommunicationForOthers = new \Modules\Finance\Service\StructuredCommunicationService($financeExpectedReceivableRepo);
+    $financeExpectedReceivableForOthers = new \Modules\Finance\Service\ExpectedReceivableService($financeExpectedReceivableRepo, $financeTransactionRepo);
+    $financeSepaQrCodeForOthers = new \Modules\Finance\Service\SepaQrCodeService();
+    $financeAccountForOthers = new \Modules\Finance\Service\FinanceAccountService($financeAccountRepo);
+
+    $financeReceivablesOverviewService = new \Modules\Finance\Service\ReceivablesOverviewService($financeExpectedReceivableRepo, $financeExpectedReceivableForOthers);
+    $frontController->registerController(
+        \Modules\Finance\Controller\ReceivablesController::class,
+        new \Modules\Finance\Controller\ReceivablesController($twig, $financeReceivablesOverviewService)
     );
 }
 

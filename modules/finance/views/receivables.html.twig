@@ -1,0 +1,124 @@
+{% extends "base.html.twig" %}
+
+{% block title %}Paiements attendus — {{ site_name }}{% endblock %}
+
+{% block content %}
+    <h1 class="mb-4">Paiements attendus</h1>
+
+    {% include '@finance/_nav.html.twig' with {'hide_account_picker': true} %}
+
+    {% if overview is empty %}
+        <p class="text-body-secondary fst-italic">Aucun paiement attendu pour le moment.</p>
+    {% else %}
+        <div class="accordion" id="receivables-accordion">
+            {% for source in overview %}
+                {% set source_open = focus_source == source.source_module %}
+                <div class="accordion-item">
+                    <h2 class="accordion-header">
+                        <button class="accordion-button {{ source_open ? '' : 'collapsed' }}" type="button"
+                                data-bs-toggle="collapse" data-bs-target="#source-{{ loop.index }}"
+                                aria-expanded="{{ source_open ? 'true' : 'false' }}">
+                            <span class="flex-grow-1">{{ source.source_label }}</span>
+                            <span class="text-body-secondary small me-3">
+                                {{ (source.amount_received / 100)|number_format(2, ',', ' ') }} € / {{ (source.amount_due / 100)|number_format(2, ',', ' ') }} € reçus
+                            </span>
+                        </button>
+                    </h2>
+                    <div id="source-{{ loop.index }}" class="accordion-collapse collapse {{ source_open ? 'show' : '' }}"
+                         data-bs-parent="#receivables-accordion">
+                        <div class="accordion-body">
+                            <div class="accordion" id="instances-accordion-{{ loop.index }}">
+                                {% for instance in source.instances %}
+                                    {% set instance_open = source_open and focus_id == instance.source_reference_id %}
+                                    <div class="accordion-item" id="instance-item-{{ source.source_module }}-{{ instance.source_reference_id }}">
+                                        <h3 class="accordion-header">
+                                            <button class="accordion-button {{ instance_open ? '' : 'collapsed' }}" type="button"
+                                                    data-bs-toggle="collapse" data-bs-target="#instance-{{ loop.parent.loop.index }}-{{ loop.index }}"
+                                                    aria-expanded="{{ instance_open ? 'true' : 'false' }}">
+                                                <span class="flex-grow-1">{{ instance.instance_label }}</span>
+                                                <span class="text-body-secondary small me-3">
+                                                    {{ (instance.amount_received / 100)|number_format(2, ',', ' ') }} € / {{ (instance.amount_due / 100)|number_format(2, ',', ' ') }} €
+                                                </span>
+                                            </button>
+                                        </h3>
+                                        <div id="instance-{{ loop.parent.loop.index }}-{{ loop.index }}" class="accordion-collapse collapse {{ instance_open ? 'show' : '' }}">
+                                            <div class="accordion-body">
+                                                <div class="table-responsive d-none d-md-block">
+                                                    <table class="table table-sm align-middle">
+                                                        <thead>
+                                                            <tr>
+                                                                <th>Nom/Contact</th>
+                                                                <th class="text-end">Attendu</th>
+                                                                <th class="text-end">Reçu</th>
+                                                                <th>Communication</th>
+                                                                <th>Statut</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                            {% for row in instance.receivables %}
+                                                                <tr>
+                                                                    <td>{{ row.label ?? '—' }}</td>
+                                                                    <td class="text-end">{{ (row.amount_due / 100)|number_format(2, ',', ' ') }} €</td>
+                                                                    <td class="text-end">{{ (row.amount_received / 100)|number_format(2, ',', ' ') }} €</td>
+                                                                    <td class="font-monospace small">{{ row.communication }}</td>
+                                                                    <td>
+                                                                        {% if row.status == 'paid' %}
+                                                                            <span class="badge text-bg-success">Payé</span>
+                                                                        {% elseif row.status == 'partial' %}
+                                                                            <span class="badge text-bg-warning">Partiel</span>
+                                                                        {% else %}
+                                                                            <span class="badge text-bg-secondary">Non payé</span>
+                                                                        {% endif %}
+                                                                    </td>
+                                                                </tr>
+                                                            {% endfor %}
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+
+                                                <div class="d-flex flex-column gap-2 d-md-none">
+                                                    {% for row in instance.receivables %}
+                                                        <div class="border rounded-3 p-2">
+                                                            <div class="d-flex justify-content-between">
+                                                                <span>{{ row.label ?? '—' }}</span>
+                                                                {% if row.status == 'paid' %}
+                                                                    <span class="badge text-bg-success">Payé</span>
+                                                                {% elseif row.status == 'partial' %}
+                                                                    <span class="badge text-bg-warning">Partiel</span>
+                                                                {% else %}
+                                                                    <span class="badge text-bg-secondary">Non payé</span>
+                                                                {% endif %}
+                                                            </div>
+                                                            <div class="text-body-secondary small">
+                                                                {{ (row.amount_received / 100)|number_format(2, ',', ' ') }} € reçu / {{ (row.amount_due / 100)|number_format(2, ',', ' ') }} € attendu
+                                                            </div>
+                                                            <div class="font-monospace small text-body-secondary">{{ row.communication }}</div>
+                                                        </div>
+                                                    {% endfor %}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+    {% endif %}
+
+    <p class="text-body-secondary small mt-4">
+        Le statut de chaque paiement est calculé automatiquement à partir des transactions bancaires importées
+        partageant la même communication structurée. Un paiement peut être effectué en plusieurs versements.
+    </p>
+
+    {% if focus_source and focus_id %}
+        <script nonce="{{ csp_nonce }}">
+            document.addEventListener('DOMContentLoaded', function () {
+                var el = document.getElementById('instance-item-{{ focus_source }}-{{ focus_id }}');
+                if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            });
+        </script>
+    {% endif %}
+{% endblock %}

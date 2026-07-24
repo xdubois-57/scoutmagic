@@ -27,6 +27,10 @@ use Modules\Finance\Controller\DashboardController;
 use Modules\Finance\Controller\ImportController;
 use Modules\Finance\Controller\MovementController;
 use Modules\Finance\Controller\ReceiptController;
+use Modules\Finance\Controller\ReceivablesController;
+use Modules\Finance\Repository\ExpectedReceivableRepository;
+use Modules\Finance\Service\ExpectedReceivableService;
+use Modules\Finance\Service\ReceivablesOverviewService;
 use Modules\Finance\Parser\BankStatementParserFactory;
 use Modules\Finance\Repository\AccountRepository;
 use Modules\Finance\Repository\AttachmentRepository;
@@ -86,6 +90,7 @@ class FinanceRbacTest extends TestCase
     private \Modules\Finance\Service\BulkCategorizationService $bulkCategorizationService;
     private \Modules\Finance\Repository\AiCategorySuggestionRepository $aiSuggestionRepository;
     private \Modules\Finance\Service\FirstReceiptResolver $firstReceiptResolver;
+    private ReceivablesOverviewService $receivablesOverviewService;
 
     protected function setUp(): void
     {
@@ -166,6 +171,10 @@ class FinanceRbacTest extends TestCase
         $this->importService = $importService;
         $this->parserFactory = $parserFactory;
 
+        $expectedReceivableRepository = new ExpectedReceivableRepository($this->pdo, $encryption);
+        $expectedReceivableService = new ExpectedReceivableService($expectedReceivableRepository, $this->transactionRepository);
+        $this->receivablesOverviewService = new ReceivablesOverviewService($expectedReceivableRepository, $expectedReceivableService);
+
         if (session_status() === PHP_SESSION_NONE) {
             session_start();
         }
@@ -186,6 +195,7 @@ class FinanceRbacTest extends TestCase
             'movements' => ['/finance/movements', 'MovementController', 'list', 'intendant', 'identified'],
             'import form' => ['/finance/import', 'ImportController', 'form', 'intendant', 'identified'],
             'receipts' => ['/finance/receipts', 'ReceiptController', 'list', 'intendant', 'identified'],
+            'receivables' => ['/finance/receivables', 'ReceivablesController', 'index', 'intendant', 'identified'],
             'config index' => ['/config/finance', 'ConfigController', 'index', 'superadmin', 'admin'],
             'config accounts' => ['/config/finance/accounts', 'ConfigAccountController', 'index', 'superadmin', 'admin'],
             'config categories' => ['/config/finance/categories', 'ConfigCategoryController', 'index', 'superadmin', 'admin'],
@@ -266,6 +276,7 @@ class FinanceRbacTest extends TestCase
                 $this->twig, $this->categoryRuleRepository, $this->categoryRuleEngine, $this->journalService,
                 $this->financeService, $this->bulkCategorizationService
             ),
+            'ReceivablesController' => new ReceivablesController($this->twig, $this->receivablesOverviewService),
             default => throw new \RuntimeException("Unknown controller {$name}"),
         };
     }

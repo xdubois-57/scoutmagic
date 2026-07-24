@@ -1,0 +1,88 @@
+{#
+  Renders one form field's input widget (module spec §11.4). Expects in
+  scope: `field` (Modules\News\Repository\FormField), `options` (string[]),
+  `remaining_capacity` (?int), `value` (existing answer, default ''),
+  `disabled` (bool, preview/read-only mode), `csrf_free` (bool, unused —
+  kept for symmetry). Reused by detail.html.twig (submit), response_edit.
+  html.twig (edit) and editor.html.twig's preview tab.
+#}
+{% set value = value|default('') %}
+{% set disabled = disabled|default(false) %}
+{% set input_name = 'field_' ~ field.id %}
+
+<div class="mb-3">
+    {% if field.fieldType != 'confirmation' %}
+        <label class="form-label" for="{{ input_name }}">
+            {{ field.label }}{% if field.isRequired %} <span class="text-danger">*</span>{% endif %}
+            {% if field.isPriced %}<span class="text-body-secondary small">({{ field.pricePerUnit|number_format(2, ',', ' ') }}€/unité)</span>{% endif %}
+        </label>
+    {% endif %}
+
+    {% if field.fieldType == 'short_text' %}
+        <input type="text" class="form-control" id="{{ input_name }}" name="{{ input_name }}" value="{{ value }}" {{ field.isRequired ? 'required' : '' }} {{ disabled ? 'disabled' : '' }}>
+
+    {% elseif field.fieldType == 'long_text' %}
+        <textarea class="form-control" id="{{ input_name }}" name="{{ input_name }}" rows="4" {{ field.isRequired ? 'required' : '' }} {{ disabled ? 'disabled' : '' }}>{{ value }}</textarea>
+
+    {% elseif field.fieldType == 'number' %}
+        {% set full = remaining_capacity is not null and remaining_capacity <= 0 %}
+        <input type="number" step="1" min="0" class="form-control news-number-field" id="{{ input_name }}" name="{{ input_name }}"
+               value="{{ full ? 0 : value }}" data-price="{{ field.pricePerUnit ?? '' }}" data-label="{{ field.label }}"
+               {{ field.isRequired ? 'required' : '' }} {{ (disabled or full) ? 'disabled' : '' }}>
+        {% if remaining_capacity is not null %}
+            {% if full %}
+                <div class="form-text text-warning">Il n'y a plus de places disponibles.</div>
+            {% else %}
+                <div class="form-text">Il reste {{ remaining_capacity }} place{{ remaining_capacity > 1 ? 's' : '' }}</div>
+            {% endif %}
+        {% endif %}
+
+    {% elseif field.fieldType == 'date' %}
+        <input type="date" class="form-control" id="{{ input_name }}" name="{{ input_name }}" value="{{ value }}" {{ field.isRequired ? 'required' : '' }} {{ disabled ? 'disabled' : '' }}>
+
+    {% elseif field.fieldType == 'phone' %}
+        <input type="tel" class="form-control" id="{{ input_name }}" name="{{ input_name }}" value="{{ value }}" placeholder="+32..." {{ field.isRequired ? 'required' : '' }} {{ disabled ? 'disabled' : '' }}>
+
+    {% elseif field.fieldType == 'email' %}
+        <input type="email" class="form-control" id="{{ input_name }}" name="{{ input_name }}" value="{{ value }}" {{ field.isRequired ? 'required' : '' }} {{ disabled ? 'disabled' : '' }}>
+
+    {% elseif field.fieldType == 'dropdown' %}
+        <select class="form-select" id="{{ input_name }}" name="{{ input_name }}" {{ field.isRequired ? 'required' : '' }} {{ disabled ? 'disabled' : '' }}>
+            <option value="" {{ value == '' ? 'selected' : '' }}>Choisissez…</option>
+            {% for option in options %}
+                <option value="{{ option }}" {{ value == option ? 'selected' : '' }}>{{ option }}</option>
+            {% endfor %}
+        </select>
+
+    {% elseif field.fieldType == 'radio' %}
+        <fieldset>
+            {% for option in options %}
+                <div class="form-check">
+                    <input class="form-check-input" type="radio" name="{{ input_name }}" id="{{ input_name }}_{{ loop.index }}"
+                           value="{{ option }}" {{ value == option ? 'checked' : '' }} {{ field.isRequired ? 'required' : '' }} {{ disabled ? 'disabled' : '' }}>
+                    <label class="form-check-label" for="{{ input_name }}_{{ loop.index }}">{{ option }}</label>
+                </div>
+            {% endfor %}
+        </fieldset>
+
+    {% elseif field.fieldType == 'checkbox' %}
+        {% set selected = value is iterable ? value : (value != '' ? value|split(', ') : []) %}
+        <fieldset>
+            {% for option in options %}
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" name="{{ input_name }}[]" id="{{ input_name }}_{{ loop.index }}"
+                           value="{{ option }}" {{ option in selected ? 'checked' : '' }} {{ disabled ? 'disabled' : '' }}>
+                    <label class="form-check-label" for="{{ input_name }}_{{ loop.index }}">{{ option }}</label>
+                </div>
+            {% endfor %}
+        </fieldset>
+
+    {% elseif field.fieldType == 'switch' %}
+        <div class="form-check form-switch">
+            <input class="form-check-input" type="checkbox" role="switch" id="{{ input_name }}" name="{{ input_name }}" value="1" {{ value == '1' ? 'checked' : '' }} {{ disabled ? 'disabled' : '' }}>
+        </div>
+
+    {% elseif field.fieldType == 'confirmation' %}
+        <div class="alert alert-info mb-0">{{ field.confirmationText }}</div>
+    {% endif %}
+</div>

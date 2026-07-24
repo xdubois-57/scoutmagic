@@ -1,0 +1,49 @@
+{% extends "base.html.twig" %}
+
+{% block title %}Confirmation — {{ article.title }} — {{ site_name }}{% endblock %}
+
+{% block head_meta %}
+    <meta name="robots" content="noindex">
+{% endblock %}
+
+{% block content %}
+    <div class="mx-auto" style="max-width: 640px;">
+        <div class="text-center mb-4">
+            <div style="font-size: 3rem; color: #198754;"><i class="bi bi-check-circle"></i></div>
+            <h1 class="h3">Votre réponse a été enregistrée</h1>
+        </div>
+
+        <div class="card mb-3">
+            <div class="card-body">
+                <p><strong>Email de contact :</strong> {{ response.contactEmail }}</p>
+                {% for line in answers %}
+                    <p class="mb-1"><strong>{{ line.label }} :</strong> {{ line.value }}</p>
+                {% endfor %}
+            </div>
+        </div>
+
+        {% if payment %}
+            <div class="card mb-3 border-primary">
+                <div class="card-body">
+                    <p class="fw-bold fs-5">Montant à payer : {{ payment.total|number_format(2, ',', ' ') }} €</p>
+                    <p class="mb-1">Compte : {{ payment.beneficiary }}</p>
+                    <p class="mb-1">IBAN : {{ payment.iban }}</p>
+                    <p class="mb-3">Communication structurée : <strong>{{ payment.communication }}</strong></p>
+                    <div class="text-center">
+                        <img src="{{ payment.qr_data_uri }}" alt="QR code SEPA" width="200" height="200">
+                    </div>
+                    <p class="text-body-secondary small text-center mt-2 mb-0">
+                        Scannez ce QR code avec votre application bancaire pour effectuer le paiement.
+                    </p>
+                </div>
+            </div>
+        {% endif %}
+
+        <div class="d-flex flex-column flex-sm-row gap-2 justify-content-center">
+            {% if edit_url %}
+                <a href="{{ edit_url }}" class="btn btn-outline-primary">Modifier mes réponses</a>
+            {% endif %}
+            <a href="/news/{{ article.id }}" class="btn btn-secondary">Retour à l'article</a>
+        </div>
+    </div>
+{% endblock %}

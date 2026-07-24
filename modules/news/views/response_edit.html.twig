@@ -1,0 +1,35 @@
+{% extends "base.html.twig" %}
+
+{% block title %}Modifier ma réponse — {{ article.title }} — {{ site_name }}{% endblock %}
+
+{% block head_meta %}
+    <meta name="robots" content="noindex">
+{% endblock %}
+
+{% block content %}
+    <div class="mx-auto" style="max-width: 720px;">
+        <h1 class="h4 mb-4">Modifier ma réponse — {{ article.title }}</h1>
+
+        {% if submit_error %}
+            <div class="alert alert-danger">{{ submit_error }}</div>
+        {% endif %}
+
+        <form method="POST" action="/news/{{ article.id }}/form/responses/{{ response.id }}/edit">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+
+            <div class="mb-3">
+                <label class="form-label" for="contact_email">Email de contact <span class="text-danger">*</span></label>
+                <input type="email" class="form-control" id="contact_email" name="contact_email" value="{{ response.contactEmail }}" required>
+            </div>
+
+            {% for row in fields %}
+                {% include '@news/partials/_field.html.twig' with {field: row.field, options: row.options, remaining_capacity: row.remaining_capacity, value: existing_answers[row.field.id] ?? ''} %}
+            {% endfor %}
+
+            <div class="d-flex flex-column flex-sm-row gap-2">
+                <button type="submit" class="btn btn-primary">Enregistrer les modifications</button>
+                <a href="/news/{{ article.id }}" class="btn btn-outline-secondary">Annuler</a>
+            </div>
+        </form>
+    </div>
+{% endblock %}

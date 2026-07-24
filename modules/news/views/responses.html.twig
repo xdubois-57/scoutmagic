@@ -1,0 +1,104 @@
+{% extends "base.html.twig" %}
+
+{% block title %}Réponses — {{ article.title }} — {{ site_name }}{% endblock %}
+
+{% block content %}
+    <h1 class="h4 mb-3">{{ article.title }}</h1>
+
+    {% include '@news/partials/_form_tabs.html.twig' with {article_id: article.id, active: 'responses', can_view_responses: true} %}
+
+    <div class="d-flex flex-column flex-sm-row justify-content-between align-items-sm-center gap-2 mb-3">
+        <p class="text-body-secondary small mb-0">
+            Chef d'Unité : peut toujours modifier. Répondant identifié : peut modifier tant que le formulaire est ouvert.
+        </p>
+        <div class="d-flex gap-2 text-nowrap">
+            {% if finance_available %}
+                <a href="/finance/receivables?source=news&id={{ form.id }}" class="btn btn-sm btn-outline-secondary">
+                    <i class="bi bi-cash-coin"></i> Voir dans Finances
+                </a>
+            {% endif %}
+            <a href="/news/{{ article.id }}/form/responses/export" class="btn btn-sm btn-outline-primary">
+                <i class="bi bi-file-earmark-spreadsheet"></i> Exporter en Excel
+            </a>
+        </div>
+    </div>
+
+    {% if rows is empty %}
+        <p class="text-body-secondary text-center py-5">Aucune réponse pour le moment.</p>
+    {% else %}
+        <div class="table-responsive d-none d-md-block">
+            <table class="table table-sm align-middle">
+                <thead>
+                    <tr>
+                        <th>Contact</th>
+                        {% for field in fields %}
+                            {% if field.fieldType != 'confirmation' %}<th>{{ field.label }}</th>{% endif %}
+                        {% endfor %}
+                        {% if finance_available %}
+                            <th class="text-end">Attendu</th>
+                            <th class="text-end">Reçu</th>
+                            <th>Paiement</th>
+                        {% endif %}
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in rows %}
+                        <tr>
+                            <td>{{ row.response.contactEmail }}</td>
+                            {% for line in row.answers %}
+                                <td>{{ line.value }}</td>
+                            {% endfor %}
+                            {% if finance_available %}
+                                <td class="text-end">{{ row.payment ? (row.payment.amount_due / 100)|number_format(2, ',', ' ') ~ ' €' : '—' }}</td>
+                                <td class="text-end">{{ row.payment ? (row.payment.amount_received / 100)|number_format(2, ',', ' ') ~ ' €' : '—' }}</td>
+                                <td>
+                                    {% if row.payment %}
+                                        {% if row.payment.status == 'paid' %}<span class="badge text-bg-success">Payé</span>
+                                        {% elseif row.payment.status == 'partial' %}<span class="badge text-bg-warning">Partiel</span>
+                                        {% else %}<span class="badge text-bg-secondary">Non payé</span>{% endif %}
+                                    {% endif %}
+                                </td>
+                            {% endif %}
+                            <td>
+                                {% if row.can_edit %}
+                                    <a href="/news/{{ article.id }}/form/responses/{{ row.response.id }}/edit">Modifier</a>
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <div class="d-flex flex-column gap-2 d-md-none">
+            {% for row in rows %}
+                <div class="card">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <span class="fw-bold">{{ row.response.contactEmail }}</span>
+                            {% if row.payment %}
+                                {% if row.payment.status == 'paid' %}<span class="badge text-bg-success">Payé</span>
+                                {% elseif row.payment.status == 'partial' %}<span class="badge text-bg-warning">Partiel</span>
+                                {% else %}<span class="badge text-bg-secondary">Non payé</span>{% endif %}
+                            {% endif %}
+                        </div>
+                        {% for line in row.answers %}
+                            <div class="small"><strong>{{ line.label }}</strong> : {{ line.value }}</div>
+                        {% endfor %}
+                        {% if row.payment %}
+                            <div class="small text-body-secondary mt-1">
+                                Attendu: {{ (row.payment.amount_due / 100)|number_format(2, ',', ' ') }} € · Reçu: {{ (row.payment.amount_received / 100)|number_format(2, ',', ' ') }} €
+                            </div>
+                        {% endif %}
+                        {% if row.can_edit %}
+                            <div class="mt-2">
+                                <a href="/news/{{ article.id }}/form/responses/{{ row.response.id }}/edit">Modifier</a>
+                            </div>
+                        {% endif %}
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+    {% endif %}
+{% endblock %}
