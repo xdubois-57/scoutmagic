@@ -1,0 +1,43 @@
+{# Read-only rendering of the form exactly as a respondent would see it
+   (module spec §11.7). Uses the SAVED form state — a genuinely live
+   preview of unsaved edits would need to mirror the whole client-side
+   builder state server-side, which isn't worth the complexity; save
+   first, then preview. #}
+<div class="mx-auto" style="max-width: 720px;">
+    <h2 class="h5">{{ article.title }}</h2>
+    <div class="news-article-body mb-4">{{ body_html|raw }}</div>
+
+    {% if form %}
+        <div class="news-form-section bg-body-tertiary rounded-3 p-3 p-sm-4">
+            <div class="mb-3">
+                <label class="form-label">Email de contact <span class="text-danger">*</span></label>
+                <input type="email" class="form-control" value="{{ preview_contact_email }}" disabled>
+            </div>
+
+            {% for row in preview_fields %}
+                {% include '@news/partials/_field.html.twig' with {field: row.field, options: row.options, remaining_capacity: row.remaining_capacity, disabled: true} %}
+            {% endfor %}
+
+            {% if finance_available %}
+                {% set has_priced = false %}
+                {% for row in preview_fields %}{% if row.field.isPriced() %}{% set has_priced = true %}{% endif %}{% endfor %}
+                {% if has_priced %}
+                    <div class="border rounded-3 p-3 mb-3">
+                        {% for row in preview_fields %}
+                            {% if row.field.isPriced() %}
+                                <p class="mb-1">{{ row.field.label }} : 1 × {{ row.field.pricePerUnit|number_format(2, ',', ' ') }}€ = {{ row.field.pricePerUnit|number_format(2, ',', ' ') }}€</p>
+                            {% endif %}
+                        {% endfor %}
+                        <p class="fw-bold mb-0">Total à payer (exemple) : voir le montant ci-dessus</p>
+                    </div>
+                {% endif %}
+            {% endif %}
+
+            <button type="button" class="btn btn-primary w-100 w-sm-auto float-sm-end" disabled title="Aperçu — l'envoi est désactivé">
+                Aperçu — l'envoi est désactivé
+            </button>
+        </div>
+    {% else %}
+        <p class="text-body-secondary">Aucun formulaire sur cet article.</p>
+    {% endif %}
+</div>

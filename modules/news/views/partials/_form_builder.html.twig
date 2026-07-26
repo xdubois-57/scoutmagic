@@ -1,0 +1,111 @@
+{# Form builder (module spec §11.6) — the field list itself is rendered
+   and managed client-side by /assets/js/news-form-builder.js from
+   window.NEWS_EDITOR_DATA.fields (serialized back into fields_json on
+   submit), since fields are saved together with the article in one POST
+   rather than through their own AJAX endpoints (module spec §11.5:
+   "Enregistrer... saves article + form definition in one POST"). #}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h3 class="h6 mb-0">Formulaire lié à cet article</h3>
+    <span class="badge rounded-pill" id="news-form-state-badge">—</span>
+</div>
+
+<div class="mb-4">
+    <h4 class="h6">Planification</h4>
+    <div class="row g-2">
+        <div class="col-12 col-sm-6">
+            <label class="form-label small" for="form_opens_at">Ouverture</label>
+            <input type="date" class="form-control" id="form_opens_at" name="form_opens_at" value="{{ form ? form.opensAt : '' }}">
+        </div>
+        <div class="col-12 col-sm-6">
+            <label class="form-label small" for="form_closes_at">Fermeture</label>
+            <input type="date" class="form-control" id="form_closes_at" name="form_closes_at" value="{{ form ? form.closesAt : '' }}">
+        </div>
+    </div>
+    <div class="form-check mt-2">
+        <input class="form-check-input" type="checkbox" id="form_is_force_closed" name="form_is_force_closed" value="1" {{ form and form.isForceClosed ? 'checked' : '' }}>
+        <label class="form-check-label" for="form_is_force_closed">Forcer la fermeture maintenant (indépendamment des dates)</label>
+    </div>
+</div>
+
+<div class="mb-4">
+    <h4 class="h6">Champs du formulaire</h4>
+    <div id="news-fields-list" class="d-flex flex-column gap-2 mb-2"></div>
+    <button type="button" class="btn btn-outline-secondary w-100" style="border-style:dashed;" id="news-add-field-btn">
+        <i class="bi bi-plus-lg"></i> Ajouter un champ
+    </button>
+    <div id="news-field-type-picker" class="d-none border rounded-3 p-3 mt-2">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+            <span class="small text-body-secondary">Choisissez un type de champ</span>
+            <button type="button" class="btn-close" id="news-field-picker-close" aria-label="Fermer"></button>
+        </div>
+        <div class="row g-2" id="news-field-type-grid"></div>
+    </div>
+</div>
+
+<div class="mb-4">
+    <h4 class="h6">Paramètres</h4>
+    <div class="mb-2">
+        <span class="form-label d-block">Accès au formulaire</span>
+        <div class="btn-group" role="group">
+            <input type="radio" class="btn-check" name="form_access" id="access-public" value="public" {{ form and form.access == 'public' ? 'checked' : '' }}>
+            <label class="btn btn-outline-primary" for="access-public">Public</label>
+            <input type="radio" class="btn-check" name="form_access" id="access-identified" value="identified" {{ not form or form.access == 'identified' ? 'checked' : '' }}>
+            <label class="btn btn-outline-primary" for="access-identified">Connexion requise</label>
+        </div>
+        <p class="form-text d-none" id="news-access-public-help">
+            Sans connexion, impossible de rattacher une réponse à un compte. La limite est donc illimitée.
+        </p>
+        <p class="form-text text-warning d-none" id="news-access-members-warning">
+            Attention : un ou plusieurs champs utilisent « Membres liés au compte », qui ne fonctionne pas en accès public.
+            Ces champs afficheront un message d'erreur tant que leur source n'est pas changée.
+        </p>
+    </div>
+
+    <div class="mb-2">
+        <label class="form-label" for="form_response_limit">Réponses par personne</label>
+        <select class="form-select" id="form_response_limit" name="form_response_limit">
+            <option value="unlimited" {{ not form or form.responseLimit == 'unlimited' ? 'selected' : '' }}>Illimité</option>
+            <option value="one_per_account" {{ form and form.responseLimit == 'one_per_account' ? 'selected' : '' }}>Une par compte</option>
+            <option value="one_per_member" {{ form and form.responseLimit == 'one_per_member' ? 'selected' : '' }}>Une par membre lié au compte</option>
+        </select>
+    </div>
+
+    <div class="form-check form-switch">
+        <input class="form-check-input" type="checkbox" role="switch" id="form_daily_digest_enabled" name="form_daily_digest_enabled" value="1" {{ form and form.dailyDigestEnabled ? 'checked' : '' }}>
+        <label class="form-check-label" for="form_daily_digest_enabled">Résumé quotidien des nouvelles réponses par email</label>
+    </div>
+    <p class="form-text">Un email récapitulatif vous sera envoyé chaque jour si de nouvelles réponses ont été soumises.</p>
+</div>
+
+{% if finance_available %}
+    <div class="mb-4" id="news-payment-settings">
+        <h4 class="h6">Paiement</h4>
+        {% if finance_accounts is empty %}
+            <p class="text-body-secondary">
+                Aucun compte configuré dans le module Finances. Configurez un compte avant d'activer les paiements.
+            </p>
+        {% else %}
+            <label class="form-label" for="form_finance_account_id">Compte destinataire</label>
+            <select class="form-select" id="form_finance_account_id" name="form_finance_account_id">
+                <option value="">Aucun</option>
+                {% for account in finance_accounts %}
+                    <option value="{{ account.id }}" {{ form and form.financeAccountId == account.id ? 'selected' : '' }}>{{ account.name }}</option>
+                {% endfor %}
+            </select>
+            <p class="form-text">La communication structurée sera générée automatiquement pour chaque réponse.</p>
+        {% endif %}
+    </div>
+{% endif %}
+
+<div>
+    <h4 class="h6">Visibilité des réponses</h4>
+    <span class="form-label d-block">Qui peut voir les réponses ?</span>
+    <div class="btn-group" role="group">
+        <input type="radio" class="btn-check" name="form_response_role_min" id="resp-role-intendant" value="intendant" {{ form and form.responseRoleMin == 'intendant' ? 'checked' : '' }}>
+        <label class="btn btn-outline-primary" for="resp-role-intendant">Intendant+</label>
+        <input type="radio" class="btn-check" name="form_response_role_min" id="resp-role-chief" value="chief" {{ not form or form.responseRoleMin == 'chief' ? 'checked' : '' }}>
+        <label class="btn btn-outline-primary" for="resp-role-chief">Chef+</label>
+        <input type="radio" class="btn-check" name="form_response_role_min" id="resp-role-admin" value="admin" {{ form and form.responseRoleMin == 'admin' ? 'checked' : '' }}>
+        <label class="btn btn-outline-primary" for="resp-role-admin">Chef d'Unité+</label>
+    </div>
+</div>

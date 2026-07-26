@@ -33,6 +33,15 @@
       "label": ""
     },
     {
+      "path": "/news/seo/generate-keywords",
+      "method": "POST",
+      "controller": "Modules\\News\\Controller\\NewsController",
+      "action": "generateSeoKeywords",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
       "path": "/news",
       "method": "POST",
       "controller": "Modules\\News\\Controller\\NewsController",

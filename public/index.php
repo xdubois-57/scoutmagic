@@ -1116,6 +1116,46 @@ if (in_array('mass_mail', $moduleManager->getEnabledModuleIds(), true)) {
     );
 }
 
+if (in_array('news', $moduleManager->getEnabledModuleIds(), true)) {
+    $newsArticleRepo = new \Modules\News\Repository\ArticleRepository($pdo);
+    $newsFormRepo = new \Modules\News\Repository\FormRepository($pdo);
+    $newsFieldRepo = new \Modules\News\Repository\FormFieldRepository($pdo);
+    $newsResponseRepo = new \Modules\News\Repository\FormResponseRepository($pdo, $encryptionService);
+
+    $newsArticleService = new \Modules\News\Service\ArticleService(
+        $newsArticleRepo, $newsFormRepo, $editableContentService, $shortUrlService, $financeExpectedReceivableForOthers
+    );
+    $newsFormService = new \Modules\News\Service\FormService($newsFormRepo, $newsFieldRepo, $newsArticleService);
+    // Optional dependency on the finance module (ARCHITECTURE.md §7.5) —
+    // the whole payment feature (price fields, SEPA QR, receivables)
+    // simply disappears when finance is disabled, since every one of
+    // these four is null in that case.
+    $newsResponseService = new \Modules\News\Service\ResponseService(
+        $newsResponseRepo, $roleResolver, $sectionService, $mailService, $twig, $shortUrlService,
+        (string) ($settingService->get('base_url') ?: ''), (string) ($settingService->get('site_name') ?: 'Unité scoute'),
+        $financeStructuredCommunicationForOthers, $financeExpectedReceivableForOthers, $financeSepaQrCodeForOthers, $financeAccountForOthers
+    );
+    // Optional dependency on the llm_connector module (ARCHITECTURE.md
+    // §7.5), same reused instance as RGPD content generation above — the
+    // "Générer avec l'IA" button is simply hidden when it's unavailable.
+    $newsSeoKeywordService = new \Modules\News\Service\SeoKeywordService($llmConnectorForRgpd);
+
+    $frontController->registerController(
+        \Modules\News\Controller\NewsController::class,
+        new \Modules\News\Controller\NewsController(
+            $twig, $newsArticleService, $newsFormService, $newsResponseService, $newsSeoKeywordService,
+            $posterPdfService, $scoutYearService, $settingService, $schedulerService, $userAccountRepo,
+            $financeAccountForOthers, $financeExpectedReceivableForOthers
+        )
+    );
+    $frontController->registerController(
+        \Modules\News\Controller\FormController::class,
+        new \Modules\News\Controller\FormController(
+            $twig, $newsArticleService, $newsFormService, $newsResponseService, $scoutYearService, $financeExpectedReceivableForOthers
+        )
+    );
+}
+
 // RGPD configuration controller
 $frontController->registerController(RgpdConfigController::class, new RgpdConfigController($twig, $editableContentService, $rgpdContentService, $settingService, $moduleManager, $journalService));
 

@@ -92,6 +92,33 @@ class NewsController extends AbstractController
     }
 
     /**
+     * POST /news/seo/generate-keywords — AJAX, "Générer avec l'IA" button
+     * (module spec §11.5). Takes title/body directly rather than an
+     * article id: the editor may hold unsaved changes, or be creating a
+     * brand new article that has no id yet.
+     *
+     * @param array<string, string> $params
+     */
+    public function generateSeoKeywords(Request $request, array $params): Response
+    {
+        $data = json_decode($request->getRawBody(), true);
+        if (!is_array($data) || !CsrfGuard::validateToken((string) ($data['_csrf_token'] ?? ''))) {
+            return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
+        }
+
+        try {
+            $keywords = $this->seoKeywordService->generateKeywords(
+                (string) ($data['title'] ?? ''),
+                (string) ($data['body_html'] ?? '')
+            );
+        } catch (NewsException $e) {
+            return $this->json(['success' => false, 'error' => $e->getMessage()], 422);
+        }
+
+        return $this->json(['success' => true, 'keywords' => $keywords]);
+    }
+
+    /**
      * POST /news — create article (+ optional form), one combined request
      * (module spec §11.5: "Enregistrer... saves article + form definition
      * in one POST").
@@ -339,11 +366,18 @@ class NewsController extends AbstractController
 
         $financeAccounts = $this->financeAccount?->getConfiguredAccounts() ?? [];
 
+        $scoutYearId = $this->scoutYearService->getCurrentYear()['id'];
+        $memberOptions = $form !== null && $form->access === NewsForm::ACCESS_IDENTIFIED
+            ? $this->responseService->resolveMemberOptions(AuthSession::getEmail(), $scoutYearId)
+            : [];
+
         return [
             'article' => $article,
             'body_html' => $article !== null ? $this->articleService->getBodyHtml($article->id) : '',
             'form' => $form,
             'fields' => $fields,
+            'preview_fields' => $this->fieldsForPreview($fields, $memberOptions),
+            'preview_contact_email' => AuthSession::getEmail() ?? '',
             'field_types' => FormField::TYPES,
             'seo_ai_available' => $this->seoKeywordService->isAvailable(),
             'finance_available' => $this->financeAccount !== null,
@@ -351,6 +385,24 @@ class NewsController extends AbstractController
             'short_url' => $article?->shortUrlCode !== null ? rtrim((string) ($this->settingService->get('base_url') ?: ''), '/') . '/s/' . $article->shortUrlCode : null,
             'csrf_token' => CsrfGuard::generateToken(),
         ];
+    }
+
+    /**
+     * Preview tab (module spec §11.7): capacity indicators show the FULL
+     * max (nobody has actually responded in preview), not the live
+     * remaining count.
+     *
+     * @param FormField[] $fields
+     * @param array<int, string> $memberOptions
+     * @return array<int, array<string, mixed>>
+     */
+    private function fieldsForPreview(array $fields, array $memberOptions): array
+    {
+        return array_map(fn(FormField $field) => [
+            'field' => $field,
+            'options' => $field->optionsSource === FormField::OPTIONS_SOURCE_MEMBERS ? array_values($memberOptions) : $field->manualOptions(),
+            'remaining_capacity' => $field->capacityMax,
+        ], $fields);
     }
 
     /**
