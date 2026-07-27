@@ -171,7 +171,7 @@ class ResponseServiceTest extends TestCase
 
         $journalService = $this->createMock(JournalService::class);
         $journalService->expects($this->once())->method('log')
-            ->with('news', 'confirmation_email_failed', 'warning', $this->anything(), $this->anything(), null);
+            ->with('news', 'confirmation_email_failed', 'info', $this->anything(), $this->anything(), null);
 
         $this->service(journalService: $journalService)
             ->submit($this->article, $this->form(), [$field], null, null, 1, 'parent@test.com', [$fieldId => 'Alice'], null);

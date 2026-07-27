@@ -273,7 +273,9 @@ class ResponseService
             $this->sendConfirmationEmail($article, $form, $fields, $response, $total);
         } catch (MailException $e) {
             $this->journalService?->log(
-                'news', 'confirmation_email_failed', 'warning',
+                // 'warning' isn't a valid event_log.level (only 'info'/
+                // 'security' — see JournalService::log()'s docblock).
+                'news', 'confirmation_email_failed', 'info',
                 'Échec de l\'envoi de l\'email de confirmation pour une réponse de formulaire',
                 ['article_id' => $article->id, 'form_id' => $form->id, 'response_id' => $response->id],
                 $response->userAccountId
