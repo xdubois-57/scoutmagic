@@ -1188,6 +1188,70 @@ if (in_array('news', $moduleManager->getEnabledModuleIds(), true)) {
     );
 }
 
+if (in_array('gallery', $moduleManager->getEnabledModuleIds(), true)) {
+    $galleryAlbumRepo = new \Modules\Gallery\Repository\AlbumRepository($pdo);
+    $galleryMediaRepo = new \Modules\Gallery\Repository\MediaRepository($pdo);
+    $galleryS3SecretRepo = new \Modules\Gallery\Repository\S3SecretRepository($pdo, $encryptionService);
+
+    $galleryAccessService = new \Modules\Gallery\Service\GalleryAccessService($memberService, $sectionService, $scoutYearService);
+    $galleryOgScraperService = new \Modules\Gallery\Service\OgScraperService();
+    $galleryStorageBackendFactory = new \Modules\Gallery\Service\Storage\StorageBackendFactory($settingService, $galleryS3SecretRepo, $storagePath);
+    $galleryFfmpegAvailability = new \Modules\Gallery\Service\FfmpegAvailability();
+
+    $galleryAlbumService = new \Modules\Gallery\Service\AlbumService(
+        $galleryAlbumRepo, $galleryMediaRepo, $galleryAccessService, $galleryOgScraperService,
+        $galleryStorageBackendFactory, $scoutYearService, $settingService
+    );
+    $galleryMediaService = new \Modules\Gallery\Service\MediaService(
+        $galleryMediaRepo, $galleryAlbumRepo, $uploadHandler, $schedulerService, $settingService,
+        $galleryAccessService, $galleryStorageBackendFactory, $galleryFfmpegAvailability
+    );
+
+    $frontController->registerController(
+        \Modules\Gallery\Controller\GalleryController::class,
+        new \Modules\Gallery\Controller\GalleryController(
+            $twig, $galleryAlbumService, $galleryMediaService, $galleryMediaRepo, $memberService,
+            $sectionService, $scoutYearService, $galleryStorageBackendFactory
+        )
+    );
+    $frontController->registerController(
+        \Modules\Gallery\Controller\GalleryChiefController::class,
+        new \Modules\Gallery\Controller\GalleryChiefController(
+            $twig, $galleryAlbumService, $galleryMediaService, $galleryMediaRepo, $galleryAccessService,
+            $sectionService, $settingService
+        )
+    );
+    $frontController->registerController(
+        \Modules\Gallery\Controller\GalleryConfigController::class,
+        new \Modules\Gallery\Controller\GalleryConfigController(
+            $twig, $settingService, $galleryS3SecretRepo, $galleryFfmpegAvailability, $journalService
+        )
+    );
+}
+
+// Re-registers MemberController with whichever optional providers are
+// available — mass_mail's "Emails reçus" section and/or gallery's
+// "Galerie" section (ARCHITECTURE.md §7.5); each stays null when its
+// module is disabled and the corresponding template section just doesn't
+// render. Placed after both modules' blocks above so their repositories
+// are in scope.
+if (in_array('mass_mail', $moduleManager->getEnabledModuleIds(), true) || in_array('gallery', $moduleManager->getEnabledModuleIds(), true)) {
+    $frontController->registerController(
+        MemberController::class,
+        new MemberController(
+            $twig, $memberService, $memberYearService, $journalService,
+            in_array('mass_mail', $moduleManager->getEnabledModuleIds(), true)
+                ? new \Modules\MassMail\Service\MassMailQueryService($massMailRecipientRepo)
+                : null,
+            in_array('gallery', $moduleManager->getEnabledModuleIds(), true)
+                ? new \Modules\Gallery\Service\GalleryMemberQueryService(
+                    $galleryAlbumRepo, $galleryMediaRepo, $galleryMediaService, $sectionService, $scoutYearService
+                )
+                : null
+        )
+    );
+}
+
 // RGPD configuration controller
 $frontController->registerController(RgpdConfigController::class, new RgpdConfigController($twig, $editableContentService, $rgpdContentService, $settingService, $moduleManager, $journalService));
 

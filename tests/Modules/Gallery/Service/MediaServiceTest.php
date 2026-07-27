@@ -1,0 +1,193 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Tests\Modules\Gallery\Service;
+
+use Core\Config\SettingService;
+use Core\File\FileRepository;
+use Core\File\UploadHandler;
+use Core\Scheduler\SchedulerRepository;
+use Core\Scheduler\SchedulerService;
+use Core\Security\Role;
+use Modules\Gallery\Repository\Album;
+use Modules\Gallery\Repository\AlbumRepository;
+use Modules\Gallery\Repository\Media;
+use Modules\Gallery\Repository\MediaRepository;
+use Modules\Gallery\Service\FfmpegAvailability;
+use Modules\Gallery\Service\GalleryAccessService;
+use Modules\Gallery\Service\GalleryException;
+use Modules\Gallery\Service\MediaService;
+use Modules\Gallery\Service\Storage\StorageBackendFactory;
+use Modules\Gallery\Service\Storage\StorageBackendInterface;
+use PHPUnit\Framework\TestCase;
+use Tests\DatabaseTestHelper;
+use Tests\Modules\Gallery\GalleryTestHelper;
+
+/**
+ * @group database
+ */
+class MediaServiceTest extends TestCase
+{
+    private \PDO $pdo;
+    private MediaRepository $mediaRepository;
+    private AlbumRepository $albumRepository;
+    private MediaService $service;
+    private GalleryAccessService $accessService;
+    private SettingService $settingService;
+    private int $albumId;
+    private int $authorId;
+
+    protected function setUp(): void
+    {
+        $this->pdo = DatabaseTestHelper::createTestDatabase();
+        GalleryTestHelper::createTables($this->pdo);
+
+        $this->mediaRepository = new MediaRepository($this->pdo);
+        $this->albumRepository = new AlbumRepository($this->pdo);
+        $uploadHandler = new UploadHandler(new FileRepository($this->pdo), sys_get_temp_dir());
+        $schedulerService = new SchedulerService(new SchedulerRepository($this->pdo));
+        $this->settingService = $this->createMock(SettingService::class);
+        $this->settingService->method('get')->willReturnCallback(fn($key, $module, $default) => $default);
+        $this->accessService = $this->createMock(GalleryAccessService::class);
+        $this->accessService->method('canManageAlbum')->willReturn(true);
+        $storageBackendFactory = $this->createMock(StorageBackendFactory::class);
+        $storageBackendFactory->method('isS3')->willReturn(false);
+        $ffmpegAvailability = $this->createMock(FfmpegAvailability::class);
+        $ffmpegAvailability->method('check')->willReturn(false);
+
+        $this->service = new MediaService(
+            $this->mediaRepository, $this->albumRepository, $uploadHandler, $schedulerService,
+            $this->settingService, $this->accessService, $storageBackendFactory, $ffmpegAvailability
+        );
+
+        $stmt = $this->pdo->prepare('INSERT INTO user_accounts (email_encrypted, email_blind_index) VALUES (?, ?)');
+        $stmt->execute(['enc', 'idx']);
+        $this->authorId = (int) $this->pdo->lastInsertId();
+
+        $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date) VALUES ('2025-2026', '2025-09-01', '2026-08-31')");
+        $scoutYearId = (int) $this->pdo->lastInsertId();
+
+        $this->albumId = $this->albumRepository->create(Album::TYPE_LOCAL, 'Camp', null, '2026-01-01', null, $scoutYearId, null, $this->authorId);
+    }
+
+    private function fakeUploadedImage(): array
+    {
+        $path = tempnam(sys_get_temp_dir(), 'gallery_test_') . '.jpg';
+        $image = imagecreatetruecolor(10, 10);
+        imagejpeg($image, $path);
+        imagedestroy($image);
+
+        return ['name' => 'photo.jpg', 'tmp_name' => $path, 'error' => UPLOAD_ERR_OK, 'size' => filesize($path), 'type' => 'image/jpeg'];
+    }
+
+    public function testUploadCreatesAPendingMediaRowAndSchedulesProcessing(): void
+    {
+        $album = $this->albumRepository->findById($this->albumId);
+
+        $media = $this->service->upload($album, $this->fakeUploadedImage(), Role::CHIEF, 'chief@test.com', $this->authorId);
+
+        $this->assertSame(Media::STATUS_PENDING, $media->processingStatus);
+        $this->assertSame(Media::TYPE_PHOTO, $media->mediaType);
+        $this->assertSame(1, (int) $this->pdo->query('SELECT COUNT(*) FROM scheduled_actions')->fetchColumn());
+    }
+
+    public function testFirstUploadBecomesTheAlbumCover(): void
+    {
+        $album = $this->albumRepository->findById($this->albumId);
+
+        $media = $this->service->upload($album, $this->fakeUploadedImage(), Role::CHIEF, 'chief@test.com', $this->authorId);
+
+        $this->assertSame($media->id, $this->albumRepository->findById($this->albumId)->coverMediaId);
+    }
+
+    public function testSecondUploadDoesNotOverrideTheExistingCover(): void
+    {
+        $album = $this->albumRepository->findById($this->albumId);
+        $first = $this->service->upload($album, $this->fakeUploadedImage(), Role::CHIEF, 'chief@test.com', $this->authorId);
+
+        $album = $this->albumRepository->findById($this->albumId);
+        $this->service->upload($album, $this->fakeUploadedImage(), Role::CHIEF, 'chief@test.com', $this->authorId);
+
+        $this->assertSame($first->id, $this->albumRepository->findById($this->albumId)->coverMediaId);
+    }
+
+    public function testUploadRejectsAnExternalAlbum(): void
+    {
+        $externalId = $this->albumRepository->create(Album::TYPE_EXTERNAL, 'Titre', null, '2026-01-01', null, 1, 'https://example.com', $this->authorId);
+        $album = $this->albumRepository->findById($externalId);
+
+        $this->expectException(GalleryException::class);
+        $this->service->upload($album, $this->fakeUploadedImage(), Role::CHIEF, 'chief@test.com', $this->authorId);
+    }
+
+    public function testUploadRejectsWhenOverQuota(): void
+    {
+        $settingService = $this->createMock(SettingService::class);
+        $settingService->method('get')->willReturnCallback(fn($key, $module, $default) => $key === 'gallery_max_media_per_album' ? 0 : $default);
+        $service = new MediaService(
+            $this->mediaRepository, $this->albumRepository, new UploadHandler(new FileRepository($this->pdo), sys_get_temp_dir()),
+            new SchedulerService(new SchedulerRepository($this->pdo)), $settingService, $this->accessService,
+            $this->createMock(StorageBackendFactory::class), $this->createMock(FfmpegAvailability::class)
+        );
+        $album = $this->albumRepository->findById($this->albumId);
+
+        $this->expectException(GalleryException::class);
+        $service->upload($album, $this->fakeUploadedImage(), Role::CHIEF, 'chief@test.com', $this->authorId);
+    }
+
+    public function testDeleteRemovesTheMediaRow(): void
+    {
+        $album = $this->albumRepository->findById($this->albumId);
+        $media = $this->service->upload($album, $this->fakeUploadedImage(), Role::CHIEF, 'chief@test.com', $this->authorId);
+
+        $this->service->delete($media, $this->albumRepository->findById($this->albumId), Role::CHIEF, 'chief@test.com');
+
+        $this->assertNull($this->mediaRepository->findById($media->id));
+    }
+
+    public function testDeleteClearsTheCoverWhenDeletingTheCoverMedia(): void
+    {
+        $album = $this->albumRepository->findById($this->albumId);
+        $media = $this->service->upload($album, $this->fakeUploadedImage(), Role::CHIEF, 'chief@test.com', $this->authorId);
+        $album = $this->albumRepository->findById($this->albumId);
+        $this->assertSame($media->id, $album->coverMediaId);
+
+        $this->service->delete($media, $album, Role::CHIEF, 'chief@test.com');
+
+        $this->assertNull($this->albumRepository->findById($this->albumId)->coverMediaId);
+    }
+
+    public function testReorderRejectsAListThatDoesNotMatchExactly(): void
+    {
+        $album = $this->albumRepository->findById($this->albumId);
+        $this->service->upload($album, $this->fakeUploadedImage(), Role::CHIEF, 'chief@test.com', $this->authorId);
+
+        $this->expectException(GalleryException::class);
+        $this->service->reorder($album, [999999], Role::CHIEF, 'chief@test.com');
+    }
+
+    public function testResolveUrlReturnsNullWhenNotYetProcessed(): void
+    {
+        $album = $this->albumRepository->findById($this->albumId);
+        $media = $this->service->upload($album, $this->fakeUploadedImage(), Role::CHIEF, 'chief@test.com', $this->authorId);
+
+        $this->assertNull($this->service->resolveUrl($media, 'thumb'));
+    }
+
+    public function testResolveUrlBuildsTheAppRouteForLocalStorage(): void
+    {
+        $album = $this->albumRepository->findById($this->albumId);
+        $media = $this->service->upload($album, $this->fakeUploadedImage(), Role::CHIEF, 'chief@test.com', $this->authorId);
+        $this->mediaRepository->markPhotoDone($media->id, 'thumb.jpg', 'med.jpg', 'lg.jpg', 100, 100);
+
+        $url = $this->service->resolveUrl($this->mediaRepository->findById($media->id), 'thumb');
+
+        $this->assertSame('/gallery/media/' . $media->id . '/thumb', $url);
+    }
+
+    public function testVideoUploadAllowedIsFalseWithoutFfmpeg(): void
+    {
+        $this->assertFalse($this->service->videoUploadAllowed());
+    }
+}

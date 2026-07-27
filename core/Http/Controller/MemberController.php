@@ -13,6 +13,7 @@ use Core\Member\MemberYearService;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\Security\Role;
+use Modules\Gallery\Api\GalleryAlbumProvider;
 use Modules\MassMail\Api\MassMailQueryInterface;
 use Twig\Environment;
 
@@ -23,7 +24,8 @@ class MemberController extends AbstractController
         private MemberService $memberService,
         private MemberYearService $memberYearService,
         private JournalService $journalService,
-        private ?MassMailQueryInterface $massMailQuery = null
+        private ?MassMailQueryInterface $massMailQuery = null,
+        private ?GalleryAlbumProvider $galleryAlbumProvider = null
     ) {
     }
 
@@ -66,11 +68,25 @@ class MemberController extends AbstractController
             ? $this->massMailQuery->getRecentEmailsForMember($profile->memberId, 10)
             : [];
 
+        // "Galerie" section — only when the gallery module is enabled
+        // (§7.5: the section simply doesn't appear otherwise), scoped to
+        // the sections this specific member-year row belongs to and the
+        // scout year it belongs to (not "current or previous" — this page
+        // can display a past scout year's member row).
+        $galleryAlbums = $this->galleryAlbumProvider !== null
+            ? $this->galleryAlbumProvider->getAlbumsForMember(
+                array_values(array_filter(array_map(fn($f) => $f->sectionCode, $profile->functions))),
+                $profile->scoutYearLabel,
+                6
+            )
+            : [];
+
         return $this->render('members/show.html.twig', [
             'member' => $profile,
             'show_contact' => $showContact,
             'show_addresses' => $showAddresses,
             'recent_mass_mail_emails' => $recentMassMailEmails,
+            'gallery_albums' => $galleryAlbums,
         ]);
     }
 

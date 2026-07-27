@@ -1,0 +1,178 @@
+{% extends "base.html.twig" %}
+
+{% block title %}{{ album ? 'Éditer l\'album' : 'Nouvel album' }} — {{ site_name }}{% endblock %}
+
+{% block content %}
+    <div class="d-flex justify-content-between align-items-start mb-3 flex-wrap gap-2">
+        <h1 class="h4 mb-0">{{ album ? 'Éditer l\'album' : 'Nouvel album' }}</h1>
+        <a href="/gallery/manage" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left"></i> Retour</a>
+    </div>
+
+    {% if submit_error %}
+        <div class="alert alert-danger">{{ submit_error }}</div>
+    {% endif %}
+
+    <div class="card mb-3">
+        <div class="card-body">
+            <form method="post" action="{{ album ? '/gallery/' ~ album.id : '/gallery' }}" novalidate>
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+
+                {% if not album %}
+                    <div class="mb-3">
+                        <label class="form-label small fw-semibold">Type d'album</label>
+                        <div class="btn-group w-100" role="group">
+                            {% if allow_local %}
+                                <input type="radio" class="btn-check" name="type" id="type-local" value="local" autocomplete="off" checked>
+                                <label class="btn btn-outline-primary" for="type-local"><i class="bi bi-images"></i> Photos / vidéos</label>
+                            {% endif %}
+                            {% if allow_external %}
+                                <input type="radio" class="btn-check" name="type" id="type-external" value="external" autocomplete="off" {{ allow_local ? '' : 'checked' }}>
+                                <label class="btn btn-outline-primary" for="type-external"><i class="bi bi-box-arrow-up-right"></i> Lien externe</label>
+                            {% endif %}
+                        </div>
+                    </div>
+                {% endif %}
+
+                <div class="row g-3">
+                    <div class="col-12 col-md-8">
+                        <label class="form-label small" for="album-title">Titre</label>
+                        <input type="text" class="form-control" id="album-title" name="title" value="{{ album.title ?? '' }}" required maxlength="255">
+                    </div>
+                    <div class="col-12 col-md-4">
+                        <label class="form-label small" for="album-date">Date</label>
+                        <input type="date" class="form-control" id="album-date" name="album_date" value="{{ (album.albumDate ?? 'now')|date('Y-m-d') }}" required>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label small" for="album-subtitle">Sous-titre <span class="text-body-secondary">(optionnel)</span></label>
+                        <input type="text" class="form-control" id="album-subtitle" name="subtitle" value="{{ album.subtitle ?? '' }}" maxlength="255">
+                    </div>
+                    <div class="col-12 col-md-6">
+                        <label class="form-label small" for="album-section">Section</label>
+                        <select class="form-select" id="album-section" name="section_id">
+                            <option value="">Toute l'unité</option>
+                            {% for section in sections %}
+                                <option value="{{ section.id }}" {{ album and album.sectionId == section.id ? 'selected' : '' }}>
+                                    {{ section.name ?? section.desk_code }}
+                                </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    {% if not album %}
+                        <div class="col-12 col-md-6 gallery-external-field {{ allow_local ? 'd-none' : '' }}">
+                            <label class="form-label small" for="album-external-url">URL de l'album externe</label>
+                            <input type="url" class="form-control" id="album-external-url" name="external_url" value="" placeholder="https://...">
+                        </div>
+                    {% elseif album.type == 'external' %}
+                        <div class="col-12 col-md-6">
+                            <label class="form-label small" for="album-external-url">URL de l'album externe</label>
+                            <div class="input-group">
+                                <input type="url" class="form-control" id="album-external-url" name="external_url" value="{{ album.externalUrl }}" required>
+                                <button type="button" class="btn btn-outline-secondary" id="gallery-refresh-og" data-url="/gallery/{{ album.id }}/refresh-og">
+                                    <i class="bi bi-arrow-clockwise"></i> Rafraîchir l'aperçu
+                                </button>
+                            </div>
+                        </div>
+                    {% endif %}
+                </div>
+
+                <div class="mt-3">
+                    <button type="submit" class="btn btn-primary">Enregistrer</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    {% if album and album.type == 'external' and album.ogTitle %}
+        <div class="card mb-3">
+            <div class="card-body d-flex gap-3">
+                {% if album.ogImageUrl %}
+                    <img src="{{ album.ogImageUrl }}" alt="" class="rounded flex-shrink-0" style="width:100px;height:100px;object-fit:cover;">
+                {% endif %}
+                <div>
+                    <h2 class="h6 mb-1">{{ album.ogTitle }}</h2>
+                    <p class="small text-body-secondary mb-0">{{ album.ogDescription }}</p>
+                </div>
+            </div>
+        </div>
+    {% endif %}
+
+    {% if album and album.type == 'local' %}
+        <div class="card mb-3">
+            <div class="card-body">
+                <h2 class="h6 mb-3">Ajouter des photos / vidéos</h2>
+                <div id="gallery-upload-zone" class="border border-2 border-dashed rounded p-4 text-center text-body-secondary"
+                     data-upload-url="/gallery/{{ album.id }}/media" style="cursor:pointer;">
+                    <i class="bi bi-cloud-upload fs-2 d-block mb-2"></i>
+                    Glissez-déposez des fichiers ici, ou cliquez pour parcourir
+                    {% if not video_upload_allowed %}
+                        <p class="small text-warning mb-0 mt-2"><i class="bi bi-exclamation-triangle"></i> L'envoi de vidéos est actuellement indisponible.</p>
+                    {% endif %}
+                </div>
+                <input type="file" id="gallery-upload-input" class="d-none" multiple accept="image/jpeg,image/png,image/webp{{ video_upload_allowed ? ',video/mp4,video/quicktime,video/webm' : '' }}">
+                <div id="gallery-upload-progress" class="mt-3 d-none">
+                    <div class="progress" style="height:0.5rem;">
+                        <div id="gallery-upload-progress-bar" class="progress-bar" style="width:0%;"></div>
+                    </div>
+                    <p class="small text-body-secondary mb-0 mt-1" id="gallery-upload-progress-label">0 / 0</p>
+                </div>
+            </div>
+        </div>
+
+        {% if media is not empty %}
+            <div class="card">
+                <div class="card-body">
+                    <h2 class="h6 mb-3">Médias ({{ media|length }} / {{ max_media_per_album }})</h2>
+                    <div class="row g-2" id="gallery-existing-media" data-reorder-url="/gallery/{{ album.id }}/media/reorder">
+                        {% for row in media %}
+                            {% set m = row.media %}
+                            <div class="col-6 col-sm-4 col-md-3 col-lg-2 gallery-media-item" data-media-id="{{ m.id }}" draggable="true">
+                                <div class="position-relative rounded overflow-hidden" style="aspect-ratio:1/1;background:#eee;">
+                                    {% if row.thumb_url %}
+                                        <img src="{{ row.thumb_url }}" alt="" class="w-100 h-100" style="object-fit:cover;">
+                                    {% else %}
+                                        <span class="d-flex align-items-center justify-content-center h-100">
+                                            <span class="spinner-border spinner-border-sm text-body-secondary"></span>
+                                        </span>
+                                    {% endif %}
+                                    {% if m.mediaType == 'video' %}
+                                        <span class="position-absolute top-50 start-50 translate-middle text-white" style="font-size:1.5rem;text-shadow:0 0 6px rgba(0,0,0,.6);">
+                                            <i class="bi bi-play-circle-fill"></i>
+                                        </span>
+                                    {% endif %}
+                                    {% if album.coverMediaId == m.id %}
+                                        <span class="badge bg-primary position-absolute top-0 start-0 m-1">Couverture</span>
+                                    {% endif %}
+                                    <div class="position-absolute bottom-0 end-0 m-1 d-flex gap-1">
+                                        {% if album.coverMediaId != m.id %}
+                                            <button type="button" class="btn btn-sm btn-light gallery-media-set-cover" title="Définir comme couverture"
+                                                    data-url="/gallery/{{ album.id }}/cover" data-media-id="{{ m.id }}">
+                                                <i class="bi bi-star"></i>
+                                            </button>
+                                        {% endif %}
+                                        <button type="button" class="btn btn-sm btn-light text-danger gallery-media-delete" title="Supprimer"
+                                                data-url="/gallery/{{ album.id }}/media/{{ m.id }}/delete">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        {% endfor %}
+                    </div>
+                    <p class="small text-body-secondary mt-2 d-none d-lg-block">
+                        <i class="bi bi-arrows-move"></i> Glissez les vignettes pour réordonner.
+                    </p>
+                </div>
+            </div>
+        {% endif %}
+
+        <div class="mt-3">
+            <button type="button" class="btn btn-outline-danger btn-sm" id="gallery-delete-album" data-url="/gallery/{{ album.id }}/delete">
+                <i class="bi bi-trash"></i> Supprimer l'album
+            </button>
+        </div>
+    {% endif %}
+{% endblock %}
+
+{% block scripts %}
+    <script src="/assets/js/gallery.js" defer></script>
+{% endblock %}

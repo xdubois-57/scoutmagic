@@ -37,10 +37,12 @@ Open-source website for Belgian scout units in the "Les Scouts" federation.
 
 ```bash
 composer install
-php -S localhost:8000 -t public   # local dev server
+composer serve                     # local dev server (localhost:8000)
 vendor/bin/phpunit                 # run tests
 vendor/bin/phpstan analyse core/   # static analysis
 ```
+
+`composer serve` wraps `php -S` with raised `upload_max_filesize`/`post_max_size` (`public/.user.ini`, used in production, isn't honored by the built-in server) — if you run `php -S` directly instead, uploads over 8M will 413. Raise the values in `composer.json`'s `scripts.serve` if you need to test bigger uploads locally (e.g. gallery videos).
 
 ## Deployment
 

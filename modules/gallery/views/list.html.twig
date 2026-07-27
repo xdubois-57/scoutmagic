@@ -1,0 +1,36 @@
+{% extends "base.html.twig" %}
+
+{% block title %}Galerie — {{ site_name }}{% endblock %}
+
+{% block content %}
+    <h1 class="h4 mb-3">Galerie</h1>
+
+    {% if albums is empty %}
+        <p class="text-body-secondary text-center py-5">Aucun album pour le moment.</p>
+    {% else %}
+        <div class="row g-3">
+            {% for row in albums %}
+                {% set album = row.album %}
+                <div class="col-6 col-md-4 col-lg-3">
+                    <a href="{{ album.type == 'external' ? album.externalUrl : '/gallery/' ~ album.id }}"
+                       class="text-decoration-none text-body"
+                       {{ album.type == 'external' ? 'target="_blank" rel="noopener"' : '' }}>
+                        <div class="card h-100">
+                            <div class="bg-light d-flex align-items-center justify-content-center" style="aspect-ratio:1/1;overflow:hidden;">
+                                {% if row.cover_url %}
+                                    <img src="{{ row.cover_url }}" alt="" class="w-100 h-100" style="object-fit:cover;">
+                                {% else %}
+                                    <i class="bi bi-images text-muted" style="font-size:2rem;"></i>
+                                {% endif %}
+                            </div>
+                            <div class="card-body p-2">
+                                <h2 class="h6 mb-1 text-truncate">{{ row.display_title }}</h2>
+                                <p class="small text-body-secondary mb-0">{{ album.albumDate|french_date }}</p>
+                            </div>
+                        </div>
+                    </a>
+                </div>
+            {% endfor %}
+        </div>
+    {% endif %}
+{% endblock %}

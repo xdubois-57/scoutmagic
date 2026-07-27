@@ -72,8 +72,9 @@ class RgpdContentService
         $providerInfo = $this->getActiveProviderInfo();
         $modelsInfo = $this->getActiveModelsInfo();
         $phoneProvider = $this->getPhoneProviderInfo();
+        $galleryStorage = $this->getGalleryStorageInfo();
 
-        $systemPrompt = $this->buildSystemPrompt($baseContent, $activeModules, $providerInfo, $modelsInfo, $phoneProvider, $userPrompt);
+        $systemPrompt = $this->buildSystemPrompt($baseContent, $activeModules, $providerInfo, $modelsInfo, $phoneProvider, $galleryStorage, $userPrompt);
 
         $request = new LlmRequest(
             prompt: "Génère le contenu RGPD complet en HTML selon la structure imposée dans le prompt système.",
@@ -118,6 +119,7 @@ class RgpdContentService
         string $providerInfo,
         string $modelsInfo,
         string $phoneProvider,
+        string $galleryStorage,
         string $userPrompt
     ): string {
         $modulesText = implode(', ', $activeModules);
@@ -136,6 +138,7 @@ Contexte de l'unité :
 - Fournisseur IA : {$providerInfo}
 - Modèles IA : {$modelsInfo}
 - Fournisseur téléphonie : {$phoneProvider}
+- Stockage galerie : {$galleryStorage}
 
 Contenu RGPD de référence (couvre TOUS les modules possibles, version la plus complète) :
 {$baseContent}
@@ -206,6 +209,11 @@ RÈGLES CRITIQUES (ne JAMAIS déroger) :
     - S'il stocke ou traite des données hors UE/EEE (ex : USA), l'ajouter explicitement à la liste des transferts hors UE en section 5.2, avec le mécanisme de garantie applicable (clauses contractuelles types de la Commission européenne, art. 46 RGPD, ou cadre de protection des données UE-USA (Data Privacy Framework) si le fournisseur y est certifié).
     - NE JAMAIS recopier tel quel la phrase de clôture du contenu de référence affirmant qu'« aucun autre transfert hors UE n'est effectué » si l'administrateur a déclaré un service basé hors UE : reformule cette phrase pour refléter fidèlement TOUS les transferts réels (modules actifs + outils tiers déclarés par l'administrateur).
     - Ce point est CRITIQUE lorsque l'administrateur signale explicitement un stockage aux USA ou hors UE : une omission constituerait une non-conformité RGPD grave (défaut d'information sur les transferts internationaux, art. 13.1.f et 44 à 49 RGPD).
+22. **Stockage galerie (module gallery)** : Le contenu de référence liste TOUS les fournisseurs de stockage objet possibles (Hetzner, Cloudflare R2, Scaleway, OVHcloud) en section 4.2 et le module galerie en section 2.4. Tu dois adapter ces sections à la configuration RÉELLE indiquée par {$galleryStorage} :
+    - Si le module gallery n'est pas dans la liste des modules actifs : retire entièrement la section 2.4 "Module Galerie photos et vidéos" et le paragraphe "Fournisseurs de stockage objet" de la section 4.2.
+    - Si {$galleryStorage} indique un stockage local : conserve la section 2.4 du module galerie, mais retire complètement le paragraphe "Fournisseurs de stockage objet" de la section 4.2 (aucun sous-traitant externe, les fichiers restent chez l'hébergeur déjà couvert en 4.1) et ne mentionne aucun fournisseur de stockage objet.
+    - Si {$galleryStorage} indique un fournisseur S3 précis (Hetzner, Cloudflare R2, Scaleway ou OVHcloud) : conserve dans la section 4.2 UNIQUEMENT ce fournisseur (retire les trois autres de la liste), avec ses informations exactes (localisation, lien vers sa politique de confidentialité) telles que fournies dans le contenu de référence.
+    - Si {$galleryStorage} indique spécifiquement Cloudflare R2 avec une région hors UE : conserve la mention du transfert hors UE correspondante en section 5.2 et dans la phrase de clôture de cette section ; sinon (stockage local, ou tout autre fournisseur, ou Cloudflare R2 en région UE) retire cette mention et n'ajoute aucun transfert hors UE lié à la galerie.
 
 Rappel final — instructions de l'administrateur à intégrer intégralement, point par point (voir règle 18) :
 {$userPrompt}
@@ -291,6 +299,30 @@ PROMPT;
         // Currently only OVH is implemented
         // In the future, check the active provider from sos_provider_credentials table
         return 'OVH Télécom (France, UE)';
+    }
+
+    /**
+     * Get info about the gallery module's configured storage backend for RGPD disclosure
+     */
+    private function getGalleryStorageInfo(): string
+    {
+        if (!in_array('gallery', $this->moduleManager->getEnabledModuleIds(), true)) {
+            return 'Aucun (module galerie inactif)';
+        }
+
+        $backend = $this->settingService->get('gallery_storage_backend', 'gallery', 'local');
+        if ($backend !== 's3') {
+            return 'Stockage local (disque du serveur, pas de sous-traitant externe)';
+        }
+
+        $provider = $this->settingService->get('gallery_s3_provider', 'gallery', 'custom');
+        return match ($provider) {
+            'hetzner' => 'Hetzner Object Storage (Allemagne/Finlande, UE)',
+            'cloudflare_r2' => 'Cloudflare R2 (réseau mondial, région selon configuration du bucket)',
+            'scaleway' => 'Scaleway Object Storage (France/Pays-Bas, UE)',
+            'ovhcloud' => 'OVHcloud Object Storage (France/Allemagne/Pologne, UE)',
+            default => 'Fournisseur S3-compatible personnalisé (localisation selon configuration)',
+        };
     }
 
     /**

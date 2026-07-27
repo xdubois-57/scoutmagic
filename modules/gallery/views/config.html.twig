@@ -1,0 +1,199 @@
+{% extends "base.html.twig" %}
+
+{% block title %}Galerie photos et vidéos — {{ site_name }}{% endblock %}
+
+{% block content %}
+    <h1 class="h3 mb-4">Galerie photos et vidéos</h1>
+
+    {% if submit_error %}
+        <div class="alert alert-danger">{{ submit_error }}</div>
+    {% endif %}
+
+    {% if not ffmpeg_available %}
+        <div class="alert alert-warning">
+            <strong>FFmpeg n'est pas disponible sur ce serveur.</strong>
+            L'envoi de vidéos est désactivé tant que ce binaire système optionnel n'est pas installé
+            (le traitement des photos fonctionne normalement, indépendamment de FFmpeg).
+        </div>
+    {% endif %}
+
+    <form method="post" action="/config/gallery" novalidate>
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+
+        <div class="card mb-4">
+            <div class="card-body">
+                <h2 class="h6 mb-3">Général</h2>
+                <div class="row g-3">
+                    <div class="col-12 col-md-6">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="gallery-allow-local" name="gallery_allow_local" value="1" {{ gallery_allow_local ? 'checked' : '' }}>
+                            <label class="form-check-label" for="gallery-allow-local">Autoriser les albums locaux (photos/vidéos hébergées)</label>
+                        </div>
+                    </div>
+                    <div class="col-12 col-md-6">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="gallery-allow-external" name="gallery_allow_external" value="1" {{ gallery_allow_external ? 'checked' : '' }}>
+                            <label class="form-check-label" for="gallery-allow-external">Autoriser les albums en lien externe</label>
+                        </div>
+                    </div>
+                    <div class="col-12 col-md-6">
+                        <label class="form-label small" for="gallery-max-media">Nombre maximum de médias par album</label>
+                        <input type="number" class="form-control" id="gallery-max-media" name="gallery_max_media_per_album" value="{{ gallery_max_media_per_album }}" min="1">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card mb-4">
+            <div class="card-body">
+                <h2 class="h6 mb-3">Stockage</h2>
+                <div class="row g-3">
+                    <div class="col-12">
+                        <label class="form-label small">Type de stockage</label>
+                        <div class="btn-group w-100" role="group">
+                            <input type="radio" class="btn-check" name="gallery_storage_backend" id="storage-local" value="local" autocomplete="off" {{ gallery_storage_backend != 's3' ? 'checked' : '' }}>
+                            <label class="btn btn-outline-primary" for="storage-local"><i class="bi bi-hdd"></i> Stockage local</label>
+                            <input type="radio" class="btn-check" name="gallery_storage_backend" id="storage-s3" value="s3" autocomplete="off" {{ gallery_storage_backend == 's3' ? 'checked' : '' }}>
+                            <label class="btn btn-outline-primary" for="storage-s3"><i class="bi bi-cloud"></i> Stockage objet (S3)</label>
+                        </div>
+                    </div>
+
+                    <div class="col-12 col-md-6 gallery-storage-local">
+                        <label class="form-label small" for="storage-local-subdir">Sous-dossier local</label>
+                        <input type="text" class="form-control" id="storage-local-subdir" name="gallery_storage_local_subdir" value="{{ gallery_storage_local_subdir }}">
+                    </div>
+                </div>
+
+                <div class="gallery-storage-s3 row g-3 mt-1">
+                    <div class="col-12">
+                        <label class="form-label small" for="s3-provider">Fournisseur</label>
+                        <select class="form-select" id="s3-provider" name="gallery_s3_provider">
+                            <option value="hetzner" {{ gallery_s3_provider == 'hetzner' ? 'selected' : '' }}>Hetzner Object Storage</option>
+                            <option value="cloudflare_r2" {{ gallery_s3_provider == 'cloudflare_r2' ? 'selected' : '' }}>Cloudflare R2</option>
+                            <option value="scaleway" {{ gallery_s3_provider == 'scaleway' ? 'selected' : '' }}>Scaleway Object Storage</option>
+                            <option value="ovhcloud" {{ gallery_s3_provider == 'ovhcloud' ? 'selected' : '' }}>OVHcloud Object Storage</option>
+                            <option value="custom" {{ gallery_s3_provider == 'custom' ? 'selected' : '' }}>Personnalisé (compatible S3)</option>
+                        </select>
+                    </div>
+
+                    <div class="col-12" id="s3-help-hetzner">
+                        <div class="alert alert-light border mb-0 small">
+                            Créez un bucket dans la <a href="https://console.hetzner.cloud/" target="_blank" rel="noopener">console Hetzner Cloud</a> (Object Storage).
+                            Endpoint : <code>https://&lt;region&gt;.your-objectstorage.com</code> (régions : fsn1, nbg1, hel1). Localisation : Union européenne (Allemagne/Finlande).
+                        </div>
+                    </div>
+                    <div class="col-12" id="s3-help-cloudflare_r2">
+                        <div class="alert alert-light border mb-0 small">
+                            Créez un bucket R2 dans le <a href="https://dash.cloudflare.com/" target="_blank" rel="noopener">tableau de bord Cloudflare</a>.
+                            Endpoint : <code>https://&lt;account_id&gt;.r2.cloudflarestorage.com</code>, région : <code>auto</code>.
+                            <strong>Attention :</strong> les serveurs Cloudflare R2 ne sont pas garantis dans l'Union européenne sauf configuration de « Jurisdictional restrictions » sur le bucket.
+                        </div>
+                    </div>
+                    <div class="col-12" id="s3-help-scaleway">
+                        <div class="alert alert-light border mb-0 small">
+                            Créez un bucket dans la <a href="https://console.scaleway.com/object-storage/buckets" target="_blank" rel="noopener">console Scaleway</a>.
+                            Endpoint : <code>https://s3.&lt;region&gt;.scw.cloud</code> (ex. fr-par, nl-ams). Société française, conforme au RGPD.
+                        </div>
+                    </div>
+                    <div class="col-12" id="s3-help-ovhcloud">
+                        <div class="alert alert-light border mb-0 small">
+                            Créez un conteneur dans le <a href="https://www.ovh.com/manager/" target="_blank" rel="noopener">manager OVHcloud</a> (Object Storage, compatible S3).
+                            Endpoint : <code>https://s3.&lt;region&gt;.io.cloud.ovh.net</code> (ex. gra, sbg, de). Société française, conforme au RGPD.
+                        </div>
+                    </div>
+                    <div class="col-12" id="s3-help-custom">
+                        <div class="alert alert-light border mb-0 small">
+                            Saisissez l'endpoint, la région et le bucket fournis par votre hébergeur compatible S3.
+                        </div>
+                    </div>
+
+                    <div class="col-12 col-md-6">
+                        <label class="form-label small" for="s3-endpoint">Endpoint</label>
+                        <input type="url" class="form-control" id="s3-endpoint" name="gallery_s3_endpoint" value="{{ gallery_s3_endpoint }}" placeholder="https://...">
+                    </div>
+                    <div class="col-12 col-md-3">
+                        <label class="form-label small" for="s3-region">Région</label>
+                        <input type="text" class="form-control" id="s3-region" name="gallery_s3_region" value="{{ gallery_s3_region }}">
+                    </div>
+                    <div class="col-12 col-md-3">
+                        <label class="form-label small" for="s3-bucket">Bucket</label>
+                        <input type="text" class="form-control" id="s3-bucket" name="gallery_s3_bucket" value="{{ gallery_s3_bucket }}">
+                    </div>
+                    <div class="col-12 col-md-6">
+                        <label class="form-label small" for="s3-access-key">Access key</label>
+                        <input type="text" class="form-control" id="s3-access-key" name="gallery_s3_access_key" value="{{ gallery_s3_access_key }}" autocomplete="off">
+                    </div>
+                    <div class="col-12 col-md-6">
+                        <label class="form-label small" for="s3-secret-key">Secret key</label>
+                        <input type="password" class="form-control" id="s3-secret-key" name="gallery_s3_secret_key" placeholder="{{ gallery_s3_secret_configured ? '••••••••' : '' }}" autocomplete="off">
+                        <div class="form-text">{{ gallery_s3_secret_configured ? 'Laisser vide pour conserver la clé actuelle.' : '' }}</div>
+                    </div>
+                    <div class="col-12 col-md-6">
+                        <label class="form-label small" for="s3-public-url">URL publique (CDN, optionnel)</label>
+                        <input type="url" class="form-control" id="s3-public-url" name="gallery_s3_public_url" value="{{ gallery_s3_public_url }}" placeholder="https://cdn.example.org">
+                        <div class="form-text">Si vide, les médias sont servis via une URL signée temporaire.</div>
+                    </div>
+                    <div class="col-12">
+                        <button type="button" class="btn btn-outline-secondary btn-sm" id="s3-test-connection">
+                            <i class="bi bi-plug"></i> Tester la connexion
+                        </button>
+                        <div id="s3-test-result" class="mt-2"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card mb-4">
+            <div class="card-body">
+                <h2 class="h6 mb-3">Photos</h2>
+                <div class="row g-3">
+                    <div class="col-12 col-md-6">
+                        <label class="form-label small" for="photo-max-upload">Taille maximale d'envoi (Mo)</label>
+                        <input type="number" class="form-control" id="photo-max-upload" name="gallery_max_photo_upload_mb" value="{{ gallery_max_photo_upload_mb }}" min="1">
+                    </div>
+                    <div class="col-12 col-md-6">
+                        <label class="form-label small" for="photo-max-dimension">Dimension maximale (px, plus long côté)</label>
+                        <input type="number" class="form-control" id="photo-max-dimension" name="gallery_photo_max_dimension" value="{{ gallery_photo_max_dimension }}" min="500">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card mb-4">
+            <div class="card-body">
+                <h2 class="h6 mb-3">Vidéos</h2>
+                <div class="row g-3">
+                    <div class="col-12 col-md-6">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="gallery-allow-video" name="gallery_allow_video" value="1" {{ gallery_allow_video ? 'checked' : '' }}>
+                            <label class="form-check-label" for="gallery-allow-video">Autoriser l'envoi de vidéos</label>
+                        </div>
+                        {% if not ffmpeg_available %}
+                            <div class="form-text text-warning">FFmpeg indisponible — l'envoi de vidéos restera désactivé même si cette option est cochée.</div>
+                        {% endif %}
+                    </div>
+                    <div class="col-12 col-md-6">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" id="gallery-keep-original" name="gallery_keep_original_video" value="1" {{ gallery_keep_original_video ? 'checked' : '' }}>
+                            <label class="form-check-label" for="gallery-keep-original">Conserver le fichier vidéo original (en plus des versions transcodées)</label>
+                        </div>
+                    </div>
+                    <div class="col-12 col-md-6">
+                        <label class="form-label small" for="video-max-upload">Taille maximale d'envoi (Mo)</label>
+                        <input type="number" class="form-control" id="video-max-upload" name="gallery_max_video_upload_mb" value="{{ gallery_max_video_upload_mb }}" min="1">
+                    </div>
+                    <div class="col-12 col-md-6">
+                        <label class="form-label small" for="video-max-duration">Durée maximale (secondes)</label>
+                        <input type="number" class="form-control" id="video-max-duration" name="gallery_max_video_duration_sec" value="{{ gallery_max_video_duration_sec }}" min="1">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <button type="submit" class="btn btn-primary">Enregistrer</button>
+    </form>
+{% endblock %}
+
+{% block scripts %}
+    <script src="/assets/js/gallery-config.js" defer></script>
+{% endblock %}

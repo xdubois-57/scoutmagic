@@ -1,0 +1,25 @@
+{# Pure-JS lightbox/player (module spec: "no external library — Bootstrap
+   modal + touch event handling"). Content is injected by
+   /assets/js/gallery.js from the data-* attributes on each
+   .gallery-lightbox-trigger button. #}
+<div id="gallery-lightbox" class="d-none" style="position:fixed;inset:0;z-index:1080;background:rgba(0,0,0,.92);">
+    <button type="button" class="btn btn-link text-white position-absolute top-0 end-0 m-2 fs-3" id="gallery-lightbox-close" aria-label="Fermer" style="z-index:2;">
+        <i class="bi bi-x-lg"></i>
+    </button>
+    <button type="button" class="btn btn-link text-white position-absolute top-50 start-0 translate-middle-y fs-1 ms-1" id="gallery-lightbox-prev" aria-label="Précédent" style="z-index:2;">
+        <i class="bi bi-chevron-left"></i>
+    </button>
+    <button type="button" class="btn btn-link text-white position-absolute top-50 end-0 translate-middle-y fs-1 me-1" id="gallery-lightbox-next" aria-label="Suivant" style="z-index:2;">
+        <i class="bi bi-chevron-right"></i>
+    </button>
+
+    <div class="d-flex align-items-center justify-content-center h-100 w-100 p-3" style="pointer-events:none;">
+        <img id="gallery-lightbox-image" src="" alt="" class="d-none" style="max-width:100%;max-height:90vh;object-fit:contain;pointer-events:auto;">
+        <video id="gallery-lightbox-video" class="d-none" controls style="max-width:100%;max-height:90vh;pointer-events:auto;"></video>
+    </div>
+
+    <div class="position-absolute bottom-0 start-50 translate-middle-x mb-3 d-flex gap-2">
+        <button type="button" class="btn btn-sm btn-outline-light d-none" id="gallery-lightbox-hq">Voir en haute qualité</button>
+        <a href="#" class="btn btn-sm btn-outline-light d-none" id="gallery-lightbox-download" download>Télécharger l'original</a>
+    </div>
+</div>

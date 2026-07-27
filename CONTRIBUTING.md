@@ -33,5 +33,7 @@ Report security vulnerabilities privately — not via public issues. Contact the
 ```bash
 composer install
 cp config/app.php.dist config/app.php
-php -S localhost:8000 -t public
+composer serve
 ```
+
+(`composer serve` runs `php -S` with raised upload limits — see README.md. If your IDE runs its own built-in PHP server instead, add `-d upload_max_filesize=100M -d post_max_size=110M` to its PHP interpreter's CLI options, or uploads over 8M will 413.)

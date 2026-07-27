@@ -142,4 +142,28 @@
             </div>
         </div>
     {% endif %}
+
+    {% if gallery_albums is defined and gallery_albums|length > 0 %}
+        <div class="card mb-3">
+            <div class="card-body">
+                <h2 class="h5 mb-3">Galerie</h2>
+                <div class="row g-2">
+                    {% for album in gallery_albums %}
+                        <div class="col-6 col-md-4 col-lg-2">
+                            <a href="{{ album.url }}" class="text-decoration-none text-body" {{ album.url starts with 'http' ? 'target="_blank" rel="noopener"' : '' }}>
+                                <div class="bg-light rounded d-flex align-items-center justify-content-center" style="aspect-ratio:1/1;overflow:hidden;">
+                                    {% if album.cover_url %}
+                                        <img src="{{ album.cover_url }}" alt="" class="w-100 h-100" style="object-fit:cover;">
+                                    {% else %}
+                                        <i class="bi bi-images text-muted"></i>
+                                    {% endif %}
+                                </div>
+                                <p class="small mb-0 mt-1 text-truncate">{{ album.title }}</p>
+                            </a>
+                        </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    {% endif %}
 {% endblock %}

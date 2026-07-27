@@ -1,0 +1,309 @@
+{
+  "id": "gallery",
+  "name": "Galerie photos et vidéos",
+  "description": "Albums photo/vidéo (envoi local avec redimensionnement/transcodage automatique, ou lien vers un album externe) visibles par les membres identifiés.",
+  "version": "1.0.0",
+  "enabled_by_default": false,
+  "routes": [
+    {
+      "path": "/gallery",
+      "method": "GET",
+      "controller": "Modules\\Gallery\\Controller\\GalleryController",
+      "action": "index",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": "Galerie",
+      "menu_order": 6
+    },
+    {
+      "path": "/gallery/manage",
+      "method": "GET",
+      "controller": "Modules\\Gallery\\Controller\\GalleryChiefController",
+      "action": "manage",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": "Galerie"
+    },
+    {
+      "path": "/gallery/create",
+      "method": "GET",
+      "controller": "Modules\\Gallery\\Controller\\GalleryChiefController",
+      "action": "create",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/gallery/{id}",
+      "method": "GET",
+      "controller": "Modules\\Gallery\\Controller\\GalleryController",
+      "action": "show",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/gallery/{id}/download",
+      "method": "GET",
+      "controller": "Modules\\Gallery\\Controller\\GalleryController",
+      "action": "downloadZip",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/gallery/media/{media_id}/{size}",
+      "method": "GET",
+      "controller": "Modules\\Gallery\\Controller\\GalleryController",
+      "action": "serveMedia",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/gallery",
+      "method": "POST",
+      "controller": "Modules\\Gallery\\Controller\\GalleryChiefController",
+      "action": "store",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/gallery/{id}/edit",
+      "method": "GET",
+      "controller": "Modules\\Gallery\\Controller\\GalleryChiefController",
+      "action": "edit",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/gallery/{id}",
+      "method": "POST",
+      "controller": "Modules\\Gallery\\Controller\\GalleryChiefController",
+      "action": "update",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/gallery/{id}/delete",
+      "method": "POST",
+      "controller": "Modules\\Gallery\\Controller\\GalleryChiefController",
+      "action": "delete",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/gallery/{id}/media",
+      "method": "POST",
+      "controller": "Modules\\Gallery\\Controller\\GalleryChiefController",
+      "action": "uploadMedia",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/gallery/{id}/media/reorder",
+      "method": "POST",
+      "controller": "Modules\\Gallery\\Controller\\GalleryChiefController",
+      "action": "reorderMedia",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/gallery/{id}/media/{media_id}/delete",
+      "method": "POST",
+      "controller": "Modules\\Gallery\\Controller\\GalleryChiefController",
+      "action": "deleteMedia",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/gallery/{id}/cover",
+      "method": "POST",
+      "controller": "Modules\\Gallery\\Controller\\GalleryChiefController",
+      "action": "setCover",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/gallery/{id}/refresh-og",
+      "method": "POST",
+      "controller": "Modules\\Gallery\\Controller\\GalleryChiefController",
+      "action": "refreshOg",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/config/gallery",
+      "method": "GET",
+      "controller": "Modules\\Gallery\\Controller\\GalleryConfigController",
+      "action": "index",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": "Galerie"
+    },
+    {
+      "path": "/config/gallery",
+      "method": "POST",
+      "controller": "Modules\\Gallery\\Controller\\GalleryConfigController",
+      "action": "save",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": ""
+    },
+    {
+      "path": "/config/gallery/test-connection",
+      "method": "POST",
+      "controller": "Modules\\Gallery\\Controller\\GalleryConfigController",
+      "action": "testConnection",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": ""
+    }
+  ],
+  "settings": [
+    {
+      "key": "gallery_allow_local",
+      "default_value": "1",
+      "type": "boolean",
+      "label": "Autoriser les albums locaux",
+      "description": "Permet aux chefs de créer des albums avec envoi de photos/vidéos hébergées par le site."
+    },
+    {
+      "key": "gallery_allow_external",
+      "default_value": "1",
+      "type": "boolean",
+      "label": "Autoriser les albums externes",
+      "description": "Permet aux chefs de créer des albums pointant vers un lien externe (ex : partage de photos d'un tiers)."
+    },
+    {
+      "key": "gallery_storage_backend",
+      "default_value": "local",
+      "type": "select",
+      "label": "Support de stockage",
+      "description": "Où sont stockées les photos/vidéos des albums locaux : sur le serveur, ou chez un fournisseur externe compatible S3."
+    },
+    {
+      "key": "gallery_storage_local_subdir",
+      "default_value": "gallery",
+      "type": "text",
+      "label": "Dossier de stockage local",
+      "description": "Sous-dossier de stockage/ utilisé quand le support est \"Local\"."
+    },
+    {
+      "key": "gallery_s3_provider",
+      "default_value": "custom",
+      "type": "select",
+      "label": "Fournisseur S3",
+      "description": "Préréglage utilisé quand le support est \"S3\" — pré-remplit l'endpoint/la région recommandés."
+    },
+    {
+      "key": "gallery_s3_endpoint",
+      "default_value": "",
+      "type": "text",
+      "label": "Endpoint S3",
+      "description": "URL de l'endpoint compatible S3 (pré-rempli selon le fournisseur, modifiable)."
+    },
+    {
+      "key": "gallery_s3_region",
+      "default_value": "",
+      "type": "text",
+      "label": "Région S3",
+      "description": "Région du bucket (ex : eu-central-1)."
+    },
+    {
+      "key": "gallery_s3_bucket",
+      "default_value": "",
+      "type": "text",
+      "label": "Bucket S3",
+      "description": "Nom du bucket."
+    },
+    {
+      "key": "gallery_s3_access_key",
+      "default_value": "",
+      "type": "text",
+      "label": "Clé d'accès S3",
+      "description": "Access Key ID."
+    },
+    {
+      "key": "gallery_s3_public_url",
+      "default_value": "",
+      "type": "url",
+      "label": "URL publique S3 (optionnel)",
+      "description": "Préfixe d'URL publique pour servir les fichiers (ex : CDN ou domaine public R2). Laisser vide pour générer des URL signées."
+    },
+    {
+      "key": "gallery_max_media_per_album",
+      "default_value": "200",
+      "type": "number",
+      "label": "Nombre max. de médias par album",
+      "description": "Somme des photos et vidéos autorisées dans un même album."
+    },
+    {
+      "key": "gallery_max_photo_upload_mb",
+      "default_value": "30",
+      "type": "number",
+      "label": "Taille max. par photo (Mo)",
+      "description": "Taille maximale autorisée pour l'envoi d'une photo."
+    },
+    {
+      "key": "gallery_photo_max_dimension",
+      "default_value": "3000",
+      "type": "number",
+      "label": "Dimension max. des photos (px)",
+      "description": "Largeur/hauteur maximale de la version \"grande\" d'une photo — l'original est réduit à cette taille s'il est plus grand."
+    },
+    {
+      "key": "gallery_allow_video",
+      "default_value": "1",
+      "type": "boolean",
+      "label": "Autoriser les vidéos",
+      "description": "Permet l'envoi de vidéos (désactivé automatiquement si FFmpeg n'est pas installé sur le serveur)."
+    },
+    {
+      "key": "gallery_max_video_upload_mb",
+      "default_value": "2048",
+      "type": "number",
+      "label": "Taille max. par vidéo (Mo)",
+      "description": "Taille maximale autorisée pour l'envoi d'une vidéo."
+    },
+    {
+      "key": "gallery_max_video_duration_sec",
+      "default_value": "1800",
+      "type": "number",
+      "label": "Durée max. par vidéo (s)",
+      "description": "Durée maximale autorisée pour une vidéo, en secondes."
+    },
+    {
+      "key": "gallery_keep_original_video",
+      "default_value": "0",
+      "type": "boolean",
+      "label": "Conserver la vidéo originale",
+      "description": "Garde le fichier vidéo original téléchargeable en plus des versions transcodées."
+    }
+  ],
+  "cookies": [],
+  "scheduled_tasks": [
+    {
+      "key": "process_photo",
+      "handler": "Modules\\Gallery\\Task\\ProcessPhotoHandler"
+    },
+    {
+      "key": "process_video",
+      "handler": "Modules\\Gallery\\Task\\ProcessVideoHandler"
+    }
+  ],
+  "storage": {
+    "gallery": {
+      "role_min": "identified"
+    }
+  }
+}

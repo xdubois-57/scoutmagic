@@ -1,0 +1,222 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Modules\Gallery\Service;
+
+use Core\Config\ScoutYearService;
+use Core\Config\SettingService;
+use Core\Security\Role;
+use Modules\Gallery\Repository\Album;
+use Modules\Gallery\Repository\AlbumRepository;
+use Modules\Gallery\Repository\MediaRepository;
+use Modules\Gallery\Service\Storage\StorageBackendFactory;
+
+class AlbumService
+{
+    public function __construct(
+        private AlbumRepository $albumRepository,
+        private MediaRepository $mediaRepository,
+        private GalleryAccessService $accessService,
+        private OgScraperService $ogScraperService,
+        private StorageBackendFactory $storageBackendFactory,
+        private ScoutYearService $scoutYearService,
+        private SettingService $settingService
+    ) {
+    }
+
+    public function findById(int $id): ?Album
+    {
+        return $this->albumRepository->findById($id);
+    }
+
+    /**
+     * @return Album[]
+     */
+    public function findAllForManage(): array
+    {
+        return $this->albumRepository->findAll();
+    }
+
+    /**
+     * @param int[] $sectionIds
+     * @param int[] $scoutYearIds
+     * @return Album[]
+     */
+    public function findVisibleForMember(array $sectionIds, array $scoutYearIds): array
+    {
+        return $this->albumRepository->findVisible($sectionIds, $scoutYearIds);
+    }
+
+    /**
+     * @throws GalleryException on an invalid type, a disabled type, or a
+     *                           section the current chief doesn't manage
+     */
+    public function create(
+        string $type,
+        string $title,
+        ?string $subtitle,
+        string $albumDate,
+        ?int $sectionId,
+        ?string $externalUrl,
+        int $createdBy,
+        Role $role,
+        string $email
+    ): Album {
+        $this->assertValidType($type);
+        $this->assertTypeAllowed($type);
+        $this->assertValidTitle($title);
+        if (!$this->accessService->canManageAlbum($role, $sectionId, $email)) {
+            throw new GalleryException('Vous ne gérez pas cette section.');
+        }
+        if ($type === Album::TYPE_EXTERNAL && ($externalUrl === null || trim($externalUrl) === '')) {
+            throw new GalleryException('Un lien est obligatoire pour un album externe.');
+        }
+
+        $scoutYearId = $this->scoutYearService->getCurrentYear()['id'];
+        $id = $this->albumRepository->create($type, $title, $subtitle, $albumDate, $sectionId, $scoutYearId, $externalUrl, $createdBy);
+
+        if ($type === Album::TYPE_EXTERNAL && $externalUrl !== null) {
+            $this->tryRefreshOg($id, $externalUrl);
+        }
+
+        return $this->albumRepository->findById($id);
+    }
+
+    /**
+     * @throws GalleryException when the current chief doesn't manage the
+     *                           album's (old or new) section
+     */
+    public function update(
+        int $id,
+        string $title,
+        ?string $subtitle,
+        string $albumDate,
+        ?int $sectionId,
+        ?string $externalUrl,
+        Role $role,
+        string $email
+    ): Album {
+        $existing = $this->albumRepository->findById($id);
+        if ($existing === null) {
+            throw new GalleryException('Album introuvable.');
+        }
+        $this->assertValidTitle($title);
+        if (!$this->accessService->canManageAlbum($role, $existing->sectionId, $email)
+            || !$this->accessService->canManageAlbum($role, $sectionId, $email)) {
+            throw new GalleryException('Vous ne gérez pas cette section.');
+        }
+        if ($existing->type === Album::TYPE_EXTERNAL && ($externalUrl === null || trim($externalUrl) === '')) {
+            throw new GalleryException('Un lien est obligatoire pour un album externe.');
+        }
+
+        $this->albumRepository->update($id, $title, $subtitle, $albumDate, $sectionId, $externalUrl);
+
+        if ($existing->type === Album::TYPE_EXTERNAL && $externalUrl !== null && $externalUrl !== $existing->externalUrl) {
+            $this->tryRefreshOg($id, $externalUrl);
+        }
+
+        return $this->albumRepository->findById($id);
+    }
+
+    /**
+     * Deletes the album row (cascades to gallery_media in the DB) and
+     * every stored file for it — DB cascade never touches the storage
+     * backend, so that cleanup is explicit here (module spec).
+     *
+     * @throws GalleryException when the current chief doesn't manage this album
+     */
+    public function delete(int $id, Role $role, string $email): void
+    {
+        $album = $this->albumRepository->findById($id);
+        if ($album === null) {
+            throw new GalleryException('Album introuvable.');
+        }
+        if (!$this->accessService->canManageAlbum($role, $album->sectionId, $email)) {
+            throw new GalleryException('Vous ne gérez pas cette section.');
+        }
+
+        if ($album->isLocal()) {
+            $this->storageBackendFactory->create()->deletePrefix((string) $id);
+        }
+
+        $this->albumRepository->delete($id);
+    }
+
+    /**
+     * @throws GalleryException when $mediaId doesn't belong to this album,
+     *                           or the current chief doesn't manage it
+     */
+    public function setCover(int $albumId, int $mediaId, Role $role, string $email): void
+    {
+        $album = $this->albumRepository->findById($albumId);
+        if ($album === null) {
+            throw new GalleryException('Album introuvable.');
+        }
+        if (!$this->accessService->canManageAlbum($role, $album->sectionId, $email)) {
+            throw new GalleryException('Vous ne gérez pas cette section.');
+        }
+
+        $media = $this->mediaRepository->findById($mediaId);
+        if ($media === null || $media->albumId !== $albumId) {
+            throw new GalleryException('Ce média n\'appartient pas à cet album.');
+        }
+
+        $this->albumRepository->setCoverMediaId($albumId, $mediaId);
+    }
+
+    /**
+     * @throws GalleryException when the album isn't external, or the fetch fails
+     */
+    public function refreshOg(int $albumId, Role $role, string $email): Album
+    {
+        $album = $this->albumRepository->findById($albumId);
+        if ($album === null) {
+            throw new GalleryException('Album introuvable.');
+        }
+        if (!$this->accessService->canManageAlbum($role, $album->sectionId, $email)) {
+            throw new GalleryException('Vous ne gérez pas cette section.');
+        }
+        if ($album->isLocal() || $album->externalUrl === null) {
+            throw new GalleryException('Cet album n\'est pas un album externe.');
+        }
+
+        $tags = $this->ogScraperService->fetch($album->externalUrl);
+        $this->albumRepository->updateOgMetadata($albumId, $tags['title'], $tags['description'], $tags['image']);
+
+        return $this->albumRepository->findById($albumId);
+    }
+
+    private function tryRefreshOg(int $albumId, string $url): void
+    {
+        try {
+            $tags = $this->ogScraperService->fetch($url);
+            $this->albumRepository->updateOgMetadata($albumId, $tags['title'], $tags['description'], $tags['image']);
+        } catch (GalleryException) {
+            // Best-effort — module spec: a failed fetch never blocks
+            // saving the album, the "Rafraîchir" button lets the chief retry.
+        }
+    }
+
+    private function assertValidType(string $type): void
+    {
+        if (!in_array($type, Album::TYPES, true)) {
+            throw new GalleryException('Type d\'album invalide.');
+        }
+    }
+
+    private function assertValidTitle(string $title): void
+    {
+        if (trim($title) === '') {
+            throw new GalleryException('Le titre est obligatoire.');
+        }
+    }
+
+    private function assertTypeAllowed(string $type): void
+    {
+        $key = $type === Album::TYPE_LOCAL ? 'gallery_allow_local' : 'gallery_allow_external';
+        if (!(bool) $this->settingService->get($key, 'gallery', true)) {
+            throw new GalleryException('Ce type d\'album est désactivé.');
+        }
+    }
+}

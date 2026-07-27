@@ -9,6 +9,7 @@ storage/config/
 storage/temp/
 storage/finance/
 storage/news/
+storage/gallery/
 
 # Local configuration
 config/app.php
