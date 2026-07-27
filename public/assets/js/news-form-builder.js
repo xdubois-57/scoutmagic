@@ -157,33 +157,38 @@
     // (core/View/TwigFactory.php); clicking is handled natively by the
     // wrapping <label for="image">, no JS needed for that part.
     //
-    // The picked file is center-cropped to a fixed 1080×1350 portrait
-    // (4:5 — Instagram-style) and re-encoded as PNG in a canvas before it
-    // ever leaves the browser, client side, so the upload is fast — the
-    // original File in the <input> is replaced with the processed one via
-    // DataTransfer, so the multipart POST always uploads the processed
-    // version, never the original.
-    var FEATURED_IMAGE_TARGET_WIDTH = 1080;
-    var FEATURED_IMAGE_TARGET_HEIGHT = 1350;
+    // Best resolution for social sharing (Facebook/Instagram), square or
+    // landscape — never portrait: a portrait source is center-cropped to
+    // a square; a square or landscape source keeps its natural ratio
+    // untouched, only downscaled if it's larger than the cap below. Then
+    // re-encoded as PNG in a canvas before it ever leaves the browser —
+    // the original File in the <input> is replaced with the processed
+    // one via DataTransfer, so the multipart POST always uploads the
+    // processed version, never the original.
+    var FEATURED_IMAGE_MAX_DIMENSION = 2048;
 
-    function cropToPortraitAndConvert(file, targetWidth, targetHeight, callback) {
+    function processFeaturedImage(file, maxDimension, callback) {
         var url = URL.createObjectURL(file);
         var img = new Image();
         img.onload = function () {
             URL.revokeObjectURL(url);
 
-            var targetRatio = targetWidth / targetHeight;
-            var sourceRatio = img.naturalWidth / img.naturalHeight;
-            var cropWidth, cropHeight;
-            if (sourceRatio > targetRatio) {
-                cropHeight = img.naturalHeight;
-                cropWidth = cropHeight * targetRatio;
-            } else {
-                cropWidth = img.naturalWidth;
-                cropHeight = cropWidth / targetRatio;
+            var sourceWidth = img.naturalWidth;
+            var sourceHeight = img.naturalHeight;
+
+            var cropWidth = sourceWidth;
+            var cropHeight = sourceHeight;
+            var sx = 0;
+            var sy = 0;
+            if (sourceHeight > sourceWidth) {
+                // Portrait — center-crop to a square.
+                cropHeight = sourceWidth;
+                sy = (sourceHeight - cropHeight) / 2;
             }
-            var sx = (img.naturalWidth - cropWidth) / 2;
-            var sy = (img.naturalHeight - cropHeight) / 2;
+
+            var scale = Math.min(1, maxDimension / Math.max(cropWidth, cropHeight));
+            var targetWidth = Math.round(cropWidth * scale);
+            var targetHeight = Math.round(cropHeight * scale);
 
             var canvas = document.createElement('canvas');
             canvas.width = targetWidth;
@@ -210,7 +215,7 @@
             var file = featuredImageInput.files[0];
             if (!file) return;
 
-            cropToPortraitAndConvert(file, FEATURED_IMAGE_TARGET_WIDTH, FEATURED_IMAGE_TARGET_HEIGHT, function (blob) {
+            processFeaturedImage(file, FEATURED_IMAGE_MAX_DIMENSION, function (blob) {
                 if (!blob) {
                     alert("Impossible de traiter cette image.");
                     featuredImageInput.value = '';

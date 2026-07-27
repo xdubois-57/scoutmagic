@@ -371,6 +371,19 @@ class ResponseService
                 throw new NewsException('Le champ "' . $field->label . '" doit être un nombre.');
             }
 
+            // Mirrors the client-side type="email"/pattern constraints
+            // (partials/_field.html.twig) — those block a normal browser
+            // submission, but the server is the only check that actually
+            // matters (a JS-disabled or scripted client bypasses HTML5
+            // validation entirely).
+            if ($field->fieldType === FormField::TYPE_EMAIL && $value !== '' && !filter_var($value, FILTER_VALIDATE_EMAIL)) {
+                throw new NewsException('Le champ "' . $field->label . '" doit être une adresse email valide.');
+            }
+
+            if ($field->fieldType === FormField::TYPE_PHONE && $value !== '' && !preg_match('/^\+?[0-9 .\-()]{6,20}$/', $value)) {
+                throw new NewsException('Le champ "' . $field->label . '" doit être un numéro de téléphone valide.');
+            }
+
             $normalized[$field->id] = $value;
         }
 

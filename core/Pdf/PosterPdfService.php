@@ -84,7 +84,7 @@ class PosterPdfService
     body { font-family: DejaVu Sans, sans-serif; color: #222; margin: 0; }
     .title { font-size: 28pt; font-weight: bold; text-align: center; margin-top: 10mm; }
     .image-wrap { text-align: center; margin-top: 8mm; }
-    .image-wrap img { width: 70mm; height: 87.5mm; }
+    .image-wrap img { max-width: 100mm; max-height: 100mm; width: auto; height: auto; }
     .divider { border: none; border-top: 1px solid #999; margin: 8mm 0; }
     .excerpt { font-size: 14pt; line-height: 1.5; text-align: left; }
     .qr-wrap { text-align: center; margin-top: 20mm; }

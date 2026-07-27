@@ -22,13 +22,13 @@
                     <div class="row g-3 align-items-center">
                         <div class="col-12 col-md-3">
                             <div class="d-flex align-items-center gap-2 mb-2">
-                                <label for="image" class="editable-image d-inline-block flex-shrink-0" style="cursor:pointer;width:110px;" aria-label="Modifier l'image de l'article">
+                                <label for="image" class="editable-image d-inline-block flex-shrink-0" style="cursor:pointer;max-width:140px;" aria-label="Modifier l'image de l'article">
                                     <div class="editable-overlay">
                                         <i class="bi bi-camera text-white fs-4"></i>
                                     </div>
                                     <img id="news-image-preview" src="{{ (article and article.imageFileId) ? file_url(article.imageFileId) : '' }}" alt=""
-                                         class="rounded d-block w-100 {{ (article and article.imageFileId) ? '' : 'd-none' }}" style="aspect-ratio:1080/1350;object-fit:cover;">
-                                    <div id="news-image-placeholder" class="d-flex align-items-center justify-content-center bg-light rounded w-100 {{ (article and article.imageFileId) ? 'd-none' : '' }}" style="aspect-ratio:1080/1350;">
+                                         class="rounded d-block {{ (article and article.imageFileId) ? '' : 'd-none' }}" style="max-width:140px;max-height:140px;width:auto;height:auto;">
+                                    <div id="news-image-placeholder" class="d-flex align-items-center justify-content-center bg-light rounded {{ (article and article.imageFileId) ? 'd-none' : '' }}" style="width:110px;height:110px;">
                                         <i class="bi bi-image text-muted" style="font-size:1.5rem;"></i>
                                     </div>
                                 </label>
@@ -37,7 +37,7 @@
                             <input type="file" class="visually-hidden" name="image" id="image" accept="image/jpeg,image/png,image/webp,image/gif" {{ (article and article.imageFileId) ? '' : 'required' }}>
                             <div class="form-text">
                                 {% if article and article.imageFileId %}Cliquez sur l'image pour la remplacer.{% endif %}
-                                Format portrait recommandé (1080 × 1350 px).
+                                Format carré ou paysage, en haute résolution pour le partage sur les réseaux sociaux.
                             </div>
                         </div>
                         <div class="col-12 col-md-9">

@@ -193,3 +193,28 @@ td code,
 @media (min-width: 576px) {
     .w-sm-auto { width: auto !important; }
 }
+
+/* ============================================================
+   Site-wide: highlight any HTML5-invalid field (wrong type/pattern, or a
+   missing required value) once the user has interacted with it or tried
+   to submit — native browser constraint validation already blocks the
+   submit itself, this just makes the faulty field visually obvious.
+   :user-invalid only matches after interaction/a submit attempt (unlike
+   plain :invalid, which would highlight an empty required field before
+   the user has even touched it); .is-invalid is the fallback for any JS
+   that sets it explicitly, and for browsers without :user-invalid.
+   ============================================================ */
+.form-control:user-invalid,
+.form-select:user-invalid,
+.form-check-input:user-invalid,
+.form-control.is-invalid,
+.form-select.is-invalid {
+    border-color: var(--bs-danger);
+}
+.form-control:user-invalid:focus,
+.form-select:user-invalid:focus,
+.form-control.is-invalid:focus,
+.form-select.is-invalid:focus {
+    border-color: var(--bs-danger);
+    box-shadow: 0 0 0 0.25rem rgba(var(--bs-danger-rgb), 0.25);
+}

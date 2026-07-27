@@ -42,7 +42,9 @@
         <input type="date" class="form-control" id="{{ input_name }}" name="{{ input_name }}" value="{{ value }}" {{ field.isRequired ? 'required' : '' }} {{ disabled ? 'disabled' : '' }}>
 
     {% elseif field.fieldType == 'phone' %}
-        <input type="tel" class="form-control" id="{{ input_name }}" name="{{ input_name }}" value="{{ value }}" placeholder="+32..." {{ field.isRequired ? 'required' : '' }} {{ disabled ? 'disabled' : '' }}>
+        <input type="tel" class="form-control" id="{{ input_name }}" name="{{ input_name }}" value="{{ value }}" placeholder="+32..."
+               pattern="^\+?[0-9 .\-()]{6,20}$" title="Numéro de téléphone valide (chiffres, espaces, +, -, ( ) — 6 à 20 caractères)"
+               {{ field.isRequired ? 'required' : '' }} {{ disabled ? 'disabled' : '' }}>
 
     {% elseif field.fieldType == 'email' %}
         <input type="email" class="form-control" id="{{ input_name }}" name="{{ input_name }}" value="{{ value }}" {{ field.isRequired ? 'required' : '' }} {{ disabled ? 'disabled' : '' }}>

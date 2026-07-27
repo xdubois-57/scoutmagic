@@ -202,6 +202,34 @@ class ResponseServiceTest extends TestCase
         $this->service()->submit($this->article, $this->form(), [$field], null, null, 1, 'a@test.com', [$fieldId => ''], null);
     }
 
+    public function testSubmitRejectsMalformedEmailAnswer(): void
+    {
+        $fieldId = $this->fieldRepository->create($this->formId, 0, FormField::TYPE_EMAIL, 'Email des parents', true, null, null, null, null, null);
+        $field = $this->fieldRepository->findById($fieldId);
+
+        $this->expectException(NewsException::class);
+        $this->service()->submit($this->article, $this->form(), [$field], null, null, 1, 'a@test.com', [$fieldId => 'pas-un-email'], null);
+    }
+
+    public function testSubmitRejectsMalformedPhoneAnswer(): void
+    {
+        $fieldId = $this->fieldRepository->create($this->formId, 0, FormField::TYPE_PHONE, 'Téléphone', true, null, null, null, null, null);
+        $field = $this->fieldRepository->findById($fieldId);
+
+        $this->expectException(NewsException::class);
+        $this->service()->submit($this->article, $this->form(), [$field], null, null, 1, 'a@test.com', [$fieldId => 'abc'], null);
+    }
+
+    public function testSubmitAcceptsAValidPhoneAnswer(): void
+    {
+        $fieldId = $this->fieldRepository->create($this->formId, 0, FormField::TYPE_PHONE, 'Téléphone', true, null, null, null, null, null);
+        $field = $this->fieldRepository->findById($fieldId);
+
+        $response = $this->service()->submit($this->article, $this->form(), [$field], null, null, 1, 'a@test.com', [$fieldId => '+32 470 12 34 56'], null);
+
+        $this->assertNotNull($response->id);
+    }
+
     public function testSubmitRejectsInvalidDropdownOption(): void
     {
         $fieldId = $this->fieldRepository->create($this->formId, 0, FormField::TYPE_DROPDOWN, 'Jour', true, FormField::OPTIONS_SOURCE_MANUAL, "Lundi\nMardi", null, null, null);
