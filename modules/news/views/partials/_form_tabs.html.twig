@@ -3,7 +3,12 @@
    Preview/Responses only make sense once the article has been saved. #}
 <ul class="nav nav-pills mb-3">
     <li class="nav-item">
-        <a class="nav-link {{ active == 'edit' ? 'active' : '' }}" href="/news/{{ article_id }}/edit">Édition</a>
+        {% if article_id %}
+            <a class="nav-link {{ active == 'edit' ? 'active' : '' }}" href="/news/{{ article_id }}/edit">Édition</a>
+        {% else %}
+            {# Not saved yet — nowhere else to navigate to, so this isn't a link (avoids a 404 on "/news//edit"). #}
+            <span class="nav-link active">Édition</span>
+        {% endif %}
     </li>
     {% if article_id %}
         <li class="nav-item">

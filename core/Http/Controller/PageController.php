@@ -9,6 +9,7 @@ use Core\Cookie\CookieConsentService;
 use Core\Http\Request;
 use Core\Http\Response;
 use Core\Module\HomeBannerProvider;
+use Core\Module\HomeNewsProvider;
 use Core\View\EditableContentService;
 use Core\View\RgpdContentService;
 use Core\View\SectionRepository;
@@ -16,13 +17,16 @@ use Twig\Environment;
 
 class PageController extends AbstractController
 {
+    private const HOME_NEWS_LIMIT = 5;
+
     public function __construct(
         protected Environment $twig,
         private EditableContentService $editableContentService,
         private SectionRepository $sectionRepository,
         private SettingService $settingService,
         private RgpdContentService $rgpdContentService,
-        private ?HomeBannerProvider $bannerProvider = null
+        private ?HomeBannerProvider $bannerProvider = null,
+        private ?HomeNewsProvider $newsProvider = null
     ) {
     }
 
@@ -35,6 +39,7 @@ class PageController extends AbstractController
     {
         return $this->render('pages/home.html.twig', [
             'banner_html' => $this->bannerProvider?->getRandomBannerHtml(),
+            'news_articles' => $this->newsProvider?->getLatestPublicArticles(self::HOME_NEWS_LIMIT) ?? [],
         ]);
     }
 

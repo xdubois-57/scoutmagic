@@ -8,18 +8,46 @@
     {% elseif article.seoKeywords %}
         <meta name="keywords" content="{{ article.seoKeywords }}">
     {% endif %}
+    {% if article.summary %}<meta name="description" content="{{ article.summary }}">{% endif %}
+
+    {# Social sharing (Facebook, Instagram, and any other Open Graph /
+       Twitter Card reader) — module usability review. #}
+    <meta property="og:type" content="article">
+    <meta property="og:title" content="{{ article.title }}">
+    {% if article.summary %}<meta property="og:description" content="{{ article.summary }}">{% endif %}
+    <meta property="og:url" content="{{ og_url }}">
+    <meta property="og:site_name" content="{{ site_name }}">
+    {% if og_image_url %}
+        <meta property="og:image" content="{{ og_image_url }}">
+        <meta name="twitter:card" content="summary_large_image">
+    {% else %}
+        <meta name="twitter:card" content="summary">
+    {% endif %}
+    <meta name="twitter:title" content="{{ article.title }}">
+    {% if article.summary %}<meta name="twitter:description" content="{{ article.summary }}">{% endif %}
 {% endblock %}
 
 {% block content %}
-    <div class="mx-auto" style="max-width: 720px;">
+    <div>
         <h1 class="mb-1">{{ article.title }}</h1>
         <p class="text-body-secondary small mb-4">
             {{ article.createdAt|french_date }}{% if author_name %} · {{ author_name }}{% endif %}
         </p>
 
-        <div class="news-article-body mb-4">{{ body_html|raw }}</div>
+        {% if article.imageFileId %}
+            <img src="{{ file_url(article.imageFileId) }}" alt="" class="rounded mb-4 w-100" style="max-height:400px;object-fit:cover;">
+        {% endif %}
 
-        {% if form %}
+        {# The form's non-input fields (module usability review: "bloc de
+           texte") ARE the article's content now — always shown, regardless
+           of whether the form is open/closed or already answered. #}
+        {% for row in fields %}
+            {% if row.field.isNonInput() %}
+                {% include '@news/partials/_field.html.twig' with {field: row.field, options: row.options, remaining_capacity: row.remaining_capacity} %}
+            {% endif %}
+        {% endfor %}
+
+        {% if has_real_input %}
             <hr class="my-4">
             <div class="news-form-section bg-body-tertiary rounded-3 p-3 p-sm-4">
                 <h2 class="h4 mb-3">Formulaire</h2>
@@ -64,7 +92,9 @@
                         {% endif %}
 
                         {% for row in fields %}
-                            {% include '@news/partials/_field.html.twig' with {field: row.field, options: row.options, remaining_capacity: row.remaining_capacity} %}
+                            {% if not row.field.isNonInput() %}
+                                {% include '@news/partials/_field.html.twig' with {field: row.field, options: row.options, remaining_capacity: row.remaining_capacity} %}
+                            {% endif %}
                         {% endfor %}
 
                         {% if payment_available %}

@@ -24,6 +24,24 @@ class PosterPdfServiceTest extends TestCase
         $this->assertGreaterThan(1000, strlen($pdf));
     }
 
+    public function testGenerateEmbedsTheImageDataUriWhenProvided(): void
+    {
+        $service = new PosterPdfService();
+        // 1x1 transparent PNG.
+        $imageDataUri = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+
+        $pdf = $service->generate(
+            'Camp d\'été 2026',
+            '<p>Venez nombreux !</p>',
+            'https://www.25sv.be/s/a8f3k2',
+            '25SV',
+            $imageDataUri
+        );
+
+        $this->assertStringStartsWith('%PDF-', $pdf);
+        $this->assertGreaterThan(1000, strlen($pdf));
+    }
+
     public function testGenerateTruncatesALongBodyWithEllipsis(): void
     {
         $service = new PosterPdfService();

@@ -8,6 +8,7 @@ use Core\Config\ScoutYearService;
 use Core\Http\Controller\AbstractController;
 use Core\Http\Request;
 use Core\Http\Response;
+use Core\Journal\JournalService;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\Security\Role;
@@ -32,6 +33,7 @@ class FormController extends AbstractController
         private FormService $formService,
         private ResponseService $responseService,
         private ScoutYearService $scoutYearService,
+        private JournalService $journalService,
         private ?ExpectedReceivableInterface $expectedReceivable = null
     ) {
     }
@@ -83,9 +85,9 @@ class FormController extends AbstractController
             $memberOptions = $form->access === NewsForm::ACCESS_IDENTIFIED ? $this->responseService->resolveMemberOptions($email, $scoutYearId) : [];
             return $this->render('@news/detail.html.twig', [
                 'article' => $article,
-                'body_html' => $this->articleService->getBodyHtml($article->id),
                 'form' => $form,
                 'fields' => $this->fieldsForTemplate($fields, $memberOptions),
+                'has_real_input' => (bool) array_filter($fields, fn(FormField $f) => !$f->isNonInput()),
                 'form_open' => $form->isOpen(),
                 'already_responded' => false,
                 'requires_login' => false,
@@ -97,6 +99,11 @@ class FormController extends AbstractController
                 'csrf_token' => CsrfGuard::generateToken(),
             ])->setStatusCode(422);
         }
+
+        $this->journalService->log(
+            'news', 'form_response_submitted', 'info', "Réponse soumise pour l'article « {$article->title} »",
+            ['article_id' => $article->id, 'form_id' => $form->id, 'response_id' => $response->id], $accountId
+        );
 
         $storedAnswers = $this->responseService->getAnswers($response->id);
         $total = $this->responseService->computeTotal($fields, $storedAnswers);
@@ -172,6 +179,12 @@ class FormController extends AbstractController
         $fields = $this->formService->getFields($form->id);
         $responses = $this->responseService->findByFormId($form->id);
         $xlsx = $this->buildXlsx($fields, $responses, $form);
+
+        $this->journalService->log(
+            'news', 'form_responses_exported', 'info', "Export des réponses de l'article « {$article->title} »",
+            ['article_id' => $article->id, 'form_id' => $form->id, 'response_count' => count($responses)],
+            (int) AuthSession::getUserAccountId()
+        );
 
         return (new Response($xlsx))
             ->setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
@@ -264,6 +277,11 @@ class FormController extends AbstractController
             ])->setStatusCode(422);
         }
 
+        $this->journalService->log(
+            'news', 'form_response_updated', 'info', "Réponse modifiée pour l'article « {$article->title} »",
+            ['article_id' => $article->id, 'form_id' => $form->id, 'response_id' => $response->id], $accountId
+        );
+
         return $this->redirect('/news/' . $article->id);
     }
 
@@ -326,7 +344,7 @@ class FormController extends AbstractController
     {
         $answers = [];
         foreach ($fields as $field) {
-            if ($field->fieldType === FormField::TYPE_CONFIRMATION) {
+            if ($field->isNonInput()) {
                 continue;
             }
             $answers[$field->id] = $request->getBody('field_' . $field->id, $field->fieldType === FormField::TYPE_CHECKBOX ? [] : '');
@@ -360,7 +378,7 @@ class FormController extends AbstractController
     {
         $lines = [];
         foreach ($fields as $field) {
-            if ($field->fieldType === FormField::TYPE_CONFIRMATION) {
+            if ($field->isNonInput()) {
                 continue;
             }
             // Always one entry per field (even if this response predates
@@ -403,7 +421,7 @@ class FormController extends AbstractController
         $fieldColumnLetters = [];
         $col = 2;
         foreach ($fields as $field) {
-            if ($field->fieldType === FormField::TYPE_CONFIRMATION) {
+            if ($field->isNonInput()) {
                 continue;
             }
             $columns[] = (string) $field->label;
@@ -429,7 +447,7 @@ class FormController extends AbstractController
 
             $colIndex = 2;
             foreach ($fields as $field) {
-                if ($field->fieldType === FormField::TYPE_CONFIRMATION) {
+                if ($field->isNonInput()) {
                     continue;
                 }
                 $value = $answers[$field->id] ?? '';

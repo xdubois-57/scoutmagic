@@ -25,7 +25,9 @@ final class Article
         public readonly ?string $shortUrlCode,
         public readonly int $createdBy,
         public readonly string $createdAt,
-        public readonly string $updatedAt
+        public readonly string $updatedAt,
+        public readonly ?string $summary = null,
+        public readonly ?int $imageFileId = null
     ) {
     }
 

@@ -130,6 +130,23 @@ $schemaPath = __DIR__ . '/../schema/core.sql';
 // Create the request early to check the path
 $request = Request::fromGlobals();
 
+// A POST whose body exceeded post_max_size arrives with $_POST/$_FILES
+// both silently emptied by PHP — caught here, before the rest of the
+// bootstrap (session/settings aren't loaded yet), with a plain-HTML
+// response so it never falls through to a confusing "invalid CSRF
+// token" error further down the request lifecycle.
+if (Request::isPostTooLarge()) {
+    http_response_code(413);
+    header('Content-Type: text/html; charset=utf-8');
+    echo '<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><title>Fichier trop volumineux</title></head>'
+        . '<body style="font-family:sans-serif;max-width:640px;margin:4rem auto;padding:0 1rem;">'
+        . '<h1>Fichier trop volumineux</h1>'
+        . '<p>Le fichier envoyé dépasse la taille maximale autorisée par le serveur. '
+        . 'Réessayez avec un fichier plus petit, puis revenez en arrière dans votre navigateur pour ne pas perdre votre saisie.</p>'
+        . '</body></html>';
+    exit;
+}
+
 $isInitialized = $secretManager->isInitialized();
 $isSetupRoute = str_starts_with($request->getPath(), '/setup');
 
@@ -1133,7 +1150,8 @@ if (in_array('news', $moduleManager->getEnabledModuleIds(), true)) {
     $newsResponseService = new \Modules\News\Service\ResponseService(
         $newsResponseRepo, $roleResolver, $sectionService, $mailService, $twig, $shortUrlService,
         (string) ($settingService->get('base_url') ?: ''), (string) ($settingService->get('site_name') ?: 'Unité scoute'),
-        $financeStructuredCommunicationForOthers, $financeExpectedReceivableForOthers, $financeSepaQrCodeForOthers, $financeAccountForOthers
+        $financeStructuredCommunicationForOthers, $financeExpectedReceivableForOthers, $financeSepaQrCodeForOthers, $financeAccountForOthers,
+        $journalService
     );
     // Optional dependency on the llm_connector module (ARCHITECTURE.md
     // §7.5), same reused instance as RGPD content generation above — the
@@ -1145,13 +1163,27 @@ if (in_array('news', $moduleManager->getEnabledModuleIds(), true)) {
         new \Modules\News\Controller\NewsController(
             $twig, $newsArticleService, $newsFormService, $newsResponseService, $newsSeoKeywordService,
             $posterPdfService, $scoutYearService, $settingService, $schedulerService, $userAccountRepo,
-            $financeAccountForOthers, $financeExpectedReceivableForOthers
+            $memberService, $sectionService, $uploadHandler, $fileRepository, $storagePath, $journalService,
+            $financeAccountForOthers
         )
     );
     $frontController->registerController(
         \Modules\News\Controller\FormController::class,
         new \Modules\News\Controller\FormController(
-            $twig, $newsArticleService, $newsFormService, $newsResponseService, $scoutYearService, $financeExpectedReceivableForOthers
+            $twig, $newsArticleService, $newsFormService, $newsResponseService, $scoutYearService, $journalService, $financeExpectedReceivableForOthers
+        )
+    );
+
+    // Re-registers PageController with the real news provider — same
+    // core-hook precedent as the banner block above (ARCHITECTURE.md §7.4).
+    // Reuses $bannerService if the banner module was also enabled above, so
+    // neither hook is lost when both modules are active.
+    $frontController->registerController(
+        PageController::class,
+        new PageController(
+            $twig, $editableContentService, $sectionRepository, $settingService, $rgpdContentService,
+            in_array('banner', $moduleManager->getEnabledModuleIds(), true) ? $bannerService : null,
+            $newsArticleService
         )
     );
 }

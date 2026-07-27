@@ -44,6 +44,21 @@ class ArticleRepository
     }
 
     /**
+     * The $limit most recent public articles — Core\Module\HomeNewsProvider
+     * (homepage news column).
+     *
+     * @return Article[]
+     */
+    public function findLatestPublic(int $limit): array
+    {
+        $stmt = $this->pdo->prepare('SELECT * FROM news_articles WHERE visibility = ? ORDER BY created_at DESC LIMIT ?');
+        $stmt->bindValue(1, Article::VISIBILITY_PUBLIC);
+        $stmt->bindValue(2, $limit, \PDO::PARAM_INT);
+        $stmt->execute();
+        return array_map([$this, 'hydrate'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
+    /**
      * Articles visible to a chief/admin management view: the given
      * visibilities, plus any direct_link article authored by $authorId
      * (module spec: "plus direct_link articles they authored").
@@ -67,29 +82,45 @@ class ArticleRepository
         bool $isIndexed,
         ?string $seoKeywords,
         ?string $seoStopDate,
-        int $createdBy
+        int $createdBy,
+        ?string $summary = null,
+        ?int $imageFileId = null
     ): int {
         $now = date('Y-m-d H:i:s');
         $stmt = $this->pdo->prepare(
-            'INSERT INTO news_articles (title, visibility, is_indexed, seo_keywords, seo_stop_date, created_by, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+            'INSERT INTO news_articles (title, summary, image_file_id, visibility, is_indexed, seo_keywords, seo_stop_date, created_by, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
-        $stmt->execute([$title, $visibility, $isIndexed ? 1 : 0, $seoKeywords, $seoStopDate, $createdBy, $now, $now]);
+        $stmt->execute([$title, $summary, $imageFileId, $visibility, $isIndexed ? 1 : 0, $seoKeywords, $seoStopDate, $createdBy, $now, $now]);
         return (int) $this->pdo->lastInsertId();
     }
 
+    /**
+     * $imageFileId = null means "keep the existing image" (the editor only
+     * sends a new file when the author actually replaces it) — never
+     * wipes a mandatory field just because this particular save didn't
+     * re-upload anything, same "null means unchanged" convention as
+     * Modules\Finance\Repository\AccountRepository::update().
+     */
     public function update(
         int $id,
         string $title,
         string $visibility,
         bool $isIndexed,
         ?string $seoKeywords,
-        ?string $seoStopDate
+        ?string $seoStopDate,
+        ?string $summary = null,
+        ?int $imageFileId = null
     ): void {
+        if ($imageFileId === null) {
+            $existing = $this->findById($id);
+            $imageFileId = $existing?->imageFileId;
+        }
+
         $stmt = $this->pdo->prepare(
-            'UPDATE news_articles SET title = ?, visibility = ?, is_indexed = ?, seo_keywords = ?, seo_stop_date = ?, updated_at = ? WHERE id = ?'
+            'UPDATE news_articles SET title = ?, summary = ?, image_file_id = ?, visibility = ?, is_indexed = ?, seo_keywords = ?, seo_stop_date = ?, updated_at = ? WHERE id = ?'
         );
-        $stmt->execute([$title, $visibility, $isIndexed ? 1 : 0, $seoKeywords, $seoStopDate, date('Y-m-d H:i:s'), $id]);
+        $stmt->execute([$title, $summary, $imageFileId, $visibility, $isIndexed ? 1 : 0, $seoKeywords, $seoStopDate, date('Y-m-d H:i:s'), $id]);
     }
 
     public function setHasForm(int $id, bool $hasForm): void
@@ -126,7 +157,9 @@ class ArticleRepository
             shortUrlCode: $row['short_url_code'] !== null ? (string) $row['short_url_code'] : null,
             createdBy: (int) $row['created_by'],
             createdAt: (string) $row['created_at'],
-            updatedAt: (string) $row['updated_at']
+            updatedAt: (string) $row['updated_at'],
+            summary: $row['summary'] !== null ? (string) $row['summary'] : null,
+            imageFileId: $row['image_file_id'] !== null ? (int) $row['image_file_id'] : null
         );
     }
 }

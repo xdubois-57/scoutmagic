@@ -8,6 +8,7 @@ use Core\Config\SettingService;
 use Core\Http\Controller\PageController;
 use Core\Http\Request;
 use Core\Module\HomeBannerProvider;
+use Core\Module\HomeNewsProvider;
 use Core\View\EditableContentRepository;
 use Core\View\EditableContentService;
 use Core\View\RgpdContentService;
@@ -147,6 +148,50 @@ class PageControllerTest extends TestCase
         $response = $controller->home($request, []);
 
         $this->assertStringNotContainsString('alert-info', $response->getBody());
+    }
+
+    public function testHomePageRendersNoNewsColumnWhenNoProviderWired(): void
+    {
+        $request = new Request('GET', '/', [], [], [], []);
+        $response = $this->controller->home($request, []);
+
+        $this->assertStringNotContainsString('Actualités', $response->getBody());
+    }
+
+    public function testHomePageRendersNewsColumnWhenProviderReturnsArticles(): void
+    {
+        $provider = new class implements HomeNewsProvider {
+            public function getLatestPublicArticles(int $limit): array
+            {
+                return [
+                    ['id' => 1, 'title' => 'Camp ete', 'summary' => 'Inscriptions ouvertes.', 'image_url' => '/files/42', 'created_at' => '2026-01-01 00:00:00'],
+                ];
+            }
+        };
+        $controller = new PageController($this->twig, $this->editableService, $this->sectionRepo, $this->settingService, $this->rgpdContentService, null, $provider);
+
+        $request = new Request('GET', '/', [], [], [], []);
+        $response = $controller->home($request, []);
+
+        $this->assertStringContainsString('Actualités', $response->getBody());
+        $this->assertStringContainsString('Camp ete', $response->getBody());
+        $this->assertStringContainsString('/news/1', $response->getBody());
+    }
+
+    public function testHomePageRendersNoNewsColumnWhenProviderReturnsNoArticles(): void
+    {
+        $provider = new class implements HomeNewsProvider {
+            public function getLatestPublicArticles(int $limit): array
+            {
+                return [];
+            }
+        };
+        $controller = new PageController($this->twig, $this->editableService, $this->sectionRepo, $this->settingService, $this->rgpdContentService, null, $provider);
+
+        $request = new Request('GET', '/', [], [], [], []);
+        $response = $controller->home($request, []);
+
+        $this->assertStringNotContainsString('Actualités', $response->getBody());
     }
 
     public function testContactPageRenders(): void

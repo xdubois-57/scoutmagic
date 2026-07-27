@@ -144,13 +144,25 @@ class FormServiceTest extends TestCase
         $this->service->reorderFields($form->id, [999]);
     }
 
-    public function testRemoveFormDeletesFormAndUnmarksHasForm(): void
+    public function testSaveSanitizesTextFieldContentAndForcesNoLabelOrRequired(): void
     {
-        $form = $this->service->save($this->articleId, $this->baseSettings(), []);
+        $form = $this->service->save($this->articleId, $this->baseSettings(), [
+            ['id' => null, 'field_type' => FormField::TYPE_TEXT, 'label' => 'Ignoré', 'is_required' => true, 'options_source' => null, 'options_manual' => null, 'capacity_max' => null, 'price_per_unit' => null, 'confirmation_text' => '<p>Bonjour</p><script>alert(1)</script>'],
+        ]);
 
-        $this->service->removeForm($form, $this->articleId, null);
+        $field = $this->service->getFields($form->id)[0];
+        $this->assertNull($field->label);
+        $this->assertFalse($field->isRequired);
+        $this->assertStringContainsString('Bonjour', $field->confirmationText);
+        $this->assertStringNotContainsString('<script>', $field->confirmationText);
+    }
 
-        $this->assertNull($this->service->findByArticleId($this->articleId));
-        $this->assertFalse($this->articleRepository->findById($this->articleId)->hasForm);
+    public function testTextFieldIsNonInputLikeConfirmation(): void
+    {
+        $form = $this->service->save($this->articleId, $this->baseSettings(), [
+            ['id' => null, 'field_type' => FormField::TYPE_TEXT, 'label' => null, 'is_required' => false, 'options_source' => null, 'options_manual' => null, 'capacity_max' => null, 'price_per_unit' => null, 'confirmation_text' => '<p>Info</p>'],
+        ]);
+
+        $this->assertTrue($this->service->getFields($form->id)[0]->isNonInput());
     }
 }

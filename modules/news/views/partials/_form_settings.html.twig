@@ -1,0 +1,86 @@
+{# Form-level settings (module spec §11.6) — shown only once the form has
+   at least one real input field (Controller\NewsController::hasRealInputField(),
+   toggled client-side by updateFormSettingsVisibility() in
+   news-form-builder.js). There is no "Accès au formulaire" control here —
+   it's derived from the article's own Visibilité (public/direct_link need
+   no login, chief/admin already do just to see the page). #}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h4 class="h6 mb-0">Réponses</h4>
+    <span class="badge rounded-pill" id="news-form-state-badge">—</span>
+</div>
+
+<div class="mb-4">
+    <h4 class="h6">Planification</h4>
+    <div class="row g-2">
+        <div class="col-12 col-sm-6">
+            <label class="form-label small" for="form_opens_at">Ouverture</label>
+            <input type="date" class="form-control" id="form_opens_at" name="form_opens_at" value="{{ default_opens_at }}">
+        </div>
+        <div class="col-12 col-sm-6">
+            <label class="form-label small" for="form_closes_at">Fermeture</label>
+            <input type="date" class="form-control" id="form_closes_at" name="form_closes_at" value="{{ default_closes_at }}">
+        </div>
+    </div>
+    <div class="form-check mt-2">
+        <input class="form-check-input" type="checkbox" id="form_is_force_closed" name="form_is_force_closed" value="1" {{ form and form.isForceClosed ? 'checked' : '' }}>
+        <label class="form-check-label" for="form_is_force_closed">Forcer la fermeture maintenant (indépendamment des dates)</label>
+    </div>
+</div>
+
+<div class="mb-4">
+    <label class="form-label" for="form_response_limit">Réponses par personne</label>
+    <select class="form-select" id="form_response_limit" name="form_response_limit">
+        <option value="unlimited" {{ not form or form.responseLimit == 'unlimited' ? 'selected' : '' }}>Illimité</option>
+        <option value="one_per_account" {{ form and form.responseLimit == 'one_per_account' ? 'selected' : '' }}>Une par compte</option>
+        <option value="one_per_member" {{ form and form.responseLimit == 'one_per_member' ? 'selected' : '' }}>Une par membre lié au compte</option>
+    </select>
+    <p class="form-text d-none" id="news-access-public-help">
+        En visibilité Public ou Lien direct, impossible de rattacher une réponse à un compte (pas de connexion requise). La limite est donc illimitée.
+    </p>
+    <p class="form-text text-warning d-none" id="news-access-members-warning">
+        Attention : un ou plusieurs champs utilisent « Membres liés au compte », qui ne fonctionne pas sans connexion (visibilité Public ou Lien direct).
+        Ces champs afficheront un message d'erreur tant que leur source n'est pas changée.
+    </p>
+</div>
+
+<div class="mb-4">
+    <div class="form-check form-switch">
+        <input class="form-check-input" type="checkbox" role="switch" id="form_daily_digest_enabled" name="form_daily_digest_enabled" value="1" {{ form and form.dailyDigestEnabled ? 'checked' : '' }}>
+        <label class="form-check-label" for="form_daily_digest_enabled">Résumé quotidien des nouvelles réponses par email</label>
+    </div>
+    <p class="form-text">Un email récapitulatif vous sera envoyé chaque jour si de nouvelles réponses ont été soumises.</p>
+</div>
+
+{% if finance_available %}
+    <div class="mb-4 d-none" id="news-payment-settings">
+        <h4 class="h6">Paiement</h4>
+        {% if finance_accounts is empty %}
+            <p class="text-body-secondary">
+                Aucun compte configuré dans le module Finances. Configurez un compte avant d'activer les paiements.
+            </p>
+        {% else %}
+            {% set selected_account_id = form ? form.financeAccountId : default_finance_account_id %}
+            <label class="form-label" for="form_finance_account_id">Compte destinataire</label>
+            <select class="form-select" id="form_finance_account_id" name="form_finance_account_id">
+                <option value="">Aucun</option>
+                {% for account in finance_accounts %}
+                    <option value="{{ account.id }}" {{ selected_account_id == account.id ? 'selected' : '' }}>{{ account.name }}</option>
+                {% endfor %}
+            </select>
+            <p class="form-text">La communication structurée sera générée automatiquement pour chaque réponse.</p>
+        {% endif %}
+    </div>
+{% endif %}
+
+<div>
+    <h4 class="h6">Visibilité des réponses</h4>
+    <span class="form-label d-block">Qui peut voir les réponses ?</span>
+    <div class="btn-group" role="group">
+        <input type="radio" class="btn-check" name="form_response_role_min" id="resp-role-intendant" value="intendant" {{ form and form.responseRoleMin == 'intendant' ? 'checked' : '' }}>
+        <label class="btn btn-outline-primary" for="resp-role-intendant">Intendant+</label>
+        <input type="radio" class="btn-check" name="form_response_role_min" id="resp-role-chief" value="chief" {{ not form or form.responseRoleMin == 'chief' ? 'checked' : '' }}>
+        <label class="btn btn-outline-primary" for="resp-role-chief">Chef+</label>
+        <input type="radio" class="btn-check" name="form_response_role_min" id="resp-role-admin" value="admin" {{ form and form.responseRoleMin == 'admin' ? 'checked' : '' }}>
+        <label class="btn btn-outline-primary" for="resp-role-admin">Chef d'Unité+</label>
+    </div>
+</div>

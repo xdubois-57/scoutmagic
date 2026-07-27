@@ -20,15 +20,18 @@ class PosterPdfService
     private const BODY_EXCERPT_LENGTH = 300;
 
     /**
+     * @param ?string $imageDataUri already-encoded `data:...;base64,...` —
+     *                dompdf runs with isRemoteEnabled=false, so any image
+     *                must be embedded rather than fetched by URL/path.
      * @return string raw PDF bytes
      */
-    public function generate(string $title, string $bodyHtml, string $qrUrl, string $unitShortName = ''): string
+    public function generate(string $title, string $bodyHtml, string $qrUrl, string $unitShortName = '', ?string $imageDataUri = null): string
     {
         $excerpt = $this->buildExcerpt($bodyHtml);
         $qrDataUri = $this->buildQrCodeDataUri($qrUrl);
         $date = (new \DateTimeImmutable())->format('d/m/Y');
 
-        $html = $this->renderHtml($title, $excerpt, $qrDataUri, $qrUrl, $unitShortName, $date);
+        $html = $this->renderHtml($title, $excerpt, $qrDataUri, $qrUrl, $unitShortName, $date, $imageDataUri);
 
         $options = new Options();
         $options->set('isRemoteEnabled', false);
@@ -66,8 +69,12 @@ class PosterPdfService
         return $result->getDataUri();
     }
 
-    private function renderHtml(string $title, string $excerpt, string $qrDataUri, string $qrUrl, string $unitShortName, string $date): string
+    private function renderHtml(string $title, string $excerpt, string $qrDataUri, string $qrUrl, string $unitShortName, string $date, ?string $imageDataUri): string
     {
+        $imageHtml = $imageDataUri !== null
+            ? '<div class="image-wrap"><img src="' . $imageDataUri . '" alt=""></div>'
+            : '';
+
         return '<!DOCTYPE html>
 <html>
 <head>
@@ -76,6 +83,8 @@ class PosterPdfService
     @page { margin: 15mm; }
     body { font-family: DejaVu Sans, sans-serif; color: #222; margin: 0; }
     .title { font-size: 28pt; font-weight: bold; text-align: center; margin-top: 10mm; }
+    .image-wrap { text-align: center; margin-top: 8mm; }
+    .image-wrap img { width: 70mm; height: 87.5mm; }
     .divider { border: none; border-top: 1px solid #999; margin: 8mm 0; }
     .excerpt { font-size: 14pt; line-height: 1.5; text-align: left; }
     .qr-wrap { text-align: center; margin-top: 20mm; }
@@ -86,6 +95,7 @@ class PosterPdfService
 </head>
 <body>
     <div class="title">' . htmlspecialchars($title, ENT_QUOTES, 'UTF-8') . '</div>
+    ' . $imageHtml . '
     <hr class="divider">
     <div class="excerpt">' . htmlspecialchars($excerpt, ENT_QUOTES, 'UTF-8') . '</div>
     <div class="qr-wrap">

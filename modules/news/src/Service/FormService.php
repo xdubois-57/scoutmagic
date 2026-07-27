@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Modules\News\Service;
 
+use Core\Security\HtmlSanitizer;
 use Modules\News\Repository\Article;
 use Modules\News\Repository\FormField;
 use Modules\News\Repository\FormFieldRepository;
@@ -20,11 +21,14 @@ use Modules\News\Repository\NewsForm;
  */
 class FormService
 {
+    private HtmlSanitizer $htmlSanitizer;
+
     public function __construct(
         private FormRepository $formRepository,
         private FormFieldRepository $fieldRepository,
         private ArticleService $articleService
     ) {
+        $this->htmlSanitizer = new HtmlSanitizer();
     }
 
     public function findByArticleId(int $articleId): ?NewsForm
@@ -74,24 +78,6 @@ class FormService
     }
 
     /**
-     * Deletes the form (and, via ON DELETE CASCADE, its fields/responses/
-     * response values) — used when a chief unchecks "Ajouter un
-     * formulaire" on an already-saved article. Finance receivable
-     * cleanup is Service\ArticleService::delete()'s job for a full
-     * article delete; this narrower path (form removed, article kept)
-     * mirrors the same cleanup here so orphaned receivables never linger.
-     */
-    public function removeForm(NewsForm $form, int $articleId, ?\Modules\Finance\Api\ExpectedReceivableInterface $expectedReceivable): void
-    {
-        if ($expectedReceivable !== null) {
-            $expectedReceivable->deleteReceivablesForSource('news', $form->id);
-        }
-
-        $this->formRepository->delete($form->id);
-        $this->articleService->markHasForm($articleId, false);
-    }
-
-    /**
      * @param int[] $orderedFieldIds
      */
     public function reorderFields(int $formId, array $orderedFieldIds): void
@@ -120,13 +106,21 @@ class FormService
                 throw new NewsException('Type de champ invalide.');
             }
 
+            $isNonInput = in_array($field['field_type'], FormField::NON_INPUT_TYPES, true);
             $optionsSource = in_array($field['field_type'], FormField::OPTION_BASED_TYPES, true) ? $field['options_source'] : null;
             $optionsManual = $optionsSource === FormField::OPTIONS_SOURCE_MANUAL ? $field['options_manual'] : null;
             $capacityMax = $field['field_type'] === FormField::TYPE_NUMBER ? $field['capacity_max'] : null;
             $pricePerUnit = $field['field_type'] === FormField::TYPE_NUMBER ? $field['price_per_unit'] : null;
-            $confirmationText = $field['field_type'] === FormField::TYPE_CONFIRMATION ? $field['confirmation_text'] : null;
-            $label = $field['field_type'] === FormField::TYPE_CONFIRMATION ? null : $field['label'];
-            $isRequired = $field['field_type'] === FormField::TYPE_CONFIRMATION ? false : $field['is_required'];
+            $confirmationText = $isNonInput ? $field['confirmation_text'] : null;
+            // The 'text' type's content is rich HTML (rendered with |raw)
+            // — sanitized here, same pipeline as the article body
+            // (Core\Security\HtmlSanitizer via Core\View\EditableContentService
+            // elsewhere); 'confirmation' stays plain text, Twig-escaped.
+            if ($field['field_type'] === FormField::TYPE_TEXT && $confirmationText !== null) {
+                $confirmationText = $this->htmlSanitizer->sanitize($confirmationText);
+            }
+            $label = $isNonInput ? null : $field['label'];
+            $isRequired = $isNonInput ? false : $field['is_required'];
 
             if ($field['id'] !== null && in_array($field['id'], $existingIds, true)) {
                 $this->fieldRepository->update(

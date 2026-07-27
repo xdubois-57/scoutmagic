@@ -45,26 +45,18 @@ class ArticleServiceTest extends TestCase
         $this->authorId = (int) $this->pdo->lastInsertId();
     }
 
-    public function testCreateStoresArticleBodyAndGeneratesShortUrl(): void
+    public function testCreateGeneratesShortUrl(): void
     {
-        $article = $this->service->create('Camp d\'été', '<p>Bienvenue</p>', Article::VISIBILITY_PUBLIC, true, 'camp,ete', null, $this->authorId);
+        $article = $this->service->create('Camp d\'été', Article::VISIBILITY_PUBLIC, true, 'camp,ete', null, $this->authorId, 'Résumé.', 1);
 
         $this->assertSame('Camp d\'été', $article->title);
-        $this->assertSame('<p>Bienvenue</p>', $this->service->getBodyHtml($article->id));
         $this->assertNotNull($article->shortUrlCode);
         $this->assertSame(6, strlen($article->shortUrlCode));
     }
 
-    public function testCreateSanitizesBodyHtml(): void
-    {
-        $article = $this->service->create('Titre', '<p>Texte</p><script>alert(1)</script>', Article::VISIBILITY_PUBLIC, false, null, null, $this->authorId);
-
-        $this->assertStringNotContainsString('<script>', $this->service->getBodyHtml($article->id));
-    }
-
     public function testCreateWithDirectLinkVisibilityForcesIsIndexedFalse(): void
     {
-        $article = $this->service->create('Titre', '<p>x</p>', Article::VISIBILITY_DIRECT_LINK, true, 'mots', '2027-01-01', $this->authorId);
+        $article = $this->service->create('Titre', Article::VISIBILITY_DIRECT_LINK, true, 'mots', '2027-01-01', $this->authorId, 'Résumé.', 1);
 
         $this->assertFalse($article->isIndexed);
         $this->assertNull($article->seoKeywords);
@@ -74,14 +66,44 @@ class ArticleServiceTest extends TestCase
     public function testCreateRejectsInvalidVisibility(): void
     {
         $this->expectException(NewsException::class);
-        $this->service->create('Titre', '<p>x</p>', 'bogus', false, null, null, $this->authorId);
+        $this->service->create('Titre', 'bogus', false, null, null, $this->authorId, 'Résumé.', 1);
+    }
+
+    public function testCreateRejectsAnEmptySummary(): void
+    {
+        $this->expectException(NewsException::class);
+        $this->service->create('Titre', Article::VISIBILITY_PUBLIC, false, null, null, $this->authorId, '   ', 1);
+    }
+
+    public function testCreateRejectsAMissingImage(): void
+    {
+        $this->expectException(NewsException::class);
+        $this->service->create('Titre', Article::VISIBILITY_PUBLIC, false, null, null, $this->authorId, 'Résumé.', null);
+    }
+
+    public function testUpdateKeepsTheExistingImageWhenNoneIsReUploaded(): void
+    {
+        $article = $this->service->create('Titre', Article::VISIBILITY_PUBLIC, false, null, null, $this->authorId, 'Résumé.', 7);
+
+        $updated = $this->service->update($article->id, 'Nouveau titre', Article::VISIBILITY_PUBLIC, false, null, null, 'Résumé.', null);
+
+        $this->assertSame(7, $updated->imageFileId);
+    }
+
+    public function testUpdateReplacesTheImageWhenANewOneIsUploaded(): void
+    {
+        $article = $this->service->create('Titre', Article::VISIBILITY_PUBLIC, false, null, null, $this->authorId, 'Résumé.', 7);
+
+        $updated = $this->service->update($article->id, 'Titre', Article::VISIBILITY_PUBLIC, false, null, null, 'Résumé.', 9);
+
+        $this->assertSame(9, $updated->imageFileId);
     }
 
     public function testUpdateAlsoEnforcesDirectLinkSeoRule(): void
     {
-        $article = $this->service->create('Titre', '<p>x</p>', Article::VISIBILITY_PUBLIC, true, 'mots', '2027-01-01', $this->authorId);
+        $article = $this->service->create('Titre', Article::VISIBILITY_PUBLIC, true, 'mots', '2027-01-01', $this->authorId, 'Résumé.', 1);
 
-        $updated = $this->service->update($article->id, 'Titre', '<p>y</p>', Article::VISIBILITY_DIRECT_LINK, true, 'mots', '2027-01-01', $this->authorId);
+        $updated = $this->service->update($article->id, 'Titre', Article::VISIBILITY_DIRECT_LINK, true, 'mots', '2027-01-01', 'Résumé.', 1);
 
         $this->assertFalse($updated->isIndexed);
         $this->assertNull($updated->seoKeywords);
@@ -89,33 +111,33 @@ class ArticleServiceTest extends TestCase
 
     public function testCanViewPublicArticleForAnyRole(): void
     {
-        $article = $this->service->create('Titre', '<p>x</p>', Article::VISIBILITY_PUBLIC, false, null, null, $this->authorId);
+        $article = $this->service->create('Titre', Article::VISIBILITY_PUBLIC, false, null, null, $this->authorId, 'Résumé.', 1);
         $this->assertTrue($this->service->canView($article, Role::PUBLIC));
     }
 
     public function testCanViewChiefArticleRequiresChiefRole(): void
     {
-        $article = $this->service->create('Titre', '<p>x</p>', Article::VISIBILITY_CHIEF, false, null, null, $this->authorId);
+        $article = $this->service->create('Titre', Article::VISIBILITY_CHIEF, false, null, null, $this->authorId, 'Résumé.', 1);
         $this->assertFalse($this->service->canView($article, Role::IDENTIFIED));
         $this->assertTrue($this->service->canView($article, Role::CHIEF));
     }
 
     public function testCanViewAdminArticleRequiresAdminRole(): void
     {
-        $article = $this->service->create('Titre', '<p>x</p>', Article::VISIBILITY_ADMIN, false, null, null, $this->authorId);
+        $article = $this->service->create('Titre', Article::VISIBILITY_ADMIN, false, null, null, $this->authorId, 'Résumé.', 1);
         $this->assertFalse($this->service->canView($article, Role::CHIEF));
         $this->assertTrue($this->service->canView($article, Role::ADMIN));
     }
 
     public function testCanViewDirectLinkArticleForAnyone(): void
     {
-        $article = $this->service->create('Titre', '<p>x</p>', Article::VISIBILITY_DIRECT_LINK, false, null, null, $this->authorId);
+        $article = $this->service->create('Titre', Article::VISIBILITY_DIRECT_LINK, false, null, null, $this->authorId, 'Résumé.', 1);
         $this->assertTrue($this->service->canView($article, Role::PUBLIC));
     }
 
     public function testCanEditAllowsAuthorButNotOtherChief(): void
     {
-        $article = $this->service->create('Titre', '<p>x</p>', Article::VISIBILITY_PUBLIC, false, null, null, $this->authorId);
+        $article = $this->service->create('Titre', Article::VISIBILITY_PUBLIC, false, null, null, $this->authorId, 'Résumé.', 1);
 
         $this->assertTrue($this->service->canEdit($article, Role::CHIEF, $this->authorId));
         $this->assertFalse($this->service->canEdit($article, Role::CHIEF, 999));
@@ -124,9 +146,9 @@ class ArticleServiceTest extends TestCase
 
     public function testFindPublicListExcludesDirectLinkAndChiefArticles(): void
     {
-        $this->service->create('Public', '<p>x</p>', Article::VISIBILITY_PUBLIC, false, null, null, $this->authorId);
-        $this->service->create('Chef', '<p>x</p>', Article::VISIBILITY_CHIEF, false, null, null, $this->authorId);
-        $this->service->create('Lien direct', '<p>x</p>', Article::VISIBILITY_DIRECT_LINK, false, null, null, $this->authorId);
+        $this->service->create('Public', Article::VISIBILITY_PUBLIC, false, null, null, $this->authorId, 'Résumé.', 1);
+        $this->service->create('Chef', Article::VISIBILITY_CHIEF, false, null, null, $this->authorId, 'Résumé.', 1);
+        $this->service->create('Lien direct', Article::VISIBILITY_DIRECT_LINK, false, null, null, $this->authorId, 'Résumé.', 1);
 
         $list = $this->service->findPublicList();
 
@@ -136,7 +158,7 @@ class ArticleServiceTest extends TestCase
 
     public function testDeleteRemovesArticleAndBodyContent(): void
     {
-        $article = $this->service->create('Titre', '<p>x</p>', Article::VISIBILITY_PUBLIC, false, null, null, $this->authorId);
+        $article = $this->service->create('Titre', Article::VISIBILITY_PUBLIC, false, null, null, $this->authorId, 'Résumé.', 1);
 
         $this->service->delete($article->id);
 

@@ -83,7 +83,63 @@ class RequestTest extends TestCase
 
     protected function tearDown(): void
     {
-        unset($_FILES);
+        unset($_FILES, $_SERVER['CONTENT_LENGTH']);
+    }
+
+    public function testParseIniSizeToBytesHandlesUnitsAndUnlimited(): void
+    {
+        $this->assertSame(1048576, Request::parseIniSizeToBytes('1M'));
+        $this->assertSame(2147483648, Request::parseIniSizeToBytes('2G'));
+        $this->assertSame(524288, Request::parseIniSizeToBytes('512K'));
+        $this->assertSame(100, Request::parseIniSizeToBytes('100'));
+        $this->assertSame(0, Request::parseIniSizeToBytes('0'));
+        $this->assertSame(0, Request::parseIniSizeToBytes(''));
+    }
+
+    public function testIsPostTooLargeReturnsTrueWhenContentLengthExceedsPostMaxSize(): void
+    {
+        // post_max_size is PHP_INI_PERDIR — can't be overridden via
+        // ini_set() in a test, so this reads the real configured value
+        // and picks a Content-Length guaranteed to exceed it.
+        $postMaxBytes = Request::parseIniSizeToBytes((string) ini_get('post_max_size'));
+        if ($postMaxBytes === 0) {
+            $this->markTestSkipped('post_max_size is unlimited in this environment.');
+        }
+
+        $_SERVER['REQUEST_METHOD'] = 'POST';
+        $_SERVER['CONTENT_LENGTH'] = (string) ($postMaxBytes + 1);
+
+        $this->assertTrue(Request::isPostTooLarge());
+    }
+
+    public function testIsPostTooLargeReturnsFalseForASmallJsonPostEvenThoughPostAndFilesAreEmpty(): void
+    {
+        // A JSON body (e.g. the "Générer avec l'IA" AJAX endpoints) never
+        // populates $_POST/$_FILES regardless of size — must not be
+        // mistaken for a truncated-by-post_max_size request.
+        $_SERVER['REQUEST_METHOD'] = 'POST';
+        $_SERVER['CONTENT_LENGTH'] = '120';
+        $_POST = [];
+        $_FILES = [];
+
+        $this->assertFalse(Request::isPostTooLarge());
+    }
+
+    public function testIsPostTooLargeReturnsFalseWhenNotAPostRequest(): void
+    {
+        $postMaxBytes = Request::parseIniSizeToBytes((string) ini_get('post_max_size'));
+        $_SERVER['REQUEST_METHOD'] = 'GET';
+        $_SERVER['CONTENT_LENGTH'] = (string) ($postMaxBytes + 1024);
+
+        $this->assertFalse(Request::isPostTooLarge());
+    }
+
+    public function testIsPostTooLargeReturnsFalseWhenContentLengthIsMissing(): void
+    {
+        $_SERVER['REQUEST_METHOD'] = 'POST';
+        unset($_SERVER['CONTENT_LENGTH']);
+
+        $this->assertFalse(Request::isPostTooLarge());
     }
 
     public function testGetFilesNormalizesMultiFileFieldIntoPerFileEntries(): void

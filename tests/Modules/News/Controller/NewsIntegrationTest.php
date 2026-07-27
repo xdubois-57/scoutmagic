@@ -9,9 +9,13 @@ use Core\Config\ScoutYearService;
 use Core\Config\SettingRepository;
 use Core\Config\SettingService;
 use Core\Database\Connection;
+use Core\File\FileRepository;
+use Core\File\UploadHandler;
 use Core\Http\Request;
 use Core\Import\MemberYearRepository;
+use Core\Journal\JournalService;
 use Core\Mail\MailService;
+use Core\Member\MemberService;
 use Core\Member\SectionService;
 use Core\Pdf\PosterPdfService;
 use Core\Scheduler\SchedulerRepository;
@@ -27,6 +31,7 @@ use Core\Url\ShortUrlService;
 use Core\View\EditableContentRepository;
 use Core\View\EditableContentService;
 use Core\View\TwigFactory;
+use Modules\Finance\Api\FinanceAccountInterface;
 use Modules\News\Controller\FormController;
 use Modules\News\Controller\NewsController;
 use Modules\News\Repository\Article;
@@ -63,6 +68,18 @@ class NewsIntegrationTest extends TestCase
     private FormFieldRepository $fieldRepository;
     private FormResponseRepository $responseRepository;
     private int $chiefAccountId;
+    private ArticleService $articleService;
+    private FormService $formService;
+    private ResponseService $responseService;
+    private Environment $twig;
+    private ScoutYearService $scoutYearService;
+    private SettingService $settingService;
+    private SchedulerService $schedulerService;
+    private UserAccountRepository $userAccountRepository;
+    private MemberService $memberService;
+    private SectionService $sectionService;
+    private JournalService $journalService;
+    private EditableContentService $editableContentService;
 
     protected function setUp(): void
     {
@@ -83,10 +100,14 @@ class NewsIntegrationTest extends TestCase
         $shortUrlService = new ShortUrlService(new ShortUrlRepository($this->pdo));
         $articleService = new ArticleService($this->articleRepository, $this->formRepository, $editableContentService, $shortUrlService);
         $formService = new FormService($this->formRepository, $this->fieldRepository, $articleService);
+        $this->articleService = $articleService;
+        $this->formService = $formService;
+        $this->editableContentService = $editableContentService;
 
         $connection = Connection::withPdo($this->pdo);
         $roleResolver = new RoleResolver(new MemberYearRepository($this->pdo), $this->encryption, $this->pdo);
         $sectionService = new SectionService($connection, $this->encryption, new MemberBadgeRepository($this->pdo));
+        $this->sectionService = $sectionService;
         $mailService = $this->createMock(MailService::class);
 
         $templateDir = dirname(__DIR__, 4) . '/core/View/templates';
@@ -99,22 +120,36 @@ class NewsIntegrationTest extends TestCase
         $twig->addGlobal('cookie_consent_given', true);
         $twig->addGlobal('menus', null);
         $twig->addGlobal('current_path', '/news');
+        $this->twig = $twig;
 
         $responseService = new ResponseService(
             $this->responseRepository, $roleResolver, $sectionService, $mailService, $twig, $shortUrlService,
             'https://example.com', 'Test Unit'
         );
+        $this->responseService = $responseService;
 
         $settingService = new SettingService(new SettingRepository($this->pdo));
         $scoutYearService = new ScoutYearService($this->pdo);
         $schedulerService = new SchedulerService(new SchedulerRepository($this->pdo));
         $userAccountRepository = new UserAccountRepository($this->pdo, $this->encryption);
+        $this->settingService = $settingService;
+        $this->scoutYearService = $scoutYearService;
+        $this->schedulerService = $schedulerService;
+        $this->userAccountRepository = $userAccountRepository;
+
+        $memberService = new MemberService(new MemberYearRepository($this->pdo), $this->encryption, $connection);
+        $this->memberService = $memberService;
+
+        $uploadHandler = new UploadHandler(new FileRepository($this->pdo), sys_get_temp_dir());
+        $journalService = $this->createMock(JournalService::class);
+        $this->journalService = $journalService;
 
         $this->newsController = new NewsController(
             $twig, $articleService, $formService, $responseService, new SeoKeywordService(null),
-            new PosterPdfService(), $scoutYearService, $settingService, $schedulerService, $userAccountRepository
+            new PosterPdfService(), $scoutYearService, $settingService, $schedulerService, $userAccountRepository,
+            $memberService, $sectionService, $uploadHandler, new FileRepository($this->pdo), sys_get_temp_dir(), $journalService
         );
-        $this->formController = new FormController($twig, $articleService, $formService, $responseService, $scoutYearService);
+        $this->formController = new FormController($twig, $articleService, $formService, $responseService, $scoutYearService, $journalService);
 
         if (session_status() === PHP_SESSION_NONE) {
             session_start();
@@ -125,6 +160,7 @@ class NewsIntegrationTest extends TestCase
     protected function tearDown(): void
     {
         AuthSession::logout();
+        unset($_FILES['image']);
     }
 
     public function testPublicListRendersWithNoArticles(): void
@@ -205,6 +241,50 @@ class NewsIntegrationTest extends TestCase
         $this->assertStringContainsString('Aperçu', $response->getBody());
     }
 
+    public function testCreatePageDefaultsFinanceAccountToTheCurrentUsersSection(): void
+    {
+        $this->pdo->exec("INSERT INTO age_branches (desk_code, label, sort_order) VALUES ('LOU', 'Louveteaux', 1)");
+        $branchId = (int) $this->pdo->lastInsertId();
+        $this->pdo->exec("INSERT INTO sections (desk_code, age_branch_id, name) VALUES ('LOU01', {$branchId}, 'Meute A')");
+        $sectionId = (int) $this->pdo->lastInsertId();
+        $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES ('2025-2026', '2025-09-01', '2026-08-31', 1)");
+        $scoutYearId = (int) $this->pdo->lastInsertId();
+
+        $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('DESK_1')");
+        $memberId = (int) $this->pdo->lastInsertId();
+        $this->pdo->exec("INSERT INTO functions (desk_code, label, role, confirmed) VALUES ('Animateur', 'Animateur', 'chief', 1)");
+        $functionId = (int) $this->pdo->lastInsertId();
+
+        $blindIndex = $this->encryption->blindIndex('chief@test.com');
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted, email_encrypted, email_blind_index)
+             VALUES (?, ?, ?, ?, ?, ?)'
+        );
+        $stmt->execute([$memberId, $scoutYearId, $this->encryption->encrypt('Chef'), $this->encryption->encrypt('Test'), $this->encryption->encrypt('chief@test.com'), $blindIndex]);
+        $memberYearId = (int) $this->pdo->lastInsertId();
+
+        $stmt = $this->pdo->prepare('INSERT INTO member_functions (member_year_id, function_id, section_id, is_main_function) VALUES (?, ?, ?, 1)');
+        $stmt->execute([$memberYearId, $functionId, $sectionId]);
+
+        $financeAccount = $this->createMock(FinanceAccountInterface::class);
+        $financeAccount->method('getConfiguredAccounts')->willReturn([
+            ['id' => 42, 'name' => 'Compte Meute A', 'iban' => null, 'holder_name' => null, 'section_id' => $sectionId],
+        ]);
+        $financeAccount->method('getDefaultAccountForSection')->with($sectionId)->willReturn(42);
+
+        $controller = new NewsController(
+            $this->twig, $this->articleService, $this->formService, $this->responseService, new SeoKeywordService(null),
+            new PosterPdfService(), $this->scoutYearService, $this->settingService, $this->schedulerService, $this->userAccountRepository,
+            $this->memberService, $this->sectionService, new UploadHandler(new FileRepository($this->pdo), sys_get_temp_dir()),
+            new FileRepository($this->pdo), sys_get_temp_dir(), $this->journalService, $financeAccount
+        );
+
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+        $response = $controller->create(new Request('GET', '/news/create', [], [], [], []), []);
+
+        $this->assertMatchesRegularExpression('/<option value="42"[^>]*selected[^>]*>Compte Meute A<\/option>/', $response->getBody());
+    }
+
     public function testShowRendersArticleDetailWithoutForm(): void
     {
         $id = $this->articleRepository->create('Titre article', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId);
@@ -213,6 +293,71 @@ class NewsIntegrationTest extends TestCase
 
         $this->assertSame(200, $response->getStatusCode());
         $this->assertStringContainsString('Titre article', $response->getBody());
+        // No real input field (not even a saved form) — nothing to submit,
+        // so the submission mechanics must not render (usability review).
+        $this->assertStringNotContainsString('Envoyer', $response->getBody());
+        $this->assertStringNotContainsString('contact_email', $response->getBody());
+    }
+
+    public function testShowMigratesLegacyBodyHtmlIntoContentWhenArticlePredatesTheMandatoryForm(): void
+    {
+        $id = $this->articleRepository->create('Ancien article', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId);
+        // Simulates an article saved before the form became mandatory —
+        // content lived in the generic editable-content store, no
+        // news_forms row exists at all.
+        $this->editableContentService->set(ArticleService::bodyContentKey($id), '<p>Contenu historique de l\'article.</p>', 'rich_text', $this->chiefAccountId);
+
+        $response = $this->newsController->show(new Request('GET', '/news/' . $id, [], [], [], []), ['id' => (string) $id]);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertStringContainsString('Contenu historique de l\'article.', $response->getBody());
+        $this->assertStringNotContainsString('Envoyer', $response->getBody());
+    }
+
+    public function testEditEditorPageMigratesLegacyBodyHtmlIntoADefaultTextField(): void
+    {
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+        $id = $this->articleRepository->create('Ancien article', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId);
+        $this->editableContentService->set(ArticleService::bodyContentKey($id), '<p>Contenu historique.</p>', 'rich_text', $this->chiefAccountId);
+
+        $response = $this->newsController->edit(new Request('GET', '/news/' . $id . '/edit', [], [], [], []), ['id' => (string) $id]);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertStringContainsString('Contenu historique.', $response->getBody());
+    }
+
+    public function testCreateEditorPageHasNoAddFormCheckboxAndFieldsBoxIsCalledArticle(): void
+    {
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+
+        $response = $this->newsController->create(new Request('GET', '/news/create', [], [], [], []), []);
+        $body = $response->getBody();
+
+        // Only the default "bloc de texte" exists — the fields box reads
+        // "Article" (JS renames it to "Formulaire" once a real input field
+        // is added), and there's no "Accès au formulaire" control anymore.
+        $this->assertStringContainsString('id="news-form-box-heading">Article<', $body);
+        $this->assertStringNotContainsString('id="has_form"', $body);
+        $this->assertStringNotContainsString('Ajouter un formulaire', $body);
+        $this->assertStringNotContainsString('Accès au formulaire', $body);
+        $this->assertStringNotContainsString('name="form_access"', $body);
+    }
+
+    public function testShowRendersOpenGraphAndTwitterCardMetaTagsWithAbsoluteImageUrl(): void
+    {
+        $id = $this->articleRepository->create('Camp d\'ete 2026', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId);
+        $this->articleRepository->update($id, 'Camp d\'ete 2026', Article::VISIBILITY_PUBLIC, false, null, null, 'Un super camp cet ete !', 55);
+        $this->articleRepository->setShortUrlCode($id, 'abc123');
+        $this->settingService->register('base_url', 'https://example.test', 'text', 'label', 'desc');
+
+        $response = $this->newsController->show(new Request('GET', '/news/' . $id, [], [], [], []), ['id' => (string) $id]);
+        $body = $response->getBody();
+
+        $this->assertStringContainsString('property="og:title" content="Camp d', $body);
+        $this->assertStringContainsString('property="og:description" content="Un super camp cet ete !"', $body);
+        $this->assertStringContainsString('property="og:url" content="https://example.test/s/abc123"', $body);
+        $this->assertStringContainsString('property="og:image" content="https://example.test/files/55"', $body);
+        $this->assertStringContainsString('name="twitter:card" content="summary_large_image"', $body);
     }
 
     public function testShowReturns403ForChiefArticleWhenPublic(): void
@@ -252,6 +397,9 @@ class NewsIntegrationTest extends TestCase
     {
         $articleId = $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId);
         $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, true, 'chief', false, null);
+        // A form with zero real input fields has nothing to submit, so the
+        // "closed" messaging only renders once there's at least one.
+        $this->fieldRepository->create($formId, 0, FormField::TYPE_SHORT_TEXT, 'Nom', true, null, null, null, null, null);
 
         $csrfToken = CsrfGuard::generateToken();
         $request = new Request('POST', '/news/' . $articleId . '/form/submit', [], [
@@ -352,6 +500,21 @@ class NewsIntegrationTest extends TestCase
         $this->assertStringStartsWith('%PDF-', $response->getBody());
     }
 
+    public function testPosterDownloadIncludesTheFeaturedImageWhenItExists(): void
+    {
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+        $uploadHandler = new UploadHandler(new FileRepository($this->pdo), sys_get_temp_dir());
+        $fileId = $uploadHandler->handle($this->fakeUploadedImage(), 'news/images', ['image/jpeg'], 5 * 1024 * 1024, 'public', 'news', $this->chiefAccountId);
+
+        $id = $this->articleRepository->create('Camp d\'été', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId, 'Résumé.', $fileId);
+        $this->articleRepository->setShortUrlCode($id, 'abc124');
+
+        $response = $this->newsController->poster(new Request('GET', '/news/' . $id . '/poster', [], [], [], []), ['id' => (string) $id]);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertStringStartsWith('%PDF-', $response->getBody());
+    }
+
     public function testStoreCreatesArticleWithFormAndRedirects(): void
     {
         AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
@@ -364,6 +527,7 @@ class NewsIntegrationTest extends TestCase
         $request = new Request('POST', '/news', [], [
             '_csrf_token' => $csrfToken,
             'title' => 'Nouveau camp',
+            'summary' => 'Un résumé en une phrase.',
             'body_html' => '<p>Bienvenue</p>',
             'visibility' => 'public',
             'has_form' => '1',
@@ -373,12 +537,84 @@ class NewsIntegrationTest extends TestCase
             'fields_json' => $fieldsJson,
         ], [], []);
 
+        $_FILES['image'] = $this->fakeUploadedImage();
+
         $response = $this->newsController->store($request, []);
 
         $this->assertSame(302, $response->getStatusCode());
         $article = $this->articleRepository->findAll()[0];
         $this->assertSame('Nouveau camp', $article->title);
         $this->assertTrue($article->hasForm);
+        $this->assertNotNull($article->imageFileId);
+    }
+
+    /**
+     * @dataProvider visibilityAccessProvider
+     */
+    public function testStoreDerivesFormAccessFromVisibilityNotFromRequest(string $visibility, string $expectedAccess): void
+    {
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+        $csrfToken = CsrfGuard::generateToken();
+
+        $fieldsJson = json_encode([
+            ['id' => null, 'field_type' => 'short_text', 'label' => 'Nom', 'is_required' => true, 'options_source' => null, 'options_manual' => null, 'capacity_max' => null, 'price_per_unit' => null, 'confirmation_text' => null],
+        ]);
+
+        $request = new Request('POST', '/news', [], [
+            '_csrf_token' => $csrfToken,
+            'title' => 'Camp',
+            'summary' => 'Un résumé en une phrase.',
+            'visibility' => $visibility,
+            // Deliberately the opposite of $expectedAccess — there is no
+            // "Accès au formulaire" control anymore, so this must be
+            // ignored and derived from visibility instead.
+            'form_access' => $expectedAccess === NewsForm::ACCESS_PUBLIC ? 'identified' : 'public',
+            'fields_json' => $fieldsJson,
+        ], [], []);
+        $_FILES['image'] = $this->fakeUploadedImage();
+
+        $response = $this->newsController->store($request, []);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $article = $this->articleRepository->findAll()[0];
+        $form = $this->formRepository->findByArticleId($article->id);
+        $this->assertSame($expectedAccess, $form->access);
+    }
+
+    /**
+     * @return array<string, array{0: string, 1: string}>
+     */
+    public static function visibilityAccessProvider(): array
+    {
+        return [
+            'public visibility needs no login' => [Article::VISIBILITY_PUBLIC, NewsForm::ACCESS_PUBLIC],
+            'direct_link visibility needs no login' => [Article::VISIBILITY_DIRECT_LINK, NewsForm::ACCESS_PUBLIC],
+            'chief visibility requires login' => [Article::VISIBILITY_CHIEF, NewsForm::ACCESS_IDENTIFIED],
+            'admin visibility requires login' => [Article::VISIBILITY_ADMIN, NewsForm::ACCESS_IDENTIFIED],
+        ];
+    }
+
+    public function testCreateEditorPageDefaultsSeoStopDateToSixMonthsFromNow(): void
+    {
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+
+        $response = $this->newsController->create(new Request('GET', '/news/create', [], [], [], []), []);
+
+        $expected = (new \DateTimeImmutable('+6 months'))->format('Y-m-d');
+        $this->assertStringContainsString('id="seo_stop_date" value="' . $expected . '"', $response->getBody());
+    }
+
+    /**
+     * @return array{name: string, tmp_name: string, error: int, size: int, type: string}
+     */
+    private function fakeUploadedImage(): array
+    {
+        $path = tempnam(sys_get_temp_dir(), 'news_test_image_') . '.jpg';
+        $image = imagecreatetruecolor(10, 10);
+        imagejpeg($image, $path);
+        imagedestroy($image);
+
+        return ['name' => 'photo.jpg', 'tmp_name' => $path, 'error' => UPLOAD_ERR_OK, 'size' => filesize($path), 'type' => 'image/jpeg'];
     }
 
     public function testDeleteRejectsNonAuthorChief(): void
@@ -398,5 +634,134 @@ class NewsIntegrationTest extends TestCase
 
         $this->assertSame(403, $response->getStatusCode());
         $this->assertNotNull($this->articleRepository->findById($id));
+    }
+
+    public function testDeleteJournalsTheDeletionByTheAuthor(): void
+    {
+        $id = $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId);
+
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+        $csrfToken = CsrfGuard::generateToken();
+
+        $this->journalService->expects($this->once())->method('log')
+            ->with('news', 'article_deleted', 'info', $this->anything(), ['article_id' => $id], $this->chiefAccountId);
+
+        $request = $this->getMockBuilder(Request::class)
+            ->setConstructorArgs(['DELETE', '/news/' . $id, [], [], [], []])
+            ->onlyMethods(['getRawBody'])
+            ->getMock();
+        $request->method('getRawBody')->willReturn(json_encode(['_csrf_token' => $csrfToken]));
+
+        $response = $this->newsController->delete($request, ['id' => (string) $id]);
+
+        $this->assertSame(200, $response->getStatusCode());
+    }
+
+    public function testStoreJournalsTheArticleCreation(): void
+    {
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+        $csrfToken = CsrfGuard::generateToken();
+
+        $this->journalService->expects($this->once())->method('log')
+            ->with('news', 'article_created', 'info', $this->anything(), $this->anything(), $this->chiefAccountId);
+
+        $request = new Request('POST', '/news', [], [
+            '_csrf_token' => $csrfToken,
+            'title' => 'Nouveau camp',
+            'summary' => 'Un résumé en une phrase.',
+            'body_html' => '<p>Bienvenue</p>',
+            'visibility' => 'public',
+        ], [], []);
+        $_FILES['image'] = $this->fakeUploadedImage();
+
+        $response = $this->newsController->store($request, []);
+
+        $this->assertSame(302, $response->getStatusCode());
+    }
+
+    public function testUpdateJournalsTheArticleUpdate(): void
+    {
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+        $id = $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId, 'Résumé.', null);
+        $csrfToken = CsrfGuard::generateToken();
+
+        $this->journalService->expects($this->once())->method('log')
+            ->with('news', 'article_updated', 'info', $this->anything(), ['article_id' => $id], $this->chiefAccountId);
+
+        $request = new Request('POST', '/news/' . $id, [], [
+            '_csrf_token' => $csrfToken,
+            'title' => 'Camp modifié',
+            'summary' => 'Un résumé en une phrase.',
+            'body_html' => '<p>Bienvenue</p>',
+            'visibility' => 'public',
+        ], [], []);
+        $_FILES['image'] = $this->fakeUploadedImage();
+
+        $response = $this->newsController->update($request, ['id' => (string) $id]);
+
+        $this->assertSame(302, $response->getStatusCode());
+    }
+
+    public function testUpdateResponseJournalsTheResponseUpdate(): void
+    {
+        $articleId = $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId);
+        $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', false, null);
+        $fieldId = $this->fieldRepository->create($formId, 0, FormField::TYPE_SHORT_TEXT, 'Nom', true, null, null, null, null, null);
+        $responseId = $this->responseRepository->create($formId, null, null, 'parent@test.com', [$fieldId => 'Alice'], null, null);
+
+        // canEditResponse() only allows an admin (or the response's own
+        // author) to edit someone else's anonymous submission.
+        AuthSession::login($this->chiefAccountId, 'admin@test.com', 'admin');
+
+        $this->journalService->expects($this->once())->method('log')
+            ->with('news', 'form_response_updated', 'info', $this->anything(), $this->anything(), $this->chiefAccountId);
+
+        $csrfToken = CsrfGuard::generateToken();
+        $request = new Request('POST', '/news/' . $articleId . '/form/responses/' . $responseId . '/edit', [], [
+            '_csrf_token' => $csrfToken,
+            'contact_email' => 'parent@test.com',
+            'field_' . $fieldId => 'Alicia',
+        ], [], []);
+
+        $response = $this->formController->updateResponse($request, ['id' => (string) $articleId, 'response_id' => (string) $responseId]);
+
+        $this->assertSame(302, $response->getStatusCode());
+    }
+
+    public function testSubmitJournalsTheResponseSubmission(): void
+    {
+        $articleId = $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId);
+        $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', false, null);
+        $fieldId = $this->fieldRepository->create($formId, 0, FormField::TYPE_SHORT_TEXT, 'Nom', true, null, null, null, null, null);
+
+        $this->journalService->expects($this->once())->method('log')
+            ->with('news', 'form_response_submitted', 'info', $this->anything(), $this->anything(), null);
+
+        $csrfToken = CsrfGuard::generateToken();
+        $submitRequest = new Request('POST', '/news/' . $articleId . '/form/submit', [], [
+            '_csrf_token' => $csrfToken,
+            'contact_email' => 'parent@test.com',
+            'field_' . $fieldId => 'Alice',
+        ], [], []);
+
+        $response = $this->formController->submit($submitRequest, ['id' => (string) $articleId]);
+
+        $this->assertSame(200, $response->getStatusCode());
+    }
+
+    public function testExportResponsesJournalsTheExport(): void
+    {
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+        $articleId = $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId);
+        $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', false, null);
+        $fieldId = $this->fieldRepository->create($formId, 0, FormField::TYPE_SHORT_TEXT, 'Nom', true, null, null, null, null, null);
+        $this->responseRepository->create($formId, null, null, 'parent@test.com', [$fieldId => 'Alice'], null, null);
+
+        $this->journalService->expects($this->once())->method('log')
+            ->with('news', 'form_responses_exported', 'info', $this->anything(), $this->anything(), $this->chiefAccountId);
+
+        $response = $this->formController->exportResponses(new Request('GET', '/news/' . $articleId . '/form/responses/export', [], [], [], []), ['id' => (string) $articleId]);
+
+        $this->assertSame(200, $response->getStatusCode());
     }
 }

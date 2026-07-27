@@ -2,7 +2,7 @@
   "id": "news",
   "name": "Actualités",
   "description": "Articles d'actualité avec formulaires intégrés (inscriptions, paiements optionnels), référencement SEO et affiche A4 avec QR code.",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "enabled_by_default": true,
   "routes": [
     {
@@ -37,6 +37,24 @@
       "method": "POST",
       "controller": "Modules\\News\\Controller\\NewsController",
       "action": "generateSeoKeywords",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/news/seo/generate-summary",
+      "method": "POST",
+      "controller": "Modules\\News\\Controller\\NewsController",
+      "action": "generateSummary",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/news/images/upload",
+      "method": "POST",
+      "controller": "Modules\\News\\Controller\\NewsController",
+      "action": "uploadBodyImage",
       "menu": "espace_chefs",
       "role_min": "chief",
       "label": ""
@@ -157,5 +175,10 @@
       "key": "send_response_digest",
       "handler": "Modules\\News\\Task\\SendResponseDigestHandler"
     }
-  ]
+  ],
+  "storage": {
+    "images": {
+      "role_min": "public"
+    }
+  }
 }

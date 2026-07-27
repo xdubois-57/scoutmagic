@@ -10,11 +10,15 @@ use Core\Config\ScoutYearService;
 use Core\Config\SettingRepository;
 use Core\Config\SettingService;
 use Core\Database\Connection;
+use Core\File\FileRepository;
+use Core\File\UploadHandler;
 use Core\Http\FrontController;
 use Core\Http\Request;
 use Core\Http\Router;
 use Core\Import\MemberYearRepository;
+use Core\Journal\JournalService;
 use Core\Mail\MailService;
+use Core\Member\MemberService;
 use Core\Member\SectionService;
 use Core\Pdf\PosterPdfService;
 use Core\Scheduler\SchedulerRepository;
@@ -112,11 +116,17 @@ class NewsRbacTest extends TestCase
         $schedulerService = new SchedulerService(new SchedulerRepository($this->pdo));
         $userAccountRepository = new UserAccountRepository($this->pdo, $encryption);
 
+        $memberService = new MemberService(new MemberYearRepository($this->pdo), $encryption, $connection);
+
+        $uploadHandler = new UploadHandler(new FileRepository($this->pdo), sys_get_temp_dir());
+        $journalService = $this->createMock(JournalService::class);
+
         $this->newsController = new NewsController(
             $twig, $articleService, $formService, $responseService, new SeoKeywordService(null),
-            new PosterPdfService(), $scoutYearService, $settingService, $schedulerService, $userAccountRepository
+            new PosterPdfService(), $scoutYearService, $settingService, $schedulerService, $userAccountRepository,
+            $memberService, $sectionService, $uploadHandler, new FileRepository($this->pdo), sys_get_temp_dir(), $journalService
         );
-        $this->formController = new FormController($twig, $articleService, $formService, $responseService, $scoutYearService);
+        $this->formController = new FormController($twig, $articleService, $formService, $responseService, $scoutYearService, $journalService);
 
         if (session_status() === PHP_SESSION_NONE) {
             session_start();

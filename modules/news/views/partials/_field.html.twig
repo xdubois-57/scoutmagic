@@ -11,7 +11,7 @@
 {% set input_name = 'field_' ~ field.id %}
 
 <div class="mb-3">
-    {% if field.fieldType != 'confirmation' %}
+    {% if not field.isNonInput() %}
         <label class="form-label" for="{{ input_name }}">
             {{ field.label }}{% if field.isRequired %} <span class="text-danger">*</span>{% endif %}
             {% if field.isPriced %}<span class="text-body-secondary small">({{ field.pricePerUnit|number_format(2, ',', ' ') }}€/unité)</span>{% endif %}
@@ -26,7 +26,8 @@
 
     {% elseif field.fieldType == 'number' %}
         {% set full = remaining_capacity is not null and remaining_capacity <= 0 %}
-        <input type="number" step="1" min="0" class="form-control news-number-field" id="{{ input_name }}" name="{{ input_name }}"
+        <input type="number" inputmode="numeric" step="1" min="0" {{ remaining_capacity is not null ? 'max="' ~ remaining_capacity ~ '"' : '' }}
+               class="form-control news-number-field" id="{{ input_name }}" name="{{ input_name }}"
                value="{{ full ? 0 : value }}" data-price="{{ field.pricePerUnit ?? '' }}" data-label="{{ field.label }}"
                {{ field.isRequired ? 'required' : '' }} {{ (disabled or full) ? 'disabled' : '' }}>
         {% if remaining_capacity is not null %}
@@ -84,5 +85,10 @@
 
     {% elseif field.fieldType == 'confirmation' %}
         <div class="alert alert-info mb-0">{{ field.confirmationText }}</div>
+
+    {% elseif field.fieldType == 'text' %}
+        {# Rich HTML, sanitized at save time (Service\FormService) — not a
+           confirmation-style alert box, just plain formatted content. #}
+        <div class="news-article-body">{{ field.confirmationText|raw }}</div>
     {% endif %}
 </div>

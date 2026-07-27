@@ -3,11 +3,39 @@
 {% block title %}Bienvenue — {{ site_name }}{% endblock %}
 
 {% block content %}
-    {% if banner_html is not empty %}
-        <div class="alert alert-info mb-4">{{ banner_html|raw }}</div>
-    {% endif %}
-    <div class="mb-4">
-        {{ editable_image('home.hero', 'Photo d\'accueil', 'img-fluid rounded w-100') }}
+    <div class="row g-4">
+        <div class="col-12 col-lg-8">
+            {% if banner_html is not empty %}
+                <div class="alert alert-info mb-4">{{ banner_html|raw }}</div>
+            {% endif %}
+            <div class="mb-4">
+                {{ editable_image('home.hero', 'Photo d\'accueil', 'img-fluid rounded w-100') }}
+            </div>
+            {{ editable('home.intro', '<h1>Bienvenue</h1><p>Bienvenue sur le site de notre unité scoute.</p>') }}
+        </div>
+
+        {% if news_articles is not empty %}
+            <div class="col-12 col-lg-4">
+                <h2 class="h5 mb-3">Actualités</h2>
+                <div class="d-flex flex-column gap-3">
+                    {% for article in news_articles %}
+                        <div class="card">
+                            <div class="card-body d-flex gap-2">
+                                {% if article.image_url %}
+                                    <img src="{{ article.image_url }}" alt="" class="rounded flex-shrink-0" style="width:56px;height:56px;object-fit:cover;">
+                                {% endif %}
+                                <div class="flex-grow-1" style="min-width:0;">
+                                    <h3 class="h6 mb-1">
+                                        <a href="/news/{{ article.id }}" class="text-decoration-none stretched-link">{{ article.title }}</a>
+                                    </h3>
+                                    {% if article.summary %}<p class="small text-body-secondary mb-0 text-truncate">{{ article.summary }}</p>{% endif %}
+                                </div>
+                            </div>
+                        </div>
+                    {% endfor %}
+                </div>
+                <a href="/news" class="btn btn-sm btn-outline-secondary mt-2 w-100">Toutes les actualités</a>
+            </div>
+        {% endif %}
     </div>
-    {{ editable('home.intro', '<h1>Bienvenue</h1><p>Bienvenue sur le site de notre unité scoute.</p>') }}
 {% endblock %}

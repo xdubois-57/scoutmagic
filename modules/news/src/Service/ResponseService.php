@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Modules\News\Service;
 
+use Core\Journal\JournalService;
+use Core\Mail\MailException;
 use Core\Mail\MailService;
 use Core\Member\SectionService;
 use Core\Security\Role;
@@ -41,7 +43,8 @@ class ResponseService
         private ?StructuredCommunicationInterface $structuredCommunication = null,
         private ?ExpectedReceivableInterface $expectedReceivable = null,
         private ?SepaQrCodeInterface $sepaQrCode = null,
-        private ?FinanceAccountInterface $financeAccount = null
+        private ?FinanceAccountInterface $financeAccount = null,
+        private ?JournalService $journalService = null
     ) {
     }
 
@@ -259,7 +262,23 @@ class ResponseService
         }
 
         $response = $this->responseRepository->findById($responseId);
-        $this->sendConfirmationEmail($article, $form, $fields, $response, $total);
+
+        // The response is already committed at this point — a failure to
+        // send the confirmation email (e.g. the site's SMTP "from"
+        // address isn't configured yet) must never turn into a fatal
+        // error for a submission that otherwise fully succeeded. Journaled
+        // without personal data (no email address/answers), same
+        // convention as everywhere else in the app.
+        try {
+            $this->sendConfirmationEmail($article, $form, $fields, $response, $total);
+        } catch (MailException $e) {
+            $this->journalService?->log(
+                'news', 'confirmation_email_failed', 'warning',
+                'Échec de l\'envoi de l\'email de confirmation pour une réponse de formulaire',
+                ['article_id' => $article->id, 'form_id' => $form->id, 'response_id' => $response->id],
+                $response->userAccountId
+            );
+        }
 
         return $response;
     }
@@ -320,7 +339,7 @@ class ResponseService
         $normalized = [];
 
         foreach ($fields as $field) {
-            if ($field->fieldType === FormField::TYPE_CONFIRMATION) {
+            if ($field->isNonInput()) {
                 continue;
             }
 
@@ -381,7 +400,7 @@ class ResponseService
         $answers = $this->responseRepository->getValues($response->id);
         $answerLines = [];
         foreach ($fields as $field) {
-            if ($field->fieldType === FormField::TYPE_CONFIRMATION || !isset($answers[$field->id])) {
+            if ($field->isNonInput() || !isset($answers[$field->id])) {
                 continue;
             }
             $answerLines[] = ['label' => $field->label, 'value' => $answers[$field->id]];

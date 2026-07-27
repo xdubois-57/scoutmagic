@@ -17,11 +17,17 @@ final class FormField
     public const TYPE_CHECKBOX = 'checkbox';
     public const TYPE_SWITCH = 'switch';
     public const TYPE_CONFIRMATION = 'confirmation';
+    /** Multi-line rich-formatted static text — no input, no label, never an answer (module usability review). */
+    public const TYPE_TEXT = 'text';
+
+    /** @var string[] field types with no input at all — excluded from validation, answers, and exports */
+    public const NON_INPUT_TYPES = [self::TYPE_CONFIRMATION, self::TYPE_TEXT];
 
     /** @var string[] */
     public const TYPES = [
         self::TYPE_SHORT_TEXT, self::TYPE_LONG_TEXT, self::TYPE_NUMBER, self::TYPE_DATE, self::TYPE_PHONE,
-        self::TYPE_EMAIL, self::TYPE_DROPDOWN, self::TYPE_RADIO, self::TYPE_CHECKBOX, self::TYPE_SWITCH, self::TYPE_CONFIRMATION,
+        self::TYPE_EMAIL, self::TYPE_DROPDOWN, self::TYPE_RADIO, self::TYPE_CHECKBOX, self::TYPE_SWITCH,
+        self::TYPE_CONFIRMATION, self::TYPE_TEXT,
     ];
 
     /** @var string[] field types that offer options_source (dropdown/radio/checkbox) */
@@ -60,5 +66,10 @@ final class FormField
     public function isPriced(): bool
     {
         return $this->fieldType === self::TYPE_NUMBER && $this->pricePerUnit !== null;
+    }
+
+    public function isNonInput(): bool
+    {
+        return in_array($this->fieldType, self::NON_INPUT_TYPES, true);
     }
 }

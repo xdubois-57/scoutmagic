@@ -11,6 +11,8 @@ class NewsTestHelper
         $pdo->exec('CREATE TABLE news_articles (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             title TEXT NOT NULL,
+            summary TEXT NULL,
+            image_file_id INTEGER NULL,
             visibility TEXT NOT NULL DEFAULT "public",
             has_form INTEGER NOT NULL DEFAULT 0,
             is_indexed INTEGER NOT NULL DEFAULT 0,

@@ -7,6 +7,8 @@ namespace Tests\Modules\News\Service;
 use Core\Badge\MemberBadgeRepository;
 use Core\Database\Connection;
 use Core\Import\MemberYearRepository;
+use Core\Journal\JournalService;
+use Core\Mail\MailException;
 use Core\Mail\MailService;
 use Core\Member\SectionService;
 use Core\Security\EncryptionService;
@@ -69,7 +71,8 @@ class ResponseServiceTest extends TestCase
         ?StructuredCommunicationInterface $structuredCommunication = null,
         ?ExpectedReceivableInterface $expectedReceivable = null,
         ?SepaQrCodeInterface $sepaQrCode = null,
-        ?FinanceAccountInterface $financeAccount = null
+        ?FinanceAccountInterface $financeAccount = null,
+        ?JournalService $journalService = null
     ): ResponseService {
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $connection = Connection::withPdo($this->pdo);
@@ -84,7 +87,7 @@ class ResponseServiceTest extends TestCase
         return new ResponseService(
             $this->responseRepository, $roleResolver, $sectionService,
             $this->mailService, $twig, $shortUrlService, 'https://example.com', 'Test Unit',
-            $structuredCommunication, $expectedReceivable, $sepaQrCode, $financeAccount
+            $structuredCommunication, $expectedReceivable, $sepaQrCode, $financeAccount, $journalService
         );
     }
 
@@ -128,6 +131,50 @@ class ResponseServiceTest extends TestCase
         $response = $this->service()->submit($this->article, $this->form(), [$field], null, null, 1, 'parent@test.com', [$fieldId => 'Alice'], null);
 
         $this->assertSame('parent@test.com', $response->contactEmail);
+    }
+
+    public function testSubmitIgnoresTextFieldsEntirely(): void
+    {
+        $shortTextId = $this->fieldRepository->create($this->formId, 0, FormField::TYPE_SHORT_TEXT, 'Nom', true, null, null, null, null, null);
+        $textId = $this->fieldRepository->create($this->formId, 1, FormField::TYPE_TEXT, null, false, null, null, null, null, '<p>Instructions</p>');
+        $fields = [$this->fieldRepository->findById($shortTextId), $this->fieldRepository->findById($textId)];
+
+        $response = $this->service()->submit($this->article, $this->form(), $fields, null, null, 1, 'a@test.com', [$shortTextId => 'Alice', $textId => 'should be ignored'], null);
+
+        $answers = $this->service()->getAnswers($response->id);
+        $this->assertArrayNotHasKey($textId, $answers);
+        $this->assertSame('Alice', $answers[$shortTextId]);
+    }
+
+    public function testSubmitStillReturnsTheResponseWhenTheConfirmationEmailFailsToSend(): void
+    {
+        // Reproduces the real-world failure: MailService::send() throws
+        // MailException (e.g. the site's SMTP "from" address isn't
+        // configured yet). The response was already committed and must
+        // not be lost behind an uncaught fatal error.
+        $fieldId = $this->fieldRepository->create($this->formId, 0, FormField::TYPE_SHORT_TEXT, 'Nom', true, null, null, null, null, null);
+        $field = $this->fieldRepository->findById($fieldId);
+
+        $this->mailService->method('send')->willThrowException(new MailException('Invalid address: (From)'));
+
+        $response = $this->service()->submit($this->article, $this->form(), [$field], null, null, 1, 'parent@test.com', [$fieldId => 'Alice'], null);
+
+        $this->assertSame('parent@test.com', $response->contactEmail);
+        $this->assertSame(1, (int) $this->pdo->query('SELECT COUNT(*) FROM news_form_responses')->fetchColumn());
+    }
+
+    public function testSubmitJournalsTheFailureWhenTheConfirmationEmailFailsToSend(): void
+    {
+        $fieldId = $this->fieldRepository->create($this->formId, 0, FormField::TYPE_SHORT_TEXT, 'Nom', true, null, null, null, null, null);
+        $field = $this->fieldRepository->findById($fieldId);
+        $this->mailService->method('send')->willThrowException(new MailException('Invalid address: (From)'));
+
+        $journalService = $this->createMock(JournalService::class);
+        $journalService->expects($this->once())->method('log')
+            ->with('news', 'confirmation_email_failed', 'warning', $this->anything(), $this->anything(), null);
+
+        $this->service(journalService: $journalService)
+            ->submit($this->article, $this->form(), [$field], null, null, 1, 'parent@test.com', [$fieldId => 'Alice'], null);
     }
 
     public function testSubmitRejectsWhenFormIsClosed(): void

@@ -32,7 +32,7 @@
                     <tr>
                         <th>Contact</th>
                         {% for field in fields %}
-                            {% if field.fieldType != 'confirmation' %}<th>{{ field.label }}</th>{% endif %}
+                            {% if not field.isNonInput() %}<th>{{ field.label }}</th>{% endif %}
                         {% endfor %}
                         {% if finance_available %}
                             <th class="text-end">Attendu</th>

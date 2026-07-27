@@ -17,22 +17,231 @@
         }).then(function (res) { return res.json(); });
     }
 
-    // --- Inline rich-text toolbar (module spec §11.5 — no modal, unlike
-    // partials/rich_text_editor.html.twig's editable() flow) ---
-    var bodyEditor = document.getElementById('news-body-editor');
-    if (bodyEditor) {
-        document.querySelectorAll('.news-editor-toolbar [data-command]').forEach(function (btn) {
+    // Article content now lives in the form's "bloc de texte"/confirmation
+    // fields rather than a separate body editor (usability review) — this
+    // is what the AI summary/keyword generators use as their context.
+    // `fieldState` is declared further down but `var` is function-scoped,
+    // so it's already available (as an array, possibly still empty) by
+    // the time these AI buttons can actually be clicked.
+    function collectFieldsContentText() {
+        var parts = [];
+        fieldState.forEach(function (f) {
+            if ((f.field_type === 'text' || f.field_type === 'confirmation') && f.confirmation_text) {
+                parts.push(f.confirmation_text);
+            }
+        });
+        return parts.join('\n');
+    }
+
+    // --- Shared rich-text editor (module spec §11.5 — no modal, unlike
+    // partials/rich_text_editor.html.twig's editable() flow) — ONE
+    // implementation (toolbar + contenteditable + image insertion) used
+    // both for the main article body and for every "Bloc de texte" form
+    // field (see buildRichTextEditor() further down), so the two never
+    // drift apart. `onChange` receives the editable's innerHTML on every
+    // edit; `initialHtml` seeds the starting content.
+    var RICH_TEXT_TOOLBAR_COMMANDS = [
+        { command: 'formatBlock', value: 'h2', label: 'H2', title: 'Titre 2' },
+        { command: 'formatBlock', value: 'h3', label: 'H3', title: 'Titre 3' },
+        { command: 'formatBlock', value: 'p', icon: 'bi-text-paragraph', title: 'Paragraphe' },
+        { separator: true },
+        { command: 'bold', icon: 'bi-type-bold', title: 'Gras' },
+        { command: 'italic', icon: 'bi-type-italic', title: 'Italique' },
+        { command: 'underline', icon: 'bi-type-underline', title: 'Souligné' },
+        { separator: true },
+        { command: 'insertUnorderedList', icon: 'bi-list-ul', title: 'Liste à puces' },
+        { command: 'insertOrderedList', icon: 'bi-list-ol', title: 'Liste numérotée' },
+        { separator: true },
+        { command: 'createLink', icon: 'bi-link-45deg', title: 'Lien' },
+        { command: 'insertImage', icon: 'bi-image', title: 'Insérer une image' },
+        { command: 'removeFormat', icon: 'bi-eraser', title: 'Supprimer le formatage' }
+    ];
+
+    function createRichTextEditor(initialHtml, onChange) {
+        var wrapper = document.createElement('div');
+
+        var toolbar = document.createElement('div');
+        toolbar.className = 'news-rich-text-toolbar mb-2 d-flex flex-wrap gap-1';
+
+        var editable = document.createElement('div');
+        editable.contentEditable = 'true';
+        editable.className = 'form-control';
+        editable.style.minHeight = '100px';
+        editable.innerHTML = initialHtml || '';
+        editable.addEventListener('input', function () {
+            if (onChange) onChange(editable.innerHTML);
+        });
+
+        var imageInput = document.createElement('input');
+        imageInput.type = 'file';
+        imageInput.accept = 'image/jpeg,image/png,image/webp,image/gif';
+        imageInput.className = 'd-none';
+
+        var savedRange = null;
+        function saveSelection() {
+            var sel = window.getSelection();
+            if (sel && sel.rangeCount > 0) savedRange = sel.getRangeAt(0);
+        }
+        editable.addEventListener('keyup', saveSelection);
+        editable.addEventListener('mouseup', saveSelection);
+
+        RICH_TEXT_TOOLBAR_COMMANDS.forEach(function (cmd) {
+            if (cmd.separator) {
+                var sep = document.createElement('span');
+                sep.className = 'mx-1';
+                toolbar.appendChild(sep);
+                return;
+            }
+
+            var btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'btn btn-sm btn-outline-secondary';
+            btn.title = cmd.title;
+            btn.innerHTML = cmd.label ? '<strong>' + cmd.label + '</strong>' : '<i class="bi ' + cmd.icon + '"></i>';
             btn.addEventListener('click', function () {
-                var cmd = btn.dataset.command;
-                bodyEditor.focus();
-                if (cmd === 'createLink') {
+                editable.focus();
+                if (cmd.command === 'createLink') {
                     var url = prompt('URL du lien :');
-                    if (url) document.execCommand(cmd, false, url);
+                    if (url) document.execCommand('createLink', false, url);
+                } else if (cmd.command === 'insertImage') {
+                    imageInput.click();
                 } else {
-                    document.execCommand(cmd, false, btn.dataset.value || null);
+                    document.execCommand(cmd.command, false, cmd.value || null);
+                }
+            });
+            toolbar.appendChild(btn);
+        });
+
+        // Uploads via a dedicated endpoint (the article itself may not
+        // exist yet, so this can't wait for the main form's own
+        // multipart submit) then inserts the resulting <img> at the
+        // last-known cursor position.
+        imageInput.addEventListener('change', function () {
+            var file = imageInput.files[0];
+            if (!file) return;
+
+            var formData = new FormData();
+            formData.append('image', file);
+            formData.append('_csrf_token', csrf());
+
+            fetch('/news/images/upload', { method: 'POST', body: formData })
+                .then(function (res) { return res.json(); })
+                .then(function (data) {
+                    imageInput.value = '';
+                    if (!data.success) {
+                        alert(data.error || "Erreur lors de l'envoi de l'image.");
+                        return;
+                    }
+
+                    editable.focus();
+                    var sel = window.getSelection();
+                    if (savedRange && sel) {
+                        sel.removeAllRanges();
+                        sel.addRange(savedRange);
+                    }
+                    document.execCommand('insertImage', false, data.url);
+                    if (onChange) onChange(editable.innerHTML);
+                });
+        });
+
+        wrapper.appendChild(toolbar);
+        wrapper.appendChild(editable);
+        wrapper.appendChild(imageInput);
+
+        return { wrapper: wrapper, editable: editable };
+    }
+
+    // --- Featured image click-to-edit (usability review) — the visible
+    // preview/placeholder + overlay live in editor.html.twig via the same
+    // .editable-image/.editable-overlay classes as editable_image()
+    // (core/View/TwigFactory.php); clicking is handled natively by the
+    // wrapping <label for="image">, no JS needed for that part.
+    //
+    // The picked file is center-cropped to a fixed 1080×1350 portrait
+    // (4:5 — Instagram-style) and re-encoded as PNG in a canvas before it
+    // ever leaves the browser, client side, so the upload is fast — the
+    // original File in the <input> is replaced with the processed one via
+    // DataTransfer, so the multipart POST always uploads the processed
+    // version, never the original.
+    var FEATURED_IMAGE_TARGET_WIDTH = 1080;
+    var FEATURED_IMAGE_TARGET_HEIGHT = 1350;
+
+    function cropToPortraitAndConvert(file, targetWidth, targetHeight, callback) {
+        var url = URL.createObjectURL(file);
+        var img = new Image();
+        img.onload = function () {
+            URL.revokeObjectURL(url);
+
+            var targetRatio = targetWidth / targetHeight;
+            var sourceRatio = img.naturalWidth / img.naturalHeight;
+            var cropWidth, cropHeight;
+            if (sourceRatio > targetRatio) {
+                cropHeight = img.naturalHeight;
+                cropWidth = cropHeight * targetRatio;
+            } else {
+                cropWidth = img.naturalWidth;
+                cropHeight = cropWidth / targetRatio;
+            }
+            var sx = (img.naturalWidth - cropWidth) / 2;
+            var sy = (img.naturalHeight - cropHeight) / 2;
+
+            var canvas = document.createElement('canvas');
+            canvas.width = targetWidth;
+            canvas.height = targetHeight;
+            canvas.getContext('2d').drawImage(img, sx, sy, cropWidth, cropHeight, 0, 0, targetWidth, targetHeight);
+
+            canvas.toBlob(function (blob) {
+                callback(blob);
+            }, 'image/png');
+        };
+        img.onerror = function () {
+            URL.revokeObjectURL(url);
+            callback(null);
+        };
+        img.src = url;
+    }
+
+    var featuredImageInput = document.getElementById('image');
+    var featuredImagePreview = document.getElementById('news-image-preview');
+    var featuredImagePlaceholder = document.getElementById('news-image-placeholder');
+    var featuredImageLabel = document.getElementById('news-image-label');
+    if (featuredImageInput) {
+        featuredImageInput.addEventListener('change', function () {
+            var file = featuredImageInput.files[0];
+            if (!file) return;
+
+            cropToPortraitAndConvert(file, FEATURED_IMAGE_TARGET_WIDTH, FEATURED_IMAGE_TARGET_HEIGHT, function (blob) {
+                if (!blob) {
+                    alert("Impossible de traiter cette image.");
+                    featuredImageInput.value = '';
+                    return;
+                }
+
+                var processedFile = new File([blob], 'image.png', { type: 'image/png' });
+                var dataTransfer = new DataTransfer();
+                dataTransfer.items.add(processedFile);
+                featuredImageInput.files = dataTransfer.files;
+
+                if (featuredImagePreview) {
+                    featuredImagePreview.src = URL.createObjectURL(blob);
+                    featuredImagePreview.classList.remove('d-none');
+                    if (featuredImagePlaceholder) featuredImagePlaceholder.classList.add('d-none');
+                    if (featuredImageLabel) featuredImageLabel.classList.add('d-none');
                 }
             });
         });
+    }
+
+    // There is no standalone "Accès au formulaire" control anymore
+    // (usability review) — whether the form requires login is derived
+    // from the article's own Visibilité: Public/Lien direct pages are
+    // reachable by anyone anyway, so the form needs no login either;
+    // Chefs/Chefs d'Unité already require being logged in just to see the
+    // page.
+    function isPublicAccess() {
+        var selected = document.querySelector('input[name="visibility"]:checked');
+        var value = selected ? selected.value : 'public';
+        return value === 'public' || value === 'direct_link';
     }
 
     // --- Visibility segmented buttons ---
@@ -46,6 +255,7 @@
             var isDirectLink = selected && selected.value === 'direct_link';
             if (directLinkHelp) directLinkHelp.classList.toggle('d-none', !isDirectLink);
             if (seoSection) seoSection.classList.toggle('d-none', isDirectLink);
+            updateAccessUi();
         }
 
         visibilityGroup.querySelectorAll('input').forEach(function (input) {
@@ -63,21 +273,44 @@
         });
     }
 
-    // --- AI keyword generation ---
+    // --- AI buttons: disabled until there's a title or some article
+    // content to work from (usability review) — re-checked on every title
+    // keystroke and every field-content edit. ---
+    var aiSummaryBtn = document.getElementById('news-ai-summary-btn');
     var aiKeywordsBtn = document.getElementById('news-ai-keywords-btn');
-    if (aiKeywordsBtn) {
-        aiKeywordsBtn.addEventListener('click', function () {
-            var title = document.querySelector('input[name="title"]').value;
-            var bodyHtml = bodyEditor ? bodyEditor.innerHTML : '';
-            aiKeywordsBtn.disabled = true;
-            aiKeywordsBtn.textContent = 'Génération…';
 
-            postJson('/news/seo/generate-keywords', { title: title, body_html: bodyHtml })
+    function hasTitleOrContent() {
+        var titleInput = document.querySelector('input[name="title"]');
+        var title = titleInput ? titleInput.value.trim() : '';
+        if (title !== '') return true;
+        return collectFieldsContentText().trim() !== '';
+    }
+
+    function updateAiButtonsState() {
+        var enabled = hasTitleOrContent();
+        if (aiSummaryBtn && aiSummaryBtn.textContent !== 'Génération…') aiSummaryBtn.disabled = !enabled;
+        if (aiKeywordsBtn && aiKeywordsBtn.textContent !== 'Génération…') aiKeywordsBtn.disabled = !enabled;
+    }
+
+    var titleInputEl = document.querySelector('input[name="title"]');
+    if (titleInputEl) {
+        titleInputEl.addEventListener('input', updateAiButtonsState);
+    }
+
+    // --- AI summary generation ---
+    if (aiSummaryBtn) {
+        aiSummaryBtn.addEventListener('click', function () {
+            var title = document.querySelector('input[name="title"]').value;
+            var bodyHtml = collectFieldsContentText();
+            aiSummaryBtn.disabled = true;
+            aiSummaryBtn.textContent = 'Génération…';
+
+            postJson('/news/seo/generate-summary', { title: title, body_html: bodyHtml })
                 .then(function (data) {
-                    aiKeywordsBtn.disabled = false;
-                    aiKeywordsBtn.textContent = "Générer avec l'IA";
+                    aiSummaryBtn.textContent = "Générer avec l'IA";
+                    updateAiButtonsState();
                     if (data.success) {
-                        document.getElementById('seo_keywords').value = data.keywords;
+                        document.getElementById('summary').value = data.summary;
                     } else {
                         alert(data.error || 'Erreur lors de la génération.');
                     }
@@ -85,12 +318,24 @@
         });
     }
 
-    // --- "Ajouter un formulaire" toggle ---
-    var hasFormCheckbox = document.getElementById('has_form');
-    var formBuilder = document.getElementById('news-form-builder');
-    if (hasFormCheckbox && formBuilder) {
-        hasFormCheckbox.addEventListener('change', function () {
-            formBuilder.classList.toggle('d-none', !hasFormCheckbox.checked);
+    // --- AI keyword generation ---
+    if (aiKeywordsBtn) {
+        aiKeywordsBtn.addEventListener('click', function () {
+            var title = document.querySelector('input[name="title"]').value;
+            var bodyHtml = collectFieldsContentText();
+            aiKeywordsBtn.disabled = true;
+            aiKeywordsBtn.textContent = 'Génération…';
+
+            postJson('/news/seo/generate-keywords', { title: title, body_html: bodyHtml })
+                .then(function (data) {
+                    aiKeywordsBtn.textContent = "Générer avec l'IA";
+                    updateAiButtonsState();
+                    if (data.success) {
+                        document.getElementById('seo_keywords').value = data.keywords;
+                    } else {
+                        alert(data.error || 'Erreur lors de la génération.');
+                    }
+                });
         });
     }
 
@@ -116,8 +361,7 @@
     updateFormStateBadge();
 
     function updateAccessUi() {
-        var accessInput = document.querySelector('input[name="form_access"]:checked');
-        var isPublic = accessInput && accessInput.value === 'public';
+        var isPublic = isPublicAccess();
         var limitSelect = document.getElementById('form_response_limit');
         var publicHelp = document.getElementById('news-access-public-help');
         var membersWarning = document.getElementById('news-access-members-warning');
@@ -129,21 +373,21 @@
         if (publicHelp) publicHelp.classList.toggle('d-none', !isPublic);
 
         if (membersWarning) {
-            var usesMembers = fieldState.some(function (f) {
+            // updateAccessUi() can run (via updateVisibilityUi()) before
+            // the field-builder section below has initialized fieldState.
+            var usesMembers = (fieldState || []).some(function (f) {
                 return f.options_source === 'members';
             });
             membersWarning.classList.toggle('d-none', !(isPublic && usesMembers));
         }
     }
-    document.querySelectorAll('input[name="form_access"]').forEach(function (input) {
-        input.addEventListener('change', updateAccessUi);
-    });
 
     // --- Field builder ---
     var fieldsListEl = document.getElementById('news-fields-list');
     var fieldState = [];
     var expandedKey = null;
     var nextKey = 1;
+    var draggedFieldKey = null;
 
     var FIELD_TYPES = [
         { type: 'short_text', label: 'Texte court', icon: 'bi-fonts' },
@@ -156,8 +400,10 @@
         { type: 'radio', label: 'Choix unique', icon: 'bi-ui-radios' },
         { type: 'checkbox', label: 'Choix multiple', icon: 'bi-ui-checks' },
         { type: 'switch', label: 'Interrupteur', icon: 'bi-toggle-on' },
-        { type: 'confirmation', label: 'Bloc de confirmation', icon: 'bi-info-circle' }
+        { type: 'confirmation', label: 'Bloc de confirmation', icon: 'bi-info-circle' },
+        { type: 'text', label: 'Bloc de texte', icon: 'bi-card-text' }
     ];
+    var NON_INPUT_TYPES = ['confirmation', 'text'];
     var TYPE_LABELS = {};
     FIELD_TYPES.forEach(function (t) { TYPE_LABELS[t.type] = t.label; });
 
@@ -166,6 +412,14 @@
             f._key = nextKey++;
             return f;
         });
+
+        // "Opened by default" (usability review) — the default/only
+        // field (typically the "bloc de texte" seeded server-side) starts
+        // expanded so the author can start typing immediately, no extra
+        // click needed.
+        if (fieldState.length === 1) {
+            expandedKey = fieldState[0]._key;
+        }
 
         renderFieldList();
         updateAccessUi();
@@ -199,8 +453,11 @@
 
         function addField(type) {
             var field = {
+                // Mandatory by default (usability review) — the author
+                // opts out per-field via the "Obligatoire" checkbox
+                // rather than opting in every time.
                 _key: nextKey++, id: null, field_type: type, label: TYPE_LABELS[type],
-                is_required: false, options_source: type === 'dropdown' || type === 'radio' || type === 'checkbox' ? 'manual' : null,
+                is_required: true, options_source: type === 'dropdown' || type === 'radio' || type === 'checkbox' ? 'manual' : null,
                 options_manual: null, capacity_max: null, price_per_unit: null, confirmation_text: null
             };
             fieldState.push(field);
@@ -210,7 +467,13 @@
             if (labelInput) labelInput.focus();
         }
 
+        // The first field is always a pinned "bloc de texte" (usability
+        // review: "there must always be a bloc de texte on top, it cannot
+        // be deleted or moved") — its own delete/drag/move controls are
+        // never rendered (see buildFieldRow()), but every mutating
+        // function guards against index 0 too, in case of a stray call.
         function removeField(key) {
+            if (fieldState.length > 0 && fieldState[0]._key === key) return;
             fieldState = fieldState.filter(function (f) { return f._key !== key; });
             if (expandedKey === key) expandedKey = null;
             renderFieldList();
@@ -218,11 +481,28 @@
 
         function moveField(key, direction) {
             var index = fieldState.findIndex(function (f) { return f._key === key; });
+            if (index === 0) return;
             var target = index + direction;
-            if (target < 0 || target >= fieldState.length) return;
+            if (target < 0 || target >= fieldState.length || target === 0) return;
             var tmp = fieldState[index];
             fieldState[index] = fieldState[target];
             fieldState[target] = tmp;
+            renderFieldList();
+            persistReorderIfSaved();
+        }
+
+        // Desktop drag-and-drop reorder (same dragstart/dragover/dragend
+        // pattern as public/assets/js/list-editor.js) — arbitrary
+        // reordering by key, driving the same fieldState array the
+        // up/down buttons (mobile/touch, see buildFieldRow) also mutate.
+        function moveFieldToKey(draggedKey, targetKey) {
+            var fromIndex = fieldState.findIndex(function (f) { return f._key === draggedKey; });
+            var toIndex = fieldState.findIndex(function (f) { return f._key === targetKey; });
+            if (fromIndex === -1 || toIndex === -1 || fromIndex === toIndex) return;
+            if (fromIndex === 0 || toIndex === 0) return;
+
+            var moved = fieldState.splice(fromIndex, 1)[0];
+            fieldState.splice(toIndex, 0, moved);
             renderFieldList();
             persistReorderIfSaved();
         }
@@ -239,29 +519,118 @@
             return found ? found.icon : 'bi-question';
         }
 
+        // Exactly the same toolbar/contenteditable/image-insertion code as
+        // the article body editor (module usability review: "the bloc de
+        // texte must have the same formatting menu as the article itself,
+        // reuse the same code") — one independent instance per field,
+        // since a form can have several "text" blocks at once.
+        function buildRichTextEditor(container, field) {
+            var rte = createRichTextEditor(field.confirmation_text || '', function (html) {
+                field.confirmation_text = html;
+            });
+            container.appendChild(rte.wrapper);
+        }
+
+        // The scheduling/response-visibility/payment settings box only
+        // makes sense once there's at least one real INPUT field — with
+        // only "bloc de texte"/confirmation blocks there's nothing to
+        // submit, so it stays hidden (usability review). The fields box's
+        // own heading also reflects this: "Article" while it's just
+        // content, "Formulaire" once there's something to fill in.
+        function updateFormSettingsVisibility() {
+            var hasRealInput = fieldState.some(function (f) {
+                return NON_INPUT_TYPES.indexOf(f.field_type) === -1;
+            });
+
+            var settings = document.getElementById('news-form-settings');
+            if (settings) settings.classList.toggle('d-none', !hasRealInput);
+
+            var heading = document.getElementById('news-form-box-heading');
+            if (heading) heading.textContent = hasRealInput ? 'Formulaire' : 'Article';
+        }
+
+        // The "Paiement" settings only make sense once at least one
+        // number field actually has a price set (usability review) — not
+        // just whenever the Finance module is available.
+        function updatePaymentSettingsVisibility() {
+            var paymentSettings = document.getElementById('news-payment-settings');
+            if (!paymentSettings) return;
+            var hasPricedField = fieldState.some(function (f) {
+                return f.field_type === 'number' && f.price_per_unit !== null && f.price_per_unit !== '';
+            });
+            paymentSettings.classList.toggle('d-none', !hasPricedField);
+        }
+
         function renderFieldList() {
             fieldsListEl.innerHTML = '';
             fieldState.forEach(function (field, index) {
                 fieldsListEl.appendChild(buildFieldRow(field, index));
             });
             updateAccessUi();
+            updateFormSettingsVisibility();
+            updatePaymentSettingsVisibility();
+            updateAiButtonsState();
         }
 
         function buildFieldRow(field, index) {
+            var isPinned = index === 0;
+
             var wrapper = document.createElement('div');
             wrapper.className = 'border rounded-3 p-2';
             wrapper.dataset.key = field._key;
+
+            // The pinned first "bloc de texte" can't be dragged, and
+            // nothing can be dropped onto it either (moveFieldToKey()
+            // rejects fromIndex/toIndex 0 regardless, this just avoids
+            // the visual drag affordance for a no-op).
+            if (!isPinned) {
+                wrapper.draggable = true;
+                wrapper.addEventListener('dragstart', function () {
+                    draggedFieldKey = field._key;
+                    wrapper.classList.add('opacity-50');
+                });
+                wrapper.addEventListener('dragend', function () {
+                    wrapper.classList.remove('opacity-50');
+                    draggedFieldKey = null;
+                });
+                wrapper.addEventListener('dragover', function (e) {
+                    e.preventDefault();
+                });
+                wrapper.addEventListener('drop', function (e) {
+                    e.preventDefault();
+                    if (draggedFieldKey !== null && draggedFieldKey !== field._key) {
+                        moveFieldToKey(draggedFieldKey, field._key);
+                    }
+                });
+            }
 
             var row = document.createElement('div');
             row.className = 'd-flex align-items-center gap-2';
             row.style.cursor = 'pointer';
 
-            var moveBtns = document.createElement('span');
-            moveBtns.className = 'd-inline-flex flex-column';
-            moveBtns.innerHTML =
-                '<button type="button" class="btn btn-sm btn-link text-body-secondary p-0 news-move-up" aria-label="Monter"' + (index === 0 ? ' disabled' : '') + '><i class="bi bi-chevron-up"></i></button>' +
-                '<button type="button" class="btn btn-sm btn-link text-body-secondary p-0 news-move-down" aria-label="Descendre"' + (index === fieldState.length - 1 ? ' disabled' : '') + '><i class="bi bi-chevron-down"></i></button>';
-            row.appendChild(moveBtns);
+            if (isPinned) {
+                var pinIcon = document.createElement('span');
+                pinIcon.className = 'text-body-secondary';
+                pinIcon.setAttribute('aria-label', 'Toujours en premier');
+                pinIcon.title = 'Toujours en premier';
+                pinIcon.innerHTML = '<i class="bi bi-pin-angle-fill"></i>';
+                row.appendChild(pinIcon);
+            } else {
+                var dragHandle = document.createElement('span');
+                dragHandle.className = 'text-body-secondary d-none d-lg-inline';
+                dragHandle.style.cursor = 'grab';
+                dragHandle.setAttribute('aria-label', 'Glisser pour réordonner');
+                dragHandle.title = 'Glisser pour réordonner';
+                dragHandle.innerHTML = '<i class="bi bi-grip-vertical"></i>';
+                row.appendChild(dragHandle);
+
+                var moveBtns = document.createElement('span');
+                moveBtns.className = 'd-inline-flex flex-column d-lg-none';
+                moveBtns.innerHTML =
+                    '<button type="button" class="btn btn-sm btn-link text-body-secondary p-0 news-move-up" aria-label="Monter"' + (index === 1 ? ' disabled' : '') + '><i class="bi bi-chevron-up"></i></button>' +
+                    '<button type="button" class="btn btn-sm btn-link text-body-secondary p-0 news-move-down" aria-label="Descendre"' + (index === fieldState.length - 1 ? ' disabled' : '') + '><i class="bi bi-chevron-down"></i></button>';
+                row.appendChild(moveBtns);
+            }
 
             var icon = document.createElement('i');
             icon.className = 'bi ' + fieldIcon(field.field_type);
@@ -269,8 +638,9 @@
 
             var label = document.createElement('span');
             label.className = 'flex-grow-1';
-            var labelText = field.field_type === 'confirmation' ? 'Bloc de confirmation' : (field.label || 'Sans libellé');
-            label.innerHTML = labelText + (field.is_required && field.field_type !== 'confirmation' ? ' <span class="text-danger">*</span>' : '') +
+            var isNonInput = NON_INPUT_TYPES.indexOf(field.field_type) !== -1;
+            var labelText = field.field_type === 'confirmation' ? 'Bloc de confirmation' : (field.field_type === 'text' ? 'Bloc de texte' : (field.label || 'Sans libellé'));
+            label.innerHTML = labelText + (field.is_required && !isNonInput ? ' <span class="text-danger">*</span>' : '') +
                 (field.price_per_unit ? ' <span class="text-body-secondary small">· ' + field.price_per_unit + '€/unité</span>' : '');
             row.appendChild(label);
 
@@ -279,28 +649,32 @@
             typeName.textContent = TYPE_LABELS[field.field_type] || field.field_type;
             row.appendChild(typeName);
 
-            var deleteBtn = document.createElement('button');
-            deleteBtn.type = 'button';
-            deleteBtn.className = 'btn btn-sm btn-outline-danger';
-            deleteBtn.innerHTML = '<i class="bi bi-trash"></i>';
-            deleteBtn.addEventListener('click', function (e) {
-                e.stopPropagation();
-                removeField(field._key);
-            });
-            row.appendChild(deleteBtn);
+            if (!isPinned) {
+                var deleteBtn = document.createElement('button');
+                deleteBtn.type = 'button';
+                deleteBtn.className = 'btn btn-sm btn-outline-danger';
+                deleteBtn.innerHTML = '<i class="bi bi-trash"></i>';
+                deleteBtn.addEventListener('click', function (e) {
+                    e.stopPropagation();
+                    removeField(field._key);
+                });
+                row.appendChild(deleteBtn);
+            }
 
             row.addEventListener('click', function () {
                 expandedKey = expandedKey === field._key ? null : field._key;
                 renderFieldList();
             });
-            moveBtns.querySelector('.news-move-up').addEventListener('click', function (e) {
-                e.stopPropagation();
-                moveField(field._key, -1);
-            });
-            moveBtns.querySelector('.news-move-down').addEventListener('click', function (e) {
-                e.stopPropagation();
-                moveField(field._key, 1);
-            });
+            if (!isPinned) {
+                row.querySelector('.news-move-up').addEventListener('click', function (e) {
+                    e.stopPropagation();
+                    moveField(field._key, -1);
+                });
+                row.querySelector('.news-move-down').addEventListener('click', function (e) {
+                    e.stopPropagation();
+                    moveField(field._key, 1);
+                });
+            }
 
             wrapper.appendChild(row);
 
@@ -324,7 +698,7 @@
                 return div;
             }
 
-            if (field.field_type !== 'confirmation') {
+            if (NON_INPUT_TYPES.indexOf(field.field_type) === -1) {
                 var labelRow = addRow('<label class="form-label small">Libellé du champ</label>');
                 var labelInput = document.createElement('input');
                 labelInput.type = 'text';
@@ -354,6 +728,8 @@
                 capCheck.innerHTML = '<input class="form-check-input" type="checkbox"' + (field.capacity_max !== null ? ' checked' : '') + '><label class="form-check-label">Limiter la capacité</label>';
                 var capInput = document.createElement('input');
                 capInput.type = 'number';
+                capInput.min = '1';
+                capInput.step = '1';
                 capInput.className = 'form-control form-control-sm mt-1' + (field.capacity_max === null ? ' d-none' : '');
                 capInput.value = field.capacity_max || '';
                 capCheck.querySelector('input').addEventListener('change', function (e) {
@@ -372,6 +748,7 @@
                     var priceInput = document.createElement('input');
                     priceInput.type = 'number';
                     priceInput.step = '0.50';
+                    priceInput.min = '0';
                     priceInput.className = 'form-control';
                     priceInput.value = field.price_per_unit || '';
                     priceInput.addEventListener('input', function () {
@@ -395,10 +772,9 @@
                 membersBtn.type = 'button';
                 membersBtn.className = 'btn btn-sm ' + (field.options_source === 'members' ? 'btn-primary' : 'btn-outline-primary');
                 membersBtn.textContent = 'Membres liés au compte';
-                var accessInput = document.querySelector('input[name="form_access"]:checked');
-                if (accessInput && accessInput.value === 'public') {
+                if (isPublicAccess()) {
                     membersBtn.disabled = true;
-                    membersBtn.title = 'Indisponible en accès public — les répondants ne sont pas connectés.';
+                    membersBtn.title = 'Indisponible en visibilité Public/Lien direct — les répondants ne sont pas connectés.';
                 }
                 sourceGroup.appendChild(manualBtn);
                 sourceGroup.appendChild(membersBtn);
@@ -450,17 +826,19 @@
                 textRow.appendChild(textarea);
             }
 
+            if (field.field_type === 'text') {
+                addRow('<label class="form-label small d-block">Contenu</label>');
+                buildRichTextEditor(panel, field);
+            }
+
             return panel;
         }
     }
 
-    // --- Submit: serialize body + fields before native form POST ---
+    // --- Submit: serialize fields before native form POST ---
     var editorForm = document.getElementById('news-editor-form');
     if (editorForm) {
         editorForm.addEventListener('submit', function () {
-            var bodyInput = document.getElementById('body_html_input');
-            if (bodyInput && bodyEditor) bodyInput.value = bodyEditor.innerHTML;
-
             var fieldsInput = document.getElementById('fields_json_input');
             if (fieldsInput) {
                 var serialized = fieldState.map(function (f) {

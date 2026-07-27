@@ -22,6 +22,63 @@ class Request
     ) {
     }
 
+    /**
+     * True when a POST's Content-Length exceeds post_max_size — PHP
+     * silently empties $_POST/$_FILES in that case (only a "PHP Request
+     * Startup" warning is logged), which otherwise surfaces downstream as
+     * a confusing "invalid CSRF token" error since the token field
+     * vanished along with everything else. Must be checked before
+     * routing/CSRF validation, using the raw superglobals (this runs
+     * before a Request instance — or even the rest of the bootstrap —
+     * exists).
+     *
+     * Compares Content-Length directly against post_max_size rather than
+     * inferring from empty $_POST/$_FILES — those are ALWAYS empty for a
+     * JSON (or any non-form-encoded) body regardless of size, which would
+     * otherwise misfire on every legitimate small JSON POST (e.g. the
+     * AJAX "Générer avec l'IA" endpoints).
+     */
+    public static function isPostTooLarge(): bool
+    {
+        if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
+            return false;
+        }
+
+        $contentLength = (int) ($_SERVER['CONTENT_LENGTH'] ?? 0);
+        if ($contentLength <= 0) {
+            return false;
+        }
+
+        $postMaxBytes = self::parseIniSizeToBytes((string) ini_get('post_max_size'));
+
+        return $postMaxBytes > 0 && $contentLength > $postMaxBytes;
+    }
+
+    /**
+     * Parses a php.ini size shorthand (e.g. "8M", "2G", "512K", "0") into
+     * bytes. "0" (or empty) means unlimited, returned as 0. Public: pure
+     * and side-effect-free, worth unit-testing directly rather than only
+     * indirectly through isPostTooLarge() — post_max_size is
+     * PHP_INI_PERDIR, so it can't be overridden via ini_set() in a test.
+     */
+    public static function parseIniSizeToBytes(string $value): int
+    {
+        $value = trim($value);
+        if ($value === '' || $value === '0') {
+            return 0;
+        }
+
+        $unit = strtolower(substr($value, -1));
+        $number = (int) $value;
+
+        return match ($unit) {
+            'g' => $number * 1024 * 1024 * 1024,
+            'm' => $number * 1024 * 1024,
+            'k' => $number * 1024,
+            default => (int) $value,
+        };
+    }
+
     public static function fromGlobals(): self
     {
         $path = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';

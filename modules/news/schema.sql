@@ -12,6 +12,19 @@
 CREATE TABLE IF NOT EXISTS news_articles (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     title VARCHAR(255) NOT NULL,
+    -- One-sentence summary — mandatory at the Service\ArticleService
+    -- layer (module addendum), not NOT NULL here: existing rows created
+    -- before this column existed must remain migratable without a
+    -- backfill. Used as the single-line list excerpt, the poster body,
+    -- and the og:description/social-share summary — replaces the old
+    -- stripped-body excerpt so those surfaces never show raw formatting.
+    summary VARCHAR(300) NULL,
+    -- Featured image — mandatory at the service layer alongside summary.
+    -- Not encrypted (SECURITY.md: public content files aren't personal
+    -- data) — a plain Core\File\UploadHandler upload, role_min mirrors
+    -- the article's own visibility. Used as the list thumbnail and the
+    -- og:image for social sharing.
+    image_file_id INT UNSIGNED NULL,
     visibility ENUM('public', 'chief', 'admin', 'direct_link') NOT NULL DEFAULT 'public',
     has_form BOOLEAN NOT NULL DEFAULT FALSE,
     -- direct_link visibility forces is_indexed = false (Service\
@@ -28,7 +41,8 @@ CREATE TABLE IF NOT EXISTS news_articles (
     -- explicitly by Repository\ArticleRepository::update() instead.
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_news_visibility (visibility),
-    CONSTRAINT fk_news_article_created_by FOREIGN KEY (created_by) REFERENCES user_accounts(id)
+    CONSTRAINT fk_news_article_created_by FOREIGN KEY (created_by) REFERENCES user_accounts(id),
+    CONSTRAINT fk_news_article_image FOREIGN KEY (image_file_id) REFERENCES files(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- news_forms: one-to-one with an article — lives and dies with it
@@ -68,13 +82,20 @@ CREATE TABLE IF NOT EXISTS news_form_fields (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     form_id INT UNSIGNED NOT NULL,
     sort_order INT NOT NULL DEFAULT 0,
-    field_type ENUM('short_text', 'long_text', 'number', 'date', 'phone', 'email', 'dropdown', 'radio', 'checkbox', 'switch', 'confirmation') NOT NULL,
+    field_type ENUM('short_text', 'long_text', 'number', 'date', 'phone', 'email', 'dropdown', 'radio', 'checkbox', 'switch', 'confirmation', 'text') NOT NULL,
     label VARCHAR(255) NULL,
     is_required BOOLEAN NOT NULL DEFAULT FALSE,
     options_source ENUM('manual', 'members') NULL,
     options_manual TEXT NULL,
     capacity_max INT UNSIGNED NULL,
     price_per_unit DECIMAL(10, 2) NULL,
+    -- Also holds the 'text' field type's content (module usability
+    -- review: a static, multi-line rich-formatted block usable anywhere
+    -- in the field order, e.g. section headers/instructions — distinct
+    -- from 'confirmation', which is always plain text shown right before
+    -- the submit button). Sanitized via Core\Security\HtmlSanitizer at
+    -- save time for 'text' (rendered with |raw); 'confirmation' stays
+    -- plain text, auto-escaped by Twig as before.
     confirmation_text TEXT NULL,
     CONSTRAINT fk_news_field_form FOREIGN KEY (form_id) REFERENCES news_forms(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

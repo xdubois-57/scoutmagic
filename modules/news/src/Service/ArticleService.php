@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Modules\News\Service;
 
+use Core\Module\HomeNewsProvider;
 use Core\Security\Role;
 use Core\Url\ShortUrlService;
 use Core\View\EditableContentService;
@@ -12,7 +13,7 @@ use Modules\News\Repository\Article;
 use Modules\News\Repository\ArticleRepository;
 use Modules\News\Repository\FormRepository;
 
-class ArticleService
+class ArticleService implements HomeNewsProvider
 {
     public function __construct(
         private ArticleRepository $articleRepository,
@@ -48,6 +49,22 @@ class ArticleService
     public function findPublicList(): array
     {
         return $this->articleRepository->findByVisibilities([Article::VISIBILITY_PUBLIC]);
+    }
+
+    /**
+     * Core\Module\HomeNewsProvider — homepage news column.
+     *
+     * @return array<int, array{id: int, title: string, summary: ?string, image_url: ?string, created_at: string}>
+     */
+    public function getLatestPublicArticles(int $limit): array
+    {
+        return array_map(fn(Article $article) => [
+            'id' => $article->id,
+            'title' => $article->title,
+            'summary' => $article->summary,
+            'image_url' => $article->imageFileId !== null ? '/files/' . $article->imageFileId : null,
+            'created_at' => $article->createdAt,
+        ], $this->articleRepository->findLatestPublic($limit));
     }
 
     /**
@@ -87,20 +104,29 @@ class ArticleService
         return $role->hasAccess(Role::ADMIN) || $article->createdBy === $currentAccountId;
     }
 
+    /**
+     * $imageFileId is mandatory on create (module addendum) — validated
+     * here rather than only relying on the HTML5 `required` file input,
+     * since a server-side check is the only one that actually matters.
+     */
     public function create(
         string $title,
-        string $bodyHtml,
         string $visibility,
         bool $isIndexed,
         ?string $seoKeywords,
         ?string $seoStopDate,
-        int $createdBy
+        int $createdBy,
+        string $summary,
+        ?int $imageFileId
     ): Article {
         $this->assertValidVisibility($visibility);
+        $this->assertValidSummary($summary);
+        if ($imageFileId === null) {
+            throw new NewsException('Une image est obligatoire pour l\'article.');
+        }
         [$isIndexed, $seoKeywords, $seoStopDate] = $this->enforceSeoRules($visibility, $isIndexed, $seoKeywords, $seoStopDate);
 
-        $id = $this->articleRepository->create($title, $visibility, $isIndexed, $seoKeywords, $seoStopDate, $createdBy);
-        $this->editableContentService->set(self::bodyContentKey($id), $bodyHtml, 'rich_text', $createdBy);
+        $id = $this->articleRepository->create($title, $visibility, $isIndexed, $seoKeywords, $seoStopDate, $createdBy, $summary, $imageFileId);
 
         $code = $this->shortUrlService->createShortUrl('/news/' . $id, $createdBy);
         $this->articleRepository->setShortUrlCode($id, $code);
@@ -108,21 +134,30 @@ class ArticleService
         return $this->articleRepository->findById($id);
     }
 
+    /**
+     * $imageFileId = null means "keep the existing image" (see
+     * Repository\ArticleRepository::update()) — the editor only uploads a
+     * new file when the author actually replaces the picture.
+     */
     public function update(
         int $id,
         string $title,
-        string $bodyHtml,
         string $visibility,
         bool $isIndexed,
         ?string $seoKeywords,
         ?string $seoStopDate,
-        int $modifiedBy
+        string $summary,
+        ?int $imageFileId
     ): Article {
         $this->assertValidVisibility($visibility);
+        $this->assertValidSummary($summary);
+        $existing = $this->articleRepository->findById($id);
+        if ($imageFileId === null && ($existing === null || $existing->imageFileId === null)) {
+            throw new NewsException('Une image est obligatoire pour l\'article.');
+        }
         [$isIndexed, $seoKeywords, $seoStopDate] = $this->enforceSeoRules($visibility, $isIndexed, $seoKeywords, $seoStopDate);
 
-        $this->articleRepository->update($id, $title, $visibility, $isIndexed, $seoKeywords, $seoStopDate);
-        $this->editableContentService->set(self::bodyContentKey($id), $bodyHtml, 'rich_text', $modifiedBy);
+        $this->articleRepository->update($id, $title, $visibility, $isIndexed, $seoKeywords, $seoStopDate, $summary, $imageFileId);
 
         return $this->articleRepository->findById($id);
     }
@@ -155,6 +190,13 @@ class ArticleService
     {
         if (!in_array($visibility, Article::VISIBILITIES, true)) {
             throw new NewsException('Visibilité invalide.');
+        }
+    }
+
+    private function assertValidSummary(string $summary): void
+    {
+        if (trim($summary) === '') {
+            throw new NewsException('Un résumé en une phrase est obligatoire.');
         }
     }
 

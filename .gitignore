@@ -8,6 +8,7 @@ storage/keys/
 storage/config/
 storage/temp/
 storage/finance/
+storage/news/
 
 # Local configuration
 config/app.php
