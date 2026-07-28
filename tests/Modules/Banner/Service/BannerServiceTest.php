@@ -43,7 +43,7 @@ class BannerServiceTest extends TestCase
 
     public function testGetRandomBannerHtmlReturnsNullWhenNoBanners(): void
     {
-        $this->assertNull($this->service->getRandomBannerHtml());
+        $this->assertNull($this->service->getRandomBannerHtml('public'));
     }
 
     public function testGetRandomBannerHtmlReturnsNullWhenAllInactive(): void
@@ -52,7 +52,7 @@ class BannerServiceTest extends TestCase
         $this->setContent($banner->id, '<p>Hello</p>');
         $this->service->setActive($banner->id, false);
 
-        $this->assertNull($this->service->getRandomBannerHtml());
+        $this->assertNull($this->service->getRandomBannerHtml('public'));
     }
 
     public function testGetRandomBannerHtmlReturnsContentOfAnActiveBanner(): void
@@ -60,7 +60,7 @@ class BannerServiceTest extends TestCase
         $banner = $this->service->create();
         $this->setContent($banner->id, '<p>Hello</p>');
 
-        $this->assertSame('<p>Hello</p>', $this->service->getRandomBannerHtml());
+        $this->assertSame('<p>Hello</p>', $this->service->getRandomBannerHtml('public'));
     }
 
     public function testGetRandomBannerHtmlOnlyEverPicksActiveBanners(): void
@@ -72,8 +72,63 @@ class BannerServiceTest extends TestCase
         $this->service->setActive($inactive->id, false);
 
         for ($i = 0; $i < 20; $i++) {
-            $this->assertSame('<p>Active</p>', $this->service->getRandomBannerHtml());
+            $this->assertSame('<p>Active</p>', $this->service->getRandomBannerHtml('public'));
         }
+    }
+
+    public function testGetRandomBannerHtmlNewBannerDefaultsToPublicVisibility(): void
+    {
+        $banner = $this->service->create();
+        $this->setContent($banner->id, '<p>Hello</p>');
+
+        $this->assertSame('<p>Hello</p>', $this->service->getRandomBannerHtml('public'));
+    }
+
+    public function testGetRandomBannerHtmlHidesChiefOnlyBannerFromPublicVisitor(): void
+    {
+        $banner = $this->service->create();
+        $this->setContent($banner->id, '<p>Réservé chefs</p>');
+        $this->service->setRoleMin($banner->id, 'chief');
+
+        $this->assertNull($this->service->getRandomBannerHtml('public'));
+        $this->assertNull($this->service->getRandomBannerHtml('identified'));
+    }
+
+    public function testGetRandomBannerHtmlShowsChiefOnlyBannerToAChief(): void
+    {
+        $banner = $this->service->create();
+        $this->setContent($banner->id, '<p>Réservé chefs</p>');
+        $this->service->setRoleMin($banner->id, 'chief');
+
+        $this->assertSame('<p>Réservé chefs</p>', $this->service->getRandomBannerHtml('chief'));
+        $this->assertSame('<p>Réservé chefs</p>', $this->service->getRandomBannerHtml('admin'));
+    }
+
+    public function testGetRandomBannerHtmlOnlyEverPicksVisibleBanners(): void
+    {
+        $public = $this->service->create();
+        $this->setContent($public->id, '<p>Public</p>');
+        $chiefOnly = $this->service->create();
+        $this->setContent($chiefOnly->id, '<p>Chefs</p>');
+        $this->service->setRoleMin($chiefOnly->id, 'chief');
+
+        for ($i = 0; $i < 20; $i++) {
+            $this->assertSame('<p>Public</p>', $this->service->getRandomBannerHtml('identified'));
+        }
+    }
+
+    public function testSetRoleMinRejectsUnknownBanner(): void
+    {
+        $this->expectException(BannerException::class);
+        $this->service->setRoleMin(999, 'chief');
+    }
+
+    public function testSetRoleMinRejectsInvalidValue(): void
+    {
+        $banner = $this->service->create();
+
+        $this->expectException(BannerException::class);
+        $this->service->setRoleMin($banner->id, 'superadmin');
     }
 
     public function testGetAllForConfigIncludesContentAndActiveState(): void
@@ -86,6 +141,7 @@ class BannerServiceTest extends TestCase
         $this->assertCount(1, $items);
         $this->assertSame($banner->id, $items[0]['id']);
         $this->assertTrue($items[0]['is_active']);
+        $this->assertSame('public', $items[0]['role_min']);
         $this->assertSame('<p>Text</p>', $items[0]['content']);
     }
 

@@ -33,6 +33,15 @@
       "label": ""
     },
     {
+      "path": "/config/banner/role-min",
+      "method": "POST",
+      "controller": "Modules\\Banner\\Controller\\BannerConfigController",
+      "action": "updateRoleMin",
+      "menu": "espace_chefs",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
       "path": "/config/banner/reorder",
       "method": "POST",
       "controller": "Modules\\Banner\\Controller\\BannerConfigController",

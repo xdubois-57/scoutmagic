@@ -191,6 +191,47 @@ class BannerConfigControllerTest extends TestCase
         $this->assertFalse($decoded['success']);
     }
 
+    public function testUpdateRoleMinPersistsVisibility(): void
+    {
+        $banner = $this->bannerService->create();
+        $token = $this->csrfToken();
+
+        $response = $this->controller->updateRoleMin(
+            $this->jsonRequest(['id' => $banner->id, 'role_min' => 'chief', '_csrf_token' => $token]),
+            []
+        );
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertTrue($decoded['success']);
+        $this->assertSame('chief', $this->bannerService->getAllForConfig()[0]['role_min']);
+    }
+
+    public function testUpdateRoleMinRejectsInvalidValue(): void
+    {
+        $banner = $this->bannerService->create();
+        $token = $this->csrfToken();
+
+        $response = $this->controller->updateRoleMin(
+            $this->jsonRequest(['id' => $banner->id, 'role_min' => 'superadmin', '_csrf_token' => $token]),
+            []
+        );
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertFalse($decoded['success']);
+    }
+
+    public function testUpdateRoleMinValidatesCsrf(): void
+    {
+        $banner = $this->bannerService->create();
+
+        $response = $this->controller->updateRoleMin(
+            $this->jsonRequest(['id' => $banner->id, 'role_min' => 'chief', '_csrf_token' => 'bad']),
+            []
+        );
+
+        $this->assertSame(403, $response->getStatusCode());
+    }
+
     public function testReorderPersistsNewOrder(): void
     {
         $first = $this->bannerService->create();

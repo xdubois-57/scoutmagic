@@ -9,6 +9,7 @@ use Core\Http\Controller\PageController;
 use Core\Http\Request;
 use Core\Module\HomeBannerProvider;
 use Core\Module\HomeNewsProvider;
+use Core\Security\AuthSession;
 use Core\View\EditableContentRepository;
 use Core\View\EditableContentService;
 use Core\View\RgpdContentService;
@@ -121,7 +122,7 @@ class PageControllerTest extends TestCase
     public function testHomePageRendersBannerWhenProviderReturnsContent(): void
     {
         $provider = new class implements HomeBannerProvider {
-            public function getRandomBannerHtml(): ?string
+            public function getRandomBannerHtml(string $viewerRole): ?string
             {
                 return '<p>Message important</p>';
             }
@@ -134,10 +135,37 @@ class PageControllerTest extends TestCase
         $this->assertStringContainsString('Message important', $response->getBody());
     }
 
+    public function testHomePagePassesTheCurrentViewerRoleToTheBannerProvider(): void
+    {
+        $capture = new \stdClass();
+        $capture->role = null;
+        $provider = new class ($capture) implements HomeBannerProvider {
+            public function __construct(private \stdClass $capture)
+            {
+            }
+            public function getRandomBannerHtml(string $viewerRole): ?string
+            {
+                $this->capture->role = $viewerRole;
+                return null;
+            }
+        };
+        $controller = new PageController($this->twig, $this->editableService, $this->sectionRepo, $this->settingService, $this->rgpdContentService, $provider);
+
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+        AuthSession::login(1, 'chief@test.be', 'chief');
+
+        $controller->home(new Request('GET', '/', [], [], [], []), []);
+
+        AuthSession::logout();
+        $this->assertSame('chief', $capture->role);
+    }
+
     public function testHomePageRendersNothingWhenProviderReturnsNull(): void
     {
         $provider = new class implements HomeBannerProvider {
-            public function getRandomBannerHtml(): ?string
+            public function getRandomBannerHtml(string $viewerRole): ?string
             {
                 return null;
             }

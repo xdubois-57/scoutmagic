@@ -16,10 +16,14 @@ namespace Core\Module;
 interface HomeBannerProvider
 {
     /**
-     * Already-sanitized HTML content of one randomly chosen active banner,
+     * Already-sanitized HTML content of one randomly chosen active banner
+     * visible to $viewerRole (its own configured minimum role — 'public',
+     * 'identified', or 'chief' — is satisfied by that role, same
+     * role-hierarchy semantics as route role_min via Core\Security\Role),
      * freshly picked on every call (never cached) — or null when there is
-     * nothing to show (no banners configured, or none active). The
-     * homepage must render nothing at all in that case, not an empty box.
+     * nothing to show (no banners configured, none active, or none visible
+     * at this role). The homepage must render nothing at all in that case,
+     * not an empty box.
      */
-    public function getRandomBannerHtml(): ?string;
+    public function getRandomBannerHtml(string $viewerRole): ?string;
 }

@@ -10,6 +10,7 @@ use Core\Http\Request;
 use Core\Http\Response;
 use Core\Module\HomeBannerProvider;
 use Core\Module\HomeNewsProvider;
+use Core\Security\AuthSession;
 use Core\View\EditableContentService;
 use Core\View\RgpdContentService;
 use Core\View\SectionRepository;
@@ -38,7 +39,7 @@ class PageController extends AbstractController
     public function home(Request $request, array $params): Response
     {
         return $this->render('pages/home.html.twig', [
-            'banner_html' => $this->bannerProvider?->getRandomBannerHtml(),
+            'banner_html' => $this->bannerProvider?->getRandomBannerHtml(AuthSession::getRole()),
             'news_articles' => $this->newsProvider?->getLatestPublicArticles(self::HOME_NEWS_LIMIT) ?? [],
         ]);
     }

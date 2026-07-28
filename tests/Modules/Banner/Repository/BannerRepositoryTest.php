@@ -42,6 +42,24 @@ class BannerRepositoryTest extends TestCase
         $this->assertTrue($banner->isActive);
     }
 
+    public function testCreateDefaultsToPublicRoleMin(): void
+    {
+        $id = $this->repository->create();
+
+        $banner = $this->repository->findById($id);
+
+        $this->assertSame('public', $banner->roleMin);
+    }
+
+    public function testSetRoleMinUpdatesTheColumn(): void
+    {
+        $id = $this->repository->create();
+
+        $this->repository->setRoleMin($id, 'chief');
+
+        $this->assertSame('chief', $this->repository->findById($id)->roleMin);
+    }
+
     public function testFindByIdReturnsNullWhenMissing(): void
     {
         $this->assertNull($this->repository->findById(999));

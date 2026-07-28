@@ -101,6 +101,39 @@ class BannerConfigController extends AbstractController
     }
 
     /**
+     * POST /config/banner/role-min (AJAX, JSON).
+     *
+     * @param array<string, string> $params
+     */
+    public function updateRoleMin(Request $request, array $params): Response
+    {
+        $data = $this->decodeAndAuthorize($request);
+        if ($data instanceof Response) {
+            return $data;
+        }
+
+        $id = (int) ($data['id'] ?? 0);
+        $roleMin = (string) ($data['role_min'] ?? '');
+
+        try {
+            $this->bannerService->setRoleMin($id, $roleMin);
+        } catch (BannerException $e) {
+            return $this->json(['success' => false, 'error' => $e->getMessage()], 400);
+        }
+
+        $this->journalService->log(
+            'banner',
+            'banner_role_min_changed',
+            'info',
+            'Visibilité minimale d\'une bannière modifiée',
+            ['banner_id' => $id, 'role_min' => $roleMin],
+            AuthSession::getUserAccountId()
+        );
+
+        return $this->json(['success' => true]);
+    }
+
+    /**
      * POST /config/banner/reorder (AJAX, JSON).
      *
      * @param array<string, string> $params

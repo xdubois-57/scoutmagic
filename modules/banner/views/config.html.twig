@@ -6,8 +6,10 @@
     <h1 class="mb-4">Bannière</h1>
     <p class="text-body-secondary small mb-3">
         À chaque chargement de la page d'accueil, une bannière est choisie aléatoirement parmi celles
-        actives ci-dessous. Si aucune n'est active, rien ne s'affiche. L'ordre ci-dessous n'a aucun
-        effet sur l'affichage — il sert uniquement à organiser cette liste.
+        actives et visibles par le visiteur ci-dessous. Si aucune ne correspond, rien ne s'affiche.
+        La visibilité (Public / Identifiés / Chefs) détermine qui peut voir une bannière — un visiteur
+        non connecté ne voit jamais une bannière réservée aux identifiés ou aux chefs. L'ordre ci-dessous
+        n'a aucun effet sur l'affichage — il sert uniquement à organiser cette liste.
     </p>
 
     {% embed 'partials/list_editor.html.twig' with {
@@ -32,6 +34,12 @@
                 content_key: 'banner_content_' ~ item.id,
                 save_url: '/api/rich-text-content'
             } %}
+            <select class="form-select form-select-sm banner-role-min-select" style="width:auto;"
+                    data-id="{{ item.id }}" title="Visibilité minimale">
+                <option value="public" {{ item.role_min == 'public' ? 'selected' : '' }}>Public</option>
+                <option value="identified" {{ item.role_min == 'identified' ? 'selected' : '' }}>Identifiés</option>
+                <option value="chief" {{ item.role_min == 'chief' ? 'selected' : '' }}>Chefs</option>
+            </select>
         {% endblock %}
     {% endembed %}
 
@@ -49,6 +57,22 @@
 // get an id is deleted again, so nothing empty is ever left behind.
 document.addEventListener('DOMContentLoaded', () => {
     const csrf = () => document.querySelector('meta[name="csrf-token"]')?.content;
+
+    // Visibility select — auto-saves on change (module.json: POST /config/banner/role-min).
+    document.querySelectorAll('.banner-role-min-select').forEach((select) => {
+        select.addEventListener('change', () => {
+            fetch('/config/banner/role-min', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id: parseInt(select.dataset.id, 10), role_min: select.value, _csrf_token: csrf() })
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (!data.success) alert(data.error || 'Erreur.');
+            });
+        });
+    });
+
     const addBtn = document.querySelector('#banner-list .list-editor-add-btn');
     const modalEl = document.getElementById('richTextEditorModal');
     if (!addBtn || !modalEl) return;

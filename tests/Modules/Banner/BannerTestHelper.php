@@ -13,11 +13,12 @@ class BannerTestHelper
 {
     public static function createTables(\PDO $pdo): void
     {
-        $pdo->exec('CREATE TABLE banners (
+        $pdo->exec("CREATE TABLE banners (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             is_active INTEGER NOT NULL DEFAULT 1,
             sort_order INTEGER NOT NULL DEFAULT 0,
+            role_min TEXT NOT NULL DEFAULT 'public',
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-        )');
+        )");
     }
 }

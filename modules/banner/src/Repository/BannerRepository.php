@@ -57,6 +57,12 @@ class BannerRepository
         $stmt->execute([$active ? 1 : 0, $id]);
     }
 
+    public function setRoleMin(int $id, string $roleMin): void
+    {
+        $stmt = $this->pdo->prepare('UPDATE banners SET role_min = ? WHERE id = ?');
+        $stmt->execute([$roleMin, $id]);
+    }
+
     public function delete(int $id): void
     {
         $stmt = $this->pdo->prepare('DELETE FROM banners WHERE id = ?');
@@ -85,7 +91,8 @@ class BannerRepository
         return new Banner(
             id: (int) $row['id'],
             isActive: (bool) $row['is_active'],
-            sortOrder: (int) $row['sort_order']
+            sortOrder: (int) $row['sort_order'],
+            roleMin: (string) $row['role_min']
         );
     }
 }

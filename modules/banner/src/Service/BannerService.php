@@ -5,17 +5,18 @@ declare(strict_types=1);
 namespace Modules\Banner\Service;
 
 use Core\Module\HomeBannerProvider;
+use Core\Security\Role;
 use Core\View\EditableContentService;
 use Modules\Banner\Repository\Banner;
 use Modules\Banner\Repository\BannerRepository;
 
 /**
  * Homepage banner (module spec: Configuration > Bannière) — a random
- * active banner is shown on every homepage load. Each banner's formatted
- * text is stored via the core EditableContentService (same rich-text
- * engine and sanitization as the rest of the site), keyed
- * "banner_content_{id}"; this service only owns the banners table itself
- * (order + active flag).
+ * active banner matching the current viewer's role is shown on every
+ * homepage load. Each banner's formatted text is stored via the core
+ * EditableContentService (same rich-text engine and sanitization as the
+ * rest of the site), keyed "banner_content_{id}"; this service only owns
+ * the banners table itself (order + active flag + minimum viewer role).
  */
 class BannerService implements HomeBannerProvider
 {
@@ -26,7 +27,7 @@ class BannerService implements HomeBannerProvider
     }
 
     /**
-     * @return array<int, array{id: int, is_active: bool, content: string}>
+     * @return array<int, array{id: int, is_active: bool, role_min: string, content: string}>
      */
     public function getAllForConfig(): array
     {
@@ -34,6 +35,7 @@ class BannerService implements HomeBannerProvider
             fn(Banner $banner) => [
                 'id' => $banner->id,
                 'is_active' => $banner->isActive,
+                'role_min' => $banner->roleMin,
                 'content' => $this->editableContentService->get($this->contentKeyFor($banner->id), '') ?? '',
             ],
             $this->bannerRepository->findAllOrdered()
@@ -60,6 +62,21 @@ class BannerService implements HomeBannerProvider
     }
 
     /**
+     * @throws BannerException when the banner doesn't exist or $roleMin
+     *                          isn't one of Banner::ROLE_MINS
+     */
+    public function setRoleMin(int $id, string $roleMin): void
+    {
+        if ($this->bannerRepository->findById($id) === null) {
+            throw new BannerException('Bannière introuvable.');
+        }
+        if (!in_array($roleMin, Banner::ROLE_MINS, true)) {
+            throw new BannerException('Visibilité invalide.');
+        }
+        $this->bannerRepository->setRoleMin($id, $roleMin);
+    }
+
+    /**
      * @throws BannerException when the banner doesn't exist
      */
     public function delete(int $id): void
@@ -79,14 +96,18 @@ class BannerService implements HomeBannerProvider
         $this->bannerRepository->reorder($orderedIds);
     }
 
-    public function getRandomBannerHtml(): ?string
+    public function getRandomBannerHtml(string $viewerRole): ?string
     {
-        $active = $this->bannerRepository->findActiveOrdered();
-        if ($active === []) {
+        $viewer = Role::fromString($viewerRole);
+        $visible = array_values(array_filter(
+            $this->bannerRepository->findActiveOrdered(),
+            fn(Banner $banner) => $viewer->hasAccess(Role::fromString($banner->roleMin))
+        ));
+        if ($visible === []) {
             return null;
         }
 
-        $chosen = $active[array_rand($active)];
+        $chosen = $visible[array_rand($visible)];
         $html = $this->editableContentService->get($this->contentKeyFor($chosen->id));
         return $html !== null && $html !== '' ? $html : null;
     }
