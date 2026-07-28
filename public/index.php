@@ -35,6 +35,7 @@ use Core\Http\Controller\FileController;
 use Core\Http\Controller\ImportController;
 use Core\Http\Controller\JournalController;
 use Core\Http\Controller\MemberController;
+use Core\Http\Controller\MaintenanceController;
 use Core\Http\Controller\PageController;
 use Core\Http\Controller\PlaceholderController;
 use Core\Http\Controller\PushSubscriptionController;
@@ -50,6 +51,8 @@ use Core\Url\ShortUrlRepository;
 use Core\Url\ShortUrlService;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
+use Core\Maintenance\BackupRepository;
+use Core\Maintenance\BackupService;
 use Core\Module\ModuleManager;
 use Core\Module\ModuleRegistryRepository;
 use Core\Notification\NotificationRepository;
@@ -278,6 +281,30 @@ $settingService->register('site_version', '0.0.0', 'text', 'Version du site',
 $settingService->register('journal_retention_days', '730', 'number', 'Rétention du journal (jours)',
     'Durée de conservation des entrées du journal d\'événements. Les entrées plus anciennes sont automatiquement supprimées.',
     null, '^[1-9][0-9]*$', null, true, 100);
+$settingService->register('update_github_owner', 'xdubois-57', 'text', 'Propriétaire du dépôt GitHub (mises à jour)',
+    'Compte/organisation GitHub du dépôt publiant les releases de mise à jour. À modifier uniquement si l\'unité utilise son propre fork.',
+    null, null, null, true, 110);
+$settingService->register('update_github_repo', 'scoutmagic', 'text', 'Dépôt GitHub (mises à jour)',
+    'Nom du dépôt GitHub publiant les releases de mise à jour.',
+    null, null, null, true, 111);
+$settingService->register('update_latest_version', '', 'text', 'Dernière version connue',
+    'Version publiée la plus récente trouvée lors de la dernière vérification. Géré automatiquement.',
+    null, null, null, false, 112);
+$settingService->register('update_checked_at', '', 'text', 'Dernière vérification de mise à jour',
+    'Horodatage de la dernière vérification de mise à jour effectuée. Géré automatiquement.',
+    null, null, null, false, 113);
+$settingService->register('update_release_notes', '', 'textarea', 'Notes de version (dernière release)',
+    'Contenu des notes de version de la dernière release GitHub connue. Géré automatiquement.',
+    null, null, null, false, 114);
+$settingService->register('update_release_html_url', '', 'url', 'URL des notes de version',
+    'Lien vers la page GitHub de la dernière release connue. Géré automatiquement.',
+    null, null, null, false, 115);
+$settingService->register('update_download_url', '', 'url', 'URL de téléchargement de la mise à jour',
+    'Lien vers l\'archive de la dernière release connue. Géré automatiquement.',
+    null, null, null, false, 116);
+$settingService->register('update_dependencies_changed', '0', 'boolean', 'Dépendances modifiées (dernière release)',
+    'Indique si composer.lock a changé entre la version installée et la dernière release connue. Géré automatiquement.',
+    null, null, null, false, 117);
 $settingService->register('scheduler_last_run', '0', 'number', 'Dernier passage du planificateur',
     'Horodatage Unix du dernier passage du planificateur de tâches. Géré automatiquement.',
     null, null, null, false, 200);
@@ -455,6 +482,11 @@ $fileAccessGuard = new FileAccessGuard($fileRepository, Role::fromString(AuthSes
 $uploadHandler = new UploadHandler($fileRepository, $storagePath);
 $encryptedFileStorageService = new \Core\File\EncryptedFileStorageService($fileRepository, $encryptionService, $storagePath);
 
+// Create backup service (Configuration > Maintenance)
+$backupRepository = new BackupRepository($pdo);
+$backupService = new BackupService($connection, $storagePath, dirname($storagePath));
+$updateHistoryRepository = new \Core\Maintenance\UpdateHistoryRepository($pdo);
+
 // Core "photo per person per year" component (ARCHITECTURE.md §8) — see
 // Core\Photo\MemberPhotoService.
 $memberPhotoService = new MemberPhotoService(new MemberPhotoRepository($pdo));
@@ -528,6 +560,7 @@ $menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Desk', '/config/function
 $menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Paramètres', '/config/settings', 'superadmin', 30);
 $menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'RGPD', '/config/rgpd', 'superadmin', 35);
 $menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Actions planifiées', '/config/scheduled', 'superadmin', 40);
+$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Maintenance', '/config/maintenance', 'admin', 45);
 
 // Create router early so ModuleManager can register routes
 $router = new Router();
@@ -560,6 +593,21 @@ $schedulerRunner->setTaskContext(new TaskContext(
     $storagePath,
     $notificationService
 ));
+
+// Core (not module) scheduled task handlers — registered directly since
+// module.json's scheduled_tasks mechanism only applies to module handlers.
+$schedulerRunner->registerHandler('core', 'create_backup', new \Core\Maintenance\Task\CreateBackupHandler());
+$schedulerRunner->registerHandler('core', 'check_update', new \Core\Maintenance\Task\CheckUpdateHandler());
+$schedulerRunner->registerHandler('core', 'install_update', new \Core\Maintenance\Task\InstallUpdateHandler());
+
+// Bootstrap the recurring daily update check — Task\CheckUpdateHandler
+// re-schedules itself for the next day at the end of every run, but the
+// very first occurrence needs an initial nudge (no first-class recurring
+// task concept in Core\Scheduler — see llm_connector's weekly model
+// refresh for the same pattern).
+if ($schedulerService->find('core', 'check_update', 'daily') === null) {
+    $schedulerService->schedule('core', 'check_update', new DateTimeImmutable(), [], 'daily');
+}
 
 // Add dynamic member entries to Espace des animés
 if (AuthSession::isAuthenticated()) {
@@ -687,6 +735,12 @@ $router->addRoute('POST', '/config/settings/update', SettingsController::class, 
 
 // Scheduled actions
 $router->addRoute('GET', '/config/scheduled', ScheduledActionsController::class, 'index', 'superadmin');
+$router->addRoute('GET', '/config/maintenance', MaintenanceController::class, 'index', 'admin');
+$router->addRoute('POST', '/config/maintenance/backup/database', MaintenanceController::class, 'createDatabaseBackup', 'admin');
+$router->addRoute('POST', '/config/maintenance/backup/full', MaintenanceController::class, 'createFullBackup', 'admin');
+$router->addRoute('GET', '/api/maintenance/backup-status/{id}', MaintenanceController::class, 'backupStatus', 'admin');
+$router->addRoute('POST', '/config/maintenance/update/install', MaintenanceController::class, 'installUpdate', 'admin');
+$router->addRoute('GET', '/api/maintenance/update-status/{id}', MaintenanceController::class, 'updateStatus', 'admin');
 
 // Configuration générale
 $router->addRoute('GET', '/config/general', ConfigGeneralController::class, 'index', 'superadmin');
@@ -788,6 +842,9 @@ $authController->setWebAuthnService($webAuthnService);
 $frontController->registerController(AuthController::class, $authController);
 $frontController->registerController(AccountController::class, new AccountController($twig, $userAccountRepo, $webAuthnCredentialRepo, $webAuthnService));
 $frontController->registerController(PushSubscriptionController::class, new PushSubscriptionController($twig, $notificationService, $journalService));
+$frontController->registerController(MaintenanceController::class, new MaintenanceController(
+    $twig, $backupService, $backupRepository, $fileRepository, $updateHistoryRepository, $schedulerService, $moduleManager, $encryptionService, $journalService, $settingService, $storagePath
+));
 $frontController->registerController(PasswordResetController::class, new PasswordResetController($twig, $passwordResetService));
 $frontController->registerController(ShortUrlController::class, new ShortUrlController($twig, $shortUrlService));
 $frontController->registerController(ImportController::class, new ImportController($twig, $importService, $scoutYearResolver, $importJournalRepo, $functionRepo, $storagePath));

@@ -1,0 +1,217 @@
+{% extends 'base.html.twig' %}
+{% block title %}Maintenance — {{ param('site_name') }}{% endblock %}
+{% block content %}
+    <h1 class="mb-4">Maintenance</h1>
+
+    {# ————— Mise à jour ————— #}
+    <div class="card mb-4" id="maintenance-update">
+        <div class="card-body">
+            <h2 class="h5 mb-3">Mise à jour</h2>
+
+            <p class="small text-body-secondary mb-1">
+                Version installée : <strong>{{ installed_version }}</strong>
+            </p>
+            <p class="small text-body-secondary">
+                Dernière vérification :
+                {% if update_checked_at %}{{ update_checked_at }}{% else %}jamais{% endif %}
+            </p>
+
+            {% if update_available %}
+                <div class="alert alert-primary">
+                    <p class="mb-2">
+                        Une nouvelle version est disponible : <strong>{{ update_latest_version }}</strong>
+                        {% if update_release_html_url %}
+                            (<a href="{{ update_release_html_url }}" target="_blank" rel="noopener">notes de version</a>)
+                        {% endif %}
+                    </p>
+                    {% if update_release_notes %}
+                        <p class="small mb-2" style="white-space: pre-line;">{{ update_release_notes|slice(0, 500) }}{% if update_release_notes|length > 500 %}…{% endif %}</p>
+                    {% endif %}
+                    {% if update_dependencies_changed %}
+                        <div class="alert alert-warning small mb-2">
+                            Cette version modifie les dépendances (composer.lock changé). Vérifiez la compatibilité avant d'installer.
+                        </div>
+                    {% endif %}
+                    <p class="small mb-3">
+                        Une sauvegarde complète (base de données + fichiers) sera prise automatiquement avant l'installation.
+                    </p>
+                    <form id="update-install-form">
+                        {{ csrf_field()|raw }}
+                        <button type="submit" class="btn btn-primary btn-sm" id="update-install-submit">
+                            <i class="bi bi-cloud-arrow-down"></i> Installer la mise à jour
+                        </button>
+                        <div class="mt-2 small d-none" id="update-install-progress">
+                            <span class="spinner-border spinner-border-sm"></span> Installation en cours…
+                        </div>
+                        <div class="mt-2 small text-danger d-none" id="update-install-error"></div>
+                    </form>
+                </div>
+            {% else %}
+                <p class="small mb-0">Le site est à jour.</p>
+            {% endif %}
+
+            {% if update_history is not empty %}
+                <hr class="my-4">
+                <h3 class="h6">Historique des mises à jour</h3>
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-0">
+                        <thead>
+                            <tr>
+                                <th>Version</th>
+                                <th>Date</th>
+                                <th>Statut</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for entry in update_history %}
+                                <tr>
+                                    <td class="small text-nowrap">{{ entry.versionFrom }} → {{ entry.versionTo }}</td>
+                                    <td class="small text-nowrap">{{ entry.startedAt }}</td>
+                                    <td class="small">
+                                        {% if entry.status == 'completed' %}
+                                            <span class="badge text-bg-success">Réussie</span>
+                                        {% elseif entry.status == 'failed' %}
+                                            <span class="badge text-bg-danger" title="{{ entry.errorMessage }}">Échouée</span>
+                                        {% elseif entry.status == 'rolled_back' %}
+                                            <span class="badge text-bg-warning" title="{{ entry.errorMessage }}">Échouée — restaurée automatiquement</span>
+                                        {% else %}
+                                            <span class="badge text-bg-primary">En cours ({{ entry.status }})</span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+
+    {# ————— Sauvegardes ————— #}
+    <div class="card mb-4" id="maintenance-backups">
+        <div class="card-body">
+            <h2 class="h5 mb-3">Sauvegardes</h2>
+
+            {% if not zip_encryption_supported %}
+                <div class="alert alert-warning small">
+                    Le serveur ne supporte pas le chiffrement des archives — la sauvegarde complète est indisponible.
+                    Contactez votre hébergeur. La sauvegarde de la base de données seule reste utilisable.
+                </div>
+            {% endif %}
+
+            <div class="row g-4">
+                <div class="col-12 col-md-6">
+                    <h3 class="h6">Base de données seule</h3>
+                    <p class="text-body-secondary small">
+                        Export SQL complet de la base de données. Les champs personnels y restent chiffrés,
+                        mais le fichier reste sensible — réservé aux administrateurs.
+                    </p>
+                    <form method="post" action="/config/maintenance/backup/database">
+                        {{ csrf_field()|raw }}
+                        <button type="submit" class="btn btn-outline-primary btn-sm">
+                            <i class="bi bi-database-down"></i> Télécharger
+                        </button>
+                    </form>
+                </div>
+
+                <div class="col-12 col-md-6">
+                    <h3 class="h6">Sauvegarde complète (chiffrée)</h3>
+                    <p class="text-body-secondary small">
+                        Archive ZIP protégée par mot de passe, générée en arrière-plan. Vous recevrez une
+                        notification lorsqu'elle sera prête.
+                    </p>
+                    <form id="full-backup-form" {{ not zip_encryption_supported ? 'class="d-none"' : '' }}>
+                        <div class="mb-2">
+                            <label class="form-label small">Portée</label>
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="scope" id="scope-config" value="full_config" checked>
+                                <label class="form-check-label small" for="scope-config">Configuration seule (paramètres, structure — sans les données membres)</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="scope" id="scope-no-gallery" value="full_no_gallery">
+                                <label class="form-check-label small" for="scope-no-gallery">Site complet, sans la galerie photo</label>
+                            </div>
+                            {% if gallery_enabled %}
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio" name="scope" id="scope-with-gallery" value="full_with_gallery">
+                                    <label class="form-check-label small" for="scope-with-gallery">Site complet, avec la galerie photo</label>
+                                </div>
+                            {% endif %}
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label small" for="full-backup-password">Mot de passe de l'archive</label>
+                            <input type="password" class="form-control form-control-sm" id="full-backup-password" required>
+                        </div>
+                        <button type="submit" class="btn btn-primary btn-sm" id="full-backup-submit">
+                            <i class="bi bi-shield-lock"></i> Générer
+                        </button>
+                        <div class="mt-2 small d-none" id="full-backup-progress">
+                            <span class="spinner-border spinner-border-sm"></span> Génération en cours…
+                        </div>
+                        <div class="mt-2 small text-danger d-none" id="full-backup-error"></div>
+                    </form>
+                </div>
+            </div>
+
+            <hr class="my-4">
+
+            <h3 class="h6">Sauvegardes récentes</h3>
+            {% if backups is empty %}
+                <p class="text-body-secondary small mb-0">Aucune sauvegarde pour le moment.</p>
+            {% else %}
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-0">
+                        <thead>
+                            <tr>
+                                <th>Type</th>
+                                <th>Date</th>
+                                <th>Statut</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for backup in backups %}
+                                <tr>
+                                    <td class="small">
+                                        {% if backup.type == 'database' %}Base de données seule
+                                        {% elseif backup.type == 'full_config' %}Configuration seule
+                                        {% elseif backup.type == 'full_no_gallery' %}Site complet, sans galerie
+                                        {% elseif backup.type == 'full_with_gallery' %}Site complet, avec galerie
+                                        {% elseif backup.type == 'auto_update' %}Automatique (avant mise à jour)
+                                        {% elseif backup.type == 'auto_reset' %}Automatique (avant réinitialisation)
+                                        {% endif %}
+                                    </td>
+                                    <td class="small text-nowrap">{{ backup.createdAt }}</td>
+                                    <td>
+                                        {% if backup.status == 'completed' %}
+                                            <span class="badge text-bg-success">Terminée</span>
+                                        {% elseif backup.status == 'in_progress' %}
+                                            <span class="badge text-bg-warning">En cours</span>
+                                        {% elseif backup.status == 'pending' %}
+                                            <span class="badge text-bg-primary">En attente</span>
+                                        {% elseif backup.status == 'failed' %}
+                                            <span class="badge text-bg-danger" title="{{ backup.errorMessage }}">Échouée</span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="text-end">
+                                        {% if backup.status == 'completed' and backup.fileId %}
+                                            <a href="/files/{{ backup.fileId }}" class="btn btn-sm btn-outline-secondary">
+                                                <i class="bi bi-download"></i> Télécharger
+                                            </a>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+
+    {# Future section (réinitialisation) will be added here as a separate card. #}
+{% endblock %}
+
+{% block scripts %}
+    <script src="/assets/js/maintenance.js" defer nonce="{{ csp_nonce }}"></script>
+{% endblock %}

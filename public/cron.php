@@ -23,8 +23,14 @@ use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Mail\DkimManager;
 use Core\Mail\MailServiceFactory;
+use Core\Maintenance\Task\CheckUpdateHandler;
+use Core\Maintenance\Task\CreateBackupHandler;
+use Core\Maintenance\Task\InstallUpdateHandler;
 use Core\Module\ModuleManager;
 use Core\Module\ModuleRegistryRepository;
+use Core\Notification\NotificationRepository;
+use Core\Notification\NotificationService;
+use Core\Notification\PushSubscriptionRepository;
 use Core\Scheduler\SchedulerRepository;
 use Core\Scheduler\SchedulerRunner;
 use Core\Scheduler\TaskContext;
@@ -33,6 +39,7 @@ use Core\Security\Role;
 use Core\Security\SecretManager;
 use Core\Security\UserAccountRepository;
 use Core\View\MenuBuilder;
+use Minishlink\WebPush\WebPush;
 
 // Check initialization
 $secretManager = new SecretManager(
@@ -97,6 +104,39 @@ $moduleManager = new ModuleManager(
 $moduleManager->loadEnabledModules();
 $runner->setModuleManager($moduleManager);
 
+// Core (not module) scheduled task handlers — registered directly since
+// module.json's scheduled_tasks mechanism only applies to module handlers.
+// Missing from this file before this fix (only public/index.php's own
+// poor-man's-cron registered them), which meant a real crontab running
+// this script would fail every core background task — backups, update
+// checks, and update installs — with "No handler registered", unless a web
+// request happened to win the race first.
+$runner->registerHandler('core', 'create_backup', new CreateBackupHandler());
+$runner->registerHandler('core', 'check_update', new CheckUpdateHandler());
+$runner->registerHandler('core', 'install_update', new InstallUpdateHandler());
+
+// Web Push (Core\Notification) — same construction as public/index.php.
+// Null when VAPID keys aren't provisioned yet (e.g. this script running
+// before the site has ever been reached over HTTP, where the keys are
+// self-healed) — TaskContext::$notifications is nullable and every handler
+// calls it via ?->, so this degrades to "no push, everything else still
+// runs" rather than crashing the whole cron pass.
+$notificationService = null;
+if (!empty($secrets['vapid_public_key']) && !empty($secrets['vapid_private_key'])) {
+    $vapidSubjectEmail = (string) ($settingService->get('contact_email') ?: $settingService->get('mail_from_address') ?: '');
+    $vapidSubject = $vapidSubjectEmail !== '' ? 'mailto:' . $vapidSubjectEmail : (string) ($settingService->get('base_url') ?: 'https://localhost');
+    $webPush = new WebPush(['VAPID' => [
+        'subject' => $vapidSubject,
+        'publicKey' => (string) $secrets['vapid_public_key'],
+        'privateKey' => (string) $secrets['vapid_private_key'],
+    ]]);
+    $notificationService = new NotificationService(
+        new NotificationRepository($pdo),
+        new PushSubscriptionRepository($pdo, $encryptionService),
+        $webPush
+    );
+}
+
 // Task handlers need the same shared services a real request builds (DB,
 // encryption, mail, journal, settings, and the super-admin lookup used for
 // system-alert emails) — see Core\Scheduler\TaskContext.
@@ -107,7 +147,8 @@ $runner->setTaskContext(new TaskContext(
     $journalService,
     $settingService,
     $userAccountRepo,
-    dirname(__DIR__) . '/storage'
+    dirname(__DIR__) . '/storage',
+    $notificationService
 ));
 
 // Process overdue tasks

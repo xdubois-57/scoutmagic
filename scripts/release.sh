@@ -25,6 +25,15 @@ TAG="v${NEW_VERSION}"
 
 echo "Bumping version: ${CURRENT} → ${NEW_VERSION}"
 
+# The VERSION file is the running site's source of truth for its installed
+# version (Core\Maintenance\VersionFile, read by the Configuration >
+# Maintenance "Mise à jour" section) — it must be committed as part of the
+# release commit so the tag, the file, and the artifact all agree.
+echo "${NEW_VERSION}" > VERSION
+git add VERSION
+git commit -m "chore: bump VERSION to ${NEW_VERSION}"
+git push origin HEAD
+
 # Create annotated tag
 git tag -a "${TAG}" -m "Release ${TAG}"
 git push origin "${TAG}"

@@ -316,6 +316,31 @@ class DatabaseTestHelper
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )');
 
+        $pdo->exec('CREATE TABLE backups (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            type TEXT NOT NULL,
+            file_id INTEGER,
+            db_dump_file_id INTEGER,
+            status TEXT NOT NULL DEFAULT \'pending\',
+            requested_by INTEGER,
+            error_message TEXT,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            completed_at TEXT
+        )');
+
+        $pdo->exec('CREATE TABLE update_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            version_from TEXT NOT NULL,
+            version_to TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT \'pending\',
+            dependencies_changed INTEGER NOT NULL DEFAULT 0,
+            error_message TEXT,
+            backup_id INTEGER,
+            requested_by INTEGER,
+            started_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            completed_at TEXT
+        )');
+
         $pdo->exec('CREATE TABLE short_urls (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             code TEXT NOT NULL UNIQUE,

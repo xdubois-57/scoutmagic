@@ -407,6 +407,55 @@ CREATE TABLE notifications (
     CONSTRAINT fk_notif_user FOREIGN KEY (user_account_id) REFERENCES user_accounts(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- On-demand backups (Core\Maintenance\BackupService), Configuration >
+-- Maintenance. file_id/db_dump_file_id reference the generic files table
+-- (served via FileAccessGuard, /files/{id}, role_min admin) rather than
+-- owning file storage directly — a backup IS a file like any other, just
+-- one this app generated instead of a user uploading it. db_dump_file_id
+-- is only ever set for a 'full_*'/'auto_*' backup (the standalone
+-- database-only export, kept separate so a full backup's DB portion can
+-- be restored on its own without touching the file archive) — a
+-- 'database'-type backup instead uses file_id directly for its one dump
+-- file. requested_by is NULL for backups the app creates on its own
+-- (auto_update/auto_reset, iterations 3/4) — no admin to notify.
+CREATE TABLE backups (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    type ENUM('database', 'full_config', 'full_no_gallery', 'full_with_gallery', 'auto_update', 'auto_reset') NOT NULL,
+    file_id INT UNSIGNED,
+    db_dump_file_id INT UNSIGNED,
+    status ENUM('pending', 'in_progress', 'completed', 'failed') NOT NULL DEFAULT 'pending',
+    requested_by INT UNSIGNED,
+    error_message VARCHAR(500),
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    completed_at DATETIME,
+    INDEX idx_backups_created (created_at),
+    CONSTRAINT fk_backups_file FOREIGN KEY (file_id) REFERENCES files(id) ON DELETE SET NULL,
+    CONSTRAINT fk_backups_db_dump_file FOREIGN KEY (db_dump_file_id) REFERENCES files(id) ON DELETE SET NULL,
+    CONSTRAINT fk_backups_requested_by FOREIGN KEY (requested_by) REFERENCES user_accounts(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- One row per "Installer la mise à jour" run (Core\Maintenance\Task\
+-- InstallUpdateHandler). backup_id points at the automatic safety backup
+-- (type 'auto_update' in the `backups` table above) taken before the
+-- install starts — used to roll back if any step from downloading through
+-- the VERSION file write fails. requested_by is who clicked "Installer"
+-- (always a human here, unlike backups.requested_by).
+CREATE TABLE update_history (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    version_from VARCHAR(20) NOT NULL,
+    version_to VARCHAR(20) NOT NULL,
+    status ENUM('pending', 'backing_up', 'downloading', 'installing', 'migrating', 'completed', 'failed', 'rolled_back') NOT NULL DEFAULT 'pending',
+    dependencies_changed BOOLEAN NOT NULL DEFAULT FALSE,
+    error_message VARCHAR(500),
+    backup_id INT UNSIGNED,
+    requested_by INT UNSIGNED,
+    started_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    completed_at DATETIME,
+    INDEX idx_update_history_started (started_at),
+    CONSTRAINT fk_update_history_backup FOREIGN KEY (backup_id) REFERENCES backups(id) ON DELETE SET NULL,
+    CONSTRAINT fk_update_history_requested_by FOREIGN KEY (requested_by) REFERENCES user_accounts(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- Generic short-URL redirector (Core\Url\ShortUrlService) — not tied to any
 -- module. target_url is always an internal path (e.g. /news/12), resolved
 -- and 302-redirected by GET /s/{code}. Introduced for the news module's
