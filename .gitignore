@@ -10,6 +10,7 @@ storage/temp/
 storage/finance/
 storage/news/
 storage/gallery/
+storage/maintenance/
 
 # Local configuration
 config/app.php
