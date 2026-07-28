@@ -292,8 +292,28 @@ class DatabaseTestHelper
             status TEXT NOT NULL DEFAULT \'pending\',
             attempts INTEGER NOT NULL DEFAULT 0,
             last_error TEXT,
+            requested_by_user_account_id INTEGER,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             executed_at TEXT
+        )');
+
+        $pdo->exec('CREATE TABLE push_subscriptions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_account_id INTEGER NOT NULL,
+            endpoint TEXT NOT NULL,
+            auth_key BLOB NOT NULL,
+            p256dh_key BLOB NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )');
+
+        $pdo->exec('CREATE TABLE notifications (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_account_id INTEGER NOT NULL,
+            title TEXT NOT NULL,
+            body TEXT NOT NULL,
+            url TEXT,
+            is_read INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )');
 
         $pdo->exec('CREATE TABLE short_urls (

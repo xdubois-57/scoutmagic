@@ -231,6 +231,12 @@ class SetupControllerTest extends TestCase
         $rawSecrets = file_get_contents($this->tempDir . '/config/secrets.enc');
         $this->assertStringNotContainsString('admin@example.com', $rawSecrets);
 
+        // VAPID keys (Web Push) generated at first-time setup, same as the
+        // encryption keys.
+        $secrets = $this->secretManager->readSecrets();
+        $this->assertNotEmpty($secrets['vapid_public_key']);
+        $this->assertNotEmpty($secrets['vapid_private_key']);
+
         // Check admin account exists in DB with password hash
         $stmt = $pdo->query('SELECT * FROM user_accounts WHERE is_super_admin = 1');
         $admin = $stmt->fetch(\PDO::FETCH_ASSOC);

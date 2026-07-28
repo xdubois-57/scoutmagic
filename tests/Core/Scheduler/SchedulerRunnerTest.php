@@ -68,7 +68,29 @@ class SchedulerRunnerTest extends TestCase
 
         $this->assertSame(1, $processed);
         $this->assertTrue($handler->called);
-        $this->assertSame(['key' => 'value'], $handler->payload);
+        $this->assertSame(['key' => 'value', 'requested_by_user_account_id' => null], $handler->payload);
+    }
+
+    public function testProcessOverduePropagatesRequestedByUserAccountIdIntoPayload(): void
+    {
+        $handler = new class implements TaskHandlerInterface {
+            /** @var array<string, mixed> */
+            public array $payload = [];
+
+            public function handle(array $payload, TaskContext $context): void
+            {
+                $this->payload = $payload;
+            }
+        };
+
+        $this->runner->registerHandler('core', 'requester_task', $handler);
+
+        $pastTime = (new \DateTimeImmutable('-1 minute'))->format('Y-m-d H:i:s');
+        $this->repo->create('core', 'requester_task', $pastTime, json_encode(['key' => 'value']), null, 42);
+
+        $this->runner->processOverdue();
+
+        $this->assertSame(42, $handler->payload['requested_by_user_account_id']);
     }
 
     public function testProcessOverdueMarksTaskDone(): void

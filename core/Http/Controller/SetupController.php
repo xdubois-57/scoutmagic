@@ -21,6 +21,7 @@ use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\Security\EncryptionService;
 use Core\Security\SecretManager;
+use Minishlink\WebPush\VAPID;
 use Twig\Environment;
 
 class SetupController extends AbstractController
@@ -245,6 +246,11 @@ class SetupController extends AbstractController
             $encryptionKey = random_bytes(32);
             $blindIndexKey = random_bytes(32);
 
+            // Generate VAPID keys (Web Push, Core\Notification) — same
+            // "generated once at setup, lives in secrets.enc" treatment as
+            // the encryption keys above.
+            $vapidKeys = VAPID::createVapidKeys();
+
             // Build secrets array
             $secrets = [
                 'db_host' => $data['db_host'],
@@ -259,6 +265,8 @@ class SetupController extends AbstractController
                 'smtp_password' => $data['smtp_password'],
                 'encryption_key' => base64_encode($encryptionKey),
                 'blind_index_key' => base64_encode($blindIndexKey),
+                'vapid_public_key' => $vapidKeys['publicKey'],
+                'vapid_private_key' => $vapidKeys['privateKey'],
                 // Non-secret settings stored temporarily; migrated to settings table on first boot
                 'site_name' => $data['site_name'],
                 'short_name' => $data['short_name'],

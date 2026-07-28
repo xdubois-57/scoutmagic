@@ -37,6 +37,7 @@
 <li><strong>Nom et prénom</strong> (chiffrés) — affichage du profil</li>
 <li><strong>Mot de passe</strong> (haché de manière irréversible) — authentification par mot de passe</li>
 <li><strong>Clés WebAuthn</strong> (optionnel) — authentification par passkey</li>
+<li><strong>Souscription aux notifications push</strong> (optionnel, par appareil) — endpoint et clés de chiffrement générées par votre navigateur (chiffrées au repos), pour vous notifier quand une tâche que vous avez lancée en arrière-plan est terminée. Le contenu de ces notifications ne contient aucune donnée personnelle (ex. « Sauvegarde terminée »).</li>
 </ul>
 <p><strong>Base légale</strong> : Exécution d'un contrat (accès au service) et intérêt légitime (sécurité).</p>
 
@@ -206,6 +207,13 @@ Modèles : Llama, Qwen, divers modèles open source</li>
 <h3>4.1. Sous-traitants essentiels</h3>
 <p><strong>Hébergeur web</strong> : L'hébergeur web stocke la base de données, les fichiers uploadés et exécute l'application. La localisation des serveurs et l'identité de l'hébergeur dépendent de la configuration technique de l'unité. Conformément à l'article 28 du RGPD, l'unité s'assure que l'hébergeur présente des garanties suffisantes quant à la sécurité des données. Si l'hébergeur est situé hors de l'Espace économique européen, des garanties appropriées sont mises en place (clauses contractuelles types de la Commission européenne, art. 46 RGPD).</p>
 <p><strong>Relais SMTP</strong> (optionnel) : Si l'unité utilise un service SMTP externe pour l'envoi d'emails (au lieu de l'envoi direct depuis le serveur), les emails transactionnels (liens magiques, notifications) transitent par ce fournisseur. Les mêmes garanties contractuelles s'appliquent.</p>
+<p><strong>Service de notifications push du navigateur</strong> (optionnel, uniquement si vous activez les notifications push dans « Mon compte ») : Les notifications sont transmises via le protocole standard Web Push (RFC 8030) jusqu'à votre appareil, en passant par le service de push propre à votre navigateur — non choisi par l'unité, mais imposé par le navigateur que vous utilisez :</p>
+<ul>
+<li><strong>Google</strong> (Chrome, Edge, navigateurs basés sur Chromium) — <a href="https://www.google.com" target="_blank" rel="noopener">www.google.com</a></li>
+<li><strong>Mozilla</strong> (Firefox) — <a href="https://www.mozilla.org" target="_blank" rel="noopener">www.mozilla.org</a></li>
+<li><strong>Apple</strong> (Safari) — <a href="https://www.apple.com" target="_blank" rel="noopener">www.apple.com</a></li>
+</ul>
+<p>Ce service ne reçoit que le contenu chiffré de la notification (que lui seul ne peut pas déchiffrer, la clé restant entre le serveur de l'unité et votre appareil) et l'endpoint technique de votre souscription — jamais de donnée personnelle en clair.</p>
 
 <h3>4.2. Sous-traitants pour fonctionnalités spécifiques (modules)</h3>
 <p>Ces sous-traitants ne sont sollicités que si les modules correspondants sont activés.</p>
@@ -268,6 +276,7 @@ Politique de confidentialité : <a href="https://www.ovhcloud.com/fr/terms-and-c
 <li><strong>Utilisation d'Anthropic (IA)</strong> : Si le module llm_connector est activé et qu'Anthropic est sélectionné comme fournisseur, les extraits de texte ou d'images soumis pour traitement sont envoyés aux États-Unis. Ce transfert est encadré par les <strong>Standard Contractual Clauses</strong> (clauses contractuelles types approuvées par la Commission européenne, conformément à l'article 46.2.c du RGPD). Anthropic s'engage à respecter les principes de protection des données de l'UE.</li>
 <li><strong>Hébergement hors UE</strong> (si applicable) : Si l'hébergeur web est situé hors de l'EEE, toutes les données stockées (base de données, fichiers) sont transférées hors UE. Dans ce cas, des garanties appropriées conformes à l'article 46 du RGPD sont mises en place (clauses contractuelles types de la Commission européenne ou autre mécanisme de transfert légal).</li>
 <li><strong>Stockage galerie sur Cloudflare R2 avec une région hors UE</strong> (si applicable) : Si le module galerie est actif, configuré avec le fournisseur Cloudflare R2, et qu'une région hors UE est sélectionnée lors de la configuration du bucket, les photos et vidéos des activités sont transférées hors UE. Ce transfert est encadré par les Standard Contractual Clauses de la Commission européenne (art. 46.2.c RGPD).</li>
+<li><strong>Notifications push</strong> (si vous activez cette option) : Le contenu chiffré de la notification transite par le service de push propre à votre navigateur (Google pour Chrome/Edge, Apple pour Safari — tous deux situés aux États-Unis ; Mozilla pour Firefox). Ce service ne peut pas déchiffrer le contenu de la notification, mais le transfert technique de l'endpoint et du message chiffré vers un serveur hors UE a bien lieu pour Google et Apple ; ce choix résulte de votre navigateur, pas d'une décision de l'unité.</li>
 </ul>
 <p>Aucun autre transfert hors UE n'est effectué. Les fournisseurs Mistral AI, Scaleway et OVH Télécom opèrent tous au sein de l'Union européenne, de même que Hetzner Object Storage, Scaleway Object Storage et OVHcloud Object Storage pour le module galerie.</p>
 

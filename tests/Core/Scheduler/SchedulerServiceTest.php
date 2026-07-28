@@ -37,6 +37,23 @@ class SchedulerServiceTest extends TestCase
         $this->assertSame('pending', $action['status']);
     }
 
+    public function testSchedulePropagatesRequestedByUserAccountId(): void
+    {
+        $runAt = new \DateTimeImmutable('+1 hour');
+        $id = $this->service->schedule('core', 'send_reminder', $runAt, [], null, 99);
+
+        $action = $this->repo->findById($id);
+        $this->assertSame(99, (int) $action['requested_by_user_account_id']);
+    }
+
+    public function testScheduleAfterPropagatesRequestedByUserAccountId(): void
+    {
+        $id = $this->service->scheduleAfter('core', 'cleanup', 300, [], null, 13);
+
+        $action = $this->repo->findById($id);
+        $this->assertSame(13, (int) $action['requested_by_user_account_id']);
+    }
+
     public function testScheduleAfterCreatesDelayedAction(): void
     {
         $id = $this->service->scheduleAfter('core', 'cleanup', 300, ['days' => 30]);

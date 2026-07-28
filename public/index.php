@@ -37,6 +37,7 @@ use Core\Http\Controller\JournalController;
 use Core\Http\Controller\MemberController;
 use Core\Http\Controller\PageController;
 use Core\Http\Controller\PlaceholderController;
+use Core\Http\Controller\PushSubscriptionController;
 use Core\Http\Controller\ScheduledActionsController;
 use Core\Http\Controller\ScoutYearController;
 use Core\Http\Controller\SettingsController;
@@ -51,6 +52,9 @@ use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Module\ModuleManager;
 use Core\Module\ModuleRegistryRepository;
+use Core\Notification\NotificationRepository;
+use Core\Notification\NotificationService;
+use Core\Notification\PushSubscriptionRepository;
 use Core\Scheduler\SchedulerRepository;
 use Core\Scheduler\SchedulerRunner;
 use Core\Scheduler\SchedulerService;
@@ -94,6 +98,8 @@ use Core\Security\SessionManager;
 use Core\Security\UserAccountRepository;
 use Core\Security\WebAuthnCredentialRepository;
 use Core\Security\WebAuthnService;
+use Minishlink\WebPush\VAPID;
+use Minishlink\WebPush\WebPush;
 use Twig\TwigFunction;
 use Core\View\ConfigurationMode;
 use Core\View\EditableContentRepository;
@@ -190,6 +196,16 @@ if (!$isInitialized) {
 
 // Load secrets and create services
 $secrets = $secretManager->readSecrets();
+
+// Self-heal VAPID keys (Web Push, Core\Notification) for installs that
+// completed setup before this feature existed — SetupController also
+// generates these for brand-new installs, making this a no-op there.
+if (empty($secrets['vapid_public_key']) || empty($secrets['vapid_private_key'])) {
+    $vapidKeys = VAPID::createVapidKeys();
+    $secrets['vapid_public_key'] = $vapidKeys['publicKey'];
+    $secrets['vapid_private_key'] = $vapidKeys['privateKey'];
+    $secretManager->writeSecrets($secrets);
+}
 
 // site_name from secrets used as fallback during settings migration
 $siteName = $secrets['site_name'] ?? 'Unité scoute';
@@ -330,6 +346,20 @@ $twig->addGlobal('site_name', (string) ($settingService->get('site_name') ?: 'Un
 
 // Create MailService
 $mailService = MailServiceFactory::create($secrets, $dkimManager);
+
+// Create NotificationService (Web Push, Core\Notification) — VAPID subject
+// must be a mailto: or an https URL, never empty, hence the fallback chain
+// down to a hardcoded URL for a freshly-setup site with no contact email yet.
+$vapidSubjectEmail = (string) ($settingService->get('contact_email') ?: $settingService->get('mail_from_address') ?: '');
+$vapidSubject = $vapidSubjectEmail !== '' ? 'mailto:' . $vapidSubjectEmail : (string) ($settingService->get('base_url') ?: 'https://localhost');
+$webPush = new WebPush(['VAPID' => [
+    'subject' => $vapidSubject,
+    'publicKey' => (string) ($secrets['vapid_public_key'] ?? ''),
+    'privateKey' => (string) ($secrets['vapid_private_key'] ?? ''),
+]]);
+$pushSubscriptionRepo = new PushSubscriptionRepository($pdo, $encryptionService);
+$notificationRepo = new NotificationRepository($pdo);
+$notificationService = new NotificationService($notificationRepo, $pushSubscriptionRepo, $webPush);
 
 // Create AuthService
 $authService = new AuthService(
@@ -477,6 +507,7 @@ $twig->addGlobal('year_override_type', $effectiveScoutYear->overrideType);
 $twig->addGlobal('_editable_content_service', $editableContentService);
 $twig->addGlobal('_member_photo_service', $memberPhotoService);
 $twig->addGlobal('cookie_consent_given', $cookieConsentService->hasConsented());
+$twig->addGlobal('vapid_public_key', (string) ($secrets['vapid_public_key'] ?? ''));
 
 // Build menu
 $menuBuilder = new MenuBuilder(Role::fromString($currentRole));
@@ -526,7 +557,8 @@ $schedulerRunner->setTaskContext(new TaskContext(
     $journalService,
     $settingService,
     $userAccountRepo,
-    $storagePath
+    $storagePath,
+    $notificationService
 ));
 
 // Add dynamic member entries to Espace des animés
@@ -594,6 +626,8 @@ $router->addRoute('POST', '/account/password', AccountController::class, 'update
 $router->addRoute('GET', '/account/passkey/register-options', AccountController::class, 'passkeyRegisterOptions', 'identified');
 $router->addRoute('POST', '/account/passkey/register', AccountController::class, 'passkeyRegister', 'identified');
 $router->addRoute('POST', '/account/passkey/delete', AccountController::class, 'passkeyDelete', 'identified');
+$router->addRoute('POST', '/api/push-subscription', PushSubscriptionController::class, 'subscribe', 'identified');
+$router->addRoute('DELETE', '/api/push-subscription', PushSubscriptionController::class, 'unsubscribe', 'identified');
 
 // Member pages
 $router->addRoute('GET', '/members/{id}', MemberController::class, 'show', 'identified');
@@ -753,6 +787,7 @@ $authController->setPasswordAuth($passwordAuthMethod);
 $authController->setWebAuthnService($webAuthnService);
 $frontController->registerController(AuthController::class, $authController);
 $frontController->registerController(AccountController::class, new AccountController($twig, $userAccountRepo, $webAuthnCredentialRepo, $webAuthnService));
+$frontController->registerController(PushSubscriptionController::class, new PushSubscriptionController($twig, $notificationService, $journalService));
 $frontController->registerController(PasswordResetController::class, new PasswordResetController($twig, $passwordResetService));
 $frontController->registerController(ShortUrlController::class, new ShortUrlController($twig, $shortUrlService));
 $frontController->registerController(ImportController::class, new ImportController($twig, $importService, $scoutYearResolver, $importJournalRepo, $functionRepo, $storagePath));

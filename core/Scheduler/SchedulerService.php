@@ -20,7 +20,8 @@ class SchedulerService
         string $taskKey,
         \DateTimeInterface $runAt,
         array $payload = [],
-        ?string $reference = null
+        ?string $reference = null,
+        ?int $requestedByUserAccountId = null
     ): int {
         $payloadJson = !empty($payload) ? json_encode($payload) : null;
         return $this->repository->create(
@@ -28,7 +29,8 @@ class SchedulerService
             $taskKey,
             $runAt->format('Y-m-d H:i:s'),
             $payloadJson,
-            $reference
+            $reference,
+            $requestedByUserAccountId
         );
     }
 
@@ -42,10 +44,11 @@ class SchedulerService
         string $taskKey,
         int $delaySeconds,
         array $payload = [],
-        ?string $reference = null
+        ?string $reference = null,
+        ?int $requestedByUserAccountId = null
     ): int {
         $runAt = (new \DateTimeImmutable())->modify("+{$delaySeconds} seconds");
-        return $this->schedule($moduleId, $taskKey, $runAt, $payload, $reference);
+        return $this->schedule($moduleId, $taskKey, $runAt, $payload, $reference, $requestedByUserAccountId);
     }
 
     /**

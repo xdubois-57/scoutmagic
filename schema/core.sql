@@ -351,11 +351,60 @@ CREATE TABLE scheduled_actions (
     status ENUM('pending', 'processing', 'done', 'failed', 'canceled') NOT NULL DEFAULT 'pending',
     attempts INT UNSIGNED NOT NULL DEFAULT 0,
     last_error TEXT,
+    -- The account that triggered this task, if any (a human clicking
+    -- "generate now") — NULL for tasks scheduled automatically (daily
+    -- cron, no human requester to notify). SchedulerRunner::processOverdue()
+    -- copies this into the payload passed to TaskHandlerInterface::handle()
+    -- under the reserved 'requested_by_user_account_id' key, so any handler
+    -- can call $context->notifications->notify() without every caller of
+    -- SchedulerService::schedule()/scheduleAfter() having to remember to
+    -- thread it through their own payload.
+    requested_by_user_account_id INT UNSIGNED,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     executed_at DATETIME,
     INDEX idx_status_run (status, run_at),
     INDEX idx_module_task (module_id, task_key),
-    INDEX idx_module_ref (module_id, task_key, reference)
+    INDEX idx_module_ref (module_id, task_key, reference),
+    CONSTRAINT fk_sa_requested_by FOREIGN KEY (requested_by_user_account_id) REFERENCES user_accounts(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Web Push (Core\Notification, RFC 8030) — one row per subscribed device.
+-- A user can have several (phone, laptop, ...); each is registered/dropped
+-- independently by the browser's own PushManager. auth_key/p256dh_key are
+-- per-device cryptographic secrets the browser generates for message
+-- encryption (RFC 8291) — not personal data, but still encrypted at rest
+-- via EncryptionService like any other secret this app stores, since they
+-- grant the ability to push to that device. Tied to user_accounts, never
+-- to members — a push subscription belongs to a browser session, not a
+-- scout profile.
+CREATE TABLE push_subscriptions (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    user_account_id INT UNSIGNED NOT NULL,
+    endpoint TEXT NOT NULL,
+    auth_key BLOB NOT NULL,
+    p256dh_key BLOB NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_ps_user (user_account_id),
+    CONSTRAINT fk_ps_user FOREIGN KEY (user_account_id) REFERENCES user_accounts(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- History of notifications sent via Core\Notification\NotificationService
+-- (one row per notify() call, regardless of how many devices — or zero —
+-- actually received a push for it). title/body/url are functional
+-- descriptions only ("Sauvegarde terminée") — never personal data, so
+-- plain columns, no encryption needed (see AGENTS.md "No personal data in
+-- log entries" — same principle applied here even though this isn't the
+-- event journal).
+CREATE TABLE notifications (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    user_account_id INT UNSIGNED NOT NULL,
+    title VARCHAR(200) NOT NULL,
+    body TEXT NOT NULL,
+    url VARCHAR(500),
+    is_read BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_notif_user (user_account_id),
+    CONSTRAINT fk_notif_user FOREIGN KEY (user_account_id) REFERENCES user_accounts(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Generic short-URL redirector (Core\Url\ShortUrlService) — not tied to any

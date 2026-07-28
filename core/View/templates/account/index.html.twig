@@ -136,6 +136,33 @@
         </div>
     </div>
 
+    {# Push notifications section #}
+    <div class="card mb-3">
+        <div class="card-body">
+            <h2 class="h5 mb-3">Notifications</h2>
+            <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" role="switch" id="push-toggle"
+                       data-vapid-public-key="{{ vapid_public_key }}">
+                <label class="form-check-label" for="push-toggle">Notifications push</label>
+            </div>
+            <p class="text-body-secondary small mb-0 mt-1">
+                Recevoir une notification quand une tâche en arrière-plan est terminée.
+            </p>
+            <p class="text-body-secondary small mb-0">
+                Activer cette option demandera la permission de votre navigateur.
+            </p>
+            <p class="text-warning small mb-0 mt-2 d-none" id="push-denied-notice">
+                Votre navigateur a refusé les notifications. Vous pouvez modifier ce choix dans les paramètres de votre navigateur.
+            </p>
+            <p class="text-warning small mb-0 mt-2 d-none" id="push-unsupported-notice">
+                Votre navigateur ne supporte pas les notifications push.
+            </p>
+            <p class="text-danger small mb-0 mt-2 d-none" id="push-error-notice">
+                Une erreur est survenue. Veuillez réessayer.
+            </p>
+        </div>
+    </div>
+
     {# Cookie preferences link #}
     <div class="card mb-3">
         <div class="card-body">
@@ -151,6 +178,7 @@
 {% endblock %}
 
 {% block scripts %}
+<script src="/assets/js/push-notifications.js" defer nonce="{{ csp_nonce }}"></script>
 {% if has_password is defined %}
 <script src="/assets/js/password-complexity.js" nonce="{{ csp_nonce }}"></script>
 <script nonce="{{ csp_nonce }}">

@@ -210,7 +210,7 @@ CREATE TABLE IF NOT EXISTS calendar_events (
 - Declared in `module.json` under the `scheduled_tasks` section.
 - The `handler` field is a fully qualified class name implementing `Core\Scheduler\TaskHandlerInterface`.
 - The handler receives `array $payload` and `Core\Scheduler\TaskContext $context`.
-- `TaskContext` provides: `$context->connection`, `$context->encryption`, `$context->mailService`, `$context->journal`, `$context->settings`, `$context->userAccounts`, `$context->storagePath` (root of `storage/`, for handlers that need `Core\File\EncryptedFileStorageService` or similar file access).
+- `TaskContext` provides: `$context->connection`, `$context->encryption`, `$context->mailService`, `$context->journal`, `$context->settings`, `$context->userAccounts`, `$context->storagePath` (root of `storage/`, for handlers that need `Core\File\EncryptedFileStorageService` or similar file access), `$context->notifications` (`?Core\Notification\NotificationService` — call `->notify($userAccountId, $title, $body, $url)` to push a Web Push notification + record it once the task finishes; the requester's account id, if any, is available as `$payload['requested_by_user_account_id']` — `null` for tasks scheduled without a human requester, e.g. daily cron).
 
 Example handler:
 

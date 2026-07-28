@@ -77,8 +77,18 @@ class SchedulerRunner
 
             try {
                 $payload = $task['payload'] !== null ? json_decode($task['payload'], true) : [];
+                $payload = is_array($payload) ? $payload : [];
+                // Reserved key: available to every handler regardless of
+                // what it originally passed as payload, so any
+                // TaskHandlerInterface can call
+                // $context->notifications->notify(...) without every
+                // caller of SchedulerService::schedule() having to thread
+                // this through manually.
+                $payload['requested_by_user_account_id'] = isset($task['requested_by_user_account_id']) && $task['requested_by_user_account_id'] !== null
+                    ? (int) $task['requested_by_user_account_id']
+                    : null;
                 $context = $this->taskContext ?? $this->createFallbackContext();
-                $handler->handle(is_array($payload) ? $payload : [], $context);
+                $handler->handle($payload, $context);
                 $this->repository->markDone((int) $task['id']);
                 $processed++;
 

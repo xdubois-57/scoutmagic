@@ -31,6 +31,24 @@ class SchedulerRepositoryTest extends TestCase
         $this->assertSame(1, $this->repo->countAll());
     }
 
+    public function testCreatePersistsRequestedByUserAccountId(): void
+    {
+        $runAt = (new \DateTimeImmutable('+1 hour'))->format('Y-m-d H:i:s');
+        $id = $this->repo->create('core', 'test_task', $runAt, null, null, 7);
+
+        $row = $this->repo->findById($id);
+        $this->assertSame(7, (int) $row['requested_by_user_account_id']);
+    }
+
+    public function testCreateDefaultsRequestedByUserAccountIdToNull(): void
+    {
+        $runAt = (new \DateTimeImmutable('+1 hour'))->format('Y-m-d H:i:s');
+        $id = $this->repo->create('core', 'test_task', $runAt, null, null);
+
+        $row = $this->repo->findById($id);
+        $this->assertNull($row['requested_by_user_account_id']);
+    }
+
     public function testClaimOverdueReturnsOnlyDue(): void
     {
         // Insert a due action

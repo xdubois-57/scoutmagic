@@ -8,6 +8,7 @@ use Core\Config\SettingService;
 use Core\Database\Connection;
 use Core\Journal\JournalService;
 use Core\Mail\MailService;
+use Core\Notification\NotificationService;
 use Core\Security\EncryptionService;
 use Core\Security\UserAccountRepository;
 
@@ -20,7 +21,8 @@ class TaskContext
         public readonly JournalService $journal,
         public readonly SettingService $settings,
         public readonly UserAccountRepository $userAccounts,
-        public readonly string $storagePath
+        public readonly string $storagePath,
+        public readonly ?NotificationService $notifications = null
     ) {
     }
 }
