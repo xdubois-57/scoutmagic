@@ -307,6 +307,157 @@ class MaintenanceControllerTest extends TestCase
         $this->assertSame('pending', $decoded['status']);
     }
 
+    public function testResetSettingsValidatesCsrf(): void
+    {
+        $response = $this->controller->resetSettings($this->jsonRequest(['confirm_keyword' => 'REINITIALISER', '_csrf_token' => 'bad']), []);
+
+        $this->assertSame(400, $response->getStatusCode());
+    }
+
+    public function testResetSettingsRejectsWrongKeyword(): void
+    {
+        $token = $this->csrfToken();
+
+        $response = $this->controller->resetSettings($this->jsonRequest(['confirm_keyword' => 'nope', '_csrf_token' => $token]), []);
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertFalse($decoded['success']);
+        $this->assertSame(400, $response->getStatusCode());
+        $this->assertSame([], $this->schedulerRepository->findByModuleAndTaskKey('core', 'reset_settings'));
+    }
+
+    public function testResetSettingsSchedulesTheBackgroundTask(): void
+    {
+        $token = $this->csrfToken();
+
+        $response = $this->controller->resetSettings($this->jsonRequest(['confirm_keyword' => 'REINITIALISER', '_csrf_token' => $token]), []);
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertTrue($decoded['success']);
+        $this->assertIsInt($decoded['action_id']);
+        $this->assertCount(1, $this->schedulerRepository->findByModuleAndTaskKey('core', 'reset_settings'));
+    }
+
+    public function testFullResetValidatesCsrf(): void
+    {
+        $response = $this->controller->fullReset($this->jsonRequest([
+            'confirm_keyword' => 'EFFACER', 'confirm_checkbox' => true, '_csrf_token' => 'bad',
+        ]), []);
+
+        $this->assertSame(400, $response->getStatusCode());
+    }
+
+    public function testFullResetRejectsWrongKeyword(): void
+    {
+        $token = $this->csrfToken();
+
+        $response = $this->controller->fullReset($this->jsonRequest([
+            'confirm_keyword' => 'nope', 'confirm_checkbox' => true, '_csrf_token' => $token,
+        ]), []);
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertFalse($decoded['success']);
+    }
+
+    public function testFullResetRejectsWithoutCheckbox(): void
+    {
+        $token = $this->csrfToken();
+
+        $response = $this->controller->fullReset($this->jsonRequest([
+            'confirm_keyword' => 'EFFACER', 'confirm_checkbox' => false, '_csrf_token' => $token,
+        ]), []);
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertFalse($decoded['success']);
+        $this->assertSame([], $this->schedulerRepository->findByModuleAndTaskKey('core', 'full_reset'));
+    }
+
+    public function testFullResetSchedulesTheBackgroundTask(): void
+    {
+        $token = $this->csrfToken();
+
+        $response = $this->controller->fullReset($this->jsonRequest([
+            'confirm_keyword' => 'EFFACER', 'confirm_checkbox' => true, '_csrf_token' => $token,
+        ]), []);
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertTrue($decoded['success']);
+        $this->assertCount(1, $this->schedulerRepository->findByModuleAndTaskKey('core', 'full_reset'));
+    }
+
+    public function testRestoreBackupValidatesCsrf(): void
+    {
+        $request = new Request('POST', '/config/maintenance/reset/restore', [], [
+            '_csrf_token' => 'bad', 'confirm_keyword' => 'RESTAURER', 'source' => 'server', 'backup_id' => '1',
+        ], [], []);
+
+        $response = $this->controller->restoreBackup($request, []);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame([], $this->schedulerRepository->findByModuleAndTaskKey('core', 'restore_backup'));
+    }
+
+    public function testRestoreBackupRejectsWrongKeyword(): void
+    {
+        $token = $this->csrfToken();
+        $request = new Request('POST', '/config/maintenance/reset/restore', [], [
+            '_csrf_token' => $token, 'confirm_keyword' => 'nope', 'source' => 'server', 'backup_id' => '1',
+        ], [], []);
+
+        $response = $this->controller->restoreBackup($request, []);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame([], $this->schedulerRepository->findByModuleAndTaskKey('core', 'restore_backup'));
+    }
+
+    public function testRestoreBackupRejectsUnknownServerBackup(): void
+    {
+        $token = $this->csrfToken();
+        $request = new Request('POST', '/config/maintenance/reset/restore', [], [
+            '_csrf_token' => $token, 'confirm_keyword' => 'RESTAURER', 'source' => 'server', 'backup_id' => '999',
+        ], [], []);
+
+        $response = $this->controller->restoreBackup($request, []);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame([], $this->schedulerRepository->findByModuleAndTaskKey('core', 'restore_backup'));
+    }
+
+    public function testRestoreBackupSchedulesTheBackgroundTaskForAnExistingServerBackup(): void
+    {
+        $backupId = $this->backupRepository->create('database', 1);
+        $this->backupRepository->markCompleted($backupId, 1, 1);
+        $token = $this->csrfToken();
+
+        $request = new Request('POST', '/config/maintenance/reset/restore', [], [
+            '_csrf_token' => $token, 'confirm_keyword' => 'RESTAURER', 'source' => 'server', 'backup_id' => (string) $backupId,
+        ], [], []);
+
+        $response = $this->controller->restoreBackup($request, []);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $location = $response->getHeaders()['Location'] ?? '';
+        $this->assertStringContainsString('restore_id=', $location);
+        $this->assertCount(1, $this->schedulerRepository->findByModuleAndTaskKey('core', 'restore_backup'));
+    }
+
+    public function testResetStatusReturns404ForUnknownId(): void
+    {
+        $response = $this->controller->resetStatus(new Request('GET', '/api/maintenance/reset-status/999', [], [], [], []), ['id' => '999']);
+
+        $this->assertSame(404, $response->getStatusCode());
+    }
+
+    public function testResetStatusReturnsCurrentState(): void
+    {
+        $actionId = $this->schedulerRepository->create('core', 'reset_settings', date('Y-m-d H:i:s'), null, null, null);
+
+        $response = $this->controller->resetStatus(new Request('GET', '/api/maintenance/reset-status/' . $actionId, [], [], [], []), ['id' => (string) $actionId]);
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertSame('pending', $decoded['status']);
+    }
+
     /**
      * RBAC boundary: role_min admin — chief denied, admin allowed.
      */

@@ -25,7 +25,10 @@ use Core\Mail\DkimManager;
 use Core\Mail\MailServiceFactory;
 use Core\Maintenance\Task\CheckUpdateHandler;
 use Core\Maintenance\Task\CreateBackupHandler;
+use Core\Maintenance\Task\FullResetHandler;
 use Core\Maintenance\Task\InstallUpdateHandler;
+use Core\Maintenance\Task\ResetSettingsHandler;
+use Core\Maintenance\Task\RestoreBackupHandler;
 use Core\Module\ModuleManager;
 use Core\Module\ModuleRegistryRepository;
 use Core\Notification\NotificationRepository;
@@ -114,6 +117,9 @@ $runner->setModuleManager($moduleManager);
 $runner->registerHandler('core', 'create_backup', new CreateBackupHandler());
 $runner->registerHandler('core', 'check_update', new CheckUpdateHandler());
 $runner->registerHandler('core', 'install_update', new InstallUpdateHandler());
+$runner->registerHandler('core', 'reset_settings', new ResetSettingsHandler());
+$runner->registerHandler('core', 'full_reset', new FullResetHandler());
+$runner->registerHandler('core', 'restore_backup', new RestoreBackupHandler());
 
 // Web Push (Core\Notification) — same construction as public/index.php.
 // Null when VAPID keys aren't provisioned yet (e.g. this script running

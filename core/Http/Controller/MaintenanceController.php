@@ -23,8 +23,8 @@ use Core\Security\EncryptionService;
 use Twig\Environment;
 
 /**
- * Configuration > Maintenance: "Mise à jour", "Sauvegardes" (in that page
- * order), "Réinitialisation" (future iteration) sections.
+ * Configuration > Maintenance: "Mise à jour", "Sauvegardes",
+ * "Réinitialisation" (in that page order) sections.
  */
 class MaintenanceController extends AbstractController
 {
@@ -32,6 +32,17 @@ class MaintenanceController extends AbstractController
     private const FULL_BACKUP_SCOPES = ['full_config', 'full_no_gallery', 'full_with_gallery'];
 
     private const KEEP_BACKUPS = 5;
+
+    // Each "Réinitialisation" action requires the admin to type this exact
+    // word server-side (module spec: "Ne pas permettre aucune action de
+    // réinitialisation/restauration sans confirmation par mot-clé vérifiée
+    // côté serveur (pas uniquement en JS)") — a JS check is a UX nicety
+    // only, never the actual gate.
+    private const KEYWORD_RESET_SETTINGS = 'REINITIALISER';
+    private const KEYWORD_FULL_RESET = 'EFFACER';
+    private const KEYWORD_RESTORE = 'RESTAURER';
+
+    private const RESTORE_UPLOAD_MAX_BYTES = 500 * 1024 * 1024;
 
     public function __construct(
         protected Environment $twig,
@@ -263,6 +274,153 @@ class MaintenanceController extends AbstractController
             'status' => $backup->status,
             'error_message' => $backup->errorMessage,
             'download_url' => $backup->fileId !== null ? '/files/' . $backup->fileId : null,
+        ]);
+    }
+
+    /**
+     * POST /config/maintenance/reset/settings (AJAX, JSON) — schedules
+     * Task\ResetSettingsHandler. Requires typing KEYWORD_RESET_SETTINGS.
+     *
+     * @param array<string, string> $params
+     */
+    public function resetSettings(Request $request, array $params): Response
+    {
+        $data = json_decode($request->getRawBody(), true);
+        if (!is_array($data) || !CsrfGuard::validateToken((string) ($data['_csrf_token'] ?? ''))) {
+            return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
+        }
+        if ((string) ($data['confirm_keyword'] ?? '') !== self::KEYWORD_RESET_SETTINGS) {
+            return $this->json(['success' => false, 'error' => 'Mot de confirmation incorrect.'], 400);
+        }
+
+        $userId = AuthSession::getUserAccountId();
+        $actionId = $this->schedulerService->scheduleAfter('core', 'reset_settings', 0, [], null, $userId);
+
+        $this->journalService->log('core', 'settings_reset_requested', 'security', 'Réinitialisation des paramètres par défaut demandée', [], $userId);
+
+        return $this->json(['success' => true, 'action_id' => $actionId]);
+    }
+
+    /**
+     * POST /config/maintenance/reset/full (AJAX, JSON) — schedules
+     * Task\FullResetHandler. Requires typing KEYWORD_FULL_RESET AND
+     * checking the explicit "I understand" checkbox — the most destructive
+     * action on the site, per module spec double-confirmation requirement.
+     *
+     * @param array<string, string> $params
+     */
+    public function fullReset(Request $request, array $params): Response
+    {
+        $data = json_decode($request->getRawBody(), true);
+        if (!is_array($data) || !CsrfGuard::validateToken((string) ($data['_csrf_token'] ?? ''))) {
+            return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
+        }
+        if ((string) ($data['confirm_keyword'] ?? '') !== self::KEYWORD_FULL_RESET) {
+            return $this->json(['success' => false, 'error' => 'Mot de confirmation incorrect.'], 400);
+        }
+        if (($data['confirm_checkbox'] ?? false) !== true) {
+            return $this->json(['success' => false, 'error' => 'Vous devez cocher la case de confirmation.'], 400);
+        }
+
+        $userId = AuthSession::getUserAccountId();
+        $actionId = $this->schedulerService->scheduleAfter('core', 'full_reset', 0, [], null, $userId);
+
+        $this->journalService->log('core', 'full_reset_requested', 'security', 'Réinitialisation complète demandée', [], $userId);
+
+        return $this->json(['success' => true, 'action_id' => $actionId]);
+    }
+
+    /**
+     * POST /config/maintenance/reset/restore — classic multipart form POST
+     * (not AJAX/JSON, unlike the site's other Maintenance actions), since
+     * source=upload needs a real file upload; the page redirects back with
+     * ?restore_id={id} so its JS can start polling resetStatus()
+     * immediately. Requires typing KEYWORD_RESTORE.
+     *
+     * @param array<string, string> $params
+     */
+    public function restoreBackup(Request $request, array $params): Response
+    {
+        if (!CsrfGuard::validateToken((string) $request->getBody('_csrf_token', ''))) {
+            FlashMessage::set('error', 'Jeton CSRF invalide.');
+            return $this->redirect('/config/maintenance');
+        }
+        if ((string) $request->getBody('confirm_keyword', '') !== self::KEYWORD_RESTORE) {
+            FlashMessage::set('error', 'Mot de confirmation incorrect.');
+            return $this->redirect('/config/maintenance');
+        }
+
+        $userId = AuthSession::getUserAccountId();
+        $source = (string) $request->getBody('source', 'server');
+        $password = (string) $request->getBody('password', '');
+        $encryptedPassword = $password !== '' ? base64_encode($this->encryption->encrypt($password)) : null;
+
+        $payload = ['source' => $source, 'encrypted_password' => $encryptedPassword];
+
+        if ($source === 'upload') {
+            $file = $request->getFile('backup_file');
+            if ($file === null || $file['error'] !== UPLOAD_ERR_OK) {
+                FlashMessage::set('error', 'Veuillez sélectionner un fichier de sauvegarde valide.');
+                return $this->redirect('/config/maintenance');
+            }
+            $ext = strtolower(pathinfo((string) $file['name'], PATHINFO_EXTENSION));
+            if ($ext !== 'zip') {
+                FlashMessage::set('error', 'Le fichier doit être une archive ZIP.');
+                return $this->redirect('/config/maintenance');
+            }
+            if ($file['size'] > self::RESTORE_UPLOAD_MAX_BYTES) {
+                FlashMessage::set('error', 'Le fichier dépasse la taille maximale autorisée.');
+                return $this->redirect('/config/maintenance');
+            }
+
+            $tempDir = $this->storagePath . '/temp';
+            if (!is_dir($tempDir)) {
+                mkdir($tempDir, 0755, true);
+            }
+            $tempPath = $tempDir . '/' . uniqid('restore_upload_') . '.zip';
+            if (!move_uploaded_file($file['tmp_name'], $tempPath)) {
+                FlashMessage::set('error', 'Le téléversement du fichier a échoué.');
+                return $this->redirect('/config/maintenance');
+            }
+            $payload['uploaded_temp_path'] = $tempPath;
+        } else {
+            $backupId = (int) $request->getBody('backup_id', '0');
+            $backup = $this->backupRepository->findById($backupId);
+            if ($backup === null || $backup->status !== 'completed') {
+                FlashMessage::set('error', 'Sauvegarde introuvable ou incomplète.');
+                return $this->redirect('/config/maintenance');
+            }
+            $payload['backup_id'] = $backupId;
+        }
+
+        $actionId = $this->schedulerService->scheduleAfter('core', 'restore_backup', 0, $payload, null, $userId);
+
+        $this->journalService->log('core', 'backup_restore_requested', 'security', 'Restauration de sauvegarde demandée', ['source' => $source], $userId);
+
+        return $this->redirect('/config/maintenance?restore_id=' . $actionId);
+    }
+
+    /**
+     * GET /api/maintenance/reset-status/{id} (AJAX, JSON) — polled by the
+     * Maintenance page while a "Réinitialisation" action runs. {id} is the
+     * scheduled_actions row id (Core\Scheduler\SchedulerService::
+     * scheduleAfter()'s return value) — reused directly rather than a
+     * dedicated history table, since Core\Scheduler already tracks
+     * pending/processing/done/failed/canceled.
+     *
+     * @param array<string, string> $params
+     */
+    public function resetStatus(Request $request, array $params): Response
+    {
+        $id = (int) ($params['id'] ?? 0);
+        $action = $this->schedulerService->findById($id);
+        if ($action === null) {
+            return $this->json(['error' => 'Action introuvable.'], 404);
+        }
+
+        return $this->json([
+            'status' => $action['status'],
+            'error_message' => $action['last_error'],
         ]);
     }
 

@@ -254,6 +254,12 @@ CREATE TABLE settings (
     module_id VARCHAR(50),
     setting_key VARCHAR(100) NOT NULL,
     setting_value TEXT,
+    -- The value SettingRepository::upsert() was called with (i.e. the
+    -- declared default from the register() call site) — kept in sync on
+    -- every boot, even for rows that already existed, so
+    -- Core\Maintenance\Task\ResetSettingsHandler can restore it later
+    -- without needing to know what any given module's default "should" be.
+    default_value TEXT,
     setting_type VARCHAR(20) NOT NULL DEFAULT 'text',
     label VARCHAR(200) NOT NULL,
     description TEXT NOT NULL,

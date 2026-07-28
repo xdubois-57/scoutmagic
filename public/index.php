@@ -599,6 +599,9 @@ $schedulerRunner->setTaskContext(new TaskContext(
 $schedulerRunner->registerHandler('core', 'create_backup', new \Core\Maintenance\Task\CreateBackupHandler());
 $schedulerRunner->registerHandler('core', 'check_update', new \Core\Maintenance\Task\CheckUpdateHandler());
 $schedulerRunner->registerHandler('core', 'install_update', new \Core\Maintenance\Task\InstallUpdateHandler());
+$schedulerRunner->registerHandler('core', 'reset_settings', new \Core\Maintenance\Task\ResetSettingsHandler());
+$schedulerRunner->registerHandler('core', 'full_reset', new \Core\Maintenance\Task\FullResetHandler());
+$schedulerRunner->registerHandler('core', 'restore_backup', new \Core\Maintenance\Task\RestoreBackupHandler());
 
 // Bootstrap the recurring daily update check — Task\CheckUpdateHandler
 // re-schedules itself for the next day at the end of every run, but the
@@ -741,6 +744,10 @@ $router->addRoute('POST', '/config/maintenance/backup/full', MaintenanceControll
 $router->addRoute('GET', '/api/maintenance/backup-status/{id}', MaintenanceController::class, 'backupStatus', 'admin');
 $router->addRoute('POST', '/config/maintenance/update/install', MaintenanceController::class, 'installUpdate', 'admin');
 $router->addRoute('GET', '/api/maintenance/update-status/{id}', MaintenanceController::class, 'updateStatus', 'admin');
+$router->addRoute('POST', '/config/maintenance/reset/settings', MaintenanceController::class, 'resetSettings', 'admin');
+$router->addRoute('POST', '/config/maintenance/reset/full', MaintenanceController::class, 'fullReset', 'admin');
+$router->addRoute('POST', '/config/maintenance/reset/restore', MaintenanceController::class, 'restoreBackup', 'admin');
+$router->addRoute('GET', '/api/maintenance/reset-status/{id}', MaintenanceController::class, 'resetStatus', 'admin');
 
 // Configuration générale
 $router->addRoute('GET', '/config/general', ConfigGeneralController::class, 'index', 'superadmin');

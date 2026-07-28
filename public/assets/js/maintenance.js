@@ -153,3 +153,214 @@
             });
     });
 })();
+
+// "Réinitialisation" section — three danger actions. The typed keyword is
+// only a client-side UX gate (enabling the submit button); the real check
+// always happens server-side (Core\Http\Controller\MaintenanceController).
+(function () {
+    function wireKeywordGate(inputId, expected, extraCondition) {
+        var input = document.getElementById(inputId);
+        if (!input) return null;
+        var submitBtn = input.closest('form').querySelector('button[type="submit"]');
+        function update() {
+            var ok = input.value === expected && (!extraCondition || extraCondition());
+            submitBtn.disabled = !ok;
+        }
+        input.addEventListener('input', update);
+        return update;
+    }
+
+    // Generic poll helper for GET /api/maintenance/reset-status/{id}.
+    // onDone/onFailed receive the error message (may be null); onNotFound
+    // is only meaningfully different for full reset (see below), where a
+    // 404 means "the operation wiped its own tracking row — that's success".
+    function pollResetStatus(actionId, onDone, onFailed, onNotFound) {
+        var timer = setInterval(function () {
+            fetch('/api/maintenance/reset-status/' + actionId)
+                .then(function (res) {
+                    if (res.status === 404) {
+                        clearInterval(timer);
+                        onNotFound();
+                        return null;
+                    }
+                    return res.json();
+                })
+                .then(function (data) {
+                    if (!data) return;
+                    if (data.status === 'done') {
+                        clearInterval(timer);
+                        onDone();
+                    } else if (data.status === 'failed' || data.status === 'canceled') {
+                        clearInterval(timer);
+                        onFailed(data.error_message);
+                    }
+                    // pending / processing: keep polling.
+                })
+                .catch(function () {
+                    // Transient network hiccup — keep polling.
+                });
+        }, 3000);
+        return timer;
+    }
+
+    // --- Paramètres par défaut ---
+    var resetSettingsUpdate = wireKeywordGate('reset-settings-keyword', 'REINITIALISER');
+    var resetSettingsForm = document.getElementById('reset-settings-form');
+    if (resetSettingsForm) {
+        resetSettingsForm.addEventListener('submit', function (e) {
+            e.preventDefault();
+            var submitBtn = document.getElementById('reset-settings-submit');
+            var progressEl = document.getElementById('reset-settings-progress');
+            var errorEl = document.getElementById('reset-settings-error');
+            var csrfInput = resetSettingsForm.querySelector('input[name="_csrf_token"]');
+            errorEl.classList.add('d-none');
+            submitBtn.disabled = true;
+            progressEl.classList.remove('d-none');
+
+            fetch('/config/maintenance/reset/settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    confirm_keyword: document.getElementById('reset-settings-keyword').value,
+                    _csrf_token: csrfInput ? csrfInput.value : ''
+                })
+            })
+                .then(function (res) { return res.json(); })
+                .then(function (data) {
+                    if (!data.success) {
+                        progressEl.classList.add('d-none');
+                        errorEl.textContent = data.error || 'Erreur lors du lancement de la réinitialisation.';
+                        errorEl.classList.remove('d-none');
+                        if (resetSettingsUpdate) resetSettingsUpdate();
+                        return;
+                    }
+                    pollResetStatus(
+                        data.action_id,
+                        function () { window.location.reload(); },
+                        function (message) {
+                            progressEl.classList.add('d-none');
+                            errorEl.textContent = message || 'La réinitialisation a échoué.';
+                            errorEl.classList.remove('d-none');
+                        },
+                        function () { window.location.reload(); }
+                    );
+                })
+                .catch(function () {
+                    progressEl.classList.add('d-none');
+                    errorEl.textContent = 'Erreur réseau.';
+                    errorEl.classList.remove('d-none');
+                });
+        });
+    }
+
+    // --- Réinitialisation complète ---
+    var fullResetCheckbox = document.getElementById('full-reset-checkbox');
+    var fullResetUpdate = wireKeywordGate('full-reset-keyword', 'EFFACER', function () {
+        return fullResetCheckbox && fullResetCheckbox.checked;
+    });
+    if (fullResetCheckbox && fullResetUpdate) {
+        fullResetCheckbox.addEventListener('change', fullResetUpdate);
+    }
+    var fullResetForm = document.getElementById('full-reset-form');
+    if (fullResetForm) {
+        fullResetForm.addEventListener('submit', function (e) {
+            e.preventDefault();
+            if (!window.confirm('Cette action est irréversible : toutes les données du site seront définitivement supprimées. Continuer ?')) {
+                return;
+            }
+            var submitBtn = document.getElementById('full-reset-submit');
+            var progressEl = document.getElementById('full-reset-progress');
+            var errorEl = document.getElementById('full-reset-error');
+            var csrfInput = fullResetForm.querySelector('input[name="_csrf_token"]');
+            errorEl.classList.add('d-none');
+            submitBtn.disabled = true;
+            progressEl.classList.remove('d-none');
+
+            fetch('/config/maintenance/reset/full', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    confirm_keyword: document.getElementById('full-reset-keyword').value,
+                    confirm_checkbox: true,
+                    _csrf_token: csrfInput ? csrfInput.value : ''
+                })
+            })
+                .then(function (res) { return res.json(); })
+                .then(function (data) {
+                    if (!data.success) {
+                        progressEl.classList.add('d-none');
+                        errorEl.textContent = data.error || 'Erreur lors du lancement de la réinitialisation.';
+                        errorEl.classList.remove('d-none');
+                        if (fullResetUpdate) fullResetUpdate();
+                        return;
+                    }
+                    // A 404 here means the operation wiped scheduled_actions
+                    // along with everything else — that IS success for a
+                    // full reset, not an error, so onNotFound also redirects.
+                    pollResetStatus(
+                        data.action_id,
+                        function () { window.location.href = '/'; },
+                        function (message) {
+                            progressEl.classList.add('d-none');
+                            errorEl.textContent = message || 'La réinitialisation a échoué.';
+                            errorEl.classList.remove('d-none');
+                        },
+                        function () { window.location.href = '/'; }
+                    );
+                })
+                .catch(function () {
+                    progressEl.classList.add('d-none');
+                    errorEl.textContent = 'Erreur réseau.';
+                    errorEl.classList.remove('d-none');
+                });
+        });
+    }
+
+    // --- Restaurer un backup ---
+    var restoreUpdate = wireKeywordGate('restore-backup-keyword', 'RESTAURER');
+    var sourceServerRadio = document.getElementById('restore-source-server');
+    var sourceUploadRadio = document.getElementById('restore-source-upload');
+    var serverPicker = document.getElementById('restore-server-picker');
+    var uploadPicker = document.getElementById('restore-upload-picker');
+    function toggleRestoreSource() {
+        var isUpload = sourceUploadRadio && sourceUploadRadio.checked;
+        if (serverPicker) serverPicker.classList.toggle('d-none', !!isUpload);
+        if (uploadPicker) uploadPicker.classList.toggle('d-none', !isUpload);
+    }
+    if (sourceServerRadio) sourceServerRadio.addEventListener('change', toggleRestoreSource);
+    if (sourceUploadRadio) sourceUploadRadio.addEventListener('change', toggleRestoreSource);
+
+    var restoreForm = document.getElementById('restore-backup-form');
+    if (restoreForm) {
+        restoreForm.addEventListener('submit', function (e) {
+            if (!window.confirm('Cette action va remplacer les données actuelles par celles de la sauvegarde sélectionnée. Continuer ?')) {
+                e.preventDefault();
+                return;
+            }
+            // Classic multipart submit — the server redirects back with
+            // ?restore_id={id}, picked up by the polling block below.
+            var submitBtn = document.getElementById('restore-backup-submit');
+            submitBtn.disabled = true;
+        });
+    }
+
+    // Resume polling after the classic-form restore redirect.
+    var restoreIdMatch = /[?&]restore_id=(\d+)/.exec(window.location.search);
+    if (restoreIdMatch) {
+        var restoreProgressEl = document.getElementById('restore-backup-progress');
+        var restoreErrorEl = document.getElementById('restore-backup-error');
+        if (restoreProgressEl) restoreProgressEl.classList.remove('d-none');
+        pollResetStatus(
+            parseInt(restoreIdMatch[1], 10),
+            function () { window.location.href = '/config/maintenance'; },
+            function (message) {
+                if (restoreProgressEl) restoreProgressEl.classList.add('d-none');
+                if (restoreErrorEl) {
+                    restoreErrorEl.textContent = message || 'La restauration a échoué.';
+                    restoreErrorEl.classList.remove('d-none');
+                }
+            },
+            function () { window.location.href = '/config/maintenance'; }
+        );
+    }
+})();

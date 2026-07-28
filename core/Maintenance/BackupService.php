@@ -19,7 +19,7 @@ use Core\Database\Connection;
  * background full-zip case), keeping this service reusable without
  * dragging in HTTP/scheduler concerns.
  */
-class BackupService
+class BackupService implements BackupServiceInterface
 {
     private const STAGING_SUBDIR = 'maintenance';
 
@@ -218,13 +218,14 @@ class BackupService
     }
 
     /**
-     * Restores files from an unencrypted archive produced by
-     * createFileBackup(), extracting over $basePath. Used by the
-     * "Réinitialisation"/"Mise à jour" iterations.
+     * Restores files from an archive produced by createFileBackup()
+     * (unencrypted) or createFullBackup() (AES-256, needs $password),
+     * extracting over $basePath. Used by the "Réinitialisation"/"Mise à
+     * jour" iterations.
      *
      * @throws BackupException
      */
-    public function restoreFiles(string $archivePath): void
+    public function restoreFiles(string $archivePath, ?string $password = null): void
     {
         if (!is_file($archivePath)) {
             throw new BackupException('Archive de sauvegarde introuvable.');
@@ -235,11 +236,15 @@ class BackupService
             throw new BackupException('Impossible d\'ouvrir l\'archive de sauvegarde.');
         }
 
+        if ($password !== null) {
+            $zip->setPassword($password);
+        }
+
         $extracted = $zip->extractTo($this->basePath);
         $zip->close();
 
         if (!$extracted) {
-            throw new BackupException('L\'extraction de l\'archive a échoué.');
+            throw new BackupException('L\'extraction de l\'archive a échoué (mot de passe incorrect ?).');
         }
     }
 

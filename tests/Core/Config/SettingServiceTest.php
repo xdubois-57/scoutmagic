@@ -45,6 +45,37 @@ class SettingServiceTest extends TestCase
         $this->assertSame('modified', $this->service->get('existing'));
     }
 
+    public function testRegisterSelfHealsDefaultValueOnAnAlreadyExistingRow(): void
+    {
+        $this->service->register('existing', 'original', 'text', 'Label', 'Desc');
+        $this->repo->updateValue(null, 'existing', 'modified');
+
+        // Simulates default_value having been NULL for a row that predates
+        // this column (or whose declared default changed since) — the next
+        // boot's register() call must still backfill it, not skip it just
+        // because the row already exists.
+        $this->service->register('existing', 'original', 'text', 'Label', 'Desc');
+
+        $this->service->resetAllToDefaults();
+
+        $this->service->clearCache();
+        $this->assertSame('original', $this->service->get('existing'));
+    }
+
+    public function testResetAllToDefaultsRestoresEveryChangedValue(): void
+    {
+        $this->service->register('key_a', 'default_a', 'text', 'L', 'D');
+        $this->service->register('key_b', 'default_b', 'text', 'L', 'D');
+        $this->repo->updateValue(null, 'key_a', 'changed_a');
+        $this->repo->updateValue(null, 'key_b', 'changed_b');
+
+        $this->service->resetAllToDefaults();
+
+        $this->service->clearCache();
+        $this->assertSame('default_a', $this->service->get('key_a'));
+        $this->assertSame('default_b', $this->service->get('key_b'));
+    }
+
     public function testGetReturnsValue(): void
     {
         $this->service->register('key1', 'value1', 'text', 'L', 'D');

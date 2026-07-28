@@ -209,7 +209,104 @@
         </div>
     </div>
 
-    {# Future section (réinitialisation) will be added here as a separate card. #}
+    {# ————— Réinitialisation ————— #}
+    <div class="card mb-4 border-danger" id="maintenance-reset">
+        <div class="card-body">
+            <h2 class="h5 mb-3 text-danger"><i class="bi bi-exclamation-triangle"></i> Réinitialisation</h2>
+            <p class="text-body-secondary small">
+                Ces actions sont irréversibles sans restauration manuelle. Une sauvegarde de sécurité est prise
+                automatiquement avant chaque action.
+            </p>
+
+            <div class="row g-4">
+                <div class="col-12 col-md-4">
+                    <h3 class="h6">Paramètres par défaut</h3>
+                    <p class="text-body-secondary small">
+                        Réinitialise tous les paramètres (généraux et modules) à leurs valeurs par défaut. Ne
+                        touche ni aux comptes, ni aux membres, ni aux contenus, ni aux fichiers.
+                    </p>
+                    <form id="reset-settings-form">
+                        {{ csrf_field()|raw }}
+                        <label class="form-label small">Tapez <strong>REINITIALISER</strong> pour confirmer</label>
+                        <input type="text" class="form-control form-control-sm mb-2" id="reset-settings-keyword" autocomplete="off">
+                        <button type="submit" class="btn btn-outline-danger btn-sm" id="reset-settings-submit" disabled>
+                            Réinitialiser les paramètres
+                        </button>
+                        <div class="mt-2 small d-none" id="reset-settings-progress"><span class="spinner-border spinner-border-sm"></span> En cours…</div>
+                        <div class="mt-2 small text-danger d-none" id="reset-settings-error"></div>
+                    </form>
+                </div>
+
+                <div class="col-12 col-md-4">
+                    <h3 class="h6">Restaurer un backup</h3>
+                    <p class="text-body-secondary small">
+                        Restaure la base de données et les fichiers depuis une sauvegarde existante ou un fichier
+                        téléversé.
+                    </p>
+                    <form id="restore-backup-form" method="post" action="/config/maintenance/reset/restore" enctype="multipart/form-data">
+                        {{ csrf_field()|raw }}
+                        <div class="mb-2">
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="source" id="restore-source-server" value="server" checked>
+                                <label class="form-check-label small" for="restore-source-server">Depuis le serveur</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="source" id="restore-source-upload" value="upload">
+                                <label class="form-check-label small" for="restore-source-upload">Depuis un fichier téléversé</label>
+                            </div>
+                        </div>
+                        <div class="mb-2" id="restore-server-picker">
+                            <select class="form-select form-select-sm" name="backup_id" {% if backups is empty %}disabled{% endif %}>
+                                {% for backup in backups %}
+                                    {% if backup.status == 'completed' %}
+                                        <option value="{{ backup.id }}">{{ backup.type }} — {{ backup.createdAt }}</option>
+                                    {% endif %}
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="mb-2 d-none" id="restore-upload-picker">
+                            <input type="file" class="form-control form-control-sm" name="backup_file" accept=".zip">
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label small">Mot de passe de l'archive (si chiffrée)</label>
+                            <input type="password" class="form-control form-control-sm" name="password">
+                        </div>
+                        <label class="form-label small">Tapez <strong>RESTAURER</strong> pour confirmer</label>
+                        <input type="text" class="form-control form-control-sm mb-2" name="confirm_keyword" id="restore-backup-keyword" autocomplete="off">
+                        <button type="submit" class="btn btn-outline-danger btn-sm" id="restore-backup-submit" disabled>
+                            Restaurer
+                        </button>
+                        <div class="mt-2 small d-none" id="restore-backup-progress"><span class="spinner-border spinner-border-sm"></span> Restauration en cours…</div>
+                        <div class="mt-2 small text-danger d-none" id="restore-backup-error"></div>
+                    </form>
+                </div>
+
+                <div class="col-12 col-md-4">
+                    <h3 class="h6">Réinitialisation complète</h3>
+                    <p class="text-body-secondary small">
+                        Efface définitivement toutes les données du site. Le prochain accès déclenchera
+                        l'assistant d'installation, comme pour un site neuf.
+                    </p>
+                    <form id="full-reset-form">
+                        {{ csrf_field()|raw }}
+                        <div class="form-check mb-2">
+                            <input class="form-check-input" type="checkbox" id="full-reset-checkbox">
+                            <label class="form-check-label small" for="full-reset-checkbox">
+                                Je comprends que toutes les données seront définitivement supprimées
+                            </label>
+                        </div>
+                        <label class="form-label small">Tapez <strong>EFFACER</strong> pour confirmer</label>
+                        <input type="text" class="form-control form-control-sm mb-2" id="full-reset-keyword" autocomplete="off">
+                        <button type="submit" class="btn btn-danger btn-sm" id="full-reset-submit" disabled>
+                            Tout effacer
+                        </button>
+                        <div class="mt-2 small d-none" id="full-reset-progress"><span class="spinner-border spinner-border-sm"></span> Réinitialisation en cours — ne fermez pas cette page…</div>
+                        <div class="mt-2 small text-danger d-none" id="full-reset-error"></div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
 {% endblock %}
 
 {% block scripts %}

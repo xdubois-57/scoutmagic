@@ -259,6 +259,7 @@ class DatabaseTestHelper
             module_id TEXT,
             setting_key TEXT NOT NULL,
             setting_value TEXT,
+            default_value TEXT,
             setting_type TEXT NOT NULL DEFAULT \'text\',
             label TEXT NOT NULL,
             description TEXT NOT NULL,

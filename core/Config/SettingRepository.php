@@ -55,16 +55,32 @@ class SettingRepository
     ): void {
         $existing = $this->findByModuleAndKey($moduleId, $key);
         if ($existing !== null) {
+            // Self-heal default_value on every boot even for a row that
+            // already exists — the register() call site is the single
+            // source of truth for what a setting's declared default is, and
+            // Core\Maintenance\Task\ResetSettingsHandler trusts this column
+            // blindly. Without this, every setting registered before this
+            // column existed (or whose declared default later changed)
+            // would silently reset to NULL/empty instead of its real
+            // default the first time "Paramètres par défaut" runs.
+            if ($moduleId === null) {
+                $stmt = $this->pdo->prepare('UPDATE settings SET default_value = ? WHERE module_id IS NULL AND setting_key = ?');
+                $stmt->execute([$value, $key]);
+            } else {
+                $stmt = $this->pdo->prepare('UPDATE settings SET default_value = ? WHERE module_id = ? AND setting_key = ?');
+                $stmt->execute([$value, $moduleId, $key]);
+            }
             return;
         }
 
         $stmt = $this->pdo->prepare(
-            'INSERT INTO settings (module_id, setting_key, setting_value, setting_type, label, description, validation_regex, select_options, editable, sort_order)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+            'INSERT INTO settings (module_id, setting_key, setting_value, default_value, setting_type, label, description, validation_regex, select_options, editable, sort_order)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([
             $moduleId,
             $key,
+            $value,
             $value,
             $type,
             $label,
@@ -74,6 +90,19 @@ class SettingRepository
             $editable ? 1 : 0,
             $sortOrder,
         ]);
+    }
+
+    /**
+     * Resets every setting's value back to its declared default — module
+     * spec "Paramètres par défaut" (Core\Maintenance\Task\
+     * ResetSettingsHandler). A single UPDATE covering every row (core and
+     * every module), not filtered by editable — internal bookkeeping
+     * settings (e.g. scheduler_last_run) tolerate their default value fine,
+     * and the spec doesn't carve out an exception for them.
+     */
+    public function resetAllToDefaults(): void
+    {
+        $this->pdo->exec('UPDATE settings SET setting_value = default_value');
     }
 
     public function updateValue(?string $moduleId, string $key, string $value): void

@@ -129,6 +129,16 @@ class SettingService
         $this->cache = null;
     }
 
+    /**
+     * Resets every setting (core + every module) back to its declared
+     * default — see SettingRepository::resetAllToDefaults().
+     */
+    public function resetAllToDefaults(): void
+    {
+        $this->repository->resetAllToDefaults();
+        $this->clearCache();
+    }
+
     private function loadCache(): void
     {
         if ($this->cache !== null) {

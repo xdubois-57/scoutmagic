@@ -70,6 +70,20 @@ class SchedulerService
     }
 
     /**
+     * A single scheduled action by its own id — used by
+     * Core\Http\Controller\MaintenanceController::resetStatus() to poll a
+     * reset/restore operation's progress. Unlike find(), which looks up a
+     * pending row by module/task/reference, this returns any status
+     * (pending/processing/done/failed/canceled).
+     *
+     * @return array<string, mixed>|null
+     */
+    public function findById(int $id): ?array
+    {
+        return $this->repository->findById($id);
+    }
+
+    /**
      * All scheduled actions for a module/task key, any status, newest
      * run_at first — for a module's own "planned actions" list (see
      * SchedulerRepository::findByModuleAndTaskKey()).
