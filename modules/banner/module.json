@@ -2,7 +2,7 @@
   "id": "banner",
   "name": "Bannière",
   "description": "Affiche un message choisi aléatoirement parmi une liste de bannières configurables sur la page d'accueil.",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "enabled_by_default": false,
   "routes": [
     {

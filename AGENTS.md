@@ -101,6 +101,7 @@ Automated tests are **mandatory** for every feature, without exception.
 - Personal data columns: `BLOB` type, encrypted/decrypted only in Repository layer.
 - Blind index column alongside any encrypted field that needs exact-match search.
 - `schema.sql` is the single source of truth — no incremental migration files.
+- **Any edit to a module's `schema.sql` (new column, new table, changed default — anything, on any module that isn't brand new this same change) MUST bump that module's `version` in `module.json`, in the same change.** `ModuleManager::loadEnabledModules()` only re-applies a module's schema when the declared `version` is greater than the version recorded in the registry — editing `schema.sql` alone is silently a no-op on every already-enabled install (the column/table is created only on a fresh activation) and has caused real `Unknown column`/`PDOException` errors in production. `schema/core.sql` is different: it auto-migrates on every request regardless of any version, no bump needed there — this rule is specifically about *module* `schema.sql` files. Before finishing any task that touches a module's `schema.sql`, check its `module.json` version was bumped too.
 
 ## Display name convention
 
