@@ -23,6 +23,7 @@ use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Mail\DkimManager;
 use Core\Mail\MailServiceFactory;
+use Core\Maintenance\Task\AutoBackupHandler;
 use Core\Maintenance\Task\CheckUpdateHandler;
 use Core\Maintenance\Task\CreateBackupHandler;
 use Core\Maintenance\Task\FullResetHandler;
@@ -120,6 +121,7 @@ $runner->registerHandler('core', 'install_update', new InstallUpdateHandler());
 $runner->registerHandler('core', 'reset_settings', new ResetSettingsHandler());
 $runner->registerHandler('core', 'full_reset', new FullResetHandler());
 $runner->registerHandler('core', 'restore_backup', new RestoreBackupHandler());
+$runner->registerHandler('core', 'auto_backup', new AutoBackupHandler());
 
 // Web Push (Core\Notification) — same construction as public/index.php.
 // Null when VAPID keys aren't provisioned yet (e.g. this script running

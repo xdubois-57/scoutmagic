@@ -305,6 +305,12 @@ $settingService->register('update_download_url', '', 'url', 'URL de télécharge
 $settingService->register('update_dependencies_changed', '0', 'boolean', 'Dépendances modifiées (dernière release)',
     'Indique si composer.lock a changé entre la version installée et la dernière release connue. Géré automatiquement.',
     null, null, null, false, 117);
+$settingService->register('backup_auto_frequency', 'monthly', 'select', 'Fréquence des sauvegardes automatiques',
+    'Fréquence à laquelle une sauvegarde complète du site (base de données et fichiers, sans la galerie photo) est générée automatiquement en arrière-plan. « Aucune » désactive la sauvegarde automatique.',
+    null, null, ['none', 'daily', 'weekly', 'biweekly', 'monthly'], true, 118);
+$settingService->register('backup_auto_last_run', '', 'text', 'Dernière sauvegarde automatique',
+    'Horodatage de la dernière sauvegarde automatique effectuée avec succès. Géré automatiquement.',
+    null, null, null, false, 119);
 $settingService->register('scheduler_last_run', '0', 'number', 'Dernier passage du planificateur',
     'Horodatage Unix du dernier passage du planificateur de tâches. Géré automatiquement.',
     null, null, null, false, 200);
@@ -602,6 +608,15 @@ $schedulerRunner->registerHandler('core', 'install_update', new \Core\Maintenanc
 $schedulerRunner->registerHandler('core', 'reset_settings', new \Core\Maintenance\Task\ResetSettingsHandler());
 $schedulerRunner->registerHandler('core', 'full_reset', new \Core\Maintenance\Task\FullResetHandler());
 $schedulerRunner->registerHandler('core', 'restore_backup', new \Core\Maintenance\Task\RestoreBackupHandler());
+$schedulerRunner->registerHandler('core', 'auto_backup', new \Core\Maintenance\Task\AutoBackupHandler());
+
+// Bootstrap the recurring automatic backup — Task\AutoBackupHandler
+// re-schedules itself at the end of every run (see Task\CheckUpdateHandler
+// for the same self-rescheduling pattern), but the very first occurrence
+// needs an initial nudge.
+if ($schedulerService->find('core', 'auto_backup', 'auto') === null) {
+    $schedulerService->schedule('core', 'auto_backup', new DateTimeImmutable(), [], 'auto');
+}
 
 // Bootstrap the recurring daily update check — Task\CheckUpdateHandler
 // re-schedules itself for the next day at the end of every run, but the
@@ -741,6 +756,7 @@ $router->addRoute('GET', '/config/scheduled', ScheduledActionsController::class,
 $router->addRoute('GET', '/config/maintenance', MaintenanceController::class, 'index', 'admin');
 $router->addRoute('POST', '/config/maintenance/backup/database', MaintenanceController::class, 'createDatabaseBackup', 'admin');
 $router->addRoute('POST', '/config/maintenance/backup/full', MaintenanceController::class, 'createFullBackup', 'admin');
+$router->addRoute('POST', '/config/maintenance/backup/auto-frequency', MaintenanceController::class, 'updateAutoBackupFrequency', 'admin');
 $router->addRoute('GET', '/api/maintenance/backup-status/{id}', MaintenanceController::class, 'backupStatus', 'admin');
 $router->addRoute('POST', '/config/maintenance/update/install', MaintenanceController::class, 'installUpdate', 'admin');
 $router->addRoute('GET', '/api/maintenance/update-status/{id}', MaintenanceController::class, 'updateStatus', 'admin');

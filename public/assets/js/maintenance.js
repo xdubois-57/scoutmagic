@@ -1,3 +1,29 @@
+// Configuration > Maintenance — "Sauvegarde automatique" frequency select:
+// auto-saves on change (same pattern as the banner module's per-item
+// visibility select's JS).
+(function () {
+    var select = document.getElementById('auto-backup-frequency');
+    if (!select) return;
+
+    var saved = document.getElementById('auto-backup-frequency-saved');
+    var csrfInput = document.querySelector('input[name="_csrf_token"]');
+
+    select.addEventListener('change', function () {
+        fetch('/config/maintenance/backup/auto-frequency', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ frequency: select.value, _csrf_token: csrfInput ? csrfInput.value : '' })
+        })
+            .then(function (res) { return res.json(); })
+            .then(function (data) {
+                if (data.success && saved) {
+                    saved.classList.remove('d-none');
+                    setTimeout(function () { saved.classList.add('d-none'); }, 1500);
+                }
+            });
+    });
+})();
+
 // Configuration > Maintenance — "Sauvegarde complète" form: submits, then
 // polls GET /api/maintenance/backup-status/{id} (same setInterval/
 // clearInterval pattern as public/assets/js/auth.js's magic-link polling)

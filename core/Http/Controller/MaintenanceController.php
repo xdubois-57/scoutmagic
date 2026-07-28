@@ -44,6 +44,9 @@ class MaintenanceController extends AbstractController
 
     private const RESTORE_UPLOAD_MAX_BYTES = 500 * 1024 * 1024;
 
+    /** @var string[] */
+    private const AUTO_BACKUP_FREQUENCIES = ['none', 'daily', 'weekly', 'biweekly', 'monthly'];
+
     public function __construct(
         protected Environment $twig,
         private BackupService $backupService,
@@ -80,6 +83,8 @@ class MaintenanceController extends AbstractController
             'backups' => $this->backupRepository->findRecent(self::KEEP_BACKUPS),
             'gallery_enabled' => in_array('gallery', $this->moduleManager->getEnabledModuleIds(), true),
             'zip_encryption_supported' => $this->backupService->supportsZipEncryption(),
+            'backup_auto_frequency' => (string) ($this->settingService->get('backup_auto_frequency') ?: 'monthly'),
+            'backup_auto_last_run' => (string) ($this->settingService->get('backup_auto_last_run') ?: ''),
         ]);
     }
 
@@ -254,6 +259,38 @@ class MaintenanceController extends AbstractController
         );
 
         return $this->json(['success' => true, 'backup_id' => $backupId]);
+    }
+
+    /**
+     * POST /config/maintenance/backup/auto-frequency (AJAX, JSON) —
+     * auto-saved on change (same pattern as the banner module's per-item
+     * visibility select). Deliberately its own admin-level endpoint rather
+     * than the generic superadmin-only POST /config/settings/update, since
+     * the Maintenance page itself is role_min admin.
+     *
+     * @param array<string, string> $params
+     */
+    public function updateAutoBackupFrequency(Request $request, array $params): Response
+    {
+        $data = json_decode($request->getRawBody(), true);
+        if (!is_array($data) || !CsrfGuard::validateToken((string) ($data['_csrf_token'] ?? ''))) {
+            return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
+        }
+
+        $frequency = (string) ($data['frequency'] ?? '');
+        if (!in_array($frequency, self::AUTO_BACKUP_FREQUENCIES, true)) {
+            return $this->json(['success' => false, 'error' => 'Fréquence invalide.'], 400);
+        }
+
+        $userId = AuthSession::getUserAccountId();
+        $this->settingService->set('backup_auto_frequency', $frequency);
+
+        $this->journalService->log(
+            'core', 'setting_changed', 'info', 'Fréquence de sauvegarde automatique modifiée',
+            ['key' => 'backup_auto_frequency', 'new_value' => $frequency], $userId
+        );
+
+        return $this->json(['success' => true]);
     }
 
     /**

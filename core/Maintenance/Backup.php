@@ -7,7 +7,7 @@ namespace Core\Maintenance;
 class Backup
 {
     /** @var string[] */
-    public const TYPES = ['database', 'full_config', 'full_no_gallery', 'full_with_gallery', 'auto_update', 'auto_reset'];
+    public const TYPES = ['database', 'full_config', 'full_no_gallery', 'full_with_gallery', 'auto_update', 'auto_reset', 'auto_backup'];
 
     /** @var string[] */
     public const STATUSES = ['pending', 'in_progress', 'completed', 'failed'];

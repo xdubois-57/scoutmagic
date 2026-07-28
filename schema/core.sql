@@ -426,7 +426,7 @@ CREATE TABLE notifications (
 -- (auto_update/auto_reset, iterations 3/4) — no admin to notify.
 CREATE TABLE backups (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    type ENUM('database', 'full_config', 'full_no_gallery', 'full_with_gallery', 'auto_update', 'auto_reset') NOT NULL,
+    type ENUM('database', 'full_config', 'full_no_gallery', 'full_with_gallery', 'auto_update', 'auto_reset', 'auto_backup') NOT NULL,
     file_id INT UNSIGNED,
     db_dump_file_id INT UNSIGNED,
     status ENUM('pending', 'in_progress', 'completed', 'failed') NOT NULL DEFAULT 'pending',

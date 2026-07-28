@@ -92,6 +92,26 @@
         <div class="card-body">
             <h2 class="h5 mb-3">Sauvegardes</h2>
 
+            <div class="d-flex align-items-center gap-2 flex-wrap mb-1">
+                <label class="form-label small mb-0" for="auto-backup-frequency">Sauvegarde automatique complète (sans galerie)</label>
+                <select class="form-select form-select-sm w-auto" id="auto-backup-frequency">
+                    <option value="none" {{ backup_auto_frequency == 'none' ? 'selected' : '' }}>Aucune</option>
+                    <option value="daily" {{ backup_auto_frequency == 'daily' ? 'selected' : '' }}>Quotidienne</option>
+                    <option value="weekly" {{ backup_auto_frequency == 'weekly' ? 'selected' : '' }}>Hebdomadaire</option>
+                    <option value="biweekly" {{ backup_auto_frequency == 'biweekly' ? 'selected' : '' }}>Toutes les 2 semaines</option>
+                    <option value="monthly" {{ backup_auto_frequency == 'monthly' ? 'selected' : '' }}>Mensuelle</option>
+                </select>
+                <span class="small text-success d-none" id="auto-backup-frequency-saved">Enregistré</span>
+            </div>
+            <p class="small text-body-secondary mb-3">
+                {% if backup_auto_last_run %}
+                    Dernière sauvegarde automatique : {{ backup_auto_last_run }}.
+                {% else %}
+                    Aucune sauvegarde automatique effectuée pour le moment.
+                {% endif %}
+                Comptée dans les 5 sauvegardes conservées ci-dessous.
+            </p>
+
             {% if not zip_encryption_supported %}
                 <div class="alert alert-warning small">
                     Le serveur ne supporte pas le chiffrement des archives — la sauvegarde complète est indisponible.
@@ -179,6 +199,7 @@
                                         {% elseif backup.type == 'full_with_gallery' %}Site complet, avec galerie
                                         {% elseif backup.type == 'auto_update' %}Automatique (avant mise à jour)
                                         {% elseif backup.type == 'auto_reset' %}Automatique (avant réinitialisation)
+                                        {% elseif backup.type == 'auto_backup' %}Automatique (planifiée)
                                         {% endif %}
                                     </td>
                                     <td class="small text-nowrap">{{ backup.createdAt }}</td>

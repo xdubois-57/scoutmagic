@@ -57,6 +57,8 @@ class MaintenanceControllerTest extends TestCase
             $this->settingService->register($key, '', 'text', $key, $key);
         }
         $this->settingService->register('update_dependencies_changed', '0', 'boolean', 'update_dependencies_changed', 'update_dependencies_changed');
+        $this->settingService->register('backup_auto_frequency', 'monthly', 'select', 'L', 'D', null, null, ['none', 'daily', 'weekly', 'biweekly', 'monthly']);
+        $this->settingService->register('backup_auto_last_run', '', 'text', 'L', 'D');
 
         $connection = new Connection('127.0.0.1', 3306, 'nonexistent_db', 'nobody', '');
         $storagePath = sys_get_temp_dir() . '/maintenance_controller_test_' . uniqid();
@@ -305,6 +307,37 @@ class MaintenanceControllerTest extends TestCase
 
         $decoded = json_decode($response->getBody(), true);
         $this->assertSame('pending', $decoded['status']);
+    }
+
+    public function testUpdateAutoBackupFrequencyValidatesCsrf(): void
+    {
+        $response = $this->controller->updateAutoBackupFrequency($this->jsonRequest(['frequency' => 'weekly', '_csrf_token' => 'bad']), []);
+
+        $this->assertSame(400, $response->getStatusCode());
+    }
+
+    public function testUpdateAutoBackupFrequencyRejectsInvalidValue(): void
+    {
+        $token = $this->csrfToken();
+
+        $response = $this->controller->updateAutoBackupFrequency($this->jsonRequest(['frequency' => 'yearly', '_csrf_token' => $token]), []);
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertFalse($decoded['success']);
+        $this->settingService->clearCache();
+        $this->assertSame('monthly', $this->settingService->get('backup_auto_frequency'));
+    }
+
+    public function testUpdateAutoBackupFrequencySavesTheValue(): void
+    {
+        $token = $this->csrfToken();
+
+        $response = $this->controller->updateAutoBackupFrequency($this->jsonRequest(['frequency' => 'weekly', '_csrf_token' => $token]), []);
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertTrue($decoded['success']);
+        $this->settingService->clearCache();
+        $this->assertSame('weekly', $this->settingService->get('backup_auto_frequency'));
     }
 
     public function testResetSettingsValidatesCsrf(): void
