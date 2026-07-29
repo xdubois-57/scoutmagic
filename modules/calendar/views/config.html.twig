@@ -143,6 +143,31 @@
                 </div>
             </div>
         {% endfor %}
+
+        {# "Unité complète" is not a real, separate calendar row (no
+           visibility, no events of its own) — it's the combined ICS feed of
+           every calendar above. Shown here as a read-only entry, same
+           visual family as "Animateurs", purely so an admin finds every
+           subscribable link in one place instead of a separate section. #}
+        <div class="border rounded-3 p-3">
+            <div class="d-flex align-items-center gap-2 flex-wrap mb-2">
+                <span class="fw-semibold">Unité complète</span>
+                <span class="badge bg-secondary-subtle text-secondary-emphasis">Lecture seule — combine tout</span>
+            </div>
+            <p class="text-body-secondary small mb-2">
+                Regroupe les évènements de tous les calendriers ci-dessus (sections et supplémentaires).
+            </p>
+            <div class="input-group input-group-sm mb-2" style="max-width:520px;">
+                <input type="text" class="form-control" id="unit-ics-link" readonly
+                       value="{{ param('base_url')|trim('/') }}/calendar/feed/unit/{{ unit_feed_token }}.ics">
+                <button type="button" class="btn btn-outline-secondary" id="copy-unit-link">
+                    <i class="bi bi-clipboard"></i> Copier
+                </button>
+            </div>
+            <button type="button" class="btn btn-sm btn-outline-danger" id="regenerate-unit-token">
+                Régénérer
+            </button>
+        </div>
     </div>
 
     <div class="border rounded-3 p-3 d-flex align-items-center gap-2 mb-4" id="add-calendar-form">
@@ -156,26 +181,6 @@
             <i class="bi bi-plus-lg"></i> Ajouter
         </button>
     </div>
-
-    <hr class="my-4">
-
-    {# 5.4 Unit ICS link #}
-    <h2 class="h5 mb-3">Lien ICS — Unité complète</h2>
-    <p class="text-body-secondary small mb-2">
-        Ce lien regroupe les évènements de tous les calendriers configurés (sections et supplémentaires).
-        Compatible avec tous les clients courants : iPhone, Google Calendar, Android, macOS Calendar,
-        Outlook, Thunderbird.
-    </p>
-    <div class="input-group input-group-sm mb-2" style="max-width:520px;">
-        <input type="text" class="form-control" id="unit-ics-link" readonly
-               value="{{ param('base_url')|trim('/') }}/calendar/feed/unit/{{ unit_feed_token }}.ics">
-        <button type="button" class="btn btn-outline-secondary" id="copy-unit-link">
-            <i class="bi bi-clipboard"></i> Copier
-        </button>
-    </div>
-    <button type="button" class="btn btn-sm btn-outline-danger" id="regenerate-unit-token">
-        Régénérer
-    </button>
 {% endblock %}
 
 {% block scripts %}
