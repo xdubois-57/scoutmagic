@@ -15,17 +15,31 @@ use Aws\S3\S3Client;
  */
 class S3StorageBackend implements StorageBackendInterface
 {
+    /**
+     * Dedicated, non-colliding prefix for testConnection()'s canary object —
+     * every real album lives under a numeric "{albumId}/..." prefix, so a
+     * leading dot can never collide with one.
+     */
+    private const HEALTH_CHECK_PREFIX = '.scoutmagic-healthcheck';
+
     private S3Client $client;
 
+    /**
+     * $client is normally left null (built from the connection parameters
+     * below) — injectable only so tests can substitute an SDK MockHandler-
+     * backed client to exercise testConnection()'s put/get/delete failure
+     * paths without a real bucket.
+     */
     public function __construct(
         string $endpoint,
         string $region,
         private string $bucket,
         string $accessKey,
         string $secretKey,
-        private ?string $publicUrl = null
+        private ?string $publicUrl = null,
+        ?S3Client $client = null
     ) {
-        $this->client = new S3Client([
+        $this->client = $client ?? new S3Client([
             'version' => 'latest',
             'region' => $region !== '' ? $region : 'auto',
             'endpoint' => self::stripBucketFromEndpointHost($endpoint, $this->bucket),
@@ -151,23 +165,74 @@ class S3StorageBackend implements StorageBackendInterface
     }
 
     /**
-     * Attempts a headBucket call to verify the credentials/endpoint/bucket
-     * are all correct — Controller\GalleryConfigController::testConnection().
+     * Exercises every operation the app actually performs against this
+     * location, not just read access — a headBucket-only check can report
+     * "ok" for credentials that can list/read a bucket but are denied
+     * PutObject (this happened for real: a Scaleway policy scoped to
+     * read-only let every prior health check pass right up until a real
+     * upload/migration hit AccessDenied). Writes a small canary object
+     * under HEALTH_CHECK_PREFIX (never collides with a real album's numeric
+     * prefix), reads it back to catch silent write corruption, then removes
+     * it via deletePrefix() — the exact same list-then-batch-delete call
+     * production code uses to clean up an album — so ListObjectsV2 and
+     * DeleteObjects permissions are verified too, not just PutObject/
+     * GetObject. Called from Controller\GalleryConfigController::
+     * testConnection() (admin-triggered) and Service\StorageLocationService
+     * ::checkNow() (TTL-gated background refresh).
      *
-     * @return string|null null on success, otherwise the underlying SDK
-     *                      error message (never contains the secret key —
-     *                      only ever the access key id, endpoint and bucket,
-     *                      which are not secrets) so the admin can actually
-     *                      see why a provider rejected the request instead
-     *                      of a single generic message for every cause.
+     * @return string|null null on success, otherwise a message identifying
+     *                      which operation failed and the underlying SDK
+     *                      error (never contains the secret key — only ever
+     *                      the access key id, endpoint and bucket, which are
+     *                      not secrets) so the admin can see exactly why a
+     *                      provider rejected the request instead of a single
+     *                      generic message for every cause.
      */
     public function testConnection(): ?string
     {
         try {
             $this->client->headBucket(['Bucket' => $this->bucket]);
-            return null;
         } catch (\Throwable $e) {
             return $e->getMessage();
+        }
+
+        $key = self::HEALTH_CHECK_PREFIX . '/' . bin2hex(random_bytes(8)) . '.txt';
+        $content = 'scoutmagic-healthcheck-' . bin2hex(random_bytes(8));
+
+        try {
+            $this->put($key, $content, 'text/plain');
+        } catch (\Throwable $e) {
+            return "Écriture impossible (l'accès en lecture fonctionne, mais pas en écriture) : " . $e->getMessage();
+        }
+
+        try {
+            $readBack = $this->get($key);
+        } catch (\Throwable $e) {
+            $this->cleanupHealthCheckObject($key);
+            return "Lecture impossible juste après l'écriture : " . $e->getMessage();
+        }
+        if ($readBack !== $content) {
+            $this->cleanupHealthCheckObject($key);
+            return 'Le contenu relu après écriture diffère de ce qui a été envoyé (corruption silencieuse).';
+        }
+
+        try {
+            $this->deletePrefix(self::HEALTH_CHECK_PREFIX);
+        } catch (\Throwable $e) {
+            return "Suppression impossible (list/delete) : " . $e->getMessage();
+        }
+
+        return null;
+    }
+
+    private function cleanupHealthCheckObject(string $key): void
+    {
+        try {
+            $this->delete($key);
+        } catch (\Throwable) {
+            // Best effort — the connection is already being reported as
+            // broken via the exception above; a leftover few-byte canary
+            // object is harmless.
         }
     }
 }
