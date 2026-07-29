@@ -106,9 +106,10 @@
 
     <h2 class="h4">Sections</h2>
     <p class="text-body-secondary mb-4">
-        Renommez une section, changez sa couleur ou masquez-la des
-        sélecteurs de section du site (Staffs, Trombinoscope, calendrier,
-        statistiques, page publique Sections). Par défaut, la couleur suit
+        Renommez une section, définissez son email organisationnel (utilisé
+        pour les communications avec les parents), changez sa couleur ou
+        masquez-la des sélecteurs de section du site (Staffs, Trombinoscope,
+        calendrier, statistiques, page publique Sections). Par défaut, la couleur suit
         la branche d'âge (Baladins, Louveteaux, Éclaireurs, Pionniers) ou
         est celle du Staff d'U ; le bouton <i class="bi bi-arrow-counterclockwise"></i>
         efface une couleur personnalisée et revient à cette valeur par
@@ -129,6 +130,9 @@
                             <input type="text" class="form-control form-control-sm section-name-input flex-grow-1"
                                    value="{{ section.name }}" placeholder="{{ section.desk_code }}"
                                    style="min-width:120px;">
+                            <input type="email" class="form-control form-control-sm section-email-input flex-grow-1"
+                                   value="{{ section.email }}" placeholder="section@unite-exemple.be"
+                                   style="min-width:160px;">
                             <div class="d-flex align-items-center gap-1">
                                 <input type="color" class="form-control form-control-color section-color-input"
                                        value="{{ section.effective_color }}" title="Couleur de la section"
@@ -215,6 +219,7 @@ document.querySelectorAll('.flags-group').forEach(group => {
 document.querySelectorAll('.section-row').forEach(row => {
     const sectionId = row.dataset.id;
     const nameInput = row.querySelector('.section-name-input');
+    const emailInput = row.querySelector('.section-email-input');
     const visibleInput = row.querySelector('.section-visible-input');
     const csrf = () => document.querySelector('meta[name="csrf-token"]')?.content;
 
@@ -227,6 +232,20 @@ document.querySelectorAll('.section-row').forEach(row => {
         });
         const data = await res.json();
         nameInput.disabled = false;
+        if (!data.success) {
+            alert(data.error);
+        }
+    });
+
+    emailInput.addEventListener('blur', async () => {
+        emailInput.disabled = true;
+        const res = await fetch('/config/functions/section-email', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ section_id: parseInt(sectionId), email: emailInput.value, _csrf_token: csrf() })
+        });
+        const data = await res.json();
+        emailInput.disabled = false;
         if (!data.success) {
             alert(data.error);
         }

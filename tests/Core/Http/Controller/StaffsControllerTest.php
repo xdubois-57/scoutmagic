@@ -215,46 +215,6 @@ class StaffsControllerTest extends TestCase
         $this->assertStringNotContainsString('Section Lou', $body);
     }
 
-    public function testUpdateSectionSucceedsForChief(): void
-    {
-        $branchId = $this->createBranch('BAL', 'Baladins', 1);
-        $sectionId = $this->createSection('BAL01', $branchId, 'Old Name');
-
-        $token = bin2hex(random_bytes(32));
-        $_SESSION['_csrf_token'] = $token;
-
-        $request = $this->createJsonRequest([
-            'section_id' => $sectionId,
-            'name' => 'New Name',
-            'email' => 'new@test.be',
-            '_csrf_token' => $token,
-        ]);
-        $response = $this->controller->updateSection($request, []);
-
-        $decoded = json_decode($response->getBody(), true);
-        $this->assertTrue($decoded['success']);
-
-        $section = $this->sectionService->getSection($sectionId);
-        $this->assertSame('New Name', $section['name']);
-        $this->assertSame('new@test.be', $section['email']);
-    }
-
-    public function testUpdateSectionValidatesCsrf(): void
-    {
-        $branchId = $this->createBranch('BAL', 'Baladins', 1);
-        $sectionId = $this->createSection('BAL01', $branchId);
-
-        $request = $this->createJsonRequest([
-            'section_id' => $sectionId,
-            'name' => 'Test',
-            'email' => 'test@test.be',
-            '_csrf_token' => 'invalid-token',
-        ]);
-        $response = $this->controller->updateSection($request, []);
-
-        $this->assertSame(403, $response->getStatusCode());
-    }
-
     public function testChiefSeesUnitStaffWhenNoRealSections(): void
     {
         // A chief always sees "Staff d'U", even with no imported sections —
@@ -280,46 +240,10 @@ class StaffsControllerTest extends TestCase
         $body = $response->getBody();
         // Static template text is not HTML-escaped, so the apostrophe is literal.
         $this->assertStringContainsString("n'a pas encore de nom configuré", $body);
-    }
-
-    public function testUpdateSectionLogsToJournal(): void
-    {
-        $branchId = $this->createBranch('BAL', 'Baladins', 1);
-        $sectionId = $this->createSection('BAL01', $branchId, 'Old');
-
-        $token = bin2hex(random_bytes(32));
-        $_SESSION['_csrf_token'] = $token;
-
-        $request = $this->createJsonRequest([
-            'section_id' => $sectionId,
-            'name' => 'New',
-            'email' => 'new@test.be',
-            '_csrf_token' => $token,
-        ]);
-        $this->controller->updateSection($request, []);
-
-        // Verify journal entry
-        $stmt = $this->pdo->query("SELECT * FROM event_log WHERE event_type = 'section_info_updated'");
-        $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
-        $this->assertCount(1, $rows);
-        $this->assertStringContainsString('BAL01', $rows[0]['description']);
-    }
-
-    public function testUpdateSectionWithNonExistentSectionReturnsError(): void
-    {
-        $token = bin2hex(random_bytes(32));
-        $_SESSION['_csrf_token'] = $token;
-
-        $request = $this->createJsonRequest([
-            'section_id' => 9999,
-            'name' => 'Test',
-            '_csrf_token' => $token,
-        ]);
-        $response = $this->controller->updateSection($request, []);
-
-        $decoded = json_decode($response->getBody(), true);
-        $this->assertFalse($decoded['success']);
-        $this->assertSame(400, $response->getStatusCode());
+        // Renaming a section is no longer done from this page — the
+        // warning must point chiefs to Config Desk instead of a
+        // now-removed inline edit affordance.
+        $this->assertStringContainsString('Config Desk', $body);
     }
 
     public function testIndexPassesActiveBadgesToChief(): void

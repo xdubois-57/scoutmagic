@@ -497,6 +497,78 @@ class FunctionsControllerTest extends TestCase
         $this->assertSame('Section introuvable.', $decoded['error']);
     }
 
+    public function testUpdateSectionEmailSetsEmail(): void
+    {
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+        $token = bin2hex(random_bytes(32));
+        $_SESSION['_csrf_token'] = $token;
+        $_SESSION['user'] = ['user_account_id' => 1, 'email' => 'admin@test.com', 'role' => 'admin'];
+
+        $sectionId = $this->createSection('BAL01', 'Baladins', 'Old Name');
+
+        $request = $this->createJsonRequest(['section_id' => $sectionId, 'email' => 'section@test.be', '_csrf_token' => $token]);
+        $response = $this->controller->updateSectionEmail($request, []);
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertTrue($decoded['success']);
+        $this->assertSame('section@test.be', $this->sectionService->getSection($sectionId)['email']);
+    }
+
+    public function testUpdateSectionEmailPreservesName(): void
+    {
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+        $token = bin2hex(random_bytes(32));
+        $_SESSION['_csrf_token'] = $token;
+        $_SESSION['user'] = ['user_account_id' => 1, 'email' => 'admin@test.com', 'role' => 'admin'];
+
+        $sectionId = $this->createSection('BAL01', 'Baladins', 'Old Name');
+
+        $request = $this->createJsonRequest(['section_id' => $sectionId, 'email' => 'section@test.be', '_csrf_token' => $token]);
+        $this->controller->updateSectionEmail($request, []);
+
+        $this->assertSame('Old Name', $this->sectionService->getSection($sectionId)['name']);
+    }
+
+    public function testUpdateSectionEmailWithUnknownSectionReturnsError(): void
+    {
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+        $token = bin2hex(random_bytes(32));
+        $_SESSION['_csrf_token'] = $token;
+
+        $request = $this->createJsonRequest(['section_id' => 9999, 'email' => 'section@test.be', '_csrf_token' => $token]);
+        $response = $this->controller->updateSectionEmail($request, []);
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertFalse($decoded['success']);
+        $this->assertSame('Section introuvable.', $decoded['error']);
+    }
+
+    public function testUpdateSectionEmailLogsToJournal(): void
+    {
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+        $token = bin2hex(random_bytes(32));
+        $_SESSION['_csrf_token'] = $token;
+        $_SESSION['user'] = ['user_account_id' => 1, 'email' => 'admin@test.com', 'role' => 'admin'];
+
+        $sectionId = $this->createSection('BAL01', 'Baladins', 'Old Name');
+
+        $request = $this->createJsonRequest(['section_id' => $sectionId, 'email' => 'section@test.be', '_csrf_token' => $token]);
+        $this->controller->updateSectionEmail($request, []);
+
+        $stmt = $this->pdo->query("SELECT * FROM event_log WHERE event_type = 'section_info_updated'");
+        $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+        $this->assertCount(1, $rows);
+        $this->assertStringContainsString('BAL01', $rows[0]['description']);
+    }
+
     public function testUpdateSectionVisibilityHidesSection(): void
     {
         if (session_status() === PHP_SESSION_NONE) {

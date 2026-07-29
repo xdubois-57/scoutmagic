@@ -226,7 +226,8 @@ class FunctionsController extends AbstractController
 
     /**
      * POST /config/functions/section-name — rename a section (AJAX, JSON).
-     * Leaves the section's email untouched (not editable from this page).
+     * Leaves the section's email untouched (updateSectionEmail() below
+     * is the only other writer of that field).
      *
      * @param array<string, string> $params
      */
@@ -257,6 +258,47 @@ class FunctionsController extends AbstractController
             'info',
             "Nom de la section {$section['desk_code']} modifié",
             ['section_id' => $sectionId, 'old_name' => $section['name'], 'new_name' => $name],
+            AuthSession::getUserAccountId()
+        );
+
+        return $this->json(['success' => true]);
+    }
+
+    /**
+     * POST /config/functions/section-email — set a section's organisational
+     * email (AJAX, JSON). Leaves the section's name untouched (this is the
+     * only page that manages either field — see StaffsController, which
+     * deliberately does not).
+     *
+     * @param array<string, string> $params
+     */
+    public function updateSectionEmail(Request $request, array $params): Response
+    {
+        $json = json_decode($request->getRawBody(), true);
+        if (!is_array($json)) {
+            return $this->json(['success' => false, 'error' => 'Requête invalide.']);
+        }
+
+        $csrfToken = (string) ($json['_csrf_token'] ?? '');
+        if (!CsrfGuard::validateToken($csrfToken)) {
+            return $this->json(['success' => false, 'error' => 'Jeton CSRF invalide.']);
+        }
+
+        $sectionId = isset($json['section_id']) ? (int) $json['section_id'] : 0;
+        $section = $this->sectionService->getSection($sectionId);
+        if ($section === null) {
+            return $this->json(['success' => false, 'error' => 'Section introuvable.']);
+        }
+
+        $email = isset($json['email']) ? (string) $json['email'] : null;
+        $this->sectionService->updateSectionInfo($sectionId, $section['name'], $email);
+
+        $this->journalService->log(
+            'core',
+            'section_info_updated',
+            'info',
+            "Email de la section {$section['desk_code']} modifié",
+            ['section_id' => $sectionId, 'old_email' => $section['email'], 'new_email' => $email],
             AuthSession::getUserAccountId()
         );
 

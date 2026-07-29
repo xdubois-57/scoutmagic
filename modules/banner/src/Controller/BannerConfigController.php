@@ -4,10 +4,12 @@ declare(strict_types=1);
 
 namespace Modules\Banner\Controller;
 
+use Core\Config\ScoutYearService;
 use Core\Http\Controller\AbstractController;
 use Core\Http\Request;
 use Core\Http\Response;
 use Core\Journal\JournalService;
+use Core\Member\MemberService;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Modules\Banner\Service\BannerException;
@@ -15,7 +17,15 @@ use Modules\Banner\Service\BannerService;
 use Twig\Environment;
 
 /**
- * /config/banner — the "Bannière" configuration page (module spec §2).
+ * /config/banner — the "Bannière" configuration page (module spec §2),
+ * restricted to chefs d'U specifically (Core\Member\MemberService::
+ * isUnitChief() — STAFFDU section membership, not merely Role::ADMIN,
+ * which an unrelated admin-role function could also carry). module.json's
+ * route role_min stays 'admin' (matching Espace Admin's own menu-section
+ * floor — a plain chief never even sees this menu), the finer check below
+ * narrows it further at runtime, same precedent as Modules\Retro\Service\
+ * BoardService's own moderation/visibility gating.
+ *
  * Each banner's own formatted text is saved through the generic core
  * endpoint (Core\Http\Controller\EditableContentController::updateField(),
  * POST /api/rich-text-content) via partials/rich_text_field.html.twig —
@@ -27,7 +37,9 @@ class BannerConfigController extends AbstractController
     public function __construct(
         protected Environment $twig,
         private BannerService $bannerService,
-        private JournalService $journalService
+        private JournalService $journalService,
+        private MemberService $memberService,
+        private ScoutYearService $scoutYearService
     ) {
     }
 
@@ -36,6 +48,11 @@ class BannerConfigController extends AbstractController
      */
     public function index(Request $request, array $params): Response
     {
+        $forbidden = $this->requireUnitChief();
+        if ($forbidden !== null) {
+            return $forbidden;
+        }
+
         return $this->render('@banner/config.html.twig', [
             'banners' => $this->bannerService->getAllForConfig(),
         ]);
@@ -189,6 +206,11 @@ class BannerConfigController extends AbstractController
      */
     private function decodeAndAuthorize(Request $request): array|Response
     {
+        $forbidden = $this->requireUnitChief();
+        if ($forbidden !== null) {
+            return $forbidden;
+        }
+
         $data = json_decode($request->getRawBody(), true);
         if (!is_array($data)) {
             return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
@@ -200,5 +222,16 @@ class BannerConfigController extends AbstractController
         }
 
         return $data;
+    }
+
+    private function requireUnitChief(): ?Response
+    {
+        $email = AuthSession::getEmail();
+        $scoutYearId = $this->scoutYearService->getCurrentYear()['id'];
+        if ($email === null || !$this->memberService->isUnitChief($email, $scoutYearId)) {
+            return (new Response('', 403))->setBody('Forbidden');
+        }
+
+        return null;
     }
 }

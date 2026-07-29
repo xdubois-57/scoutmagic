@@ -5,11 +5,13 @@ declare(strict_types=1);
 namespace Tests\Modules\Banner\Controller;
 
 use Core\Config\AppConfig;
+use Core\Config\ScoutYearService;
 use Core\Http\FrontController;
 use Core\Http\Request;
 use Core\Http\Router;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
+use Core\Member\MemberService;
 use Core\Security\AuthSession;
 use Core\View\EditableContentRepository;
 use Core\View\EditableContentService;
@@ -28,6 +30,8 @@ class BannerConfigControllerTest extends TestCase
     private BannerConfigController $controller;
     private BannerService $bannerService;
     private Environment $twig;
+    private MemberService $memberService;
+    private ScoutYearService $scoutYearService;
 
     protected function setUp(): void
     {
@@ -75,7 +79,17 @@ class BannerConfigControllerTest extends TestCase
         $this->twig->addFunction(new TwigFunction('csrf_token', fn() => 'test'));
         $this->twig->addFunction(new TwigFunction('file_url', fn() => ''));
 
-        $this->controller = new BannerConfigController($this->twig, $this->bannerService, $journalService);
+        // Real STAFFDU-membership logic is fully tested against real
+        // fixtures by Core\Member\MemberServiceTest — here it's stubbed
+        // to "authorized" by default so every existing CRUD test below
+        // keeps exercising its own behaviour, not this gate. The dedicated
+        // denial tests further down override this per-instance.
+        $this->memberService = $this->createMock(MemberService::class);
+        $this->memberService->method('isUnitChief')->willReturn(true);
+        $this->scoutYearService = $this->createMock(ScoutYearService::class);
+        $this->scoutYearService->method('getCurrentYear')->willReturn(['id' => 1, 'label' => '2025-2026', 'start_date' => '2025-09-01', 'end_date' => '2026-08-31']);
+
+        $this->controller = new BannerConfigController($this->twig, $this->bannerService, $journalService, $this->memberService, $this->scoutYearService);
 
         if (session_status() === PHP_SESSION_NONE) {
             session_start();
@@ -277,10 +291,17 @@ class BannerConfigControllerTest extends TestCase
     }
 
     /**
-     * RBAC boundary for /config/banner (Espace des chefs menu, role_min
-     * admin "Chef d'Unité"): admin/superadmin -> 200, chief -> 403.
+     * RBAC boundary for /config/banner (Espace admin menu, router-level
+     * role_min "admin"): admin/superadmin -> 200 (as long as they're also
+     * a chef d'unité, stubbed true on $this->controller here), chief ->
+     * 403 at the router before the controller is even reached.
      */
     private function buildFrontController(): FrontController
+    {
+        return $this->buildFrontControllerWith($this->controller);
+    }
+
+    private function buildFrontControllerWith(BannerConfigController $controller): FrontController
     {
         $router = new Router();
         $router->addRoute('GET', '/config/banner', BannerConfigController::class, 'index', 'admin');
@@ -290,7 +311,7 @@ class BannerConfigControllerTest extends TestCase
         $config = new AppConfig($configFile);
 
         $fc = new FrontController($router, $this->twig, $config);
-        $fc->registerController(BannerConfigController::class, $this->controller);
+        $fc->registerController(BannerConfigController::class, $controller);
 
         return $fc;
     }
@@ -318,6 +339,43 @@ class BannerConfigControllerTest extends TestCase
         AuthSession::login(1, 'chief@test.be', 'chief');
 
         $response = $this->buildFrontController()->handle(new Request('GET', '/config/banner', [], [], [], []));
+
+        $this->assertSame(403, $response->getStatusCode());
+    }
+
+    /**
+     * The finer, controller-level restriction (module spec: "must be
+     * restricted to chefs d'U") — an admin-role session that is NOT a
+     * chef d'unité (e.g. an admin function unrelated to STAFFDU) must
+     * still be denied even though it clears the router's role_min='admin'
+     * floor.
+     */
+    public function testAdminWhoIsNotUnitChiefIsDenied(): void
+    {
+        $memberService = $this->createMock(MemberService::class);
+        $memberService->method('isUnitChief')->willReturn(false);
+        $controller = new BannerConfigController(
+            $this->twig, $this->bannerService, new JournalService(new JournalRepository($this->pdo)),
+            $memberService, $this->scoutYearService
+        );
+
+        AuthSession::login(1, 'admin@test.be', 'admin');
+        $response = $this->buildFrontControllerWith($controller)->handle(new Request('GET', '/config/banner', [], [], [], []));
+
+        $this->assertSame(403, $response->getStatusCode());
+    }
+
+    public function testActionsRejectAnAdminWhoIsNotUnitChief(): void
+    {
+        $memberService = $this->createMock(MemberService::class);
+        $memberService->method('isUnitChief')->willReturn(false);
+        $controller = new BannerConfigController(
+            $this->twig, $this->bannerService, new JournalService(new JournalRepository($this->pdo)),
+            $memberService, $this->scoutYearService
+        );
+
+        $token = $this->csrfToken();
+        $response = $controller->add($this->jsonRequest(['_csrf_token' => $token]), []);
 
         $this->assertSame(403, $response->getStatusCode());
     }

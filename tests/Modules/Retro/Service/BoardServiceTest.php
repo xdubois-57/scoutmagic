@@ -7,11 +7,8 @@ namespace Tests\Modules\Retro\Service;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Mail\MailService;
-use Core\Member\MemberFunctionInfo;
-use Core\Member\MemberProfile;
 use Core\Member\MemberService;
 use Core\Member\SectionService;
-use Core\Member\UnitStaffSectionService;
 use Core\Scheduler\SchedulerRepository;
 use Core\Scheduler\SchedulerService;
 use Core\Security\Role;
@@ -137,6 +134,40 @@ class BoardServiceTest extends TestCase
 
         // Server-resolved end date wins over the client-submitted manual date.
         $this->assertSame('2026-08-10', $board->boardDate);
+    }
+
+    /**
+     * Regression test: the create/edit form disables the title input the
+     * moment an event is picked (retro-config.js), and a disabled input is
+     * never included in the browser's form submission — so a real client
+     * request for an event-linked board arrives with an empty/missing
+     * title. This must not throw "Le titre est obligatoire.".
+     */
+    public function testCreateWithAnEventResolvesTheTitleServerSideEvenWhenTheClientSendsNone(): void
+    {
+        $calendarLookup = $this->createMock(CalendarEventLookupInterface::class);
+        $calendarLookup->method('findEventById')->willReturn(new EventSummary(42, 'Camp d\'été', 'Animateurs', '2026-08-05', '2026-08-10'));
+
+        $board = $this->service(null, $calendarLookup)->create(
+            '', 42, null, true, 'unlimited', 5, true, 'cookie', 140, 'none', Role::CHIEF, 3
+        );
+
+        $this->assertSame("Rétrospective Camp d'été - Animateurs - 2026-08-05", $board->title);
+    }
+
+    public function testUpdateWithAnEventResolvesTheTitleServerSideEvenWhenTheClientSendsNone(): void
+    {
+        $calendarLookup = $this->createMock(CalendarEventLookupInterface::class);
+        $calendarLookup->method('findEventById')->willReturn(new EventSummary(42, 'Camp d\'été', 'Animateurs', '2026-08-05', '2026-08-10'));
+        $service = $this->service(null, $calendarLookup);
+
+        $board = $service->create('Camp', null, '2026-07-15', true, 'unlimited', 5, true, 'cookie', 140, 'none', Role::CHIEF, 3);
+
+        $updated = $service->update(
+            $board->id, '', 42, null, true, 'unlimited', 5, true, 'cookie', 140, 'none', Role::CHIEF, 3
+        );
+
+        $this->assertSame("Rétrospective Camp d'été - Animateurs - 2026-08-05", $updated->title);
     }
 
     public function testCreateThrowsWhenLinkedEventDoesNotExist(): void
@@ -509,27 +540,15 @@ class BoardServiceTest extends TestCase
         $this->assertNull($this->service()->resolvePrincipalSectionId('nobody@example.com', 1));
     }
 
-    public function testIsUnitChiefIsFalseWithoutLinkedMembers(): void
+    /**
+     * The actual STAFFDU-membership logic now lives in, and is fully
+     * tested against real fixtures by, Core\Member\MemberServiceTest —
+     * isUnitChief() here is a one-line delegate, so this only needs to
+     * confirm the delegation itself.
+     */
+    public function testIsUnitChiefDelegatesToMemberService(): void
     {
-        $this->memberService->method('getLinkedMembers')->willReturn([]);
-
-        $this->assertFalse($this->service()->isUnitChief('nobody@example.com', 1));
-    }
-
-    public function testIsUnitChiefIsFalseForAChiefOfAnOrdinarySection(): void
-    {
-        $this->memberService->method('getLinkedMembers')->willReturn([
-            $this->memberProfile('chief', 'chief@example.com'),
-        ]);
-
-        $this->assertFalse($this->service()->isUnitChief('chief@example.com', 1));
-    }
-
-    public function testIsUnitChiefIsTrueForAStaffDuMember(): void
-    {
-        $this->memberService->method('getLinkedMembers')->willReturn([
-            $this->memberProfile('admin', 'unit-chief@example.com', UnitStaffSectionService::DESK_CODE),
-        ]);
+        $this->memberService->method('isUnitChief')->with('unit-chief@example.com', 1)->willReturn(true);
 
         $this->assertTrue($this->service()->isUnitChief('unit-chief@example.com', 1));
     }
@@ -602,9 +621,7 @@ class BoardServiceTest extends TestCase
         $service = $this->service();
         $board = $service->create('Camp', null, '2026-07-15', true, 'unlimited', 5, true, 'cookie', 140, 'none', Role::CHIEF, 3, linkVisibility: 'unit_chief');
         $this->linkBoardToEvent($board->id, 42);
-        $this->memberService->method('getLinkedMembers')->willReturn([
-            $this->memberProfile('chief', 'chief@example.com'),
-        ]);
+        $this->memberService->method('isUnitChief')->willReturn(false);
 
         $link = $service->findLinkedBoardLink(42, Role::CHIEF, 'chief@example.com', 1);
 
@@ -616,9 +633,7 @@ class BoardServiceTest extends TestCase
         $service = $this->service();
         $board = $service->create('Camp', null, '2026-07-15', true, 'unlimited', 5, true, 'cookie', 140, 'none', Role::CHIEF, 3, linkVisibility: 'unit_chief');
         $this->linkBoardToEvent($board->id, 42);
-        $this->memberService->method('getLinkedMembers')->willReturn([
-            $this->memberProfile('admin', 'unit-chief@example.com', UnitStaffSectionService::DESK_CODE),
-        ]);
+        $this->memberService->method('isUnitChief')->willReturn(true);
 
         $link = $service->findLinkedBoardLink(42, Role::CHIEF, 'unit-chief@example.com', 1);
 
@@ -641,39 +656,4 @@ class BoardServiceTest extends TestCase
         $stmt->execute([$eventId, $boardId]);
     }
 
-    private function memberProfile(string $functionRole, string $email, ?string $sectionCode = 'MEUTE_A'): MemberProfile
-    {
-        return new MemberProfile(
-            memberYearId: 1,
-            memberId: 1,
-            deskId: 'DESK_1',
-            firstName: 'Jean',
-            lastName: 'Test',
-            totem: null,
-            quali: null,
-            gender: null,
-            birthDate: null,
-            phone: null,
-            mobile: null,
-            email: $email,
-            patrol: null,
-            formationLevel: null,
-            federationMailConsent: false,
-            unitMailConsent: false,
-            addresses: [],
-            functions: [
-                new MemberFunctionInfo(
-                    functionLabel: 'Animateur',
-                    functionRole: $functionRole,
-                    branchName: null,
-                    sectionName: null,
-                    sectionCode: $sectionCode,
-                    isMainFunction: true,
-                    startDate: null,
-                    endDate: null
-                ),
-            ],
-            scoutYearLabel: '2025-2026'
-        );
-    }
 }

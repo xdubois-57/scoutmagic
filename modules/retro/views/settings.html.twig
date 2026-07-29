@@ -1,0 +1,91 @@
+{% extends "base.html.twig" %}
+
+{% block title %}Rétrospectives — Configuration — {{ site_name }}{% endblock %}
+
+{% block content %}
+    <h1 class="h3 mb-4">Rétrospectives — Configuration</h1>
+
+    {% if submit_error %}
+        <div class="alert alert-danger">{{ submit_error }}</div>
+    {% endif %}
+
+    <form method="post" action="/config/retro" novalidate>
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+
+        <div class="card mb-4">
+            <div class="card-body">
+                <h2 class="h6 mb-3">Rôles</h2>
+                <div class="row g-3">
+                    <div class="col-12 col-md-6">
+                        <label class="form-label small" for="retro-role-min-create">Rôle minimum pour créer un board</label>
+                        <select class="form-select" id="retro-role-min-create" name="retro_role_min_create_board">
+                            {% for value, label in {'intendant': 'Intendant', 'chief': 'Chef', 'admin': "Chef d'Unité"} %}
+                                <option value="{{ value }}" {{ retro_role_min_create_board == value ? 'selected' : '' }}>{{ label }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-12 col-md-6">
+                        <label class="form-label small" for="retro-role-min-close">Rôle minimum pour clôturer un board</label>
+                        <select class="form-select" id="retro-role-min-close" name="retro_role_min_close_board">
+                            {% for value, label in {'chief': 'Chef', 'admin': "Chef d'Unité"} %}
+                                <option value="{{ value }}" {{ retro_role_min_close_board == value ? 'selected' : '' }}>{{ label }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card mb-4">
+            <div class="card-body">
+                <h2 class="h6 mb-3">Valeurs par défaut</h2>
+                <div class="row g-3">
+                    <div class="col-12 col-md-4">
+                        <label class="form-label small" for="retro-max-length">Longueur max. d'un mot par défaut</label>
+                        <input type="number" class="form-control" id="retro-max-length" name="retro_default_max_comment_length"
+                               value="{{ retro_default_max_comment_length }}" min="120" max="200">
+                        <div class="form-text">Entre 120 et 200 caractères.</div>
+                    </div>
+                    <div class="col-12 col-md-4">
+                        <label class="form-label small" for="retro-vote-budget">Budget de points par défaut</label>
+                        <input type="number" class="form-control" id="retro-vote-budget" name="retro_default_vote_budget"
+                               value="{{ retro_default_vote_budget }}" min="1">
+                    </div>
+                    <div class="col-12 col-md-4">
+                        <label class="form-label small" for="retro-polling-interval">Intervalle d'actualisation (secondes)</label>
+                        <input type="number" class="form-control" id="retro-polling-interval" name="retro_polling_interval_seconds"
+                               value="{{ retro_polling_interval_seconds }}" min="3" max="60">
+                        <div class="form-text">Entre 3 et 60 secondes — fréquence à laquelle une rétrospective ouverte vérifie les nouveaux mots/votes.</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card mb-4">
+            <div class="card-body">
+                <h2 class="h6 mb-3">Modération automatique par IA</h2>
+                {% if not ai_available %}
+                    <div class="alert alert-warning small py-2 mb-3">
+                        Aucun connecteur IA actif — seule l'option « Désactivée » a un effet tant qu'aucun n'est configuré.
+                    </div>
+                {% endif %}
+                <select class="form-select" name="retro_moderation_mode" style="max-width: 20rem;" {{ ai_available ? '' : 'disabled' }}>
+                    <option value="disabled" {{ retro_moderation_mode == 'disabled' ? 'selected' : '' }}>Désactivée</option>
+                    <option value="warning" {{ retro_moderation_mode == 'warning' ? 'selected' : '' }}>Avertissement (le participant choisit)</option>
+                    <option value="enforced" {{ retro_moderation_mode == 'enforced' ? 'selected' : '' }}>Obligatoire (reformulation exigée)</option>
+                </select>
+                {% if not ai_available %}
+                    {# A disabled <select> is never submitted — mirror its value via a hidden field so
+                       saving other settings on this page doesn't silently reset moderation to "disabled". #}
+                    <input type="hidden" name="retro_moderation_mode" value="{{ retro_moderation_mode }}">
+                {% endif %}
+                <div class="form-text">
+                    « Avertissement » : le participant est averti si son mot est jugé irrespectueux mais peut le publier tel quel ou accepter une reformulation suggérée par l'IA.
+                    « Obligatoire » : il doit reformuler ou accepter la suggestion avant de pouvoir publier.
+                </div>
+            </div>
+        </div>
+
+        <button type="submit" class="btn btn-primary">Enregistrer</button>
+    </form>
+{% endblock %}

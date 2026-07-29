@@ -8,7 +8,6 @@ use Core\Journal\JournalService;
 use Core\Mail\MailService;
 use Core\Member\MemberService;
 use Core\Member\SectionService;
-use Core\Member\UnitStaffSectionService;
 use Core\Scheduler\SchedulerService;
 use Core\Security\Role;
 use Core\Url\ShortUrlService;
@@ -101,13 +100,7 @@ class BoardService implements RetroEventLinkLookupInterface
      */
     public function isUnitChief(string $email, int $scoutYearId): bool
     {
-        $linkedMembers = $this->memberService->getLinkedMembers($email, $scoutYearId);
-        if ($linkedMembers === []) {
-            return false;
-        }
-
-        $best = MemberService::getHighestRoleMember($linkedMembers);
-        return $best?->getMainFunction()?->sectionCode === UnitStaffSectionService::DESK_CODE;
+        return $this->memberService->isUnitChief($email, $scoutYearId);
     }
 
     /**
@@ -151,6 +144,7 @@ class BoardService implements RetroEventLinkLookupInterface
         ?string $closeNotifyEmail = null,
         string $linkVisibility = 'chief'
     ): Board {
+        $title = $this->resolveTitle($calendarEventId, $title, $viewerRole);
         [$title, $voteBudget, $maxCommentLength] = $this->validateCommon(
             $title, $voteMode, $antiDuplicateMode, $maxCommentLength, $autoCloseDelay, $voteBudget
         );
@@ -209,6 +203,7 @@ class BoardService implements RetroEventLinkLookupInterface
             throw new RetroException('Rétrospective introuvable.');
         }
 
+        $title = $this->resolveTitle($calendarEventId, $title, $viewerRole);
         [$title, $voteBudget, $maxCommentLength] = $this->validateCommon(
             $title, $voteMode, $antiDuplicateMode, $maxCommentLength, $autoCloseDelay, $voteBudget
         );
@@ -482,11 +477,42 @@ class BoardService implements RetroEventLinkLookupInterface
      */
     private function resolveBoardDate(?int $calendarEventId, ?string $manualDate, Role $viewerRole): string
     {
-        if ($calendarEventId === null) {
-            $date = $manualDate !== null ? \DateTimeImmutable::createFromFormat('Y-m-d', $manualDate) : false;
-            return $date !== false ? $date->format('Y-m-d') : (new \DateTimeImmutable('today'))->format('Y-m-d');
-        }
+        return $this->resolveLinkedEvent($calendarEventId, $viewerRole)?->endDate
+            ?? $this->resolveManualDate($manualDate);
+    }
 
+    private function resolveManualDate(?string $manualDate): string
+    {
+        $date = $manualDate !== null ? \DateTimeImmutable::createFromFormat('Y-m-d', $manualDate) : false;
+        return $date !== false ? $date->format('Y-m-d') : (new \DateTimeImmutable('today'))->format('Y-m-d');
+    }
+
+    /**
+     * When an event is linked, the title is ALWAYS re-derived here from the
+     * event itself, in the exact same format the create/edit form's own JS
+     * shows the chief live (retro-config.js) — never the client-submitted
+     * value. The title input is disabled the moment an event is picked
+     * (module spec: "generated automatically ... and cannot be modified
+     * here"), and a disabled input is omitted from form submission
+     * entirely by the browser, so trusting the client here would silently
+     * save an empty title on every single event-linked board — exactly the
+     * "Le titre est obligatoire" bug this guards against, following the
+     * same never-trust-the-client precedent resolveBoardDate() already
+     * applies to the date.
+     */
+    private function resolveTitle(?int $calendarEventId, string $clientTitle, Role $viewerRole): string
+    {
+        $event = $this->resolveLinkedEvent($calendarEventId, $viewerRole);
+        return $event !== null
+            ? "Rétrospective {$event->title} - {$event->calendarName} - {$event->startDate}"
+            : $clientTitle;
+    }
+
+    private function resolveLinkedEvent(?int $calendarEventId, Role $viewerRole): ?EventSummary
+    {
+        if ($calendarEventId === null) {
+            return null;
+        }
         if ($this->calendarEventLookup === null) {
             throw new RetroException('Le module calendrier n\'est pas disponible.');
         }
@@ -496,7 +522,7 @@ class BoardService implements RetroEventLinkLookupInterface
             throw new RetroException('Événement introuvable.');
         }
 
-        return $event->endDate;
+        return $event;
     }
 
     private function computeAutoCloseAt(string $autoCloseDelay): ?string

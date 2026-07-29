@@ -102,6 +102,26 @@ class MemberService
     }
 
     /**
+     * Whether $email's highest-role linked member (for $scoutYearId) is a
+     * chef d'unité specifically — narrower than Role::ADMIN, which any
+     * function an admin has separately confirmed with that role also
+     * carries, not only the STAFFDU-membership one this checks. Shared by
+     * any module that needs to gate something to actual unit chiefs (e.g.
+     * Modules\Retro\Service\BoardService's own moderation/visibility
+     * checks, Modules\Banner\Controller\BannerConfigController).
+     */
+    public function isUnitChief(string $email, int $scoutYearId): bool
+    {
+        $linkedMembers = $this->getLinkedMembers($email, $scoutYearId);
+        if ($linkedMembers === []) {
+            return false;
+        }
+
+        $best = self::getHighestRoleMember($linkedMembers);
+        return $best?->getMainFunction()?->sectionCode === UnitStaffSectionService::DESK_CODE;
+    }
+
+    /**
      * Check if a user account (by email) has access to a specific member_year.
      *
      * Access granted if:

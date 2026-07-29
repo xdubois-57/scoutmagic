@@ -217,4 +217,52 @@ class MemberServiceTest extends TestCase
     {
         $this->assertNull($this->service->findProfileByMemberAndYear(999999, $this->scoutYearId));
     }
+
+    public function testIsUnitChiefIsFalseWithoutLinkedMembers(): void
+    {
+        $this->assertFalse($this->service->isUnitChief('nobody@example.com', $this->scoutYearId));
+    }
+
+    public function testIsUnitChiefIsFalseForAChiefOfAnOrdinarySection(): void
+    {
+        $memberYearId = $this->createTestMember($this->testEmail);
+        $this->createMainFunction($memberYearId, 'chief', 'BAL01');
+
+        $this->assertFalse($this->service->isUnitChief($this->testEmail, $this->scoutYearId));
+    }
+
+    public function testIsUnitChiefIsTrueForAStaffDuMember(): void
+    {
+        $memberYearId = $this->createTestMember($this->testEmail);
+        $this->createMainFunction($memberYearId, 'admin', \Core\Member\UnitStaffSectionService::DESK_CODE);
+
+        $this->assertTrue($this->service->isUnitChief($this->testEmail, $this->scoutYearId));
+    }
+
+    /**
+     * Creates a confirmed, main function for $memberYearId with the given
+     * role and section desk_code (creating the section on the fly if
+     * needed) — the exact shape isUnitChief() reads via getMainFunction().
+     */
+    private function createMainFunction(int $memberYearId, string $role, string $sectionDeskCode): void
+    {
+        $stmt = $this->pdo->prepare('SELECT id FROM sections WHERE desk_code = ?');
+        $stmt->execute([$sectionDeskCode]);
+        $sectionId = $stmt->fetchColumn();
+        if ($sectionId === false) {
+            $this->pdo->exec("INSERT INTO age_branches (desk_code, label, sort_order) VALUES ('BR_" . uniqid() . "', 'Branch', 10)");
+            $branchId = (int) $this->pdo->lastInsertId();
+            $stmt = $this->pdo->prepare('INSERT INTO sections (desk_code, age_branch_id, name) VALUES (?, ?, ?)');
+            $stmt->execute([$sectionDeskCode, $branchId, $sectionDeskCode]);
+            $sectionId = (int) $this->pdo->lastInsertId();
+        }
+
+        $this->pdo->exec("INSERT INTO functions (desk_code, label, role) VALUES ('FN_" . uniqid() . "', 'Fonction', '{$role}')");
+        $functionId = (int) $this->pdo->lastInsertId();
+
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO member_functions (member_year_id, function_id, section_id, is_main_function) VALUES (?, ?, ?, 1)'
+        );
+        $stmt->execute([$memberYearId, $functionId, $sectionId]);
+    }
 }

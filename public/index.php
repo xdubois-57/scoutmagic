@@ -786,7 +786,6 @@ $router->addRoute('POST', '/config/rgpd/reset', RgpdConfigController::class, 're
 
 // Staffs
 $router->addRoute('GET', '/chefs/staffs', StaffsController::class, 'index', 'intendant');
-$router->addRoute('POST', '/chefs/staffs/update-section', StaffsController::class, 'updateSection', 'chief');
 $router->addRoute('POST', '/chefs/staffs/badge-toggle', StaffsController::class, 'toggleBadge', 'chief');
 
 // Functions configuration
@@ -794,6 +793,7 @@ $router->addRoute('GET', '/config/functions', FunctionsController::class, 'index
 $router->addRoute('POST', '/config/functions/update', FunctionsController::class, 'update', 'superadmin');
 $router->addRoute('POST', '/config/functions/flags', FunctionsController::class, 'updateFlags', 'superadmin');
 $router->addRoute('POST', '/config/functions/section-name', FunctionsController::class, 'updateSectionName', 'superadmin');
+$router->addRoute('POST', '/config/functions/section-email', FunctionsController::class, 'updateSectionEmail', 'superadmin');
 $router->addRoute('POST', '/config/functions/section-visibility', FunctionsController::class, 'updateSectionVisibility', 'superadmin');
 $router->addRoute('POST', '/config/functions/section-color', FunctionsController::class, 'updateSectionColor', 'superadmin');
 
@@ -1060,7 +1060,7 @@ if (in_array('banner', $moduleManager->getEnabledModuleIds(), true)) {
 
     $frontController->registerController(
         \Modules\Banner\Controller\BannerConfigController::class,
-        new \Modules\Banner\Controller\BannerConfigController($twig, $bannerService, $journalService)
+        new \Modules\Banner\Controller\BannerConfigController($twig, $bannerService, $journalService, $memberService, $scoutYearService)
     );
 
     // Re-registers PageController with the real banner provider — same
@@ -1429,6 +1429,12 @@ if (in_array('retro', $moduleManager->getEnabledModuleIds(), true)) {
         new \Modules\Retro\Controller\RetroBoardController(
             $twig, $retroBoardRepo, $retroCommentRepo, $retroCommentService, $retroVoteService, $retroBoardService,
             $retroRateLimitService, $retroModerationService, $cookieConsentService, $settingService, $scoutYearService
+        )
+    );
+    $frontController->registerController(
+        \Modules\Retro\Controller\RetroConfigController::class,
+        new \Modules\Retro\Controller\RetroConfigController(
+            $twig, $settingService, $journalService, $memberService, $scoutYearService, $retroModerationService
         )
     );
 

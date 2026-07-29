@@ -147,57 +147,6 @@ class StaffsController extends AbstractController
     }
 
     /**
-     * POST /chefs/staffs/update-section — update section name and email (AJAX).
-     *
-     * @param array<string, string> $params
-     */
-    public function updateSection(Request $request, array $params): Response
-    {
-        $rawBody = $request->getRawBody();
-        $data = json_decode($rawBody, true);
-
-        if (!is_array($data)) {
-            return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
-        }
-
-        $csrf = (string) ($data['_csrf_token'] ?? '');
-        if (!CsrfGuard::validateToken($csrf)) {
-            return $this->json(['success' => false, 'error' => 'Jeton CSRF invalide.'], 403);
-        }
-
-        $sectionId = isset($data['section_id']) ? (int) $data['section_id'] : 0;
-        if ($sectionId <= 0) {
-            return $this->json(['success' => false, 'error' => 'Identifiant de section manquant.'], 400);
-        }
-
-        $oldSection = $this->sectionService->getSection($sectionId);
-        if ($oldSection === null) {
-            return $this->json(['success' => false, 'error' => 'Section introuvable.'], 400);
-        }
-
-        $name = isset($data['name']) ? (string) $data['name'] : null;
-        $email = isset($data['email']) ? (string) $data['email'] : null;
-
-        $this->sectionService->updateSectionInfo($sectionId, $name, $email);
-
-        $this->journalService->log(
-            'core',
-            'section_info_updated',
-            'info',
-            "Informations de la section {$oldSection['desk_code']} mises à jour",
-            [
-                'section_id' => $sectionId,
-                'old_name' => $oldSection['name'],
-                'new_name' => $name,
-                'old_email' => $oldSection['email'],
-                'new_email' => $email,
-            ]
-        );
-
-        return $this->json(['success' => true]);
-    }
-
-    /**
      * Filter sections based on user role.
      * Intendants see only sections they are linked to.
      * Chiefs/admins see all sections.

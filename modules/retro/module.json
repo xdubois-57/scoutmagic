@@ -6,6 +6,24 @@
   "enabled_by_default": false,
   "routes": [
     {
+      "path": "/config/retro",
+      "method": "GET",
+      "controller": "Modules\\Retro\\Controller\\RetroConfigController",
+      "action": "index",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": "Rétrospectives — Config"
+    },
+    {
+      "path": "/config/retro",
+      "method": "POST",
+      "controller": "Modules\\Retro\\Controller\\RetroConfigController",
+      "action": "save",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
       "path": "/retro",
       "method": "GET",
       "controller": "Modules\\Retro\\Controller\\RetroChiefController",
