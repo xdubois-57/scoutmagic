@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Core\Http\Controller;
 
+use Core\Badge\BadgeService;
 use Core\Http\Request;
 use Core\Http\Response;
 use Core\Import\FunctionRepository;
@@ -36,6 +37,7 @@ class FunctionsController extends AbstractController
         private SectionService $sectionService,
         private UnitStaffSectionService $unitStaffSectionService,
         private ScoutYearResolver $scoutYearResolver,
+        private BadgeService $badgeService,
         private ?FunctionFlagsProvider $functionFlagsProvider = null
     ) {
     }
@@ -48,6 +50,8 @@ class FunctionsController extends AbstractController
      */
     public function index(Request $request, array $params): Response
     {
+        $this->badgeService->syncSectionReferentBadges();
+
         $unconfirmed = $this->functionRepo->findUnconfirmed();
         $groupedByRole = $this->functionRepo->findAllGroupedByRole();
 
@@ -251,6 +255,9 @@ class FunctionsController extends AbstractController
 
         $name = isset($json['name']) ? (string) $json['name'] : null;
         $this->sectionService->updateSectionInfo($sectionId, $name, $section['email']);
+        // Keeps this section's "Référent {name}" badge (if any) in sync
+        // immediately, rather than waiting for the next page load to self-heal.
+        $this->badgeService->syncSectionReferentBadges();
 
         $this->journalService->log(
             'core',
@@ -331,6 +338,10 @@ class FunctionsController extends AbstractController
 
         $visible = (bool) ($json['visible'] ?? false);
         $this->sectionService->updateSectionVisibility($sectionId, $visible);
+        // Creates/activates or deactivates this section's "Référent {name}"
+        // badge to match, immediately (module spec: "the list is created
+        // automatically based on the sections that are visible").
+        $this->badgeService->syncSectionReferentBadges();
 
         $this->journalService->log(
             'core',

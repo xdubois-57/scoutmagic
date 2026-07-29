@@ -10,15 +10,18 @@ use Core\Badge\MemberBadgeRepository;
 use Core\Config\SettingRepository;
 use Core\Config\SettingService;
 use Core\Cookie\CookieConsentService;
+use Core\Database\Connection;
 use Core\Database\MigrationRunner;
 use Core\Http\Controller\ConfigGeneralController;
 use Core\Http\Request;
 use Core\Http\Router;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
+use Core\Member\SectionService;
 use Core\Module\ModuleManager;
 use Core\Module\ModuleRegistryRepository;
 use Core\Security\AuthSession;
+use Core\Security\EncryptionService;
 use Core\Security\Role;
 use Core\View\MenuBuilder;
 use PHPUnit\Framework\TestCase;
@@ -86,7 +89,10 @@ class ConfigGeneralControllerTest extends TestCase
 
         $this->badgeRepository = new BadgeRepository($this->pdo);
         $this->memberBadgeRepository = new MemberBadgeRepository($this->pdo);
-        $this->badgeService = new BadgeService($this->badgeRepository, $this->memberBadgeRepository);
+        $sectionService = new SectionService(
+            Connection::withPdo($this->pdo), new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)), $this->memberBadgeRepository
+        );
+        $this->badgeService = new BadgeService($this->badgeRepository, $this->memberBadgeRepository, $sectionService);
 
         $this->controller = new ConfigGeneralController($twig, $this->moduleManager, $this->badgeService, $journalService);
     }

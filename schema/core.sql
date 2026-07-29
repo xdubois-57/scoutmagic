@@ -312,13 +312,22 @@ CREATE TABLE badges (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(100) NOT NULL,
     -- Default badges (Infirmier, Trésorier) are seeded automatically and can
-    -- never be deleted — only deactivated.
+    -- never be deleted — only deactivated. Also true for the auto-generated
+    -- "Référent {section}" badges below, for the same read-only-name/
+    -- non-deletable behavior.
     is_default BOOLEAN NOT NULL DEFAULT FALSE,
     -- A deactivated badge is invisible everywhere and no longer assignable,
     -- but existing member_badges assignments are preserved.
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    -- Non-null exactly for an auto-generated "Référent {section}" badge —
+    -- one per visible, non-Staff-d'U section (Core\Badge\BadgeService::
+    -- syncSectionReferentBadges()), kept in sync with that section's name/
+    -- visibility, and assignable only to Staff d'U members.
+    referent_section_id INT UNSIGNED NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE INDEX idx_name (name)
+    UNIQUE INDEX idx_name (name),
+    UNIQUE INDEX idx_referent_section (referent_section_id),
+    CONSTRAINT fk_badges_referent_section FOREIGN KEY (referent_section_id) REFERENCES sections(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Badge assignment: per member_year, so it's naturally scoped to a scout

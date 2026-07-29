@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Core\Http\Controller;
 
+use Core\Badge\Badge;
 use Core\Badge\BadgeException;
 use Core\Badge\BadgeService;
 use Core\Http\Request;
@@ -48,6 +49,7 @@ class StaffsController extends AbstractController
         // Idempotent: guarantees "Staff d'U" exists even before any Desk
         // import has ever run (mirrors BadgeService::ensureDefaults()).
         $this->unitStaffSectionService->ensureSection();
+        $this->badgeService->syncSectionReferentBadges();
 
         // Get all sections
         $allSections = $this->sectionService->getAllWithBranches();
@@ -92,12 +94,23 @@ class StaffsController extends AbstractController
             }
         }
 
+        $availableBadges = $canEditSection ? $this->badgeService->getActive() : [];
+        // "Référent {section}" badges are only meaningful for Staff d'U
+        // members — this page's staff list is always exactly the current
+        // section's members, so simply hiding them from the picker on any
+        // other section's page is sufficient here (module spec: "can only
+        // be assigned to Staff d'U members"; BadgeService::toggleAssignment()
+        // enforces this server-side too, regardless of this filtering).
+        if ($currentSection !== null && $currentSection['desk_code'] !== UnitStaffSectionService::DESK_CODE) {
+            $availableBadges = array_values(array_filter($availableBadges, fn(Badge $b) => $b->referentSectionId === null));
+        }
+
         return $this->render('chefs/staffs.html.twig', [
             'sections' => $sections,
             'current_section' => $currentSection,
             'staff' => $staff,
             'can_edit_section' => $canEditSection,
-            'available_badges' => $canEditSection ? $this->badgeService->getActive() : [],
+            'available_badges' => $availableBadges,
         ]);
     }
 

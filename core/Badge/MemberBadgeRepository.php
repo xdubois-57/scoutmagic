@@ -54,7 +54,8 @@ class MemberBadgeRepository
                 id: (int) $row['id'],
                 name: (string) $row['name'],
                 isDefault: (bool) $row['is_default'],
-                isActive: (bool) $row['is_active']
+                isActive: (bool) $row['is_active'],
+                referentSectionId: $row['referent_section_id'] !== null ? (int) $row['referent_section_id'] : null
             );
         }
         return $result;

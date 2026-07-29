@@ -58,7 +58,7 @@ class StaffsControllerTest extends TestCase
         $scoutYearResolver = new ScoutYearResolver($scoutYearService, $settingService, $memberYearRepo);
         $journalRepo = new JournalRepository($this->pdo);
         $journalService = new JournalService($journalRepo);
-        $this->badgeService = new BadgeService(new BadgeRepository($this->pdo), $memberBadgeRepository);
+        $this->badgeService = new BadgeService(new BadgeRepository($this->pdo), $memberBadgeRepository, $this->sectionService);
 
         // Create scout year
         $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES ('2025-2026', '2025-09-01', '2026-08-31', 1)");

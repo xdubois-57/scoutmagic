@@ -36,12 +36,20 @@ class BadgeRepository
         return $row !== false ? $this->hydrate($row) : null;
     }
 
-    public function create(string $name, bool $isDefault): int
+    public function findByReferentSectionId(int $sectionId): ?Badge
+    {
+        $stmt = $this->pdo->prepare('SELECT * FROM badges WHERE referent_section_id = ?');
+        $stmt->execute([$sectionId]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+        return $row !== false ? $this->hydrate($row) : null;
+    }
+
+    public function create(string $name, bool $isDefault, ?int $referentSectionId = null): int
     {
         $stmt = $this->pdo->prepare(
-            'INSERT INTO badges (name, is_default, is_active) VALUES (?, ?, 1)'
+            'INSERT INTO badges (name, is_default, is_active, referent_section_id) VALUES (?, ?, 1, ?)'
         );
-        $stmt->execute([$name, $isDefault ? 1 : 0]);
+        $stmt->execute([$name, $isDefault ? 1 : 0, $referentSectionId]);
         return (int) $this->pdo->lastInsertId();
     }
 
@@ -72,7 +80,8 @@ class BadgeRepository
             id: (int) $row['id'],
             name: (string) $row['name'],
             isDefault: (bool) $row['is_default'],
-            isActive: (bool) $row['is_active']
+            isActive: (bool) $row['is_active'],
+            referentSectionId: $row['referent_section_id'] !== null ? (int) $row['referent_section_id'] : null
         );
     }
 }

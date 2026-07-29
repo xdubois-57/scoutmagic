@@ -10,7 +10,8 @@ class Badge
         public readonly int $id,
         public readonly string $name,
         public readonly bool $isDefault,
-        public readonly bool $isActive
+        public readonly bool $isActive,
+        public readonly ?int $referentSectionId = null
     ) {
     }
 }

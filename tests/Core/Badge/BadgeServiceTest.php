@@ -8,6 +8,10 @@ use Core\Badge\BadgeException;
 use Core\Badge\BadgeRepository;
 use Core\Badge\BadgeService;
 use Core\Badge\MemberBadgeRepository;
+use Core\Database\Connection;
+use Core\Member\SectionService;
+use Core\Member\UnitStaffSectionService;
+use Core\Security\EncryptionService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 
@@ -20,6 +24,7 @@ class BadgeServiceTest extends TestCase
     private BadgeService $service;
     private BadgeRepository $badgeRepository;
     private MemberBadgeRepository $memberBadgeRepository;
+    private SectionService $sectionService;
     private int $scoutYearId;
 
     protected function setUp(): void
@@ -27,7 +32,10 @@ class BadgeServiceTest extends TestCase
         $this->pdo = DatabaseTestHelper::createTestDatabase();
         $this->badgeRepository = new BadgeRepository($this->pdo);
         $this->memberBadgeRepository = new MemberBadgeRepository($this->pdo);
-        $this->service = new BadgeService($this->badgeRepository, $this->memberBadgeRepository);
+        $this->sectionService = new SectionService(
+            Connection::withPdo($this->pdo), new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)), $this->memberBadgeRepository
+        );
+        $this->service = new BadgeService($this->badgeRepository, $this->memberBadgeRepository, $this->sectionService);
 
         $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date) VALUES ('2025-2026', '2025-09-01', '2026-08-31')");
         $this->scoutYearId = (int) $this->pdo->lastInsertId();
@@ -43,6 +51,24 @@ class BadgeServiceTest extends TestCase
         );
         $stmt->execute([$memberId, $this->scoutYearId, 'enc', 'enc']);
         return (int) $this->pdo->lastInsertId();
+    }
+
+    private function createSection(string $deskCode, ?string $name, bool $visible = true): int
+    {
+        $this->pdo->exec("INSERT INTO age_branches (desk_code, label, sort_order) VALUES ('BR_{$deskCode}', 'Branch', 10)");
+        $branchId = (int) $this->pdo->lastInsertId();
+
+        $stmt = $this->pdo->prepare('INSERT INTO sections (desk_code, age_branch_id, name, is_visible) VALUES (?, ?, ?, ?)');
+        $stmt->execute([$deskCode, $branchId, $name, $visible ? 1 : 0]);
+        return (int) $this->pdo->lastInsertId();
+    }
+
+    private function linkMemberToSection(int $memberYearId, int $sectionId): void
+    {
+        $this->pdo->exec("INSERT INTO functions (desk_code, label, role) VALUES ('FN_" . uniqid() . "', 'Fonction', 'chief')");
+        $functionId = (int) $this->pdo->lastInsertId();
+        $stmt = $this->pdo->prepare('INSERT INTO member_functions (member_year_id, function_id, section_id, is_main_function) VALUES (?, ?, ?, 1)');
+        $stmt->execute([$memberYearId, $functionId, $sectionId]);
     }
 
     public function testEnsureDefaultsCreatesInfirmierAndTresorier(): void
@@ -227,5 +253,143 @@ class BadgeServiceTest extends TestCase
 
         $this->assertArrayHasKey($memberYearId1, $result);
         $this->assertArrayNotHasKey($memberYearId2, $result);
+    }
+
+    public function testSyncCreatesAReferentBadgeForEachVisibleSection(): void
+    {
+        $this->createSection('LOU01', 'Louveteaux');
+
+        $this->service->syncSectionReferentBadges();
+
+        $names = array_map(fn($b) => $b->name, $this->service->getAll());
+        $this->assertContains('Référent Louveteaux', $names);
+    }
+
+    public function testSyncFallsBackToDeskCodeWhenSectionHasNoName(): void
+    {
+        $this->createSection('LOU01', null);
+
+        $this->service->syncSectionReferentBadges();
+
+        $names = array_map(fn($b) => $b->name, $this->service->getAll());
+        $this->assertContains('Référent LOU01', $names);
+    }
+
+    public function testSyncSkipsTheStaffDuSectionItself(): void
+    {
+        $this->createSection(UnitStaffSectionService::DESK_CODE, "Staff d'U");
+
+        $this->service->syncSectionReferentBadges();
+
+        $names = array_map(fn($b) => $b->name, $this->service->getAll());
+        $this->assertNotContains("Référent Staff d'U", $names);
+    }
+
+    public function testSyncNeverCreatesABadgeForAnInvisibleSection(): void
+    {
+        $this->createSection('LOU01', 'Louveteaux', visible: false);
+
+        $this->service->syncSectionReferentBadges();
+
+        $this->assertEmpty($this->service->getAll());
+    }
+
+    public function testSyncIsIdempotent(): void
+    {
+        $this->createSection('LOU01', 'Louveteaux');
+
+        $this->service->syncSectionReferentBadges();
+        $this->service->syncSectionReferentBadges();
+
+        $this->assertCount(1, $this->service->getAll());
+    }
+
+    public function testSyncRenamesTheBadgeWhenTheSectionIsRenamed(): void
+    {
+        $sectionId = $this->createSection('LOU01', 'Louveteaux');
+        $this->service->syncSectionReferentBadges();
+
+        $this->sectionService->updateSectionInfo($sectionId, 'Les Louveteaux', null);
+        $this->service->syncSectionReferentBadges();
+
+        $names = array_map(fn($b) => $b->name, $this->service->getAll());
+        $this->assertContains('Référent Les Louveteaux', $names);
+        $this->assertNotContains('Référent Louveteaux', $names);
+        $this->assertCount(1, $this->service->getAll());
+    }
+
+    public function testSyncDeactivatesTheBadgeWhenTheSectionBecomesInvisible(): void
+    {
+        $sectionId = $this->createSection('LOU01', 'Louveteaux');
+        $this->service->syncSectionReferentBadges();
+
+        $this->sectionService->updateSectionVisibility($sectionId, false);
+        $this->service->syncSectionReferentBadges();
+
+        $badge = array_values($this->service->getAll())[0];
+        $this->assertFalse($badge->isActive);
+        $this->assertEmpty($this->service->getActive());
+    }
+
+    public function testSyncReactivatesTheBadgeWhenTheSectionBecomesVisibleAgain(): void
+    {
+        $sectionId = $this->createSection('LOU01', 'Louveteaux');
+        $this->service->syncSectionReferentBadges();
+        $this->sectionService->updateSectionVisibility($sectionId, false);
+        $this->service->syncSectionReferentBadges();
+
+        $this->sectionService->updateSectionVisibility($sectionId, true);
+        $this->service->syncSectionReferentBadges();
+
+        $badge = array_values($this->service->getAll())[0];
+        $this->assertTrue($badge->isActive);
+    }
+
+    public function testReferentBadgeIsMarkedAsDefault(): void
+    {
+        $this->createSection('LOU01', 'Louveteaux');
+        $this->service->syncSectionReferentBadges();
+
+        $badge = array_values($this->service->getAll())[0];
+        $this->assertTrue($badge->isDefault);
+        $this->assertNotNull($badge->referentSectionId);
+    }
+
+    public function testUpdateRejectsRenamingAReferentBadgeDirectly(): void
+    {
+        $this->createSection('LOU01', 'Louveteaux');
+        $this->service->syncSectionReferentBadges();
+        $badge = array_values($this->service->getAll())[0];
+
+        $this->expectException(BadgeException::class);
+        $this->service->update($badge->id, 'Autre nom');
+    }
+
+    public function testToggleAssignmentRejectsAReferentBadgeForANonStaffDuMember(): void
+    {
+        $sectionId = $this->createSection('LOU01', 'Louveteaux');
+        $this->service->syncSectionReferentBadges();
+        $badge = array_values($this->service->getAll())[0];
+
+        $memberYearId = $this->createMemberYear('D1');
+        $this->linkMemberToSection($memberYearId, $sectionId);
+
+        $this->expectException(BadgeException::class);
+        $this->service->toggleAssignment($memberYearId, $badge->id, null);
+    }
+
+    public function testToggleAssignmentAllowsAReferentBadgeForAStaffDuMember(): void
+    {
+        $this->createSection('LOU01', 'Louveteaux');
+        $this->service->syncSectionReferentBadges();
+        $badge = array_values($this->service->getAll())[0];
+
+        $staffduSectionId = $this->createSection(UnitStaffSectionService::DESK_CODE, "Staff d'U");
+        $memberYearId = $this->createMemberYear('D1');
+        $this->linkMemberToSection($memberYearId, $staffduSectionId);
+
+        $result = $this->service->toggleAssignment($memberYearId, $badge->id, null);
+
+        $this->assertTrue($result);
     }
 }

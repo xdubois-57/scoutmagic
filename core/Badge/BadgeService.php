@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace Core\Badge;
 
+use Core\Member\SectionService;
+use Core\Member\UnitStaffSectionService;
+
 /**
  * Badges are transversal roles assignable to chiefs/chief-d'unité (e.g.
  * Infirmier, Trésorier) — a global concept configured once (Configuration
@@ -14,10 +17,12 @@ class BadgeService
 {
     /** @var array<int, string> */
     private const DEFAULT_BADGES = ['Infirmier', 'Trésorier'];
+    private const REFERENT_PREFIX = 'Référent ';
 
     public function __construct(
         private BadgeRepository $badgeRepository,
-        private MemberBadgeRepository $memberBadgeRepository
+        private MemberBadgeRepository $memberBadgeRepository,
+        private SectionService $sectionService
     ) {
     }
 
@@ -38,6 +43,43 @@ class BadgeService
     public function getAll(): array
     {
         return $this->badgeRepository->findAll();
+    }
+
+    /**
+     * Idempotent: ensures exactly one "Référent {section}" badge exists for
+     * every visible, non-Staff-d'U section, renamed to match a section's
+     * current name and active exactly when its section is currently
+     * visible — the sole source of truth for both, so a manual "Actif"
+     * toggle on one of these would just be overwritten on the next call
+     * (module spec: "the list is created automatically based on the
+     * sections that are visible"). Safe to call on every relevant page
+     * load (mirrors ensureDefaults()) and is also called directly after a
+     * section's name/visibility changes for immediate effect.
+     */
+    public function syncSectionReferentBadges(): void
+    {
+        foreach ($this->sectionService->getAllWithBranches(includeHidden: true) as $section) {
+            if ($section['desk_code'] === UnitStaffSectionService::DESK_CODE) {
+                continue;
+            }
+
+            $badge = $this->badgeRepository->findByReferentSectionId($section['id']);
+            $expectedName = self::REFERENT_PREFIX . ($section['name'] ?? $section['desk_code']);
+
+            if ($badge === null) {
+                if ($section['is_visible']) {
+                    $this->badgeRepository->create($expectedName, true, $section['id']);
+                }
+                continue;
+            }
+
+            if ($badge->name !== $expectedName) {
+                $this->badgeRepository->update($badge->id, $expectedName);
+            }
+            if ($badge->isActive !== $section['is_visible']) {
+                $this->badgeRepository->setActive($badge->id, $section['is_visible']);
+            }
+        }
     }
 
     /** @return Badge[] active badges only — for assignment pickers */
@@ -166,6 +208,10 @@ class BadgeService
         $badge = $this->badgeRepository->findById($badgeId);
         if ($badge === null || !$badge->isActive) {
             throw new BadgeException('Badge indisponible.');
+        }
+        if ($badge->referentSectionId !== null
+            && !$this->sectionService->isMemberYearInSection($memberYearId, UnitStaffSectionService::DESK_CODE)) {
+            throw new BadgeException("Ce badge ne peut être attribué qu'à un membre du Staff d'U.");
         }
 
         if ($this->memberBadgeRepository->isAssigned($memberYearId, $badgeId)) {

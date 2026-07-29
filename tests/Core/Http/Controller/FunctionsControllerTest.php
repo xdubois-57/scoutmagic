@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Tests\Core\Http\Controller;
 
+use Core\Badge\BadgeRepository;
+use Core\Badge\BadgeService;
 use Core\Badge\MemberBadgeRepository;
 use Core\Config\SettingRepository;
 use Core\Config\SettingService;
@@ -34,6 +36,7 @@ class FunctionsControllerTest extends TestCase
     private FunctionRepository $functionRepo;
     private JournalRepository $journalRepo;
     private SectionService $sectionService;
+    private BadgeService $badgeService;
     private UnitStaffSectionService $unitStaffSectionService;
     private ScoutYearResolver $scoutYearResolver;
     private int $scoutYearId;
@@ -46,11 +49,13 @@ class FunctionsControllerTest extends TestCase
         $this->functionRepo = new FunctionRepository($this->pdo);
         $this->journalRepo = new JournalRepository($this->pdo);
         $journalService = new JournalService($this->journalRepo);
+        $memberBadgeRepository = new MemberBadgeRepository($this->pdo);
         $this->sectionService = new SectionService(
             Connection::withPdo($this->pdo),
             new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)),
-            new MemberBadgeRepository($this->pdo)
+            $memberBadgeRepository
         );
+        $this->badgeService = new BadgeService(new BadgeRepository($this->pdo), $memberBadgeRepository, $this->sectionService);
         $this->unitStaffSectionService = new UnitStaffSectionService($this->pdo);
         $memberYearRepo = new MemberYearRepository($this->pdo);
         $settingService = new SettingService(new SettingRepository($this->pdo));
@@ -81,7 +86,7 @@ class FunctionsControllerTest extends TestCase
         $this->twig->addFunction(new \Twig\TwigFunction('file_url', fn() => ''));
         $this->twig->addFunction(new \Twig\TwigFunction('param', fn(string $k) => 'Test'));
 
-        $this->controller = new FunctionsController($this->twig, $this->functionRepo, $journalService, $this->sectionService, $this->unitStaffSectionService, $this->scoutYearResolver);
+        $this->controller = new FunctionsController($this->twig, $this->functionRepo, $journalService, $this->sectionService, $this->unitStaffSectionService, $this->scoutYearResolver, $this->badgeService);
     }
 
     public function testIndexRendersEmptyState(): void
@@ -338,7 +343,7 @@ class FunctionsControllerTest extends TestCase
     {
         $this->functionRepo->create('Animateur', 'Animateur', 'chief', true);
 
-        $controller = new FunctionsController($this->twig, $this->functionRepo, new JournalService($this->journalRepo), $this->sectionService, $this->unitStaffSectionService, $this->scoutYearResolver, $this->stubFlagsProvider());
+        $controller = new FunctionsController($this->twig, $this->functionRepo, new JournalService($this->journalRepo), $this->sectionService, $this->unitStaffSectionService, $this->scoutYearResolver, $this->badgeService, $this->stubFlagsProvider());
 
         $request = new Request('GET', '/config/functions', [], [], [], []);
         $response = $controller->index($request, []);
@@ -384,7 +389,7 @@ class FunctionsControllerTest extends TestCase
 
         $id = $this->functionRepo->create('Animateur', 'Animateur', 'chief', true);
         $provider = $this->stubFlagsProvider();
-        $controller = new FunctionsController($this->twig, $this->functionRepo, new JournalService($this->journalRepo), $this->sectionService, $this->unitStaffSectionService, $this->scoutYearResolver, $provider);
+        $controller = new FunctionsController($this->twig, $this->functionRepo, new JournalService($this->journalRepo), $this->sectionService, $this->unitStaffSectionService, $this->scoutYearResolver, $this->badgeService, $provider);
 
         $request = $this->createJsonRequest(['function_id' => $id, 'lead' => true, '_csrf_token' => $token]);
         $response = $controller->updateFlags($request, []);
@@ -397,7 +402,7 @@ class FunctionsControllerTest extends TestCase
     public function testUpdateFlagsWithInvalidCsrfReturnsError(): void
     {
         $id = $this->functionRepo->create('Animateur', 'Animateur', 'chief', true);
-        $controller = new FunctionsController($this->twig, $this->functionRepo, new JournalService($this->journalRepo), $this->sectionService, $this->unitStaffSectionService, $this->scoutYearResolver, $this->stubFlagsProvider());
+        $controller = new FunctionsController($this->twig, $this->functionRepo, new JournalService($this->journalRepo), $this->sectionService, $this->unitStaffSectionService, $this->scoutYearResolver, $this->badgeService, $this->stubFlagsProvider());
 
         $request = $this->createJsonRequest(['function_id' => $id, 'lead' => false, '_csrf_token' => 'bad']);
         $response = $controller->updateFlags($request, []);

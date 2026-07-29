@@ -95,6 +95,26 @@ class SectionService
     }
 
     /**
+     * Whether $memberYearId has a function in the section identified by
+     * $sectionDeskCode — used by Core\Badge\BadgeService to restrict
+     * "Référent {section}" badges to Staff d'U members (UnitStaffSectionService
+     * ::DESK_CODE), regardless of which section's Staffs page the
+     * assignment was triggered from.
+     */
+    public function isMemberYearInSection(int $memberYearId, string $sectionDeskCode): bool
+    {
+        $pdo = $this->connection->getPdo();
+        $stmt = $pdo->prepare(
+            'SELECT 1 FROM member_functions mf
+             JOIN sections s ON mf.section_id = s.id
+             WHERE mf.member_year_id = ? AND s.desk_code = ?
+             LIMIT 1'
+        );
+        $stmt->execute([$memberYearId, $sectionDeskCode]);
+        return $stmt->fetchColumn() !== false;
+    }
+
+    /**
      * Get a single section by ID with branch info.
      *
      * @return array{id: int, desk_code: string, name: ?string, email: ?string, age_branch_id: int, branch_name: string, branch_sort_order: int, color: ?string}|null

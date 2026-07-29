@@ -34,6 +34,7 @@ class ConfigGeneralController extends AbstractController
     {
         $modules = $this->moduleManager->discoverModules();
         $this->badgeService->ensureDefaults();
+        $this->badgeService->syncSectionReferentBadges();
 
         return $this->render('config/general.html.twig', [
             'modules' => $modules,

@@ -230,7 +230,9 @@ class DatabaseTestHelper
             name TEXT NOT NULL UNIQUE,
             is_default INTEGER NOT NULL DEFAULT 0,
             is_active INTEGER NOT NULL DEFAULT 1,
-            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            referent_section_id INTEGER NULL UNIQUE,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (referent_section_id) REFERENCES sections(id)
         )');
 
         $pdo->exec('CREATE TABLE member_badges (

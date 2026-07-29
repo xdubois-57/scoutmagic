@@ -460,9 +460,9 @@ $memberSearchService = new MemberSearchService(new MemberSearchRepository($conne
 // member_year (Staffs page), displayed on the trombinoscope.
 $badgeRepository = new BadgeRepository($pdo);
 $memberBadgeRepository = new MemberBadgeRepository($pdo);
-$badgeService = new BadgeService($badgeRepository, $memberBadgeRepository);
 
 $sectionService = new SectionService($connection, $encryptionService, $memberBadgeRepository);
+$badgeService = new BadgeService($badgeRepository, $memberBadgeRepository, $sectionService);
 
 // Scout year resolution (public / staff / session-preview priority)
 $scoutYearResolver = new ScoutYearResolver($scoutYearService, $settingService, $memberYearRepo);
@@ -918,7 +918,7 @@ $frontController->registerController(MemberSearchController::class, new MemberSe
 $frontController->registerController(SettingsController::class, new SettingsController($twig, $settingService, $journalService));
 $frontController->registerController(ScheduledActionsController::class, new ScheduledActionsController($twig, $schedulerRepo));
 $frontController->registerController(ConfigGeneralController::class, new ConfigGeneralController($twig, $moduleManager, $badgeService, $journalService));
-$frontController->registerController(FunctionsController::class, new FunctionsController($twig, $functionRepo, $journalService, $sectionService, $unitStaffSectionService, $scoutYearResolver));
+$frontController->registerController(FunctionsController::class, new FunctionsController($twig, $functionRepo, $journalService, $sectionService, $unitStaffSectionService, $scoutYearResolver, $badgeService));
 $frontController->registerController(PlaceholderController::class, new PlaceholderController($twig));
 
 // Module controllers with dependencies (only wired when the module is enabled).
@@ -944,7 +944,7 @@ if (in_array('trombinoscope', $moduleManager->getEnabledModuleIds(), true)) {
     );
     $frontController->registerController(
         FunctionsController::class,
-        new FunctionsController($twig, $functionRepo, $journalService, $sectionService, $unitStaffSectionService, $scoutYearResolver, $trombinoscopeFunctionFlagsService)
+        new FunctionsController($twig, $functionRepo, $journalService, $sectionService, $unitStaffSectionService, $scoutYearResolver, $badgeService, $trombinoscopeFunctionFlagsService)
     );
 
     $trombinoscopeService = new \Modules\Trombinoscope\Service\TrombinoscopeService(
