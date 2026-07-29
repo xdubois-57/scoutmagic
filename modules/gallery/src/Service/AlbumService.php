@@ -6,6 +6,7 @@ namespace Modules\Gallery\Service;
 
 use Core\Config\ScoutYearService;
 use Core\Config\SettingService;
+use Core\Scheduler\SchedulerService;
 use Core\Security\Role;
 use Modules\Gallery\Repository\Album;
 use Modules\Gallery\Repository\AlbumRepository;
@@ -24,7 +25,8 @@ class AlbumService
         private StorageLocationRepository $storageLocationRepository,
         private StorageLocationService $storageLocationService,
         private ScoutYearService $scoutYearService,
-        private SettingService $settingService
+        private SettingService $settingService,
+        private SchedulerService $schedulerService
     ) {
     }
 
@@ -167,6 +169,9 @@ class AlbumService
         if (!$this->accessService->canManageAlbum($role, $album->sectionId, $email)) {
             throw new GalleryException('Vous ne gérez pas cette section.');
         }
+        if ($album->migrationStatus === Album::MIGRATION_IN_PROGRESS) {
+            throw new GalleryException('Une migration est en cours pour cet album — réessayez une fois celle-ci terminée.');
+        }
 
         if ($album->isLocal()) {
             $location = $this->storageLocationService->resolveLocationForAlbum($album);
@@ -223,6 +228,47 @@ class AlbumService
     }
 
     /**
+     * Starts (or retries, after a 'failed' attempt) a background storage
+     * migration to a different location — the actual file copy runs out of
+     * band via Task\MigrateAlbumStorageHandler, scheduled to run right
+     * away (module spec: "in background").
+     *
+     * @throws GalleryException on an invalid album/target, a migration
+     *                           already in progress, or an unhealthy target
+     */
+    public function startMigration(int $albumId, int $targetLocationId, Role $role, string $email): void
+    {
+        $album = $this->albumRepository->findById($albumId);
+        if ($album === null) {
+            throw new GalleryException('Album introuvable.');
+        }
+        if (!$this->accessService->canManageAlbum($role, $album->sectionId, $email)) {
+            throw new GalleryException('Vous ne gérez pas cette section.');
+        }
+        if (!$album->isLocal()) {
+            throw new GalleryException('Seuls les albums locaux peuvent être migrés.');
+        }
+        if ($album->migrationStatus === Album::MIGRATION_IN_PROGRESS) {
+            throw new GalleryException('Une migration est déjà en cours pour cet album.');
+        }
+        if ($targetLocationId === $album->storageLocationId) {
+            throw new GalleryException('L\'emplacement cible doit être différent de l\'emplacement actuel.');
+        }
+
+        $target = $this->storageLocationRepository->findById($targetLocationId);
+        if ($target === null) {
+            throw new GalleryException('Emplacement cible introuvable.');
+        }
+        $target = $this->storageLocationService->checkFresh($target);
+        if ($target->lastCheckOk !== true) {
+            throw new GalleryException('Cet emplacement n\'est pas disponible actuellement — testez-le avant de migrer.');
+        }
+
+        $this->albumRepository->startMigration($albumId, $target->id);
+        $this->schedulerService->scheduleAfter('gallery', 'migrate_album_storage', 0, ['album_id' => $albumId], 'album_migration_' . $albumId);
+    }
+
+    /**
      * @return array{title: string, description: string, image: string}|null null on any fetch failure
      */
     private function fetchOgTagsBestEffort(string $url): ?array
@@ -250,10 +296,26 @@ class AlbumService
         }
     }
 
+    /**
+     * Whether a hosted (local) album is allowed to be created is derived
+     * from "does at least one storage location currently exist" rather
+     * than a separate setting an admin has to remember to keep in sync —
+     * the backfill already guarantees a location always exists on a fresh/
+     * upgraded install, and the "can't delete a referenced location" guard
+     * already prevents deleting the way into a state where existing hosted
+     * albums have no location.
+     */
     private function assertTypeAllowed(string $type): void
     {
-        $key = $type === Album::TYPE_LOCAL ? 'gallery_allow_local' : 'gallery_allow_external';
-        if (!(bool) $this->settingService->get($key, 'gallery', true)) {
+        if ($type === Album::TYPE_LOCAL) {
+            $this->storageLocationService->ensureLegacyLocationBackfilled();
+            if ($this->storageLocationRepository->findAll() === []) {
+                throw new GalleryException('Aucun emplacement de stockage configuré — impossible de créer un album local.');
+            }
+            return;
+        }
+
+        if (!(bool) $this->settingService->get('gallery_allow_external', 'gallery', true)) {
             throw new GalleryException('Ce type d\'album est désactivé.');
         }
     }

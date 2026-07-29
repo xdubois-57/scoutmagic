@@ -16,6 +16,7 @@ final class StorageLocation
         public readonly int $id,
         public readonly string $type,
         public readonly string $label,
+        public readonly bool $isDefault,
         public readonly ?string $subdir,
         public readonly ?string $s3Provider,
         public readonly ?string $s3Endpoint,

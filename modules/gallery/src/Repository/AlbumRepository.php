@@ -89,6 +89,43 @@ class AlbumRepository
         $stmt->execute([$storageLocationId, $id]);
     }
 
+    /**
+     * Starts a background storage migration — set together so a reader
+     * never observes 'in_progress' without a target.
+     */
+    public function startMigration(int $id, int $targetLocationId): void
+    {
+        $stmt = $this->pdo->prepare(
+            "UPDATE gallery_albums SET migration_status = 'in_progress', migration_target_location_id = ?, migration_error = NULL WHERE id = ?"
+        );
+        $stmt->execute([$targetLocationId, $id]);
+    }
+
+    /**
+     * Every file for every media row was copied to and verified at the
+     * target — flips the album onto it and clears the migration state in
+     * one statement (Task\MigrateAlbumStorageHandler calls this only after
+     * every single file has succeeded).
+     */
+    public function completeMigration(int $id, int $newStorageLocationId): void
+    {
+        $stmt = $this->pdo->prepare(
+            "UPDATE gallery_albums SET storage_location_id = ?, migration_status = 'none', migration_target_location_id = NULL, migration_error = NULL WHERE id = ?"
+        );
+        $stmt->execute([$newStorageLocationId, $id]);
+    }
+
+    /**
+     * Aborts a migration on any failure — storage_location_id is
+     * deliberately left untouched by this statement, still pointing at the
+     * (fully intact) source.
+     */
+    public function failMigration(int $id, string $error): void
+    {
+        $stmt = $this->pdo->prepare("UPDATE gallery_albums SET migration_status = 'failed', migration_error = ? WHERE id = ?");
+        $stmt->execute([$error, $id]);
+    }
+
     public function update(
         int $id,
         string $title,
@@ -140,6 +177,9 @@ class AlbumRepository
             ogDescription: $row['og_description'] !== null ? (string) $row['og_description'] : null,
             ogImageUrl: $row['og_image_url'] !== null ? (string) $row['og_image_url'] : null,
             storageLocationId: $row['storage_location_id'] !== null ? (int) $row['storage_location_id'] : null,
+            migrationStatus: (string) $row['migration_status'],
+            migrationTargetLocationId: $row['migration_target_location_id'] !== null ? (int) $row['migration_target_location_id'] : null,
+            migrationError: $row['migration_error'] !== null ? (string) $row['migration_error'] : null,
             createdBy: (int) $row['created_by'],
             createdAt: (string) $row['created_at']
         );

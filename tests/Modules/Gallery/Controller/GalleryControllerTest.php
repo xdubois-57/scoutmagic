@@ -83,7 +83,8 @@ class GalleryControllerTest extends TestCase
 
         $albumService = new AlbumService(
             $this->albumRepository, $this->mediaRepository, $accessService, $this->createMock(OgScraperService::class),
-            $this->storageBackendFactory, $storageLocationRepository, $storageLocationService, $scoutYearService, $settingService
+            $this->storageBackendFactory, $storageLocationRepository, $storageLocationService, $scoutYearService, $settingService,
+            $this->createMock(SchedulerService::class)
         );
         $uploadHandler = new UploadHandler(new FileRepository($this->pdo), sys_get_temp_dir());
         $this->mediaService = new MediaService(
@@ -322,5 +323,55 @@ class GalleryControllerTest extends TestCase
         $this->assertSame('fake-large-image-bytes', $zip->getFromIndex(0));
         $zip->close();
         unlink($tmp);
+    }
+
+    public function testShowMarksAMigratingAlbumUnavailableAndHidesMedia(): void
+    {
+        $id = $this->createLocalAlbum(null);
+        $this->createDoneMedia($id);
+        $this->albumRepository->startMigration($id, $this->locationId);
+
+        $response = $this->controller->show(new Request('GET', '/gallery/' . $id, [], [], [], []), ['id' => (string) $id]);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertStringContainsString('migration', $response->getBody());
+    }
+
+    public function testShowServesNormallyWhenMigrationHasFailed(): void
+    {
+        $id = $this->createLocalAlbum(null);
+        $this->createDoneMedia($id);
+        $this->albumRepository->startMigration($id, $this->locationId);
+        $this->albumRepository->failMigration($id, 'boom');
+        $backend = $this->createMock(\Modules\Gallery\Service\Storage\StorageBackendInterface::class);
+        $backend->method('get')->willReturn('fake-image-bytes');
+        $this->storageBackendFactory->method('create')->willReturn($backend);
+
+        $response = $this->controller->show(new Request('GET', '/gallery/' . $id, [], [], [], []), ['id' => (string) $id]);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertStringNotContainsString('migration en cours', $response->getBody());
+    }
+
+    public function testServeMediaReturns503WhileMigrating(): void
+    {
+        $albumId = $this->createLocalAlbum(null);
+        $mediaId = $this->createDoneMedia($albumId);
+        $this->albumRepository->startMigration($albumId, $this->locationId);
+
+        $response = $this->controller->serveMedia(new Request('GET', '/gallery/media/' . $mediaId . '/thumb', [], [], [], []), ['media_id' => (string) $mediaId, 'size' => 'thumb']);
+
+        $this->assertSame(503, $response->getStatusCode());
+    }
+
+    public function testIndexMarksAMigratingAlbumUnavailable(): void
+    {
+        $id = $this->createLocalAlbum(null);
+        $this->albumRepository->startMigration($id, $this->locationId);
+
+        $response = $this->controller->index(new Request('GET', '/gallery', [], [], [], []), []);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertStringContainsString('indisponible', mb_strtolower($response->getBody()));
     }
 }

@@ -144,4 +144,44 @@ class StorageLocationRepositoryTest extends TestCase
     {
         $this->assertNull($this->repository->findByLabel('unknown'));
     }
+
+    public function testTheFirstLocationCreatedBecomesDefaultAutomatically(): void
+    {
+        $id = $this->repository->create(StorageLocation::TYPE_LOCAL, 'Premier', 'gallery', null, null, null, null, null, null, null);
+
+        $this->assertTrue($this->repository->findById($id)->isDefault);
+    }
+
+    public function testSubsequentLocationsAreNotDefaultByDefault(): void
+    {
+        $this->repository->create(StorageLocation::TYPE_LOCAL, 'Premier', 'gallery', null, null, null, null, null, null, null);
+        $secondId = $this->repository->create(StorageLocation::TYPE_LOCAL, 'Second', 'gallery2', null, null, null, null, null, null, null);
+
+        $this->assertFalse($this->repository->findById($secondId)->isDefault);
+    }
+
+    public function testSetDefaultPromotesExactlyOneLocation(): void
+    {
+        $firstId = $this->repository->create(StorageLocation::TYPE_LOCAL, 'Premier', 'gallery', null, null, null, null, null, null, null);
+        $secondId = $this->repository->create(StorageLocation::TYPE_LOCAL, 'Second', 'gallery2', null, null, null, null, null, null, null);
+
+        $this->repository->setDefault($secondId);
+
+        $this->assertFalse($this->repository->findById($firstId)->isDefault);
+        $this->assertTrue($this->repository->findById($secondId)->isDefault);
+    }
+
+    public function testFindDefaultReturnsTheFlaggedLocation(): void
+    {
+        $this->repository->create(StorageLocation::TYPE_LOCAL, 'Premier', 'gallery', null, null, null, null, null, null, null);
+        $secondId = $this->repository->create(StorageLocation::TYPE_LOCAL, 'Second', 'gallery2', null, null, null, null, null, null, null);
+        $this->repository->setDefault($secondId);
+
+        $this->assertSame($secondId, $this->repository->findDefault()->id);
+    }
+
+    public function testFindDefaultReturnsNullWhenNoLocationExists(): void
+    {
+        $this->assertNull($this->repository->findDefault());
+    }
 }

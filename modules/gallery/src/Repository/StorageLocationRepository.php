@@ -60,6 +60,11 @@ class StorageLocationRepository
         return $this->encryption->decrypt((string) $encrypted);
     }
 
+    /**
+     * The very first location ever created (any type, any caller) becomes
+     * the default automatically — every subsequent one starts as non-default
+     * until an admin explicitly promotes it via setDefault().
+     */
     public function create(
         string $type,
         string $label,
@@ -72,17 +77,56 @@ class StorageLocationRepository
         ?string $s3PublicUrl,
         ?string $secretKey
     ): int {
+        $isFirst = (int) $this->pdo->query('SELECT COUNT(*) FROM gallery_storage_locations')->fetchColumn() === 0;
+
         $stmt = $this->pdo->prepare(
             'INSERT INTO gallery_storage_locations
-                (type, label, subdir, s3_provider, s3_endpoint, s3_region, s3_bucket, s3_access_key, s3_public_url, secret_key_encrypted, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                (type, label, is_default, subdir, s3_provider, s3_endpoint, s3_region, s3_bucket, s3_access_key, s3_public_url, secret_key_encrypted, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([
-            $type, $label, $subdir, $s3Provider, $s3Endpoint, $s3Region, $s3Bucket, $s3AccessKey, $s3PublicUrl,
+            $type, $label, $isFirst ? 1 : 0, $subdir, $s3Provider, $s3Endpoint, $s3Region, $s3Bucket, $s3AccessKey, $s3PublicUrl,
             $secretKey !== null && $secretKey !== '' ? $this->encryption->encrypt($secretKey) : null,
             date('Y-m-d H:i:s'),
         ]);
         return (int) $this->pdo->lastInsertId();
+    }
+
+    /**
+     * Promotes $id to the sole default location, demoting whichever one
+     * held it before — wrapped in a transaction so a read in between never
+     * observes zero or two default locations.
+     */
+    public function setDefault(int $id): void
+    {
+        $this->pdo->beginTransaction();
+        try {
+            $this->pdo->exec('UPDATE gallery_storage_locations SET is_default = 0');
+            $stmt = $this->pdo->prepare('UPDATE gallery_storage_locations SET is_default = 1 WHERE id = ?');
+            $stmt->execute([$id]);
+            $this->pdo->commit();
+        } catch (\Throwable $e) {
+            $this->pdo->rollBack();
+            throw $e;
+        }
+    }
+
+    /**
+     * The current default, falling back to the first-created location when
+     * none is explicitly flagged yet (installs with locations predating the
+     * is_default column) — never null when at least one location exists.
+     */
+    public function findDefault(): ?StorageLocation
+    {
+        $stmt = $this->pdo->query('SELECT * FROM gallery_storage_locations WHERE is_default = 1 ORDER BY id ASC LIMIT 1');
+        $row = $stmt !== false ? $stmt->fetch(\PDO::FETCH_ASSOC) : false;
+        if ($row !== false) {
+            return $this->hydrate($row);
+        }
+
+        $stmt = $this->pdo->query('SELECT * FROM gallery_storage_locations ORDER BY id ASC LIMIT 1');
+        $row = $stmt !== false ? $stmt->fetch(\PDO::FETCH_ASSOC) : false;
+        return $row !== false ? $this->hydrate($row) : null;
     }
 
     /**
@@ -161,6 +205,7 @@ class StorageLocationRepository
             id: (int) $row['id'],
             type: (string) $row['type'],
             label: (string) $row['label'],
+            isDefault: (bool) $row['is_default'],
             subdir: $row['subdir'] !== null ? (string) $row['subdir'] : null,
             s3Provider: $row['s3_provider'] !== null ? (string) $row['s3_provider'] : null,
             s3Endpoint: $row['s3_endpoint'] !== null ? (string) $row['s3_endpoint'] : null,

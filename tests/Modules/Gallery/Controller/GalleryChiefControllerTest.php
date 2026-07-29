@@ -48,6 +48,7 @@ class GalleryChiefControllerTest extends TestCase
     private GalleryChiefController $controller;
     private AlbumRepository $albumRepository;
     private MediaRepository $mediaRepository;
+    private StorageLocationRepository $storageLocationRepository;
     private int $authorId;
     private int $scoutYearId;
     private int $locationId;
@@ -72,20 +73,23 @@ class GalleryChiefControllerTest extends TestCase
         $accessService = $this->createMock(GalleryAccessService::class);
         $accessService->method('canManageAlbum')->willReturn(true);
         $accessService->method('getManagedSectionIds')->willReturn([]);
-        $storageLocationRepository = new StorageLocationRepository($this->pdo, $encryption);
+        $this->storageLocationRepository = new StorageLocationRepository($this->pdo, $encryption);
+        $storageLocationRepository = $this->storageLocationRepository;
         $storageBackendFactory = $this->createMock(StorageBackendFactory::class);
         $storageLocationService = new StorageLocationService(
             $storageLocationRepository, $this->albumRepository, $storageBackendFactory, $settingService,
             new S3SecretRepository($this->pdo, $encryption), sys_get_temp_dir()
         );
 
+        $schedulerService = new SchedulerService(new SchedulerRepository($this->pdo));
         $albumService = new AlbumService(
             $this->albumRepository, $this->mediaRepository, $accessService, $this->createMock(OgScraperService::class),
-            $storageBackendFactory, $storageLocationRepository, $storageLocationService, $scoutYearService, $settingService
+            $storageBackendFactory, $storageLocationRepository, $storageLocationService, $scoutYearService, $settingService,
+            $schedulerService
         );
         $uploadHandler = new UploadHandler(new FileRepository($this->pdo), sys_get_temp_dir());
         $mediaService = new MediaService(
-            $this->mediaRepository, $this->albumRepository, $uploadHandler, new SchedulerService(new SchedulerRepository($this->pdo)),
+            $this->mediaRepository, $this->albumRepository, $uploadHandler, $schedulerService,
             $settingService, $accessService, $storageBackendFactory, $storageLocationService, $this->createMock(FfmpegAvailability::class)
         );
 
@@ -334,5 +338,135 @@ class GalleryChiefControllerTest extends TestCase
 
         $decoded = json_decode($response->getBody(), true);
         $this->assertFalse($decoded['success']);
+    }
+
+    public function testMigrateStorageStartsAMigrationToAHealthyOtherLocation(): void
+    {
+        $id = $this->createLocalAlbum();
+        $targetId = $this->storageLocationRepository->create(
+            StorageLocation::TYPE_LOCAL, 'Autre emplacement', 'gallery2', null, null, null, null, null, null, null
+        );
+        $this->storageLocationRepository->recordCheckResult($targetId, true, null);
+        $token = $this->csrfToken();
+
+        $response = $this->controller->migrateStorage(
+            $this->jsonRequest(['target_location_id' => $targetId, '_csrf_token' => $token]), ['id' => (string) $id]
+        );
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertTrue($decoded['success']);
+        $this->assertSame(Album::MIGRATION_IN_PROGRESS, $this->albumRepository->findById($id)->migrationStatus);
+    }
+
+    public function testMigrateStorageRejectsWhenAlreadyInProgress(): void
+    {
+        $id = $this->createLocalAlbum();
+        $targetId = $this->storageLocationRepository->create(
+            StorageLocation::TYPE_LOCAL, 'Autre emplacement', 'gallery2', null, null, null, null, null, null, null
+        );
+        $this->storageLocationRepository->recordCheckResult($targetId, true, null);
+        $this->albumRepository->startMigration($id, $targetId);
+        $token = $this->csrfToken();
+
+        $response = $this->controller->migrateStorage(
+            $this->jsonRequest(['target_location_id' => $targetId, '_csrf_token' => $token]), ['id' => (string) $id]
+        );
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertFalse($decoded['success']);
+        $this->assertSame(422, $response->getStatusCode());
+    }
+
+    public function testMigrateStorageRejectsTheCurrentLocationAsTarget(): void
+    {
+        $id = $this->createLocalAlbum();
+        $token = $this->csrfToken();
+
+        $response = $this->controller->migrateStorage(
+            $this->jsonRequest(['target_location_id' => $this->locationId, '_csrf_token' => $token]), ['id' => (string) $id]
+        );
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertFalse($decoded['success']);
+    }
+
+    public function testMigrateStorageRejectsAnUnhealthyTarget(): void
+    {
+        $id = $this->createLocalAlbum();
+        $targetId = $this->storageLocationRepository->create(
+            StorageLocation::TYPE_LOCAL, 'Cassé', 'gallery2', null, null, null, null, null, null, null
+        );
+        $this->storageLocationRepository->recordCheckResult($targetId, false, 'Dossier inaccessible.');
+        $token = $this->csrfToken();
+
+        $response = $this->controller->migrateStorage(
+            $this->jsonRequest(['target_location_id' => $targetId, '_csrf_token' => $token]), ['id' => (string) $id]
+        );
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertFalse($decoded['success']);
+    }
+
+    public function testMigrateStorageRejectsAnExternalAlbum(): void
+    {
+        $id = $this->albumRepository->create(Album::TYPE_EXTERNAL, 'Externe', null, '2026-01-01', null, $this->scoutYearId, 'https://example.com', null, $this->authorId);
+        $targetId = $this->storageLocationRepository->create(
+            StorageLocation::TYPE_LOCAL, 'Autre emplacement', 'gallery2', null, null, null, null, null, null, null
+        );
+        $this->storageLocationRepository->recordCheckResult($targetId, true, null);
+        $token = $this->csrfToken();
+
+        $response = $this->controller->migrateStorage(
+            $this->jsonRequest(['target_location_id' => $targetId, '_csrf_token' => $token]), ['id' => (string) $id]
+        );
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertFalse($decoded['success']);
+    }
+
+    public function testMigrateStorageRequiresCsrf(): void
+    {
+        $id = $this->createLocalAlbum();
+
+        $response = $this->controller->migrateStorage(
+            $this->jsonRequest(['target_location_id' => 999, '_csrf_token' => 'bad']), ['id' => (string) $id]
+        );
+
+        $this->assertSame(400, $response->getStatusCode());
+    }
+
+    public function testEditRendersNoMigrationUiForAnExternalAlbum(): void
+    {
+        $id = $this->albumRepository->create(Album::TYPE_EXTERNAL, 'Externe', null, '2026-01-01', null, $this->scoutYearId, 'https://example.com', null, $this->authorId);
+
+        $response = $this->controller->edit(new Request('GET', '/gallery/' . $id . '/edit', [], [], [], []), ['id' => (string) $id]);
+
+        $this->assertStringNotContainsString('gallery-migrate-start', $response->getBody());
+    }
+
+    public function testEditRendersMigrationUiForALocalAlbumWithAnotherLocationAvailable(): void
+    {
+        $id = $this->createLocalAlbum();
+        $this->storageLocationRepository->create(
+            StorageLocation::TYPE_LOCAL, 'Autre emplacement', 'gallery2', null, null, null, null, null, null, null
+        );
+
+        $response = $this->controller->edit(new Request('GET', '/gallery/' . $id . '/edit', [], [], [], []), ['id' => (string) $id]);
+
+        $this->assertStringContainsString('gallery-migrate-start', $response->getBody());
+    }
+
+    public function testEditHidesUploadZoneAndShowsUnavailableWhileMigrating(): void
+    {
+        $id = $this->createLocalAlbum();
+        $targetId = $this->storageLocationRepository->create(
+            StorageLocation::TYPE_LOCAL, 'Autre emplacement', 'gallery2', null, null, null, null, null, null, null
+        );
+        $this->albumRepository->startMigration($id, $targetId);
+
+        $response = $this->controller->edit(new Request('GET', '/gallery/' . $id . '/edit', [], [], [], []), ['id' => (string) $id]);
+
+        $this->assertStringContainsString('Migration en cours', $response->getBody());
+        $this->assertStringNotContainsString('gallery-upload-zone', $response->getBody());
     }
 }

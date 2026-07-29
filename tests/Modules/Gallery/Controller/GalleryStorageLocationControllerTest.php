@@ -223,6 +223,29 @@ class GalleryStorageLocationControllerTest extends TestCase
         $this->assertNotNull($this->storageLocationRepository->findById($id));
     }
 
+    public function testSetDefaultPromotesTheGivenLocation(): void
+    {
+        $firstId = $this->storageLocationRepository->create(StorageLocation::TYPE_LOCAL, 'Premier', 'gallery', null, null, null, null, null, null, null);
+        $secondId = $this->storageLocationRepository->create(StorageLocation::TYPE_LOCAL, 'Second', 'gallery2', null, null, null, null, null, null, null);
+        $token = $this->csrfToken();
+
+        $response = $this->controller->setDefault($this->jsonRequest(['_csrf_token' => $token], '/config/gallery/locations/' . $secondId . '/default'), ['id' => (string) $secondId]);
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertTrue($decoded['success']);
+        $this->assertFalse($this->storageLocationRepository->findById($firstId)->isDefault);
+        $this->assertTrue($this->storageLocationRepository->findById($secondId)->isDefault);
+    }
+
+    public function testSetDefaultRequiresCsrf(): void
+    {
+        $id = $this->storageLocationRepository->create(StorageLocation::TYPE_LOCAL, 'Local', 'gallery', null, null, null, null, null, null, null);
+
+        $response = $this->controller->setDefault($this->jsonRequest(['_csrf_token' => 'bad'], '/config/gallery/locations/' . $id . '/default'), ['id' => (string) $id]);
+
+        $this->assertSame(400, $response->getStatusCode());
+    }
+
     public function testTestActionRecordsAFailedLocalCheckWhenTheDirectoryCannotBeCreated(): void
     {
         $id = $this->storageLocationRepository->create(

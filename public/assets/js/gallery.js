@@ -344,6 +344,29 @@
     })();
 
     // ------------------------------------------------------------------
+    // Storage migration trigger (album_form.html.twig, edit mode, local albums)
+    // ------------------------------------------------------------------
+    (function initMigrateStorage() {
+        var btn = document.getElementById('gallery-migrate-start');
+        var select = document.getElementById('gallery-migrate-target');
+        if (!btn || !select) return;
+        btn.addEventListener('click', function () {
+            if (!confirm('Démarrer la migration de cet album vers cet autre emplacement ? L\'album sera indisponible pour les membres pendant l\'opération.')) return;
+            btn.disabled = true;
+            postJson(btn.dataset.url, { target_location_id: parseInt(select.value, 10) }).then(function (data) {
+                if (data.success) {
+                    window.location.reload();
+                } else {
+                    btn.disabled = false;
+                    alert(data.error || 'Erreur lors du démarrage de la migration.');
+                }
+            }).catch(function () {
+                btn.disabled = false;
+            });
+        });
+    })();
+
+    // ------------------------------------------------------------------
     // Delete album button (album_form.html.twig, edit mode)
     // ------------------------------------------------------------------
     (function initDeleteAlbum() {

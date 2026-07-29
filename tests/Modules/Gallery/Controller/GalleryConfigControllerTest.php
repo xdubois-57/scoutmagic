@@ -49,7 +49,7 @@ class GalleryConfigControllerTest extends TestCase
 
         $this->settingService = new SettingService(new SettingRepository($this->pdo));
         foreach ([
-            'gallery_allow_local' => ['1', 'boolean'], 'gallery_allow_external' => ['1', 'boolean'],
+            'gallery_allow_external' => ['1', 'boolean'],
             'gallery_max_media_per_album' => ['200', 'number'], 'gallery_max_photo_upload_mb' => ['30', 'number'],
             'gallery_photo_max_dimension' => ['3000', 'number'], 'gallery_allow_video' => ['1', 'boolean'],
             'gallery_max_video_upload_mb' => ['2048', 'number'], 'gallery_max_video_duration_sec' => ['1800', 'number'],
@@ -114,6 +114,14 @@ class GalleryConfigControllerTest extends TestCase
 
         $this->assertSame(200, $response->getStatusCode());
         $this->assertStringContainsString('FFmpeg', $response->getBody());
+    }
+
+    public function testIndexNoLongerRendersTheRemovedAllowLocalSetting(): void
+    {
+        $response = $this->controller->index(new Request('GET', '/config/gallery', [], [], [], []), []);
+
+        $this->assertStringNotContainsString('gallery_allow_local', $response->getBody());
+        $this->assertStringNotContainsString('Autoriser les albums locaux (photos', $response->getBody());
     }
 
     public function testIndexBackfillsALocalLocationOnFreshInstall(): void

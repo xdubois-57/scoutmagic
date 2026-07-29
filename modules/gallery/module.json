@@ -2,7 +2,7 @@
   "id": "gallery",
   "name": "Galerie photos et vidéos",
   "description": "Albums photo/vidéo (envoi local avec redimensionnement/transcodage automatique, ou lien vers un album externe) visibles par les membres identifiés.",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -230,16 +230,27 @@
       "menu": "configuration",
       "role_min": "superadmin",
       "label": ""
+    },
+    {
+      "path": "/config/gallery/locations/{id}/default",
+      "method": "POST",
+      "controller": "Modules\\Gallery\\Controller\\GalleryStorageLocationController",
+      "action": "setDefault",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": ""
+    },
+    {
+      "path": "/gallery/{id}/migrate",
+      "method": "POST",
+      "controller": "Modules\\Gallery\\Controller\\GalleryChiefController",
+      "action": "migrateStorage",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
     }
   ],
   "settings": [
-    {
-      "key": "gallery_allow_local",
-      "default_value": "1",
-      "type": "boolean",
-      "label": "Autoriser les albums locaux",
-      "description": "Permet aux chefs de créer des albums avec envoi de photos/vidéos hébergées par le site."
-    },
     {
       "key": "gallery_allow_external",
       "default_value": "1",
@@ -306,6 +317,10 @@
     {
       "key": "process_video",
       "handler": "Modules\\Gallery\\Task\\ProcessVideoHandler"
+    },
+    {
+      "key": "migrate_album_storage",
+      "handler": "Modules\\Gallery\\Task\\MigrateAlbumStorageHandler"
     }
   ],
   "storage": {

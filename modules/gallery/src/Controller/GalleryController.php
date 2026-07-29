@@ -88,7 +88,7 @@ class GalleryController extends AbstractController
 
         $location = $this->storageLocationService->resolveLocationForAlbum($album);
         $location = $location !== null ? $this->storageLocationService->checkFresh($location) : null;
-        $unavailable = $location !== null && $location->lastCheckOk === false;
+        $unavailable = $album->isMigrating() || ($location !== null && $location->lastCheckOk === false);
 
         $mediaRows = $this->mediaRepository->findByAlbumId($album->id);
         $media = $unavailable ? [] : array_map(fn(Media $m) => [
@@ -103,7 +103,9 @@ class GalleryController extends AbstractController
             'media' => $media,
             'has_downloadable_media' => !$unavailable && count(array_filter($mediaRows, fn(Media $m) => $m->processingStatus === Media::STATUS_DONE)) > 0,
             'storage_unavailable' => $unavailable,
-            'storage_unavailable_reason' => $unavailable ? $location->lastCheckError : null,
+            'storage_unavailable_reason' => $album->isMigrating()
+                ? 'Cet album est en cours de migration vers un autre emplacement de stockage.'
+                : ($unavailable ? $location->lastCheckError : null),
         ]);
     }
 
@@ -124,6 +126,9 @@ class GalleryController extends AbstractController
         }
         if (!$this->isVisible($album)) {
             return new Response('Forbidden', 403);
+        }
+        if ($album->isMigrating()) {
+            return new Response('Album en cours de migration.', 503);
         }
 
         $media = array_values(array_filter(
@@ -200,6 +205,9 @@ class GalleryController extends AbstractController
         $album = $this->albumService->findById($media->albumId);
         if ($album === null) {
             return new Response('Not Found', 404);
+        }
+        if ($album->isMigrating()) {
+            return new Response('Album en cours de migration.', 503);
         }
 
         $path = match ($size) {
@@ -331,10 +339,15 @@ class GalleryController extends AbstractController
         $unavailable = false;
         $unavailableReason = null;
         if ($album->isLocal()) {
-            $location = $this->storageLocationService->resolveLocationForAlbum($album);
-            $location = $location !== null ? $this->storageLocationService->checkFresh($location) : null;
-            $unavailable = $location !== null && $location->lastCheckOk === false;
-            $unavailableReason = $unavailable ? $location->lastCheckError : null;
+            if ($album->isMigrating()) {
+                $unavailable = true;
+                $unavailableReason = 'Cet album est en cours de migration vers un autre emplacement de stockage.';
+            } else {
+                $location = $this->storageLocationService->resolveLocationForAlbum($album);
+                $location = $location !== null ? $this->storageLocationService->checkFresh($location) : null;
+                $unavailable = $location !== null && $location->lastCheckOk === false;
+                $unavailableReason = $unavailable ? $location->lastCheckError : null;
+            }
         }
 
         $coverUrl = null;

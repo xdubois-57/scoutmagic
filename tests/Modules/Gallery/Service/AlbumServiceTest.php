@@ -6,6 +6,7 @@ namespace Tests\Modules\Gallery\Service;
 
 use Core\Config\ScoutYearService;
 use Core\Config\SettingService;
+use Core\Scheduler\SchedulerService;
 use Core\Security\EncryptionService;
 use Core\Security\Role;
 use Modules\Gallery\Repository\Album;
@@ -36,6 +37,7 @@ class AlbumServiceTest extends TestCase
     private AlbumService $service;
     private GalleryAccessService $accessService;
     private StorageBackendFactory $storageBackendFactory;
+    private SchedulerService $schedulerService;
     private int $authorId;
     private int $scoutYearId;
     private int $sectionId;
@@ -79,10 +81,12 @@ class AlbumServiceTest extends TestCase
             StorageLocation::TYPE_LOCAL, 'Stockage local', 'gallery', null, null, null, null, null, null, null
         );
 
+        $this->schedulerService = $this->createMock(SchedulerService::class);
+
         $this->service = new AlbumService(
             $this->albumRepository, $mediaRepository, $this->accessService, $ogScraperService,
             $this->storageBackendFactory, $this->storageLocationRepository, $this->storageLocationService,
-            $scoutYearService, $settingService
+            $scoutYearService, $settingService, $this->schedulerService
         );
     }
 
@@ -135,7 +139,7 @@ class AlbumServiceTest extends TestCase
         $service = new AlbumService(
             $this->albumRepository, new MediaRepository($this->pdo), $this->accessService,
             $ogScraperService, $this->storageBackendFactory, $this->storageLocationRepository,
-            $this->storageLocationService, new ScoutYearService($this->pdo), $settingService
+            $this->storageLocationService, new ScoutYearService($this->pdo), $settingService, $this->schedulerService
         );
 
         $album = $service->create(Album::TYPE_EXTERNAL, '', null, '2026-07-01', null, 'https://example.com/album', null, $this->authorId, Role::CHIEF, 'chief@test.com');
@@ -151,7 +155,7 @@ class AlbumServiceTest extends TestCase
         $service = new AlbumService(
             $this->albumRepository, new MediaRepository($this->pdo), $this->accessService,
             $ogScraperService, $this->storageBackendFactory, $this->storageLocationRepository,
-            $this->storageLocationService, new ScoutYearService($this->pdo), $this->settingServiceAllowingEverything()
+            $this->storageLocationService, new ScoutYearService($this->pdo), $this->settingServiceAllowingEverything(), $this->schedulerService
         );
 
         $this->expectException(GalleryException::class);
@@ -165,7 +169,7 @@ class AlbumServiceTest extends TestCase
         $service = new AlbumService(
             $this->albumRepository, new MediaRepository($this->pdo), $this->accessService,
             $ogScraperService, $this->storageBackendFactory, $this->storageLocationRepository,
-            $this->storageLocationService, new ScoutYearService($this->pdo), $this->settingServiceAllowingEverything()
+            $this->storageLocationService, new ScoutYearService($this->pdo), $this->settingServiceAllowingEverything(), $this->schedulerService
         );
 
         $album = $service->create(Album::TYPE_EXTERNAL, 'Mon titre à moi', null, '2026-07-01', null, 'https://example.com/album', null, $this->authorId, Role::CHIEF, 'chief@test.com');
@@ -180,7 +184,7 @@ class AlbumServiceTest extends TestCase
         $service = new AlbumService(
             $this->albumRepository, new MediaRepository($this->pdo), $accessService,
             $this->createMock(OgScraperService::class), $this->storageBackendFactory, $this->storageLocationRepository,
-            $this->storageLocationService, new ScoutYearService($this->pdo), $this->settingServiceAllowingEverything()
+            $this->storageLocationService, new ScoutYearService($this->pdo), $this->settingServiceAllowingEverything(), $this->schedulerService
         );
 
         $this->expectException(GalleryException::class);
@@ -236,6 +240,109 @@ class AlbumServiceTest extends TestCase
 
         $this->expectException(GalleryException::class);
         $this->service->setCover($id1, $mediaId, Role::CHIEF, 'chief@test.com');
+    }
+
+    public function testCreateLocalAlbumIsBlockedWhenNoStorageLocationExists(): void
+    {
+        // A brand new PDO/tables with zero locations — createTestDatabase()
+        // gives an independent in-memory DB so no backfill can silently
+        // create one behind this test's back.
+        $pdo = DatabaseTestHelper::createTestDatabase();
+        GalleryTestHelper::createTables($pdo);
+        $stmt = $pdo->prepare('INSERT INTO user_accounts (email_encrypted, email_blind_index) VALUES (?, ?)');
+        $stmt->execute(['enc', 'idx']);
+        $authorId = (int) $pdo->lastInsertId();
+        $pdo->exec("INSERT INTO scout_years (label, start_date, end_date) VALUES ('2025-2026', '2025-09-01', '2026-08-31')");
+
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $storageLocationRepository = new StorageLocationRepository($pdo, $encryption);
+        $albumRepository = new AlbumRepository($pdo);
+        $storageBackendFactory = $this->createMock(StorageBackendFactory::class);
+        $settingService = $this->settingServiceAllowingEverything();
+        $storageLocationService = new StorageLocationService(
+            $storageLocationRepository, $albumRepository, $storageBackendFactory,
+            $settingService, new S3SecretRepository($pdo, $encryption), sys_get_temp_dir()
+        );
+        $service = new AlbumService(
+            $albumRepository, new MediaRepository($pdo), $this->accessService,
+            $this->createMock(OgScraperService::class), $storageBackendFactory, $storageLocationRepository,
+            $storageLocationService, new ScoutYearService($pdo), $settingService, $this->schedulerService
+        );
+
+        $this->expectException(GalleryException::class);
+        $service->create(Album::TYPE_LOCAL, 'Titre', null, '2026-07-01', null, null, null, $authorId, Role::CHIEF, 'chief@test.com');
+    }
+
+    public function testStartMigrationSchedulesTheTaskAndMarksInProgress(): void
+    {
+        $id = $this->albumRepository->create(Album::TYPE_LOCAL, 'Titre', null, '2026-01-01', null, $this->scoutYearId, null, $this->locationId, $this->authorId);
+        $targetId = $this->storageLocationRepository->create(
+            StorageLocation::TYPE_LOCAL, 'Autre emplacement', 'gallery2', null, null, null, null, null, null, null
+        );
+        $this->storageLocationRepository->recordCheckResult($targetId, true, null);
+
+        $this->schedulerService->expects($this->once())->method('scheduleAfter')
+            ->with('gallery', 'migrate_album_storage', 0, ['album_id' => $id], 'album_migration_' . $id);
+
+        $this->service->startMigration($id, $targetId, Role::CHIEF, 'chief@test.com');
+
+        $album = $this->albumRepository->findById($id);
+        $this->assertSame(Album::MIGRATION_IN_PROGRESS, $album->migrationStatus);
+        $this->assertSame($targetId, $album->migrationTargetLocationId);
+    }
+
+    public function testStartMigrationRejectsAnUnhealthyTarget(): void
+    {
+        $id = $this->albumRepository->create(Album::TYPE_LOCAL, 'Titre', null, '2026-01-01', null, $this->scoutYearId, null, $this->locationId, $this->authorId);
+        $targetId = $this->storageLocationRepository->create(
+            StorageLocation::TYPE_S3, 'Bucket cassé', null, 'custom', 'https://x', 'eu', 'bucket', 'ak', null, 'sk'
+        );
+        $this->storageLocationRepository->recordCheckResult($targetId, false, 'Connexion refusée.');
+
+        $this->expectException(GalleryException::class);
+        $this->service->startMigration($id, $targetId, Role::CHIEF, 'chief@test.com');
+    }
+
+    public function testStartMigrationRejectsTheSameLocationAsCurrent(): void
+    {
+        $id = $this->albumRepository->create(Album::TYPE_LOCAL, 'Titre', null, '2026-01-01', null, $this->scoutYearId, null, $this->locationId, $this->authorId);
+
+        $this->expectException(GalleryException::class);
+        $this->service->startMigration($id, $this->locationId, Role::CHIEF, 'chief@test.com');
+    }
+
+    public function testStartMigrationRejectsWhenAlreadyInProgress(): void
+    {
+        $id = $this->albumRepository->create(Album::TYPE_LOCAL, 'Titre', null, '2026-01-01', null, $this->scoutYearId, null, $this->locationId, $this->authorId);
+        $targetId = $this->storageLocationRepository->create(
+            StorageLocation::TYPE_LOCAL, 'Autre emplacement', 'gallery2', null, null, null, null, null, null, null
+        );
+        $this->storageLocationRepository->recordCheckResult($targetId, true, null);
+        $this->albumRepository->startMigration($id, $targetId);
+
+        $this->expectException(GalleryException::class);
+        $this->service->startMigration($id, $targetId, Role::CHIEF, 'chief@test.com');
+    }
+
+    public function testStartMigrationRejectsAnExternalAlbum(): void
+    {
+        $id = $this->albumRepository->create(Album::TYPE_EXTERNAL, 'Titre', null, '2026-01-01', null, $this->scoutYearId, 'https://example.com', null, $this->authorId);
+        $targetId = $this->storageLocationRepository->create(
+            StorageLocation::TYPE_LOCAL, 'Autre emplacement', 'gallery2', null, null, null, null, null, null, null
+        );
+        $this->storageLocationRepository->recordCheckResult($targetId, true, null);
+
+        $this->expectException(GalleryException::class);
+        $this->service->startMigration($id, $targetId, Role::CHIEF, 'chief@test.com');
+    }
+
+    public function testDeleteRejectsAnAlbumMidMigration(): void
+    {
+        $id = $this->albumRepository->create(Album::TYPE_LOCAL, 'Titre', null, '2026-01-01', null, $this->scoutYearId, null, $this->locationId, $this->authorId);
+        $this->albumRepository->startMigration($id, $this->locationId);
+
+        $this->expectException(GalleryException::class);
+        $this->service->delete($id, Role::CHIEF, 'chief@test.com');
     }
 
     private function settingServiceAllowingEverything(): SettingService

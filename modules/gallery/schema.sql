@@ -27,6 +27,13 @@ CREATE TABLE IF NOT EXISTS gallery_storage_locations (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     type ENUM('local', 's3') NOT NULL,
     label VARCHAR(255) NOT NULL,
+    -- Exactly one location is default at a time (enforced in
+    -- Repository\StorageLocationRepository::setDefault(), not here — a
+    -- CHECK/trigger for "at most one TRUE row" has no clean, portable
+    -- expression in this schema style) — pre-selected for new local albums
+    -- (views/album_form.html.twig) instead of an ad-hoc "first/most recent"
+    -- pick.
+    is_default BOOLEAN NOT NULL DEFAULT FALSE,
     -- local only.
     subdir VARCHAR(255) NULL,
     -- s3 only — same fields/meaning as the single-location config this
@@ -80,16 +87,29 @@ CREATE TABLE IF NOT EXISTS gallery_albums (
     -- Service\StorageLocationService::ensureLegacyLocationBackfilled()
     -- self-heals those the first time anything needs to resolve one.
     storage_location_id INT UNSIGNED NULL,
+    -- Background storage migration (Task\MigrateAlbumStorageHandler,
+    -- triggered from the album edit page) — 'in_progress' makes the album
+    -- unavailable everywhere its media would otherwise be read (a partially
+    -- copied media set could render inconsistently); 'failed' does NOT
+    -- block availability, since the source location is always left fully
+    -- intact until the very last step of a successful migration, so a
+    -- failed attempt simply leaves the album working as before, with the
+    -- error surfaced for a retry.
+    migration_status ENUM('none', 'in_progress', 'failed') NOT NULL DEFAULT 'none',
+    migration_target_location_id INT UNSIGNED NULL,
+    migration_error TEXT NULL,
     created_by INT UNSIGNED NOT NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_gallery_albums_scout_year (scout_year_id),
     INDEX idx_gallery_albums_section (section_id),
     INDEX idx_gallery_albums_date (album_date),
     INDEX idx_gallery_albums_storage_location (storage_location_id),
+    INDEX idx_gallery_albums_migration_target (migration_target_location_id),
     CONSTRAINT fk_gallery_albums_section FOREIGN KEY (section_id) REFERENCES sections(id) ON DELETE SET NULL,
     CONSTRAINT fk_gallery_albums_scout_year FOREIGN KEY (scout_year_id) REFERENCES scout_years(id),
     CONSTRAINT fk_gallery_albums_created_by FOREIGN KEY (created_by) REFERENCES user_accounts(id),
-    CONSTRAINT fk_gallery_albums_storage_location FOREIGN KEY (storage_location_id) REFERENCES gallery_storage_locations(id)
+    CONSTRAINT fk_gallery_albums_storage_location FOREIGN KEY (storage_location_id) REFERENCES gallery_storage_locations(id),
+    CONSTRAINT fk_gallery_albums_migration_target FOREIGN KEY (migration_target_location_id) REFERENCES gallery_storage_locations(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- gallery_media: one row per uploaded photo/video, always tied to a local

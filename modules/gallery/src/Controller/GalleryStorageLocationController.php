@@ -223,6 +223,34 @@ class GalleryStorageLocationController extends AbstractController
     }
 
     /**
+     * POST /config/gallery/locations/{id}/default — promotes this location
+     * to the sole default, pre-selected for new local albums.
+     *
+     * @param array<string, string> $params
+     */
+    public function setDefault(Request $request, array $params): Response
+    {
+        $data = json_decode($request->getRawBody(), true);
+        if (!is_array($data) || !CsrfGuard::validateToken((string) ($data['_csrf_token'] ?? ''))) {
+            return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
+        }
+
+        $location = $this->storageLocationRepository->findById((int) $params['id']);
+        if ($location === null) {
+            return $this->json(['success' => false, 'error' => 'Emplacement introuvable.'], 404);
+        }
+
+        $this->storageLocationRepository->setDefault($location->id);
+
+        $this->journalService->log(
+            'gallery', 'storage_location_default_changed', 'info', "Emplacement de stockage « {$location->label} » défini par défaut",
+            [], (int) AuthSession::getUserAccountId()
+        );
+
+        return $this->json(['success' => true]);
+    }
+
+    /**
      * POST /config/gallery/locations/{id}/test — forces an immediate
      * (non-cached) health check and returns the fresh result, for the
      * config page's per-row "Tester" button.

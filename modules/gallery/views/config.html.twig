@@ -26,14 +26,12 @@
                 <div class="row g-3">
                     <div class="col-12 col-md-6">
                         <div class="form-check form-switch">
-                            <input class="form-check-input" type="checkbox" id="gallery-allow-local" name="gallery_allow_local" value="1" {{ gallery_allow_local ? 'checked' : '' }}>
-                            <label class="form-check-label" for="gallery-allow-local">Autoriser les albums locaux (photos/vidéos hébergées)</label>
-                        </div>
-                    </div>
-                    <div class="col-12 col-md-6">
-                        <div class="form-check form-switch">
                             <input class="form-check-input" type="checkbox" id="gallery-allow-external" name="gallery_allow_external" value="1" {{ gallery_allow_external ? 'checked' : '' }}>
                             <label class="form-check-label" for="gallery-allow-external">Autoriser les albums en lien externe</label>
+                        </div>
+                        <div class="form-text">
+                            Les albums locaux (photos/vidéos hébergées) sont autorisés dès qu'au moins un emplacement de stockage
+                            est configuré ci-dessous — supprimez-les tous pour les désactiver.
                         </div>
                     </div>
                     <div class="col-12 col-md-6">
@@ -66,6 +64,7 @@
                                     <th>Nom</th>
                                     <th>Type</th>
                                     <th>Statut</th>
+                                    <th>Par défaut</th>
                                     <th>Albums</th>
                                     <th class="text-end">Actions</th>
                                 </tr>
@@ -82,6 +81,15 @@
                                                 <span class="badge text-bg-danger" title="{{ location.lastCheckError }}">Indisponible</span>
                                             {% else %}
                                                 <span class="badge text-bg-secondary">Non testé</span>
+                                            {% endif %}
+                                        </td>
+                                        <td>
+                                            {% if location.isDefault %}
+                                                <span class="badge text-bg-primary"><i class="bi bi-star-fill"></i> Défaut</span>
+                                            {% else %}
+                                                <button type="button" class="btn btn-sm btn-outline-secondary gallery-location-set-default" data-id="{{ location.id }}" title="Définir par défaut">
+                                                    <i class="bi bi-star"></i> Définir par défaut
+                                                </button>
                                             {% endif %}
                                         </td>
                                         <td>{{ location_album_counts[location.id] ?? 0 }}</td>

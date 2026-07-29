@@ -46,7 +46,9 @@
                         <select class="form-select" id="album-storage-location" name="storage_location_id" {{ allow_local ? 'required' : '' }}>
                             <option value="">-- Choisir --</option>
                             {% for location in locations %}
-                                <option value="{{ location.id }}">{{ location.label }} ({{ location.type == 's3' ? 'S3' : 'Disque local' }})</option>
+                                <option value="{{ location.id }}" {{ location.id == default_location_id ? 'selected' : '' }}>
+                                    {{ location.label }} ({{ location.type == 's3' ? 'S3' : 'Disque local' }}){{ location.isDefault ? ' — par défaut' : '' }}
+                                </option>
                             {% endfor %}
                         </select>
                         {% if locations is empty %}
@@ -61,7 +63,7 @@
                         <div class="form-control-plaintext">
                             {% set current_location = locations|filter(l => l.id == album.storageLocationId)|first %}
                             {{ current_location ? current_location.label ~ ' (' ~ (current_location.type == 's3' ? 'S3' : 'Disque local') ~ ')' : 'Non défini' }}
-                            <span class="text-body-secondary small">(fixé à la création, non modifiable)</span>
+                            <span class="text-body-secondary small">(fixé à la création — utilisez la migration ci-dessous pour en changer)</span>
                         </div>
                     </div>
                 {% endif %}
@@ -134,6 +136,54 @@
     {% if album and album.type == 'local' %}
         <div class="card mb-3">
             <div class="card-body">
+                <h2 class="h6 mb-3">Migration vers un autre emplacement</h2>
+
+                {% if album.migrationStatus == 'in_progress' %}
+                    <div class="alert alert-info mb-0">
+                        <span class="spinner-border spinner-border-sm me-2"></span>
+                        Migration en cours vers un autre emplacement de stockage — l'album est indisponible pour les membres tant qu'elle n'est pas terminée.
+                    </div>
+                {% else %}
+                    {% if album.migrationStatus == 'failed' %}
+                        <div class="alert alert-danger">
+                            Échec de la dernière tentative de migration : {{ album.migrationError }}
+                            Les fichiers de l'emplacement d'origine n'ont pas été touchés — vous pouvez réessayer.
+                        </div>
+                    {% endif %}
+                    {% if other_locations is empty %}
+                        <p class="text-body-secondary mb-0">Aucun autre emplacement de stockage disponible.</p>
+                    {% else %}
+                        <div class="row g-2 align-items-end">
+                            <div class="col-12 col-md-8">
+                                <label class="form-label small" for="gallery-migrate-target">Emplacement cible</label>
+                                <select class="form-select" id="gallery-migrate-target">
+                                    {% for location in other_locations %}
+                                        <option value="{{ location.id }}">{{ location.label }} ({{ location.type == 's3' ? 'S3' : 'Disque local' }})</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="col-12 col-md-4">
+                                <button type="button" class="btn btn-outline-primary w-100" id="gallery-migrate-start" data-url="/gallery/{{ album.id }}/migrate">
+                                    <i class="bi bi-arrow-left-right"></i> {{ album.migrationStatus == 'failed' ? 'Réessayer la migration' : 'Démarrer la migration' }}
+                                </button>
+                            </div>
+                        </div>
+                    {% endif %}
+                {% endif %}
+            </div>
+        </div>
+
+        {% if album.migrationStatus == 'in_progress' %}
+            <div class="card mb-3">
+                <div class="card-body">
+                    <p class="text-body-secondary text-center mb-0 py-3">
+                        <i class="bi bi-arrow-left-right"></i> Album indisponible — migration en cours vers un autre emplacement de stockage.
+                    </p>
+                </div>
+            </div>
+        {% else %}
+        <div class="card mb-3">
+            <div class="card-body">
                 <h2 class="h6 mb-3">Ajouter des photos / vidéos</h2>
                 <div id="gallery-upload-zone" class="border border-2 border-dashed rounded p-4 text-center text-body-secondary"
                      data-upload-url="/gallery/{{ album.id }}/media" style="cursor:pointer;">
@@ -198,6 +248,7 @@
                     </p>
                 </div>
             </div>
+        {% endif %}
         {% endif %}
 
         <div class="mt-3">

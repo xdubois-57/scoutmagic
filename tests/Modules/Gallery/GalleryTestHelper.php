@@ -12,6 +12,7 @@ class GalleryTestHelper
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             type TEXT NOT NULL,
             label TEXT NOT NULL,
+            is_default INTEGER NOT NULL DEFAULT 0,
             subdir TEXT NULL,
             s3_provider TEXT NULL,
             s3_endpoint TEXT NULL,
@@ -40,12 +41,16 @@ class GalleryTestHelper
             og_description TEXT NULL,
             og_image_url TEXT NULL,
             storage_location_id INTEGER NULL,
+            migration_status TEXT NOT NULL DEFAULT "none",
+            migration_target_location_id INTEGER NULL,
+            migration_error TEXT NULL,
             created_by INTEGER NOT NULL,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (section_id) REFERENCES sections(id),
             FOREIGN KEY (scout_year_id) REFERENCES scout_years(id),
             FOREIGN KEY (created_by) REFERENCES user_accounts(id),
-            FOREIGN KEY (storage_location_id) REFERENCES gallery_storage_locations(id)
+            FOREIGN KEY (storage_location_id) REFERENCES gallery_storage_locations(id),
+            FOREIGN KEY (migration_target_location_id) REFERENCES gallery_storage_locations(id)
         )');
 
         $pdo->exec('CREATE TABLE gallery_media (

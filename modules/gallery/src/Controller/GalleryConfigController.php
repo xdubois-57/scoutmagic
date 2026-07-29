@@ -65,7 +65,7 @@ class GalleryConfigController extends AbstractController
             'gallery_max_media_per_album', 'gallery_max_photo_upload_mb', 'gallery_photo_max_dimension',
             'gallery_max_video_upload_mb', 'gallery_max_video_duration_sec',
         ];
-        $booleanKeys = ['gallery_allow_local', 'gallery_allow_external', 'gallery_allow_video', 'gallery_keep_original_video'];
+        $booleanKeys = ['gallery_allow_external', 'gallery_allow_video', 'gallery_keep_original_video'];
 
         try {
             foreach ($textKeys as $key) {
@@ -170,7 +170,6 @@ class GalleryConfigController extends AbstractController
                 array_map(fn(StorageLocation $l) => $l->id, $locations),
                 array_map(fn(StorageLocation $l) => $this->storageLocationRepository->countAlbumsUsing($l->id), $locations)
             ),
-            'gallery_allow_local' => (bool) $this->settingService->get('gallery_allow_local', 'gallery', true),
             'gallery_allow_external' => (bool) $this->settingService->get('gallery_allow_external', 'gallery', true),
             'gallery_max_media_per_album' => (int) $this->settingService->get('gallery_max_media_per_album', 'gallery', 200),
             'gallery_max_photo_upload_mb' => (int) $this->settingService->get('gallery_max_photo_upload_mb', 'gallery', 30),

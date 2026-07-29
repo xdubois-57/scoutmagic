@@ -19,14 +19,18 @@
         </div>
     </div>
 
-    {% if media is empty %}
+    {% if storage_unavailable %}
+        <div class="alert alert-warning text-center">
+            <i class="bi bi-exclamation-triangle"></i> Cet album est temporairement indisponible{{ storage_unavailable_reason ? ' : ' ~ storage_unavailable_reason : '.' }}
+        </div>
+    {% elseif media is empty %}
         <p class="text-body-secondary text-center py-5">Aucun média dans cet album.</p>
     {% else %}
         <div class="row g-2" id="gallery-media-grid">
             {% for row in media %}
                 {% set m = row.media %}
                 <div class="col-4 col-md-3 col-lg-2">
-                    <button type="button" class="btn p-0 border-0 w-100 gallery-lightbox-trigger" style="aspect-ratio:1/1;overflow:hidden;background:#eee;"
+                    <button type="button" class="btn p-0 border-0 w-100 position-relative gallery-lightbox-trigger" style="aspect-ratio:1/1;overflow:hidden;background:#eee;"
                             data-index="{{ loop.index0 }}"
                             data-type="{{ m.mediaType }}"
                             data-medium-url="{{ row.medium_url }}"

@@ -46,6 +46,22 @@
         });
     });
 
+    document.querySelectorAll('.gallery-location-set-default').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            btn.disabled = true;
+            postJson('/config/gallery/locations/' + btn.dataset.id + '/default', {}).then(function (data) {
+                if (data.success) {
+                    window.location.reload();
+                } else {
+                    btn.disabled = false;
+                    alert(data.error || 'Impossible de définir cet emplacement par défaut.');
+                }
+            }).catch(function () {
+                btn.disabled = false;
+            });
+        });
+    });
+
     document.querySelectorAll('.gallery-location-delete').forEach(function (btn) {
         btn.addEventListener('click', function () {
             if (btn.disabled) return;
