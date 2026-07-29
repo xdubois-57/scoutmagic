@@ -23,12 +23,16 @@ use Modules\Gallery\Controller\GalleryController;
 use Modules\Gallery\Repository\Album;
 use Modules\Gallery\Repository\AlbumRepository;
 use Modules\Gallery\Repository\MediaRepository;
+use Modules\Gallery\Repository\S3SecretRepository;
+use Modules\Gallery\Repository\StorageLocation;
+use Modules\Gallery\Repository\StorageLocationRepository;
 use Modules\Gallery\Service\AlbumService;
 use Modules\Gallery\Service\FfmpegAvailability;
 use Modules\Gallery\Service\GalleryAccessService;
 use Modules\Gallery\Service\MediaService;
 use Modules\Gallery\Service\OgScraperService;
 use Modules\Gallery\Service\Storage\StorageBackendFactory;
+use Modules\Gallery\Service\StorageLocationService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Gallery\GalleryTestHelper;
@@ -50,6 +54,7 @@ class GalleryControllerTest extends TestCase
     private int $authorId;
     private int $scoutYearId;
     private int $sectionId;
+    private int $locationId;
 
     protected function setUp(): void
     {
@@ -69,17 +74,25 @@ class GalleryControllerTest extends TestCase
         $settingService->method('get')->willReturnCallback(fn($key, $module, $default) => $default);
 
         $accessService = new GalleryAccessService($memberService, $sectionService, $scoutYearService);
+        $storageLocationRepository = new StorageLocationRepository($this->pdo, $encryption);
         $this->storageBackendFactory = $this->createMock(StorageBackendFactory::class);
-        $this->storageBackendFactory->method('isS3')->willReturn(false);
+        $storageLocationService = new StorageLocationService(
+            $storageLocationRepository, $this->albumRepository, $this->storageBackendFactory, $settingService,
+            new S3SecretRepository($this->pdo, $encryption), sys_get_temp_dir()
+        );
 
         $albumService = new AlbumService(
             $this->albumRepository, $this->mediaRepository, $accessService, $this->createMock(OgScraperService::class),
-            $this->storageBackendFactory, $scoutYearService, $settingService
+            $this->storageBackendFactory, $storageLocationRepository, $storageLocationService, $scoutYearService, $settingService
         );
         $uploadHandler = new UploadHandler(new FileRepository($this->pdo), sys_get_temp_dir());
         $this->mediaService = new MediaService(
             $this->mediaRepository, $this->albumRepository, $uploadHandler, new SchedulerService(new SchedulerRepository($this->pdo)),
-            $settingService, $accessService, $this->storageBackendFactory, $this->createMock(FfmpegAvailability::class)
+            $settingService, $accessService, $this->storageBackendFactory, $storageLocationService, $this->createMock(FfmpegAvailability::class)
+        );
+
+        $this->locationId = $storageLocationRepository->create(
+            StorageLocation::TYPE_LOCAL, 'Stockage local', 'gallery', null, null, null, null, null, null, null
         );
 
         $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES ('2025-2026', '2025-09-01', '2026-08-31', 1)");
@@ -115,7 +128,7 @@ class GalleryControllerTest extends TestCase
 
         $this->controller = new GalleryController(
             $twig, $albumService, $this->mediaService, $this->mediaRepository, $memberService,
-            $sectionService, $scoutYearService, $this->storageBackendFactory
+            $sectionService, $scoutYearService, $this->storageBackendFactory, $storageLocationService
         );
 
         if (session_status() === PHP_SESSION_NONE) {
@@ -131,7 +144,7 @@ class GalleryControllerTest extends TestCase
 
     private function createLocalAlbum(?int $sectionId = null): int
     {
-        return $this->albumRepository->create(Album::TYPE_LOCAL, 'Camp', null, '2026-01-01', $sectionId, $this->scoutYearId, null, $this->authorId);
+        return $this->albumRepository->create(Album::TYPE_LOCAL, 'Camp', null, '2026-01-01', $sectionId, $this->scoutYearId, null, $this->locationId, $this->authorId);
     }
 
     public function testIndexShowsUnitWideAlbum(): void
@@ -191,7 +204,7 @@ class GalleryControllerTest extends TestCase
 
     public function testShowRedirectsToExternalUrlForExternalAlbum(): void
     {
-        $id = $this->albumRepository->create(Album::TYPE_EXTERNAL, 'Album externe', null, '2026-01-01', null, $this->scoutYearId, 'https://example.com/album', $this->authorId);
+        $id = $this->albumRepository->create(Album::TYPE_EXTERNAL, 'Album externe', null, '2026-01-01', null, $this->scoutYearId, 'https://example.com/album', null, $this->authorId);
 
         $response = $this->controller->show(new Request('GET', '/gallery/' . $id, [], [], [], []), ['id' => (string) $id]);
 
@@ -262,7 +275,7 @@ class GalleryControllerTest extends TestCase
 
     public function testDownloadZipReturns404ForExternalAlbum(): void
     {
-        $id = $this->albumRepository->create(Album::TYPE_EXTERNAL, 'Externe', null, '2026-01-01', null, $this->scoutYearId, 'https://example.com', $this->authorId);
+        $id = $this->albumRepository->create(Album::TYPE_EXTERNAL, 'Externe', null, '2026-01-01', null, $this->scoutYearId, 'https://example.com', null, $this->authorId);
 
         $response = $this->controller->downloadZip(new Request('GET', '/gallery/' . $id . '/download', [], [], [], []), ['id' => (string) $id]);
 

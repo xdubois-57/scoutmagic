@@ -25,6 +25,7 @@ final class Album
         public readonly ?string $ogTitle,
         public readonly ?string $ogDescription,
         public readonly ?string $ogImageUrl,
+        public readonly ?int $storageLocationId,
         public readonly int $createdBy,
         public readonly string $createdAt
     ) {

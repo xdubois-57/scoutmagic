@@ -4,47 +4,39 @@ declare(strict_types=1);
 
 namespace Modules\Gallery\Service\Storage;
 
-use Core\Config\SettingService;
-use Modules\Gallery\Repository\S3SecretRepository;
+use Modules\Gallery\Repository\StorageLocation;
+use Modules\Gallery\Repository\StorageLocationRepository;
 
 /**
- * Builds the configured StorageBackendInterface on demand (never at the
- * composition root — the backend can change any time an admin edits the
- * config page, and constructing an S3Client is pointless work on every
- * request when the backend is local).
+ * Builds the StorageBackendInterface for a given StorageLocation on demand
+ * (never at the composition root — constructing an S3Client is pointless
+ * work on every request when it isn't going to be used). Several locations
+ * can be configured at once (Repository\StorageLocationRepository::findAll())
+ * so callers always resolve the specific location an album/media row is
+ * pinned to — there is no single "the" active backend anymore.
  */
 class StorageBackendFactory
 {
     public function __construct(
-        private SettingService $settingService,
-        private S3SecretRepository $s3SecretRepository,
+        private StorageLocationRepository $storageLocationRepository,
         private string $storagePath
     ) {
     }
 
-    public function create(): StorageBackendInterface
+    public function create(StorageLocation $location): StorageBackendInterface
     {
-        $backend = (string) $this->settingService->get('gallery_storage_backend', 'gallery', 'local');
-
-        if ($backend !== 's3') {
-            $subdir = (string) $this->settingService->get('gallery_storage_local_subdir', 'gallery', 'gallery');
-            return new LocalStorageBackend($this->storagePath, $subdir !== '' ? $subdir : 'gallery');
+        if (!$location->isS3()) {
+            $subdir = $location->subdir !== null && $location->subdir !== '' ? $location->subdir : 'gallery';
+            return new LocalStorageBackend($this->storagePath, $subdir);
         }
 
-        $publicUrl = (string) $this->settingService->get('gallery_s3_public_url', 'gallery', '');
-
         return new S3StorageBackend(
-            (string) $this->settingService->get('gallery_s3_endpoint', 'gallery', ''),
-            (string) $this->settingService->get('gallery_s3_region', 'gallery', ''),
-            (string) $this->settingService->get('gallery_s3_bucket', 'gallery', ''),
-            (string) $this->settingService->get('gallery_s3_access_key', 'gallery', ''),
-            $this->s3SecretRepository->get() ?? '',
-            $publicUrl !== '' ? $publicUrl : null
+            $location->s3Endpoint ?? '',
+            $location->s3Region ?? '',
+            $location->s3Bucket ?? '',
+            $location->s3AccessKey ?? '',
+            $this->storageLocationRepository->getSecret($location->id) ?? '',
+            $location->s3PublicUrl !== null && $location->s3PublicUrl !== '' ? $location->s3PublicUrl : null
         );
-    }
-
-    public function isS3(): bool
-    {
-        return (string) $this->settingService->get('gallery_storage_backend', 'gallery', 'local') === 's3';
     }
 }

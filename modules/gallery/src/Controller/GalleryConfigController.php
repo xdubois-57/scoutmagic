@@ -11,25 +11,25 @@ use Core\Http\Response;
 use Core\Journal\JournalService;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
-use Modules\Gallery\Repository\S3SecretRepository;
+use Modules\Gallery\Repository\StorageLocation;
+use Modules\Gallery\Repository\StorageLocationRepository;
 use Modules\Gallery\Service\FfmpegAvailability;
 use Modules\Gallery\Service\GalleryException;
 use Modules\Gallery\Service\S3ErrorExplainerService;
 use Modules\Gallery\Service\Storage\S3StorageBackend;
+use Modules\Gallery\Service\StorageLocationService;
 use Twig\Environment;
 
 class GalleryConfigController extends AbstractController
 {
-    /** @var string[] */
-    private const S3_PROVIDERS = ['hetzner', 'cloudflare_r2', 'scaleway', 'ovhcloud', 'custom'];
-
     public function __construct(
         protected Environment $twig,
         private SettingService $settingService,
-        private S3SecretRepository $s3SecretRepository,
         private FfmpegAvailability $ffmpegAvailability,
         private JournalService $journalService,
-        private S3ErrorExplainerService $s3ErrorExplainerService
+        private S3ErrorExplainerService $s3ErrorExplainerService,
+        private StorageLocationService $storageLocationService,
+        private StorageLocationRepository $storageLocationRepository
     ) {
     }
 
@@ -40,11 +40,16 @@ class GalleryConfigController extends AbstractController
      */
     public function index(Request $request, array $params): Response
     {
+        $this->storageLocationService->ensureLegacyLocationBackfilled();
+
         return $this->render('@gallery/config.html.twig', $this->buildContext());
     }
 
     /**
-     * POST /config/gallery
+     * POST /config/gallery — storage locations are managed on their own
+     * pages now (Controller\GalleryStorageLocationController); this only
+     * covers the non-storage settings (allowed album types, media limits,
+     * video settings).
      *
      * @param array<string, string> $params
      */
@@ -57,8 +62,6 @@ class GalleryConfigController extends AbstractController
         }
 
         $textKeys = [
-            'gallery_storage_local_subdir', 'gallery_s3_endpoint', 'gallery_s3_region',
-            'gallery_s3_bucket', 'gallery_s3_access_key', 'gallery_s3_public_url',
             'gallery_max_media_per_album', 'gallery_max_photo_upload_mb', 'gallery_photo_max_dimension',
             'gallery_max_video_upload_mb', 'gallery_max_video_duration_sec',
         ];
@@ -70,17 +73,6 @@ class GalleryConfigController extends AbstractController
             }
             foreach ($booleanKeys as $key) {
                 $this->settingService->set($key, $request->getBody($key) !== null ? '1' : '0', 'gallery');
-            }
-
-            $storageBackend = (string) $request->getBody('gallery_storage_backend', 'local');
-            $this->settingService->set('gallery_storage_backend', $storageBackend === 's3' ? 's3' : 'local', 'gallery');
-
-            $provider = (string) $request->getBody('gallery_s3_provider', 'custom');
-            $this->settingService->set('gallery_s3_provider', in_array($provider, self::S3_PROVIDERS, true) ? $provider : 'custom', 'gallery');
-
-            $secret = (string) $request->getBody('gallery_s3_secret_key', '');
-            if (trim($secret) !== '') {
-                $this->s3SecretRepository->set($secret);
             }
         } catch (\Throwable $e) {
             $context = $this->buildContext();
@@ -98,8 +90,10 @@ class GalleryConfigController extends AbstractController
 
     /**
      * POST /config/gallery/test-connection — builds a throwaway S3 client
-     * from the submitted (not necessarily saved) form values, so the
-     * admin can verify credentials before committing them.
+     * from the submitted (not necessarily saved) form values, so the admin
+     * can verify credentials before committing them to a new or edited
+     * location (Controller\GalleryStorageLocationController's create/edit
+     * forms reuse this same endpoint).
      *
      * @param array<string, string> $params
      */
@@ -110,17 +104,12 @@ class GalleryConfigController extends AbstractController
             return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
         }
 
-        $secret = (string) ($data['secret_key'] ?? '');
-        if (trim($secret) === '') {
-            $secret = $this->s3SecretRepository->get() ?? '';
-        }
-
         $backend = new S3StorageBackend(
             (string) ($data['endpoint'] ?? ''),
             (string) ($data['region'] ?? ''),
             (string) ($data['bucket'] ?? ''),
             (string) ($data['access_key'] ?? ''),
-            $secret
+            (string) ($data['secret_key'] ?? '')
         );
 
         $error = $backend->testConnection();
@@ -168,20 +157,21 @@ class GalleryConfigController extends AbstractController
      */
     private function buildContext(): array
     {
+        $locations = array_map(
+            fn(StorageLocation $l) => $this->storageLocationService->checkFresh($l),
+            $this->storageLocationRepository->findAll()
+        );
+
         return [
             'ffmpeg_available' => $this->ffmpegAvailability->check(),
             'gallery_s3_ai_available' => $this->s3ErrorExplainerService->isAvailable(),
+            'locations' => $locations,
+            'location_album_counts' => array_combine(
+                array_map(fn(StorageLocation $l) => $l->id, $locations),
+                array_map(fn(StorageLocation $l) => $this->storageLocationRepository->countAlbumsUsing($l->id), $locations)
+            ),
             'gallery_allow_local' => (bool) $this->settingService->get('gallery_allow_local', 'gallery', true),
             'gallery_allow_external' => (bool) $this->settingService->get('gallery_allow_external', 'gallery', true),
-            'gallery_storage_backend' => (string) $this->settingService->get('gallery_storage_backend', 'gallery', 'local'),
-            'gallery_storage_local_subdir' => (string) $this->settingService->get('gallery_storage_local_subdir', 'gallery', 'gallery'),
-            'gallery_s3_provider' => (string) $this->settingService->get('gallery_s3_provider', 'gallery', 'custom'),
-            'gallery_s3_endpoint' => (string) $this->settingService->get('gallery_s3_endpoint', 'gallery', ''),
-            'gallery_s3_region' => (string) $this->settingService->get('gallery_s3_region', 'gallery', ''),
-            'gallery_s3_bucket' => (string) $this->settingService->get('gallery_s3_bucket', 'gallery', ''),
-            'gallery_s3_access_key' => (string) $this->settingService->get('gallery_s3_access_key', 'gallery', ''),
-            'gallery_s3_public_url' => (string) $this->settingService->get('gallery_s3_public_url', 'gallery', ''),
-            'gallery_s3_secret_configured' => $this->s3SecretRepository->get() !== null,
             'gallery_max_media_per_album' => (int) $this->settingService->get('gallery_max_media_per_album', 'gallery', 200),
             'gallery_max_photo_upload_mb' => (int) $this->settingService->get('gallery_max_photo_upload_mb', 'gallery', 30),
             'gallery_photo_max_dimension' => (int) $this->settingService->get('gallery_photo_max_dimension', 'gallery', 3000),

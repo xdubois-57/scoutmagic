@@ -56,7 +56,7 @@ class GalleryMemberQueryService implements GalleryAlbumProvider
     {
         if ($album->coverMediaId !== null) {
             $cover = $this->mediaRepository->findById($album->coverMediaId);
-            return $cover !== null ? $this->mediaService->resolveUrl($cover, 'thumb') : null;
+            return $cover !== null ? $this->mediaService->resolveUrl($cover, $album, 'thumb') : null;
         }
         return $album->isLocal() ? null : $album->ogImageUrl;
     }

@@ -12,9 +12,13 @@ use Core\Journal\JournalService;
 use Core\Security\AuthSession;
 use Core\Security\EncryptionService;
 use Modules\Gallery\Controller\GalleryConfigController;
+use Modules\Gallery\Repository\AlbumRepository;
 use Modules\Gallery\Repository\S3SecretRepository;
+use Modules\Gallery\Repository\StorageLocationRepository;
 use Modules\Gallery\Service\FfmpegAvailability;
 use Modules\Gallery\Service\S3ErrorExplainerService;
+use Modules\Gallery\Service\Storage\StorageBackendFactory;
+use Modules\Gallery\Service\StorageLocationService;
 use Modules\LlmConnector\Api\LlmConnectorInterface;
 use Modules\LlmConnector\Api\LlmException;
 use Modules\LlmConnector\Api\LlmResponse;
@@ -33,7 +37,8 @@ class GalleryConfigControllerTest extends TestCase
     private \PDO $pdo;
     private GalleryConfigController $controller;
     private SettingService $settingService;
-    private S3SecretRepository $s3SecretRepository;
+    private StorageLocationRepository $storageLocationRepository;
+    private StorageLocationService $storageLocationService;
     private Environment $twig;
 
     protected function setUp(): void
@@ -45,10 +50,6 @@ class GalleryConfigControllerTest extends TestCase
         $this->settingService = new SettingService(new SettingRepository($this->pdo));
         foreach ([
             'gallery_allow_local' => ['1', 'boolean'], 'gallery_allow_external' => ['1', 'boolean'],
-            'gallery_storage_backend' => ['local', 'select'], 'gallery_storage_local_subdir' => ['gallery', 'text'],
-            'gallery_s3_provider' => ['custom', 'select'], 'gallery_s3_endpoint' => ['', 'text'],
-            'gallery_s3_region' => ['', 'text'], 'gallery_s3_bucket' => ['', 'text'],
-            'gallery_s3_access_key' => ['', 'text'], 'gallery_s3_public_url' => ['', 'url'],
             'gallery_max_media_per_album' => ['200', 'number'], 'gallery_max_photo_upload_mb' => ['30', 'number'],
             'gallery_photo_max_dimension' => ['3000', 'number'], 'gallery_allow_video' => ['1', 'boolean'],
             'gallery_max_video_upload_mb' => ['2048', 'number'], 'gallery_max_video_duration_sec' => ['1800', 'number'],
@@ -57,7 +58,12 @@ class GalleryConfigControllerTest extends TestCase
             $this->settingService->register($key, $default, $type, $key, $key, 'gallery');
         }
 
-        $this->s3SecretRepository = new S3SecretRepository($this->pdo, $encryption);
+        $this->storageLocationRepository = new StorageLocationRepository($this->pdo, $encryption);
+        $storageBackendFactory = new StorageBackendFactory($this->storageLocationRepository, sys_get_temp_dir());
+        $this->storageLocationService = new StorageLocationService(
+            $this->storageLocationRepository, new AlbumRepository($this->pdo), $storageBackendFactory,
+            $this->settingService, new S3SecretRepository($this->pdo, $encryption), sys_get_temp_dir()
+        );
         $ffmpegAvailability = $this->createMock(FfmpegAvailability::class);
         $ffmpegAvailability->method('check')->willReturn(false);
         $journalService = new JournalService(new JournalRepository($this->pdo));
@@ -80,8 +86,8 @@ class GalleryConfigControllerTest extends TestCase
         $this->twig->addFunction(new TwigFunction('file_url', fn() => ''));
 
         $this->controller = new GalleryConfigController(
-            $this->twig, $this->settingService, $this->s3SecretRepository, $ffmpegAvailability, $journalService,
-            new S3ErrorExplainerService()
+            $this->twig, $this->settingService, $ffmpegAvailability, $journalService,
+            new S3ErrorExplainerService(), $this->storageLocationService, $this->storageLocationRepository
         );
 
         if (session_status() === PHP_SESSION_NONE) {
@@ -110,6 +116,15 @@ class GalleryConfigControllerTest extends TestCase
         $this->assertStringContainsString('FFmpeg', $response->getBody());
     }
 
+    public function testIndexBackfillsALocalLocationOnFreshInstall(): void
+    {
+        $this->controller->index(new Request('GET', '/config/gallery', [], [], [], []), []);
+
+        $locations = $this->storageLocationRepository->findAll();
+        $this->assertCount(1, $locations);
+        $this->assertFalse($locations[0]->isS3());
+    }
+
     public function testSaveRequiresCsrf(): void
     {
         $request = new Request('POST', '/config/gallery', [], ['_csrf_token' => 'bad'], [], []);
@@ -124,11 +139,6 @@ class GalleryConfigControllerTest extends TestCase
         $token = $this->csrfToken();
         $request = new Request('POST', '/config/gallery', [], [
             '_csrf_token' => $token,
-            'gallery_storage_backend' => 'local',
-            'gallery_storage_local_subdir' => 'photos',
-            'gallery_s3_provider' => 'hetzner',
-            'gallery_s3_endpoint' => '', 'gallery_s3_region' => '', 'gallery_s3_bucket' => '',
-            'gallery_s3_access_key' => '', 'gallery_s3_public_url' => '',
             'gallery_max_media_per_album' => '150', 'gallery_max_photo_upload_mb' => '20',
             'gallery_photo_max_dimension' => '2500', 'gallery_max_video_upload_mb' => '1024',
             'gallery_max_video_duration_sec' => '900',
@@ -137,7 +147,6 @@ class GalleryConfigControllerTest extends TestCase
         $response = $this->controller->save($request, []);
 
         $this->assertSame(302, $response->getStatusCode());
-        $this->assertSame('photos', $this->settingService->get('gallery_storage_local_subdir', 'gallery'));
         $this->assertSame('150', (string) $this->settingService->get('gallery_max_media_per_album', 'gallery'));
     }
 
@@ -166,56 +175,6 @@ class GalleryConfigControllerTest extends TestCase
         $this->assertSame(302, $response->getStatusCode());
         $this->settingService->clearCache();
         $this->assertSame('0', (string) $this->settingService->get('gallery_allow_video', 'gallery'));
-    }
-
-    public function testSaveRejectsUnknownStorageBackendSilently(): void
-    {
-        $token = $this->csrfToken();
-        $request = new Request('POST', '/config/gallery', [], array_merge($this->minimalSaveBody($token), [
-            'gallery_storage_backend' => 'evil',
-        ]), [], []);
-
-        $this->controller->save($request, []);
-
-        $this->assertSame('local', $this->settingService->get('gallery_storage_backend', 'gallery'));
-    }
-
-    public function testSaveRejectsUnknownS3ProviderSilently(): void
-    {
-        $token = $this->csrfToken();
-        $request = new Request('POST', '/config/gallery', [], array_merge($this->minimalSaveBody($token), [
-            'gallery_s3_provider' => 'evil',
-        ]), [], []);
-
-        $this->controller->save($request, []);
-
-        $this->assertSame('custom', $this->settingService->get('gallery_s3_provider', 'gallery'));
-    }
-
-    public function testSaveWithBlankSecretKeepsExistingSecret(): void
-    {
-        $this->s3SecretRepository->set('original-secret');
-        $token = $this->csrfToken();
-        $request = new Request('POST', '/config/gallery', [], array_merge($this->minimalSaveBody($token), [
-            'gallery_s3_secret_key' => '',
-        ]), [], []);
-
-        $this->controller->save($request, []);
-
-        $this->assertSame('original-secret', $this->s3SecretRepository->get());
-    }
-
-    public function testSaveWithNonBlankSecretReplacesIt(): void
-    {
-        $this->s3SecretRepository->set('original-secret');
-        $token = $this->csrfToken();
-        $request = new Request('POST', '/config/gallery', [], array_merge($this->minimalSaveBody($token), [
-            'gallery_s3_secret_key' => 'new-secret',
-        ]), [], []);
-
-        $this->controller->save($request, []);
-
-        $this->assertSame('new-secret', $this->s3SecretRepository->get());
     }
 
     public function testTestConnectionRequiresCsrf(): void
@@ -278,9 +237,9 @@ class GalleryConfigControllerTest extends TestCase
         }))->willReturn(new LlmResponse('Vérifiez le nom du bucket dans la console Scaleway.', null, 10, 10));
 
         $controller = new GalleryConfigController(
-            $this->twig, $this->settingService, $this->s3SecretRepository,
-            $this->createMock(FfmpegAvailability::class), new JournalService(new JournalRepository($this->pdo)),
-            new S3ErrorExplainerService($llmConnector)
+            $this->twig, $this->settingService, $this->createMock(FfmpegAvailability::class),
+            new JournalService(new JournalRepository($this->pdo)), new S3ErrorExplainerService($llmConnector),
+            $this->storageLocationService, $this->storageLocationRepository
         );
 
         // The controller action's signature has no "secret_key" field at
@@ -309,9 +268,9 @@ class GalleryConfigControllerTest extends TestCase
         $llmConnector->method('complete')->willThrowException(new LlmException('Provider timeout.'));
 
         $controller = new GalleryConfigController(
-            $this->twig, $this->settingService, $this->s3SecretRepository,
-            $this->createMock(FfmpegAvailability::class), new JournalService(new JournalRepository($this->pdo)),
-            new S3ErrorExplainerService($llmConnector)
+            $this->twig, $this->settingService, $this->createMock(FfmpegAvailability::class),
+            new JournalService(new JournalRepository($this->pdo)), new S3ErrorExplainerService($llmConnector),
+            $this->storageLocationService, $this->storageLocationRepository
         );
 
         $token = $this->csrfToken();
@@ -329,11 +288,6 @@ class GalleryConfigControllerTest extends TestCase
     {
         return [
             '_csrf_token' => $token,
-            'gallery_storage_backend' => 'local',
-            'gallery_storage_local_subdir' => 'gallery',
-            'gallery_s3_provider' => 'custom',
-            'gallery_s3_endpoint' => '', 'gallery_s3_region' => '', 'gallery_s3_bucket' => '',
-            'gallery_s3_access_key' => '', 'gallery_s3_public_url' => '',
             'gallery_max_media_per_album' => '200', 'gallery_max_photo_upload_mb' => '30',
             'gallery_photo_max_dimension' => '3000', 'gallery_max_video_upload_mb' => '2048',
             'gallery_max_video_duration_sec' => '1800',

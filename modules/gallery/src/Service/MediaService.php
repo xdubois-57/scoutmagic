@@ -30,6 +30,7 @@ class MediaService
         private SettingService $settingService,
         private GalleryAccessService $accessService,
         private StorageBackendFactory $storageBackendFactory,
+        private StorageLocationService $storageLocationService,
         private FfmpegAvailability $ffmpegAvailability
     ) {
     }
@@ -106,10 +107,13 @@ class MediaService
         }
 
         if ($album->isLocal()) {
-            $backend = $this->storageBackendFactory->create();
-            foreach ([$media->thumbPath, $media->mediumPath, $media->largePath, $media->originalPath] as $path) {
-                if ($path !== null) {
-                    $backend->delete($path);
+            $location = $this->storageLocationService->resolveLocationForAlbum($album);
+            if ($location !== null) {
+                $backend = $this->storageBackendFactory->create($location);
+                foreach ([$media->thumbPath, $media->mediumPath, $media->largePath, $media->originalPath] as $path) {
+                    if ($path !== null) {
+                        $backend->delete($path);
+                    }
                 }
             }
         }
@@ -147,7 +151,7 @@ class MediaService
      * object storage (public prefix or a pre-signed URL) for S3, so a
      * configured CDN/public bucket isn't needlessly proxied through PHP.
      */
-    public function resolveUrl(Media $media, string $size): ?string
+    public function resolveUrl(Media $media, Album $album, string $size): ?string
     {
         $path = match ($size) {
             'thumb' => $media->thumbPath,
@@ -160,8 +164,13 @@ class MediaService
             return null;
         }
 
-        if ($this->storageBackendFactory->isS3()) {
-            return $this->storageBackendFactory->create()->url($path);
+        $location = $this->storageLocationService->resolveLocationForAlbum($album);
+        if ($location === null) {
+            return null;
+        }
+
+        if ($location->isS3()) {
+            return $this->storageBackendFactory->create($location)->url($path);
         }
 
         return '/gallery/media/' . $media->id . '/' . $size;

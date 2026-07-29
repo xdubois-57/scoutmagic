@@ -6,6 +6,7 @@ namespace Core\View;
 
 use Core\Config\SettingService;
 use Core\Module\ModuleManager;
+use Modules\Gallery\Repository\StorageLocationRepository;
 use Modules\LlmConnector\Api\LlmConnectorInterface;
 use Modules\LlmConnector\Api\LlmRequest;
 use Modules\LlmConnector\Api\LlmTier;
@@ -14,6 +15,12 @@ use Modules\LlmConnector\Repository\ProviderRepository;
 
 class RgpdContentService
 {
+    // Set after construction (public/index.php builds this service before
+    // the gallery module's own block, which is where its repository is
+    // built) — nullable either way, since the gallery module itself is
+    // optional (ARCHITECTURE.md §7.5 pattern, same as $llmConnector below).
+    private ?StorageLocationRepository $galleryStorageLocationRepository = null;
+
     public function __construct(
         private ModuleManager $moduleManager,
         private SettingService $settingService,
@@ -21,6 +28,11 @@ class RgpdContentService
         private ?ProviderRepository $llmProviderRepo = null,
         private ?ProviderModelRepository $llmModelRepo = null
     ) {
+    }
+
+    public function setGalleryStorageLocationRepository(StorageLocationRepository $repository): void
+    {
+        $this->galleryStorageLocationRepository = $repository;
     }
 
     /**
@@ -209,11 +221,11 @@ RÈGLES CRITIQUES (ne JAMAIS déroger) :
     - S'il stocke ou traite des données hors UE/EEE (ex : USA), l'ajouter explicitement à la liste des transferts hors UE en section 5.2, avec le mécanisme de garantie applicable (clauses contractuelles types de la Commission européenne, art. 46 RGPD, ou cadre de protection des données UE-USA (Data Privacy Framework) si le fournisseur y est certifié).
     - NE JAMAIS recopier tel quel la phrase de clôture du contenu de référence affirmant qu'« aucun autre transfert hors UE n'est effectué » si l'administrateur a déclaré un service basé hors UE : reformule cette phrase pour refléter fidèlement TOUS les transferts réels (modules actifs + outils tiers déclarés par l'administrateur).
     - Ce point est CRITIQUE lorsque l'administrateur signale explicitement un stockage aux USA ou hors UE : une omission constituerait une non-conformité RGPD grave (défaut d'information sur les transferts internationaux, art. 13.1.f et 44 à 49 RGPD).
-22. **Stockage galerie (module gallery)** : Le contenu de référence liste TOUS les fournisseurs de stockage objet possibles (Hetzner, Cloudflare R2, Scaleway, OVHcloud) en section 4.2 et le module galerie en section 2.4. Tu dois adapter ces sections à la configuration RÉELLE indiquée par {$galleryStorage} :
+22. **Stockage galerie (module gallery)** : Le contenu de référence liste TOUS les fournisseurs de stockage objet possibles (Hetzner, Cloudflare R2, Scaleway, OVHcloud) en section 4.2 et le module galerie en section 2.4. Le module gallery permet de configurer PLUSIEURS emplacements de stockage à la fois (disque local et/ou un ou plusieurs buckets S3, chaque album restant rattaché à celui utilisé lors de sa création) — {$galleryStorage} liste TOUS les emplacements réellement configurés. Tu dois adapter ces sections à cette configuration RÉELLE :
     - Si le module gallery n'est pas dans la liste des modules actifs : retire entièrement la section 2.4 "Module Galerie photos et vidéos" et le paragraphe "Fournisseurs de stockage objet" de la section 4.2.
-    - Si {$galleryStorage} indique un stockage local : conserve la section 2.4 du module galerie, mais retire complètement le paragraphe "Fournisseurs de stockage objet" de la section 4.2 (aucun sous-traitant externe, les fichiers restent chez l'hébergeur déjà couvert en 4.1) et ne mentionne aucun fournisseur de stockage objet.
-    - Si {$galleryStorage} indique un fournisseur S3 précis (Hetzner, Cloudflare R2, Scaleway ou OVHcloud) : conserve dans la section 4.2 UNIQUEMENT ce fournisseur (retire les trois autres de la liste), avec ses informations exactes (localisation, lien vers sa politique de confidentialité) telles que fournies dans le contenu de référence.
-    - Si {$galleryStorage} indique spécifiquement Cloudflare R2 avec une région hors UE : conserve la mention du transfert hors UE correspondante en section 5.2 et dans la phrase de clôture de cette section ; sinon (stockage local, ou tout autre fournisseur, ou Cloudflare R2 en région UE) retire cette mention et n'ajoute aucun transfert hors UE lié à la galerie.
+    - Si {$galleryStorage} ne liste AUCUN emplacement S3 (uniquement du stockage local, ou aucun emplacement configuré) : conserve la section 2.4 du module galerie, mais retire complètement le paragraphe "Fournisseurs de stockage objet" de la section 4.2 (aucun sous-traitant externe, les fichiers restent chez l'hébergeur déjà couvert en 4.1) et ne mentionne aucun fournisseur de stockage objet.
+    - Si {$galleryStorage} liste un ou plusieurs emplacements S3 : conserve dans la section 4.2 UNIQUEMENT les fournisseurs effectivement listés (retire ceux qui n'y figurent pas — il peut en rester un seul, ou plusieurs si plusieurs emplacements S3 de fournisseurs différents sont configurés), avec leurs informations exactes (localisation, lien vers leur politique de confidentialité) telles que fournies dans le contenu de référence. Adapte la phrase d'introduction du paragraphe si plusieurs fournisseurs restent (au pluriel) plutôt qu'un seul.
+    - Si {$galleryStorage} indique qu'au moins un emplacement Cloudflare R2 a une région hors UE : conserve la mention du transfert hors UE correspondante en section 5.2 et dans la phrase de clôture de cette section ; sinon (aucun emplacement Cloudflare R2 hors UE) retire cette mention et n'ajoute aucun transfert hors UE lié à la galerie.
 23. **Notifications push (fonctionnalité core, PAS un module)** : Contrairement aux sections 2.4/4.2 qui dépendent des modules actifs, les mentions des notifications push (souscription en section 2.1, service de push du navigateur en section 4.1, transfert hors UE en section 5.2) concernent une fonctionnalité du cœur du site, disponible sur toute installation ScoutMagic indépendamment des modules activés ou désactivés. Conserve-les TOUJOURS intégralement, quelle que soit la liste de modules actifs — ne les retire et ne les conditionne jamais à {$modulesText}. Elles restent optionnelles seulement au sens où chaque utilisateur individuel choisit ou non d'activer le bouton dans « Mon compte », pas au sens où l'administrateur pourrait désactiver la fonctionnalité elle-même.
 24. **Vérification des mises à jour via GitHub (fonctionnalité core, PAS un module)** : Comme pour les notifications push (règle 23), la section 1.6 "Vérification des mises à jour" (interrogation quotidienne de l'API GitHub, aucune donnée personnelle transmise, GitHub n'est PAS un sous-traitant) concerne une fonctionnalité du cœur du site, présente sur toute installation ScoutMagic. Conserve-la TOUJOURS intégralement, indépendamment de {$modulesText} — ne la place jamais en section 4 (sous-traitants) ni en section 5.2 (transferts hors UE), puisqu'aucune donnée personnelle n'y transite.
 25. **Module Rétrospectives (module retro)** : Si "retro" ne figure PAS dans la liste des modules actifs ({$modulesText}), retire entièrement la sous-section "Module Rétrospectives" de la section 2.4. Si "retro" est actif, conserve-la intégralement — c'est un module conçu pour minimiser au maximum les données personnelles traitées (aucun commentaire ni vote n'est jamais lié à une personne), le contenu de référence l'explique déjà correctement, il n'y a rien à personnaliser au-delà de la présence ou non du module. Le paragraphe sur la modération/synthèse par IA optionnelle ne fait référence à aucun nouveau sous-traitant : si "llm_connector" est également actif, ce paragraphe reste ; sinon, retire uniquement ce paragraphe (mais garde le reste de la sous-section).
@@ -305,27 +317,41 @@ PROMPT;
     }
 
     /**
-     * Get info about the gallery module's configured storage backend for RGPD disclosure
+     * Get info about the gallery module's configured storage location(s)
+     * for RGPD disclosure — several can coexist (local disk and/or one or
+     * more S3 buckets), so this lists every one actually configured
+     * instead of assuming a single active backend.
      */
     private function getGalleryStorageInfo(): string
     {
         if (!in_array('gallery', $this->moduleManager->getEnabledModuleIds(), true)) {
             return 'Aucun (module galerie inactif)';
         }
-
-        $backend = $this->settingService->get('gallery_storage_backend', 'gallery', 'local');
-        if ($backend !== 's3') {
+        if ($this->galleryStorageLocationRepository === null) {
             return 'Stockage local (disque du serveur, pas de sous-traitant externe)';
         }
 
-        $provider = $this->settingService->get('gallery_s3_provider', 'gallery', 'custom');
-        return match ($provider) {
-            'hetzner' => 'Hetzner Object Storage (Allemagne/Finlande, UE)',
-            'cloudflare_r2' => 'Cloudflare R2 (réseau mondial, région selon configuration du bucket)',
-            'scaleway' => 'Scaleway Object Storage (France/Pays-Bas, UE)',
-            'ovhcloud' => 'OVHcloud Object Storage (France/Allemagne/Pologne, UE)',
-            default => 'Fournisseur S3-compatible personnalisé (localisation selon configuration)',
-        };
+        $locations = $this->galleryStorageLocationRepository->findAll();
+        if ($locations === []) {
+            return 'Stockage local (disque du serveur, pas de sous-traitant externe)';
+        }
+
+        $descriptions = [];
+        foreach ($locations as $location) {
+            if (!$location->isS3()) {
+                $descriptions[] = 'Stockage local (disque du serveur, pas de sous-traitant externe)';
+                continue;
+            }
+            $descriptions[] = match ($location->s3Provider) {
+                'hetzner' => 'Hetzner Object Storage (Allemagne/Finlande, UE)',
+                'cloudflare_r2' => 'Cloudflare R2 (réseau mondial, région selon configuration du bucket : ' . ($location->s3Region !== null && $location->s3Region !== '' ? $location->s3Region : 'non précisée') . ')',
+                'scaleway' => 'Scaleway Object Storage (France/Pays-Bas, UE)',
+                'ovhcloud' => 'OVHcloud Object Storage (France/Allemagne/Pologne, UE)',
+                default => 'Fournisseur S3-compatible personnalisé (localisation selon configuration)',
+            };
+        }
+
+        return implode(' ET ', array_unique($descriptions));
     }
 
     /**

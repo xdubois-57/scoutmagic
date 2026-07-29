@@ -43,7 +43,7 @@ class AlbumRepositoryTest extends TestCase
 
     public function testCreateAndFindById(): void
     {
-        $id = $this->repository->create(Album::TYPE_LOCAL, 'Camp d\'été', 'Semaine 1', '2026-07-01', $this->sectionId, $this->scoutYearId, null, $this->authorId);
+        $id = $this->repository->create(Album::TYPE_LOCAL, 'Camp d\'été', 'Semaine 1', '2026-07-01', $this->sectionId, $this->scoutYearId, null, null, $this->authorId);
 
         $album = $this->repository->findById($id);
 
@@ -57,7 +57,7 @@ class AlbumRepositoryTest extends TestCase
 
     public function testCreateExternalAlbum(): void
     {
-        $id = $this->repository->create(Album::TYPE_EXTERNAL, 'Album partagé', null, '2026-06-01', null, $this->scoutYearId, 'https://example.com/album', $this->authorId);
+        $id = $this->repository->create(Album::TYPE_EXTERNAL, 'Album partagé', null, '2026-06-01', null, $this->scoutYearId, 'https://example.com/album', null, $this->authorId);
 
         $album = $this->repository->findById($id);
 
@@ -68,7 +68,7 @@ class AlbumRepositoryTest extends TestCase
 
     public function testUpdateChangesFields(): void
     {
-        $id = $this->repository->create(Album::TYPE_LOCAL, 'Titre', null, '2026-01-01', $this->sectionId, $this->scoutYearId, null, $this->authorId);
+        $id = $this->repository->create(Album::TYPE_LOCAL, 'Titre', null, '2026-01-01', $this->sectionId, $this->scoutYearId, null, null, $this->authorId);
 
         $this->repository->update($id, 'Nouveau titre', 'Sous-titre', '2026-02-01', null, null);
 
@@ -81,7 +81,7 @@ class AlbumRepositoryTest extends TestCase
 
     public function testUpdateOgMetadata(): void
     {
-        $id = $this->repository->create(Album::TYPE_EXTERNAL, 'Titre', null, '2026-01-01', null, $this->scoutYearId, 'https://example.com', $this->authorId);
+        $id = $this->repository->create(Album::TYPE_EXTERNAL, 'Titre', null, '2026-01-01', null, $this->scoutYearId, 'https://example.com', null, $this->authorId);
 
         $this->repository->updateOgMetadata($id, 'OG Title', 'OG Description', 'https://example.com/image.jpg');
 
@@ -93,7 +93,7 @@ class AlbumRepositoryTest extends TestCase
 
     public function testSetCoverMediaId(): void
     {
-        $id = $this->repository->create(Album::TYPE_LOCAL, 'Titre', null, '2026-01-01', null, $this->scoutYearId, null, $this->authorId);
+        $id = $this->repository->create(Album::TYPE_LOCAL, 'Titre', null, '2026-01-01', null, $this->scoutYearId, null, null, $this->authorId);
 
         $this->repository->setCoverMediaId($id, 42);
 
@@ -102,7 +102,7 @@ class AlbumRepositoryTest extends TestCase
 
     public function testDeleteRemovesAlbum(): void
     {
-        $id = $this->repository->create(Album::TYPE_LOCAL, 'Titre', null, '2026-01-01', null, $this->scoutYearId, null, $this->authorId);
+        $id = $this->repository->create(Album::TYPE_LOCAL, 'Titre', null, '2026-01-01', null, $this->scoutYearId, null, null, $this->authorId);
 
         $this->repository->delete($id);
 
@@ -111,13 +111,13 @@ class AlbumRepositoryTest extends TestCase
 
     public function testFindVisibleFiltersBySectionAndYear(): void
     {
-        $sectionAlbumId = $this->repository->create(Album::TYPE_LOCAL, 'Section album', null, '2026-01-01', $this->sectionId, $this->scoutYearId, null, $this->authorId);
-        $unitWideId = $this->repository->create(Album::TYPE_LOCAL, 'Unit-wide album', null, '2026-01-02', null, $this->scoutYearId, null, $this->authorId);
+        $sectionAlbumId = $this->repository->create(Album::TYPE_LOCAL, 'Section album', null, '2026-01-01', $this->sectionId, $this->scoutYearId, null, null, $this->authorId);
+        $unitWideId = $this->repository->create(Album::TYPE_LOCAL, 'Unit-wide album', null, '2026-01-02', null, $this->scoutYearId, null, null, $this->authorId);
 
         $stmt = $this->pdo->prepare('INSERT INTO sections (age_branch_id, desk_code, name) VALUES (?, ?, ?)');
         $stmt->execute([1, 'OTHER', 'Autre section']);
         $otherSectionId = (int) $this->pdo->lastInsertId();
-        $this->repository->create(Album::TYPE_LOCAL, 'Other section album', null, '2026-01-03', $otherSectionId, $this->scoutYearId, null, $this->authorId);
+        $this->repository->create(Album::TYPE_LOCAL, 'Other section album', null, '2026-01-03', $otherSectionId, $this->scoutYearId, null, null, $this->authorId);
 
         $visible = $this->repository->findVisible([$this->sectionId], [$this->scoutYearId]);
         $visibleIds = array_map(fn(Album $a) => $a->id, $visible);
@@ -129,8 +129,8 @@ class AlbumRepositoryTest extends TestCase
 
     public function testFindVisibleReturnsUnitWideAlbumsEvenWithNoLinkedSections(): void
     {
-        $unitWideId = $this->repository->create(Album::TYPE_LOCAL, 'Unit-wide', null, '2026-01-01', null, $this->scoutYearId, null, $this->authorId);
-        $this->repository->create(Album::TYPE_LOCAL, 'Section-only', null, '2026-01-01', $this->sectionId, $this->scoutYearId, null, $this->authorId);
+        $unitWideId = $this->repository->create(Album::TYPE_LOCAL, 'Unit-wide', null, '2026-01-01', null, $this->scoutYearId, null, null, $this->authorId);
+        $this->repository->create(Album::TYPE_LOCAL, 'Section-only', null, '2026-01-01', $this->sectionId, $this->scoutYearId, null, null, $this->authorId);
 
         $visible = $this->repository->findVisible([], [$this->scoutYearId]);
 
@@ -140,7 +140,7 @@ class AlbumRepositoryTest extends TestCase
 
     public function testFindVisibleReturnsEmptyWhenNoScoutYears(): void
     {
-        $this->repository->create(Album::TYPE_LOCAL, 'Titre', null, '2026-01-01', null, $this->scoutYearId, null, $this->authorId);
+        $this->repository->create(Album::TYPE_LOCAL, 'Titre', null, '2026-01-01', null, $this->scoutYearId, null, null, $this->authorId);
 
         $this->assertSame([], $this->repository->findVisible([], []));
     }

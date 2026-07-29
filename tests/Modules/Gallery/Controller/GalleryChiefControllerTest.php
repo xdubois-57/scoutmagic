@@ -22,12 +22,16 @@ use Modules\Gallery\Controller\GalleryChiefController;
 use Modules\Gallery\Repository\Album;
 use Modules\Gallery\Repository\AlbumRepository;
 use Modules\Gallery\Repository\MediaRepository;
+use Modules\Gallery\Repository\S3SecretRepository;
+use Modules\Gallery\Repository\StorageLocation;
+use Modules\Gallery\Repository\StorageLocationRepository;
 use Modules\Gallery\Service\AlbumService;
 use Modules\Gallery\Service\FfmpegAvailability;
 use Modules\Gallery\Service\GalleryAccessService;
 use Modules\Gallery\Service\MediaService;
 use Modules\Gallery\Service\OgScraperService;
 use Modules\Gallery\Service\Storage\StorageBackendFactory;
+use Modules\Gallery\Service\StorageLocationService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Gallery\GalleryTestHelper;
@@ -46,6 +50,7 @@ class GalleryChiefControllerTest extends TestCase
     private MediaRepository $mediaRepository;
     private int $authorId;
     private int $scoutYearId;
+    private int $locationId;
 
     protected function setUp(): void
     {
@@ -67,17 +72,21 @@ class GalleryChiefControllerTest extends TestCase
         $accessService = $this->createMock(GalleryAccessService::class);
         $accessService->method('canManageAlbum')->willReturn(true);
         $accessService->method('getManagedSectionIds')->willReturn([]);
+        $storageLocationRepository = new StorageLocationRepository($this->pdo, $encryption);
         $storageBackendFactory = $this->createMock(StorageBackendFactory::class);
-        $storageBackendFactory->method('isS3')->willReturn(false);
+        $storageLocationService = new StorageLocationService(
+            $storageLocationRepository, $this->albumRepository, $storageBackendFactory, $settingService,
+            new S3SecretRepository($this->pdo, $encryption), sys_get_temp_dir()
+        );
 
         $albumService = new AlbumService(
             $this->albumRepository, $this->mediaRepository, $accessService, $this->createMock(OgScraperService::class),
-            $storageBackendFactory, $scoutYearService, $settingService
+            $storageBackendFactory, $storageLocationRepository, $storageLocationService, $scoutYearService, $settingService
         );
         $uploadHandler = new UploadHandler(new FileRepository($this->pdo), sys_get_temp_dir());
         $mediaService = new MediaService(
             $this->mediaRepository, $this->albumRepository, $uploadHandler, new SchedulerService(new SchedulerRepository($this->pdo)),
-            $settingService, $accessService, $storageBackendFactory, $this->createMock(FfmpegAvailability::class)
+            $settingService, $accessService, $storageBackendFactory, $storageLocationService, $this->createMock(FfmpegAvailability::class)
         );
 
         $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES ('2025-2026', '2025-09-01', '2026-08-31', 1)");
@@ -86,6 +95,10 @@ class GalleryChiefControllerTest extends TestCase
         $stmt = $this->pdo->prepare('INSERT INTO user_accounts (email_encrypted, email_blind_index) VALUES (?, ?)');
         $stmt->execute(['enc', 'idx']);
         $this->authorId = (int) $this->pdo->lastInsertId();
+
+        $this->locationId = $storageLocationRepository->create(
+            StorageLocation::TYPE_LOCAL, 'Stockage local', 'gallery', null, null, null, null, null, null, null
+        );
 
         $templateDir = dirname(__DIR__, 4) . '/core/View/templates';
         $moduleViews = dirname(__DIR__, 4) . '/modules/gallery/views';
@@ -106,7 +119,8 @@ class GalleryChiefControllerTest extends TestCase
         $twig->addFilter(new \Twig\TwigFilter('french_date', fn($d) => (string) $d));
 
         $this->controller = new GalleryChiefController(
-            $twig, $albumService, $mediaService, $this->mediaRepository, $accessService, $sectionService, $settingService
+            $twig, $albumService, $mediaService, $this->mediaRepository, $accessService, $sectionService, $settingService,
+            $storageLocationRepository, $storageLocationService
         );
 
         if (session_status() === PHP_SESSION_NONE) {
@@ -129,7 +143,7 @@ class GalleryChiefControllerTest extends TestCase
 
     private function createLocalAlbum(): int
     {
-        return $this->albumRepository->create(Album::TYPE_LOCAL, 'Camp', null, '2026-01-01', null, $this->scoutYearId, null, $this->authorId);
+        return $this->albumRepository->create(Album::TYPE_LOCAL, 'Camp', null, '2026-01-01', null, $this->scoutYearId, null, $this->locationId, $this->authorId);
     }
 
     /**
@@ -168,7 +182,8 @@ class GalleryChiefControllerTest extends TestCase
     {
         $token = $this->csrfToken();
         $request = new Request('POST', '/gallery', [], [
-            'type' => 'local', 'title' => 'Camp d\'été', 'album_date' => '2026-07-01', '_csrf_token' => $token,
+            'type' => 'local', 'title' => 'Camp d\'été', 'album_date' => '2026-07-01',
+            'storage_location_id' => (string) $this->locationId, '_csrf_token' => $token,
         ], [], []);
 
         $response = $this->controller->store($request, []);
@@ -290,7 +305,7 @@ class GalleryChiefControllerTest extends TestCase
     public function testDeleteMediaReturns404WhenMediaBelongsToAnotherAlbum(): void
     {
         $id1 = $this->createLocalAlbum();
-        $id2 = $this->albumRepository->create(Album::TYPE_LOCAL, 'Autre', null, '2026-01-01', null, $this->scoutYearId, null, $this->authorId);
+        $id2 = $this->albumRepository->create(Album::TYPE_LOCAL, 'Autre', null, '2026-01-01', null, $this->scoutYearId, null, $this->locationId, $this->authorId);
         $stmt = $this->pdo->prepare("INSERT INTO files (relative_path, original_name, mime_type, size_bytes, role_min) VALUES ('a', 'a', 'image/jpeg', 1, 'identified')");
         $stmt->execute();
         $fileId = (int) $this->pdo->lastInsertId();

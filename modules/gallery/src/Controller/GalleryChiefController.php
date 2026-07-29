@@ -14,10 +14,12 @@ use Core\Security\Role;
 use Modules\Gallery\Repository\Album;
 use Modules\Gallery\Repository\Media;
 use Modules\Gallery\Repository\MediaRepository;
+use Modules\Gallery\Repository\StorageLocationRepository;
 use Modules\Gallery\Service\AlbumService;
 use Modules\Gallery\Service\GalleryAccessService;
 use Modules\Gallery\Service\GalleryException;
 use Modules\Gallery\Service\MediaService;
+use Modules\Gallery\Service\StorageLocationService;
 use Core\Member\SectionService;
 use Twig\Environment;
 
@@ -30,7 +32,9 @@ class GalleryChiefController extends AbstractController
         private MediaRepository $mediaRepository,
         private GalleryAccessService $accessService,
         private SectionService $sectionService,
-        private SettingService $settingService
+        private SettingService $settingService,
+        private StorageLocationRepository $storageLocationRepository,
+        private StorageLocationService $storageLocationService
     ) {
     }
 
@@ -87,6 +91,7 @@ class GalleryChiefController extends AbstractController
                 (string) $request->getBody('album_date', date('Y-m-d')),
                 $this->nullableInt($request->getBody('section_id')),
                 $this->nullableString($request->getBody('external_url')),
+                $this->nullableInt($request->getBody('storage_location_id')),
                 $accountId,
                 $role,
                 $email
@@ -343,6 +348,8 @@ class GalleryChiefController extends AbstractController
 
         $media = $album !== null ? $this->mediaRepository->findByAlbumId($album->id) : [];
 
+        $this->storageLocationService->ensureLegacyLocationBackfilled();
+
         return [
             'album' => $album,
             'sections' => $sections,
@@ -350,10 +357,11 @@ class GalleryChiefController extends AbstractController
             'allow_external' => (bool) $this->settingService->get('gallery_allow_external', 'gallery', true),
             'video_upload_allowed' => $this->mediaService->videoUploadAllowed(),
             'max_media_per_album' => (int) $this->settingService->get('gallery_max_media_per_album', 'gallery', 200),
-            'media' => array_map(fn(Media $m) => [
+            'locations' => $this->storageLocationRepository->findAll(),
+            'media' => $album !== null ? array_map(fn(Media $m) => [
                 'media' => $m,
-                'thumb_url' => $this->mediaService->resolveUrl($m, 'thumb'),
-            ], $media),
+                'thumb_url' => $this->mediaService->resolveUrl($m, $album, 'thumb'),
+            ], $media) : [],
             'csrf_token' => CsrfGuard::generateToken(),
         ];
     }

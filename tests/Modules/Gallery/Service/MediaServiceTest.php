@@ -9,17 +9,21 @@ use Core\File\FileRepository;
 use Core\File\UploadHandler;
 use Core\Scheduler\SchedulerRepository;
 use Core\Scheduler\SchedulerService;
+use Core\Security\EncryptionService;
 use Core\Security\Role;
 use Modules\Gallery\Repository\Album;
 use Modules\Gallery\Repository\AlbumRepository;
 use Modules\Gallery\Repository\Media;
 use Modules\Gallery\Repository\MediaRepository;
+use Modules\Gallery\Repository\S3SecretRepository;
+use Modules\Gallery\Repository\StorageLocation;
+use Modules\Gallery\Repository\StorageLocationRepository;
 use Modules\Gallery\Service\FfmpegAvailability;
 use Modules\Gallery\Service\GalleryAccessService;
 use Modules\Gallery\Service\GalleryException;
 use Modules\Gallery\Service\MediaService;
 use Modules\Gallery\Service\Storage\StorageBackendFactory;
-use Modules\Gallery\Service\Storage\StorageBackendInterface;
+use Modules\Gallery\Service\StorageLocationService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Gallery\GalleryTestHelper;
@@ -32,11 +36,15 @@ class MediaServiceTest extends TestCase
     private \PDO $pdo;
     private MediaRepository $mediaRepository;
     private AlbumRepository $albumRepository;
+    private StorageLocationRepository $storageLocationRepository;
+    private StorageLocationService $storageLocationService;
+    private StorageBackendFactory $storageBackendFactory;
     private MediaService $service;
     private GalleryAccessService $accessService;
     private SettingService $settingService;
     private int $albumId;
     private int $authorId;
+    private string $storagePath;
 
     protected function setUp(): void
     {
@@ -45,20 +53,28 @@ class MediaServiceTest extends TestCase
 
         $this->mediaRepository = new MediaRepository($this->pdo);
         $this->albumRepository = new AlbumRepository($this->pdo);
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $this->storageLocationRepository = new StorageLocationRepository($this->pdo, $encryption);
+        $this->storagePath = sys_get_temp_dir() . '/gallery_media_test_' . uniqid();
+        mkdir($this->storagePath, 0755, true);
+        $this->storageBackendFactory = new StorageBackendFactory($this->storageLocationRepository, $this->storagePath);
         $uploadHandler = new UploadHandler(new FileRepository($this->pdo), sys_get_temp_dir());
         $schedulerService = new SchedulerService(new SchedulerRepository($this->pdo));
         $this->settingService = $this->createMock(SettingService::class);
         $this->settingService->method('get')->willReturnCallback(fn($key, $module, $default) => $default);
         $this->accessService = $this->createMock(GalleryAccessService::class);
         $this->accessService->method('canManageAlbum')->willReturn(true);
-        $storageBackendFactory = $this->createMock(StorageBackendFactory::class);
-        $storageBackendFactory->method('isS3')->willReturn(false);
+        $this->storageLocationService = new StorageLocationService(
+            $this->storageLocationRepository, $this->albumRepository, $this->storageBackendFactory,
+            $this->settingService, new S3SecretRepository($this->pdo, $encryption), $this->storagePath
+        );
         $ffmpegAvailability = $this->createMock(FfmpegAvailability::class);
         $ffmpegAvailability->method('check')->willReturn(false);
 
         $this->service = new MediaService(
             $this->mediaRepository, $this->albumRepository, $uploadHandler, $schedulerService,
-            $this->settingService, $this->accessService, $storageBackendFactory, $ffmpegAvailability
+            $this->settingService, $this->accessService, $this->storageBackendFactory,
+            $this->storageLocationService, $ffmpegAvailability
         );
 
         $stmt = $this->pdo->prepare('INSERT INTO user_accounts (email_encrypted, email_blind_index) VALUES (?, ?)');
@@ -68,7 +84,10 @@ class MediaServiceTest extends TestCase
         $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date) VALUES ('2025-2026', '2025-09-01', '2026-08-31')");
         $scoutYearId = (int) $this->pdo->lastInsertId();
 
-        $this->albumId = $this->albumRepository->create(Album::TYPE_LOCAL, 'Camp', null, '2026-01-01', null, $scoutYearId, null, $this->authorId);
+        $locationId = $this->storageLocationRepository->create(
+            StorageLocation::TYPE_LOCAL, 'Stockage local', 'gallery', null, null, null, null, null, null, null
+        );
+        $this->albumId = $this->albumRepository->create(Album::TYPE_LOCAL, 'Camp', null, '2026-01-01', null, $scoutYearId, null, $locationId, $this->authorId);
     }
 
     private function fakeUploadedImage(): array
@@ -114,7 +133,7 @@ class MediaServiceTest extends TestCase
 
     public function testUploadRejectsAnExternalAlbum(): void
     {
-        $externalId = $this->albumRepository->create(Album::TYPE_EXTERNAL, 'Titre', null, '2026-01-01', null, 1, 'https://example.com', $this->authorId);
+        $externalId = $this->albumRepository->create(Album::TYPE_EXTERNAL, 'Titre', null, '2026-01-01', null, 1, 'https://example.com', null, $this->authorId);
         $album = $this->albumRepository->findById($externalId);
 
         $this->expectException(GalleryException::class);
@@ -128,7 +147,7 @@ class MediaServiceTest extends TestCase
         $service = new MediaService(
             $this->mediaRepository, $this->albumRepository, new UploadHandler(new FileRepository($this->pdo), sys_get_temp_dir()),
             new SchedulerService(new SchedulerRepository($this->pdo)), $settingService, $this->accessService,
-            $this->createMock(StorageBackendFactory::class), $this->createMock(FfmpegAvailability::class)
+            $this->storageBackendFactory, $this->storageLocationService, $this->createMock(FfmpegAvailability::class)
         );
         $album = $this->albumRepository->findById($this->albumId);
 
@@ -172,7 +191,7 @@ class MediaServiceTest extends TestCase
         $album = $this->albumRepository->findById($this->albumId);
         $media = $this->service->upload($album, $this->fakeUploadedImage(), Role::CHIEF, 'chief@test.com', $this->authorId);
 
-        $this->assertNull($this->service->resolveUrl($media, 'thumb'));
+        $this->assertNull($this->service->resolveUrl($media, $album, 'thumb'));
     }
 
     public function testResolveUrlBuildsTheAppRouteForLocalStorage(): void
@@ -181,7 +200,7 @@ class MediaServiceTest extends TestCase
         $media = $this->service->upload($album, $this->fakeUploadedImage(), Role::CHIEF, 'chief@test.com', $this->authorId);
         $this->mediaRepository->markPhotoDone($media->id, 'thumb.jpg', 'med.jpg', 'lg.jpg', 100, 100);
 
-        $url = $this->service->resolveUrl($this->mediaRepository->findById($media->id), 'thumb');
+        $url = $this->service->resolveUrl($this->mediaRepository->findById($media->id), $album, 'thumb');
 
         $this->assertSame('/gallery/media/' . $media->id . '/thumb', $url);
     }

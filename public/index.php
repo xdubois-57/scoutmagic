@@ -1335,44 +1335,62 @@ if (in_array('news', $moduleManager->getEnabledModuleIds(), true)) {
 if (in_array('gallery', $moduleManager->getEnabledModuleIds(), true)) {
     $galleryAlbumRepo = new \Modules\Gallery\Repository\AlbumRepository($pdo);
     $galleryMediaRepo = new \Modules\Gallery\Repository\MediaRepository($pdo);
+    // Legacy singleton (pre-multi-location) — only read from now on, by
+    // Service\StorageLocationService::ensureLegacyLocationBackfilled(), to
+    // carry an existing installation's S3 secret into the new per-location
+    // gallery_storage_locations table the very first time it runs.
     $galleryS3SecretRepo = new \Modules\Gallery\Repository\S3SecretRepository($pdo, $encryptionService);
+    $galleryStorageLocationRepo = new \Modules\Gallery\Repository\StorageLocationRepository($pdo, $encryptionService);
+    $rgpdContentService->setGalleryStorageLocationRepository($galleryStorageLocationRepo);
 
     $galleryAccessService = new \Modules\Gallery\Service\GalleryAccessService($memberService, $sectionService, $scoutYearService);
     $galleryOgScraperService = new \Modules\Gallery\Service\OgScraperService();
-    $galleryStorageBackendFactory = new \Modules\Gallery\Service\Storage\StorageBackendFactory($settingService, $galleryS3SecretRepo, $storagePath);
+    $galleryStorageBackendFactory = new \Modules\Gallery\Service\Storage\StorageBackendFactory($galleryStorageLocationRepo, $storagePath);
     $galleryFfmpegAvailability = new \Modules\Gallery\Service\FfmpegAvailability();
     // Optional dependency on the llm_connector module (ARCHITECTURE.md
     // §7.5), same reused instance as RGPD content generation above — the
     // "Expliquer avec l'IA" button is simply hidden when it's unavailable.
     $galleryS3ErrorExplainerService = new \Modules\Gallery\Service\S3ErrorExplainerService($llmConnectorForRgpd);
+    $galleryStorageLocationService = new \Modules\Gallery\Service\StorageLocationService(
+        $galleryStorageLocationRepo, $galleryAlbumRepo, $galleryStorageBackendFactory, $settingService,
+        $galleryS3SecretRepo, $storagePath
+    );
 
     $galleryAlbumService = new \Modules\Gallery\Service\AlbumService(
         $galleryAlbumRepo, $galleryMediaRepo, $galleryAccessService, $galleryOgScraperService,
-        $galleryStorageBackendFactory, $scoutYearService, $settingService
+        $galleryStorageBackendFactory, $galleryStorageLocationRepo, $galleryStorageLocationService,
+        $scoutYearService, $settingService
     );
     $galleryMediaService = new \Modules\Gallery\Service\MediaService(
         $galleryMediaRepo, $galleryAlbumRepo, $uploadHandler, $schedulerService, $settingService,
-        $galleryAccessService, $galleryStorageBackendFactory, $galleryFfmpegAvailability
+        $galleryAccessService, $galleryStorageBackendFactory, $galleryStorageLocationService, $galleryFfmpegAvailability
     );
 
     $frontController->registerController(
         \Modules\Gallery\Controller\GalleryController::class,
         new \Modules\Gallery\Controller\GalleryController(
             $twig, $galleryAlbumService, $galleryMediaService, $galleryMediaRepo, $memberService,
-            $sectionService, $scoutYearService, $galleryStorageBackendFactory
+            $sectionService, $scoutYearService, $galleryStorageBackendFactory, $galleryStorageLocationService
         )
     );
     $frontController->registerController(
         \Modules\Gallery\Controller\GalleryChiefController::class,
         new \Modules\Gallery\Controller\GalleryChiefController(
             $twig, $galleryAlbumService, $galleryMediaService, $galleryMediaRepo, $galleryAccessService,
-            $sectionService, $settingService
+            $sectionService, $settingService, $galleryStorageLocationRepo, $galleryStorageLocationService
         )
     );
     $frontController->registerController(
         \Modules\Gallery\Controller\GalleryConfigController::class,
         new \Modules\Gallery\Controller\GalleryConfigController(
-            $twig, $settingService, $galleryS3SecretRepo, $galleryFfmpegAvailability, $journalService,
+            $twig, $settingService, $galleryFfmpegAvailability, $journalService,
+            $galleryS3ErrorExplainerService, $galleryStorageLocationService, $galleryStorageLocationRepo
+        )
+    );
+    $frontController->registerController(
+        \Modules\Gallery\Controller\GalleryStorageLocationController::class,
+        new \Modules\Gallery\Controller\GalleryStorageLocationController(
+            $twig, $galleryStorageLocationRepo, $galleryStorageLocationService, $journalService,
             $galleryS3ErrorExplainerService
         )
     );
@@ -1506,17 +1524,22 @@ $response = $frontController->handle($request);
 $response->setCspNonce($cspNonce);
 
 // Gallery photos served straight from S3-compatible storage need their
-// origin explicitly allowed in img-src — computed for whichever provider
-// is actually configured, never hardcoded to one (ARCHITECTURE.md §7.5).
-if ((string) ($settingService->get('gallery_storage_backend', 'gallery', 'local')) === 's3') {
-    $gallerySettingsForCspPublicUrl = (string) ($settingService->get('gallery_s3_public_url', 'gallery', '') ?: '');
-    $s3OriginForCsp = \Modules\Gallery\Service\Storage\S3StorageBackend::servingOrigin(
-        (string) ($settingService->get('gallery_s3_endpoint', 'gallery', '') ?: ''),
-        (string) ($settingService->get('gallery_s3_bucket', 'gallery', '') ?: ''),
-        $gallerySettingsForCspPublicUrl !== '' ? $gallerySettingsForCspPublicUrl : null
-    );
-    if ($s3OriginForCsp !== null) {
-        $response->addImgSrcOrigin($s3OriginForCsp);
+// origin explicitly allowed in img-src — computed for every configured S3
+// location (there can be several at once now, module.json gallery multi-
+// location support), never hardcoded to one (ARCHITECTURE.md §7.5).
+if (isset($galleryStorageLocationRepo)) {
+    foreach ($galleryStorageLocationRepo->findAll() as $galleryLocationForCsp) {
+        if (!$galleryLocationForCsp->isS3()) {
+            continue;
+        }
+        $s3OriginForCsp = \Modules\Gallery\Service\Storage\S3StorageBackend::servingOrigin(
+            (string) ($galleryLocationForCsp->s3Endpoint ?? ''),
+            (string) ($galleryLocationForCsp->s3Bucket ?? ''),
+            $galleryLocationForCsp->s3PublicUrl
+        );
+        if ($s3OriginForCsp !== null) {
+            $response->addImgSrcOrigin($s3OriginForCsp);
+        }
     }
 }
 

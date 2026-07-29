@@ -8,6 +8,24 @@ class GalleryTestHelper
 {
     public static function createTables(\PDO $pdo): void
     {
+        $pdo->exec('CREATE TABLE gallery_storage_locations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            type TEXT NOT NULL,
+            label TEXT NOT NULL,
+            subdir TEXT NULL,
+            s3_provider TEXT NULL,
+            s3_endpoint TEXT NULL,
+            s3_region TEXT NULL,
+            s3_bucket TEXT NULL,
+            s3_access_key TEXT NULL,
+            s3_public_url TEXT NULL,
+            secret_key_encrypted BLOB NULL,
+            last_checked_at TEXT NULL,
+            last_check_ok INTEGER NULL,
+            last_check_error TEXT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )');
+
         $pdo->exec('CREATE TABLE gallery_albums (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             type TEXT NOT NULL,
@@ -21,11 +39,13 @@ class GalleryTestHelper
             og_title TEXT NULL,
             og_description TEXT NULL,
             og_image_url TEXT NULL,
+            storage_location_id INTEGER NULL,
             created_by INTEGER NOT NULL,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (section_id) REFERENCES sections(id),
             FOREIGN KEY (scout_year_id) REFERENCES scout_years(id),
-            FOREIGN KEY (created_by) REFERENCES user_accounts(id)
+            FOREIGN KEY (created_by) REFERENCES user_accounts(id),
+            FOREIGN KEY (storage_location_id) REFERENCES gallery_storage_locations(id)
         )');
 
         $pdo->exec('CREATE TABLE gallery_media (

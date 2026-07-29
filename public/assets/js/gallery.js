@@ -320,6 +320,8 @@
         var externalInput = document.getElementById('album-external-url');
         var titleInput = document.getElementById('album-title');
         var titleHint = document.querySelector('.gallery-title-optional-hint');
+        var localField = document.querySelector('.gallery-local-field');
+        var locationSelect = document.getElementById('album-storage-location');
         if (!radios.length || !externalField) return;
 
         function sync() {
@@ -328,6 +330,8 @@
 
             externalField.classList.toggle('d-none', !isExternal);
             if (externalInput) externalInput.required = isExternal;
+            if (localField) localField.classList.toggle('d-none', isExternal);
+            if (locationSelect) locationSelect.required = !isExternal;
 
             // The title is fetched from the link's own og:title when left
             // blank for an external album — never required upfront the

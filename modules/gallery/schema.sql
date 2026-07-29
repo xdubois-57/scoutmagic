@@ -7,6 +7,48 @@
 -- Modules\Finance\Repository\Attachment — access is still restricted to
 -- identified users via role_min on the `files` row / the serving route.
 
+-- gallery_storage_locations: one row per configured storage destination —
+-- local disk or an S3-compatible bucket. Several may coexist (local +
+-- several S3 locations at once) so that changing/adding the "active"
+-- destination for NEW albums never breaks reading OLD albums, which always
+-- stay pinned to whichever location they were created in (gallery_albums.
+-- storage_location_id). Declared before gallery_albums in this file
+-- specifically so gallery_albums' FK to it is a backward, not forward,
+-- reference (Core\Database\SqlParser builds CREATE TABLE statements in
+-- file order — see gallery_albums.cover_media_id's comment for the same
+-- constraint in the other direction).
+--
+-- Discrete columns rather than a JSON config blob: this codebase has no
+-- existing precedent for JSON columns, and Core\Database\SchemaComparator
+-- (the auto-migration diff engine) only understands flat column
+-- definitions — keeping this consistent avoids being the first, untested
+-- case for both.
+CREATE TABLE IF NOT EXISTS gallery_storage_locations (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    type ENUM('local', 's3') NOT NULL,
+    label VARCHAR(255) NOT NULL,
+    -- local only.
+    subdir VARCHAR(255) NULL,
+    -- s3 only — same fields/meaning as the single-location config this
+    -- replaces (module.json's former gallery_s3_* settings).
+    s3_provider VARCHAR(50) NULL,
+    s3_endpoint VARCHAR(500) NULL,
+    s3_region VARCHAR(100) NULL,
+    s3_bucket VARCHAR(255) NULL,
+    s3_access_key VARCHAR(255) NULL,
+    s3_public_url VARCHAR(500) NULL,
+    secret_key_encrypted BLOB NULL,
+    -- Cached health-check result (Service\StorageLocationService::
+    -- checkNow()) — never hit S3/the filesystem synchronously on every
+    -- gallery page view; refreshed on an admin's explicit "Tester" click
+    -- or lazily once the cached result goes stale.
+    last_checked_at DATETIME NULL,
+    last_check_ok BOOLEAN NULL,
+    last_check_error TEXT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uniq_gallery_storage_locations_label (label)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- gallery_albums: one row per album, local or external.
 CREATE TABLE IF NOT EXISTS gallery_albums (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -30,14 +72,24 @@ CREATE TABLE IF NOT EXISTS gallery_albums (
     og_title VARCHAR(255) NULL,
     og_description TEXT NULL,
     og_image_url VARCHAR(500) NULL,
+    -- Which gallery_storage_locations row this album's files live in — set
+    -- once at creation (type='local' only) and never changed afterward:
+    -- all of an album's media are always in the same location (module
+    -- spec). NULL for type='external' (no hosted files) and, transiently,
+    -- for a 'local' album created before multi-location support existed —
+    -- Service\StorageLocationService::ensureLegacyLocationBackfilled()
+    -- self-heals those the first time anything needs to resolve one.
+    storage_location_id INT UNSIGNED NULL,
     created_by INT UNSIGNED NOT NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_gallery_albums_scout_year (scout_year_id),
     INDEX idx_gallery_albums_section (section_id),
     INDEX idx_gallery_albums_date (album_date),
+    INDEX idx_gallery_albums_storage_location (storage_location_id),
     CONSTRAINT fk_gallery_albums_section FOREIGN KEY (section_id) REFERENCES sections(id) ON DELETE SET NULL,
     CONSTRAINT fk_gallery_albums_scout_year FOREIGN KEY (scout_year_id) REFERENCES scout_years(id),
-    CONSTRAINT fk_gallery_albums_created_by FOREIGN KEY (created_by) REFERENCES user_accounts(id)
+    CONSTRAINT fk_gallery_albums_created_by FOREIGN KEY (created_by) REFERENCES user_accounts(id),
+    CONSTRAINT fk_gallery_albums_storage_location FOREIGN KEY (storage_location_id) REFERENCES gallery_storage_locations(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- gallery_media: one row per uploaded photo/video, always tied to a local
@@ -73,14 +125,15 @@ CREATE TABLE IF NOT EXISTS gallery_media (
     CONSTRAINT fk_gallery_media_file FOREIGN KEY (file_id) REFERENCES files(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- gallery_s3_secret: singleton row (id always 1) holding the S3 secret
--- access key, encrypted at rest via Core\Security\EncryptionService — same
--- BLOB-via-EncryptionService convention as Modules\LlmConnector\Repository
--- \ProviderRepository's api_key column. Kept out of the generic settings
--- system (which stores plain-text values) since this is a credential, not
--- a preference; the rest of the S3 configuration (endpoint/region/bucket/
--- access key/provider preset) has no confidentiality requirement and is
--- registered as ordinary module.json settings instead.
+-- gallery_s3_secret: retired singleton (formerly id=1, the one-and-only S3
+-- secret) — superseded by gallery_storage_locations.secret_key_encrypted
+-- (per row, since there can be several S3 locations now). Left declared,
+-- unused, rather than attempting a DROP TABLE: this module's drops.sql
+-- mechanism (Core\Database\MigrationRunner::applyExplicitDrops()) only
+-- supports column/FK drops, not whole tables — Service\
+-- StorageLocationService::ensureLegacyLocationBackfilled() reads this row
+-- once (to carry the existing secret into the new table) and never writes
+-- to it again.
 CREATE TABLE IF NOT EXISTS gallery_s3_secret (
     id TINYINT UNSIGNED PRIMARY KEY DEFAULT 1,
     secret_key_encrypted BLOB NULL,

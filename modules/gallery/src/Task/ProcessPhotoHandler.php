@@ -7,8 +7,9 @@ namespace Modules\Gallery\Task;
 use Core\File\FileRepository;
 use Core\Scheduler\TaskContext;
 use Core\Scheduler\TaskHandlerInterface;
+use Modules\Gallery\Repository\AlbumRepository;
 use Modules\Gallery\Repository\MediaRepository;
-use Modules\Gallery\Repository\S3SecretRepository;
+use Modules\Gallery\Repository\StorageLocationRepository;
 use Modules\Gallery\Service\GalleryException;
 use Modules\Gallery\Service\ImageProcessingService;
 use Modules\Gallery\Service\Storage\StorageBackendFactory;
@@ -56,7 +57,13 @@ class ProcessPhotoHandler implements TaskHandlerInterface
             $maxDimension = (int) $context->settings->get('gallery_photo_max_dimension', 'gallery', 3000);
             $result = (new ImageProcessingService())->process($contents, $file->mimeType, $maxDimension);
 
-            $storage = $this->buildStorageFactory($context)->create();
+            $storageLocationRepository = new StorageLocationRepository($context->connection->getPdo(), $context->encryption);
+            $album = (new AlbumRepository($context->connection->getPdo()))->findById($media->albumId);
+            $location = $album?->storageLocationId !== null ? $storageLocationRepository->findById($album->storageLocationId) : null;
+            if ($location === null) {
+                throw new GalleryException('Emplacement de stockage introuvable pour cet album.');
+            }
+            $storage = (new StorageBackendFactory($storageLocationRepository, $context->storagePath))->create($location);
             $thumbKey = "{$media->albumId}/thumb_{$mediaId}.jpg";
             $mediumKey = "{$media->albumId}/med_{$mediaId}.jpg";
             $largeKey = "{$media->albumId}/lg_{$mediaId}.jpg";
@@ -80,9 +87,4 @@ class ProcessPhotoHandler implements TaskHandlerInterface
         }
     }
 
-    private function buildStorageFactory(TaskContext $context): StorageBackendFactory
-    {
-        $s3SecretRepository = new S3SecretRepository($context->connection->getPdo(), $context->encryption);
-        return new StorageBackendFactory($context->settings, $s3SecretRepository, $context->storagePath);
-    }
 }

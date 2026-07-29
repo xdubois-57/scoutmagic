@@ -7,8 +7,9 @@ namespace Modules\Gallery\Task;
 use Core\File\FileRepository;
 use Core\Scheduler\TaskContext;
 use Core\Scheduler\TaskHandlerInterface;
+use Modules\Gallery\Repository\AlbumRepository;
 use Modules\Gallery\Repository\MediaRepository;
-use Modules\Gallery\Repository\S3SecretRepository;
+use Modules\Gallery\Repository\StorageLocationRepository;
 use Modules\Gallery\Service\GalleryException;
 use Modules\Gallery\Service\Storage\StorageBackendFactory;
 use Modules\Gallery\Service\VideoProcessingService;
@@ -79,7 +80,13 @@ class ProcessVideoHandler implements TaskHandlerInterface
                 $video->transcode($sourceTempPath, $largeTempPath, 1080);
             }
 
-            $storage = $this->buildStorageFactory($context)->create();
+            $storageLocationRepository = new StorageLocationRepository($context->connection->getPdo(), $context->encryption);
+            $album = (new AlbumRepository($context->connection->getPdo()))->findById($media->albumId);
+            $location = $album?->storageLocationId !== null ? $storageLocationRepository->findById($album->storageLocationId) : null;
+            if ($location === null) {
+                throw new GalleryException('Emplacement de stockage introuvable pour cet album.');
+            }
+            $storage = (new StorageBackendFactory($storageLocationRepository, $context->storagePath))->create($location);
             $thumbKey = "{$media->albumId}/thumb_{$mediaId}.jpg";
             $mediumKey = "{$media->albumId}/med_{$mediaId}.mp4";
             $storage->put($thumbKey, (string) file_get_contents($posterTempPath), 'image/jpeg');
@@ -114,12 +121,6 @@ class ProcessVideoHandler implements TaskHandlerInterface
         } finally {
             $this->removeDirectory($tempDir);
         }
-    }
-
-    private function buildStorageFactory(TaskContext $context): StorageBackendFactory
-    {
-        $s3SecretRepository = new S3SecretRepository($context->connection->getPdo(), $context->encryption);
-        return new StorageBackendFactory($context->settings, $s3SecretRepository, $context->storagePath);
     }
 
     private function removeDirectory(string $dir): void

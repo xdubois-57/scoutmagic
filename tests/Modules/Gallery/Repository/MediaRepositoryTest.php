@@ -36,7 +36,7 @@ class MediaRepositoryTest extends TestCase
         $scoutYearId = (int) $this->pdo->lastInsertId();
 
         $albumRepository = new AlbumRepository($this->pdo);
-        $this->albumId = $albumRepository->create(Album::TYPE_LOCAL, 'Camp', null, '2026-01-01', null, $scoutYearId, null, $authorId);
+        $this->albumId = $albumRepository->create(Album::TYPE_LOCAL, 'Camp', null, '2026-01-01', null, $scoutYearId, null, null, $authorId);
 
         $stmt = $this->pdo->prepare("INSERT INTO files (relative_path, original_name, mime_type, size_bytes, role_min, module_id, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)");
         $stmt->execute(['gallery/orig/a.jpg', 'a.jpg', 'image/jpeg', 1000, 'identified', 'gallery', $authorId]);

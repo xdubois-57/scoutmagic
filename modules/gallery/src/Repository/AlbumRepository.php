@@ -72,14 +72,21 @@ class AlbumRepository
         ?int $sectionId,
         int $scoutYearId,
         ?string $externalUrl,
+        ?int $storageLocationId,
         int $createdBy
     ): int {
         $stmt = $this->pdo->prepare(
-            'INSERT INTO gallery_albums (type, title, subtitle, album_date, section_id, scout_year_id, external_url, created_by, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+            'INSERT INTO gallery_albums (type, title, subtitle, album_date, section_id, scout_year_id, external_url, storage_location_id, created_by, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
-        $stmt->execute([$type, $title, $subtitle, $albumDate, $sectionId, $scoutYearId, $externalUrl, $createdBy, date('Y-m-d H:i:s')]);
+        $stmt->execute([$type, $title, $subtitle, $albumDate, $sectionId, $scoutYearId, $externalUrl, $storageLocationId, $createdBy, date('Y-m-d H:i:s')]);
         return (int) $this->pdo->lastInsertId();
+    }
+
+    public function setStorageLocationId(int $id, int $storageLocationId): void
+    {
+        $stmt = $this->pdo->prepare('UPDATE gallery_albums SET storage_location_id = ? WHERE id = ?');
+        $stmt->execute([$storageLocationId, $id]);
     }
 
     public function update(
@@ -132,6 +139,7 @@ class AlbumRepository
             ogTitle: $row['og_title'] !== null ? (string) $row['og_title'] : null,
             ogDescription: $row['og_description'] !== null ? (string) $row['og_description'] : null,
             ogImageUrl: $row['og_image_url'] !== null ? (string) $row['og_image_url'] : null,
+            storageLocationId: $row['storage_location_id'] !== null ? (int) $row['storage_location_id'] : null,
             createdBy: (int) $row['created_by'],
             createdAt: (string) $row['created_at']
         );

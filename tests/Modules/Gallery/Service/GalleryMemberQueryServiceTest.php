@@ -17,11 +17,14 @@ use Core\Security\Role;
 use Modules\Gallery\Repository\Album;
 use Modules\Gallery\Repository\AlbumRepository;
 use Modules\Gallery\Repository\MediaRepository;
+use Modules\Gallery\Repository\S3SecretRepository;
+use Modules\Gallery\Repository\StorageLocationRepository;
 use Modules\Gallery\Service\FfmpegAvailability;
 use Modules\Gallery\Service\GalleryAccessService;
 use Modules\Gallery\Service\GalleryMemberQueryService;
 use Modules\Gallery\Service\MediaService;
 use Modules\Gallery\Service\Storage\StorageBackendFactory;
+use Modules\Gallery\Service\StorageLocationService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Gallery\GalleryTestHelper;
@@ -52,12 +55,18 @@ class GalleryMemberQueryServiceTest extends TestCase
         $scoutYearService = new ScoutYearService($this->pdo);
 
         $accessService = $this->createMock(GalleryAccessService::class);
-        $storageBackendFactory = $this->createMock(StorageBackendFactory::class);
-        $storageBackendFactory->method('isS3')->willReturn(false);
+        $storageLocationRepository = new StorageLocationRepository($this->pdo, $encryption);
+        $storageBackendFactory = new StorageBackendFactory($storageLocationRepository, sys_get_temp_dir());
+        $settingService = $this->createMock(\Core\Config\SettingService::class);
+        $settingService->method('get')->willReturnCallback(fn($key, $module, $default) => $default);
+        $storageLocationService = new StorageLocationService(
+            $storageLocationRepository, $this->albumRepository, $storageBackendFactory, $settingService,
+            new S3SecretRepository($this->pdo, $encryption), sys_get_temp_dir()
+        );
         $mediaService = new MediaService(
             $mediaRepository, $this->albumRepository, new UploadHandler(new FileRepository($this->pdo), sys_get_temp_dir()),
-            new SchedulerService(new SchedulerRepository($this->pdo)), $this->createMock(\Core\Config\SettingService::class),
-            $accessService, $storageBackendFactory, $this->createMock(FfmpegAvailability::class)
+            new SchedulerService(new SchedulerRepository($this->pdo)), $settingService,
+            $accessService, $storageBackendFactory, $storageLocationService, $this->createMock(FfmpegAvailability::class)
         );
 
         $this->service = new GalleryMemberQueryService($this->albumRepository, $mediaRepository, $mediaService, $sectionService, $scoutYearService);
@@ -78,7 +87,7 @@ class GalleryMemberQueryServiceTest extends TestCase
 
     public function testReturnsEmptyArrayForUnknownScoutYearLabel(): void
     {
-        $this->albumRepository->create(Album::TYPE_LOCAL, 'Camp', null, '2026-01-01', null, $this->scoutYearId, null, $this->authorId);
+        $this->albumRepository->create(Album::TYPE_LOCAL, 'Camp', null, '2026-01-01', null, $this->scoutYearId, null, null, $this->authorId);
 
         $result = $this->service->getAlbumsForMember([], 'unknown-year', 10);
 
@@ -87,7 +96,7 @@ class GalleryMemberQueryServiceTest extends TestCase
 
     public function testReturnsUnitWideAlbumRegardlessOfSectionCodes(): void
     {
-        $this->albumRepository->create(Album::TYPE_LOCAL, 'Camp', null, '2026-01-01', null, $this->scoutYearId, null, $this->authorId);
+        $this->albumRepository->create(Album::TYPE_LOCAL, 'Camp', null, '2026-01-01', null, $this->scoutYearId, null, null, $this->authorId);
 
         $result = $this->service->getAlbumsForMember([], '2025-2026', 10);
 
@@ -98,7 +107,7 @@ class GalleryMemberQueryServiceTest extends TestCase
 
     public function testHidesSectionScopedAlbumWhenSectionCodeNotProvided(): void
     {
-        $this->albumRepository->create(Album::TYPE_LOCAL, 'Réunion Meute', null, '2026-01-01', $this->sectionId, $this->scoutYearId, null, $this->authorId);
+        $this->albumRepository->create(Album::TYPE_LOCAL, 'Réunion Meute', null, '2026-01-01', $this->sectionId, $this->scoutYearId, null, null, $this->authorId);
 
         $result = $this->service->getAlbumsForMember([], '2025-2026', 10);
 
@@ -107,7 +116,7 @@ class GalleryMemberQueryServiceTest extends TestCase
 
     public function testShowsSectionScopedAlbumWhenSectionCodeMatches(): void
     {
-        $this->albumRepository->create(Album::TYPE_LOCAL, 'Réunion Meute', null, '2026-01-01', $this->sectionId, $this->scoutYearId, null, $this->authorId);
+        $this->albumRepository->create(Album::TYPE_LOCAL, 'Réunion Meute', null, '2026-01-01', $this->sectionId, $this->scoutYearId, null, null, $this->authorId);
 
         $result = $this->service->getAlbumsForMember(['MEUTE_A'], '2025-2026', 10);
 
@@ -117,7 +126,7 @@ class GalleryMemberQueryServiceTest extends TestCase
 
     public function testExternalAlbumUrlPointsDirectlyAtTheExternalLink(): void
     {
-        $this->albumRepository->create(Album::TYPE_EXTERNAL, 'Album externe', null, '2026-01-01', null, $this->scoutYearId, 'https://example.com/x', $this->authorId);
+        $this->albumRepository->create(Album::TYPE_EXTERNAL, 'Album externe', null, '2026-01-01', null, $this->scoutYearId, 'https://example.com/x', null, $this->authorId);
 
         $result = $this->service->getAlbumsForMember([], '2025-2026', 10);
 
@@ -127,7 +136,7 @@ class GalleryMemberQueryServiceTest extends TestCase
     public function testRespectsTheLimit(): void
     {
         for ($i = 0; $i < 3; $i++) {
-            $this->albumRepository->create(Album::TYPE_LOCAL, "Album $i", null, '2026-01-0' . ($i + 1), null, $this->scoutYearId, null, $this->authorId);
+            $this->albumRepository->create(Album::TYPE_LOCAL, "Album $i", null, '2026-01-0' . ($i + 1), null, $this->scoutYearId, null, null, $this->authorId);
         }
 
         $result = $this->service->getAlbumsForMember([], '2025-2026', 2);

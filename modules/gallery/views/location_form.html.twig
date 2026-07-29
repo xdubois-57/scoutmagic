@@ -1,0 +1,158 @@
+{% extends "base.html.twig" %}
+
+{% block title %}{{ location ? 'Modifier l\'emplacement' : 'Nouvel emplacement de stockage' }} — {{ site_name }}{% endblock %}
+
+{% block content %}
+    <div class="d-flex justify-content-between align-items-start mb-3 flex-wrap gap-2">
+        <h1 class="h4 mb-0">{{ location ? 'Modifier l\'emplacement de stockage' : 'Nouvel emplacement de stockage' }}</h1>
+        <a href="/config/gallery" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left"></i> Retour</a>
+    </div>
+
+    {% if submit_error %}
+        <div class="alert alert-danger">{{ submit_error }}</div>
+    {% endif %}
+
+    {% if location and referenced_count > 0 %}
+        <div class="alert alert-info">
+            Utilisé par {{ referenced_count }} album{{ referenced_count > 1 ? 's' : '' }} — le type de stockage
+            (local/S3) n'est plus modifiable, seuls le nom et les détails de connexion peuvent l'être.
+        </div>
+    {% endif %}
+
+    <form method="post" action="{{ location ? '/config/gallery/locations/' ~ location.id : '/config/gallery/locations' }}">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+
+        <div class="card mb-4">
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-12 col-md-6">
+                        <label class="form-label small" for="location-label">Nom de l'emplacement</label>
+                        <input type="text" class="form-control" id="location-label" name="label" value="{{ location.label ?? '' }}" maxlength="255" required>
+                    </div>
+
+                    <div class="col-12">
+                        <label class="form-label small">Type de stockage</label>
+                        <div class="btn-group w-100" role="group">
+                            <input type="radio" class="btn-check" name="type" id="storage-local" value="local" autocomplete="off"
+                                   {{ location and location.type == 's3' ? '' : 'checked' }} {{ location ? 'disabled' : '' }}>
+                            <label class="btn btn-outline-primary" for="storage-local"><i class="bi bi-hdd"></i> Stockage local</label>
+                            <input type="radio" class="btn-check" name="type" id="storage-s3" value="s3" autocomplete="off"
+                                   {{ location and location.type == 's3' ? 'checked' : '' }} {{ location ? 'disabled' : '' }}>
+                            <label class="btn btn-outline-primary" for="storage-s3"><i class="bi bi-cloud"></i> Stockage objet (S3)</label>
+                        </div>
+                        {% if location %}
+                            {# Disabled radios don't submit their value — resend it as a hidden field so the type is preserved. #}
+                            <input type="hidden" name="type" value="{{ location.type }}">
+                        {% endif %}
+                    </div>
+
+                    <div class="col-12 col-md-6 gallery-storage-local">
+                        <label class="form-label small" for="storage-local-subdir">Sous-dossier local</label>
+                        <input type="text" class="form-control" id="storage-local-subdir" name="subdir" value="{{ location.subdir ?? 'gallery' }}">
+                    </div>
+                </div>
+
+                <div class="gallery-storage-s3 row g-3 mt-1">
+                    <div class="col-12">
+                        <label class="form-label small" for="s3-provider">Fournisseur</label>
+                        <select class="form-select" id="s3-provider" name="s3_provider">
+                            <option value="hetzner" {{ location and location.s3Provider == 'hetzner' ? 'selected' : '' }}>Hetzner Object Storage</option>
+                            <option value="cloudflare_r2" {{ location and location.s3Provider == 'cloudflare_r2' ? 'selected' : '' }}>Cloudflare R2</option>
+                            <option value="scaleway" {{ location and location.s3Provider == 'scaleway' ? 'selected' : '' }}>Scaleway Object Storage</option>
+                            <option value="ovhcloud" {{ location and location.s3Provider == 'ovhcloud' ? 'selected' : '' }}>OVHcloud Object Storage</option>
+                            <option value="custom" {{ not location or location.s3Provider == 'custom' or location.s3Provider is null ? 'selected' : '' }}>Personnalisé (compatible S3)</option>
+                        </select>
+                    </div>
+
+                    <div class="col-12" id="s3-help-hetzner">
+                        <div class="alert alert-light border mb-0 small">
+                            Créez un bucket dans la <a href="https://console.hetzner.cloud/" target="_blank" rel="noopener">console Hetzner Cloud</a> (Object Storage).
+                            Endpoint : <code>https://&lt;region&gt;.your-objectstorage.com</code> (régions : fsn1, nbg1, hel1). Localisation : Union européenne (Allemagne/Finlande).
+                            <br><strong>Access key / Secret key :</strong> ouvrez le bucket créé, onglet « Access keys », puis générez une nouvelle clé — la secret key n'est affichée qu'une seule fois, à copier immédiatement.
+                        </div>
+                    </div>
+                    <div class="col-12" id="s3-help-cloudflare_r2">
+                        <div class="alert alert-light border mb-0 small">
+                            Créez un bucket R2 dans le <a href="https://dash.cloudflare.com/" target="_blank" rel="noopener">tableau de bord Cloudflare</a> (section « R2 »).
+                            Endpoint : <code>https://&lt;account_id&gt;.r2.cloudflarestorage.com</code> (l'account_id apparaît en haut à droite de la page R2) — région : <code>auto</code>.
+                            <strong>Attention :</strong> les serveurs Cloudflare R2 ne sont pas garantis dans l'Union européenne sauf configuration de « Jurisdictional restrictions » sur le bucket.
+                            <br><strong>Access key / Secret key :</strong> toujours dans la section « R2 » (pas les jetons API généraux du compte Cloudflare, qui sont différents) → « Manage R2 API Tokens » → « Create API token ». Choisissez la permission « Object Read & Write » et, si l'option est proposée, limitez le jeton à ce bucket précis plutôt qu'à tout le compte. La secret key n'est affichée qu'à la création.
+                        </div>
+                    </div>
+                    <div class="col-12" id="s3-help-scaleway">
+                        <div class="alert alert-light border mb-0 small">
+                            Endpoint : <code>https://s3.&lt;region&gt;.scw.cloud</code> (ex. fr-par, nl-ams). Société française, conforme au RGPD.
+                            Sur Scaleway, obtenir une clé d'accès demande de créer <strong>4 éléments distincts et de les relier entre eux</strong> — ce n'est pas juste « créer un bucket et générer une clé » :
+                            <ol class="mb-2 mt-1 ps-3">
+                                <li><strong>Le bucket</strong> — <a href="https://console.scaleway.com/object-storage/buckets" target="_blank" rel="noopener">Object Storage → Buckets</a> → « Créer un bucket ». Notez son nom exact : c'est la valeur à saisir dans le champ « Bucket » ci-dessous.</li>
+                                <li><strong>Une application</strong> — <a href="https://console.scaleway.com/iam/applications" target="_blank" rel="noopener">IAM → Applications</a> → « Créer une application ». C'est une identité non-humaine dédiée à cette intégration (pas votre compte personnel) ; donnez-lui un nom explicite, ex. « scoutmagic-galerie ».</li>
+                                <li><strong>Une politique (policy)</strong> — dans <a href="https://console.scaleway.com/iam/policies" target="_blank" rel="noopener">IAM → Politiques</a>, créez une politique accordant les droits « ObjectStorageFullAccess » (ou au minimum lecture/écriture sur ce bucket précis), puis <strong>attachez-la à l'application créée à l'étape 2</strong> — une application sans politique n'a aucun droit, même avec une clé API valide.</li>
+                                <li><strong>Une clé API</strong> — <a href="https://console.scaleway.com/iam/api-keys" target="_blank" rel="noopener">IAM → Clés API</a> → « Générer une clé API », en choisissant explicitement l'application créée à l'étape 2 comme porteur de la clé (pas votre compte). La secret key n'est affichée qu'une seule fois à la création : copiez-la immédiatement dans le champ ci-dessous, elle ne sera plus jamais visible ensuite dans la console.</li>
+                            </ol>
+                            Si le test de connexion échoue malgré des identifiants corrects, la cause la plus fréquente est une politique manquante ou non attachée à l'application (étape 3).
+                        </div>
+                    </div>
+                    <div class="col-12" id="s3-help-ovhcloud">
+                        <div class="alert alert-light border mb-0 small">
+                            Créez un conteneur dans le <a href="https://www.ovh.com/manager/" target="_blank" rel="noopener">manager OVHcloud</a> (Object Storage, compatible S3).
+                            Endpoint : <code>https://s3.&lt;region&gt;.io.cloud.ovh.net</code> (ex. gra, sbg, de). Société française, conforme au RGPD.
+                            <br><strong>Access key / Secret key :</strong> depuis le conteneur, onglet « Utilisateurs » (ou « Public Cloud » → « Users & Roles » du projet) → créez un utilisateur avec le rôle « ObjectStore operator » pour obtenir la paire de clés S3.
+                        </div>
+                    </div>
+                    <div class="col-12" id="s3-help-custom">
+                        <div class="alert alert-light border mb-0 small">
+                            Saisissez l'endpoint, la région et le bucket fournis par votre hébergeur compatible S3. L'access key et la secret key sont généralement disponibles dans la section « API » ou « Clés d'accès » de la console de cet hébergeur.
+                        </div>
+                    </div>
+
+                    <div class="col-12 col-md-6">
+                        <label class="form-label small" for="s3-endpoint">Endpoint</label>
+                        <input type="url" class="form-control" id="s3-endpoint" name="s3_endpoint" value="{{ location.s3Endpoint ?? '' }}" placeholder="https://...">
+                    </div>
+                    <div class="col-12 col-md-3">
+                        <label class="form-label small" for="s3-region">Région</label>
+                        <input type="text" class="form-control" id="s3-region" name="s3_region" value="{{ location.s3Region ?? '' }}">
+                    </div>
+                    <div class="col-12 col-md-3">
+                        <label class="form-label small" for="s3-bucket">Bucket</label>
+                        <input type="text" class="form-control" id="s3-bucket" name="s3_bucket" value="{{ location.s3Bucket ?? '' }}">
+                    </div>
+                    <div class="col-12 col-md-6">
+                        <label class="form-label small" for="s3-access-key">Access key</label>
+                        <input type="text" class="form-control" id="s3-access-key" name="s3_access_key" value="{{ location.s3AccessKey ?? '' }}" autocomplete="off">
+                    </div>
+                    <div class="col-12 col-md-6">
+                        <label class="form-label small" for="s3-secret-key">Secret key</label>
+                        <input type="password" class="form-control" id="s3-secret-key" name="s3_secret_key" placeholder="{{ location and location.secretConfigured ? '••••••••' : '' }}" autocomplete="off">
+                        <div class="form-text">{{ location and location.secretConfigured ? 'Laisser vide pour conserver la clé actuelle.' : '' }}</div>
+                    </div>
+                    <div class="col-12 col-md-6">
+                        <label class="form-label small" for="s3-public-url">URL publique (CDN, optionnel)</label>
+                        <input type="url" class="form-control" id="s3-public-url" name="s3_public_url" value="{{ location.s3PublicUrl ?? '' }}" placeholder="https://cdn.example.org">
+                        <div class="form-text">Si vide, les médias sont servis via une URL signée temporaire.</div>
+                    </div>
+                    <div class="col-12">
+                        <button type="button" class="btn btn-outline-secondary btn-sm" id="s3-test-connection">
+                            <i class="bi bi-plug"></i> Tester la connexion
+                        </button>
+                        <div id="s3-test-result" class="mt-2"></div>
+                        {% if gallery_s3_ai_available %}
+                            <div id="s3-explain-wrap" class="mt-2 d-none">
+                                <button type="button" class="btn btn-outline-secondary btn-sm" id="s3-explain-ai">
+                                    <i class="bi bi-stars"></i> Expliquer avec l'IA
+                                </button>
+                                <div id="s3-explain-result" class="mt-2"></div>
+                            </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <button type="submit" class="btn btn-primary">Enregistrer</button>
+    </form>
+{% endblock %}
+
+{% block scripts %}
+    <script src="/assets/js/gallery-storage-location.js" defer></script>
+{% endblock %}

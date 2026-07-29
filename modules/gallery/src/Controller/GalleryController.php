@@ -18,6 +18,7 @@ use Modules\Gallery\Repository\MediaRepository;
 use Modules\Gallery\Service\AlbumService;
 use Modules\Gallery\Service\MediaService;
 use Modules\Gallery\Service\Storage\StorageBackendFactory;
+use Modules\Gallery\Service\StorageLocationService;
 use Twig\Environment;
 
 class GalleryController extends AbstractController
@@ -30,7 +31,8 @@ class GalleryController extends AbstractController
         private MemberService $memberService,
         private SectionService $sectionService,
         private ScoutYearService $scoutYearService,
-        private StorageBackendFactory $storageBackendFactory
+        private StorageBackendFactory $storageBackendFactory,
+        private StorageLocationService $storageLocationService
     ) {
     }
 
@@ -84,18 +86,24 @@ class GalleryController extends AbstractController
             return $this->redirect((string) $album->externalUrl);
         }
 
+        $location = $this->storageLocationService->resolveLocationForAlbum($album);
+        $location = $location !== null ? $this->storageLocationService->checkFresh($location) : null;
+        $unavailable = $location !== null && $location->lastCheckOk === false;
+
         $mediaRows = $this->mediaRepository->findByAlbumId($album->id);
-        $media = array_map(fn(Media $m) => [
+        $media = $unavailable ? [] : array_map(fn(Media $m) => [
             'media' => $m,
-            'thumb_url' => $this->mediaService->resolveUrl($m, 'thumb'),
-            'medium_url' => $this->mediaService->resolveUrl($m, 'medium'),
-            'large_url' => $this->mediaService->resolveUrl($m, 'large'),
+            'thumb_url' => $this->mediaService->resolveUrl($m, $album, 'thumb'),
+            'medium_url' => $this->mediaService->resolveUrl($m, $album, 'medium'),
+            'large_url' => $this->mediaService->resolveUrl($m, $album, 'large'),
         ], $mediaRows);
 
         return $this->render('@gallery/album.html.twig', [
             'album' => $album,
             'media' => $media,
-            'has_downloadable_media' => count(array_filter($mediaRows, fn(Media $m) => $m->processingStatus === Media::STATUS_DONE)) > 0,
+            'has_downloadable_media' => !$unavailable && count(array_filter($mediaRows, fn(Media $m) => $m->processingStatus === Media::STATUS_DONE)) > 0,
+            'storage_unavailable' => $unavailable,
+            'storage_unavailable_reason' => $unavailable ? $location->lastCheckError : null,
         ]);
     }
 
@@ -126,8 +134,13 @@ class GalleryController extends AbstractController
             return new Response('Not Found', 404);
         }
 
+        $location = $this->storageLocationService->resolveLocationForAlbum($album);
+        if ($location === null) {
+            return new Response('Not Found', 404);
+        }
+
         $tempZipPath = (string) tempnam(sys_get_temp_dir(), 'gallery_zip_');
-        $storage = $this->storageBackendFactory->create();
+        $storage = $this->storageBackendFactory->create($location);
 
         $zip = new \ZipArchive();
         $zip->open($tempZipPath, \ZipArchive::OVERWRITE);
@@ -184,6 +197,11 @@ class GalleryController extends AbstractController
             return new Response('Not Found', 404);
         }
 
+        $album = $this->albumService->findById($media->albumId);
+        if ($album === null) {
+            return new Response('Not Found', 404);
+        }
+
         $path = match ($size) {
             'thumb' => $media->thumbPath,
             'medium' => $media->mediumPath,
@@ -203,8 +221,13 @@ class GalleryController extends AbstractController
                 ->setHeader('Cache-Control', 'private, max-age=31536000');
         }
 
+        $location = $this->storageLocationService->resolveLocationForAlbum($album);
+        if ($location === null) {
+            return new Response('Not Found', 404);
+        }
+
         try {
-            $contents = $this->storageBackendFactory->create()->get($path);
+            $contents = $this->storageBackendFactory->create($location)->get($path);
         } catch (\RuntimeException) {
             return new Response('Not Found', 404);
         }
@@ -305,10 +328,19 @@ class GalleryController extends AbstractController
      */
     private function cardContext(Album $album): array
     {
+        $unavailable = false;
+        $unavailableReason = null;
+        if ($album->isLocal()) {
+            $location = $this->storageLocationService->resolveLocationForAlbum($album);
+            $location = $location !== null ? $this->storageLocationService->checkFresh($location) : null;
+            $unavailable = $location !== null && $location->lastCheckOk === false;
+            $unavailableReason = $unavailable ? $location->lastCheckError : null;
+        }
+
         $coverUrl = null;
-        if ($album->coverMediaId !== null) {
+        if (!$unavailable && $album->coverMediaId !== null) {
             $cover = $this->mediaRepository->findById($album->coverMediaId);
-            $coverUrl = $cover !== null ? $this->mediaService->resolveUrl($cover, 'thumb') : null;
+            $coverUrl = $cover !== null ? $this->mediaService->resolveUrl($cover, $album, 'thumb') : null;
         } elseif (!$album->isLocal()) {
             $coverUrl = $album->ogImageUrl;
         }
@@ -317,6 +349,8 @@ class GalleryController extends AbstractController
             'album' => $album,
             'cover_url' => $coverUrl,
             'display_title' => $album->isLocal() || $album->ogTitle === null ? $album->title : $album->ogTitle,
+            'storage_unavailable' => $unavailable,
+            'storage_unavailable_reason' => $unavailableReason,
         ];
     }
 }

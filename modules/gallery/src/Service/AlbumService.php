@@ -10,6 +10,7 @@ use Core\Security\Role;
 use Modules\Gallery\Repository\Album;
 use Modules\Gallery\Repository\AlbumRepository;
 use Modules\Gallery\Repository\MediaRepository;
+use Modules\Gallery\Repository\StorageLocationRepository;
 use Modules\Gallery\Service\Storage\StorageBackendFactory;
 
 class AlbumService
@@ -20,6 +21,8 @@ class AlbumService
         private GalleryAccessService $accessService,
         private OgScraperService $ogScraperService,
         private StorageBackendFactory $storageBackendFactory,
+        private StorageLocationRepository $storageLocationRepository,
+        private StorageLocationService $storageLocationService,
         private ScoutYearService $scoutYearService,
         private SettingService $settingService
     ) {
@@ -59,6 +62,7 @@ class AlbumService
         string $albumDate,
         ?int $sectionId,
         ?string $externalUrl,
+        ?int $storageLocationId,
         int $createdBy,
         Role $role,
         string $email
@@ -70,6 +74,14 @@ class AlbumService
         }
         if ($type === Album::TYPE_EXTERNAL && ($externalUrl === null || trim($externalUrl) === '')) {
             throw new GalleryException('Un lien est obligatoire pour un album externe.');
+        }
+        if ($type === Album::TYPE_LOCAL) {
+            $this->storageLocationService->ensureLegacyLocationBackfilled();
+            if ($storageLocationId === null || $this->storageLocationRepository->findById($storageLocationId) === null) {
+                throw new GalleryException('Un emplacement de stockage valide est obligatoire pour un album local.');
+            }
+        } else {
+            $storageLocationId = null;
         }
 
         // External albums: the link is what the chief actually has in
@@ -91,7 +103,7 @@ class AlbumService
         }
 
         $scoutYearId = $this->scoutYearService->getCurrentYear()['id'];
-        $id = $this->albumRepository->create($type, $title, $subtitle, $albumDate, $sectionId, $scoutYearId, $externalUrl, $createdBy);
+        $id = $this->albumRepository->create($type, $title, $subtitle, $albumDate, $sectionId, $scoutYearId, $externalUrl, $storageLocationId, $createdBy);
 
         if ($ogTags !== null) {
             $this->albumRepository->updateOgMetadata($id, $ogTags['title'], $ogTags['description'], $ogTags['image']);
@@ -157,7 +169,10 @@ class AlbumService
         }
 
         if ($album->isLocal()) {
-            $this->storageBackendFactory->create()->deletePrefix((string) $id);
+            $location = $this->storageLocationService->resolveLocationForAlbum($album);
+            if ($location !== null) {
+                $this->storageBackendFactory->create($location)->deletePrefix((string) $id);
+            }
         }
 
         $this->albumRepository->delete($id);

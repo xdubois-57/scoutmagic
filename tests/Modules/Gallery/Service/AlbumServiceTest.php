@@ -6,15 +6,20 @@ namespace Tests\Modules\Gallery\Service;
 
 use Core\Config\ScoutYearService;
 use Core\Config\SettingService;
+use Core\Security\EncryptionService;
 use Core\Security\Role;
 use Modules\Gallery\Repository\Album;
 use Modules\Gallery\Repository\AlbumRepository;
 use Modules\Gallery\Repository\MediaRepository;
+use Modules\Gallery\Repository\S3SecretRepository;
+use Modules\Gallery\Repository\StorageLocation;
+use Modules\Gallery\Repository\StorageLocationRepository;
 use Modules\Gallery\Service\AlbumService;
 use Modules\Gallery\Service\GalleryAccessService;
 use Modules\Gallery\Service\GalleryException;
 use Modules\Gallery\Service\OgScraperService;
 use Modules\Gallery\Service\Storage\StorageBackendFactory;
+use Modules\Gallery\Service\StorageLocationService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Gallery\GalleryTestHelper;
@@ -26,12 +31,15 @@ class AlbumServiceTest extends TestCase
 {
     private \PDO $pdo;
     private AlbumRepository $albumRepository;
+    private StorageLocationRepository $storageLocationRepository;
+    private StorageLocationService $storageLocationService;
     private AlbumService $service;
     private GalleryAccessService $accessService;
     private StorageBackendFactory $storageBackendFactory;
     private int $authorId;
     private int $scoutYearId;
     private int $sectionId;
+    private int $locationId;
 
     protected function setUp(): void
     {
@@ -43,9 +51,15 @@ class AlbumServiceTest extends TestCase
         $this->accessService = $this->createMock(GalleryAccessService::class);
         $this->accessService->method('canManageAlbum')->willReturn(true);
         $ogScraperService = $this->createMock(OgScraperService::class);
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $this->storageLocationRepository = new StorageLocationRepository($this->pdo, $encryption);
         $this->storageBackendFactory = $this->createMock(StorageBackendFactory::class);
         $settingService = $this->createMock(SettingService::class);
         $settingService->method('get')->willReturnCallback(fn($key, $module, $default) => $default);
+        $this->storageLocationService = new StorageLocationService(
+            $this->storageLocationRepository, $this->albumRepository, $this->storageBackendFactory,
+            $settingService, new S3SecretRepository($this->pdo, $encryption), sys_get_temp_dir()
+        );
 
         $stmt = $this->pdo->prepare('INSERT INTO user_accounts (email_encrypted, email_blind_index) VALUES (?, ?)');
         $stmt->execute(['enc', 'idx']);
@@ -61,38 +75,56 @@ class AlbumServiceTest extends TestCase
         $stmt->execute([$branchId, 'MEUTE_A', 'Meute A']);
         $this->sectionId = (int) $this->pdo->lastInsertId();
 
+        $this->locationId = $this->storageLocationRepository->create(
+            StorageLocation::TYPE_LOCAL, 'Stockage local', 'gallery', null, null, null, null, null, null, null
+        );
+
         $this->service = new AlbumService(
             $this->albumRepository, $mediaRepository, $this->accessService, $ogScraperService,
-            $this->storageBackendFactory, $scoutYearService, $settingService
+            $this->storageBackendFactory, $this->storageLocationRepository, $this->storageLocationService,
+            $scoutYearService, $settingService
         );
     }
 
     public function testCreateLocalAlbum(): void
     {
         $album = $this->service->create(
-            Album::TYPE_LOCAL, 'Camp', 'Semaine 1', '2026-07-01', $this->sectionId, null, $this->authorId, Role::CHIEF, 'chief@test.com'
+            Album::TYPE_LOCAL, 'Camp', 'Semaine 1', '2026-07-01', $this->sectionId, null, $this->locationId, $this->authorId, Role::CHIEF, 'chief@test.com'
         );
 
         $this->assertSame('Camp', $album->title);
         $this->assertSame($this->scoutYearId, $album->scoutYearId);
+        $this->assertSame($this->locationId, $album->storageLocationId);
     }
 
     public function testCreateRejectsEmptyTitle(): void
     {
         $this->expectException(GalleryException::class);
-        $this->service->create(Album::TYPE_LOCAL, '   ', null, '2026-07-01', null, null, $this->authorId, Role::CHIEF, 'chief@test.com');
+        $this->service->create(Album::TYPE_LOCAL, '   ', null, '2026-07-01', null, null, $this->locationId, $this->authorId, Role::CHIEF, 'chief@test.com');
     }
 
     public function testCreateRejectsInvalidType(): void
     {
         $this->expectException(GalleryException::class);
-        $this->service->create('bogus', 'Titre', null, '2026-07-01', null, null, $this->authorId, Role::CHIEF, 'chief@test.com');
+        $this->service->create('bogus', 'Titre', null, '2026-07-01', null, null, $this->locationId, $this->authorId, Role::CHIEF, 'chief@test.com');
+    }
+
+    public function testCreateRejectsMissingStorageLocationForLocalAlbum(): void
+    {
+        $this->expectException(GalleryException::class);
+        $this->service->create(Album::TYPE_LOCAL, 'Titre', null, '2026-07-01', null, null, null, $this->authorId, Role::CHIEF, 'chief@test.com');
+    }
+
+    public function testCreateRejectsUnknownStorageLocationForLocalAlbum(): void
+    {
+        $this->expectException(GalleryException::class);
+        $this->service->create(Album::TYPE_LOCAL, 'Titre', null, '2026-07-01', null, null, 999999, $this->authorId, Role::CHIEF, 'chief@test.com');
     }
 
     public function testCreateExternalAlbumRequiresAUrl(): void
     {
         $this->expectException(GalleryException::class);
-        $this->service->create(Album::TYPE_EXTERNAL, 'Titre', null, '2026-07-01', null, null, $this->authorId, Role::CHIEF, 'chief@test.com');
+        $this->service->create(Album::TYPE_EXTERNAL, 'Titre', null, '2026-07-01', null, null, null, $this->authorId, Role::CHIEF, 'chief@test.com');
     }
 
     public function testCreateExternalAlbumFetchesTitleFromOgDataWhenTitleIsBlank(): void
@@ -102,10 +134,11 @@ class AlbumServiceTest extends TestCase
         $settingService = $this->settingServiceAllowingEverything();
         $service = new AlbumService(
             $this->albumRepository, new MediaRepository($this->pdo), $this->accessService,
-            $ogScraperService, $this->storageBackendFactory, new ScoutYearService($this->pdo), $settingService
+            $ogScraperService, $this->storageBackendFactory, $this->storageLocationRepository,
+            $this->storageLocationService, new ScoutYearService($this->pdo), $settingService
         );
 
-        $album = $service->create(Album::TYPE_EXTERNAL, '', null, '2026-07-01', null, 'https://example.com/album', $this->authorId, Role::CHIEF, 'chief@test.com');
+        $album = $service->create(Album::TYPE_EXTERNAL, '', null, '2026-07-01', null, 'https://example.com/album', null, $this->authorId, Role::CHIEF, 'chief@test.com');
 
         $this->assertSame('Album de la famille Dupont', $album->title);
         $this->assertSame('Album de la famille Dupont', $album->ogTitle);
@@ -117,11 +150,12 @@ class AlbumServiceTest extends TestCase
         $ogScraperService->method('fetch')->willReturn(['title' => '', 'description' => '', 'image' => '']);
         $service = new AlbumService(
             $this->albumRepository, new MediaRepository($this->pdo), $this->accessService,
-            $ogScraperService, $this->storageBackendFactory, new ScoutYearService($this->pdo), $this->settingServiceAllowingEverything()
+            $ogScraperService, $this->storageBackendFactory, $this->storageLocationRepository,
+            $this->storageLocationService, new ScoutYearService($this->pdo), $this->settingServiceAllowingEverything()
         );
 
         $this->expectException(GalleryException::class);
-        $service->create(Album::TYPE_EXTERNAL, '', null, '2026-07-01', null, 'https://example.com/album', $this->authorId, Role::CHIEF, 'chief@test.com');
+        $service->create(Album::TYPE_EXTERNAL, '', null, '2026-07-01', null, 'https://example.com/album', null, $this->authorId, Role::CHIEF, 'chief@test.com');
     }
 
     public function testCreateExternalAlbumKeepsAnExplicitTitleEvenWhenOgDataDiffers(): void
@@ -130,10 +164,11 @@ class AlbumServiceTest extends TestCase
         $ogScraperService->method('fetch')->willReturn(['title' => 'Titre de la page', 'description' => '', 'image' => '']);
         $service = new AlbumService(
             $this->albumRepository, new MediaRepository($this->pdo), $this->accessService,
-            $ogScraperService, $this->storageBackendFactory, new ScoutYearService($this->pdo), $this->settingServiceAllowingEverything()
+            $ogScraperService, $this->storageBackendFactory, $this->storageLocationRepository,
+            $this->storageLocationService, new ScoutYearService($this->pdo), $this->settingServiceAllowingEverything()
         );
 
-        $album = $service->create(Album::TYPE_EXTERNAL, 'Mon titre à moi', null, '2026-07-01', null, 'https://example.com/album', $this->authorId, Role::CHIEF, 'chief@test.com');
+        $album = $service->create(Album::TYPE_EXTERNAL, 'Mon titre à moi', null, '2026-07-01', null, 'https://example.com/album', null, $this->authorId, Role::CHIEF, 'chief@test.com');
 
         $this->assertSame('Mon titre à moi', $album->title);
     }
@@ -144,17 +179,17 @@ class AlbumServiceTest extends TestCase
         $accessService->method('canManageAlbum')->willReturn(false);
         $service = new AlbumService(
             $this->albumRepository, new MediaRepository($this->pdo), $accessService,
-            $this->createMock(OgScraperService::class), $this->storageBackendFactory,
-            new ScoutYearService($this->pdo), $this->settingServiceAllowingEverything()
+            $this->createMock(OgScraperService::class), $this->storageBackendFactory, $this->storageLocationRepository,
+            $this->storageLocationService, new ScoutYearService($this->pdo), $this->settingServiceAllowingEverything()
         );
 
         $this->expectException(GalleryException::class);
-        $service->create(Album::TYPE_LOCAL, 'Titre', null, '2026-07-01', $this->sectionId, null, $this->authorId, Role::CHIEF, 'chief@test.com');
+        $service->create(Album::TYPE_LOCAL, 'Titre', null, '2026-07-01', $this->sectionId, null, $this->locationId, $this->authorId, Role::CHIEF, 'chief@test.com');
     }
 
     public function testUpdateChangesTitle(): void
     {
-        $id = $this->albumRepository->create(Album::TYPE_LOCAL, 'Titre', null, '2026-01-01', null, $this->scoutYearId, null, $this->authorId);
+        $id = $this->albumRepository->create(Album::TYPE_LOCAL, 'Titre', null, '2026-01-01', null, $this->scoutYearId, null, $this->locationId, $this->authorId);
 
         $updated = $this->service->update($id, 'Nouveau titre', null, '2026-01-01', null, null, Role::CHIEF, 'chief@test.com');
 
@@ -169,7 +204,7 @@ class AlbumServiceTest extends TestCase
 
     public function testDeleteRemovesTheAlbum(): void
     {
-        $id = $this->albumRepository->create(Album::TYPE_LOCAL, 'Titre', null, '2026-01-01', null, $this->scoutYearId, null, $this->authorId);
+        $id = $this->albumRepository->create(Album::TYPE_LOCAL, 'Titre', null, '2026-01-01', null, $this->scoutYearId, null, $this->locationId, $this->authorId);
         $backend = $this->createMock(\Modules\Gallery\Service\Storage\StorageBackendInterface::class);
         $backend->expects($this->once())->method('deletePrefix')->with((string) $id);
         $this->storageBackendFactory->method('create')->willReturn($backend);
@@ -181,7 +216,7 @@ class AlbumServiceTest extends TestCase
 
     public function testDeleteExternalAlbumNeverTouchesStorage(): void
     {
-        $id = $this->albumRepository->create(Album::TYPE_EXTERNAL, 'Titre', null, '2026-01-01', null, $this->scoutYearId, 'https://example.com', $this->authorId);
+        $id = $this->albumRepository->create(Album::TYPE_EXTERNAL, 'Titre', null, '2026-01-01', null, $this->scoutYearId, 'https://example.com', null, $this->authorId);
         $this->storageBackendFactory->expects($this->never())->method('create');
 
         $this->service->delete($id, Role::CHIEF, 'chief@test.com');
@@ -191,8 +226,8 @@ class AlbumServiceTest extends TestCase
 
     public function testSetCoverRejectsMediaFromAnotherAlbum(): void
     {
-        $id1 = $this->albumRepository->create(Album::TYPE_LOCAL, 'Album 1', null, '2026-01-01', null, $this->scoutYearId, null, $this->authorId);
-        $id2 = $this->albumRepository->create(Album::TYPE_LOCAL, 'Album 2', null, '2026-01-01', null, $this->scoutYearId, null, $this->authorId);
+        $id1 = $this->albumRepository->create(Album::TYPE_LOCAL, 'Album 1', null, '2026-01-01', null, $this->scoutYearId, null, $this->locationId, $this->authorId);
+        $id2 = $this->albumRepository->create(Album::TYPE_LOCAL, 'Album 2', null, '2026-01-01', null, $this->scoutYearId, null, $this->locationId, $this->authorId);
         $stmt = $this->pdo->prepare("INSERT INTO files (relative_path, original_name, mime_type, size_bytes, role_min) VALUES ('a', 'a', 'image/jpeg', 1, 'identified')");
         $stmt->execute();
         $fileId = (int) $this->pdo->lastInsertId();

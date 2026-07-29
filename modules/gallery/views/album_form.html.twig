@@ -38,6 +38,32 @@
                         <label class="form-label small" for="album-external-url">URL de l'album externe</label>
                         <input type="url" class="form-control" id="album-external-url" name="external_url" value="" placeholder="https://..." {{ allow_local ? '' : 'required' }}>
                     </div>
+
+                    {# Set once at creation and never changed afterward — all of an album's
+                       media always live in the same location (module spec). #}
+                    <div class="mb-3 gallery-local-field {{ allow_local ? '' : 'd-none' }}">
+                        <label class="form-label small" for="album-storage-location">Emplacement de stockage</label>
+                        <select class="form-select" id="album-storage-location" name="storage_location_id" {{ allow_local ? 'required' : '' }}>
+                            <option value="">-- Choisir --</option>
+                            {% for location in locations %}
+                                <option value="{{ location.id }}">{{ location.label }} ({{ location.type == 's3' ? 'S3' : 'Disque local' }})</option>
+                            {% endfor %}
+                        </select>
+                        {% if locations is empty %}
+                            <div class="form-text text-warning">Aucun emplacement de stockage configuré — <a href="/config/gallery/locations/new">en créer un</a>.</div>
+                        {% endif %}
+                    </div>
+                {% endif %}
+
+                {% if album and album.type == 'local' %}
+                    <div class="mb-3">
+                        <label class="form-label small">Emplacement de stockage</label>
+                        <div class="form-control-plaintext">
+                            {% set current_location = locations|filter(l => l.id == album.storageLocationId)|first %}
+                            {{ current_location ? current_location.label ~ ' (' ~ (current_location.type == 's3' ? 'S3' : 'Disque local') ~ ')' : 'Non défini' }}
+                            <span class="text-body-secondary small">(fixé à la création, non modifiable)</span>
+                        </div>
+                    </div>
                 {% endif %}
 
                 <div class="row g-3">
