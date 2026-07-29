@@ -82,6 +82,18 @@ class StaffsControllerTest extends TestCase
         $twig->addFunction(new TwigFunction('csrf_token', fn() => 'test'));
         $twig->addFunction(new TwigFunction('file_url', fn() => ''));
         $twig->addFunction(new TwigFunction('param', fn(string $k) => 'Test'));
+        // Minimal stand-in for TwigFactory::create()'s real section_photo()
+        // (same pragmatic simplification as the display_name filter right
+        // below) — real rendering/placeholder/overlay logic is covered in
+        // full by Tests\Core\View\SectionPhotoFunctionTest; here it only
+        // needs to exist and prove the template is actually wired to it.
+        $sectionPhotoService = new \Core\Photo\SectionPhotoService(new \Core\Photo\SectionPhotoRepository($this->pdo));
+        $twig->addGlobal('_section_photo_service', $sectionPhotoService);
+        $twig->addGlobal('effective_scout_year_id', $this->scoutYearId);
+        $twig->addFunction(new TwigFunction('section_photo', function (int $sectionId, string $alt = '') use ($sectionPhotoService) {
+            $fileId = $sectionPhotoService->resolveFileId($sectionId, $this->scoutYearId);
+            return $fileId !== null ? '<img src="/files/' . $fileId . '" alt="' . htmlspecialchars($alt) . '">' : '';
+        }, ['is_safe' => ['html']]));
         $twig->addExtension(new TextNormalizerExtension());
         $twig->addFilter(new TwigFilter('display_name', function ($member) {
             if ($member instanceof \Core\Member\MemberProfile) {
@@ -177,6 +189,35 @@ class StaffsControllerTest extends TestCase
         // (Core\Member\SectionService::colorForSection()) as every other
         // section picker/list across the site.
         $this->assertStringContainsString('background-color:', $body);
+    }
+
+    public function testIndexRendersTheSectionStaffPhotoWhenOneExists(): void
+    {
+        $branchId = $this->createBranch('BAL', 'Baladins', 1);
+        $sectionId = $this->createSection('BAL01', $branchId, 'Ma section');
+
+        $stmt = $this->pdo->prepare(
+            "INSERT INTO files (relative_path, original_name, mime_type, size_bytes) VALUES ('core/section_photos/x.jpg', 'x.jpg', 'image/jpeg', 100)"
+        );
+        $stmt->execute();
+        $fileId = (int) $this->pdo->lastInsertId();
+        (new \Core\Photo\SectionPhotoRepository($this->pdo))->upsert($sectionId, $this->scoutYearId, $fileId, null);
+
+        $request = new Request('GET', '/chefs/staffs?section=' . $sectionId, [], [], [], []);
+        $response = $this->controller->index($request, []);
+
+        $this->assertStringContainsString('/files/' . $fileId, $response->getBody());
+    }
+
+    public function testIndexRendersNothingForTheSectionPhotoWhenNoneExists(): void
+    {
+        $branchId = $this->createBranch('BAL', 'Baladins', 1);
+        $this->createSection('BAL01', $branchId, 'Ma section');
+
+        $request = new Request('GET', '/chefs/staffs', [], [], [], []);
+        $response = $this->controller->index($request, []);
+
+        $this->assertSame(200, $response->getStatusCode());
     }
 
     public function testChiefSeesAllSections(): void

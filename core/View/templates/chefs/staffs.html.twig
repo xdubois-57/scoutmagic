@@ -39,6 +39,12 @@
             </div>
         {% endif %}
 
+        {% if current_section.id > 0 %}
+            <div class="mb-3">
+                {{ section_photo(current_section.id, current_section.name ?? current_section.desk_code) }}
+            </div>
+        {% endif %}
+
         <div class="d-flex flex-column gap-2">
             {% for member in staff %}
                 <div class="card">

@@ -225,6 +225,19 @@ class DatabaseTestHelper
             FOREIGN KEY (file_id) REFERENCES files(id)
         )');
 
+        $pdo->exec('CREATE TABLE section_staff_photos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            section_id INTEGER NOT NULL,
+            scout_year_id INTEGER NOT NULL,
+            file_id INTEGER NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            created_by INTEGER,
+            UNIQUE(section_id, scout_year_id),
+            FOREIGN KEY (section_id) REFERENCES sections(id),
+            FOREIGN KEY (scout_year_id) REFERENCES scout_years(id),
+            FOREIGN KEY (file_id) REFERENCES files(id)
+        )');
+
         $pdo->exec('CREATE TABLE badges (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL UNIQUE,

@@ -21,6 +21,9 @@ use Core\File\FileRepository;
 use Core\File\UploadHandler;
 use Core\Photo\MemberPhotoRepository;
 use Core\Photo\MemberPhotoService;
+use Core\Photo\SectionPhotoProcessor;
+use Core\Photo\SectionPhotoRepository;
+use Core\Photo\SectionPhotoService;
 use Core\Config\ScoutYearService;
 use Core\Http\Controller\AccountController;
 use Core\Http\Controller\AuthController;
@@ -502,6 +505,12 @@ $updateHistoryRepository = new \Core\Maintenance\UpdateHistoryRepository($pdo);
 // Core\Photo\MemberPhotoService.
 $memberPhotoService = new MemberPhotoService(new MemberPhotoRepository($pdo));
 
+// Same "one per year, fall back to the most recent earlier one" component
+// as above, keyed by section instead of member — the Staffs page's group
+// photo of a section's chiefs. See Core\Photo\SectionPhotoService.
+$sectionPhotoService = new SectionPhotoService(new SectionPhotoRepository($pdo));
+$sectionPhotoProcessor = new SectionPhotoProcessor();
+
 // Role labels in French
 $roleLabelMap = [
     'public' => 'Public',
@@ -549,6 +558,7 @@ $twig->addGlobal('is_year_overridden', $effectiveScoutYear->isOverridden());
 $twig->addGlobal('year_override_type', $effectiveScoutYear->overrideType);
 $twig->addGlobal('_editable_content_service', $editableContentService);
 $twig->addGlobal('_member_photo_service', $memberPhotoService);
+$twig->addGlobal('_section_photo_service', $sectionPhotoService);
 $twig->addGlobal('cookie_consent_given', $cookieConsentService->hasConsented());
 $twig->addGlobal('vapid_public_key', (string) ($secrets['vapid_public_key'] ?? ''));
 
@@ -909,7 +919,7 @@ $frontController->registerController(EditableContentController::class, $editable
 $fileController = new FileController($twig, $fileAccessGuard, $storagePath, $encryptedFileStorageService);
 $fileController->setJournalService($journalService);
 $frontController->registerController(FileController::class, $fileController);
-$uploadController = new UploadController($twig, $uploadHandler, $editableContentService, $memberPhotoService);
+$uploadController = new UploadController($twig, $uploadHandler, $editableContentService, $memberPhotoService, $sectionPhotoService, $sectionPhotoProcessor);
 $uploadController->setJournalService($journalService);
 $frontController->registerController(UploadController::class, $uploadController);
 $frontController->registerController(JournalController::class, new JournalController($twig, $journalRepo, $userAccountRepo));

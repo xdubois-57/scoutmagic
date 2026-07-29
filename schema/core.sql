@@ -305,6 +305,24 @@ CREATE TABLE member_photos (
     CONSTRAINT fk_mp_created_by FOREIGN KEY (created_by) REFERENCES user_accounts(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- "Photo of the staff" (all chiefs of a section, together) shown on the
+-- Staffs page — same "one per person per year, fall back to the most
+-- recent earlier one" precedent as member_photos above, just keyed by
+-- section instead of member. See Core\Photo\SectionPhotoService.
+CREATE TABLE section_staff_photos (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    section_id INT UNSIGNED NOT NULL,
+    scout_year_id INT UNSIGNED NOT NULL,
+    file_id INT UNSIGNED NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_by INT UNSIGNED,
+    UNIQUE INDEX idx_section_year (section_id, scout_year_id),
+    CONSTRAINT fk_ssp_section FOREIGN KEY (section_id) REFERENCES sections(id) ON DELETE CASCADE,
+    CONSTRAINT fk_ssp_year FOREIGN KEY (scout_year_id) REFERENCES scout_years(id),
+    CONSTRAINT fk_ssp_file FOREIGN KEY (file_id) REFERENCES files(id),
+    CONSTRAINT fk_ssp_created_by FOREIGN KEY (created_by) REFERENCES user_accounts(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- Transversal roles assignable to chiefs/chief-d'unité (e.g. Infirmier,
 -- Trésorier), configured once in Configuration générale and displayed on the
 -- trombinoscope. See Core\Badge.

@@ -150,6 +150,49 @@ class TwigFactory
             return $img;
         }, ['is_safe' => ['html']]));
 
+        // Register section_photo() function — "photo of the staff" (all
+        // chiefs of a section, together) shown on the Staffs page. Same
+        // per-year-with-fallback resolution and config-mode click-to-
+        // replace overlay as member_photo() above, keyed by section
+        // instead of member — see Core\Photo\SectionPhotoService. Unlike
+        // member_photo(), there's no per-person initials fallback: with no
+        // photo and outside config mode this renders nothing at all
+        // (matches editable_image()'s own "nothing to show" behavior), so
+        // an ordinary member sees no empty box for a section that's never
+        // had one uploaded. The image is always already cropped to a 4:3
+        // landscape rendition by Core\Photo\SectionPhotoProcessor before
+        // it's ever stored — the inline aspect-ratio/object-fit here is
+        // just a display-time safety net, not the actual crop.
+        $environment->addFunction(new TwigFunction('section_photo', function (int $sectionId, string $alt = '', string $cssClass = 'w-100 rounded') use ($environment): string {
+            /** @var \Core\Photo\SectionPhotoService|null $service */
+            $service = $environment->getGlobals()['_section_photo_service'] ?? null;
+            $scoutYearId = (int) ($environment->getGlobals()['effective_scout_year_id'] ?? 0);
+            $configMode = $environment->getGlobals()['config_mode'] ?? false;
+
+            $fileId = ($service !== null && $scoutYearId > 0) ? $service->resolveFileId($sectionId, $scoutYearId) : null;
+            $imgStyle = 'aspect-ratio:4/3;object-fit:cover;';
+
+            if ($configMode && $scoutYearId > 0) {
+                $key = $sectionId . ':' . $scoutYearId;
+                if ($fileId !== null) {
+                    $img = '<img src="/files/' . $fileId . '" alt="' . htmlspecialchars($alt, ENT_QUOTES) . '" class="' . htmlspecialchars($cssClass, ENT_QUOTES) . '" style="' . $imgStyle . '">';
+                } else {
+                    $img = '<div class="d-flex align-items-center justify-content-center bg-light rounded ' . htmlspecialchars($cssClass, ENT_QUOTES) . '" style="' . $imgStyle . '">'
+                        . '<span class="text-muted"><i class="bi bi-image"></i> Cliquer pour ajouter la photo du staff</span></div>';
+                }
+                return '<div class="editable-image" data-key="' . htmlspecialchars($key, ENT_QUOTES) . '" data-context="section_photo">'
+                    . '<div class="editable-overlay"><button class="btn btn-sm btn-outline-primary editable-edit-btn"><i class="bi bi-camera"></i> Changer</button></div>'
+                    . $img
+                    . '</div>';
+            }
+
+            if ($fileId !== null) {
+                return '<img src="/files/' . $fileId . '" alt="' . htmlspecialchars($alt, ENT_QUOTES) . '" class="' . htmlspecialchars($cssClass, ENT_QUOTES) . '" style="' . $imgStyle . '">';
+            }
+
+            return '';
+        }, ['is_safe' => ['html']]));
+
         // Register text normalization filters (normalize_name/totem/phone/address)
         $environment->addExtension(new TextNormalizerExtension());
 

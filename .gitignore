@@ -11,6 +11,7 @@ storage/finance/
 storage/news/
 storage/gallery/
 storage/maintenance/
+storage/core/
 
 # Local configuration
 config/app.php

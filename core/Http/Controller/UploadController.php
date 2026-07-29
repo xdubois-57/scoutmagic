@@ -11,6 +11,8 @@ use Core\Http\Request;
 use Core\Http\Response;
 use Core\Journal\JournalService;
 use Core\Photo\MemberPhotoService;
+use Core\Photo\SectionPhotoProcessor;
+use Core\Photo\SectionPhotoService;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\View\EditableContentService;
@@ -24,7 +26,9 @@ class UploadController extends AbstractController
         protected Environment $twig,
         private UploadHandler $uploadHandler,
         private EditableContentService $editableContentService,
-        private MemberPhotoService $memberPhotoService
+        private MemberPhotoService $memberPhotoService,
+        private SectionPhotoService $sectionPhotoService,
+        private SectionPhotoProcessor $sectionPhotoProcessor
     ) {
     }
 
@@ -82,10 +86,32 @@ class UploadController extends AbstractController
             $allowedMimes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
             $maxSize = 5 * 1024 * 1024; // 5 MB
 
-            // member_photo uploads are scoped to a member (not public site
-            // content) — see Core\Photo\MemberPhotoService.
-            $subDirectory = $context === 'member_photo' ? 'core/member_photos' : 'core/editable_contents';
-            $roleMin = $context === 'member_photo' ? 'identified' : 'public';
+            // section_photo (the Staffs page's group photo of a section's
+            // chiefs) is always cropped to a fixed 4:3 landscape rendition
+            // server-side before it's ever stored — see
+            // Core\Photo\SectionPhotoProcessor. Done here, before
+            // UploadHandler::handle(), so the file it stores (and the size
+            // recorded in the files table) is already the final, processed
+            // one.
+            if ($context === 'section_photo') {
+                $uploadedFile = $this->processSectionPhoto($uploadedFile, $allowedMimes);
+            }
+
+            // member_photo/section_photo uploads are scoped to a member or
+            // section (not public site content) — see Core\Photo\
+            // MemberPhotoService / SectionPhotoService. The Staffs page
+            // itself requires at least 'intendant' to view, so a section
+            // photo's own access floor matches that.
+            $subDirectory = match ($context) {
+                'member_photo' => 'core/member_photos',
+                'section_photo' => 'core/section_photos',
+                default => 'core/editable_contents',
+            };
+            $roleMin = match ($context) {
+                'member_photo' => 'identified',
+                'section_photo' => 'intendant',
+                default => 'public',
+            };
 
             $fileId = $this->uploadHandler->handle(
                 $uploadedFile,
@@ -124,6 +150,25 @@ class UploadController extends AbstractController
                 }
             }
 
+            // For section_photo context, key is "{sectionId}:{scoutYearId}"
+            if ($context === 'section_photo' && $key !== '') {
+                [$sectionIdStr, $yearIdStr] = array_pad(explode(':', $key, 2), 2, '');
+                $sectionId = (int) $sectionIdStr;
+                $scoutYearId = (int) $yearIdStr;
+                $userId = AuthSession::getUserAccountId();
+                if ($sectionId > 0 && $scoutYearId > 0 && $userId !== null) {
+                    $this->sectionPhotoService->setPhoto($sectionId, $scoutYearId, $fileId, $userId);
+                    $this->journalService?->log(
+                        'core',
+                        'section_photo_updated',
+                        'info',
+                        'Photo de staff d\'une section modifiée',
+                        ['section_id' => $sectionId, 'scout_year_id' => $scoutYearId],
+                        $userId
+                    );
+                }
+            }
+
             FlashMessage::set('success', 'Fichier téléchargé avec succès.');
 
             return $this->redirect($returnUrl);
@@ -131,5 +176,48 @@ class UploadController extends AbstractController
             FlashMessage::set('error', $e->getMessage());
             return $this->redirect('/upload?context=' . urlencode($context) . '&key=' . urlencode($key) . '&return=' . urlencode($returnUrl));
         }
+    }
+
+    /**
+     * Crops/resizes the raw upload via Core\Photo\SectionPhotoProcessor
+     * and points the returned array at a fresh temp file holding the
+     * processed bytes — UploadHandler::handle() then stores exactly that
+     * (already-final) file, so its own EXIF-stripping re-encode is the
+     * only processing that happens after this point. Mime-type validation
+     * itself is left entirely to UploadHandler::handle()'s own check right
+     * after this call — a non-image (or disallowed) file is simply passed
+     * through unprocessed and rejected there with its normal error
+     * message, rather than duplicating that validation here.
+     *
+     * @param array<string, mixed> $uploadedFile $_FILES entry
+     * @param array<string> $allowedMimes
+     * @return array<string, mixed>
+     * @throws UploadException when the source can't be decoded/processed
+     */
+    private function processSectionPhoto(array $uploadedFile, array $allowedMimes): array
+    {
+        $tmpName = (string) ($uploadedFile['tmp_name'] ?? '');
+        if ($tmpName === '' || !is_file($tmpName)) {
+            return $uploadedFile;
+        }
+
+        $mimeType = (string) (new \finfo(FILEINFO_MIME_TYPE))->file($tmpName);
+        if (!in_array($mimeType, $allowedMimes, true)) {
+            return $uploadedFile;
+        }
+
+        $processed = $this->sectionPhotoProcessor->process((string) file_get_contents($tmpName), $mimeType);
+
+        $processedPath = tempnam(sys_get_temp_dir(), 'section_photo_');
+        if ($processedPath === false) {
+            throw new UploadException('Impossible de traiter cette image.');
+        }
+        file_put_contents($processedPath, $processed);
+
+        $uploadedFile['tmp_name'] = $processedPath;
+        $uploadedFile['size'] = strlen($processed);
+        $uploadedFile['type'] = 'image/jpeg';
+
+        return $uploadedFile;
     }
 }
