@@ -1,5 +1,17 @@
 {% extends 'base.html.twig' %}
 {% block title %}Maintenance — {{ param('site_name') }}{% endblock %}
+
+{% macro backup_type_label(type) %}
+    {%- if type == 'database' -%}Base de données seule
+    {%- elseif type == 'full_config' -%}Configuration seule
+    {%- elseif type == 'full_no_gallery' -%}Site complet, sans galerie
+    {%- elseif type == 'full_with_gallery' -%}Site complet, avec galerie
+    {%- elseif type == 'auto_update' -%}Automatique (avant mise à jour)
+    {%- elseif type == 'auto_reset' -%}Automatique (avant réinitialisation)
+    {%- elseif type == 'auto_backup' -%}Automatique (planifiée)
+    {%- endif -%}
+{% endmacro %}
+
 {% block content %}
     <h1 class="mb-4">Maintenance</h1>
 
@@ -129,7 +141,7 @@
                     <form method="post" action="/config/maintenance/backup/database">
                         {{ csrf_field()|raw }}
                         <button type="submit" class="btn btn-outline-primary btn-sm">
-                            <i class="bi bi-database-down"></i> Télécharger
+                            <i class="bi bi-database-down"></i> Générer
                         </button>
                     </form>
                 </div>
@@ -192,16 +204,7 @@
                         <tbody>
                             {% for backup in backups %}
                                 <tr>
-                                    <td class="small">
-                                        {% if backup.type == 'database' %}Base de données seule
-                                        {% elseif backup.type == 'full_config' %}Configuration seule
-                                        {% elseif backup.type == 'full_no_gallery' %}Site complet, sans galerie
-                                        {% elseif backup.type == 'full_with_gallery' %}Site complet, avec galerie
-                                        {% elseif backup.type == 'auto_update' %}Automatique (avant mise à jour)
-                                        {% elseif backup.type == 'auto_reset' %}Automatique (avant réinitialisation)
-                                        {% elseif backup.type == 'auto_backup' %}Automatique (planifiée)
-                                        {% endif %}
-                                    </td>
+                                    <td class="small">{{ _self.backup_type_label(backup.type) }}</td>
                                     <td class="small text-nowrap">{{ backup.createdAt }}</td>
                                     <td>
                                         {% if backup.status == 'completed' %}
@@ -280,7 +283,7 @@
                             <select class="form-select form-select-sm" name="backup_id" {% if backups is empty %}disabled{% endif %}>
                                 {% for backup in backups %}
                                     {% if backup.status == 'completed' %}
-                                        <option value="{{ backup.id }}">{{ backup.type }} — {{ backup.createdAt }}</option>
+                                        <option value="{{ backup.id }}">{{ _self.backup_type_label(backup.type) }} — {{ backup.createdAt }}</option>
                                     {% endif %}
                                 {% endfor %}
                             </select>

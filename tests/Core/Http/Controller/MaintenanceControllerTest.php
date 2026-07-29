@@ -127,6 +127,31 @@ class MaintenanceControllerTest extends TestCase
         $this->assertStringContainsString('Aucune sauvegarde', $response->getBody());
     }
 
+    public function testDatabaseBackupButtonIsLabeledGenerer(): void
+    {
+        $response = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), []);
+
+        $this->assertStringContainsString('Générer', $response->getBody());
+    }
+
+    /**
+     * The restore dropdown and the recent-backups table must both show the
+     * human-readable type label ("Base de données seule"), never the raw
+     * internal type string ("database").
+     */
+    public function testBackupTypeIsShownAsAHumanReadableLabelEverywhere(): void
+    {
+        $id = $this->backupRepository->create('database', 1);
+        $this->backupRepository->markCompleted($id, 42, null);
+
+        $response = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), []);
+        $body = $response->getBody();
+
+        $this->assertStringContainsString('Base de données seule', $body);
+        $this->assertStringNotContainsString('>database<', $body);
+        $this->assertStringNotContainsString('>database —', $body);
+    }
+
     public function testCreateDatabaseBackupValidatesCsrf(): void
     {
         $request = new Request('POST', '/config/maintenance/backup/database', [], ['_csrf_token' => 'bad'], [], []);
