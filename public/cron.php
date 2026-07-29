@@ -81,6 +81,10 @@ $schedulerRepo = new SchedulerRepository($pdo);
 $runner = new SchedulerRunner($schedulerRepo, $journalService);
 $userAccountRepo = new UserAccountRepository($pdo, $encryptionService);
 $dkimManager = new DkimManager(__DIR__ . '/../storage/keys');
+// short_name lives in the settings table (migrated out of secrets.enc by
+// public/index.php's one-time migration) — merge it back in, same fix as
+// public/index.php's own MailService construction.
+$secrets['short_name'] = (string) ($settingService->get('short_name') ?: ($secrets['short_name'] ?? ''));
 $mailService = MailServiceFactory::create($secrets, $dkimManager);
 
 // Load enabled modules so their scheduled task handlers (module.json

@@ -28,13 +28,62 @@ class S3StorageBackend implements StorageBackendInterface
         $this->client = new S3Client([
             'version' => 'latest',
             'region' => $region !== '' ? $region : 'auto',
-            'endpoint' => $endpoint,
+            'endpoint' => self::stripBucketFromEndpointHost($endpoint, $this->bucket),
             'use_path_style_endpoint' => true,
             'credentials' => [
                 'key' => $accessKey,
                 'secret' => $secretKey,
             ],
         ]);
+    }
+
+    /**
+     * Several providers' consoles (Scaleway in particular) prominently show
+     * a bucket's own virtual-hosted-style endpoint (e.g.
+     * "https://<bucket>.s3.<region>.scw.cloud") on the bucket's own settings
+     * page — pasting that into the account/region-level "Endpoint" field
+     * combines with path-style addressing (forced above, for provider
+     * compatibility) to reference the bucket twice and always 403s. Strip a
+     * leading "{bucket}." host segment so either endpoint shape works.
+     *
+     * Static (not just for internal use): the composition root also needs
+     * this exact normalization to compute the real image-serving origin for
+     * the CSP img-src directive (public/index.php), without constructing a
+     * whole S3Client (and its required credentials) just for that.
+     */
+    public static function stripBucketFromEndpointHost(string $endpoint, string $bucket): string
+    {
+        if ($bucket === '' || $endpoint === '') {
+            return $endpoint;
+        }
+        $parts = parse_url($endpoint);
+        if (!isset($parts['host']) || !str_starts_with($parts['host'], $bucket . '.')) {
+            return $endpoint;
+        }
+        $scheme = $parts['scheme'] ?? 'https';
+        $host = substr($parts['host'], strlen($bucket) + 1);
+        $port = isset($parts['port']) ? ':' . $parts['port'] : '';
+        return $scheme . '://' . $host . $port;
+    }
+
+    /**
+     * The origin (scheme://host, no path/query) that image URLs are ACTUALLY
+     * served from — Controller\GalleryConfigController::buildContext() /
+     * public/index.php use this to allow it in the CSP img-src directive,
+     * for whichever provider is currently configured (never hardcode a
+     * specific provider's hostname). Mirrors url()'s own public-URL-vs-
+     * presigned-endpoint precedence exactly, since that's what actually
+     * gets rendered in an <img src>.
+     */
+    public static function servingOrigin(string $endpoint, string $bucket, ?string $publicUrl): ?string
+    {
+        $target = $publicUrl !== null && $publicUrl !== '' ? $publicUrl : self::stripBucketFromEndpointHost($endpoint, $bucket);
+        $parts = parse_url($target);
+        if (!isset($parts['scheme'], $parts['host'])) {
+            return null;
+        }
+        $port = isset($parts['port']) ? ':' . $parts['port'] : '';
+        return $parts['scheme'] . '://' . $parts['host'] . $port;
     }
 
     public function put(string $key, string $contents, string $mimeType): void
@@ -104,14 +153,21 @@ class S3StorageBackend implements StorageBackendInterface
     /**
      * Attempts a headBucket call to verify the credentials/endpoint/bucket
      * are all correct — Controller\GalleryConfigController::testConnection().
+     *
+     * @return string|null null on success, otherwise the underlying SDK
+     *                      error message (never contains the secret key —
+     *                      only ever the access key id, endpoint and bucket,
+     *                      which are not secrets) so the admin can actually
+     *                      see why a provider rejected the request instead
+     *                      of a single generic message for every cause.
      */
-    public function testConnection(): bool
+    public function testConnection(): ?string
     {
         try {
             $this->client->headBucket(['Bucket' => $this->bucket]);
-            return true;
-        } catch (\Throwable) {
-            return false;
+            return null;
+        } catch (\Throwable $e) {
+            return $e->getMessage();
         }
     }
 }

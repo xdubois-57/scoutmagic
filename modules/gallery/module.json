@@ -167,6 +167,15 @@
       "menu": "configuration",
       "role_min": "superadmin",
       "label": ""
+    },
+    {
+      "path": "/config/gallery/explain-s3-error",
+      "method": "POST",
+      "controller": "Modules\\Gallery\\Controller\\GalleryConfigController",
+      "action": "explainS3Error",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": ""
     }
   ],
   "settings": [

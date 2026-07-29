@@ -2,7 +2,7 @@
   "id": "calendar",
   "name": "Calendrier",
   "description": "Calendrier des activités : un calendrier par section (automatique) et des calendriers supplémentaires configurables, avec abonnement ICS.",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "enabled_by_default": true,
   "routes": [
     {
@@ -208,6 +208,10 @@
     {
       "key": "multiday_event_reminder",
       "handler": "Modules\\Calendar\\Task\\MultidayEventReminderHandler"
+    },
+    {
+      "key": "auto_create_retro",
+      "handler": "Modules\\Calendar\\Task\\AutoCreateRetroHandler"
     }
   ],
   "storage": {}

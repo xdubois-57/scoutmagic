@@ -62,8 +62,8 @@
                                         </a>
                                     </li>
                                 {% else %}
-                                    <li class="list-group-item list-group-item-action border-0 ps-4 d-flex align-items-center{% if current_path == page.url %} active{% endif %}" style="min-height:44px;">
-                                        <a href="{{ page.url }}" class="text-decoration-none d-block{% if current_path == page.url %} fw-semibold text-primary{% else %} text-dark{% endif %}"{{ current_path == page.url ? ' aria-current="page"' : '' }}>{{ page.label }}</a>
+                                    <li class="list-group-item list-group-item-action border-0 ps-4 d-flex align-items-center{% if active_page_url|default('') == page.url %} active{% endif %}" style="min-height:44px;">
+                                        <a href="{{ page.url }}" class="text-decoration-none d-block{% if active_page_url|default('') == page.url %} fw-semibold text-primary{% else %} text-dark{% endif %}"{{ active_page_url|default('') == page.url ? ' aria-current="page"' : '' }}>{{ page.label }}</a>
                                     </li>
                                 {% endif %}
                             {% endfor %}
@@ -143,7 +143,7 @@
                     </a>
                 {% else %}
                     <a href="{{ page.url }}"
-                       class="btn btn-sm {% if current_path == page.url %}btn-primary{% else %}btn-outline-secondary{% endif %}">
+                       class="btn btn-sm {% if active_page_url|default('') == page.url %}btn-primary{% else %}btn-outline-secondary{% endif %}">
                         {{ page.label }}
                     </a>
                 {% endif %}

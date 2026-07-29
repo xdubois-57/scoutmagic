@@ -21,13 +21,22 @@
       "action": "index",
       "menu": "espace_chefs",
       "role_min": "intendant",
-      "label": "Paiements attendus"
+      "label": ""
     },
     {
       "path": "/finance/movements",
       "method": "GET",
       "controller": "Modules\\Finance\\Controller\\MovementController",
       "action": "list",
+      "menu": "espace_chefs",
+      "role_min": "intendant",
+      "label": ""
+    },
+    {
+      "path": "/finance/movements/export",
+      "method": "GET",
+      "controller": "Modules\\Finance\\Controller\\MovementController",
+      "action": "exportXlsx",
       "menu": "espace_chefs",
       "role_min": "intendant",
       "label": ""

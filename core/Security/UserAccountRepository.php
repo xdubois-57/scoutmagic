@@ -134,10 +134,11 @@ class UserAccountRepository
      */
     public function updateLastLogin(int $id): void
     {
+        $now = (new \DateTimeImmutable())->format('Y-m-d H:i:s');
         $stmt = $this->pdo->prepare(
-            'UPDATE user_accounts SET last_login_at = NOW() WHERE id = ?'
+            'UPDATE user_accounts SET last_login_at = ? WHERE id = ?'
         );
-        $stmt->execute([$id]);
+        $stmt->execute([$now, $id]);
     }
 
     /**

@@ -145,6 +145,20 @@ class MovementControllerTest extends TestCase
         $this->assertStringNotContainsString('Achat ancien exercice', $response->getBody());
     }
 
+    public function testExportXlsxReturnsAValidSpreadsheetForTheFilteredMovements(): void
+    {
+        $this->createTransaction('2026-10-01', -20.0, 'Achat A');
+        $this->createTransaction('2026-10-02', -15.0, 'Achat B');
+
+        $response = $this->controller->exportXlsx(new Request('GET', '/finance/movements/export', ['account_id' => (string) $this->accountId], [], [], []), []);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', $response->getHeaders()['Content-Type']);
+        // XLSX files are zip containers — the magic bytes are a cheap,
+        // reliable structural check without needing a full reader.
+        $this->assertStringStartsWith("PK\x03\x04", $response->getBody());
+    }
+
     public function testListAllFiscalYearsWhenRequested(): void
     {
         $this->createTransaction('2026-10-01', -20.0, 'Achat A');

@@ -63,6 +63,46 @@ class ResponseTest extends TestCase
         $this->assertSame('test', $output);
     }
 
+    public function testCspImgSrcDefaultsToSelfDataAndBlobOnly(): void
+    {
+        $response = new Response();
+
+        $csp = $response->getSecurityHeaders()['Content-Security-Policy'];
+
+        $this->assertStringContainsString("img-src 'self' data: blob:;", $csp);
+    }
+
+    public function testAddImgSrcOriginExtendsTheImgSrcDirective(): void
+    {
+        $response = new Response();
+        $response->addImgSrcOrigin('https://s3.fr-par.scw.cloud');
+
+        $csp = $response->getSecurityHeaders()['Content-Security-Policy'];
+
+        $this->assertStringContainsString("img-src 'self' data: blob: https://s3.fr-par.scw.cloud;", $csp);
+    }
+
+    public function testAddImgSrcOriginNeverAddsTheSameOriginTwice(): void
+    {
+        $response = new Response();
+        $response->addImgSrcOrigin('https://s3.fr-par.scw.cloud');
+        $response->addImgSrcOrigin('https://s3.fr-par.scw.cloud');
+
+        $csp = $response->getSecurityHeaders()['Content-Security-Policy'];
+
+        $this->assertSame(1, substr_count($csp, 's3.fr-par.scw.cloud'));
+    }
+
+    public function testAddImgSrcOriginIgnoresAnEmptyString(): void
+    {
+        $response = new Response();
+        $response->addImgSrcOrigin('');
+
+        $csp = $response->getSecurityHeaders()['Content-Security-Policy'];
+
+        $this->assertStringContainsString("img-src 'self' data: blob:;", $csp);
+    }
+
     public function testSetHeaderReturnsSelfForChaining(): void
     {
         $response = new Response();

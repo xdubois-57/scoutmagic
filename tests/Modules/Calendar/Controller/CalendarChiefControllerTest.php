@@ -126,6 +126,9 @@ class CalendarChiefControllerTest extends TestCase
 
         $calendarPickerService = new CalendarPickerService($this->calendarService, $personalFeedService);
 
+        $moduleManager = $this->createMock(\Core\Module\ModuleManager::class);
+        $moduleManager->method('getEnabledModuleIds')->willReturn([]);
+
         $this->controller = new CalendarChiefController(
             $twig,
             $this->calendarService,
@@ -136,7 +139,8 @@ class CalendarChiefControllerTest extends TestCase
             $memberService,
             $scoutYearResolver,
             $journalService,
-            $settingService
+            $settingService,
+            $moduleManager
         );
 
         if (session_status() === PHP_SESSION_NONE) {

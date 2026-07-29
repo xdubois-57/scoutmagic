@@ -156,6 +156,72 @@ class PersonalFeedServiceTest extends TestCase
         $this->assertSame('Réunion', $events[0]->title);
     }
 
+    public function testGetEventsForTokenAppendsTheRetroLinkToTheDescriptionWhenOneIsVisibleToTheViewer(): void
+    {
+        $email = 'parent@test.be';
+        $sectionId = $this->createSection('BAL01', 'Renards');
+        $branchId = (int) $this->pdo->query("SELECT age_branch_id FROM sections WHERE id = {$sectionId}")->fetchColumn();
+        $this->createMemberWithFunction($email, $sectionId, $branchId, 'identified');
+        $this->calendarService->ensureSectionCalendars();
+        $sectionCalendar = (new CalendarRepository($this->pdo))->findBySectionId($sectionId);
+        $eventId = $this->eventRepository->create($sectionCalendar->id, 'Réunion', '2026-03-15', null, null, null, null, 'Prévoir le matériel.', null);
+
+        $lookup = $this->createMock(\Modules\Retro\Api\RetroEventLinkLookupInterface::class);
+        $lookup->method('findLinkedBoardLink')->with($eventId, $this->anything(), $email, $this->scoutYearId)
+            ->willReturn(new \Modules\Retro\Api\RetroLinkSummary('https://example.test/r/abc123', 'Rétrospective Réunion'));
+        $service = $this->serviceWithLookup($lookup);
+
+        $userAccountId = $this->createUserAccount($email);
+        $token = $service->getOrCreateToken($userAccountId);
+
+        $events = $service->getEventsForToken($token, $this->scoutYearId);
+
+        $this->assertCount(1, $events);
+        $this->assertStringContainsString('Prévoir le matériel.', $events[0]->description);
+        $this->assertStringContainsString('https://example.test/r/abc123', $events[0]->description);
+    }
+
+    public function testGetEventsForTokenLeavesTheDescriptionUnchangedWhenNoRetroLinkIsVisible(): void
+    {
+        $email = 'parent@test.be';
+        $sectionId = $this->createSection('BAL01', 'Renards');
+        $branchId = (int) $this->pdo->query("SELECT age_branch_id FROM sections WHERE id = {$sectionId}")->fetchColumn();
+        $this->createMemberWithFunction($email, $sectionId, $branchId, 'identified');
+        $this->calendarService->ensureSectionCalendars();
+        $sectionCalendar = (new CalendarRepository($this->pdo))->findBySectionId($sectionId);
+        $this->eventRepository->create($sectionCalendar->id, 'Réunion', '2026-03-15', null, null, null, null, 'Prévoir le matériel.', null);
+
+        $lookup = $this->createMock(\Modules\Retro\Api\RetroEventLinkLookupInterface::class);
+        $lookup->method('findLinkedBoardLink')->willReturn(null);
+        $service = $this->serviceWithLookup($lookup);
+
+        $userAccountId = $this->createUserAccount($email);
+        $token = $service->getOrCreateToken($userAccountId);
+
+        $events = $service->getEventsForToken($token, $this->scoutYearId);
+
+        $this->assertSame('Prévoir le matériel.', $events[0]->description);
+    }
+
+    private function serviceWithLookup(\Modules\Retro\Api\RetroEventLinkLookupInterface $lookup): PersonalFeedService
+    {
+        $connection = Connection::withPdo($this->pdo);
+        $memberYearRepo = new MemberYearRepository($this->pdo);
+        $memberBadgeRepository = new MemberBadgeRepository($this->pdo);
+        $sectionService = new SectionService($connection, $this->encryption, $memberBadgeRepository);
+
+        return new PersonalFeedService(
+            $this->tokenRepository,
+            $this->calendarService,
+            $this->eventRepository,
+            new RoleResolver($memberYearRepo, $this->encryption, $this->pdo),
+            new MemberService($memberYearRepo, $this->encryption, $connection),
+            new UserAccountRepository($this->pdo, $this->encryption),
+            $sectionService,
+            $lookup
+        );
+    }
+
     public function testGetEventsForTokenExcludesUnlinkedSectionEvents(): void
     {
         $sectionId = $this->createSection('BAL01', 'Renards');

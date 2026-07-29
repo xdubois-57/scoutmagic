@@ -218,6 +218,14 @@ class SetupController extends AbstractController
             return $this->json(['success' => false, 'message' => 'Adresse email invalide.']);
         }
 
+        // short_name lives in the settings table (migrated out of
+        // secrets.enc by public/index.php's one-time migration) — without
+        // this, the "[XX]" subject prefix silently comes out empty on any
+        // install that already ran that migration.
+        if ($this->settingService !== null) {
+            $secrets['short_name'] = (string) ($this->settingService->get('short_name') ?: ($secrets['short_name'] ?? ''));
+        }
+
         try {
             $mailService = MailServiceFactory::create($secrets, $this->dkimManager);
             $mailService->send(
@@ -556,7 +564,7 @@ class SetupController extends AbstractController
 
         $pdo = $connection->getPdo();
         $stmt = $pdo->prepare(
-            'INSERT INTO user_accounts (email_encrypted, email_blind_index, password_hash, is_super_admin, created_at) VALUES (?, ?, ?, TRUE, NOW())'
+            'INSERT INTO user_accounts (email_encrypted, email_blind_index, password_hash, is_super_admin) VALUES (?, ?, ?, TRUE)'
         );
         $stmt->execute([$emailEncrypted, $emailBlindIndex, $passwordHash]);
     }
@@ -591,7 +599,7 @@ class SetupController extends AbstractController
             // Create new admin account
             $emailEncrypted = $encryptionService->encrypt($normalizedEmail);
             $stmt = $pdo->prepare(
-                'INSERT INTO user_accounts (email_encrypted, email_blind_index, password_hash, is_super_admin, created_at) VALUES (?, ?, ?, TRUE, NOW())'
+                'INSERT INTO user_accounts (email_encrypted, email_blind_index, password_hash, is_super_admin) VALUES (?, ?, ?, TRUE)'
             );
             $stmt->execute([$emailEncrypted, $blindIndex, $passwordHash]);
         }

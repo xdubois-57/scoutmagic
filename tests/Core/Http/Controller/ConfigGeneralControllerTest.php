@@ -18,6 +18,7 @@ use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Module\ModuleManager;
 use Core\Module\ModuleRegistryRepository;
+use Core\Security\AuthSession;
 use Core\Security\Role;
 use Core\View\MenuBuilder;
 use PHPUnit\Framework\TestCase;
@@ -90,6 +91,11 @@ class ConfigGeneralControllerTest extends TestCase
         $this->controller = new ConfigGeneralController($twig, $this->moduleManager, $this->badgeService, $journalService);
     }
 
+    protected function tearDown(): void
+    {
+        AuthSession::logout();
+    }
+
     public function testIndexRendersWithModuleList(): void
     {
         $request = new Request('GET', '/config/general', [], [], [], []);
@@ -145,7 +151,7 @@ class ConfigGeneralControllerTest extends TestCase
         }
         $token = bin2hex(random_bytes(32));
         $_SESSION['_csrf_token'] = $token;
-        $_SESSION['user'] = ['user_account_id' => 1, 'email' => 'admin@test.com', 'role' => 'admin'];
+        AuthSession::login(1, 'admin@test.com', 'admin');
 
         $request = $this->createJsonRequest(['name' => 'Communication', '_csrf_token' => $token]);
         $response = $this->controller->addBadge($request, []);
@@ -188,7 +194,7 @@ class ConfigGeneralControllerTest extends TestCase
         }
         $token = bin2hex(random_bytes(32));
         $_SESSION['_csrf_token'] = $token;
-        $_SESSION['user'] = ['user_account_id' => 1, 'email' => 'admin@test.com', 'role' => 'admin'];
+        AuthSession::login(1, 'admin@test.com', 'admin');
 
         $badge = $this->badgeService->create('Communication');
 
@@ -209,7 +215,7 @@ class ConfigGeneralControllerTest extends TestCase
         }
         $token = bin2hex(random_bytes(32));
         $_SESSION['_csrf_token'] = $token;
-        $_SESSION['user'] = ['user_account_id' => 1, 'email' => 'admin@test.com', 'role' => 'admin'];
+        AuthSession::login(1, 'admin@test.com', 'admin');
 
         $this->badgeService->ensureDefaults();
         $infirmier = array_values(array_filter($this->badgeService->getAll(), fn($b) => $b->name === 'Infirmier'))[0];
@@ -231,7 +237,7 @@ class ConfigGeneralControllerTest extends TestCase
         }
         $token = bin2hex(random_bytes(32));
         $_SESSION['_csrf_token'] = $token;
-        $_SESSION['user'] = ['user_account_id' => 1, 'email' => 'admin@test.com', 'role' => 'admin'];
+        AuthSession::login(1, 'admin@test.com', 'admin');
 
         $badge = $this->badgeService->create('Communication');
 
@@ -250,7 +256,7 @@ class ConfigGeneralControllerTest extends TestCase
         }
         $token = bin2hex(random_bytes(32));
         $_SESSION['_csrf_token'] = $token;
-        $_SESSION['user'] = ['user_account_id' => 1, 'email' => 'admin@test.com', 'role' => 'admin'];
+        AuthSession::login(1, 'admin@test.com', 'admin');
 
         $this->badgeService->ensureDefaults();
         $infirmier = array_values(array_filter($this->badgeService->getAll(), fn($b) => $b->name === 'Infirmier'))[0];
@@ -270,7 +276,7 @@ class ConfigGeneralControllerTest extends TestCase
         }
         $token = bin2hex(random_bytes(32));
         $_SESSION['_csrf_token'] = $token;
-        $_SESSION['user'] = ['user_account_id' => 1, 'email' => 'admin@test.com', 'role' => 'admin'];
+        AuthSession::login(1, 'admin@test.com', 'admin');
 
         $badge = $this->badgeService->create('Communication');
 
@@ -289,7 +295,7 @@ class ConfigGeneralControllerTest extends TestCase
         }
         $token = bin2hex(random_bytes(32));
         $_SESSION['_csrf_token'] = $token;
-        $_SESSION['user'] = ['user_account_id' => 1, 'email' => 'admin@test.com', 'role' => 'admin'];
+        AuthSession::login(1, 'admin@test.com', 'admin');
 
         $request = $this->createJsonRequest([
             'module_id' => 'valid_module',
@@ -313,7 +319,7 @@ class ConfigGeneralControllerTest extends TestCase
         }
         $token = bin2hex(random_bytes(32));
         $_SESSION['_csrf_token'] = $token;
-        $_SESSION['user'] = ['user_account_id' => 1, 'email' => 'admin@test.com', 'role' => 'admin'];
+        AuthSession::login(1, 'admin@test.com', 'admin');
 
         // First activate
         $this->registryRepo->upsert('valid_module', true, '1.0.0', 1);
@@ -339,7 +345,7 @@ class ConfigGeneralControllerTest extends TestCase
         }
         $token = bin2hex(random_bytes(32));
         $_SESSION['_csrf_token'] = $token;
-        $_SESSION['user'] = ['user_account_id' => 1, 'email' => 'admin@test.com', 'role' => 'admin'];
+        AuthSession::login(1, 'admin@test.com', 'admin');
 
         $request = $this->createJsonRequest([
             'module_id' => 'invalid_module',

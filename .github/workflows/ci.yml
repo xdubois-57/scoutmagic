@@ -19,7 +19,7 @@ jobs:
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
         with:
-          php-version: '8.1'
+          php-version: '8.4'
           extensions: mbstring, pdo, pdo_mysql, openssl, imagick
           coverage: none
 
@@ -30,7 +30,7 @@ jobs:
         run: composer install --prefer-dist --no-progress
 
       - name: Run PHPStan
-        run: vendor/bin/phpstan analyse core/ --level=6
+        run: vendor/bin/phpstan analyse core/ --level=6 --memory-limit=512M
 
       - name: Run tests
         run: vendor/bin/phpunit
@@ -57,7 +57,7 @@ jobs:
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
         with:
-          php-version: '8.1'
+          php-version: '8.4'
           extensions: mbstring, pdo, pdo_mysql, openssl
 
       - name: Install dependencies
@@ -81,7 +81,7 @@ jobs:
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
         with:
-          php-version: '8.1'
+          php-version: '8.4'
 
       - name: Install dependencies
         run: composer install --prefer-dist --no-progress

@@ -17,6 +17,7 @@ class CalendarEvent
         public readonly ?string $location,
         public readonly ?string $description,
         public readonly int $sequence,
+        public readonly bool $autoCreateRetro,
         public readonly ?int $createdBy,
         public readonly string $updatedAt
     ) {

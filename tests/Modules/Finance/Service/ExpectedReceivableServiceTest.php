@@ -118,6 +118,48 @@ class ExpectedReceivableServiceTest extends TestCase
         $this->assertSame('unpaid', $status['status']);
     }
 
+    /**
+     * Belgian bank statements don't all render the "communication
+     * structurée" the same way — some keep the OGM/VCS punctuation exactly
+     * as generated (+++NNN/NNNN/NNNNN+++), others export it as a bare
+     * 12-digit run with no separators at all. Matching strips every
+     * non-digit character from both sides before comparing (digitsOnly()),
+     * so both must be recognized as the same communication.
+     */
+    public function testGetReceivableStatusMatchesWhenBankTextKeepsThePunctuatedFormat(): void
+    {
+        $id = $this->service->createReceivable('news', 12, $this->accountId, 2500, '+++104/1932/40720+++', null);
+
+        $this->createTransaction('Virement +++104/1932/40720+++', 25.00);
+
+        $status = $this->service->getReceivableStatus($id);
+        $this->assertSame(2500, $status['amount_received']);
+        $this->assertSame('paid', $status['status']);
+    }
+
+    public function testGetReceivableStatusMatchesWhenBankTextStripsAllPunctuation(): void
+    {
+        $id = $this->service->createReceivable('news', 12, $this->accountId, 2500, '+++104/1932/40720+++', null);
+
+        // Same communication, exported by the bank as a bare digit run.
+        $this->createTransaction('VIREMENT EUROPEEN COMMUNICATION 104193240720', 25.00);
+
+        $status = $this->service->getReceivableStatus($id);
+        $this->assertSame(2500, $status['amount_received']);
+        $this->assertSame('paid', $status['status']);
+    }
+
+    public function testGetReceivableStatusMatchesABareDigitCommunicationAgainstABarePaymentReference(): void
+    {
+        $id = $this->service->createReceivable('news', 12, $this->accountId, 2500, '107000272186', null);
+
+        $this->createTransaction('Communication: 107000272186', 25.00);
+
+        $status = $this->service->getReceivableStatus($id);
+        $this->assertSame(2500, $status['amount_received']);
+        $this->assertSame('paid', $status['status']);
+    }
+
     public function testGetReceivableStatusIgnoresDebitTransactions(): void
     {
         $id = $this->service->createReceivable('news', 12, $this->accountId, 2500, '+++100/0000/00034+++', null);

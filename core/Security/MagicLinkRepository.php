@@ -4,6 +4,12 @@ declare(strict_types=1);
 
 namespace Core\Security;
 
+/**
+ * Same conventions as Core\Security\PasswordResetRepository: every
+ * timestamp comparison is computed in PHP and bound as a parameter rather
+ * than relying on MySQL's NOW()/DATE_SUB(), so this repository (and its
+ * tests) work unmodified against the SQLite test database too.
+ */
 class MagicLinkRepository
 {
     public function __construct(private \PDO $pdo)
@@ -44,10 +50,11 @@ class MagicLinkRepository
      */
     public function markUsed(int $id): void
     {
+        $now = (new \DateTimeImmutable())->format('Y-m-d H:i:s');
         $stmt = $this->pdo->prepare(
-            'UPDATE magic_links SET used = TRUE, confirmed_at = NOW() WHERE id = ?'
+            'UPDATE magic_links SET used = TRUE, confirmed_at = ? WHERE id = ?'
         );
-        $stmt->execute([$id]);
+        $stmt->execute([$now, $id]);
     }
 
     /**
@@ -55,10 +62,11 @@ class MagicLinkRepository
      */
     public function countRecentByEmail(string $emailBlindIndex, int $withinSeconds = 3600): int
     {
+        $cutoff = (new \DateTimeImmutable("-{$withinSeconds} seconds"))->format('Y-m-d H:i:s');
         $stmt = $this->pdo->prepare(
-            'SELECT COUNT(*) FROM magic_links WHERE email_blind_index = ? AND created_at > DATE_SUB(NOW(), INTERVAL ? SECOND)'
+            'SELECT COUNT(*) FROM magic_links WHERE email_blind_index = ? AND created_at > ?'
         );
-        $stmt->execute([$emailBlindIndex, $withinSeconds]);
+        $stmt->execute([$emailBlindIndex, $cutoff]);
 
         return (int) $stmt->fetchColumn();
     }
@@ -68,10 +76,11 @@ class MagicLinkRepository
      */
     public function deleteExpired(): int
     {
+        $now = (new \DateTimeImmutable())->format('Y-m-d H:i:s');
         $stmt = $this->pdo->prepare(
-            'DELETE FROM magic_links WHERE expires_at < NOW()'
+            'DELETE FROM magic_links WHERE expires_at < ?'
         );
-        $stmt->execute();
+        $stmt->execute([$now]);
 
         return $stmt->rowCount();
     }

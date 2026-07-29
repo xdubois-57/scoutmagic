@@ -29,7 +29,7 @@ class IcsBuilderTest extends TestCase
         int $sequence = 0,
         string $updatedAt = '2026-03-01 10:00:00'
     ): CalendarEvent {
-        return new CalendarEvent($id, 10, $title, $startDate, $endDate, $startTime, $endTime, $location, $description, $sequence, null, $updatedAt);
+        return new CalendarEvent($id, 10, $title, $startDate, $endDate, $startTime, $endTime, $location, $description, $sequence, false, null, $updatedAt);
     }
 
     private function lines(string $ics): array

@@ -33,6 +33,12 @@ CREATE TABLE IF NOT EXISTS calendar_events (
     -- Incremented on every edit, feeds the ICS SEQUENCE property so clients
     -- know a re-fetched event supersedes the one they already cached.
     sequence INT UNSIGNED NOT NULL DEFAULT 0,
+    -- When true and no retro board is linked yet, Task\AutoCreateRetroHandler
+    -- creates one automatically at the event's start time (Service\
+    -- CalendarRetroAutoCreateService::syncAutoCreateForEvent(), same
+    -- schedule/cancel-on-save pattern as CalendarNotificationService's
+    -- multi-day reminder). Meaningless once a board is already linked.
+    auto_create_retro BOOLEAN NOT NULL DEFAULT FALSE,
     created_by INT UNSIGNED NULL,
     -- No "ON UPDATE CURRENT_TIMESTAMP" — the migration system's
     -- ColumnDefinition doesn't model that clause, so it would silently be

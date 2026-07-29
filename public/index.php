@@ -377,7 +377,12 @@ $twig->addFunction(new TwigFunction('param', function (string $key, ?string $mod
 // Set site_name global from settings (used extensively in templates)
 $twig->addGlobal('site_name', (string) ($settingService->get('site_name') ?: 'Unité scoute'));
 
-// Create MailService
+// Create MailService — short_name lives in the settings table (migrated out
+// of secrets.enc, see the one-time migration below), so it must be merged
+// back in here: $secrets['short_name'] is permanently empty on any install
+// that already ran that migration, which silently emptied the "[XX]"
+// subject prefix on every email (magic links, mass mail, test emails).
+$secrets['short_name'] = (string) ($settingService->get('short_name') ?: ($secrets['short_name'] ?? ''));
 $mailService = MailServiceFactory::create($secrets, $dkimManager);
 
 // Create NotificationService (Web Push, Core\Notification) — VAPID subject
@@ -810,17 +815,41 @@ if ($twigLoader instanceof \Twig\Loader\FilesystemLoader) {
 $menus = $menuBuilder->build();
 $twig->addGlobal('menus', $menus);
 
-// Determine active menu from current path
+// Determine the active menu section AND which specific page button should
+// be highlighted from the current path. A page's own sub-routes (e.g.
+// finance's /finance/movements, /finance/receipts — registered with an
+// empty label precisely so they don't get their own menu button, see
+// ModuleManager's "if route label !== ''" gate) never appear in $menu
+// as a page in their own right, so an exact-match-only comparison used to
+// lose the highlight entirely once you drilled into one of them. Longest
+// registered page.url that is either an exact match or a genuine path-
+// segment prefix of the current path wins — this keeps a module's own
+// top-level page (e.g. "Finances") highlighted while browsing any of its
+// sub-pages, in every module, not just finance.
+$currentPath = $request->getPath();
 $activeMenuId = '';
+$activePageUrl = '';
+$bestMatchLength = -1;
 foreach ($menus as $menu) {
     foreach ($menu['pages'] as $page) {
-        if (!$page['isSeparator'] && ($page['url'] ?? '') === $request->getPath()) {
+        if ($page['isSeparator']) {
+            continue;
+        }
+        $pageUrl = $page['url'] ?? '';
+        if ($pageUrl === '') {
+            continue;
+        }
+        $isExact = $pageUrl === $currentPath;
+        $isPrefix = !$page['isDynamic'] && $pageUrl !== '/' && str_starts_with($currentPath, $pageUrl . '/');
+        if (($isExact || $isPrefix) && strlen($pageUrl) > $bestMatchLength) {
             $activeMenuId = $menu['id'];
-            break 2;
+            $activePageUrl = $pageUrl;
+            $bestMatchLength = strlen($pageUrl);
         }
     }
 }
 $twig->addGlobal('active_menu_id', $activeMenuId);
+$twig->addGlobal('active_page_url', $activePageUrl);
 
 // RGPD content service (may use LLM if module is active)
 $llmConnectorForRgpd = null;
@@ -964,7 +993,7 @@ if (in_array('calendar', $moduleManager->getEnabledModuleIds(), true)) {
         \Modules\Calendar\Controller\CalendarChiefController::class,
         new \Modules\Calendar\Controller\CalendarChiefController(
             $twig, $calendarService, $calendarPickerService, $monthGridBuilder, $calendarEventService,
-            $sectionService, $memberService, $scoutYearResolver, $journalService, $settingService
+            $sectionService, $memberService, $scoutYearResolver, $journalService, $settingService, $moduleManager
         )
     );
     $frontController->registerController(
@@ -1312,6 +1341,10 @@ if (in_array('gallery', $moduleManager->getEnabledModuleIds(), true)) {
     $galleryOgScraperService = new \Modules\Gallery\Service\OgScraperService();
     $galleryStorageBackendFactory = new \Modules\Gallery\Service\Storage\StorageBackendFactory($settingService, $galleryS3SecretRepo, $storagePath);
     $galleryFfmpegAvailability = new \Modules\Gallery\Service\FfmpegAvailability();
+    // Optional dependency on the llm_connector module (ARCHITECTURE.md
+    // §7.5), same reused instance as RGPD content generation above — the
+    // "Expliquer avec l'IA" button is simply hidden when it's unavailable.
+    $galleryS3ErrorExplainerService = new \Modules\Gallery\Service\S3ErrorExplainerService($llmConnectorForRgpd);
 
     $galleryAlbumService = new \Modules\Gallery\Service\AlbumService(
         $galleryAlbumRepo, $galleryMediaRepo, $galleryAccessService, $galleryOgScraperService,
@@ -1339,7 +1372,100 @@ if (in_array('gallery', $moduleManager->getEnabledModuleIds(), true)) {
     $frontController->registerController(
         \Modules\Gallery\Controller\GalleryConfigController::class,
         new \Modules\Gallery\Controller\GalleryConfigController(
-            $twig, $settingService, $galleryS3SecretRepo, $galleryFfmpegAvailability, $journalService
+            $twig, $settingService, $galleryS3SecretRepo, $galleryFfmpegAvailability, $journalService,
+            $galleryS3ErrorExplainerService
+        )
+    );
+}
+
+if (in_array('retro', $moduleManager->getEnabledModuleIds(), true)) {
+    $retroBoardRepo = new \Modules\Retro\Repository\BoardRepository($pdo);
+    $retroCommentRepo = new \Modules\Retro\Repository\CommentRepository($pdo);
+    $retroVoteRepo = new \Modules\Retro\Repository\VoteRepository($pdo);
+    $retroRateLimitRepo = new \Modules\Retro\Repository\RateLimitRepository($pdo);
+
+    $retroRateLimitService = new \Modules\Retro\Service\RateLimitService($retroRateLimitRepo, $encryptionService);
+    $retroVoteService = new \Modules\Retro\Service\VoteService($retroVoteRepo, $retroCommentRepo, $encryptionService);
+    // Optional dependency on the llm_connector module (ARCHITECTURE.md
+    // §7.5), same reused instance as RGPD content generation above — the
+    // moderation check and AI-shorten button simply degrade to unavailable.
+    $retroModerationService = new \Modules\Retro\Service\ModerationService($llmConnectorForRgpd);
+    $retroSummaryService = new \Modules\Retro\Service\SummaryService($llmConnectorForRgpd);
+    $retroCommentService = new \Modules\Retro\Service\CommentService($retroCommentRepo, $retroModerationService, $retroRateLimitService);
+    $retroBoardService = new \Modules\Retro\Service\BoardService(
+        $retroBoardRepo, $retroCommentRepo, $memberService, $sectionService, $schedulerService, $journalService,
+        $mailService, $twig, (string) ($settingService->get('site_name') ?: 'Unité scoute'), (string) ($settingService->get('base_url') ?: ''),
+        $shortUrlService,
+        in_array('calendar', $moduleManager->getEnabledModuleIds(), true) ? $calendarService : null,
+        $retroSummaryService
+    );
+
+    $frontController->registerController(
+        \Modules\Retro\Controller\RetroChiefController::class,
+        new \Modules\Retro\Controller\RetroChiefController(
+            $twig, $retroBoardRepo, $retroBoardService, $settingService, $scoutYearResolver, $moduleManager
+        )
+    );
+    $frontController->registerController(
+        \Modules\Retro\Controller\RetroBoardController::class,
+        new \Modules\Retro\Controller\RetroBoardController(
+            $twig, $retroBoardRepo, $retroCommentRepo, $retroCommentService, $retroVoteService, $retroBoardService,
+            $retroRateLimitService, $retroModerationService, $cookieConsentService, $settingService, $scoutYearService
+        )
+    );
+
+    // Bootstrap the recurring rate-limit purge — Task\PurgeRateLimitHandler
+    // re-schedules itself daily at the end of every run (same pattern as
+    // Task\CheckUpdateHandler), but the very first occurrence needs an
+    // initial nudge. auto_close_board needs no such bootstrap — it's
+    // scheduled per-board by Service\BoardService::create()/update().
+    if ($schedulerService->find('retro', 'purge_rate_limits', 'daily') === null) {
+        $schedulerService->schedule('retro', 'purge_rate_limits', new DateTimeImmutable(), [], 'daily');
+    }
+}
+
+// Re-registers calendar's event-facing services/controllers with the
+// optional retro event-link lookup, now that $retroBoardService exists
+// (retro's own block above needs $calendarService already built, so it
+// necessarily runs after calendar's block in file order — this is the
+// only way for the dependency to also flow in the opposite direction).
+// Same "placed after both blocks so their repositories are in scope"
+// precedent as MemberController's re-registration below. $calendarService/
+// $calendarEventRepo/etc. are still in scope here — PHP has no block
+// scoping, only function scoping, so calendar's own top-level `if` body
+// variables remain readable for the rest of this script.
+if (in_array('calendar', $moduleManager->getEnabledModuleIds(), true)) {
+    $retroEventLinkLookup = in_array('retro', $moduleManager->getEnabledModuleIds(), true) ? $retroBoardService : null;
+
+    $calendarService = new \Modules\Calendar\Service\CalendarService(
+        $calendarRepo, $calendarEventRepo, $sectionService, $calendarUnitFeedTokenRepo, $retroEventLinkLookup
+    );
+    $calendarRetroAutoCreateService = new \Modules\Calendar\Service\CalendarRetroAutoCreateService(
+        $schedulerService, $retroEventLinkLookup
+    );
+    $calendarEventService = new \Modules\Calendar\Service\CalendarEventService(
+        $calendarEventRepo, $calendarService, $calendarNotificationService, $calendarRetroAutoCreateService
+    );
+    $calendarPersonalFeedService = new \Modules\Calendar\Service\PersonalFeedService(
+        $calendarPersonalTokenRepo, $calendarService, $calendarEventRepo,
+        $roleResolver, $memberService, $userAccountRepo, $sectionService, $retroEventLinkLookup
+    );
+    $calendarPickerService = new \Modules\Calendar\Service\CalendarPickerService(
+        $calendarService, $calendarPersonalFeedService
+    );
+
+    $frontController->registerController(
+        \Modules\Calendar\Controller\CalendarPublicController::class,
+        new \Modules\Calendar\Controller\CalendarPublicController(
+            $twig, $calendarService, $calendarPickerService, $monthGridBuilder, $calendarPersonalFeedService,
+            $calendarIcsBuilder, $scoutYearResolver, $journalService
+        )
+    );
+    $frontController->registerController(
+        \Modules\Calendar\Controller\CalendarChiefController::class,
+        new \Modules\Calendar\Controller\CalendarChiefController(
+            $twig, $calendarService, $calendarPickerService, $monthGridBuilder, $calendarEventService,
+            $sectionService, $memberService, $scoutYearResolver, $journalService, $settingService, $moduleManager
         )
     );
 }
@@ -1378,6 +1504,22 @@ if (!$secretManager->isInitialized() || $allowSetup) {
 
 $response = $frontController->handle($request);
 $response->setCspNonce($cspNonce);
+
+// Gallery photos served straight from S3-compatible storage need their
+// origin explicitly allowed in img-src — computed for whichever provider
+// is actually configured, never hardcoded to one (ARCHITECTURE.md §7.5).
+if ((string) ($settingService->get('gallery_storage_backend', 'gallery', 'local')) === 's3') {
+    $gallerySettingsForCspPublicUrl = (string) ($settingService->get('gallery_s3_public_url', 'gallery', '') ?: '');
+    $s3OriginForCsp = \Modules\Gallery\Service\Storage\S3StorageBackend::servingOrigin(
+        (string) ($settingService->get('gallery_s3_endpoint', 'gallery', '') ?: ''),
+        (string) ($settingService->get('gallery_s3_bucket', 'gallery', '') ?: ''),
+        $gallerySettingsForCspPublicUrl !== '' ? $gallerySettingsForCspPublicUrl : null
+    );
+    if ($s3OriginForCsp !== null) {
+        $response->addImgSrcOrigin($s3OriginForCsp);
+    }
+}
+
 $response->send();
 
 // Poor man's cron — run scheduler max once per minute, after response is sent

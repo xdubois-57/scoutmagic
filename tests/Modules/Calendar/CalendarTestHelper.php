@@ -38,6 +38,7 @@ class CalendarTestHelper
             location TEXT,
             description TEXT,
             sequence INTEGER NOT NULL DEFAULT 0,
+            auto_create_retro INTEGER NOT NULL DEFAULT 0,
             created_by INTEGER,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,

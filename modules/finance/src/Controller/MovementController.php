@@ -24,6 +24,8 @@ use Modules\Finance\Service\FirstReceiptResolver;
 use Modules\Finance\Service\MovementPresenter;
 use Modules\Finance\Service\ReceiptExtractionService;
 use Modules\Finance\Service\ReceiptService;
+use PhpOffice\PhpSpreadsheet\Spreadsheet;
+use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 
 class MovementController extends AbstractController
 {
@@ -129,6 +131,104 @@ class MovementController extends AbstractController
             'filter_search' => $search,
             'pending_receipts' => $pendingReceipts,
         ]);
+    }
+
+    /**
+     * GET /finance/movements/export — XLSX of every movement matching the
+     * list page's current filters (account/fiscal year/category/search),
+     * not just the current page — same filter-resolution as list(), kept
+     * as a separate small duplication rather than a shared private method,
+     * to avoid any risk of the two ever needing to diverge silently.
+     *
+     * @param array<string, string> $params
+     */
+    public function exportXlsx(Request $request, array $params): Response
+    {
+        $role = Role::fromString(AuthSession::getRole());
+        $account = $this->financeService->resolveSelectedAccount($role, $request->getQuery('account_id'));
+        if ($account === null) {
+            return new Response('Not Found', 404);
+        }
+
+        $currentFiscalYear = $this->financeService->getCurrentFiscalYear();
+        $fiscalYearParam = $request->getQuery('fiscal_year_id');
+        if ($fiscalYearParam === null) {
+            $fiscalYearId = $currentFiscalYear?->id;
+        } elseif ($fiscalYearParam === 'all' || $fiscalYearParam === '') {
+            $fiscalYearId = null;
+        } else {
+            $fiscalYearId = (int) $fiscalYearParam;
+        }
+
+        $categoryParam = (string) $request->getQuery('category_id', 'all');
+        $uncategorizedOnly = $categoryParam === 'none';
+        $categoryId = (!$uncategorizedOnly && $categoryParam !== 'all' && $categoryParam !== '') ? (int) $categoryParam : null;
+
+        $search = trim((string) $request->getQuery('q', ''));
+
+        $movements = $this->transactionRepository->findFiltered(
+            [$account->id],
+            $fiscalYearId,
+            $categoryId,
+            $search !== '' ? $search : null,
+            $uncategorizedOnly
+        );
+
+        $categoriesById = [];
+        foreach ($this->categoryRepository->findAllOrdered() as $category) {
+            $categoriesById[$category->id] = $category;
+        }
+
+        $movementIds = array_map(fn(Transaction $transaction) => $transaction->id, $movements);
+        $firstReceiptsByMovementId = $this->firstReceiptResolver->resolve($movementIds);
+
+        $xlsx = $this->buildMovementsXlsx($movements, $categoriesById, $firstReceiptsByMovementId, $account->name);
+
+        $this->journalService->log(
+            'finance', 'movements_exported', 'info', 'Export des mouvements en XLSX',
+            ['account_id' => $account->id, 'count' => count($movements)], (int) AuthSession::getUserAccountId()
+        );
+
+        return (new Response($xlsx))
+            ->setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+            ->setHeader('Content-Disposition', 'attachment; filename="mouvements.xlsx"')
+            ->setHeader('Content-Length', (string) strlen($xlsx));
+    }
+
+    /**
+     * @param Transaction[] $movements
+     * @param array<int, \Modules\Finance\Repository\Category> $categoriesById
+     * @param array<int, Attachment> $firstReceiptsByMovementId
+     */
+    private function buildMovementsXlsx(array $movements, array $categoriesById, array $firstReceiptsByMovementId, string $accountName): string
+    {
+        $spreadsheet = new Spreadsheet();
+        $sheet = $spreadsheet->getActiveSheet();
+
+        $columns = ['Date', 'Libellé', 'Contrepartie', 'Montant', 'Catégorie', 'Commentaire'];
+        foreach ($columns as $index => $header) {
+            $sheet->setCellValue([$index + 1, 1], $header);
+        }
+
+        $rowNum = 2;
+        foreach ($movements as $movement) {
+            $firstReceipt = $firstReceiptsByMovementId[$movement->id] ?? null;
+            $category = $movement->categoryId !== null ? ($categoriesById[$movement->categoryId] ?? null) : null;
+
+            $sheet->setCellValue([1, $rowNum], $movement->transactionDate);
+            $sheet->setCellValue([2, $rowNum], $movement->label);
+            $sheet->setCellValue([3, $rowNum], MovementPresenter::counterparty($movement, $firstReceipt, $accountName));
+            $sheet->setCellValue([4, $rowNum], $movement->amount);
+            $sheet->setCellValue([5, $rowNum], $category?->name ?? '');
+            $sheet->setCellValue([6, $rowNum], $movement->comment ?? '');
+            $rowNum++;
+        }
+
+        $writer = new Xlsx($spreadsheet);
+        ob_start();
+        $writer->save('php://output');
+
+        return (string) ob_get_clean();
     }
 
     /**

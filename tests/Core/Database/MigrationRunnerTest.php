@@ -36,25 +36,34 @@ class MigrationRunnerTest extends TestCase
 
         $this->introspector = new SchemaIntrospector($this->connection->getPdo());
 
-        // Clean up tables from previous test runs
-        $pdo = $this->connection->getPdo();
-        $pdo->exec('DROP TABLE IF EXISTS members');
-        $pdo->exec('DROP TABLE IF EXISTS scout_years');
-        $pdo->exec('DROP TABLE IF EXISTS drop_test');
-        $pdo->exec('DROP TABLE IF EXISTS fk_drop_test_child');
-        $pdo->exec('DROP TABLE IF EXISTS fk_drop_test_parent');
+        $this->dropAllTables($this->connection->getPdo());
     }
 
     protected function tearDown(): void
     {
         if ($this->connection !== null) {
-            $pdo = $this->connection->getPdo();
-            $pdo->exec('DROP TABLE IF EXISTS members');
-            $pdo->exec('DROP TABLE IF EXISTS scout_years');
-            $pdo->exec('DROP TABLE IF EXISTS drop_test');
-            $pdo->exec('DROP TABLE IF EXISTS fk_drop_test_child');
-            $pdo->exec('DROP TABLE IF EXISTS fk_drop_test_parent');
+            $this->dropAllTables($this->connection->getPdo());
         }
+    }
+
+    /**
+     * Every test in this class expects a genuinely empty database to
+     * measure migrations against — a curated per-test DROP list drifts out
+     * of sync with whatever tables other tests' full core.sql migrations
+     * leave behind (e.g. testMigrateCreatesTablesFromCoreSql creates the
+     * entire schema and nothing dropped it, so a later test's "second
+     * migrate() is a no-op" assertion sees leftover tables as unexpected
+     * diffs). Drop unconditionally instead, same SHOW TABLES + FK-checks-off
+     * approach as Core\Maintenance\Task\FullResetHandler::truncateAllTables().
+     */
+    private function dropAllTables(\PDO $pdo): void
+    {
+        $pdo->exec('SET FOREIGN_KEY_CHECKS = 0');
+        $tables = $pdo->query('SHOW TABLES')->fetchAll(\PDO::FETCH_COLUMN);
+        foreach ($tables as $table) {
+            $pdo->exec('DROP TABLE IF EXISTS `' . $table . '`');
+        }
+        $pdo->exec('SET FOREIGN_KEY_CHECKS = 1');
     }
 
     public function testMigrateCreatesTablesFromCoreSql(): void

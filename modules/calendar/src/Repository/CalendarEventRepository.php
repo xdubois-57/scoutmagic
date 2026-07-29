@@ -46,6 +46,35 @@ class CalendarEventRepository
     }
 
     /**
+     * Events whose effective end date (end_date, falling back to
+     * start_date) falls within [$fromDate, $toDate] — distinct from
+     * findByCalendarIdsInRange()'s overlap semantics, which
+     * Api\CalendarEventLookupInterface::findEventsInWindow() needs instead
+     * (only events actually ending inside the retro module's -10/+15 day
+     * picker window, not merely overlapping it).
+     *
+     * @param int[] $calendarIds
+     * @return CalendarEvent[]
+     */
+    public function findByCalendarIdsWithEffectiveEndInRange(array $calendarIds, string $fromDate, string $toDate): array
+    {
+        if (count($calendarIds) === 0) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($calendarIds), '?'));
+        $stmt = $this->pdo->prepare(
+            "SELECT * FROM calendar_events
+             WHERE calendar_id IN ({$placeholders})
+               AND COALESCE(end_date, start_date) BETWEEN ? AND ?
+             ORDER BY start_date, start_time"
+        );
+        $stmt->execute([...$calendarIds, $fromDate, $toDate]);
+
+        return array_map(fn(array $row) => $this->hydrate($row), $stmt->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
+    /**
      * Upcoming events (starting on/after $fromDate), soonest first.
      *
      * @param int[] $calendarIds
@@ -119,14 +148,15 @@ class CalendarEventRepository
         ?string $endTime,
         ?string $location,
         ?string $description,
-        ?int $createdBy
+        ?int $createdBy,
+        bool $autoCreateRetro = false
     ): int {
         $stmt = $this->pdo->prepare(
             'INSERT INTO calendar_events
-                (calendar_id, title, start_date, end_date, start_time, end_time, location, description, created_by)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                (calendar_id, title, start_date, end_date, start_time, end_time, location, description, created_by, auto_create_retro)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
-        $stmt->execute([$calendarId, $title, $startDate, $endDate, $startTime, $endTime, $location, $description, $createdBy]);
+        $stmt->execute([$calendarId, $title, $startDate, $endDate, $startTime, $endTime, $location, $description, $createdBy, $autoCreateRetro ? 1 : 0]);
         return (int) $this->pdo->lastInsertId();
     }
 
@@ -146,15 +176,16 @@ class CalendarEventRepository
         ?string $startTime,
         ?string $endTime,
         ?string $location,
-        ?string $description
+        ?string $description,
+        bool $autoCreateRetro = false
     ): void {
         $stmt = $this->pdo->prepare(
             'UPDATE calendar_events
              SET calendar_id = ?, title = ?, start_date = ?, end_date = ?, start_time = ?, end_time = ?,
-                 location = ?, description = ?, sequence = sequence + 1, updated_at = CURRENT_TIMESTAMP
+                 location = ?, description = ?, auto_create_retro = ?, sequence = sequence + 1, updated_at = CURRENT_TIMESTAMP
              WHERE id = ?'
         );
-        $stmt->execute([$calendarId, $title, $startDate, $endDate, $startTime, $endTime, $location, $description, $id]);
+        $stmt->execute([$calendarId, $title, $startDate, $endDate, $startTime, $endTime, $location, $description, $autoCreateRetro ? 1 : 0, $id]);
     }
 
     public function delete(int $id): void
@@ -179,6 +210,7 @@ class CalendarEventRepository
             location: $row['location'] !== null ? (string) $row['location'] : null,
             description: $row['description'] !== null ? (string) $row['description'] : null,
             sequence: (int) $row['sequence'],
+            autoCreateRetro: (bool) $row['auto_create_retro'],
             createdBy: $row['created_by'] !== null ? (int) $row['created_by'] : null,
             updatedAt: (string) $row['updated_at']
         );

@@ -13,6 +13,8 @@ use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Modules\Gallery\Repository\S3SecretRepository;
 use Modules\Gallery\Service\FfmpegAvailability;
+use Modules\Gallery\Service\GalleryException;
+use Modules\Gallery\Service\S3ErrorExplainerService;
 use Modules\Gallery\Service\Storage\S3StorageBackend;
 use Twig\Environment;
 
@@ -26,7 +28,8 @@ class GalleryConfigController extends AbstractController
         private SettingService $settingService,
         private S3SecretRepository $s3SecretRepository,
         private FfmpegAvailability $ffmpegAvailability,
-        private JournalService $journalService
+        private JournalService $journalService,
+        private S3ErrorExplainerService $s3ErrorExplainerService
     ) {
     }
 
@@ -120,11 +123,44 @@ class GalleryConfigController extends AbstractController
             $secret
         );
 
-        if ($backend->testConnection()) {
+        $error = $backend->testConnection();
+        if ($error === null) {
             return $this->json(['success' => true]);
         }
 
-        return $this->json(['success' => false, 'error' => 'Connexion impossible — vérifiez les identifiants et le bucket.'], 422);
+        return $this->json(['success' => false, 'error' => 'Connexion impossible : ' . $error], 422);
+    }
+
+    /**
+     * POST /config/gallery/explain-s3-error — asks the LLM connector to
+     * diagnose a failed S3 test-connection for the admin, given only the
+     * non-secret config fields, the secret key's length, and the provider's
+     * own error message. Never receives or forwards the secret key itself.
+     *
+     * @param array<string, string> $params
+     */
+    public function explainS3Error(Request $request, array $params): Response
+    {
+        $data = json_decode($request->getRawBody(), true);
+        if (!is_array($data) || !CsrfGuard::validateToken((string) ($data['_csrf_token'] ?? ''))) {
+            return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
+        }
+
+        try {
+            $explanation = $this->s3ErrorExplainerService->explain(
+                (string) ($data['provider'] ?? 'custom'),
+                (string) ($data['endpoint'] ?? ''),
+                (string) ($data['region'] ?? ''),
+                (string) ($data['bucket'] ?? ''),
+                (string) ($data['access_key'] ?? ''),
+                (int) ($data['secret_key_length'] ?? 0),
+                (string) ($data['error'] ?? '')
+            );
+        } catch (GalleryException $e) {
+            return $this->json(['success' => false, 'error' => $e->getMessage()], 422);
+        }
+
+        return $this->json(['success' => true, 'explanation' => $explanation]);
     }
 
     /**
@@ -134,6 +170,7 @@ class GalleryConfigController extends AbstractController
     {
         return [
             'ffmpeg_available' => $this->ffmpegAvailability->check(),
+            'gallery_s3_ai_available' => $this->s3ErrorExplainerService->isAvailable(),
             'gallery_allow_local' => (bool) $this->settingService->get('gallery_allow_local', 'gallery', true),
             'gallery_allow_external' => (bool) $this->settingService->get('gallery_allow_external', 'gallery', true),
             'gallery_storage_backend' => (string) $this->settingService->get('gallery_storage_backend', 'gallery', 'local'),

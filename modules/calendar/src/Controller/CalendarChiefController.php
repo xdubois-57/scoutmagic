@@ -11,6 +11,7 @@ use Core\Http\Response;
 use Core\Journal\JournalService;
 use Core\Member\MemberService;
 use Core\Member\SectionService;
+use Core\Module\ModuleManager;
 use Core\ScoutYear\ScoutYearResolver;
 use Core\ScoutYear\ScoutYearSession;
 use Core\Security\AuthSession;
@@ -36,7 +37,8 @@ class CalendarChiefController extends AbstractController
         private MemberService $memberService,
         private ScoutYearResolver $scoutYearResolver,
         private JournalService $journalService,
-        private SettingService $settingService
+        private SettingService $settingService,
+        private ModuleManager $moduleManager
     ) {
     }
 
@@ -77,7 +79,11 @@ class CalendarChiefController extends AbstractController
         );
 
         $events = $this->calendarService->getEventsForGrid($year, $month, $calendarIdsForGrid);
-        $weeks = $this->monthGridBuilder->build($year, $month, $this->calendarService->toGridEvents($events));
+        $weeks = $this->monthGridBuilder->build(
+            $year,
+            $month,
+            $this->calendarService->toGridEvents($events, $role, $email !== '' ? $email : null, $effectiveYear->id)
+        );
 
         // The add-event modal's default calendar: whatever is currently
         // selected in the picker, since that's unambiguous — except on
@@ -122,6 +128,7 @@ class CalendarChiefController extends AbstractController
             'default_start_time' => (string) $this->settingService->get('event_default_start_time', 'calendar', '14:00'),
             'default_end_time' => (string) $this->settingService->get('event_default_end_time', 'calendar', '16:00'),
             'default_location' => (string) $this->settingService->get('event_default_location', 'calendar', ''),
+            'retro_module_active' => in_array('retro', $this->moduleManager->getEnabledModuleIds(), true),
         ]);
     }
 
@@ -147,7 +154,8 @@ class CalendarChiefController extends AbstractController
                 $this->stringOrNull($data['end_time'] ?? null),
                 $this->stringOrNull($data['location'] ?? null),
                 $this->stringOrNull($data['description'] ?? null),
-                AuthSession::getUserAccountId()
+                AuthSession::getUserAccountId(),
+                ($data['auto_create_retro'] ?? false) === true
             );
         } catch (CalendarException $e) {
             return $this->json(['success' => false, 'error' => $e->getMessage()], 400);
@@ -187,7 +195,8 @@ class CalendarChiefController extends AbstractController
                 $this->stringOrNull($data['start_time'] ?? null),
                 $this->stringOrNull($data['end_time'] ?? null),
                 $this->stringOrNull($data['location'] ?? null),
-                $this->stringOrNull($data['description'] ?? null)
+                $this->stringOrNull($data['description'] ?? null),
+                ($data['auto_create_retro'] ?? false) === true
             );
         } catch (CalendarException $e) {
             return $this->json(['success' => false, 'error' => $e->getMessage()], 400);

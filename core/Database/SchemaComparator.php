@@ -246,14 +246,40 @@ class SchemaComparator
             return true;
         }
 
-        // Compare defaults (normalized)
-        $declaredDefault = $declared->default !== null ? strtoupper($declared->default) : null;
-        $actualDefault = $actual->default !== null ? strtoupper($actual->default) : null;
+        // Compare defaults (normalized) — a boolean column's TRUE/FALSE
+        // default is declared that way in schema.sql but MySQL always
+        // reports it back as 1/0 via INFORMATION_SCHEMA, since the column
+        // itself is really TINYINT(1) (see ColumnDefinition::
+        // getNormalizedType()); normalize both sides the same way so this
+        // doesn't perpetually look like a real difference.
+        $isBoolean = $declared->getNormalizedType() === 'tinyint(1)';
+        $declaredDefault = $this->normalizeDefaultForComparison($declared->default, $isBoolean);
+        $actualDefault = $this->normalizeDefaultForComparison($actual->default, $isBoolean);
 
         if ($declaredDefault !== $actualDefault) {
             return true;
         }
 
         return false;
+    }
+
+    private function normalizeDefaultForComparison(?string $default, bool $isBoolean): ?string
+    {
+        if ($default === null) {
+            return null;
+        }
+
+        $upper = strtoupper($default);
+
+        if ($isBoolean) {
+            if ($upper === 'TRUE') {
+                return '1';
+            }
+            if ($upper === 'FALSE') {
+                return '0';
+            }
+        }
+
+        return $upper;
     }
 }

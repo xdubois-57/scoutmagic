@@ -8,6 +8,8 @@ class Response
 {
     private string $cspNonce = '';
     private ?bool $forceHttps = null;
+    /** @var string[] */
+    private array $extraImgSrc = [];
 
     /**
      * @param array<string, string> $headers
@@ -22,6 +24,20 @@ class Response
     public function setCspNonce(string $nonce): self
     {
         $this->cspNonce = $nonce;
+        return $this;
+    }
+
+    /**
+     * Allows an additional origin in the img-src directive — e.g. the
+     * gallery module's currently-configured S3-compatible origin, so
+     * photos actually load regardless of which provider is configured
+     * (Modules\Gallery\Service\Storage\S3StorageBackend::servingOrigin()).
+     */
+    public function addImgSrcOrigin(string $origin): self
+    {
+        if ($origin !== '' && !in_array($origin, $this->extraImgSrc, true)) {
+            $this->extraImgSrc[] = $origin;
+        }
         return $this;
     }
 
@@ -73,7 +89,9 @@ class Response
             ? "script-src 'self' 'nonce-{$this->cspNonce}'"
             : "script-src 'self'";
 
-        return "default-src 'self'; {$scriptSrc}; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'";
+        $imgSrc = implode(' ', array_merge(["'self'", 'data:', 'blob:'], $this->extraImgSrc));
+
+        return "default-src 'self'; {$scriptSrc}; style-src 'self' 'unsafe-inline'; img-src {$imgSrc}; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'";
     }
 
     /**

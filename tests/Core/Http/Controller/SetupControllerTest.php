@@ -183,9 +183,7 @@ class SetupControllerTest extends TestCase
         try {
             $dsn = sprintf('mysql:host=%s;port=%s;dbname=%s;charset=utf8mb4', $host, $port, $dbName);
             $pdo = new \PDO($dsn, $user, $password);
-            $pdo->exec('DROP TABLE IF EXISTS user_accounts');
-            $pdo->exec('DROP TABLE IF EXISTS members');
-            $pdo->exec('DROP TABLE IF EXISTS scout_years');
+            $this->dropAllTables($pdo);
         } catch (\PDOException $e) {
             $this->markTestSkipped('Database not available: ' . $e->getMessage());
         }
@@ -246,9 +244,25 @@ class SetupControllerTest extends TestCase
         $this->assertTrue(password_verify('securepassword123', $admin['password_hash']));
 
         // Cleanup
-        $pdo->exec('DROP TABLE IF EXISTS user_accounts');
-        $pdo->exec('DROP TABLE IF EXISTS members');
-        $pdo->exec('DROP TABLE IF EXISTS scout_years');
+        $this->dropAllTables($pdo);
+    }
+
+    /**
+     * The full schema this test's migration creates has FK relationships
+     * beyond user_accounts/members/scout_years (e.g. editable_contents →
+     * user_accounts) — a curated DROP list drifts out of sync as core.sql
+     * grows, so drop unconditionally instead. Same SHOW TABLES +
+     * FK-checks-off approach as Tests\Core\Database\MigrationRunnerTest and
+     * Core\Maintenance\Task\FullResetHandler::truncateAllTables().
+     */
+    private function dropAllTables(\PDO $pdo): void
+    {
+        $pdo->exec('SET FOREIGN_KEY_CHECKS = 0');
+        $tables = $pdo->query('SHOW TABLES')->fetchAll(\PDO::FETCH_COLUMN);
+        foreach ($tables as $table) {
+            $pdo->exec('DROP TABLE IF EXISTS `' . $table . '`');
+        }
+        $pdo->exec('SET FOREIGN_KEY_CHECKS = 1');
     }
 
     private function removeDirectory(string $dir): void

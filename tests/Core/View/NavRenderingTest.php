@@ -54,12 +54,29 @@ class NavRenderingTest extends TestCase
 
         $menus = $builder->build();
 
+        // Same longest-prefix-or-exact-match logic as public/index.php —
+        // a page's own sub-routes (registered with an empty label so they
+        // never get their own menu button) aren't present in $menu's pages
+        // at all, so an exact-match-only comparison would lose the
+        // highlight entirely once navigating into one of them.
         $activeMenuId = '';
+        $activePageUrl = '';
+        $bestMatchLength = -1;
         foreach ($menus as $menu) {
             foreach ($menu['pages'] as $page) {
-                if (!$page['isSeparator'] && ($page['url'] ?? '') === $currentPath) {
+                if ($page['isSeparator']) {
+                    continue;
+                }
+                $pageUrl = $page['url'] ?? '';
+                if ($pageUrl === '') {
+                    continue;
+                }
+                $isExact = $pageUrl === $currentPath;
+                $isPrefix = !$page['isDynamic'] && $pageUrl !== '/' && str_starts_with($currentPath, $pageUrl . '/');
+                if (($isExact || $isPrefix) && strlen($pageUrl) > $bestMatchLength) {
                     $activeMenuId = $menu['id'];
-                    break 2;
+                    $activePageUrl = $pageUrl;
+                    $bestMatchLength = strlen($pageUrl);
                 }
             }
         }
@@ -72,6 +89,7 @@ class NavRenderingTest extends TestCase
             'current_user_role_label' => 'Admin',
             'site_name' => 'Test Scout',
             'active_menu_id' => $activeMenuId,
+            'active_page_url' => $activePageUrl,
         ]);
     }
 
@@ -131,6 +149,31 @@ class NavRenderingTest extends TestCase
         $html = $this->renderNav(Role::SUPERADMIN, true, '/setup');
         // The active submenu bar should not have d-none
         $this->assertStringContainsString('data-submenu-id="configuration"', $html);
+    }
+
+    public function testSubPageOfARegisteredPageKeepsItHighlighted(): void
+    {
+        // /chefs/staffs/5 isn't itself a registered page (it's a detail
+        // sub-route, no menu entry of its own — same shape as finance's
+        // /finance/movements under /finance) — the "Staffs" button/list
+        // item must still show as active while browsing it.
+        $html = $this->renderNav(Role::INTENDANT, true, '/chefs/staffs/5');
+        $this->assertStringContainsString('data-submenu-id="espace_chefs"', $html);
+        $this->assertMatchesRegularExpression(
+            '/href="\/chefs\/staffs"\s+class="btn btn-sm btn-primary"/',
+            $html
+        );
+    }
+
+    public function testUnrelatedPageIsNotHighlightedAsASubPage(): void
+    {
+        // /chefs/staffs2 shares the "/chefs/staffs" text as a raw prefix
+        // but is NOT a sub-path of it (no "/" boundary) — must not match.
+        $html = $this->renderNav(Role::INTENDANT, true, '/chefs/staffs2');
+        $this->assertDoesNotMatchRegularExpression(
+            '/href="\/chefs\/staffs"\s+class="btn btn-sm btn-primary"/',
+            $html
+        );
     }
 
     public function testUserCardShownWhenAuthenticated(): void

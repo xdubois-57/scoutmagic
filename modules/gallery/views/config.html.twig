@@ -80,30 +80,40 @@
                         <div class="alert alert-light border mb-0 small">
                             Créez un bucket dans la <a href="https://console.hetzner.cloud/" target="_blank" rel="noopener">console Hetzner Cloud</a> (Object Storage).
                             Endpoint : <code>https://&lt;region&gt;.your-objectstorage.com</code> (régions : fsn1, nbg1, hel1). Localisation : Union européenne (Allemagne/Finlande).
+                            <br><strong>Access key / Secret key :</strong> ouvrez le bucket créé, onglet « Access keys », puis générez une nouvelle clé — la secret key n'est affichée qu'une seule fois, à copier immédiatement.
                         </div>
                     </div>
                     <div class="col-12" id="s3-help-cloudflare_r2">
                         <div class="alert alert-light border mb-0 small">
-                            Créez un bucket R2 dans le <a href="https://dash.cloudflare.com/" target="_blank" rel="noopener">tableau de bord Cloudflare</a>.
-                            Endpoint : <code>https://&lt;account_id&gt;.r2.cloudflarestorage.com</code>, région : <code>auto</code>.
+                            Créez un bucket R2 dans le <a href="https://dash.cloudflare.com/" target="_blank" rel="noopener">tableau de bord Cloudflare</a> (section « R2 »).
+                            Endpoint : <code>https://&lt;account_id&gt;.r2.cloudflarestorage.com</code> (l'account_id apparaît en haut à droite de la page R2) — région : <code>auto</code>.
                             <strong>Attention :</strong> les serveurs Cloudflare R2 ne sont pas garantis dans l'Union européenne sauf configuration de « Jurisdictional restrictions » sur le bucket.
+                            <br><strong>Access key / Secret key :</strong> toujours dans la section « R2 » (pas les jetons API généraux du compte Cloudflare, qui sont différents) → « Manage R2 API Tokens » → « Create API token ». Choisissez la permission « Object Read & Write » et, si l'option est proposée, limitez le jeton à ce bucket précis plutôt qu'à tout le compte. La secret key n'est affichée qu'à la création.
                         </div>
                     </div>
                     <div class="col-12" id="s3-help-scaleway">
                         <div class="alert alert-light border mb-0 small">
-                            Créez un bucket dans la <a href="https://console.scaleway.com/object-storage/buckets" target="_blank" rel="noopener">console Scaleway</a>.
                             Endpoint : <code>https://s3.&lt;region&gt;.scw.cloud</code> (ex. fr-par, nl-ams). Société française, conforme au RGPD.
+                            Sur Scaleway, obtenir une clé d'accès demande de créer <strong>4 éléments distincts et de les relier entre eux</strong> — ce n'est pas juste « créer un bucket et générer une clé » :
+                            <ol class="mb-2 mt-1 ps-3">
+                                <li><strong>Le bucket</strong> — <a href="https://console.scaleway.com/object-storage/buckets" target="_blank" rel="noopener">Object Storage → Buckets</a> → « Créer un bucket ». Notez son nom exact : c'est la valeur à saisir dans le champ « Bucket » ci-dessous.</li>
+                                <li><strong>Une application</strong> — <a href="https://console.scaleway.com/iam/applications" target="_blank" rel="noopener">IAM → Applications</a> → « Créer une application ». C'est une identité non-humaine dédiée à cette intégration (pas votre compte personnel) ; donnez-lui un nom explicite, ex. « scoutmagic-galerie ».</li>
+                                <li><strong>Une politique (policy)</strong> — dans <a href="https://console.scaleway.com/iam/policies" target="_blank" rel="noopener">IAM → Politiques</a>, créez une politique accordant les droits « ObjectStorageFullAccess » (ou au minimum lecture/écriture sur ce bucket précis), puis <strong>attachez-la à l'application créée à l'étape 2</strong> — une application sans politique n'a aucun droit, même avec une clé API valide.</li>
+                                <li><strong>Une clé API</strong> — <a href="https://console.scaleway.com/iam/api-keys" target="_blank" rel="noopener">IAM → Clés API</a> → « Générer une clé API », en choisissant explicitement l'application créée à l'étape 2 comme porteur de la clé (pas votre compte). La secret key n'est affichée qu'une seule fois à la création : copiez-la immédiatement dans le champ ci-dessous, elle ne sera plus jamais visible ensuite dans la console.</li>
+                            </ol>
+                            Si le test de connexion échoue malgré des identifiants corrects, la cause la plus fréquente est une politique manquante ou non attachée à l'application (étape 3).
                         </div>
                     </div>
                     <div class="col-12" id="s3-help-ovhcloud">
                         <div class="alert alert-light border mb-0 small">
                             Créez un conteneur dans le <a href="https://www.ovh.com/manager/" target="_blank" rel="noopener">manager OVHcloud</a> (Object Storage, compatible S3).
                             Endpoint : <code>https://s3.&lt;region&gt;.io.cloud.ovh.net</code> (ex. gra, sbg, de). Société française, conforme au RGPD.
+                            <br><strong>Access key / Secret key :</strong> depuis le conteneur, onglet « Utilisateurs » (ou « Public Cloud » → « Users & Roles » du projet) → créez un utilisateur avec le rôle « ObjectStore operator » pour obtenir la paire de clés S3.
                         </div>
                     </div>
                     <div class="col-12" id="s3-help-custom">
                         <div class="alert alert-light border mb-0 small">
-                            Saisissez l'endpoint, la région et le bucket fournis par votre hébergeur compatible S3.
+                            Saisissez l'endpoint, la région et le bucket fournis par votre hébergeur compatible S3. L'access key et la secret key sont généralement disponibles dans la section « API » ou « Clés d'accès » de la console de cet hébergeur.
                         </div>
                     </div>
 
@@ -138,6 +148,14 @@
                             <i class="bi bi-plug"></i> Tester la connexion
                         </button>
                         <div id="s3-test-result" class="mt-2"></div>
+                        {% if gallery_s3_ai_available %}
+                            <div id="s3-explain-wrap" class="mt-2 d-none">
+                                <button type="button" class="btn btn-outline-secondary btn-sm" id="s3-explain-ai">
+                                    <i class="bi bi-stars"></i> Expliquer avec l'IA
+                                </button>
+                                <div id="s3-explain-result" class="mt-2"></div>
+                            </div>
+                        {% endif %}
                     </div>
                 </div>
             </div>

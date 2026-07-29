@@ -172,6 +172,108 @@ class SchemaComparatorTest extends TestCase
         $this->assertStringContainsString('old_table', $warnings[0]);
     }
 
+    public function testDeclaredBooleanMatchesIntrospectedTinyint1WithNoStatement(): void
+    {
+        // schema.sql declares "boolean" / TRUE, but MySQL always resolves
+        // and reports it back as tinyint(1) / 1 via INFORMATION_SCHEMA —
+        // without normalization this compared as different on every single
+        // migration run forever (the bug this test locks in).
+        $declared = [
+            new TableDefinition(
+                name: 'users',
+                columns: [
+                    new ColumnDefinition('id', 'int unsigned', false, null, true, 'auto_increment'),
+                    new ColumnDefinition('active', 'boolean', false, 'TRUE', false, null),
+                ],
+                indexes: [new IndexDefinition('PRIMARY', ['id'], true, true)],
+                foreignKeys: []
+            ),
+        ];
+
+        $actual = [
+            new TableDefinition(
+                name: 'users',
+                columns: [
+                    new ColumnDefinition('id', 'int unsigned', false, null, true, 'auto_increment'),
+                    new ColumnDefinition('active', 'tinyint(1)', false, '1', false, null),
+                ],
+                indexes: [new IndexDefinition('PRIMARY', ['id'], true, true)],
+                foreignKeys: []
+            ),
+        ];
+
+        $statements = $this->comparator->compare($declared, $actual);
+
+        $this->assertEmpty($statements);
+    }
+
+    public function testDeclaredEnumMatchesIntrospectedCommaSpacingWithNoStatement(): void
+    {
+        // MySQL introspection always strips the space after each comma in
+        // an ENUM/SET definition, even when the original DDL had one.
+        $declared = [
+            new TableDefinition(
+                name: 'boards',
+                columns: [
+                    new ColumnDefinition('id', 'int unsigned', false, null, true, 'auto_increment'),
+                    new ColumnDefinition('status', "enum('open', 'closed', 'archived')", false, "'open'", false, null),
+                ],
+                indexes: [new IndexDefinition('PRIMARY', ['id'], true, true)],
+                foreignKeys: []
+            ),
+        ];
+
+        $actual = [
+            new TableDefinition(
+                name: 'boards',
+                columns: [
+                    new ColumnDefinition('id', 'int unsigned', false, null, true, 'auto_increment'),
+                    new ColumnDefinition('status', "enum('open','closed','archived')", false, "'open'", false, null),
+                ],
+                indexes: [new IndexDefinition('PRIMARY', ['id'], true, true)],
+                foreignKeys: []
+            ),
+        ];
+
+        $statements = $this->comparator->compare($declared, $actual);
+
+        $this->assertEmpty($statements);
+    }
+
+    public function testGenuinelyDifferentBooleanDefaultStillGeneratesAStatement(): void
+    {
+        // The boolean-default normalization must not swallow real
+        // differences — TRUE vs FALSE is still a real drift to fix.
+        $declared = [
+            new TableDefinition(
+                name: 'users',
+                columns: [
+                    new ColumnDefinition('id', 'int unsigned', false, null, true, 'auto_increment'),
+                    new ColumnDefinition('active', 'boolean', false, 'TRUE', false, null),
+                ],
+                indexes: [new IndexDefinition('PRIMARY', ['id'], true, true)],
+                foreignKeys: []
+            ),
+        ];
+
+        $actual = [
+            new TableDefinition(
+                name: 'users',
+                columns: [
+                    new ColumnDefinition('id', 'int unsigned', false, null, true, 'auto_increment'),
+                    new ColumnDefinition('active', 'tinyint(1)', false, '0', false, null),
+                ],
+                indexes: [new IndexDefinition('PRIMARY', ['id'], true, true)],
+                foreignKeys: []
+            ),
+        ];
+
+        $statements = $this->comparator->compare($declared, $actual);
+
+        $this->assertCount(1, $statements);
+        $this->assertStringContainsString('ALTER TABLE `users` MODIFY COLUMN', $statements[0]);
+    }
+
     public function testIdenticalSchemasGenerateNoStatements(): void
     {
         $table = new TableDefinition(

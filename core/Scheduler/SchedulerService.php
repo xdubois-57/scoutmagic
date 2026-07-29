@@ -70,6 +70,22 @@ class SchedulerService
     }
 
     /**
+     * Cancel the pending scheduled action for a module/task/reference, if
+     * one exists — a no-op otherwise (e.g. it already ran, or was never
+     * scheduled because the corresponding option was "none"). Convenience
+     * wrapper around find() + cancel() for callers that only have the
+     * reference, not the row id (e.g. the retro module rescheduling a
+     * board's auto-close after an edit).
+     */
+    public function cancelPending(string $moduleId, string $taskKey, string $reference): void
+    {
+        $existing = $this->find($moduleId, $taskKey, $reference);
+        if ($existing !== null) {
+            $this->cancel((int) $existing['id']);
+        }
+    }
+
+    /**
      * A single scheduled action by its own id — used by
      * Core\Http\Controller\MaintenanceController::resetStatus() to poll a
      * reset/restore operation's progress. Unlike find(), which looks up a

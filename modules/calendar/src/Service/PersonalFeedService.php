@@ -12,6 +12,7 @@ use Core\Security\UserAccountRepository;
 use Modules\Calendar\Repository\CalendarEvent;
 use Modules\Calendar\Repository\CalendarEventRepository;
 use Modules\Calendar\Repository\CalendarPersonalTokenRepository;
+use Modules\Retro\Api\RetroEventLinkLookupInterface;
 
 /**
  * The personal ICS feed: a per-user_account bearer token (see
@@ -31,7 +32,8 @@ class PersonalFeedService
         private RoleResolver $roleResolver,
         private MemberService $memberService,
         private UserAccountRepository $userAccountRepository,
-        private SectionService $sectionService
+        private SectionService $sectionService,
+        private ?RetroEventLinkLookupInterface $retroEventLinkLookup = null
     ) {
     }
 
@@ -79,7 +81,57 @@ class PersonalFeedService
             return [];
         }
 
-        return $this->eventRepository->findByCalendarIds($calendarIds);
+        $events = $this->eventRepository->findByCalendarIds($calendarIds);
+
+        if ($this->retroEventLinkLookup === null) {
+            return $events;
+        }
+
+        // The only ICS feed with a real, identified viewer — calendarFeed()/
+        // unitFeed() have no viewer at all, so the retro link must never
+        // appear there regardless of a board's configured link_visibility
+        // (see Api\RetroEventLinkLookupInterface's docblock).
+        $role = Role::fromString($this->roleResolver->resolve($userAccount->email, $scoutYearId));
+
+        return array_map(function (CalendarEvent $event) use ($role, $userAccount, $scoutYearId): CalendarEvent {
+            $link = $this->retroEventLinkLookup->findLinkedBoardLink($event->id, $role, $userAccount->email, $scoutYearId);
+            if ($link === null) {
+                return $event;
+            }
+
+            return $this->withAppendedRetroLink($event, $link->url);
+        }, $events);
+    }
+
+    /**
+     * CalendarEvent is a readonly DTO — construct a new instance with the
+     * link appended to its description, in plain unescaped text: IcsBuilder
+     * escapes the WHOLE description as one unit when it builds the VEVENT
+     * block, so appending here (before it ever reaches IcsBuilder) is the
+     * only correct place to do this — appending after escaping would
+     * double-escape or bypass folding entirely.
+     */
+    private function withAppendedRetroLink(CalendarEvent $event, string $url): CalendarEvent
+    {
+        $description = $event->description !== null && $event->description !== ''
+            ? $event->description . "\n\nRétrospective : " . $url
+            : 'Rétrospective : ' . $url;
+
+        return new CalendarEvent(
+            id: $event->id,
+            calendarId: $event->calendarId,
+            title: $event->title,
+            startDate: $event->startDate,
+            endDate: $event->endDate,
+            startTime: $event->startTime,
+            endTime: $event->endTime,
+            location: $event->location,
+            description: $description,
+            sequence: $event->sequence,
+            autoCreateRetro: $event->autoCreateRetro,
+            createdBy: $event->createdBy,
+            updatedAt: $event->updatedAt
+        );
     }
 
     /**

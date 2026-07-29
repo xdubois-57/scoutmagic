@@ -14,7 +14,7 @@
 
     <div class="card mb-3">
         <div class="card-body">
-            <form method="post" action="{{ album ? '/gallery/' ~ album.id : '/gallery' }}" novalidate>
+            <form method="post" action="{{ album ? '/gallery/' ~ album.id : '/gallery' }}">
                 <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
 
                 {% if not album %}
@@ -31,12 +31,26 @@
                             {% endif %}
                         </div>
                     </div>
+
+                    {# The link comes first for an external album — it's the one thing the chief actually has in
+                       hand, and the title is fetched automatically from it when left blank below. #}
+                    <div class="mb-3 gallery-external-field {{ allow_local ? 'd-none' : '' }}">
+                        <label class="form-label small" for="album-external-url">URL de l'album externe</label>
+                        <input type="url" class="form-control" id="album-external-url" name="external_url" value="" placeholder="https://..." {{ allow_local ? '' : 'required' }}>
+                    </div>
                 {% endif %}
 
                 <div class="row g-3">
                     <div class="col-12 col-md-8">
-                        <label class="form-label small" for="album-title">Titre</label>
-                        <input type="text" class="form-control" id="album-title" name="title" value="{{ album.title ?? '' }}" required maxlength="255">
+                        <label class="form-label small" for="album-title">
+                            Titre
+                            {% if not album %}
+                                <span class="text-body-secondary fw-normal gallery-title-optional-hint {{ allow_local ? 'd-none' : '' }}">
+                                    (optionnel — récupéré automatiquement depuis le lien si laissé vide)
+                                </span>
+                            {% endif %}
+                        </label>
+                        <input type="text" class="form-control" id="album-title" name="title" value="{{ album.title ?? '' }}" maxlength="255" {{ (album or allow_local) ? 'required' : '' }}>
                     </div>
                     <div class="col-12 col-md-4">
                         <label class="form-label small" for="album-date">Date</label>
@@ -57,12 +71,7 @@
                             {% endfor %}
                         </select>
                     </div>
-                    {% if not album %}
-                        <div class="col-12 col-md-6 gallery-external-field {{ allow_local ? 'd-none' : '' }}">
-                            <label class="form-label small" for="album-external-url">URL de l'album externe</label>
-                            <input type="url" class="form-control" id="album-external-url" name="external_url" value="" placeholder="https://...">
-                        </div>
-                    {% elseif album.type == 'external' %}
+                    {% if album and album.type == 'external' %}
                         <div class="col-12 col-md-6">
                             <label class="form-label small" for="album-external-url">URL de l'album externe</label>
                             <div class="input-group">

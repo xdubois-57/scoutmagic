@@ -160,8 +160,13 @@
         </table>
     </div>
 
+    {% set filters_query = '?account_id=' ~ selected_account.id ~ (filter_fiscal_year_id ? '&fiscal_year_id=' ~ filter_fiscal_year_id : '') ~ (filter_category_id and filter_category_id != 'all' ? '&category_id=' ~ filter_category_id : '') ~ (filter_search ? '&q=' ~ filter_search : '') %}
+    <a href="/finance/movements/export{{ filters_query }}" class="btn btn-sm btn-outline-secondary mb-3">
+        <i class="bi bi-file-earmark-spreadsheet"></i> Exporter en XLSX
+    </a>
+
     {% if total_pages > 1 %}
-        {% set page_url = '?account_id=' ~ selected_account.id ~ (filter_fiscal_year_id ? '&fiscal_year_id=' ~ filter_fiscal_year_id : '') ~ (filter_category_id and filter_category_id != 'all' ? '&category_id=' ~ filter_category_id : '') ~ (filter_search ? '&q=' ~ filter_search : '') %}
+        {% set page_url = filters_query %}
         <nav aria-label="Pagination des mouvements">
             <ul class="pagination pagination-sm">
                 <li class="page-item {{ page <= 1 ? 'disabled' : '' }}">

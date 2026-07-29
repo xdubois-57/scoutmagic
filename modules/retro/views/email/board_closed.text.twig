@@ -1,0 +1,13 @@
+{{ board_title }}
+Rétrospective clôturée le {{ board_date }}
+
+{% for col, label in {'good': "Ce qui a bien marché", 'improve': "À améliorer", 'suggestion': "Autres suggestions"} %}
+{{ label }}
+{% if columns[col] is empty %}(aucun mot dans cette colonne){% else %}{% for body in columns[col] %}- {{ body }}
+{% endfor %}{% endif %}
+{% endfor %}
+{% if ai_summary %}
+Synthèse générée par IA
+{{ ai_summary }}
+{% endif %}
+Voir la rétrospective : {{ board_url }}

@@ -89,6 +89,20 @@
                             <label class="form-label small" for="event-description">Description</label>
                             <textarea class="form-control form-control-sm" id="event-description" rows="2"></textarea>
                         </div>
+                        {% if retro_module_active %}
+                            <div class="mb-2 d-none" id="event-retro-auto-create-wrap">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="event-retro-auto-create">
+                                    <label class="form-check-label small" for="event-retro-auto-create">
+                                        Créer automatiquement une rétrospective au démarrage de cet évènement
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="mb-2 d-none small" id="event-retro-link-wrap">
+                                <i class="bi bi-link-45deg"></i> Rétrospective liée :
+                                <a href="#" id="event-retro-link" target="_blank" rel="noopener"></a>
+                            </div>
+                        {% endif %}
                         <div class="text-danger small d-none" id="event-form-error"></div>
                     </div>
                     <div class="modal-footer">
@@ -124,6 +138,10 @@ const modalTitle = document.getElementById('event-modal-title');
 const submitBtn = document.getElementById('event-form-submit');
 const deleteBtn = document.getElementById('event-form-delete');
 const errorBox = document.getElementById('event-form-error');
+const retroAutoCreateWrap = document.getElementById('event-retro-auto-create-wrap');
+const retroAutoCreateInput = document.getElementById('event-retro-auto-create');
+const retroLinkWrap = document.getElementById('event-retro-link-wrap');
+const retroLinkAnchor = document.getElementById('event-retro-link');
 
 const defaultTitle = {{ default_title|json_encode|raw }};
 const defaultStartTime = {{ default_start_time|json_encode|raw }};
@@ -147,6 +165,11 @@ function openAddModal(dateStr) {
     submitBtn.textContent = 'Ajouter';
     deleteBtn.classList.add('d-none');
     errorBox.classList.add('d-none');
+    if (retroAutoCreateWrap) {
+        retroAutoCreateWrap.classList.remove('d-none');
+        retroAutoCreateInput.checked = false;
+    }
+    if (retroLinkWrap) retroLinkWrap.classList.add('d-none');
     eventModal.show();
 }
 
@@ -164,6 +187,20 @@ function openEditModal(dataset) {
     submitBtn.textContent = 'Enregistrer';
     deleteBtn.classList.remove('d-none');
     errorBox.classList.add('d-none');
+    if (retroAutoCreateWrap) {
+        var hasLinkedRetro = dataset.hasLinkedRetro === '1';
+        retroAutoCreateWrap.classList.toggle('d-none', hasLinkedRetro);
+        retroAutoCreateInput.checked = dataset.autoCreateRetro === '1';
+    }
+    if (retroLinkWrap) {
+        if (dataset.retroLink) {
+            retroLinkWrap.classList.remove('d-none');
+            retroLinkAnchor.href = dataset.retroLink;
+            retroLinkAnchor.textContent = dataset.retroLinkTitle || dataset.retroLink;
+        } else {
+            retroLinkWrap.classList.add('d-none');
+        }
+    }
     eventModal.show();
 }
 
@@ -192,6 +229,9 @@ form.addEventListener('submit', async (e) => {
         description: descriptionInput.value,
         _csrf_token: csrf()
     };
+    if (retroAutoCreateWrap && !retroAutoCreateWrap.classList.contains('d-none')) {
+        payload.auto_create_retro = retroAutoCreateInput.checked;
+    }
     if (isUpdate) {
         payload.event_id = parseInt(idInput.value);
     }

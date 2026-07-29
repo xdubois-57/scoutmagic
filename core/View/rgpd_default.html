@@ -139,6 +139,20 @@ Modèles : Llama, Qwen, divers modèles open source</li>
 <p><strong>Données traitées</strong> : Aucune donnée personnelle supplémentaire. Le module lit les données déjà présentes dans les fiches membres (section 2.2) et affiche celles marquées comme "responsable" par le chef d'unité.</p>
 <p><strong>Base légale</strong> : Intérêt légitime (transparence, communication externe) et consentement implicite (les chefs acceptent la fonction en connaissance de cause).</p>
 
+<h4>Module Rétrospectives</h4>
+<p><strong>Finalité</strong> : Permettre aux chefs de créer des tableaux de rétrospective anonymes après un événement d'unité (trois colonnes de commentaires libres — ce qui a bien marché, à améliorer, suggestions — et un vote), accessibles via un lien ou un QR code.</p>
+<p><strong>Données traitées</strong> :</p>
+<ul>
+<li>Métadonnées du tableau (titre, date, réglages) créées par un chef identifié — cette création, sa modification et sa clôture sont journalisées comme une action de gestion de l'unité (identifiant du compte, pas l'email, voir section 2.5), au même titre que toute autre action de gestion</li>
+<li>Commentaires et votes déposés par les participants : <strong>aucune information n'associe un commentaire ou un vote à une personne</strong> — ni compte, ni session, ni adresse IP n'est jamais stockée avec ces contenus, y compris pour les chefs et les administrateurs du site, et ces actions ne sont jamais journalisées</li>
+<li>Anti-doublon des votes : selon le réglage choisi par le chef pour un tableau donné, soit un identifiant anonyme (cookie fonctionnel) soit la connexion au compte est utilisé, mais uniquement via un code à sens unique (empreinte cryptographique) prouvant qu'un vote a déjà été déposé sur un commentaire précis, sans jamais permettre de retrouver qui a voté — ce code est stocké dans une table dédiée, distincte du journal d'audit</li>
+<li>Anti-abus (fréquence de publication) : un code à sens unique similaire, à très courte durée de vie (quelques heures), purgé automatiquement</li>
+<li>Notification de clôture (optionnelle, activée par défaut) : une adresse email est enregistrée avec le tableau — préremplie avec celle du chef qui crée le tableau, modifiable à tout moment — pour recevoir par email, à la clôture, les mots visibles (hors mots masqués) et la synthèse IA si elle a été générée</li>
+</ul>
+<p><strong>Modération et synthèse par IA (optionnelles)</strong> : si le module <em>Connecteur Intelligence Artificielle</em> est actif, le texte d'un commentaire peut être analysé avant publication pour détecter une attaque personnelle ou un propos irrespectueux, avec une reformulation plus respectueuse proposée par l'IA en cas de signalement. Le niveau de vérification est configurable par l'unité (désactivée, avertissement — le participant choisit de publier son texte tel quel ou d'accepter la suggestion — ou obligatoire — le participant doit reformuler ou accepter la suggestion avant de pouvoir publier) ; son propre texte reste toujours modifiable, jamais rejeté silencieusement. Un participant peut aussi demander à raccourcir son propre texte avant de l'envoyer. À la clôture d'un tableau, une courte synthèse thématique des commentaires visibles peut être générée automatiquement. Ces appels ne transmettent que le texte du commentaire lui-même, jamais d'identité — voir la section « Module Connecteur Intelligence Artificielle » pour le fournisseur et les transferts concernés.</p>
+<p><strong>Masquage d'un commentaire</strong> : un chef peut masquer un commentaire jugé injurieux ou irrespectueux (action réversible), sans jamais découvrir qui l'a écrit.</p>
+<p><strong>Base légale</strong> : Intérêt légitime (amélioration continue des activités de l'unité).</p>
+
 <h4>Modules Banner et Member Stats</h4>
 <p>Ces modules n'ajoutent aucun traitement de données personnelles. Banner affiche des bannières visuelles éditables. Member Stats génère des statistiques anonymisées sur la répartition des membres (par branche, genre, âge).</p>
 

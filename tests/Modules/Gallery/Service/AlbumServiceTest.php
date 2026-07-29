@@ -95,6 +95,49 @@ class AlbumServiceTest extends TestCase
         $this->service->create(Album::TYPE_EXTERNAL, 'Titre', null, '2026-07-01', null, null, $this->authorId, Role::CHIEF, 'chief@test.com');
     }
 
+    public function testCreateExternalAlbumFetchesTitleFromOgDataWhenTitleIsBlank(): void
+    {
+        $ogScraperService = $this->createMock(OgScraperService::class);
+        $ogScraperService->method('fetch')->willReturn(['title' => 'Album de la famille Dupont', 'description' => 'Desc', 'image' => 'https://example.com/img.jpg']);
+        $settingService = $this->settingServiceAllowingEverything();
+        $service = new AlbumService(
+            $this->albumRepository, new MediaRepository($this->pdo), $this->accessService,
+            $ogScraperService, $this->storageBackendFactory, new ScoutYearService($this->pdo), $settingService
+        );
+
+        $album = $service->create(Album::TYPE_EXTERNAL, '', null, '2026-07-01', null, 'https://example.com/album', $this->authorId, Role::CHIEF, 'chief@test.com');
+
+        $this->assertSame('Album de la famille Dupont', $album->title);
+        $this->assertSame('Album de la famille Dupont', $album->ogTitle);
+    }
+
+    public function testCreateExternalAlbumRequiresATitleWhenOgFetchYieldsNoTitle(): void
+    {
+        $ogScraperService = $this->createMock(OgScraperService::class);
+        $ogScraperService->method('fetch')->willReturn(['title' => '', 'description' => '', 'image' => '']);
+        $service = new AlbumService(
+            $this->albumRepository, new MediaRepository($this->pdo), $this->accessService,
+            $ogScraperService, $this->storageBackendFactory, new ScoutYearService($this->pdo), $this->settingServiceAllowingEverything()
+        );
+
+        $this->expectException(GalleryException::class);
+        $service->create(Album::TYPE_EXTERNAL, '', null, '2026-07-01', null, 'https://example.com/album', $this->authorId, Role::CHIEF, 'chief@test.com');
+    }
+
+    public function testCreateExternalAlbumKeepsAnExplicitTitleEvenWhenOgDataDiffers(): void
+    {
+        $ogScraperService = $this->createMock(OgScraperService::class);
+        $ogScraperService->method('fetch')->willReturn(['title' => 'Titre de la page', 'description' => '', 'image' => '']);
+        $service = new AlbumService(
+            $this->albumRepository, new MediaRepository($this->pdo), $this->accessService,
+            $ogScraperService, $this->storageBackendFactory, new ScoutYearService($this->pdo), $this->settingServiceAllowingEverything()
+        );
+
+        $album = $service->create(Album::TYPE_EXTERNAL, 'Mon titre à moi', null, '2026-07-01', null, 'https://example.com/album', $this->authorId, Role::CHIEF, 'chief@test.com');
+
+        $this->assertSame('Mon titre à moi', $album->title);
+    }
+
     public function testCreateRejectsWhenTheChiefDoesNotManageTheSection(): void
     {
         $accessService = $this->createMock(GalleryAccessService::class);

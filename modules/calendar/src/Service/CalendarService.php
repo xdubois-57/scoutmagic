@@ -7,13 +7,16 @@ namespace Modules\Calendar\Service;
 use Core\Member\SectionService;
 use Core\Security\Role;
 use Core\View\MonthGrid\GridEvent;
+use Modules\Calendar\Api\CalendarEventLookupInterface;
+use Modules\Calendar\Api\EventSummary;
 use Modules\Calendar\Repository\Calendar;
 use Modules\Calendar\Repository\CalendarEvent;
 use Modules\Calendar\Repository\CalendarEventRepository;
 use Modules\Calendar\Repository\CalendarRepository;
 use Modules\Calendar\Repository\CalendarUnitFeedTokenRepository;
+use Modules\Retro\Api\RetroEventLinkLookupInterface;
 
-class CalendarService
+class CalendarService implements CalendarEventLookupInterface
 {
     private const DEFAULT_CALENDAR_NAME = 'Animateurs';
     /** Fixed accent color (bordeaux) for every supplementary calendar's
@@ -35,7 +38,8 @@ class CalendarService
         private CalendarRepository $calendarRepository,
         private CalendarEventRepository $eventRepository,
         private SectionService $sectionService,
-        private CalendarUnitFeedTokenRepository $unitFeedTokenRepository
+        private CalendarUnitFeedTokenRepository $unitFeedTokenRepository,
+        private ?RetroEventLinkLookupInterface $retroEventLinkLookup = null
     ) {
     }
 
@@ -145,6 +149,66 @@ class CalendarService
         }
 
         return array_values(array_map(fn(Calendar $c) => $c->id, $visible));
+    }
+
+    /**
+     * Api\CalendarEventLookupInterface implementation — see its docblock.
+     */
+    public function findEventsInWindow(
+        \DateTimeInterface $windowStart,
+        \DateTimeInterface $windowEnd,
+        ?int $sectionId,
+        Role $viewerRole
+    ): array {
+        $visible = $this->getVisibleCalendars($viewerRole);
+        if ($sectionId !== null) {
+            $visible = array_filter($visible, fn(Calendar $c) => $c->sectionId === null || $c->sectionId === $sectionId);
+        }
+        $calendarIds = array_values(array_map(fn(Calendar $c) => $c->id, $visible));
+        if ($calendarIds === []) {
+            return [];
+        }
+
+        $events = $this->eventRepository->findByCalendarIdsWithEffectiveEndInRange(
+            $calendarIds,
+            $windowStart->format('Y-m-d'),
+            $windowEnd->format('Y-m-d')
+        );
+        $labels = $this->labelsByCalendarId();
+
+        return array_map(fn(CalendarEvent $e) => new EventSummary(
+            id: $e->id,
+            title: $e->title,
+            calendarName: $labels[$e->calendarId] ?? 'Calendrier',
+            startDate: $e->startDate,
+            endDate: $e->endDate ?? $e->startDate
+        ), $events);
+    }
+
+    /**
+     * Api\CalendarEventLookupInterface implementation — see its docblock.
+     */
+    public function findEventById(int $eventId, Role $viewerRole): ?EventSummary
+    {
+        $event = $this->eventRepository->findById($eventId);
+        if ($event === null) {
+            return null;
+        }
+
+        $calendar = $this->calendarRepository->findById($event->calendarId);
+        if ($calendar === null || !$this->isVisibleToRole($calendar, $viewerRole)) {
+            return null;
+        }
+
+        $labels = $this->labelsByCalendarId();
+
+        return new EventSummary(
+            id: $event->id,
+            title: $event->title,
+            calendarName: $labels[$event->calendarId] ?? 'Calendrier',
+            startDate: $event->startDate,
+            endDate: $event->endDate ?? $event->startDate
+        );
     }
 
     /**
@@ -296,15 +360,22 @@ class CalendarService
      * data-calendar-label, ...) — harmless and unused on pages that don't
      * wire up any click behavior.
      *
+     * $viewerRole/$viewerEmail/$scoutYearId are only needed to resolve a
+     * linked retro board's link (Api\RetroEventLinkLookupInterface) for
+     * the chiefs' edit modal — left null (the default) on pages with no
+     * such viewer context, which simply omits the retro-* data keys
+     * (CalendarPublicController's calls never pass them, since that page
+     * has no event-detail modal to show a link in).
+     *
      * @param CalendarEvent[] $events
      * @return GridEvent[]
      */
-    public function toGridEvents(array $events): array
+    public function toGridEvents(array $events, ?Role $viewerRole = null, ?string $viewerEmail = null, ?int $scoutYearId = null): array
     {
         $colors = $this->colorsByCalendarId();
         $labels = $this->labelsByCalendarId();
 
-        return array_map(function (CalendarEvent $event) use ($colors, $labels): GridEvent {
+        return array_map(function (CalendarEvent $event) use ($colors, $labels, $viewerRole, $viewerEmail, $scoutYearId): GridEvent {
             $calendarLabel = $labels[$event->calendarId] ?? 'Calendrier';
 
             $tooltip = $event->title;
@@ -316,6 +387,27 @@ class CalendarService
             }
             $tooltip .= " ({$calendarLabel})";
 
+            $data = [
+                'id' => (string) $event->id,
+                'calendar-id' => (string) $event->calendarId,
+                'calendar-label' => $calendarLabel,
+                'title' => $event->title,
+                'start-date' => $event->startDate,
+                'end-date' => $event->endDate ?? '',
+                'start-time' => $event->startTime !== null ? substr($event->startTime, 0, 5) : '',
+                'end-time' => $event->endTime !== null ? substr($event->endTime, 0, 5) : '',
+                'location' => $event->location ?? '',
+                'description' => $event->description ?? '',
+            ];
+
+            if ($viewerRole !== null && $this->retroEventLinkLookup !== null) {
+                $data['auto-create-retro'] = $event->autoCreateRetro ? '1' : '0';
+                $data['has-linked-retro'] = $this->retroEventLinkLookup->hasLinkedBoard($event->id) ? '1' : '0';
+                $link = $this->retroEventLinkLookup->findLinkedBoardLink($event->id, $viewerRole, $viewerEmail, $scoutYearId);
+                $data['retro-link'] = $link?->url ?? '';
+                $data['retro-link-title'] = $link?->title ?? '';
+            }
+
             return new GridEvent(
                 id: (string) $event->id,
                 startDate: $event->startDate,
@@ -323,18 +415,7 @@ class CalendarService
                 label: $event->title,
                 color: $colors[$event->calendarId] ?? '#6c757d',
                 tooltip: $tooltip,
-                data: [
-                    'id' => (string) $event->id,
-                    'calendar-id' => (string) $event->calendarId,
-                    'calendar-label' => $calendarLabel,
-                    'title' => $event->title,
-                    'start-date' => $event->startDate,
-                    'end-date' => $event->endDate ?? '',
-                    'start-time' => $event->startTime !== null ? substr($event->startTime, 0, 5) : '',
-                    'end-time' => $event->endTime !== null ? substr($event->endTime, 0, 5) : '',
-                    'location' => $event->location ?? '',
-                    'description' => $event->description ?? '',
-                ]
+                data: $data
             );
         }, $events);
     }

@@ -5,6 +5,10 @@ declare(strict_types=1);
 namespace Tests\Core\Maintenance;
 
 use Core\Database\Connection;
+use Core\Database\MigrationRunner;
+use Core\Database\SchemaComparator;
+use Core\Database\SchemaIntrospector;
+use Core\Database\SqlParser;
 use Core\Maintenance\BackupException;
 use Core\Maintenance\BackupService;
 use PHPUnit\Framework\TestCase;
@@ -171,6 +175,15 @@ class BackupServiceTest extends TestCase
      * TEST_DB_* env var convention as SetupControllerTest — skipping
      * rather than failing when none is available, since mysqldump/mysql
      * genuinely need a live server this sandbox doesn't always have.
+     *
+     * This test needs `settings`/`module_registry` (Core\Maintenance\
+     * BackupService::CONFIG_ONLY_TABLES) to actually exist — since this is
+     * a real, persistent MySQL shared across the whole @group database
+     * run (unlike the SQLite-per-test default suite), relying on some
+     * other, unrelated test class happening to have migrated the schema
+     * first (and not cleaned up after itself) is exactly the kind of
+     * execution-order fragility this suite has been fixing elsewhere —
+     * so migrate the real schema here too, idempotently.
      */
     private function realDbService(): BackupService
     {
@@ -185,6 +198,10 @@ class BackupServiceTest extends TestCase
         if ($result !== true) {
             $this->markTestSkipped('Database not available: ' . (is_string($result) ? $result : 'unknown error'));
         }
+
+        $introspector = new SchemaIntrospector($connection->getPdo());
+        $runner = new MigrationRunner($connection, $introspector, new SchemaComparator(), new SqlParser());
+        $runner->migrate([dirname(__DIR__, 3) . '/schema/core.sql']);
 
         return new BackupService($connection, $this->storagePath, $this->basePath);
     }

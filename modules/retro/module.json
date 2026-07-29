@@ -1,0 +1,252 @@
+{
+  "id": "retro",
+  "name": "Rétrospectives",
+  "description": "Boards de rétrospective anonymes après un événement d'unité : trois colonnes de commentaires (ce qui a bien marché / à améliorer / suggestions) et un vote, accessibles via un lien ou un QR code, sans jamais lier un commentaire à une personne.",
+  "version": "1.3.0",
+  "enabled_by_default": false,
+  "routes": [
+    {
+      "path": "/retro",
+      "method": "GET",
+      "controller": "Modules\\Retro\\Controller\\RetroChiefController",
+      "action": "index",
+      "menu": "espace_chefs",
+      "role_min": "intendant",
+      "label": "Rétrospectives"
+    },
+    {
+      "path": "/retro/create",
+      "method": "GET",
+      "controller": "Modules\\Retro\\Controller\\RetroChiefController",
+      "action": "create",
+      "menu": "espace_chefs",
+      "role_min": "intendant",
+      "label": ""
+    },
+    {
+      "path": "/retro",
+      "method": "POST",
+      "controller": "Modules\\Retro\\Controller\\RetroChiefController",
+      "action": "store",
+      "menu": "espace_chefs",
+      "role_min": "intendant",
+      "label": ""
+    },
+    {
+      "path": "/retro/{id}/edit",
+      "method": "GET",
+      "controller": "Modules\\Retro\\Controller\\RetroChiefController",
+      "action": "edit",
+      "menu": "espace_chefs",
+      "role_min": "intendant",
+      "label": ""
+    },
+    {
+      "path": "/retro/{id}",
+      "method": "POST",
+      "controller": "Modules\\Retro\\Controller\\RetroChiefController",
+      "action": "update",
+      "menu": "espace_chefs",
+      "role_min": "intendant",
+      "label": ""
+    },
+    {
+      "path": "/retro/{id}/close",
+      "method": "POST",
+      "controller": "Modules\\Retro\\Controller\\RetroChiefController",
+      "action": "close",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/retro/{id}/regenerate-link",
+      "method": "POST",
+      "controller": "Modules\\Retro\\Controller\\RetroChiefController",
+      "action": "regenerateLink",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/retro/{id}/reopen",
+      "method": "POST",
+      "controller": "Modules\\Retro\\Controller\\RetroChiefController",
+      "action": "reopen",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/retro/{id}/archive",
+      "method": "POST",
+      "controller": "Modules\\Retro\\Controller\\RetroChiefController",
+      "action": "archive",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/retro/{id}/unarchive",
+      "method": "POST",
+      "controller": "Modules\\Retro\\Controller\\RetroChiefController",
+      "action": "unarchive",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/r/{token}",
+      "method": "GET",
+      "controller": "Modules\\Retro\\Controller\\RetroBoardController",
+      "action": "show",
+      "menu": "notre_unite",
+      "role_min": "public",
+      "label": ""
+    },
+    {
+      "path": "/r/{token}/qr",
+      "method": "GET",
+      "controller": "Modules\\Retro\\Controller\\RetroBoardController",
+      "action": "qr",
+      "menu": "notre_unite",
+      "role_min": "public",
+      "label": ""
+    },
+    {
+      "path": "/r/{token}/poll",
+      "method": "GET",
+      "controller": "Modules\\Retro\\Controller\\RetroBoardController",
+      "action": "poll",
+      "menu": "notre_unite",
+      "role_min": "public",
+      "label": ""
+    },
+    {
+      "path": "/r/{token}/comments",
+      "method": "POST",
+      "controller": "Modules\\Retro\\Controller\\RetroBoardController",
+      "action": "addComment",
+      "menu": "notre_unite",
+      "role_min": "public",
+      "label": ""
+    },
+    {
+      "path": "/r/{token}/shorten",
+      "method": "POST",
+      "controller": "Modules\\Retro\\Controller\\RetroBoardController",
+      "action": "shorten",
+      "menu": "notre_unite",
+      "role_min": "public",
+      "label": ""
+    },
+    {
+      "path": "/r/{token}/comments/{comment_id}/vote",
+      "method": "POST",
+      "controller": "Modules\\Retro\\Controller\\RetroBoardController",
+      "action": "toggleLike",
+      "menu": "notre_unite",
+      "role_min": "public",
+      "label": ""
+    },
+    {
+      "path": "/r/{token}/comments/{comment_id}/vote/add",
+      "method": "POST",
+      "controller": "Modules\\Retro\\Controller\\RetroBoardController",
+      "action": "addPoint",
+      "menu": "notre_unite",
+      "role_min": "public",
+      "label": ""
+    },
+    {
+      "path": "/r/{token}/comments/{comment_id}/vote/remove",
+      "method": "POST",
+      "controller": "Modules\\Retro\\Controller\\RetroBoardController",
+      "action": "removePoint",
+      "menu": "notre_unite",
+      "role_min": "public",
+      "label": ""
+    },
+    {
+      "path": "/r/{token}/comments/{comment_id}/hide",
+      "method": "POST",
+      "controller": "Modules\\Retro\\Controller\\RetroBoardController",
+      "action": "hideComment",
+      "menu": "notre_unite",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/r/{token}/comments/{comment_id}/unhide",
+      "method": "POST",
+      "controller": "Modules\\Retro\\Controller\\RetroBoardController",
+      "action": "unhideComment",
+      "menu": "notre_unite",
+      "role_min": "chief",
+      "label": ""
+    }
+  ],
+  "settings": [
+    {
+      "key": "retro_role_min_create_board",
+      "default_value": "intendant",
+      "type": "select",
+      "label": "Rôle minimum pour créer un board",
+      "description": "Rôle minimum requis pour créer ou modifier les réglages d'une rétrospective. Valeurs possibles : intendant, chief, admin."
+    },
+    {
+      "key": "retro_role_min_close_board",
+      "default_value": "chief",
+      "type": "select",
+      "label": "Rôle minimum pour clôturer un board",
+      "description": "Rôle minimum requis pour clôturer manuellement une rétrospective ou régénérer son lien. Valeurs possibles : chief, admin."
+    },
+    {
+      "key": "retro_default_max_comment_length",
+      "default_value": "140",
+      "type": "number",
+      "label": "Longueur max. d'un commentaire par défaut",
+      "description": "Longueur maximale par défaut (en caractères) d'un commentaire pour une nouvelle rétrospective, entre 120 et 200."
+    },
+    {
+      "key": "retro_default_vote_budget",
+      "default_value": "5",
+      "type": "number",
+      "label": "Budget de points par défaut",
+      "description": "Nombre de points par défaut attribués à chaque participant quand une rétrospective utilise le mode de vote par budget."
+    },
+    {
+      "key": "retro_polling_interval_seconds",
+      "default_value": "8",
+      "type": "number",
+      "label": "Intervalle d'actualisation (secondes)",
+      "description": "Fréquence à laquelle la page d'une rétrospective ouverte vérifie les nouveaux commentaires et votes."
+    },
+    {
+      "key": "retro_moderation_mode",
+      "default_value": "disabled",
+      "type": "select",
+      "label": "Modération automatique par IA",
+      "description": "Si le connecteur IA est actif : \"disabled\" (aucune vérification), \"warning\" (le participant est averti mais peut publier tel quel ou accepter une reformulation suggérée), \"enforced\" (le participant doit reformuler ou accepter la suggestion avant de pouvoir publier). Sans connecteur IA actif, seule \"disabled\" a un effet. Valeurs possibles : disabled, warning, enforced."
+    }
+  ],
+  "cookies": [
+    {
+      "name": "retro_voter",
+      "category": "functional",
+      "purpose": "Identifiant anonyme utilisé uniquement pour éviter qu'une même personne ne vote deux fois pour le même commentaire dans une rétrospective.",
+      "duration": "1 an"
+    }
+  ],
+  "scheduled_tasks": [
+    {
+      "key": "auto_close_board",
+      "handler": "Modules\\Retro\\Task\\AutoCloseHandler"
+    },
+    {
+      "key": "purge_rate_limits",
+      "handler": "Modules\\Retro\\Task\\PurgeRateLimitHandler"
+    }
+  ],
+  "storage": {}
+}

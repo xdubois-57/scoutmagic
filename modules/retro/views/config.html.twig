@@ -1,0 +1,214 @@
+{% extends 'base.html.twig' %}
+{% block title %}{{ board ? 'Modifier' : 'Nouvelle' }} rétrospective — {{ param('site_name') }}{% endblock %}
+{% block content %}
+    <div class="container py-4" style="max-width: 640px;">
+        <h1 class="h3 mb-1">{{ board ? 'Modifier la rétrospective' : 'Nouvelle rétrospective' }}</h1>
+        <p class="text-body-secondary small mb-4">
+            {{ board ? 'Ces réglages s\'appliquent tant que le board est ouvert.' : 'Le lien et le QR code sont générés à la création.' }}
+        </p>
+
+        <form method="post" action="{{ board ? '/retro/' ~ board.id : '/retro' }}" class="card">
+            <div class="card-body d-flex flex-column gap-3">
+                {{ csrf_field()|raw }}
+
+                <div>
+                    <label class="form-label small fw-semibold" for="retro-title">Titre</label>
+                    <input type="text" class="form-control" id="retro-title" name="title" required maxlength="150"
+                           value="{{ board ? board.title : '' }}" {{ (board and board.calendarEventId) ? 'disabled' : '' }}>
+                    <div class="form-text">Si un événement est lié, le titre est généré automatiquement à partir de son nom et ne peut plus être modifié ici.</div>
+                </div>
+
+                <div class="row g-3">
+                    <div class="col-12 col-md-6">
+                        <label class="form-label small fw-semibold" for="retro-date">Date</label>
+                        <input type="date" class="form-control" id="retro-date" name="board_date"
+                               value="{{ board ? board.boardDate : '' }}" {{ (board and board.calendarEventId) ? 'disabled' : '' }}>
+                        <div class="form-text">Si un événement est lié, la date se cale automatiquement sur sa date de fin et ne peut plus être modifiée ici.</div>
+                    </div>
+                    <div class="col-12 col-md-6">
+                        <label class="form-label small fw-semibold" for="retro-event">Événement lié</label>
+                        <select class="form-select" id="retro-event" name="calendar_event_id" {{ calendar_enabled ? '' : 'disabled' }}>
+                            <option value="">Aucun (autonome)</option>
+                            {% for event in events %}
+                                <option value="{{ event.id }}" data-title="{{ event.title }}" data-calendar-name="{{ event.calendarName }}"
+                                        data-start-date="{{ event.startDate }}" data-end-date="{{ event.endDate }}"
+                                        {{ board and board.calendarEventId == event.id ? 'selected' : '' }}>
+                                    {{ event.title }} — {{ event.calendarName }} — {{ event.endDate }}
+                                </option>
+                            {% endfor %}
+                        </select>
+                        {% if not calendar_enabled %}
+                            <p class="form-text small mb-0">Module calendrier non actif.</p>
+                        {% else %}
+                            <div class="form-text">Lier un événement associe la rétrospective à une activité de l'unité, génère son titre automatiquement et verrouille sa date sur la date de fin de l'événement.</div>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <div>
+                    <label class="form-label small fw-semibold d-block">Découverte du lien</label>
+                    <div class="form-check form-check-inline">
+                        <input class="form-check-input" type="radio" name="listed" id="retro-listed-yes" value="1"
+                               {{ (board is null or board.listed) ? 'checked' : '' }}>
+                        <label class="form-check-label small" for="retro-listed-yes">Espace membres</label>
+                    </div>
+                    <div class="form-check form-check-inline">
+                        <input class="form-check-input" type="radio" name="listed" id="retro-listed-no" value="0"
+                               {{ (board and not board.listed) ? 'checked' : '' }}>
+                        <label class="form-check-label small" for="retro-listed-no">Lien seul</label>
+                    </div>
+                    <div class="form-text">« Espace membres » rend la rétrospective visible aux membres identifiés. « Lien seul » ne la rend accessible qu'à qui reçoit le lien ou le QR code.</div>
+                </div>
+
+                <div>
+                    <label class="form-label small fw-semibold d-block">Mode de vote</label>
+                    <div class="form-check form-check-inline">
+                        <input class="form-check-input" type="radio" name="vote_mode" id="retro-vote-unlimited" value="unlimited"
+                               {{ (board is null or board.voteMode == 'unlimited') ? 'checked' : '' }} data-vote-mode>
+                        <label class="form-check-label small" for="retro-vote-unlimited">Illimité</label>
+                    </div>
+                    <div class="form-check form-check-inline">
+                        <input class="form-check-input" type="radio" name="vote_mode" id="retro-vote-budget" value="budget"
+                               {{ (board and board.voteMode == 'budget') ? 'checked' : '' }} data-vote-mode>
+                        <label class="form-check-label small" for="retro-vote-budget">Budget de points</label>
+                    </div>
+                    <div class="form-text">« Illimité » : chaque participant peut aimer autant de mots différents qu'il veut, mais une seule fois chacun (un clic de plus retire son vote). « Budget de points » : chaque participant reçoit un nombre fixe de points à répartir librement entre les mots.</div>
+                </div>
+                <div id="retro-vote-budget-field" class="{{ (board and board.voteMode == 'budget') ? '' : 'd-none' }}">
+                    <label class="form-label small fw-semibold" for="retro-budget">Points par personne</label>
+                    <input type="number" class="form-control" style="max-width: 8rem;" id="retro-budget" name="vote_budget" min="1" max="20"
+                           value="{{ board ? board.voteBudget : default_vote_budget }}">
+                </div>
+
+                <div>
+                    <label class="form-label small fw-semibold d-block">Visibilité des votes</label>
+                    <div class="form-check form-check-inline">
+                        <input class="form-check-input" type="radio" name="votes_visible" id="retro-votes-on" value="1"
+                               {{ (board is null or board.votesVisible) ? 'checked' : '' }}>
+                        <label class="form-check-label small" for="retro-votes-on">En direct</label>
+                    </div>
+                    <div class="form-check form-check-inline">
+                        <input class="form-check-input" type="radio" name="votes_visible" id="retro-votes-off" value="0"
+                               {{ (board and not board.votesVisible) ? 'checked' : '' }}>
+                        <label class="form-check-label small" for="retro-votes-off">À la clôture</label>
+                    </div>
+                    <div class="form-text">« En direct » affiche le nombre de votes de chaque mot en temps réel. « À la clôture » les garde masqués jusqu'à ce que la rétrospective soit clôturée.</div>
+                </div>
+
+                <div>
+                    <label class="form-label small fw-semibold d-block">Anti-doublon des votes</label>
+                    <div class="form-check form-check-inline">
+                        <input class="form-check-input" type="radio" name="anti_duplicate_mode" id="retro-dup-cookie" value="cookie"
+                               {{ (board is null or board.antiDuplicateMode == 'cookie') ? 'checked' : '' }}>
+                        <label class="form-check-label small" for="retro-dup-cookie">Cookie anonyme</label>
+                    </div>
+                    <div class="form-check form-check-inline">
+                        <input class="form-check-input" type="radio" name="anti_duplicate_mode" id="retro-dup-auth" value="auth"
+                               {{ (board and board.antiDuplicateMode == 'auth') ? 'checked' : '' }}>
+                        <label class="form-check-label small" for="retro-dup-auth">Connexion requise</label>
+                    </div>
+                    <div class="form-text">« Cookie anonyme » suffit à éviter les doublons sans connexion, mais se perd si le participant change d'appareil ou vide ses cookies. « Connexion requise » est plus fiable mais impose de se connecter pour voter (ajouter des mots reste toujours possible sans connexion).</div>
+                </div>
+
+                <div>
+                    <label class="form-label small fw-semibold" for="retro-max-length">
+                        Longueur max. d'un mot (<span id="retro-max-length-value">{{ board ? board.maxCommentLength : default_max_comment_length }}</span>)
+                    </label>
+                    <input type="range" class="form-range" id="retro-max-length" name="max_comment_length" min="120" max="200" step="10"
+                           value="{{ board ? board.maxCommentLength : default_max_comment_length }}">
+                    <div class="form-text">Nombre maximum de caractères autorisés pour un commentaire.</div>
+                </div>
+
+                <div>
+                    <label class="form-label small fw-semibold d-block">Clôture automatique</label>
+                    <select class="form-select" name="auto_close_delay" style="max-width: 12rem;">
+                        {% for delay, label in {'none': 'Aucune', '2h': '2 heures', '24h': '24 heures', '3d': '3 jours', '7d': '7 jours'} %}
+                            <option value="{{ delay }}" {{ (board ? board.autoCloseDelay : '7d') == delay ? 'selected' : '' }}>{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                    <div class="form-text">Délai après lequel la rétrospective se clôture automatiquement (plus aucun mot ni vote accepté). « Aucune » nécessite une clôture manuelle.</div>
+                </div>
+
+                <div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="retro-notify-enabled" name="close_notify_enabled" value="1"
+                               {{ (board is null or board.closeNotifyEnabled) ? 'checked' : '' }}>
+                        <label class="form-check-label small fw-semibold" for="retro-notify-enabled">Envoyer les résultats par email à la clôture</label>
+                    </div>
+                    <div class="form-text">Un email reprenant les mots visibles (hors mots masqués) et la synthèse IA (si disponible) est envoyé à l'adresse ci-dessous dès que la rétrospective se clôture, manuellement ou automatiquement.</div>
+                    <label class="form-label small fw-semibold mt-2" for="retro-notify-email">Adresse email de notification</label>
+                    <input type="email" class="form-control" id="retro-notify-email" name="close_notify_email"
+                           value="{{ board ? board.closeNotifyEmail : default_notify_email }}">
+                    <div class="form-text">Préremplie avec ton adresse à la création, modifiable à tout moment.</div>
+                </div>
+
+                <div>
+                    <label class="form-label small fw-semibold" for="retro-link-visibility">Audience du lien dans le calendrier</label>
+                    <select class="form-select" id="retro-link-visibility" name="link_visibility" style="max-width: 16rem;">
+                        {% for option in link_visibilities %}
+                            <option value="{{ option.value }}" {{ (board ? board.linkVisibility : 'chief') == option.value ? 'selected' : '' }}>{{ option.label }}</option>
+                        {% endfor %}
+                    </select>
+                    <div class="form-text">Quand un événement est lié, seule l'audience minimale choisie ici verra le lien vers cette rétrospective dans le calendrier et dans le flux ICS personnel — « Chef » par défaut.</div>
+                </div>
+            </div>
+            <div class="card-footer d-flex gap-2 bg-white">
+                <a href="/retro" class="btn btn-outline-secondary flex-fill">Annuler</a>
+                <button type="submit" class="btn btn-success flex-fill">
+                    {{ board ? 'Enregistrer' : 'Créer la rétrospective' }}
+                </button>
+            </div>
+        </form>
+
+        {% if board %}
+            <div class="d-flex align-items-center gap-2 bg-white border rounded px-3 py-2 mt-3 flex-wrap">
+                <span class="small fw-semibold">Lien de participation :</span>
+                <span class="small text-body-secondary text-break flex-grow-1">{{ public_url }}</span>
+                <form method="post" action="/retro/{{ board.id }}/regenerate-link" class="m-0"
+                      onsubmit="return confirm('Générer un nouveau lien rend immédiatement l\'ancien inaccessible pour tout le monde, y compris ceux qui l\'ont déjà reçu ou scanné. Les mots et votes déjà publiés sont conservés. Continuer ?');">
+                    {{ csrf_field()|raw }}
+                    <button type="submit" class="btn btn-outline-secondary btn-sm text-nowrap">
+                        <i class="bi bi-arrow-repeat"></i> Régénérer le lien
+                    </button>
+                </form>
+            </div>
+
+            <div class="mt-2 d-flex gap-2">
+                {% if board.status == 'open' %}
+                    <form method="post" action="/retro/{{ board.id }}/close"
+                          onsubmit="return confirm('Clôturer cette rétrospective ? Plus aucun mot ni vote ne sera accepté après.');">
+                        {{ csrf_field()|raw }}
+                        <button type="submit" class="btn btn-outline-danger btn-sm">
+                            <i class="bi bi-lock"></i> Clôturer maintenant
+                        </button>
+                    </form>
+                {% elseif board.status == 'closed' %}
+                    <form method="post" action="/retro/{{ board.id }}/reopen"
+                          onsubmit="return confirm('Réouvrir cette rétrospective ? Les participants pourront à nouveau ajouter des mots et voter.');">
+                        {{ csrf_field()|raw }}
+                        <button type="submit" class="btn btn-outline-success btn-sm">
+                            <i class="bi bi-unlock"></i> Réouvrir
+                        </button>
+                    </form>
+                    <form method="post" action="/retro/{{ board.id }}/archive">
+                        {{ csrf_field()|raw }}
+                        <button type="submit" class="btn btn-outline-secondary btn-sm">
+                            <i class="bi bi-archive"></i> Archiver
+                        </button>
+                    </form>
+                {% elseif board.status == 'archived' %}
+                    <form method="post" action="/retro/{{ board.id }}/unarchive">
+                        {{ csrf_field()|raw }}
+                        <button type="submit" class="btn btn-outline-secondary btn-sm">
+                            <i class="bi bi-box-arrow-up"></i> Désarchiver
+                        </button>
+                    </form>
+                {% endif %}
+            </div>
+        {% endif %}
+    </div>
+{% endblock %}
+
+{% block scripts %}
+    <script src="/assets/js/retro-config.js" defer nonce="{{ csp_nonce }}"></script>
+{% endblock %}

@@ -317,11 +317,23 @@
     (function initTypeToggle() {
         var radios = document.querySelectorAll('input[name="type"]');
         var externalField = document.querySelector('.gallery-external-field');
+        var externalInput = document.getElementById('album-external-url');
+        var titleInput = document.getElementById('album-title');
+        var titleHint = document.querySelector('.gallery-title-optional-hint');
         if (!radios.length || !externalField) return;
 
         function sync() {
             var checked = document.querySelector('input[name="type"]:checked');
-            externalField.classList.toggle('d-none', !checked || checked.value !== 'external');
+            var isExternal = !!checked && checked.value === 'external';
+
+            externalField.classList.toggle('d-none', !isExternal);
+            if (externalInput) externalInput.required = isExternal;
+
+            // The title is fetched from the link's own og:title when left
+            // blank for an external album — never required upfront the
+            // way a local album (no such fallback) still must be.
+            if (titleInput) titleInput.required = !isExternal;
+            if (titleHint) titleHint.classList.toggle('d-none', !isExternal);
         }
         radios.forEach(function (r) { r.addEventListener('change', sync); });
         sync();

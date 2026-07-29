@@ -65,7 +65,6 @@ class AlbumService
     ): Album {
         $this->assertValidType($type);
         $this->assertTypeAllowed($type);
-        $this->assertValidTitle($title);
         if (!$this->accessService->canManageAlbum($role, $sectionId, $email)) {
             throw new GalleryException('Vous ne gérez pas cette section.');
         }
@@ -73,11 +72,29 @@ class AlbumService
             throw new GalleryException('Un lien est obligatoire pour un album externe.');
         }
 
+        // External albums: the link is what the chief actually has in
+        // hand, the title is fetched from the link's own og:title — never
+        // block on it upfront the way a local album (no such source to
+        // fall back on) still must.
+        $ogTags = null;
+        if ($type === Album::TYPE_EXTERNAL && $externalUrl !== null) {
+            $ogTags = $this->fetchOgTagsBestEffort($externalUrl);
+        }
+
+        if (trim($title) === '') {
+            $ogTitle = $ogTags['title'] ?? '';
+            if ($type === Album::TYPE_EXTERNAL && trim($ogTitle) !== '') {
+                $title = trim($ogTitle);
+            } else {
+                $this->assertValidTitle($title);
+            }
+        }
+
         $scoutYearId = $this->scoutYearService->getCurrentYear()['id'];
         $id = $this->albumRepository->create($type, $title, $subtitle, $albumDate, $sectionId, $scoutYearId, $externalUrl, $createdBy);
 
-        if ($type === Album::TYPE_EXTERNAL && $externalUrl !== null) {
-            $this->tryRefreshOg($id, $externalUrl);
+        if ($ogTags !== null) {
+            $this->albumRepository->updateOgMetadata($id, $ogTags['title'], $ogTags['description'], $ogTags['image']);
         }
 
         return $this->albumRepository->findById($id);
@@ -113,7 +130,10 @@ class AlbumService
         $this->albumRepository->update($id, $title, $subtitle, $albumDate, $sectionId, $externalUrl);
 
         if ($existing->type === Album::TYPE_EXTERNAL && $externalUrl !== null && $externalUrl !== $existing->externalUrl) {
-            $this->tryRefreshOg($id, $externalUrl);
+            $tags = $this->fetchOgTagsBestEffort($externalUrl);
+            if ($tags !== null) {
+                $this->albumRepository->updateOgMetadata($id, $tags['title'], $tags['description'], $tags['image']);
+            }
         }
 
         return $this->albumRepository->findById($id);
@@ -187,14 +207,17 @@ class AlbumService
         return $this->albumRepository->findById($albumId);
     }
 
-    private function tryRefreshOg(int $albumId, string $url): void
+    /**
+     * @return array{title: string, description: string, image: string}|null null on any fetch failure
+     */
+    private function fetchOgTagsBestEffort(string $url): ?array
     {
         try {
-            $tags = $this->ogScraperService->fetch($url);
-            $this->albumRepository->updateOgMetadata($albumId, $tags['title'], $tags['description'], $tags['image']);
+            return $this->ogScraperService->fetch($url);
         } catch (GalleryException) {
             // Best-effort — module spec: a failed fetch never blocks
             // saving the album, the "Rafraîchir" button lets the chief retry.
+            return null;
         }
     }
 
