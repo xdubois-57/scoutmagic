@@ -47,14 +47,17 @@ class BadgeService
 
     /**
      * Idempotent: ensures exactly one "Référent {section}" badge exists for
-     * every visible, non-Staff-d'U section, renamed to match a section's
-     * current name and active exactly when its section is currently
-     * visible — the sole source of truth for both, so a manual "Actif"
-     * toggle on one of these would just be overwritten on the next call
-     * (module spec: "the list is created automatically based on the
-     * sections that are visible"). Safe to call on every relevant page
-     * load (mirrors ensureDefaults()) and is also called directly after a
-     * section's name/visibility changes for immediate effect.
+     * every visible, non-Staff-d'U section (module spec: "the list is
+     * created automatically based on the sections that are visible"),
+     * renamed to match a section's current name. A badge is never created
+     * for a section that's currently invisible, but once created its
+     * active/inactive state is entirely manual from then on — same
+     * "activatable/deactivatable like any other badge" behavior as
+     * Infirmier/Trésorier — this never touches is_active on an existing
+     * badge, so a section later losing visibility does not silently flip
+     * its badge off. Safe to call on every relevant page load (mirrors
+     * ensureDefaults()) and is also called directly after a section's
+     * name/visibility changes for immediate effect.
      */
     public function syncSectionReferentBadges(): void
     {
@@ -75,9 +78,6 @@ class BadgeService
 
             if ($badge->name !== $expectedName) {
                 $this->badgeRepository->update($badge->id, $expectedName);
-            }
-            if ($badge->isActive !== $section['is_visible']) {
-                $this->badgeRepository->setActive($badge->id, $section['is_visible']);
             }
         }
     }

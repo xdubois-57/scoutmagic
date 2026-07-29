@@ -318,7 +318,35 @@ class BadgeServiceTest extends TestCase
         $this->assertCount(1, $this->service->getAll());
     }
 
-    public function testSyncDeactivatesTheBadgeWhenTheSectionBecomesInvisible(): void
+    public function testReferentBadgeIsActiveByDefaultOnCreation(): void
+    {
+        $this->createSection('LOU01', 'Louveteaux');
+
+        $this->service->syncSectionReferentBadges();
+
+        $badge = array_values($this->service->getAll())[0];
+        $this->assertTrue($badge->isActive);
+    }
+
+    /**
+     * Module spec correction: a referent badge is "activatable/
+     * deactivatable like any other badge" — sync must never override a
+     * manual toggle, even when the section's own visibility later changes.
+     */
+    public function testSyncDoesNotOverrideAManualDeactivationWhenTheSectionStaysVisible(): void
+    {
+        $this->createSection('LOU01', 'Louveteaux');
+        $this->service->syncSectionReferentBadges();
+        $badge = array_values($this->service->getAll())[0];
+        $this->service->setActive($badge->id, false);
+
+        $this->service->syncSectionReferentBadges();
+
+        $refreshed = array_values($this->service->getAll())[0];
+        $this->assertFalse($refreshed->isActive);
+    }
+
+    public function testSyncDoesNotDeactivateAnExistingBadgeWhenItsSectionBecomesInvisible(): void
     {
         $sectionId = $this->createSection('LOU01', 'Louveteaux');
         $this->service->syncSectionReferentBadges();
@@ -327,22 +355,23 @@ class BadgeServiceTest extends TestCase
         $this->service->syncSectionReferentBadges();
 
         $badge = array_values($this->service->getAll())[0];
-        $this->assertFalse($badge->isActive);
-        $this->assertEmpty($this->service->getActive());
+        $this->assertTrue($badge->isActive);
     }
 
-    public function testSyncReactivatesTheBadgeWhenTheSectionBecomesVisibleAgain(): void
+    public function testSyncDoesNotReactivateAManuallyDeactivatedBadgeWhenItsSectionBecomesVisibleAgain(): void
     {
         $sectionId = $this->createSection('LOU01', 'Louveteaux');
         $this->service->syncSectionReferentBadges();
+        $badge = array_values($this->service->getAll())[0];
+        $this->service->setActive($badge->id, false);
         $this->sectionService->updateSectionVisibility($sectionId, false);
         $this->service->syncSectionReferentBadges();
 
         $this->sectionService->updateSectionVisibility($sectionId, true);
         $this->service->syncSectionReferentBadges();
 
-        $badge = array_values($this->service->getAll())[0];
-        $this->assertTrue($badge->isActive);
+        $refreshed = array_values($this->service->getAll())[0];
+        $this->assertFalse($refreshed->isActive);
     }
 
     public function testReferentBadgeIsMarkedAsDefault(): void

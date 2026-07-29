@@ -126,6 +126,38 @@ class ConfigGeneralControllerTest extends TestCase
         $this->assertStringContainsString('Trésorier', $body);
     }
 
+    public function testIndexGreysOutTheReadOnlyNameOfDefaultBadges(): void
+    {
+        $request = new Request('GET', '/config/general', [], [], [], []);
+        $response = $this->controller->index($request, []);
+
+        $body = $response->getBody();
+        $this->assertMatchesRegularExpression(
+            '/badge-name-input flex-grow-1 bg-body-secondary text-body-secondary"[^>]*value="Infirmier"[^>]*readonly/',
+            $body
+        );
+    }
+
+    /**
+     * Module spec: a "Référent {section}" badge "can be activated and
+     * deactivated" like any other badge — the switch must never be
+     * rendered disabled.
+     */
+    public function testIndexNeverDisablesTheActiveToggleForAReferentBadge(): void
+    {
+        $this->pdo->exec("INSERT INTO age_branches (desk_code, label, sort_order) VALUES ('BR1', 'Branch', 10)");
+        $branchId = (int) $this->pdo->lastInsertId();
+        $this->pdo->prepare('INSERT INTO sections (desk_code, age_branch_id, name, is_visible) VALUES (?, ?, ?, 1)')
+            ->execute(['LOU01', $branchId, 'Louveteaux']);
+
+        $request = new Request('GET', '/config/general', [], [], [], []);
+        $response = $this->controller->index($request, []);
+
+        $body = $response->getBody();
+        $this->assertStringContainsString('Référent Louveteaux', $body);
+        $this->assertDoesNotMatchRegularExpression('/badge-active-input[^>]*disabled/', $body);
+    }
+
     public function testIndexDisablesDeleteButtonForAssignedBadge(): void
     {
         $badge = $this->badgeService->create('Communication');

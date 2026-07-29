@@ -31,22 +31,23 @@
         Rôles transversaux assignables aux chefs et chefs d'unité (ex: Infirmier, Trésorier),
         affichés sur le trombinoscope. Les badges par défaut ne peuvent pas être renommés ni
         supprimés, seulement désactivés. Un badge « Référent {section} » est en outre créé
-        automatiquement pour chaque section visible (renommé si la section l'est, actif tant
-        que la section est visible) — assignable uniquement à des membres du Staff d'U.
+        automatiquement pour chaque section visible (renommé automatiquement si la section
+        l'est) — assignable uniquement à des membres du Staff d'U, activable/désactivable
+        comme n'importe quel autre badge.
     </p>
 
     <div class="d-flex flex-column gap-2 mb-3" id="badge-list">
         {% for badge in badges %}
             <div class="border rounded-3 p-3 d-flex flex-wrap align-items-center gap-2 gap-md-3 badge-row" data-id="{{ badge.id }}" data-default="{{ badge.isDefault ? '1' : '0' }}">
-                <input type="text" class="form-control form-control-sm badge-name-input flex-grow-1" style="max-width:220px;min-width:120px;" value="{{ badge.name }}" {{ badge.isDefault ? 'readonly' : '' }}>
+                <input type="text" class="form-control form-control-sm badge-name-input flex-grow-1 {{ badge.isDefault ? 'bg-body-secondary text-body-secondary' : '' }}"
+                       style="max-width:220px;min-width:120px;" value="{{ badge.name }}" {{ badge.isDefault ? 'readonly' : '' }}>
                 {% if badge.referentSectionId %}
-                    <span class="badge bg-info-subtle text-info-emphasis" title="Suit automatiquement la visibilité et le nom de la section">Référent de section</span>
+                    <span class="badge bg-info-subtle text-info-emphasis" title="Suit automatiquement le nom de la section">Référent de section</span>
                 {% elseif badge.isDefault %}
                     <span class="badge bg-secondary-subtle text-secondary-emphasis">Par défaut</span>
                 {% endif %}
                 <div class="form-check form-switch ms-auto text-nowrap">
-                    <input type="checkbox" class="form-check-input badge-active-input" role="switch"
-                           {{ badge.isActive ? 'checked' : '' }} {{ badge.referentSectionId ? 'disabled title="Suit automatiquement la visibilité de la section"' : '' }}>
+                    <input type="checkbox" class="form-check-input badge-active-input" role="switch" {{ badge.isActive ? 'checked' : '' }}>
                     <label class="form-check-label small">Actif</label>
                 </div>
                 {% if not badge.isDefault %}
