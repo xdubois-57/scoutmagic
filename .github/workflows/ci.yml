@@ -54,11 +54,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install Ghostscript (PDF rasterization for Core\File\PdfRasterizer)
+        run: sudo apt-get update && sudo apt-get install -y ghostscript
+
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
         with:
           php-version: '8.4'
-          extensions: mbstring, pdo, pdo_mysql, openssl
+          extensions: mbstring, pdo, pdo_mysql, openssl, imagick
 
       - name: Install dependencies
         run: composer install --prefer-dist --no-progress
