@@ -321,7 +321,6 @@
         var titleInput = document.getElementById('album-title');
         var titleHint = document.querySelector('.gallery-title-optional-hint');
         var localField = document.querySelector('.gallery-local-field');
-        var locationSelect = document.getElementById('album-storage-location');
         if (!radios.length || !externalField) return;
 
         function sync() {
@@ -331,7 +330,6 @@
             externalField.classList.toggle('d-none', !isExternal);
             if (externalInput) externalInput.required = isExternal;
             if (localField) localField.classList.toggle('d-none', isExternal);
-            if (locationSelect) locationSelect.required = !isExternal;
 
             // The title is fetched from the link's own og:title when left
             // blank for an external album — never required upfront the
@@ -341,29 +339,6 @@
         }
         radios.forEach(function (r) { r.addEventListener('change', sync); });
         sync();
-    })();
-
-    // ------------------------------------------------------------------
-    // Storage migration trigger (album_form.html.twig, edit mode, local albums)
-    // ------------------------------------------------------------------
-    (function initMigrateStorage() {
-        var btn = document.getElementById('gallery-migrate-start');
-        var select = document.getElementById('gallery-migrate-target');
-        if (!btn || !select) return;
-        btn.addEventListener('click', function () {
-            if (!confirm('Démarrer la migration de cet album vers cet autre emplacement ? L\'album sera indisponible pour les membres pendant l\'opération.')) return;
-            btn.disabled = true;
-            postJson(btn.dataset.url, { target_location_id: parseInt(select.value, 10) }).then(function (data) {
-                if (data.success) {
-                    window.location.reload();
-                } else {
-                    btn.disabled = false;
-                    alert(data.error || 'Erreur lors du démarrage de la migration.');
-                }
-            }).catch(function () {
-                btn.disabled = false;
-            });
-        });
     })();
 
     // ------------------------------------------------------------------

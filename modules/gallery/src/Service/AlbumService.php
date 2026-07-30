@@ -64,7 +64,6 @@ class AlbumService
         string $albumDate,
         ?int $sectionId,
         ?string $externalUrl,
-        ?int $storageLocationId,
         int $createdBy,
         Role $role,
         string $email
@@ -77,11 +76,17 @@ class AlbumService
         if ($type === Album::TYPE_EXTERNAL && ($externalUrl === null || trim($externalUrl) === '')) {
             throw new GalleryException('Un lien est obligatoire pour un album externe.');
         }
+        // The storage location is never chosen by the caller — a local
+        // album always uses the current default location. Changing it
+        // afterward is a superadmin-triggered migration (Configuration >
+        // Galerie), never a per-creation choice.
         if ($type === Album::TYPE_LOCAL) {
             $this->storageLocationService->ensureLegacyLocationBackfilled();
-            if ($storageLocationId === null || $this->storageLocationRepository->findById($storageLocationId) === null) {
-                throw new GalleryException('Un emplacement de stockage valide est obligatoire pour un album local.');
+            $defaultLocation = $this->storageLocationRepository->findDefault();
+            if ($defaultLocation === null) {
+                throw new GalleryException('Aucun emplacement de stockage par défaut n\'est configuré.');
             }
+            $storageLocationId = $defaultLocation->id;
         } else {
             $storageLocationId = null;
         }

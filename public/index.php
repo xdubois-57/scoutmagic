@@ -1412,7 +1412,8 @@ if (in_array('gallery', $moduleManager->getEnabledModuleIds(), true)) {
         \Modules\Gallery\Controller\GalleryConfigController::class,
         new \Modules\Gallery\Controller\GalleryConfigController(
             $twig, $settingService, $galleryFfmpegAvailability, $journalService,
-            $galleryS3ErrorExplainerService, $galleryStorageLocationService, $galleryStorageLocationRepo
+            $galleryS3ErrorExplainerService, $galleryStorageLocationService, $galleryStorageLocationRepo,
+            $galleryAlbumService
         )
     );
     $frontController->registerController(

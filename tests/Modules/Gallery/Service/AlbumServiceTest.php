@@ -93,7 +93,7 @@ class AlbumServiceTest extends TestCase
     public function testCreateLocalAlbum(): void
     {
         $album = $this->service->create(
-            Album::TYPE_LOCAL, 'Camp', 'Semaine 1', '2026-07-01', $this->sectionId, null, $this->locationId, $this->authorId, Role::CHIEF, 'chief@test.com'
+            Album::TYPE_LOCAL, 'Camp', 'Semaine 1', '2026-07-01', $this->sectionId, null, $this->authorId, Role::CHIEF, 'chief@test.com'
         );
 
         $this->assertSame('Camp', $album->title);
@@ -101,34 +101,36 @@ class AlbumServiceTest extends TestCase
         $this->assertSame($this->locationId, $album->storageLocationId);
     }
 
+    public function testCreateAlwaysUsesTheDefaultLocationRegardlessOfHowManyExist(): void
+    {
+        $otherLocationId = $this->storageLocationRepository->create(
+            StorageLocation::TYPE_LOCAL, 'Autre emplacement', 'gallery2', null, null, null, null, null, null, null
+        );
+        // $this->locationId (created first in setUp) stays the default —
+        // creating a second location never changes that.
+        $this->assertNotSame($otherLocationId, $this->locationId);
+
+        $album = $this->service->create(Album::TYPE_LOCAL, 'Titre', null, '2026-07-01', null, null, $this->authorId, Role::CHIEF, 'chief@test.com');
+
+        $this->assertSame($this->locationId, $album->storageLocationId);
+    }
+
     public function testCreateRejectsEmptyTitle(): void
     {
         $this->expectException(GalleryException::class);
-        $this->service->create(Album::TYPE_LOCAL, '   ', null, '2026-07-01', null, null, $this->locationId, $this->authorId, Role::CHIEF, 'chief@test.com');
+        $this->service->create(Album::TYPE_LOCAL, '   ', null, '2026-07-01', null, null, $this->authorId, Role::CHIEF, 'chief@test.com');
     }
 
     public function testCreateRejectsInvalidType(): void
     {
         $this->expectException(GalleryException::class);
-        $this->service->create('bogus', 'Titre', null, '2026-07-01', null, null, $this->locationId, $this->authorId, Role::CHIEF, 'chief@test.com');
-    }
-
-    public function testCreateRejectsMissingStorageLocationForLocalAlbum(): void
-    {
-        $this->expectException(GalleryException::class);
-        $this->service->create(Album::TYPE_LOCAL, 'Titre', null, '2026-07-01', null, null, null, $this->authorId, Role::CHIEF, 'chief@test.com');
-    }
-
-    public function testCreateRejectsUnknownStorageLocationForLocalAlbum(): void
-    {
-        $this->expectException(GalleryException::class);
-        $this->service->create(Album::TYPE_LOCAL, 'Titre', null, '2026-07-01', null, null, 999999, $this->authorId, Role::CHIEF, 'chief@test.com');
+        $this->service->create('bogus', 'Titre', null, '2026-07-01', null, null, $this->authorId, Role::CHIEF, 'chief@test.com');
     }
 
     public function testCreateExternalAlbumRequiresAUrl(): void
     {
         $this->expectException(GalleryException::class);
-        $this->service->create(Album::TYPE_EXTERNAL, 'Titre', null, '2026-07-01', null, null, null, $this->authorId, Role::CHIEF, 'chief@test.com');
+        $this->service->create(Album::TYPE_EXTERNAL, 'Titre', null, '2026-07-01', null, null, $this->authorId, Role::CHIEF, 'chief@test.com');
     }
 
     public function testCreateExternalAlbumFetchesTitleFromOgDataWhenTitleIsBlank(): void
@@ -142,7 +144,7 @@ class AlbumServiceTest extends TestCase
             $this->storageLocationService, new ScoutYearService($this->pdo), $settingService, $this->schedulerService
         );
 
-        $album = $service->create(Album::TYPE_EXTERNAL, '', null, '2026-07-01', null, 'https://example.com/album', null, $this->authorId, Role::CHIEF, 'chief@test.com');
+        $album = $service->create(Album::TYPE_EXTERNAL, '', null, '2026-07-01', null, 'https://example.com/album', $this->authorId, Role::CHIEF, 'chief@test.com');
 
         $this->assertSame('Album de la famille Dupont', $album->title);
         $this->assertSame('Album de la famille Dupont', $album->ogTitle);
@@ -159,7 +161,7 @@ class AlbumServiceTest extends TestCase
         );
 
         $this->expectException(GalleryException::class);
-        $service->create(Album::TYPE_EXTERNAL, '', null, '2026-07-01', null, 'https://example.com/album', null, $this->authorId, Role::CHIEF, 'chief@test.com');
+        $service->create(Album::TYPE_EXTERNAL, '', null, '2026-07-01', null, 'https://example.com/album', $this->authorId, Role::CHIEF, 'chief@test.com');
     }
 
     public function testCreateExternalAlbumKeepsAnExplicitTitleEvenWhenOgDataDiffers(): void
@@ -172,7 +174,7 @@ class AlbumServiceTest extends TestCase
             $this->storageLocationService, new ScoutYearService($this->pdo), $this->settingServiceAllowingEverything(), $this->schedulerService
         );
 
-        $album = $service->create(Album::TYPE_EXTERNAL, 'Mon titre à moi', null, '2026-07-01', null, 'https://example.com/album', null, $this->authorId, Role::CHIEF, 'chief@test.com');
+        $album = $service->create(Album::TYPE_EXTERNAL, 'Mon titre à moi', null, '2026-07-01', null, 'https://example.com/album', $this->authorId, Role::CHIEF, 'chief@test.com');
 
         $this->assertSame('Mon titre à moi', $album->title);
     }
@@ -188,7 +190,7 @@ class AlbumServiceTest extends TestCase
         );
 
         $this->expectException(GalleryException::class);
-        $service->create(Album::TYPE_LOCAL, 'Titre', null, '2026-07-01', $this->sectionId, null, $this->locationId, $this->authorId, Role::CHIEF, 'chief@test.com');
+        $service->create(Album::TYPE_LOCAL, 'Titre', null, '2026-07-01', $this->sectionId, null, $this->authorId, Role::CHIEF, 'chief@test.com');
     }
 
     public function testUpdateChangesTitle(): void
@@ -242,11 +244,13 @@ class AlbumServiceTest extends TestCase
         $this->service->setCover($id1, $mediaId, Role::CHIEF, 'chief@test.com');
     }
 
-    public function testCreateLocalAlbumIsBlockedWhenNoStorageLocationExists(): void
+    public function testCreateLocalAlbumUsesTheAutoBackfilledLocationWhenNoneExistsYet(): void
     {
         // A brand new PDO/tables with zero locations — createTestDatabase()
         // gives an independent in-memory DB so no backfill can silently
-        // create one behind this test's back.
+        // create one behind this test's back. create() itself must trigger
+        // ensureLegacyLocationBackfilled() so a fresh/upgraded install
+        // always has somewhere to put a local album's media.
         $pdo = DatabaseTestHelper::createTestDatabase();
         GalleryTestHelper::createTables($pdo);
         $stmt = $pdo->prepare('INSERT INTO user_accounts (email_encrypted, email_blind_index) VALUES (?, ?)');
@@ -269,8 +273,13 @@ class AlbumServiceTest extends TestCase
             $storageLocationService, new ScoutYearService($pdo), $settingService, $this->schedulerService
         );
 
-        $this->expectException(GalleryException::class);
-        $service->create(Album::TYPE_LOCAL, 'Titre', null, '2026-07-01', null, null, null, $authorId, Role::CHIEF, 'chief@test.com');
+        $this->assertSame([], $storageLocationRepository->findAll());
+
+        $album = $service->create(Album::TYPE_LOCAL, 'Titre', null, '2026-07-01', null, null, $authorId, Role::CHIEF, 'chief@test.com');
+
+        $backfilled = $storageLocationRepository->findDefault();
+        $this->assertNotNull($backfilled);
+        $this->assertSame($backfilled->id, $album->storageLocationId);
     }
 
     public function testStartMigrationSchedulesTheTaskAndMarksInProgress(): void

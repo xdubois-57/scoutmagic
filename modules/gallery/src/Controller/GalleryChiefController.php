@@ -93,7 +93,6 @@ class GalleryChiefController extends AbstractController
                 (string) $request->getBody('album_date', date('Y-m-d')),
                 $this->nullableInt($request->getBody('section_id')),
                 $this->nullableString($request->getBody('external_url')),
-                $this->nullableInt($request->getBody('storage_location_id')),
                 $accountId,
                 $role,
                 $email
@@ -299,30 +298,6 @@ class GalleryChiefController extends AbstractController
     }
 
     /**
-     * POST /gallery/{id}/migrate — starts (or retries) a background
-     * storage migration to a different location.
-     *
-     * @param array<string, string> $params
-     */
-    public function migrateStorage(Request $request, array $params): Response
-    {
-        $data = json_decode($request->getRawBody(), true);
-        if (!is_array($data) || !CsrfGuard::validateToken((string) ($data['_csrf_token'] ?? ''))) {
-            return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
-        }
-
-        [$role, $email] = $this->currentIdentity();
-
-        try {
-            $this->albumService->startMigration((int) $params['id'], (int) ($data['target_location_id'] ?? 0), $role, $email);
-        } catch (GalleryException $e) {
-            return $this->json(['success' => false, 'error' => $e->getMessage()], 422);
-        }
-
-        return $this->json(['success' => true]);
-    }
-
-    /**
      * POST /gallery/{id}/refresh-og
      *
      * @param array<string, string> $params
@@ -390,9 +365,6 @@ class GalleryChiefController extends AbstractController
             'max_media_per_album' => (int) $this->settingService->get('gallery_max_media_per_album', 'gallery', 200),
             'locations' => $locations,
             'default_location_id' => $defaultLocation?->id,
-            'other_locations' => $album !== null
-                ? array_values(array_filter($locations, fn($l) => $l->id !== $album->storageLocationId))
-                : [],
             'media' => $album !== null ? array_map(fn(Media $m) => [
                 'media' => $m,
                 'thumb_url' => $this->mediaService->resolveUrl($m, $album, 'thumb'),

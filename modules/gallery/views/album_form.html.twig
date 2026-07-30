@@ -39,22 +39,13 @@
                         <input type="url" class="form-control" id="album-external-url" name="external_url" value="" placeholder="https://..." {{ allow_local ? '' : 'required' }}>
                     </div>
 
-                    {# Set once at creation and never changed afterward — all of an album's
-                       media always live in the same location (module spec). #}
-                    <div class="mb-3 gallery-local-field {{ allow_local ? '' : 'd-none' }}">
-                        <label class="form-label small" for="album-storage-location">Emplacement de stockage</label>
-                        <select class="form-select" id="album-storage-location" name="storage_location_id" {{ allow_local ? 'required' : '' }}>
-                            <option value="">-- Choisir --</option>
-                            {% for location in locations %}
-                                <option value="{{ location.id }}" {{ location.id == default_location_id ? 'selected' : '' }}>
-                                    {{ location.label }} ({{ location.type == 's3' ? 'S3' : 'Disque local' }}){{ location.isDefault ? ' — par défaut' : '' }}
-                                </option>
-                            {% endfor %}
-                        </select>
-                        {% if locations is empty %}
-                            <div class="form-text text-warning">Aucun emplacement de stockage configuré — <a href="/config/gallery/locations/new">en créer un</a>.</div>
-                        {% endif %}
-                    </div>
+                    {# The storage location is never chosen here — a local album always uses
+                       the current default location (Configuration > Galerie). #}
+                    {% if allow_local and locations is empty %}
+                        <div class="mb-3 gallery-local-field form-text text-warning">
+                            Aucun emplacement de stockage configuré — <a href="/config/gallery/locations/new">en créer un</a>.
+                        </div>
+                    {% endif %}
                 {% endif %}
 
                 {% if album and album.type == 'local' %}
@@ -63,7 +54,7 @@
                         <div class="form-control-plaintext">
                             {% set current_location = locations|filter(l => l.id == album.storageLocationId)|first %}
                             {{ current_location ? current_location.label ~ ' (' ~ (current_location.type == 's3' ? 'S3' : 'Disque local') ~ ')' : 'Non défini' }}
-                            <span class="text-body-secondary small">(fixé à la création — utilisez la migration ci-dessous pour en changer)</span>
+                            <span class="text-body-secondary small">(fixé à la création — la migration vers un autre emplacement se fait depuis la configuration de la galerie)</span>
                         </div>
                     </div>
                 {% endif %}
@@ -134,45 +125,8 @@
     {% endif %}
 
     {% if album and album.type == 'local' %}
-        <div class="card mb-3">
-            <div class="card-body">
-                <h2 class="h6 mb-3">Migration vers un autre emplacement</h2>
-
-                {% if album.migrationStatus == 'in_progress' %}
-                    <div class="alert alert-info mb-0">
-                        <span class="spinner-border spinner-border-sm me-2"></span>
-                        Migration en cours vers un autre emplacement de stockage — l'album est indisponible pour les membres tant qu'elle n'est pas terminée.
-                    </div>
-                {% else %}
-                    {% if album.migrationStatus == 'failed' %}
-                        <div class="alert alert-danger">
-                            Échec de la dernière tentative de migration : {{ album.migrationError }}
-                            Les fichiers de l'emplacement d'origine n'ont pas été touchés — vous pouvez réessayer.
-                        </div>
-                    {% endif %}
-                    {% if other_locations is empty %}
-                        <p class="text-body-secondary mb-0">Aucun autre emplacement de stockage disponible.</p>
-                    {% else %}
-                        <div class="row g-2 align-items-end">
-                            <div class="col-12 col-md-8">
-                                <label class="form-label small" for="gallery-migrate-target">Emplacement cible</label>
-                                <select class="form-select" id="gallery-migrate-target">
-                                    {% for location in other_locations %}
-                                        <option value="{{ location.id }}">{{ location.label }} ({{ location.type == 's3' ? 'S3' : 'Disque local' }})</option>
-                                    {% endfor %}
-                                </select>
-                            </div>
-                            <div class="col-12 col-md-4">
-                                <button type="button" class="btn btn-outline-primary w-100" id="gallery-migrate-start" data-url="/gallery/{{ album.id }}/migrate">
-                                    <i class="bi bi-arrow-left-right"></i> {{ album.migrationStatus == 'failed' ? 'Réessayer la migration' : 'Démarrer la migration' }}
-                                </button>
-                            </div>
-                        </div>
-                    {% endif %}
-                {% endif %}
-            </div>
-        </div>
-
+        {# Migrating an album to another storage location is triggered from
+           Configuration > Galerie (superadmin) — see config.html.twig. #}
         {% if album.migrationStatus == 'in_progress' %}
             <div class="card mb-3">
                 <div class="card-body">

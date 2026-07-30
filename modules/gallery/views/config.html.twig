@@ -30,8 +30,9 @@
                             <label class="form-check-label" for="gallery-allow-external">Autoriser les albums en lien externe</label>
                         </div>
                         <div class="form-text">
-                            Les albums locaux (photos/vidéos hébergées) sont autorisés dès qu'au moins un emplacement de stockage
-                            est configuré ci-dessous — supprimez-les tous pour les désactiver.
+                            Permet de créer un album dont les photos/vidéos restent hébergées ailleurs (ex. Google Photos) :
+                            il suffit d'indiquer le lien de l'album externe, qui apparaît alors mêlé aux autres albums sur
+                            la page Galerie.
                         </div>
                     </div>
                     <div class="col-12 col-md-6">
@@ -116,20 +117,83 @@
 
         <div class="card mb-4">
             <div class="card-body">
+                <h2 class="h6 mb-3">Migration d'album</h2>
+                <p class="small text-body-secondary">
+                    Déplace les photos/vidéos d'un album local d'un emplacement de stockage vers un autre, en arrière-plan —
+                    l'album est indisponible pour les membres pendant l'opération.
+                </p>
+                {% if local_albums is empty %}
+                    <p class="text-body-secondary mb-0">Aucun album local.</p>
+                {% else %}
+                    <div class="table-responsive">
+                        <table class="table table-sm align-middle">
+                            <thead>
+                                <tr>
+                                    <th>Album</th>
+                                    <th>Emplacement actuel</th>
+                                    <th>Statut</th>
+                                    <th class="text-end">Migrer vers</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for album in local_albums %}
+                                    {% set current_location = locations|filter(l => l.id == album.storageLocationId)|first %}
+                                    {% set other_locations = locations|filter(l => l.id != album.storageLocationId) %}
+                                    <tr>
+                                        <td>{{ album.title }}</td>
+                                        <td>{{ current_location ? current_location.label ~ ' (' ~ (current_location.type == 's3' ? 'S3' : 'Disque local') ~ ')' : 'Non défini' }}</td>
+                                        <td class="gallery-album-migration-status" data-album-id="{{ album.id }}">
+                                            {% if album.migrationStatus == 'in_progress' %}
+                                                <span class="badge text-bg-info"><span class="spinner-border spinner-border-sm"></span> En cours</span>
+                                            {% elseif album.migrationStatus == 'failed' %}
+                                                <span class="badge text-bg-danger" title="{{ album.migrationError }}">Échec — nouvelle tentative possible</span>
+                                            {% else %}
+                                                <span class="text-body-secondary">—</span>
+                                            {% endif %}
+                                        </td>
+                                        <td class="text-end">
+                                            {% if album.migrationStatus == 'in_progress' %}
+                                                <span class="text-body-secondary small">Migration en cours…</span>
+                                            {% elseif other_locations is empty %}
+                                                <span class="text-body-secondary small">Aucun autre emplacement disponible</span>
+                                            {% else %}
+                                                <div class="d-inline-flex gap-2 align-items-center">
+                                                    <select class="form-select form-select-sm gallery-migrate-target" data-album-id="{{ album.id }}" style="width:auto;">
+                                                        {% for location in other_locations %}
+                                                            <option value="{{ location.id }}">{{ location.label }} ({{ location.type == 's3' ? 'S3' : 'Disque local' }})</option>
+                                                        {% endfor %}
+                                                    </select>
+                                                    <button type="button" class="btn btn-sm btn-outline-primary gallery-migrate-start"
+                                                            data-album-id="{{ album.id }}" data-url="/config/gallery/albums/{{ album.id }}/migrate">
+                                                        <i class="bi bi-arrow-left-right"></i> {{ album.migrationStatus == 'failed' ? 'Réessayer' : 'Migrer' }}
+                                                    </button>
+                                                </div>
+                                            {% endif %}
+                                        </td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="card mb-4">
+            <div class="card-body">
                 <h2 class="h6 mb-3">Photos</h2>
                 <div class="row g-3">
                     <div class="col-12 col-md-6">
                         <label class="form-label small" for="photo-max-upload">Taille maximale d'envoi (Mo)</label>
                         <input type="number" class="form-control" id="photo-max-upload" name="gallery_max_photo_upload_mb" value="{{ gallery_max_photo_upload_mb }}" min="1">
+                        <div class="form-text">Un fichier dépassant cette taille est refusé à l'envoi.</div>
                     </div>
                     <div class="col-12 col-md-6">
                         <label class="form-label small" for="photo-max-dimension">Dimension maximale (px, plus long côté)</label>
                         <input type="number" class="form-control" id="photo-max-dimension" name="gallery_photo_max_dimension" value="{{ gallery_photo_max_dimension }}" min="500">
                         <div class="form-text">
-                            Ne bloque pas l'envoi : la photo n'est jamais rejetée pour sa taille. Une version « grande » est
-                            générée, redimensionnée (jamais recadrée) pour que son plus long côté ne dépasse pas cette valeur ;
-                            c'est cette version qui est ensuite servie et téléchargeable — le fichier original envoyé est
-                            supprimé une fois le traitement terminé (les vignettes ne sont donc jamais plus grandes que ce réglage).
+                            La photo est redimensionnée (jamais recadrée, jamais rejetée) pour que son plus long côté ne
+                            dépasse pas cette valeur ; c'est cette version, plus légère, qui est ensuite servie.
                         </div>
                     </div>
                 </div>

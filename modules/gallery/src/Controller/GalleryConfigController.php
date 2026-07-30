@@ -11,8 +11,11 @@ use Core\Http\Response;
 use Core\Journal\JournalService;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
+use Core\Security\Role;
+use Modules\Gallery\Repository\Album;
 use Modules\Gallery\Repository\StorageLocation;
 use Modules\Gallery\Repository\StorageLocationRepository;
+use Modules\Gallery\Service\AlbumService;
 use Modules\Gallery\Service\FfmpegAvailability;
 use Modules\Gallery\Service\GalleryException;
 use Modules\Gallery\Service\S3ErrorExplainerService;
@@ -29,7 +32,8 @@ class GalleryConfigController extends AbstractController
         private JournalService $journalService,
         private S3ErrorExplainerService $s3ErrorExplainerService,
         private StorageLocationService $storageLocationService,
-        private StorageLocationRepository $storageLocationRepository
+        private StorageLocationRepository $storageLocationRepository,
+        private AlbumService $albumService
     ) {
     }
 
@@ -153,6 +157,34 @@ class GalleryConfigController extends AbstractController
     }
 
     /**
+     * POST /config/gallery/albums/{id}/migrate — starts (or retries) a
+     * background storage migration of a local album to a different
+     * location. Superadmin-only (moved here from the chief-facing album
+     * edit page — see AlbumService::startMigration() for the mechanics,
+     * unchanged).
+     *
+     * @param array<string, string> $params
+     */
+    public function migrateAlbumStorage(Request $request, array $params): Response
+    {
+        $data = json_decode($request->getRawBody(), true);
+        if (!is_array($data) || !CsrfGuard::validateToken((string) ($data['_csrf_token'] ?? ''))) {
+            return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
+        }
+
+        $role = Role::fromString(AuthSession::getRole());
+        $email = AuthSession::getEmail() ?? '';
+
+        try {
+            $this->albumService->startMigration((int) $params['id'], (int) ($data['target_location_id'] ?? 0), $role, $email);
+        } catch (GalleryException $e) {
+            return $this->json(['success' => false, 'error' => $e->getMessage()], 422);
+        }
+
+        return $this->json(['success' => true]);
+    }
+
+    /**
      * @return array<string, mixed>
      */
     private function buildContext(): array
@@ -166,6 +198,7 @@ class GalleryConfigController extends AbstractController
             'ffmpeg_available' => $this->ffmpegAvailability->check(),
             'gallery_s3_ai_available' => $this->s3ErrorExplainerService->isAvailable(),
             'locations' => $locations,
+            'local_albums' => array_values(array_filter($this->albumService->findAllForManage(), fn(Album $a) => $a->isLocal())),
             'location_album_counts' => array_combine(
                 array_map(fn(StorageLocation $l) => $l->id, $locations),
                 array_map(fn(StorageLocation $l) => $this->storageLocationRepository->countAlbumsUsing($l->id), $locations)

@@ -1,8 +1,9 @@
 // Gallery module superadmin storage-location pages: the locations table on
-// config.html.twig (test/delete buttons) and the add/edit location form
-// (location_form.html.twig: type toggle, S3 provider help panels, "Tester
-// la connexion" AJAX check — same pattern the single-location config page
-// used to own before multi-location support).
+// config.html.twig (test/delete buttons), the album storage-migration table
+// on the same page, and the add/edit location form (location_form.html.twig:
+// type toggle, S3 provider help panels, "Tester la connexion" AJAX check —
+// same pattern the single-location config page used to own before
+// multi-location support).
 (function () {
     function csrf() {
         var meta = document.querySelector('meta[name="csrf-token"]');
@@ -55,6 +56,28 @@
                 } else {
                     btn.disabled = false;
                     alert(data.error || 'Impossible de définir cet emplacement par défaut.');
+                }
+            }).catch(function () {
+                btn.disabled = false;
+            });
+        });
+    });
+
+    // ------------------------------------------------------------------
+    // Album storage migration (config.html.twig)
+    // ------------------------------------------------------------------
+    document.querySelectorAll('.gallery-migrate-start').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            var select = document.querySelector('.gallery-migrate-target[data-album-id="' + btn.dataset.albumId + '"]');
+            if (!select) return;
+            if (!confirm('Démarrer la migration de cet album vers cet autre emplacement ? L\'album sera indisponible pour les membres pendant l\'opération.')) return;
+            btn.disabled = true;
+            postJson(btn.dataset.url, { target_location_id: parseInt(select.value, 10) }).then(function (data) {
+                if (data.success) {
+                    window.location.reload();
+                } else {
+                    btn.disabled = false;
+                    alert(data.error || 'Erreur lors du démarrage de la migration.');
                 }
             }).catch(function () {
                 btn.disabled = false;

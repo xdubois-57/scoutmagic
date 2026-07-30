@@ -241,12 +241,12 @@
       "label": ""
     },
     {
-      "path": "/gallery/{id}/migrate",
+      "path": "/config/gallery/albums/{id}/migrate",
       "method": "POST",
-      "controller": "Modules\\Gallery\\Controller\\GalleryChiefController",
-      "action": "migrateStorage",
-      "menu": "espace_chefs",
-      "role_min": "chief",
+      "controller": "Modules\\Gallery\\Controller\\GalleryConfigController",
+      "action": "migrateAlbumStorage",
+      "menu": "configuration",
+      "role_min": "superadmin",
       "label": ""
     }
   ],

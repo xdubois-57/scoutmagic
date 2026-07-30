@@ -16,8 +16,9 @@ use Modules\Gallery\Service\Storage\StorageBackendFactory;
 /**
  * Background storage migration (module spec: "the gallery is not available
  * [...] and the photos at the source location are deleted only when the
- * migration is finished") — triggered from the album edit page via
- * Controller\GalleryChiefController::migrateStorage(). Copies every
+ * migration is finished") — triggered from Configuration > Galerie
+ * (superadmin) via Controller\GalleryConfigController::migrateAlbumStorage().
+ * Copies every
  * rendition of every media row from the album's current storage location to
  * migration_target_location_id, verifying each file immediately after
  * writing it (one at a time — never holding every file's bytes in memory
