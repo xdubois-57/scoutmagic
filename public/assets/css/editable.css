@@ -3,6 +3,13 @@
     position: relative;
     transition: outline 0.15s;
 }
+/* The "Modifier" overlay button is absolutely positioned, so it never
+   contributes to this box's height — without a floor, short/empty
+   editable text collapses to near-zero height and becomes almost
+   impossible to hover to reveal the button at all. */
+.editable-content {
+    min-height: 2.25rem;
+}
 .editable-content:hover,
 .editable-image:hover {
     outline: 2px dashed var(--bs-primary);

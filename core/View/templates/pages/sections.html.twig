@@ -19,12 +19,12 @@
                     <div class="card h-100">
                         {{ section_photo(section.id, section.name ?? section.desk_code, 'w-100 card-img-top') }}
                         <div class="card-body">
-                            <h5 class="card-title">{{ section.name ?? section.desk_code }}</h5>
+                            <h5 class="card-title"><i class="bi bi-flag-fill"></i> {{ section.name ?? section.desk_code }}</h5>
                             {% if section.responsable %}
                             <p class="card-text small mb-1">{{ section.responsable|display_name|normalize_name }}</p>
                             {% endif %}
                             {% if section.email %}
-                            <p class="card-text small"><a href="mailto:{{ section.email }}">{{ section.email }}</a></p>
+                            <p class="card-text small"><i class="bi bi-envelope"></i> <a href="mailto:{{ section.email }}">{{ section.email }}</a></p>
                             {% endif %}
                             <div class="small">
                                 {{ editable('section.' ~ section.desk_code ~ '.text', '') }}
