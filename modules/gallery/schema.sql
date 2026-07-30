@@ -78,7 +78,17 @@ CREATE TABLE IF NOT EXISTS gallery_albums (
     external_url VARCHAR(500) NULL,
     og_title VARCHAR(255) NULL,
     og_description TEXT NULL,
+    -- Raw og:image URL as scraped — kept for reference/debugging only,
+    -- never rendered directly (the CSP img-src is deliberately narrow and
+    -- can't whitelist an arbitrary third-party domain per album, and
+    -- hotlinking would leak the viewer's IP/UA to that third party without
+    -- consent). og_image_file_id below is the actual served copy.
     og_image_url VARCHAR(500) NULL,
+    -- A local, EXIF-stripped copy of og:image downloaded once (best-effort,
+    -- same "never blocks album creation" philosophy as the metadata scrape
+    -- itself — Service\AlbumService::cacheOgImage()) and served the normal
+    -- way via file_url()/`/files/{id}`.
+    og_image_file_id INT UNSIGNED NULL,
     -- Which gallery_storage_locations row this album's files live in — set
     -- once at creation (type='local' only) and never changed afterward:
     -- all of an album's media are always in the same location (module
@@ -109,7 +119,8 @@ CREATE TABLE IF NOT EXISTS gallery_albums (
     CONSTRAINT fk_gallery_albums_scout_year FOREIGN KEY (scout_year_id) REFERENCES scout_years(id),
     CONSTRAINT fk_gallery_albums_created_by FOREIGN KEY (created_by) REFERENCES user_accounts(id),
     CONSTRAINT fk_gallery_albums_storage_location FOREIGN KEY (storage_location_id) REFERENCES gallery_storage_locations(id),
-    CONSTRAINT fk_gallery_albums_migration_target FOREIGN KEY (migration_target_location_id) REFERENCES gallery_storage_locations(id)
+    CONSTRAINT fk_gallery_albums_migration_target FOREIGN KEY (migration_target_location_id) REFERENCES gallery_storage_locations(id),
+    CONSTRAINT fk_gallery_albums_og_image FOREIGN KEY (og_image_file_id) REFERENCES files(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- gallery_media: one row per uploaded photo/video, always tied to a local

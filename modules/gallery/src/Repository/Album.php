@@ -29,6 +29,7 @@ final class Album
         public readonly ?string $ogTitle,
         public readonly ?string $ogDescription,
         public readonly ?string $ogImageUrl,
+        public readonly ?int $ogImageFileId,
         public readonly ?int $storageLocationId,
         public readonly string $migrationStatus,
         public readonly ?int $migrationTargetLocationId,

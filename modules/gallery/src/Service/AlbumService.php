@@ -6,6 +6,8 @@ namespace Modules\Gallery\Service;
 
 use Core\Config\ScoutYearService;
 use Core\Config\SettingService;
+use Core\File\UploadException;
+use Core\File\UploadHandler;
 use Core\Scheduler\SchedulerService;
 use Core\Security\Role;
 use Modules\Gallery\Repository\Album;
@@ -16,6 +18,9 @@ use Modules\Gallery\Service\Storage\StorageBackendFactory;
 
 class AlbumService
 {
+    private const OG_IMAGE_ALLOWED_MIMES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+    private const OG_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
+
     public function __construct(
         private AlbumRepository $albumRepository,
         private MediaRepository $mediaRepository,
@@ -26,7 +31,8 @@ class AlbumService
         private StorageLocationService $storageLocationService,
         private ScoutYearService $scoutYearService,
         private SettingService $settingService,
-        private SchedulerService $schedulerService
+        private SchedulerService $schedulerService,
+        private UploadHandler $uploadHandler
     ) {
     }
 
@@ -113,7 +119,8 @@ class AlbumService
         $id = $this->albumRepository->create($type, $title, $subtitle, $albumDate, $sectionId, $scoutYearId, $externalUrl, $storageLocationId, $createdBy);
 
         if ($ogTags !== null) {
-            $this->albumRepository->updateOgMetadata($id, $ogTags['title'], $ogTags['description'], $ogTags['image']);
+            $ogImageFileId = $this->cacheOgImage($id, $ogTags['image'], $createdBy);
+            $this->albumRepository->updateOgMetadata($id, $ogTags['title'], $ogTags['description'], $ogTags['image'], $ogImageFileId);
         }
 
         return $this->albumRepository->findById($id);
@@ -151,7 +158,8 @@ class AlbumService
         if ($existing->type === Album::TYPE_EXTERNAL && $externalUrl !== null && $externalUrl !== $existing->externalUrl) {
             $tags = $this->fetchOgTagsBestEffort($externalUrl);
             if ($tags !== null) {
-                $this->albumRepository->updateOgMetadata($id, $tags['title'], $tags['description'], $tags['image']);
+                $ogImageFileId = $this->cacheOgImage($id, $tags['image'], $existing->createdBy);
+                $this->albumRepository->updateOgMetadata($id, $tags['title'], $tags['description'], $tags['image'], $ogImageFileId);
             }
         }
 
@@ -227,7 +235,8 @@ class AlbumService
         }
 
         $tags = $this->ogScraperService->fetch($album->externalUrl);
-        $this->albumRepository->updateOgMetadata($albumId, $tags['title'], $tags['description'], $tags['image']);
+        $ogImageFileId = $this->cacheOgImage($albumId, $tags['image'], $album->createdBy);
+        $this->albumRepository->updateOgMetadata($albumId, $tags['title'], $tags['description'], $tags['image'], $ogImageFileId);
 
         return $this->albumRepository->findById($albumId);
     }
@@ -284,6 +293,49 @@ class AlbumService
             // Best-effort — module spec: a failed fetch never blocks
             // saving the album, the "Rafraîchir" button lets the chief retry.
             return null;
+        }
+    }
+
+    /**
+     * Best-effort local cache of an og:image (Service\OgScraperService::
+     * fetchImageBytes()) — never blocks album creation/refresh, exactly
+     * like fetchOgTagsBestEffort() above. The image is downloaded once,
+     * EXIF-stripped like any other upload (Core\File\UploadHandler), and
+     * served the normal way afterward (`/files/{id}`) rather than
+     * hotlinked directly from the external site: the CSP img-src is
+     * deliberately narrow and can't whitelist an arbitrary third-party
+     * domain per album, and hotlinking would leak the viewer's IP/user
+     * agent to that third party without consent.
+     */
+    private function cacheOgImage(int $albumId, ?string $imageUrl, int $createdBy): ?int
+    {
+        if ($imageUrl === null || trim($imageUrl) === '') {
+            return null;
+        }
+
+        $bytes = $this->ogScraperService->fetchImageBytes($imageUrl);
+        if ($bytes === null || $bytes === '') {
+            return null;
+        }
+
+        $tmpPath = tempnam(sys_get_temp_dir(), 'gallery_og_');
+        if ($tmpPath === false) {
+            return null;
+        }
+
+        try {
+            file_put_contents($tmpPath, $bytes);
+            return $this->uploadHandler->handle(
+                ['tmp_name' => $tmpPath, 'size' => strlen($bytes), 'error' => UPLOAD_ERR_OK, 'name' => 'og_image'],
+                "gallery/{$albumId}/og", self::OG_IMAGE_ALLOWED_MIMES, self::OG_IMAGE_MAX_BYTES, 'identified', 'gallery', $createdBy
+            );
+        } catch (UploadException) {
+            // Best-effort — an unsupported/oversized image just leaves the
+            // album without a cached preview, exactly like a failed
+            // metadata scrape leaves the title/description null.
+            return null;
+        } finally {
+            @unlink($tmpPath);
         }
     }
 

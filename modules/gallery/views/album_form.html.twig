@@ -113,8 +113,8 @@
     {% if album and album.type == 'external' and album.ogTitle %}
         <div class="card mb-3">
             <div class="card-body d-flex gap-3">
-                {% if album.ogImageUrl %}
-                    <img src="{{ album.ogImageUrl }}" alt="" class="rounded flex-shrink-0" style="width:100px;height:100px;object-fit:cover;">
+                {% if album.ogImageFileId %}
+                    <img src="{{ file_url(album.ogImageFileId) }}" alt="" class="rounded flex-shrink-0" style="width:100px;height:100px;object-fit:cover;">
                 {% endif %}
                 <div>
                     <h2 class="h6 mb-1">{{ album.ogTitle }}</h2>

@@ -40,6 +40,7 @@ class GalleryTestHelper
             og_title TEXT NULL,
             og_description TEXT NULL,
             og_image_url TEXT NULL,
+            og_image_file_id INTEGER NULL,
             storage_location_id INTEGER NULL,
             migration_status TEXT NOT NULL DEFAULT "none",
             migration_target_location_id INTEGER NULL,
@@ -50,7 +51,8 @@ class GalleryTestHelper
             FOREIGN KEY (scout_year_id) REFERENCES scout_years(id),
             FOREIGN KEY (created_by) REFERENCES user_accounts(id),
             FOREIGN KEY (storage_location_id) REFERENCES gallery_storage_locations(id),
-            FOREIGN KEY (migration_target_location_id) REFERENCES gallery_storage_locations(id)
+            FOREIGN KEY (migration_target_location_id) REFERENCES gallery_storage_locations(id),
+            FOREIGN KEY (og_image_file_id) REFERENCES files(id)
         )');
 
         $pdo->exec('CREATE TABLE gallery_media (

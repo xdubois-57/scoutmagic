@@ -355,7 +355,7 @@ class GalleryController extends AbstractController
             $cover = $this->mediaRepository->findById($album->coverMediaId);
             $coverUrl = $cover !== null ? $this->mediaService->resolveUrl($cover, $album, 'thumb') : null;
         } elseif (!$album->isLocal()) {
-            $coverUrl = $album->ogImageUrl;
+            $coverUrl = $album->ogImageFileId !== null ? '/files/' . $album->ogImageFileId : null;
         }
 
         return [

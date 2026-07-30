@@ -82,12 +82,12 @@ class GalleryChiefControllerTest extends TestCase
         );
 
         $schedulerService = new SchedulerService(new SchedulerRepository($this->pdo));
+        $uploadHandler = new UploadHandler(new FileRepository($this->pdo), sys_get_temp_dir());
         $albumService = new AlbumService(
             $this->albumRepository, $this->mediaRepository, $accessService, $this->createMock(OgScraperService::class),
             $storageBackendFactory, $storageLocationRepository, $storageLocationService, $scoutYearService, $settingService,
-            $schedulerService
+            $schedulerService, $uploadHandler
         );
-        $uploadHandler = new UploadHandler(new FileRepository($this->pdo), sys_get_temp_dir());
         $mediaService = new MediaService(
             $this->mediaRepository, $this->albumRepository, $uploadHandler, $schedulerService,
             $settingService, $accessService, $storageBackendFactory, $storageLocationService, $this->createMock(FfmpegAvailability::class)

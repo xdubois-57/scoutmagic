@@ -83,12 +83,26 @@ class AlbumRepositoryTest extends TestCase
     {
         $id = $this->repository->create(Album::TYPE_EXTERNAL, 'Titre', null, '2026-01-01', null, $this->scoutYearId, 'https://example.com', null, $this->authorId);
 
-        $this->repository->updateOgMetadata($id, 'OG Title', 'OG Description', 'https://example.com/image.jpg');
+        $this->repository->updateOgMetadata($id, 'OG Title', 'OG Description', 'https://example.com/image.jpg', null);
 
         $album = $this->repository->findById($id);
         $this->assertSame('OG Title', $album->ogTitle);
         $this->assertSame('OG Description', $album->ogDescription);
         $this->assertSame('https://example.com/image.jpg', $album->ogImageUrl);
+        $this->assertNull($album->ogImageFileId);
+    }
+
+    public function testUpdateOgMetadataStoresTheCachedImageFileId(): void
+    {
+        $id = $this->repository->create(Album::TYPE_EXTERNAL, 'Titre', null, '2026-01-01', null, $this->scoutYearId, 'https://example.com', null, $this->authorId);
+        $stmt = $this->pdo->prepare("INSERT INTO files (relative_path, original_name, mime_type, size_bytes, role_min) VALUES ('a', 'a', 'image/jpeg', 1, 'identified')");
+        $stmt->execute();
+        $fileId = (int) $this->pdo->lastInsertId();
+
+        $this->repository->updateOgMetadata($id, 'OG Title', 'OG Description', 'https://example.com/image.jpg', $fileId);
+
+        $album = $this->repository->findById($id);
+        $this->assertSame($fileId, $album->ogImageFileId);
     }
 
     public function testSetCoverMediaId(): void

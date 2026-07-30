@@ -140,10 +140,10 @@ class AlbumRepository
         $stmt->execute([$title, $subtitle, $albumDate, $sectionId, $externalUrl, $id]);
     }
 
-    public function updateOgMetadata(int $id, ?string $ogTitle, ?string $ogDescription, ?string $ogImageUrl): void
+    public function updateOgMetadata(int $id, ?string $ogTitle, ?string $ogDescription, ?string $ogImageUrl, ?int $ogImageFileId): void
     {
-        $stmt = $this->pdo->prepare('UPDATE gallery_albums SET og_title = ?, og_description = ?, og_image_url = ? WHERE id = ?');
-        $stmt->execute([$ogTitle, $ogDescription, $ogImageUrl, $id]);
+        $stmt = $this->pdo->prepare('UPDATE gallery_albums SET og_title = ?, og_description = ?, og_image_url = ?, og_image_file_id = ? WHERE id = ?');
+        $stmt->execute([$ogTitle, $ogDescription, $ogImageUrl, $ogImageFileId, $id]);
     }
 
     public function setCoverMediaId(int $id, ?int $coverMediaId): void
@@ -176,6 +176,7 @@ class AlbumRepository
             ogTitle: $row['og_title'] !== null ? (string) $row['og_title'] : null,
             ogDescription: $row['og_description'] !== null ? (string) $row['og_description'] : null,
             ogImageUrl: $row['og_image_url'] !== null ? (string) $row['og_image_url'] : null,
+            ogImageFileId: $row['og_image_file_id'] !== null ? (int) $row['og_image_file_id'] : null,
             storageLocationId: $row['storage_location_id'] !== null ? (int) $row['storage_location_id'] : null,
             migrationStatus: (string) $row['migration_status'],
             migrationTargetLocationId: $row['migration_target_location_id'] !== null ? (int) $row['migration_target_location_id'] : null,

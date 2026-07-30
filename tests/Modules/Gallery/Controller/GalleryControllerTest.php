@@ -81,12 +81,12 @@ class GalleryControllerTest extends TestCase
             new S3SecretRepository($this->pdo, $encryption), sys_get_temp_dir()
         );
 
+        $uploadHandler = new UploadHandler(new FileRepository($this->pdo), sys_get_temp_dir());
         $albumService = new AlbumService(
             $this->albumRepository, $this->mediaRepository, $accessService, $this->createMock(OgScraperService::class),
             $this->storageBackendFactory, $storageLocationRepository, $storageLocationService, $scoutYearService, $settingService,
-            $this->createMock(SchedulerService::class)
+            $this->createMock(SchedulerService::class), $uploadHandler
         );
-        $uploadHandler = new UploadHandler(new FileRepository($this->pdo), sys_get_temp_dir());
         $this->mediaService = new MediaService(
             $this->mediaRepository, $this->albumRepository, $uploadHandler, new SchedulerService(new SchedulerRepository($this->pdo)),
             $settingService, $accessService, $this->storageBackendFactory, $storageLocationService, $this->createMock(FfmpegAvailability::class)

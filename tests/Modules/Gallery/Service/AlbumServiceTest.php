@@ -6,6 +6,8 @@ namespace Tests\Modules\Gallery\Service;
 
 use Core\Config\ScoutYearService;
 use Core\Config\SettingService;
+use Core\File\FileRepository;
+use Core\File\UploadHandler;
 use Core\Scheduler\SchedulerService;
 use Core\Security\EncryptionService;
 use Core\Security\Role;
@@ -38,6 +40,7 @@ class AlbumServiceTest extends TestCase
     private GalleryAccessService $accessService;
     private StorageBackendFactory $storageBackendFactory;
     private SchedulerService $schedulerService;
+    private UploadHandler $uploadHandler;
     private int $authorId;
     private int $scoutYearId;
     private int $sectionId;
@@ -82,11 +85,12 @@ class AlbumServiceTest extends TestCase
         );
 
         $this->schedulerService = $this->createMock(SchedulerService::class);
+        $this->uploadHandler = new UploadHandler(new FileRepository($this->pdo), sys_get_temp_dir());
 
         $this->service = new AlbumService(
             $this->albumRepository, $mediaRepository, $this->accessService, $ogScraperService,
             $this->storageBackendFactory, $this->storageLocationRepository, $this->storageLocationService,
-            $scoutYearService, $settingService, $this->schedulerService
+            $scoutYearService, $settingService, $this->schedulerService, $this->uploadHandler
         );
     }
 
@@ -141,13 +145,56 @@ class AlbumServiceTest extends TestCase
         $service = new AlbumService(
             $this->albumRepository, new MediaRepository($this->pdo), $this->accessService,
             $ogScraperService, $this->storageBackendFactory, $this->storageLocationRepository,
-            $this->storageLocationService, new ScoutYearService($this->pdo), $settingService, $this->schedulerService
+            $this->storageLocationService, new ScoutYearService($this->pdo), $settingService, $this->schedulerService, $this->uploadHandler
         );
 
         $album = $service->create(Album::TYPE_EXTERNAL, '', null, '2026-07-01', null, 'https://example.com/album', $this->authorId, Role::CHIEF, 'chief@test.com');
 
         $this->assertSame('Album de la famille Dupont', $album->title);
         $this->assertSame('Album de la famille Dupont', $album->ogTitle);
+    }
+
+    public function testCreateExternalAlbumCachesTheOgImageLocallyInsteadOfHotlinkingIt(): void
+    {
+        $image = imagecreatetruecolor(4, 4);
+        ob_start();
+        imagejpeg($image);
+        $jpegBytes = ob_get_clean();
+        imagedestroy($image);
+
+        $ogScraperService = $this->createMock(OgScraperService::class);
+        $ogScraperService->method('fetch')->willReturn(['title' => 'Titre', 'description' => 'Desc', 'image' => 'https://example.com/img.jpg']);
+        $ogScraperService->method('fetchImageBytes')->with('https://example.com/img.jpg')->willReturn($jpegBytes);
+        $service = new AlbumService(
+            $this->albumRepository, new MediaRepository($this->pdo), $this->accessService,
+            $ogScraperService, $this->storageBackendFactory, $this->storageLocationRepository,
+            $this->storageLocationService, new ScoutYearService($this->pdo), $this->settingServiceAllowingEverything(),
+            $this->schedulerService, $this->uploadHandler
+        );
+
+        $album = $service->create(Album::TYPE_EXTERNAL, 'Titre', null, '2026-07-01', null, 'https://example.com/album', $this->authorId, Role::CHIEF, 'chief@test.com');
+
+        $this->assertNotNull($album->ogImageFileId);
+        $stmt = $this->pdo->prepare('SELECT mime_type FROM files WHERE id = ?');
+        $stmt->execute([$album->ogImageFileId]);
+        $this->assertSame('image/jpeg', $stmt->fetchColumn());
+    }
+
+    public function testCreateExternalAlbumLeavesOgImageFileIdNullWhenTheImageDownloadFails(): void
+    {
+        $ogScraperService = $this->createMock(OgScraperService::class);
+        $ogScraperService->method('fetch')->willReturn(['title' => 'Titre', 'description' => 'Desc', 'image' => 'https://example.com/img.jpg']);
+        $ogScraperService->method('fetchImageBytes')->willReturn(null);
+        $service = new AlbumService(
+            $this->albumRepository, new MediaRepository($this->pdo), $this->accessService,
+            $ogScraperService, $this->storageBackendFactory, $this->storageLocationRepository,
+            $this->storageLocationService, new ScoutYearService($this->pdo), $this->settingServiceAllowingEverything(),
+            $this->schedulerService, $this->uploadHandler
+        );
+
+        $album = $service->create(Album::TYPE_EXTERNAL, 'Titre', null, '2026-07-01', null, 'https://example.com/album', $this->authorId, Role::CHIEF, 'chief@test.com');
+
+        $this->assertNull($album->ogImageFileId);
     }
 
     public function testCreateExternalAlbumRequiresATitleWhenOgFetchYieldsNoTitle(): void
@@ -157,7 +204,7 @@ class AlbumServiceTest extends TestCase
         $service = new AlbumService(
             $this->albumRepository, new MediaRepository($this->pdo), $this->accessService,
             $ogScraperService, $this->storageBackendFactory, $this->storageLocationRepository,
-            $this->storageLocationService, new ScoutYearService($this->pdo), $this->settingServiceAllowingEverything(), $this->schedulerService
+            $this->storageLocationService, new ScoutYearService($this->pdo), $this->settingServiceAllowingEverything(), $this->schedulerService, $this->uploadHandler
         );
 
         $this->expectException(GalleryException::class);
@@ -171,7 +218,7 @@ class AlbumServiceTest extends TestCase
         $service = new AlbumService(
             $this->albumRepository, new MediaRepository($this->pdo), $this->accessService,
             $ogScraperService, $this->storageBackendFactory, $this->storageLocationRepository,
-            $this->storageLocationService, new ScoutYearService($this->pdo), $this->settingServiceAllowingEverything(), $this->schedulerService
+            $this->storageLocationService, new ScoutYearService($this->pdo), $this->settingServiceAllowingEverything(), $this->schedulerService, $this->uploadHandler
         );
 
         $album = $service->create(Album::TYPE_EXTERNAL, 'Mon titre à moi', null, '2026-07-01', null, 'https://example.com/album', $this->authorId, Role::CHIEF, 'chief@test.com');
@@ -186,7 +233,7 @@ class AlbumServiceTest extends TestCase
         $service = new AlbumService(
             $this->albumRepository, new MediaRepository($this->pdo), $accessService,
             $this->createMock(OgScraperService::class), $this->storageBackendFactory, $this->storageLocationRepository,
-            $this->storageLocationService, new ScoutYearService($this->pdo), $this->settingServiceAllowingEverything(), $this->schedulerService
+            $this->storageLocationService, new ScoutYearService($this->pdo), $this->settingServiceAllowingEverything(), $this->schedulerService, $this->uploadHandler
         );
 
         $this->expectException(GalleryException::class);
@@ -270,7 +317,8 @@ class AlbumServiceTest extends TestCase
         $service = new AlbumService(
             $albumRepository, new MediaRepository($pdo), $this->accessService,
             $this->createMock(OgScraperService::class), $storageBackendFactory, $storageLocationRepository,
-            $storageLocationService, new ScoutYearService($pdo), $settingService, $this->schedulerService
+            $storageLocationService, new ScoutYearService($pdo), $settingService, $this->schedulerService,
+            new UploadHandler(new FileRepository($pdo), sys_get_temp_dir())
         );
 
         $this->assertSame([], $storageLocationRepository->findAll());

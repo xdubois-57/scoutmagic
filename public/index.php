@@ -1387,7 +1387,7 @@ if (in_array('gallery', $moduleManager->getEnabledModuleIds(), true)) {
     $galleryAlbumService = new \Modules\Gallery\Service\AlbumService(
         $galleryAlbumRepo, $galleryMediaRepo, $galleryAccessService, $galleryOgScraperService,
         $galleryStorageBackendFactory, $galleryStorageLocationRepo, $galleryStorageLocationService,
-        $scoutYearService, $settingService, $schedulerService
+        $scoutYearService, $settingService, $schedulerService, $uploadHandler
     );
     $galleryMediaService = new \Modules\Gallery\Service\MediaService(
         $galleryMediaRepo, $galleryAlbumRepo, $uploadHandler, $schedulerService, $settingService,

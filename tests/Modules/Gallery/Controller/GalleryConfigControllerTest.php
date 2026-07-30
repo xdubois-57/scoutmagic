@@ -7,6 +7,8 @@ namespace Tests\Modules\Gallery\Controller;
 use Core\Config\ScoutYearService;
 use Core\Config\SettingRepository;
 use Core\Config\SettingService;
+use Core\File\FileRepository;
+use Core\File\UploadHandler;
 use Core\Http\Request;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
@@ -86,10 +88,12 @@ class GalleryConfigControllerTest extends TestCase
         $accessService = $this->createMock(GalleryAccessService::class);
         $accessService->method('canManageAlbum')->willReturn(true);
         $schedulerService = new SchedulerService(new SchedulerRepository($this->pdo));
+        $uploadHandler = new UploadHandler(new FileRepository($this->pdo), sys_get_temp_dir());
         $this->albumService = new AlbumService(
             $this->albumRepository, new MediaRepository($this->pdo), $accessService,
             $this->createMock(OgScraperService::class), $storageBackendFactory, $this->storageLocationRepository,
-            $this->storageLocationService, new ScoutYearService($this->pdo), $this->settingService, $schedulerService
+            $this->storageLocationService, new ScoutYearService($this->pdo), $this->settingService, $schedulerService,
+            $uploadHandler
         );
 
         $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES ('2025-2026', '2025-09-01', '2026-08-31', 1)");
