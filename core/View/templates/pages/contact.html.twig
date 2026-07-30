@@ -4,14 +4,43 @@
 
 {% block content %}
     <h1 class="mb-4">Contact</h1>
+
     {{ editable('contact.text', '<p>Contactez-nous pour toute question concernant notre unité scoute.</p>') }}
 
-    {% if param('contact_email') %}
-    <div class="card mt-4">
-        <div class="card-body">
-            <h5 class="card-title"><i class="bi bi-envelope"></i> Email</h5>
-            <p class="card-text"><a href="mailto:{{ param('contact_email') }}">{{ param('contact_email') }}</a></p>
+    <div class="row mt-4">
+        {% if staffdu_section_id %}
+            <div class="col-md-8 mb-4">
+                {{ section_photo(staffdu_section_id, "Staff d'U") }}
+            </div>
+        {% endif %}
+
+        <div class="col-md-4">
+            {% if staffdu_staff|length > 0 %}
+            <div class="card mb-4">
+                <div class="card-body">
+                    <h5 class="card-title"><i class="bi bi-people"></i> Staff d'Unité</h5>
+                    <ul class="list-unstyled mb-0">
+                        {% for member in staffdu_staff %}
+                            <li>
+                                {{ (member.firstName ~ ' ' ~ member.lastName)|normalize_name }}
+                                {% if member.totem %}
+                                    <span class="text-body-secondary">({{ member.totem|normalize_totem }})</span>
+                                {% endif %}
+                            </li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            </div>
+            {% endif %}
+
+            {% if param('contact_email') %}
+            <div class="card mb-4">
+                <div class="card-body">
+                    <h5 class="card-title"><i class="bi bi-envelope"></i> Email</h5>
+                    <p class="card-text"><a href="mailto:{{ param('contact_email') }}">{{ param('contact_email') }}</a></p>
+                </div>
+            </div>
+            {% endif %}
         </div>
     </div>
-    {% endif %}
 {% endblock %}

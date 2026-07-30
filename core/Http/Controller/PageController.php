@@ -4,10 +4,13 @@ declare(strict_types=1);
 
 namespace Core\Http\Controller;
 
+use Core\Config\ScoutYearService;
 use Core\Config\SettingService;
 use Core\Cookie\CookieConsentService;
 use Core\Http\Request;
 use Core\Http\Response;
+use Core\Member\SectionService;
+use Core\Member\UnitStaffSectionService;
 use Core\Module\HomeBannerProvider;
 use Core\Module\HomeNewsProvider;
 use Core\Security\AuthSession;
@@ -26,6 +29,9 @@ class PageController extends AbstractController
         private SectionRepository $sectionRepository,
         private SettingService $settingService,
         private RgpdContentService $rgpdContentService,
+        private SectionService $sectionService,
+        private UnitStaffSectionService $unitStaffSectionService,
+        private ScoutYearService $scoutYearService,
         private ?HomeBannerProvider $bannerProvider = null,
         private ?HomeNewsProvider $newsProvider = null
     ) {
@@ -45,13 +51,24 @@ class PageController extends AbstractController
     }
 
     /**
-     * GET /contact — contact page.
+     * GET /contact — contact page. This route is public (role_min:
+     * 'public', no login required) — unlike /trombinoscope, which shows
+     * similar chief info but requires at least 'identified'. Shows the
+     * Staff d'U's group photo and roster (name + totem) here anyway
+     * (module spec), on the theory that a prospective parent/member needs
+     * to know who to reach out to before they've even registered.
      *
      * @param array<string, string> $params
      */
     public function contact(Request $request, array $params): Response
     {
-        return $this->render('pages/contact.html.twig');
+        $staffduSectionId = $this->unitStaffSectionService->ensureSection();
+        $scoutYearId = $this->scoutYearService->getCurrentYear()['id'];
+
+        return $this->render('pages/contact.html.twig', [
+            'staffdu_section_id' => $staffduSectionId,
+            'staffdu_staff' => $this->sectionService->getSectionStaff($staffduSectionId, $scoutYearId),
+        ]);
     }
 
     /**

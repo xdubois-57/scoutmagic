@@ -4,28 +4,41 @@ declare(strict_types=1);
 
 namespace Tests\Core\Http\Controller;
 
+use Core\Config\ScoutYearService;
 use Core\Config\SettingService;
+use Core\Database\Connection;
 use Core\Http\Controller\PageController;
 use Core\Http\Request;
+use Core\Member\SectionService;
+use Core\Member\UnitStaffSectionService;
 use Core\Module\HomeBannerProvider;
 use Core\Module\HomeNewsProvider;
 use Core\Security\AuthSession;
+use Core\Security\EncryptionService;
 use Core\View\EditableContentRepository;
 use Core\View\EditableContentService;
 use Core\View\RgpdContentService;
 use Core\View\SectionRepository;
 use PHPUnit\Framework\TestCase;
+use Tests\DatabaseTestHelper;
 use Twig\Environment;
 use Twig\Loader\FilesystemLoader;
 
+/**
+ * @group database
+ */
 class PageControllerTest extends TestCase
 {
+    private \PDO $pdo;
     private PageController $controller;
     private Environment $twig;
     private EditableContentService $editableService;
     private SectionRepository $sectionRepo;
     private SettingService $settingService;
     private RgpdContentService $rgpdContentService;
+    private SectionService $sectionService;
+    private UnitStaffSectionService $unitStaffSectionService;
+    private ScoutYearService $scoutYearService;
 
     protected function setUp(): void
     {
@@ -59,18 +72,9 @@ class PageControllerTest extends TestCase
             return $params[$key] ?? '';
         }));
 
-        // Create mock editable content service
-        $pdo = new \PDO('sqlite::memory:');
-        $pdo->exec("CREATE TABLE editable_contents (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            content_key TEXT NOT NULL UNIQUE,
-            content_type TEXT NOT NULL,
-            content_value TEXT,
-            module_id TEXT,
-            modified_at TEXT,
-            modified_by INTEGER
-        )");
-        $repo = new EditableContentRepository($pdo);
+        $this->pdo = DatabaseTestHelper::createTestDatabase();
+
+        $repo = new EditableContentRepository($this->pdo);
         $editableService = new EditableContentService($repo);
         $twig->addGlobal('_editable_content_service', $editableService);
 
@@ -80,11 +84,23 @@ class PageControllerTest extends TestCase
         $twig->addFunction(new \Twig\TwigFunction('editable_image', function (): string {
             return '';
         }, ['is_safe' => ['html']]));
+        // Minimal stand-in for TwigFactory::create()'s real section_photo() —
+        // real rendering/placeholder/overlay logic is covered in full by
+        // Tests\Core\View\SectionPhotoFunctionTest; here it only needs to
+        // exist so pages/contact.html.twig doesn't fail to render.
+        $twig->addFunction(new \Twig\TwigFunction('section_photo', function (): string {
+            return '';
+        }, ['is_safe' => ['html']]));
+        $twig->addExtension(new \Core\View\TextNormalizerExtension());
 
-        // Create mock section repository (no sections)
-        $pdo->exec("CREATE TABLE age_branches (id INTEGER PRIMARY KEY, desk_code TEXT, label TEXT, sort_order INTEGER)");
-        $pdo->exec("CREATE TABLE sections (id INTEGER PRIMARY KEY, age_branch_id INTEGER, desk_code TEXT, name TEXT, email TEXT, is_visible INTEGER NOT NULL DEFAULT 1, is_active INTEGER NOT NULL DEFAULT 1, created_at TEXT)");
-        $sectionRepo = new SectionRepository($pdo);
+        $sectionRepo = new SectionRepository($this->pdo);
+
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $connection = Connection::withPdo($this->pdo);
+        $memberBadgeRepository = new \Core\Badge\MemberBadgeRepository($this->pdo);
+        $sectionService = new SectionService($connection, $encryption, $memberBadgeRepository);
+        $unitStaffSectionService = new UnitStaffSectionService($this->pdo);
+        $scoutYearService = new ScoutYearService($this->pdo);
 
         $settingService = $this->createMock(SettingService::class);
         $settingService->method('get')->willReturn('default');
@@ -98,7 +114,13 @@ class PageControllerTest extends TestCase
         $this->sectionRepo = $sectionRepo;
         $this->settingService = $settingService;
         $this->rgpdContentService = $rgpdContentService;
-        $this->controller = new PageController($twig, $editableService, $sectionRepo, $settingService, $rgpdContentService);
+        $this->sectionService = $sectionService;
+        $this->unitStaffSectionService = $unitStaffSectionService;
+        $this->scoutYearService = $scoutYearService;
+        $this->controller = new PageController(
+            $twig, $editableService, $sectionRepo, $settingService, $rgpdContentService,
+            $sectionService, $unitStaffSectionService, $scoutYearService
+        );
     }
 
     public function testHomePageRenders(): void
@@ -127,7 +149,7 @@ class PageControllerTest extends TestCase
                 return '<p>Message important</p>';
             }
         };
-        $controller = new PageController($this->twig, $this->editableService, $this->sectionRepo, $this->settingService, $this->rgpdContentService, $provider);
+        $controller = new PageController($this->twig, $this->editableService, $this->sectionRepo, $this->settingService, $this->rgpdContentService, $this->sectionService, $this->unitStaffSectionService, $this->scoutYearService, $provider);
 
         $request = new Request('GET', '/', [], [], [], []);
         $response = $controller->home($request, []);
@@ -149,7 +171,7 @@ class PageControllerTest extends TestCase
                 return null;
             }
         };
-        $controller = new PageController($this->twig, $this->editableService, $this->sectionRepo, $this->settingService, $this->rgpdContentService, $provider);
+        $controller = new PageController($this->twig, $this->editableService, $this->sectionRepo, $this->settingService, $this->rgpdContentService, $this->sectionService, $this->unitStaffSectionService, $this->scoutYearService, $provider);
 
         if (session_status() === PHP_SESSION_NONE) {
             session_start();
@@ -170,7 +192,7 @@ class PageControllerTest extends TestCase
                 return null;
             }
         };
-        $controller = new PageController($this->twig, $this->editableService, $this->sectionRepo, $this->settingService, $this->rgpdContentService, $provider);
+        $controller = new PageController($this->twig, $this->editableService, $this->sectionRepo, $this->settingService, $this->rgpdContentService, $this->sectionService, $this->unitStaffSectionService, $this->scoutYearService, $provider);
 
         $request = new Request('GET', '/', [], [], [], []);
         $response = $controller->home($request, []);
@@ -196,7 +218,7 @@ class PageControllerTest extends TestCase
                 ];
             }
         };
-        $controller = new PageController($this->twig, $this->editableService, $this->sectionRepo, $this->settingService, $this->rgpdContentService, null, $provider);
+        $controller = new PageController($this->twig, $this->editableService, $this->sectionRepo, $this->settingService, $this->rgpdContentService, $this->sectionService, $this->unitStaffSectionService, $this->scoutYearService, null, $provider);
 
         $request = new Request('GET', '/', [], [], [], []);
         $response = $controller->home($request, []);
@@ -214,7 +236,7 @@ class PageControllerTest extends TestCase
                 return [];
             }
         };
-        $controller = new PageController($this->twig, $this->editableService, $this->sectionRepo, $this->settingService, $this->rgpdContentService, null, $provider);
+        $controller = new PageController($this->twig, $this->editableService, $this->sectionRepo, $this->settingService, $this->rgpdContentService, $this->sectionService, $this->unitStaffSectionService, $this->scoutYearService, null, $provider);
 
         $request = new Request('GET', '/', [], [], [], []);
         $response = $controller->home($request, []);
@@ -228,6 +250,38 @@ class PageControllerTest extends TestCase
         $response = $this->controller->contact($request, []);
         $this->assertSame(200, $response->getStatusCode());
         $this->assertStringContainsString('Contact', $response->getBody());
+    }
+
+    public function testContactPageListsStaffDuMembersInACardLikeTheEmailBox(): void
+    {
+        $scoutYearId = $this->scoutYearService->getCurrentYear()['id'];
+        $staffduSectionId = $this->unitStaffSectionService->ensureSection();
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+
+        $this->pdo->prepare("INSERT INTO functions (desk_code, label, role) VALUES ('FN1', ?, 'admin')")->execute(["Chef d'Unité"]);
+        $functionId = (int) $this->pdo->lastInsertId();
+        $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('D1')");
+        $memberId = (int) $this->pdo->lastInsertId();
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted, totem_encrypted) VALUES (?, ?, ?, ?, ?)'
+        );
+        $stmt->execute([$memberId, $scoutYearId, $encryption->encrypt('Jean'), $encryption->encrypt('Dupont'), $encryption->encrypt('Baloo')]);
+        $memberYearId = (int) $this->pdo->lastInsertId();
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO member_functions (member_year_id, function_id, section_id, is_main_function) VALUES (?, ?, ?, 1)'
+        );
+        $stmt->execute([$memberYearId, $functionId, $staffduSectionId]);
+
+        $request = new Request('GET', '/contact', [], [], [], []);
+        $response = $this->controller->contact($request, []);
+        $body = $response->getBody();
+
+        // Same card structure (card / card-body / card-title) as the email
+        // box further down the page.
+        $this->assertMatchesRegularExpression(
+            '/<div class="card mb-4">\s*<div class="card-body">\s*<h5 class="card-title">.*Staff d\'Unité/s',
+            $body
+        );
     }
 
     public function testSectionsPageRendersEmptyState(): void

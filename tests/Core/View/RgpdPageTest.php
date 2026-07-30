@@ -4,9 +4,12 @@ declare(strict_types=1);
 
 namespace Tests\Core\View;
 
+use Core\Config\ScoutYearService;
 use Core\Config\SettingService;
 use Core\Http\Controller\PageController;
 use Core\Http\Request;
+use Core\Member\SectionService;
+use Core\Member\UnitStaffSectionService;
 use Core\View\EditableContentRepository;
 use Core\View\EditableContentService;
 use Core\View\RgpdContentService;
@@ -93,7 +96,16 @@ class RgpdPageTest extends TestCase
         $rgpdContentService->method('getDefaultContent')->willReturn('<h2>Protection des données</h2><p><span id="rgpd-last-updated">Date de publication</span></p>');
         $rgpdContentService->method('getDefaultContentLastModified')->willReturn($this->defaultContentModifiedAt);
 
-        return new PageController($this->twig, $this->editableService, $this->sectionRepo, $settingService, $rgpdContentService);
+        return new PageController(
+            $this->twig,
+            $this->editableService,
+            $this->sectionRepo,
+            $settingService,
+            $rgpdContentService,
+            $this->createMock(SectionService::class),
+            $this->createMock(UnitStaffSectionService::class),
+            $this->createMock(ScoutYearService::class)
+        );
     }
 
     public function testRgpdPageContainsReferenceToCookiesPreferencesPage(): void
@@ -109,7 +121,16 @@ class RgpdPageTest extends TestCase
         $settingService = $this->createMock(SettingService::class);
         $settingService->method('get')->willReturn('default');
 
-        $controller = new PageController($this->twig, $this->editableService, $this->sectionRepo, $settingService, $realRgpdContentService);
+        $controller = new PageController(
+            $this->twig,
+            $this->editableService,
+            $this->sectionRepo,
+            $settingService,
+            $realRgpdContentService,
+            $this->createMock(SectionService::class),
+            $this->createMock(UnitStaffSectionService::class),
+            $this->createMock(ScoutYearService::class)
+        );
 
         $request = new Request('GET', '/rgpd', [], [], [], []);
         $response = $controller->rgpd($request, []);
