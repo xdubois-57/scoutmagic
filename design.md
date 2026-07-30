@@ -43,7 +43,7 @@ Grouped by module. Rows: label, description, value, chevron (editable) or lock (
 Cards: icon, name, badge, version, description, toggle.
 
 ### 1.11 Staffs page
-SectionPicker → section header (name/code, branch badge, count, edit button) → staff cards. Edit mode: form for name + email.
+SectionPicker → section header (name/code, branch badge, count) → section staff group photo (editable in configuration mode, one per scout year with fallback to the most recent earlier year) → staff cards. Section name/email are edited from Configuration > Config Desk, not from this page.
 
 ## 2. Data model (conceptual)
 

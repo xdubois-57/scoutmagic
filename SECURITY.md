@@ -100,7 +100,7 @@ Every response: `Content-Security-Policy`, `X-Content-Type-Options: nosniff`, `X
 ## 12. Secrets management
 
 - No secrets in source code.
-- `.gitignore`: `storage/keys/`, `storage/config/`, `.env`.
+- `.gitignore`: `storage/keys/`, `storage/config/`, `.env`, and every `storage/<name>/` subdirectory that holds uploaded or generated content (module storage folders, `storage/core/`, `storage/temp/`, etc. — see `.gitignore` for the current, authoritative list). Adding a new storage subdirectory for uploaded content and forgetting to gitignore it has happened more than once in practice; check `.gitignore` whenever a module gains its own `storage/<name>/` folder.
 - CI: secret scanner on every PR.
 - SMTP and DB credentials in `secrets.enc`, not in `settings`.
 

@@ -104,7 +104,7 @@ The directory name **must** match the `id` field in `module.json`.
 - **version**: required, semver format (`x.y.z`).
 - **routes**: each entry must have `path`, `controller`, `action`, `menu`, `role_min`.
   - `menu`: one of `notre_unite`, `espace_animes`, `espace_chefs`, `espace_admin`, `configuration`.
-  - `role_min`: one of `public`, `identified`, `intendant`, `chief`, `admin`.
+  - `role_min`: one of `public`, `identified`, `intendant`, `chief`, `admin`, `superadmin`.
   - A route's `role_min` must not be more permissive than its menu's minimum role.
   - `method`: optional (defaults to `GET`).
   - `label`: if non-empty, the route is added to the menu with this label.
@@ -154,7 +154,7 @@ class CalendarController extends AbstractController
 
 ## Accessing core services
 
-Module controllers that need core services must be registered with the FrontController manually, or use constructor injection via the standard pattern. For now, module controllers receive only `$twig` by default. If a module needs additional services, it should document this requirement.
+Module controllers receive whatever services they need via constructor injection — there is no fixed list. The composition root (`public/index.php`) is where every controller is actually built and registered: inside the module's `if (in_array('my_module', $moduleManager->getEnabledModuleIds(), true)) { ... }` block, construct the module's repositories/services (passing `$pdo`/`$connection`, `$encryptionService`, `$mailService`, `$schedulerService`, `$sectionService`, or any other already-built core service the module needs), then `$frontController->registerController(MyModuleController::class, new MyModuleController($twig, ...))`. See any existing module block in `public/index.php` for the pattern.
 
 ## Optional dependencies between modules
 

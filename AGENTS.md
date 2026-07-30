@@ -97,7 +97,7 @@ Automated tests are **mandatory** for every feature, without exception.
 ## Database
 
 - Table and column names in English, snake_case.
-- Every table that holds member-related data: include `scout_year_id` foreign key.
+- Every table that holds member-related data: include `scout_year_id` foreign key, unless the data itself genuinely isn't scout-year-scoped (e.g. `calendar_events`, `sos_oncall_assignments` — a duty date or calendar event isn't tied to a school year the way a member's function/badge/photo is). Default to including it; only omit with a clear reason.
 - Personal data columns: `BLOB` type, encrypted/decrypted only in Repository layer.
 - Blind index column alongside any encrypted field that needs exact-match search.
 - `schema.sql` is the single source of truth — no incremental migration files.

@@ -62,15 +62,16 @@ View (Twig)                    → rendering, automatic escaping
 
 Three-level system: **function** (configurable per unit, e.g. "Animateur Baladins", "Trésorier") → **role** (fixed, hierarchical) → **menu**.
 
-| Role | Level | Associated menu (minimum) |
-|---|---|---|
-| `public` | 0 | Notre unité |
-| `identified` | 1 | Espace des animés |
-| `intendant` | 2 | Partial Espace des chefs |
-| `chief` | 3 | Full Espace des chefs + Espace admin |
-| `admin` | 4 | Configuration |
+| Role | Level | UI label | Associated menu (minimum) |
+|---|---|---|---|
+| `public` | 0 | — | Notre unité |
+| `identified` | 1 | — | Espace des animés |
+| `intendant` | 2 | Intendant | Partial Espace des chefs |
+| `chief` | 3 | Chef | Full Espace des chefs |
+| `admin` | 4 | Chef d'Unité | + Espace admin |
+| `superadmin` | 5 | — (top site administrator) | + Configuration |
 
-Hierarchy is **cumulative**: a role at level N sees all menus at level ≤ N.
+Hierarchy is **cumulative**: a role at level N sees all menus at level ≤ N. `admin` and `superadmin` are both defined in `Core\Security\Role` (`level()`) — `admin` is displayed as "Chef d'Unité" in the UI (e.g. Config Desk's function role picker), never as "Admin"; `superadmin` has no distinct UI label beyond gating the Configuration menu. A route may set a `role_min` stricter than its menu's own minimum but never more permissive — one core exception is documented at §8.15 (the Maintenance page sits in the `superadmin`-gated Configuration menu but its own routes are `role_min: admin`, a deliberate spec choice, not a module-manifest-validated route so the usual stricter-only rule doesn't apply).
 
 Functions themselves (name, associated role) are managed via a core page (`Configuration > Config Desk`), not via a module. The same page also manages section name/visibility (see §8.8).
 
@@ -270,6 +271,8 @@ A section with no member in the current Desk import becomes inactive automatical
 
 Generic, reusable component: a photo (`member_photos`: member_id, scout_year_id, file_id) is tied to a member AND a scout year. `MemberPhotoService::resolveFileId()` returns the photo for a given year, falling back to the most recent earlier year, else null. The `member_photo()` Twig function (registered in `TwigFactory`) renders it — an initials-in-a-circle avatar (same style as the account menu) when none exists — and, in configuration mode, the same click-to-replace overlay as `editable_image()` (upload context `member_photo`, key `"{memberId}:{scoutYearId}"`, handled by `UploadController`). Not specific to any module.
 
+`Core\Photo\SectionPhotoService`/`SectionPhotoRepository` are the section-keyed twin of the above (`section_staff_photos`: section_id, scout_year_id, file_id — one group photo per section per year, same per-year-with-earlier-year-fallback resolution). `Core\Photo\SectionPhotoProcessor` center-crops the uploaded image to a fixed 4:3 landscape ratio (correcting EXIF orientation first) and caps the width at 1600px before storage, via a `UploadController::processSectionPhoto()` step that runs before the generic `UploadHandler::handle()`. The `section_photo()` Twig function mirrors `member_photo()`'s rendering/overlay behavior but has no initials-style fallback — with no photo and outside configuration mode it renders nothing at all, so a section that never had a group photo uploaded shows no empty box. Used on the Staffs page and, unauthenticated, on the public Contact and Sections pages (`section_photo($sectionId, ...)`).
+
 ### 8.11 Badges (`Core\Badge`)
 
 Transversal roles assignable to chiefs/chief-d'unité (e.g. Infirmier, Trésorier) — a global concept (`badges`: name, is_default, is_active) configured once from Configuration générale, with assignment scoped per member per scout year via `member_badges.member_year_id` (so history across years is preserved automatically, the same way `member_years` already works). Badges are plain text/name only — no logo/icon.
@@ -277,6 +280,8 @@ Transversal roles assignable to chiefs/chief-d'unité (e.g. Infirmier, Trésorie
 Default badges (Infirmier, Trésorier) are seeded idempotently by `BadgeService::ensureDefaults()` (called on every `/config/general` request, same pattern as `SettingService::register()`) and can never be deleted or renamed, only deactivated. Any badge already assigned to a member — even in a past year — can likewise never be deleted, only deactivated: `BadgeService::delete()`/`update()` refuse both cases, preserving historical data; the admin UI reflects this by disabling the delete button and making the name read-only rather than letting the request round-trip and fail. A deactivated badge is invisible everywhere (assignment picker, trombinoscope) but existing `member_badges` rows are untouched, so reactivating it brings past assignments back.
 
 `Core\Member\SectionService::hydrateMemberProfile()` fetches a member's active badges into `MemberProfile::$badges` — the single hydration path shared by the Staffs page and (via `SectionService::hydrateMemberProfile()` reuse, see §8.8-adjacent Trombinoscope note) the trombinoscope module, so badges surface in both without either needing its own plumbing. `SectionService::getSectionStaff()` also filters to chief/admin-role functions only — a section's animés carry the same `section_id` on their `member_functions` row, so this filter is what keeps the Staffs/badge-assignment page staff-only.
+
+**Referent badges**: `badges.referent_section_id` (nullable FK to `sections`) marks a badge as an auto-generated "Référent {section name}" badge, one per currently-visible non-STAFFDU section. `BadgeService::syncSectionReferentBadges()` is idempotent and self-healing — called on every relevant page load (general config, Config Desk, Staffs) plus directly after a section name/visibility change for immediate effect: it creates a badge only for a visible section (never for a hidden one) and renames it on a name mismatch, but never touches `is_active` after creation, so a manual activate/deactivate is never silently overwritten by a later sync. Referent badges are `is_default = true` (read-only name, same non-deletable treatment as Infirmier/Trésorier above) but — unlike other default badges — their "Actif" toggle stays editable. Assignment is restricted to members currently in the Staff d'U section: enforced both in the UI (`StaffsController` filters the picker) and server-side in `BadgeService::toggleAssignment()` via `SectionService::isMemberYearInSection()`, so the restriction holds regardless of which page's picker triggers the request.
 
 ### 8.12 "Staff d'U" section (`Core\Member\UnitStaffSectionService`)
 
@@ -334,6 +339,20 @@ Progress polling (`GET /api/maintenance/reset-status/{id}`) deliberately reuses 
 
 `Task\RestoreBackupHandler` ("Restaurer un backup") accepts two sources: an existing `backups` row (`source=server`) or a previously-downloaded backup zip re-uploaded by the admin (`source=upload`, saved to `storage/temp/`, validated by attempting to read `database.sql` from within it before anything else runs, deleted in a `finally` regardless of outcome). `BackupService::restoreFiles()` gained an optional `$password` parameter for this iteration — needed because the user-triggered `full_config`/`full_no_gallery`/`full_with_gallery` backup types (§8.15) are AES-256-encrypted zips, unlike the automatic `auto_update`/`auto_reset`/`database` types, which never are. Like `InstallUpdateHandler`, it takes its own pre-restore safety backup first and automatically rolls back to it (`restoreDatabase()` + `restoreFiles()`) if the restore itself fails at any step.
 
+### 8.19 Retro module (`modules/retro`)
+
+Post-activity "rétrospectives" boards: a chief/intendant (`retro_role_min_create_board` setting, default `intendant`) opens a board manually or lets `Task\AutoCreateRetroHandler` create one automatically at a linked calendar event's start time (opt-in per event, `calendar_events.auto_create_retro`, only when the `calendar` module is enabled — a genuine optional module-to-module dependency, §7.5) — animés then post free-text comments and vote (a fixed per-member vote budget, `retro_default_vote_budget`) without needing an account beyond the same identified-member session used everywhere else. `Task\AutoCloseHandler` closes a board past its configured duration and emails a closing digest; `Task\PurgeRateLimitHandler` clears `retro_rate_limits` rows past their window. `Service\ModerationService` is an optional `llm_connector` consumer (§7.5) with three modes (`retro_moderation_mode`: disabled/warning/enforced) — a flagged comment either posts anyway with a private warning to its author, or is rejected with an AI-suggested, more respectful rewording, degrading silently to "no moderation" when `llm_connector` is disabled or has no active provider. `Api\RetroEventLinkLookupInterface` is retro's own public API (§7.5, module-to-module direction) letting the calendar module resolve an event's linked board without depending on retro's internal classes.
+
+### 8.20 SOS Staff d'U module (`modules/sos_staff`) and scheduler `TaskContext`/`cron.php` fixes
+
+Keeps the unit's single "SOS" emergency phone number always forwarded to whichever Staff d'U member is on duty. `Provider\PhoneProviderInterface` (`readForwardingState()`/`setForwarding()`/`testConnection()`/`listLines()`) is a pluggable-provider abstraction; `Provider\Ovh\OvhTelephonyProvider` + `OvhApiClient` implement it against the OVH Télécom API (request signing, no new Composer dependency — same raw-`curl`-style precedent as `Modules\LlmConnector\Provider\AnthropicProvider`). `Service\OnCallService` builds/saves a month's duty grid (sparse storage — no row means "available") and computes day-to-day forwarding-target transitions, scheduling one `Task\ApplyRedirectHandler` run per actual change via `SchedulerService`; `Service\RedirectService::apply()` is the read-set-confirm-notify sequence, journaling every outcome and alerting the resolved super-admin (`Core\Security\UserAccountRepository::findFirstSuperAdmin()`) on technical failure. `Service\CalendarSyncService` is an optional `calendar` module consumer (§7.5, reuses the module's default public "Animateurs" calendar) that mirrors duty periods as read-only events, degrading to a no-op when `calendar` is disabled.
+
+Building this module surfaced two real gaps in the generic scheduler, fixed at the core level (not worked around): `Core\Scheduler\TaskContext` was never actually constructed in production — neither `public/index.php`'s poor man's cron nor `public/cron.php` called `SchedulerRunner::setTaskContext()`, so any module's real task handler crashed (`RuntimeException('TaskContext not set')`) the moment an overdue task reached it — and `public/cron.php` never built a `ModuleManager` either, so `SchedulerRunner::setModuleManager()` was never called there, meaning every module-registered task silently failed ("No handler registered") whenever run via a real crontab instead of a page visit. Both entry points now build the same `ModuleManager` and `TaskContext` (`TaskContext` also gained `$userAccounts`, needed for the super-admin alert above) before processing overdue tasks.
+
+### 8.21 Public Sections page (`Core\Http\Controller\PageController::sections()`)
+
+Each card on the public "Notre unité > Sections" page (`role_min: public`, same audience reasoning as Contact below) shows the section's staff photo (§8.10), its designated "responsable" name, its email, and a small per-section editable text block reusing `editable()` unchanged (key `"section.{desk_code}.text"`). The "responsable" name comes through `Core\Module\SectionResponsableProvider` (`getResponsable(int $sectionId, int $scoutYearId): ?MemberProfile`) — the same core-hook precedent as `FunctionFlagsProvider`/`HomeBannerProvider` (§7.4/§8.13): core defines the interface, the trombinoscope module implements it (reusing its own "lead" resolution, itself backed by `FunctionFlagsProvider`'s per-function flag), and the composition root wires the concrete instance into `PageController` only when `trombinoscope` is enabled — a section simply shows no responsable name when it isn't. The public Contact page (`PageController::contact()`) similarly shows the Staff d'U section's group photo and a name/totem roster (`SectionService::getSectionStaff()`), both routes deliberately public even though the closest analogous page (`/trombinoscope`) requires `identified`, on the reasoning that a prospective parent/member needs contact information before they've registered.
+
 ## 9. Installation / bootstrap
 
 First access without `secrets.enc` → setup page (no auth required, works once). Collects DB credentials, unit settings (including short name ≤5 chars), email config, initial admin email. Same page accessible later from Configuration as normal admin page.
@@ -350,17 +369,26 @@ Bootstrap 5 compiled files. Mobile-first CSS. Hamburger left, unit name right. O
 
 ```
 core/
-  Http/            Router, Request, Response, FrontController
-  Security/        RbacGuard, Session, Csrf, PasswordHasher, Encryption, WebAuthn
-  Database/        PDO connection, SchemaIntrospector, MigrationRunner
-  View/            Twig bootstrap, helpers, partials
-  Mail/            MailService, DkimManager, DnsVerifier
-  Module/          ModuleManager
-  Config/          SettingService
-  Scheduler/       SchedulerService, SchedulerRunner
-  Journal/         JournalService
-  File/            FileAccessGuard, UploadHandler
-  Cookie/          CookieConsentService
+  Http/          Router, Request, Response, FrontController
+  Security/      RbacGuard, Session, Csrf, PasswordHasher, Encryption, WebAuthn, Role, SecretManager
+  Database/      PDO connection, SchemaIntrospector, MigrationRunner, Connection
+  View/          Twig bootstrap, helpers, partials, SectionRepository, EditableContentService
+  Mail/          MailService, DkimManager, DnsVerifier
+  Module/        ModuleManager, module-into-core hook interfaces (FunctionFlagsProvider, HomeBannerProvider, HomeNewsProvider, SectionResponsableProvider — §7.4)
+  Config/        SettingService, ScoutYearService
+  Scheduler/     SchedulerService, SchedulerRunner, TaskContext, TaskHandlerInterface
+  Journal/       JournalService
+  File/          FileAccessGuard, UploadHandler, EncryptedFileStorageService
+  Cookie/        CookieConsentService, CookieRegistry
+  Member/        SectionService, MemberYearService, UnitStaffSectionService, MemberProfile
+  Badge/         BadgeService, MemberBadgeRepository
+  Photo/         MemberPhotoService, SectionPhotoService, SectionPhotoProcessor (§8.10)
+  Notification/  NotificationService (Web Push)
+  Maintenance/   BackupService, VersionFile, GitHubReleaseClient (§8.15–§8.18)
+  Import/        Desk CSV import pipeline (§8.1)
+  Pdf/           PosterPdfService (A4 poster generation)
+  Url/           Generic short-URL service
+  Service/       Cross-cutting helpers (e.g. TextNormalizerService)
 
 modules/
   <module_name>/
@@ -387,8 +415,7 @@ scripts/
   release.sh
 
 docs/
-  specifications.md
-  design.md
+  module-development.md
 
 tests/             Mirrors core/ and modules/ structure
 
@@ -402,6 +429,8 @@ SECURITY.md
 AGENTS.md
 README.md
 CONTRIBUTING.md
+specifications.md
+design.md
 LICENSE (AGPL-3.0)
 ```
 
