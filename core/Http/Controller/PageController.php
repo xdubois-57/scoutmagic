@@ -13,6 +13,7 @@ use Core\Member\SectionService;
 use Core\Member\UnitStaffSectionService;
 use Core\Module\HomeBannerProvider;
 use Core\Module\HomeNewsProvider;
+use Core\Module\SectionResponsableProvider;
 use Core\Security\AuthSession;
 use Core\View\EditableContentService;
 use Core\View\RgpdContentService;
@@ -33,7 +34,8 @@ class PageController extends AbstractController
         private UnitStaffSectionService $unitStaffSectionService,
         private ScoutYearService $scoutYearService,
         private ?HomeBannerProvider $bannerProvider = null,
-        private ?HomeNewsProvider $newsProvider = null
+        private ?HomeNewsProvider $newsProvider = null,
+        private ?SectionResponsableProvider $sectionResponsableProvider = null
     ) {
     }
 
@@ -72,13 +74,26 @@ class PageController extends AbstractController
     }
 
     /**
-     * GET /sections — sections list.
+     * GET /sections — sections list. Public route (role_min: 'public'),
+     * same precedent as /contact: each card shows the section's staff
+     * photo and its designated "responsable" name, already shown publicly
+     * elsewhere (/contact, /trombinoscope) for the same audience reason —
+     * prospective parents/members browsing before they've registered.
      *
      * @param array<string, string> $params
      */
     public function sections(Request $request, array $params): Response
     {
         $groups = $this->sectionRepository->findAllGroupedByBranch();
+        $scoutYearId = $this->scoutYearService->getCurrentYear()['id'];
+
+        foreach ($groups as &$group) {
+            foreach ($group['sections'] as &$section) {
+                $section['responsable'] = $this->sectionResponsableProvider?->getResponsable($section['id'], $scoutYearId);
+            }
+            unset($section);
+        }
+        unset($group);
 
         return $this->render('pages/sections.html.twig', [
             'section_groups' => $groups,

@@ -6,9 +6,10 @@ namespace Modules\Trombinoscope\Service;
 
 use Core\Member\MemberProfile;
 use Core\Member\SectionService;
+use Core\Module\SectionResponsableProvider;
 use Modules\Trombinoscope\Repository\TrombinoscopeRepository;
 
-class TrombinoscopeService
+class TrombinoscopeService implements SectionResponsableProvider
 {
     public function __construct(
         private TrombinoscopeRepository $repository,
@@ -43,5 +44,14 @@ class TrombinoscopeService
         usort($staff, fn(MemberProfile $a, MemberProfile $b) => strcasecmp($a->getDisplayName(), $b->getDisplayName()));
 
         return ['lead' => $lead, 'staff' => $staff];
+    }
+
+    /**
+     * Core\Module\SectionResponsableProvider implementation — reuses the
+     * same "lead" resolution as getSectionStaff() above.
+     */
+    public function getResponsable(int $sectionId, int $scoutYearId): ?MemberProfile
+    {
+        return $this->getSectionStaff($sectionId, $scoutYearId)['lead'];
     }
 }

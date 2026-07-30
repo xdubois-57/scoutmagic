@@ -875,6 +875,13 @@ $rgpdContentService = new RgpdContentService($moduleManager, $settingService, $l
 // Handle the request
 $frontController = new FrontController($router, $twig, $config);
 
+// Optional dependency on the trombinoscope module (ARCHITECTURE.md §7.4)
+// for the Sections page's "responsable" name — set below only when
+// 'trombinoscope' is enabled; every PageController re-registration after
+// that block reuses this variable, exactly like $bannerService/
+// $newsArticleService further down.
+$sectionResponsableProvider = null;
+
 // Register controllers with dependencies
 $frontController->registerController(PageController::class, new PageController($twig, $editableContentService, $sectionRepository, $settingService, $rgpdContentService, $sectionService, $unitStaffSectionService, $scoutYearService));
 $frontController->registerController(CookieController::class, new CookieController($twig, $cookieConsentService));
@@ -964,6 +971,15 @@ if (in_array('trombinoscope', $moduleManager->getEnabledModuleIds(), true)) {
     $frontController->registerController(
         \Modules\Trombinoscope\Controller\TrombinoscopeController::class,
         new \Modules\Trombinoscope\Controller\TrombinoscopeController($twig, $sectionService, $trombinoscopeService, $scoutYearResolver)
+    );
+
+    // Re-registers PageController with the real section-responsable
+    // provider (Core\Module\SectionResponsableProvider) — same core-hook
+    // precedent as the banner/news blocks below (ARCHITECTURE.md §7.4).
+    $sectionResponsableProvider = $trombinoscopeService;
+    $frontController->registerController(
+        PageController::class,
+        new PageController($twig, $editableContentService, $sectionRepository, $settingService, $rgpdContentService, $sectionService, $unitStaffSectionService, $scoutYearService, null, null, $sectionResponsableProvider)
     );
 }
 
@@ -1078,7 +1094,7 @@ if (in_array('banner', $moduleManager->getEnabledModuleIds(), true)) {
     // (ARCHITECTURE.md §7.4): core never depends on the module directly.
     $frontController->registerController(
         PageController::class,
-        new PageController($twig, $editableContentService, $sectionRepository, $settingService, $rgpdContentService, $sectionService, $unitStaffSectionService, $scoutYearService, $bannerService)
+        new PageController($twig, $editableContentService, $sectionRepository, $settingService, $rgpdContentService, $sectionService, $unitStaffSectionService, $scoutYearService, $bannerService, null, $sectionResponsableProvider)
     );
 }
 
@@ -1330,15 +1346,16 @@ if (in_array('news', $moduleManager->getEnabledModuleIds(), true)) {
 
     // Re-registers PageController with the real news provider — same
     // core-hook precedent as the banner block above (ARCHITECTURE.md §7.4).
-    // Reuses $bannerService if the banner module was also enabled above, so
-    // neither hook is lost when both modules are active.
+    // Reuses $bannerService/$sectionResponsableProvider if those modules
+    // were also enabled above, so no hook is lost when several are active.
     $frontController->registerController(
         PageController::class,
         new PageController(
             $twig, $editableContentService, $sectionRepository, $settingService, $rgpdContentService,
             $sectionService, $unitStaffSectionService, $scoutYearService,
             in_array('banner', $moduleManager->getEnabledModuleIds(), true) ? $bannerService : null,
-            $newsArticleService
+            $newsArticleService,
+            $sectionResponsableProvider
         )
     );
 }

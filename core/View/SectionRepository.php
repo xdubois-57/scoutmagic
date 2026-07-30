@@ -16,12 +16,12 @@ class SectionRepository
      * section for internal purposes (section picker, trombinoscope,
      * calendar) but not listed on the public "Notre unité > Sections" page.
      *
-     * @return array<array{branch_label: string, sections: array<array{name: ?string, desk_code: string, email: ?string}>}>
+     * @return array<array{branch_label: string, sections: array<array{id: int, name: ?string, desk_code: string, email: ?string}>}>
      */
     public function findAllGroupedByBranch(): array
     {
         $stmt = $this->pdo->query(
-            'SELECT s.name, s.desk_code, s.email, ab.label AS branch_label, ab.sort_order
+            'SELECT s.id, s.name, s.desk_code, s.email, ab.label AS branch_label, ab.sort_order
              FROM sections s
              JOIN age_branches ab ON s.age_branch_id = ab.id
              WHERE s.is_visible = 1 AND s.is_active = 1 AND s.desk_code != \'STAFFDU\'
@@ -42,6 +42,7 @@ class SectionRepository
                 ];
             }
             $groups[$branchLabel]['sections'][] = [
+                'id' => (int) $row['id'],
                 'name' => $row['name'],
                 'desk_code' => $row['desk_code'],
                 'email' => $row['email'],

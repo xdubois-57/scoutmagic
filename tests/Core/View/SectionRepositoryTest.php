@@ -70,6 +70,15 @@ class SectionRepositoryTest extends TestCase
         $this->assertNotContains('Ecureuils', $names);
     }
 
+    public function testSectionsIncludeTheirId(): void
+    {
+        $sectionId = $this->createSection('BAL01', 'Renards', true);
+
+        $groups = $this->repository->findAllGroupedByBranch();
+
+        $this->assertSame($sectionId, $groups[0]['sections'][0]['id']);
+    }
+
     public function testExcludesStaffduEvenWhenActiveAndVisible(): void
     {
         // "Staff d'U" is a real, active, visible section for internal use

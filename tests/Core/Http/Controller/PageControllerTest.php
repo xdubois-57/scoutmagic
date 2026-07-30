@@ -11,13 +11,16 @@ use Core\Http\Controller\PageController;
 use Core\Http\Request;
 use Core\Member\SectionService;
 use Core\Member\UnitStaffSectionService;
+use Core\Member\MemberProfile;
 use Core\Module\HomeBannerProvider;
 use Core\Module\HomeNewsProvider;
+use Core\Module\SectionResponsableProvider;
 use Core\Security\AuthSession;
 use Core\Security\EncryptionService;
 use Core\View\EditableContentRepository;
 use Core\View\EditableContentService;
 use Core\View\RgpdContentService;
+use Core\Service\TextNormalizerService;
 use Core\View\SectionRepository;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
@@ -92,6 +95,9 @@ class PageControllerTest extends TestCase
             return '';
         }, ['is_safe' => ['html']]));
         $twig->addExtension(new \Core\View\TextNormalizerExtension());
+        $twig->addFilter(new \Twig\TwigFilter('display_name', function ($member) {
+            return $member instanceof MemberProfile ? $member->getDisplayName() : (string) $member;
+        }));
 
         $sectionRepo = new SectionRepository($this->pdo);
 
@@ -290,6 +296,60 @@ class PageControllerTest extends TestCase
         $response = $this->controller->sections($request, []);
         $this->assertSame(200, $response->getStatusCode());
         $this->assertStringContainsString('premier import', $response->getBody());
+    }
+
+    public function testSectionsPageShowsResponsableNameFromProvider(): void
+    {
+        $this->pdo->exec("INSERT INTO age_branches (desk_code, label, sort_order) VALUES ('BRANCH', 'Branche Test', 1)");
+        $branchId = (int) $this->pdo->lastInsertId();
+        $this->pdo->exec("INSERT INTO sections (age_branch_id, desk_code, name, email) VALUES ($branchId, 'SEC1', 'Section Test', 'sec1@example.com')");
+        $sectionId = (int) $this->pdo->lastInsertId();
+
+        $scoutYearId = $this->scoutYearService->getCurrentYear()['id'];
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('D2')");
+        $memberId = (int) $this->pdo->lastInsertId();
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted, totem_encrypted) VALUES (?, ?, ?, ?, ?)'
+        );
+        $stmt->execute([$memberId, $scoutYearId, $encryption->encrypt('Marie'), $encryption->encrypt('Curie'), $encryption->encrypt('Aigle')]);
+        $memberYearId = (int) $this->pdo->lastInsertId();
+
+        $profile = $this->sectionService->hydrateMemberProfile($memberYearId);
+
+        $provider = new class($profile, $sectionId, $scoutYearId) implements SectionResponsableProvider {
+            /** @var array<int, array{0: int, 1: int}> */
+            public array $calls = [];
+
+            public function __construct(
+                private ?MemberProfile $profile,
+                private int $expectedSectionId,
+                private int $expectedScoutYearId
+            ) {
+            }
+
+            public function getResponsable(int $sectionId, int $scoutYearId): ?MemberProfile
+            {
+                $this->calls[] = [$sectionId, $scoutYearId];
+                if ($sectionId === $this->expectedSectionId && $scoutYearId === $this->expectedScoutYearId) {
+                    return $this->profile;
+                }
+                return null;
+            }
+        };
+
+        $controller = new PageController(
+            $this->twig, $this->editableService, $this->sectionRepo, $this->settingService, $this->rgpdContentService,
+            $this->sectionService, $this->unitStaffSectionService, $this->scoutYearService, null, null, $provider
+        );
+
+        $request = new Request('GET', '/sections', [], [], [], []);
+        $response = $controller->sections($request, []);
+        $body = $response->getBody();
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertStringContainsString(TextNormalizerService::normalizeName('Aigle'), $body);
+        $this->assertContains([$sectionId, $scoutYearId], $provider->calls);
     }
 
     public function testRgpdPageRenders(): void

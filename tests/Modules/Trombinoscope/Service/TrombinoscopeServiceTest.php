@@ -113,4 +113,35 @@ class TrombinoscopeServiceTest extends TestCase
         $this->assertNull($result['lead']);
         $this->assertEmpty($result['staff']);
     }
+
+    public function testImplementsSectionResponsableProviderReturningTheLead(): void
+    {
+        $repository = $this->createMock(TrombinoscopeRepository::class);
+        $repository->method('getEligibleStaffForSection')->willReturn([
+            ['member_year_id' => 10, 'is_lead' => true],
+        ]);
+
+        $sectionService = $this->createMock(SectionService::class);
+        $sectionService->method('hydrateMemberProfile')->willReturn($this->makeProfile(10, 1, 'Alice'));
+
+        $service = new TrombinoscopeService($repository, $sectionService);
+
+        $this->assertInstanceOf(\Core\Module\SectionResponsableProvider::class, $service);
+        $this->assertSame('Alice', $service->getResponsable(1, 1)?->firstName);
+    }
+
+    public function testGetResponsableReturnsNullWhenNoneFlagged(): void
+    {
+        $repository = $this->createMock(TrombinoscopeRepository::class);
+        $repository->method('getEligibleStaffForSection')->willReturn([
+            ['member_year_id' => 10, 'is_lead' => false],
+        ]);
+
+        $sectionService = $this->createMock(SectionService::class);
+        $sectionService->method('hydrateMemberProfile')->willReturn($this->makeProfile(10, 1, 'Alice'));
+
+        $service = new TrombinoscopeService($repository, $sectionService);
+
+        $this->assertNull($service->getResponsable(1, 1));
+    }
 }
