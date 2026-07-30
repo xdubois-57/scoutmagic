@@ -10,6 +10,7 @@ use Core\Http\Controller\UploadController;
 use Core\Http\Request;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
+use Core\Photo\LandscapeImageProcessor;
 use Core\Photo\MemberPhotoRepository;
 use Core\Photo\MemberPhotoService;
 use Core\Photo\SectionPhotoProcessor;
@@ -72,7 +73,7 @@ class UploadControllerTest extends TestCase
 
         $this->controller = new UploadController(
             $twig, $uploadHandler, $editableContentService, $this->memberPhotoService,
-            $this->sectionPhotoService, new SectionPhotoProcessor()
+            $this->sectionPhotoService, new SectionPhotoProcessor(), new LandscapeImageProcessor()
         );
         $this->controller->setJournalService(new JournalService($this->journalRepo));
 
@@ -150,7 +151,7 @@ class UploadControllerTest extends TestCase
         unset($_FILES['file']);
     }
 
-    public function testEditableImageContextIsUnaffected(): void
+    public function testEditableImageContextSetsTheEditableContentRecord(): void
     {
         $tmpFile = $this->createTempImage();
         $_FILES['file'] = ['tmp_name' => $tmpFile, 'name' => 'hero.jpg', 'size' => filesize($tmpFile), 'error' => UPLOAD_ERR_OK];
@@ -167,6 +168,42 @@ class UploadControllerTest extends TestCase
         $this->assertSame(302, $response->getStatusCode());
         $stmt = $this->pdo->query("SELECT COUNT(*) FROM editable_contents WHERE content_key = 'home.hero'");
         $this->assertSame(1, (int) $stmt->fetchColumn());
+
+        unset($_FILES['file']);
+    }
+
+    /**
+     * The generic editable_image() mechanism must produce a landscape
+     * image regardless of what was uploaded (matching the public news
+     * article page's featured-image treatment — Core\Photo\
+     * LandscapeImageProcessor) — a portrait source proves it actually ran
+     * server-side rather than the raw upload being stored as-is.
+     */
+    public function testEditableImageContextCropsToTheLandscapeRatio(): void
+    {
+        $tmpFile = $this->createTempImageWithSize(400, 1000);
+        $_FILES['file'] = ['tmp_name' => $tmpFile, 'name' => 'portrait.jpg', 'size' => filesize($tmpFile), 'error' => UPLOAD_ERR_OK];
+
+        $request = new Request('POST', '/upload', [], [
+            '_csrf_token' => CsrfGuard::generateToken(),
+            'context' => 'editable_image',
+            'key' => 'home.hero',
+            'return_url' => '/',
+        ], [], []);
+        $this->controller->store($request, []);
+
+        $stmt = $this->pdo->query("SELECT content_value FROM editable_contents WHERE content_key = 'home.hero'");
+        $fileId = (int) $stmt->fetchColumn();
+        $this->assertGreaterThan(0, $fileId);
+
+        $pathStmt = $this->pdo->prepare('SELECT relative_path FROM files WHERE id = ?');
+        $pathStmt->execute([$fileId]);
+        $relativePath = (string) $pathStmt->fetchColumn();
+        $size = getimagesize($this->tmpDir . '/' . $relativePath);
+
+        $this->assertNotFalse($size);
+        $this->assertGreaterThan($size[1], $size[0], 'output must be landscape (wider than tall)');
+        $this->assertEqualsWithDelta(1200 / 400, $size[0] / $size[1], 0.01);
 
         unset($_FILES['file']);
     }

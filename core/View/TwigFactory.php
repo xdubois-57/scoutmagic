@@ -83,30 +83,36 @@ class TwigFactory
             return (string) $value;
         }, ['is_safe' => ['html']]));
 
-        // Register editable_image() function — renders editable image
+        // Register editable_image() function — renders editable image.
+        // The "no image yet" case must still render the same overlay/
+        // editable-edit-btn as the "already has an image" case (same
+        // pattern already followed by member_photo()/section_photo()
+        // below) — a bare placeholder box with no button was a real bug:
+        // clicking it did nothing, since editable.js only wires up
+        // .editable-edit-btn elements.
         $environment->addFunction(new TwigFunction('editable_image', function (string $key, string $alt = '', string $cssClass = 'img-fluid rounded') use ($environment): string {
             /** @var EditableContentService|null $service */
             $service = $environment->getGlobals()['_editable_content_service'] ?? null;
             $configMode = $environment->getGlobals()['config_mode'] ?? false;
 
             $fileId = $service !== null ? $service->get($key) : null;
+            $hasImage = $fileId !== null && $fileId !== '';
 
             if ($configMode) {
-                if ($fileId !== null && $fileId !== '') {
-                    return '<div class="editable-image" data-key="' . htmlspecialchars($key, ENT_QUOTES) . '" data-type="image">'
-                        . '<div class="editable-overlay"><button class="btn btn-sm btn-outline-primary editable-edit-btn"><i class="bi bi-camera"></i> Changer</button></div>'
-                        . '<img src="/files/' . (int) $fileId . '" alt="' . htmlspecialchars($alt, ENT_QUOTES) . '" class="' . htmlspecialchars($cssClass, ENT_QUOTES) . '">'
+                $img = $hasImage
+                    ? '<img src="/files/' . (int) $fileId . '" alt="' . htmlspecialchars($alt, ENT_QUOTES) . '" class="' . htmlspecialchars($cssClass, ENT_QUOTES) . '">'
+                    : '<div class="d-flex align-items-center justify-content-center bg-light rounded" style="min-height:200px;">'
+                        . '<span class="text-muted"><i class="bi bi-image"></i> Cliquer pour ajouter une image</span>'
                         . '</div>';
-                }
+                $buttonLabel = $hasImage ? 'Changer' : 'Ajouter';
 
-                return '<div class="editable-image editable-placeholder" data-key="' . htmlspecialchars($key, ENT_QUOTES) . '" data-type="image">'
-                    . '<div class="d-flex align-items-center justify-content-center bg-light rounded" style="min-height:200px;">'
-                    . '<span class="text-muted"><i class="bi bi-image"></i> Cliquer pour ajouter une image</span>'
-                    . '</div>'
+                return '<div class="editable-image" data-key="' . htmlspecialchars($key, ENT_QUOTES) . '" data-type="image">'
+                    . '<div class="editable-overlay"><button class="btn btn-sm btn-outline-primary editable-edit-btn"><i class="bi bi-camera"></i> ' . $buttonLabel . '</button></div>'
+                    . $img
                     . '</div>';
             }
 
-            if ($fileId !== null && $fileId !== '') {
+            if ($hasImage) {
                 return '<img src="/files/' . (int) $fileId . '" alt="' . htmlspecialchars($alt, ENT_QUOTES) . '" class="' . htmlspecialchars($cssClass, ENT_QUOTES) . '">';
             }
 

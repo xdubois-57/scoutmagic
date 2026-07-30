@@ -10,6 +10,7 @@ use Core\Http\FlashMessage;
 use Core\Http\Request;
 use Core\Http\Response;
 use Core\Journal\JournalService;
+use Core\Photo\LandscapeImageProcessor;
 use Core\Photo\MemberPhotoService;
 use Core\Photo\SectionPhotoProcessor;
 use Core\Photo\SectionPhotoService;
@@ -28,7 +29,8 @@ class UploadController extends AbstractController
         private EditableContentService $editableContentService,
         private MemberPhotoService $memberPhotoService,
         private SectionPhotoService $sectionPhotoService,
-        private SectionPhotoProcessor $sectionPhotoProcessor
+        private SectionPhotoProcessor $sectionPhotoProcessor,
+        private LandscapeImageProcessor $landscapeImageProcessor
     ) {
     }
 
@@ -95,6 +97,16 @@ class UploadController extends AbstractController
             // one.
             if ($context === 'section_photo') {
                 $uploadedFile = $this->processSectionPhoto($uploadedFile, $allowedMimes);
+            }
+
+            // editable_image is the generic, site-wide "editable picture"
+            // mechanism (home page hero, and anywhere else it's reused) —
+            // every upload through it is cropped to a fixed landscape
+            // ratio matching the public news article page's featured-image
+            // treatment (Core\Photo\LandscapeImageProcessor), same
+            // before-UploadHandler::handle() pattern as section_photo above.
+            if ($context === 'editable_image') {
+                $uploadedFile = $this->processLandscapeImage($uploadedFile, $allowedMimes);
             }
 
             // member_photo/section_photo uploads are scoped to a member or
@@ -209,6 +221,42 @@ class UploadController extends AbstractController
         $processed = $this->sectionPhotoProcessor->process((string) file_get_contents($tmpName), $mimeType);
 
         $processedPath = tempnam(sys_get_temp_dir(), 'section_photo_');
+        if ($processedPath === false) {
+            throw new UploadException('Impossible de traiter cette image.');
+        }
+        file_put_contents($processedPath, $processed);
+
+        $uploadedFile['tmp_name'] = $processedPath;
+        $uploadedFile['size'] = strlen($processed);
+        $uploadedFile['type'] = 'image/jpeg';
+
+        return $uploadedFile;
+    }
+
+    /**
+     * Same before-UploadHandler::handle() pattern as processSectionPhoto()
+     * above, via Core\Photo\LandscapeImageProcessor.
+     *
+     * @param array<string, mixed> $uploadedFile $_FILES entry
+     * @param array<string> $allowedMimes
+     * @return array<string, mixed>
+     * @throws UploadException when the source can't be decoded/processed
+     */
+    private function processLandscapeImage(array $uploadedFile, array $allowedMimes): array
+    {
+        $tmpName = (string) ($uploadedFile['tmp_name'] ?? '');
+        if ($tmpName === '' || !is_file($tmpName)) {
+            return $uploadedFile;
+        }
+
+        $mimeType = (string) (new \finfo(FILEINFO_MIME_TYPE))->file($tmpName);
+        if (!in_array($mimeType, $allowedMimes, true)) {
+            return $uploadedFile;
+        }
+
+        $processed = $this->landscapeImageProcessor->process((string) file_get_contents($tmpName), $mimeType);
+
+        $processedPath = tempnam(sys_get_temp_dir(), 'editable_image_');
         if ($processedPath === false) {
             throw new UploadException('Impossible de traiter cette image.');
         }

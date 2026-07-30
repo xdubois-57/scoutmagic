@@ -66,13 +66,27 @@
     // Image upload — navigate to upload page. data-context lets other core
     // components (e.g. member_photo()) reuse this same overlay/click wiring
     // with their own upload context, defaulting to 'editable_image'.
+    function navigateToUpload(container) {
+        var key = container.dataset.key;
+        var context = container.dataset.context || 'editable_image';
+        window.location.href = '/upload?context=' + encodeURIComponent(context) + '&key=' + encodeURIComponent(key) + '&return=' + encodeURIComponent(window.location.pathname);
+    }
+
     document.querySelectorAll('.editable-image .editable-edit-btn').forEach(function (btn) {
         btn.addEventListener('click', function (e) {
             e.stopPropagation();
-            var container = btn.closest('.editable-image');
-            var key = container.dataset.key;
-            var context = container.dataset.context || 'editable_image';
-            window.location.href = '/upload?context=' + encodeURIComponent(context) + '&key=' + encodeURIComponent(key) + '&return=' + encodeURIComponent(window.location.pathname);
+            navigateToUpload(btn.closest('.editable-image'));
+        });
+    });
+
+    // An empty editable-image (no file set yet) has no img/photo to look
+    // at, only its "Cliquer pour ajouter une image" placeholder text — so
+    // the whole box is clickable too, not just the hover-revealed button
+    // above (that stopPropagation() keeps this from double-firing).
+    document.querySelectorAll('.editable-image').forEach(function (container) {
+        if (container.querySelector('img')) return;
+        container.addEventListener('click', function () {
+            navigateToUpload(container);
         });
     });
 })();

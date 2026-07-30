@@ -19,6 +19,7 @@ use Core\Database\SqlParser;
 use Core\File\FileAccessGuard;
 use Core\File\FileRepository;
 use Core\File\UploadHandler;
+use Core\Photo\LandscapeImageProcessor;
 use Core\Photo\MemberPhotoRepository;
 use Core\Photo\MemberPhotoService;
 use Core\Photo\SectionPhotoProcessor;
@@ -511,6 +512,11 @@ $memberPhotoService = new MemberPhotoService(new MemberPhotoRepository($pdo));
 $sectionPhotoService = new SectionPhotoService(new SectionPhotoRepository($pdo));
 $sectionPhotoProcessor = new SectionPhotoProcessor();
 
+// Generic, reusable-anywhere "editable image" landscape crop (home page
+// hero, and any future editable_image() use) — see Core\Photo\
+// LandscapeImageProcessor for the ratio/width rationale.
+$landscapeImageProcessor = new LandscapeImageProcessor();
+
 // Role labels in French
 $roleLabelMap = [
     'public' => 'Public',
@@ -926,7 +932,7 @@ $frontController->registerController(EditableContentController::class, $editable
 $fileController = new FileController($twig, $fileAccessGuard, $storagePath, $encryptedFileStorageService);
 $fileController->setJournalService($journalService);
 $frontController->registerController(FileController::class, $fileController);
-$uploadController = new UploadController($twig, $uploadHandler, $editableContentService, $memberPhotoService, $sectionPhotoService, $sectionPhotoProcessor);
+$uploadController = new UploadController($twig, $uploadHandler, $editableContentService, $memberPhotoService, $sectionPhotoService, $sectionPhotoProcessor, $landscapeImageProcessor);
 $uploadController->setJournalService($journalService);
 $frontController->registerController(UploadController::class, $uploadController);
 $frontController->registerController(JournalController::class, new JournalController($twig, $journalRepo, $userAccountRepo));
