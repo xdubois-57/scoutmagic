@@ -36,7 +36,7 @@ class ModuleManifest
     private const VALID_COOKIE_CATEGORIES = ['necessary', 'functional', 'analytics'];
 
     /**
-     * @param array<int, array{path: string, method: string, controller: string, action: string, menu: string, role_min: string, label: string, menu_order: int}> $routes
+     * @param array<int, array{path: string, method: string, controller: string, action: string, menu: string, role_min: string, label: string, menu_order: int, menu_order_explicit: bool}> $routes
      * @param array<int, array{key: string, default_value: string, type: string, label: string, description: string}> $settings
      * @param array<int, array{name: string, category: string, purpose: string, duration: string}> $cookies
      * @param array<int, array{key: string, handler: string}> $scheduledTasks
@@ -176,7 +176,7 @@ class ModuleManifest
 
     /**
      * @param array<string, mixed>|mixed $route
-     * @return array{path: string, method: string, controller: string, action: string, menu: string, role_min: string, label: string, menu_order: int}
+     * @return array{path: string, method: string, controller: string, action: string, menu: string, role_min: string, label: string, menu_order: int, menu_order_explicit: bool}
      */
     private static function validateRoute(string $moduleId, mixed $route, int $index): array
     {
@@ -219,7 +219,8 @@ class ModuleManifest
         // which use order 10+). A module can set a lower value to appear
         // before those, e.g. the trombinoscope page before per-member pages.
         $menuOrder = 100;
-        if (isset($route['menu_order'])) {
+        $menuOrderExplicit = isset($route['menu_order']);
+        if ($menuOrderExplicit) {
             if (!is_int($route['menu_order'])) {
                 throw new ModuleException("Module '{$moduleId}' route[{$index}] 'menu_order' must be an integer");
             }
@@ -235,6 +236,15 @@ class ModuleManifest
             'role_min' => $route['role_min'],
             'label' => $label,
             'menu_order' => $menuOrder,
+            // An explicit menu_order (e.g. gallery/trombinoscope sorting
+            // their espace_animes page before dynamically-injected
+            // per-member pages) is a deliberate placement the module author
+            // chose relative to specific other entries in that menu, and is
+            // left completely untouched by module reordering below — only
+            // routes using the plain default get shifted by the module's
+            // position on the general configuration page (see
+            // ModuleManager::loadModule()).
+            'menu_order_explicit' => $menuOrderExplicit,
         ];
     }
 

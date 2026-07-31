@@ -1,0 +1,20 @@
+{
+  "id": "second_module",
+  "name": "Second Module",
+  "version": "1.0.0",
+  "routes": [
+    {
+      "path": "/config/second-module",
+      "method": "GET",
+      "controller": "Modules\\SecondModule\\Controller\\ConfigController",
+      "action": "index",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": "Second Module Config"
+    }
+  ],
+  "settings": [],
+  "cookies": [],
+  "scheduled_tasks": [],
+  "storage": {}
+}

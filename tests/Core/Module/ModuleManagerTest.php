@@ -284,4 +284,93 @@ class ModuleManagerTest extends TestCase
         $ids = $this->manager->getEnabledModuleIds();
         $this->assertContains('valid_module', $ids);
     }
+
+    public function testDiscoverModulesOrdersBySortOrder(): void
+    {
+        $this->registryRepo->upsert('valid_module', true, '1.0.0', null);
+        $this->registryRepo->upsert('second_module', true, '1.0.0', null);
+        // Flip the natural (append) order: second_module first.
+        $this->registryRepo->reorder(['second_module', 'valid_module']);
+
+        $ids = array_map(fn($m) => $m->manifest->id, $this->manager->discoverModules());
+        $known = array_values(array_intersect($ids, ['second_module', 'valid_module']));
+
+        $this->assertSame(['second_module', 'valid_module'], $known);
+    }
+
+    public function testDiscoverModulesSortsUntouchedModulesLastAlphabetically(): void
+    {
+        // No registry rows for either — neither has ever been toggled.
+        $ids = array_map(fn($m) => $m->manifest->id, $this->manager->discoverModules());
+        $known = array_values(array_intersect($ids, ['second_module', 'valid_module']));
+
+        $this->assertSame(['second_module', 'valid_module'], $known);
+    }
+
+    public function testReorderCreatesRegistryRowForNeverToggledModuleWithoutEnablingIt(): void
+    {
+        $this->assertNull($this->registryRepo->findByModuleId('valid_module'));
+
+        $this->manager->reorder(['valid_module', 'second_module']);
+
+        $entry = $this->registryRepo->findByModuleId('valid_module');
+        $this->assertNotNull($entry);
+        $this->assertFalse($entry['enabled']);
+        $this->assertSame(0, $entry['sort_order']);
+        $this->assertSame('1.0.0', $entry['installed_version']);
+
+        $second = $this->registryRepo->findByModuleId('second_module');
+        $this->assertSame(1, $second['sort_order']);
+    }
+
+    public function testModuleReorderChangesDefaultMenuOrderAcrossModules(): void
+    {
+        $this->registryRepo->upsert('valid_module', true, '1.0.0', null);
+        $this->registryRepo->upsert('second_module', true, '1.0.0', null);
+        // Both routes use the plain default menu_order, in the
+        // 'configuration' menu — only the module's own position (append
+        // order here: valid_module then second_module) should decide which
+        // sorts first.
+
+        $labelsBefore = $this->configurationMenuLabels();
+        $this->assertLessThan(
+            array_search('Second Module Config', $labelsBefore, true),
+            array_search('Test Module Config', $labelsBefore, true)
+        );
+
+        $this->manager->reorder(['second_module', 'valid_module']);
+
+        $labelsAfter = $this->configurationMenuLabels();
+        $this->assertLessThan(
+            array_search('Test Module Config', $labelsAfter, true),
+            array_search('Second Module Config', $labelsAfter, true)
+        );
+    }
+
+    /**
+     * @return string[]
+     */
+    private function configurationMenuLabels(): array
+    {
+        $menuBuilder = new MenuBuilder(Role::fromString('superadmin'));
+        $manager = new ModuleManager(
+            $this->fixturesDir,
+            $this->settingService,
+            $this->cookieConsentService,
+            $menuBuilder,
+            $this->registryRepo,
+            $this->createMock(MigrationRunner::class),
+            new JournalService(new JournalRepository($this->pdo)),
+            new Router()
+        );
+        $manager->loadEnabledModules();
+
+        foreach ($menuBuilder->build() as $menu) {
+            if ($menu['id'] === 'configuration') {
+                return array_map(fn($p) => $p['label'] ?? '', $menu['pages']);
+            }
+        }
+
+        return [];
+    }
 }

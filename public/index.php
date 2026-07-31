@@ -789,6 +789,7 @@ $router->addRoute('GET', '/api/maintenance/reset-status/{id}', MaintenanceContro
 // Configuration générale
 $router->addRoute('GET', '/config/general', ConfigGeneralController::class, 'index', 'superadmin');
 $router->addRoute('POST', '/config/general/module-toggle', ConfigGeneralController::class, 'toggleModule', 'superadmin');
+$router->addRoute('POST', '/config/general/module-reorder', ConfigGeneralController::class, 'reorderModules', 'superadmin');
 $router->addRoute('POST', '/config/general/badge-add', ConfigGeneralController::class, 'addBadge', 'superadmin');
 $router->addRoute('POST', '/config/general/badge-update', ConfigGeneralController::class, 'updateBadge', 'superadmin');
 $router->addRoute('POST', '/config/general/badge-toggle-active', ConfigGeneralController::class, 'toggleBadgeActive', 'superadmin');

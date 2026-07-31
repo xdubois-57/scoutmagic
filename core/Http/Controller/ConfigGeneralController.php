@@ -36,8 +36,15 @@ class ConfigGeneralController extends AbstractController
         $this->badgeService->ensureDefaults();
         $this->badgeService->syncSectionReferentBadges();
 
+        // partials/list_editor.html.twig's chrome (drag handle, data-id
+        // attribute) addresses each item as item.id — module_id is a
+        // string on ModuleInfo->manifest->id, one level deeper than that
+        // partial looks, so each entry is wrapped here rather than
+        // reworking the shared partial around a configurable id path.
+        $moduleItems = array_map(fn($mod) => ['id' => $mod->manifest->id, 'info' => $mod], $modules);
+
         return $this->render('config/general.html.twig', [
-            'modules' => $modules,
+            'modules' => $moduleItems,
             'badges' => $this->badgeService->getAll(),
             'assigned_badge_ids' => $this->badgeService->getAssignedBadgeIds(),
         ]);
@@ -253,6 +260,39 @@ class ConfigGeneralController extends AbstractController
         } catch (ModuleException $e) {
             return $this->json(['success' => false, 'error' => $e->getMessage()], 400);
         }
+
+        return $this->json(['success' => true]);
+    }
+
+    /**
+     * POST /config/general/module-reorder — persist a new module display/menu
+     * order from the drag-and-drop (or mobile arrow) list (AJAX, JSON).
+     *
+     * @param array<string, string> $params
+     */
+    public function reorderModules(Request $request, array $params): Response
+    {
+        $data = $this->decodeJsonBody($request);
+        if ($data === null) {
+            return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
+        }
+
+        $csrf = (string) ($data['_csrf_token'] ?? '');
+        if (!CsrfGuard::validateToken($csrf)) {
+            return $this->json(['success' => false, 'error' => 'Jeton CSRF invalide.'], 403);
+        }
+
+        $ids = is_array($data['ids'] ?? null) ? array_map('strval', $data['ids']) : [];
+        $this->moduleManager->reorder($ids);
+
+        $this->journalService->log(
+            'core',
+            'modules_reordered',
+            'info',
+            'Ordre des modules modifié',
+            ['module_ids' => $ids],
+            AuthSession::getUserAccountId()
+        );
 
         return $this->json(['success' => true]);
     }

@@ -264,6 +264,7 @@ class DatabaseTestHelper
             module_id TEXT NOT NULL UNIQUE,
             enabled INTEGER NOT NULL DEFAULT 0,
             installed_version TEXT NOT NULL,
+            sort_order INTEGER NOT NULL DEFAULT 0,
             enabled_at TEXT,
             enabled_by INTEGER,
             FOREIGN KEY (enabled_by) REFERENCES user_accounts(id) ON DELETE SET NULL

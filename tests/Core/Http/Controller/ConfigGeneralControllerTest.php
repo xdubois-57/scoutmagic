@@ -408,6 +408,56 @@ class ConfigGeneralControllerTest extends TestCase
         $this->assertSame(403, $response->getStatusCode());
     }
 
+    public function testIndexRendersModuleListAsADraggableListEditor(): void
+    {
+        $request = new Request('GET', '/config/general', [], [], [], []);
+        $response = $this->controller->index($request, []);
+
+        $body = $response->getBody();
+        $this->assertStringContainsString('id="module-list"', $body);
+        $this->assertStringContainsString('data-reorder-url="/config/general/module-reorder"', $body);
+        $this->assertStringContainsString('list-editor-move-up', $body);
+        $this->assertStringContainsString('list-editor-move-down', $body);
+        // No active/delete/add affordances for modules — only reorder chrome.
+        $this->assertStringNotContainsString('list-editor-delete-btn', $body);
+        $this->assertStringNotContainsString('list-editor-add-btn', $body);
+    }
+
+    public function testReorderModulesPersistsNewOrder(): void
+    {
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+        $token = bin2hex(random_bytes(32));
+        $_SESSION['_csrf_token'] = $token;
+        AuthSession::login(1, 'admin@test.com', 'admin');
+
+        $this->registryRepo->upsert('valid_module', true, '1.0.0', 1);
+
+        $request = $this->createJsonRequest([
+            'ids' => ['second_module', 'valid_module'],
+            '_csrf_token' => $token,
+        ]);
+        $response = $this->controller->reorderModules($request, []);
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertTrue($decoded['success']);
+
+        $this->assertSame(0, $this->registryRepo->findByModuleId('second_module')['sort_order']);
+        $this->assertSame(1, $this->registryRepo->findByModuleId('valid_module')['sort_order']);
+    }
+
+    public function testReorderModulesWithInvalidCsrfReturns403(): void
+    {
+        $request = $this->createJsonRequest([
+            'ids' => ['valid_module'],
+            '_csrf_token' => 'invalid',
+        ]);
+        $response = $this->controller->reorderModules($request, []);
+
+        $this->assertSame(403, $response->getStatusCode());
+    }
+
     /**
      * @param array<string, mixed> $data
      */

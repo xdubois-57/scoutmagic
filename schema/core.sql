@@ -369,6 +369,7 @@ CREATE TABLE module_registry (
     module_id VARCHAR(100) NOT NULL UNIQUE,
     enabled BOOLEAN NOT NULL DEFAULT FALSE,
     installed_version VARCHAR(20) NOT NULL,
+    sort_order INT NOT NULL DEFAULT 0,
     enabled_at DATETIME,
     enabled_by INT UNSIGNED,
     FOREIGN KEY (enabled_by) REFERENCES user_accounts(id) ON DELETE SET NULL

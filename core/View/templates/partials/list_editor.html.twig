@@ -50,6 +50,11 @@
   data first (e.g. opening the rich text dialog before an item exists at
   all, so nothing empty ever appears in the list); the caller then wires
   the `.list-editor-add-btn` itself, calling add_url however it needs to.
+
+  active_url, delete_url and add_url are all optional — a caller that
+  passes none of them (e.g. a reorder-only list, like the general
+  configuration page's module list) gets pure drag/reorder chrome with
+  no activate/delete/add affordances at all.
 #}
 <div class="list-editor" id="{{ list_id }}"
      data-reorder-url="{{ reorder_url }}"
@@ -77,25 +82,31 @@
                 </div>
                 <div class="d-flex flex-row align-items-center gap-2 flex-shrink-0">
                     {% block item_edit %}{% endblock %}
-                    <button type="button" class="btn btn-sm {{ item.is_active ? 'btn-outline-success' : 'btn-outline-secondary' }} list-editor-active-toggle"
-                            data-id="{{ item.id }}" data-active="{{ item.is_active ? '1' : '0' }}"
-                            aria-label="{{ item.is_active ? 'Actif — cliquer pour désactiver' : 'Inactif — cliquer pour activer' }}"
-                            title="{{ item.is_active ? 'Actif — cliquer pour désactiver' : 'Inactif — cliquer pour activer' }}">
-                        <i class="bi {{ item.is_active ? 'bi-toggle-on' : 'bi-toggle-off' }}"></i>
-                    </button>
-                    <button type="button" class="btn btn-sm btn-outline-danger list-editor-delete-btn" data-id="{{ item.id }}"
-                            {{ can_delete ? '' : 'disabled' }}
-                            aria-label="{{ can_delete ? 'Supprimer' : item.delete_blocked_reason|default('Suppression impossible.') }}"
-                            title="{{ can_delete ? 'Supprimer' : item.delete_blocked_reason|default('Suppression impossible.') }}">
-                        <i class="bi bi-trash"></i>
-                    </button>
+                    {% if active_url is defined and active_url %}
+                        <button type="button" class="btn btn-sm {{ item.is_active ? 'btn-outline-success' : 'btn-outline-secondary' }} list-editor-active-toggle"
+                                data-id="{{ item.id }}" data-active="{{ item.is_active ? '1' : '0' }}"
+                                aria-label="{{ item.is_active ? 'Actif — cliquer pour désactiver' : 'Inactif — cliquer pour activer' }}"
+                                title="{{ item.is_active ? 'Actif — cliquer pour désactiver' : 'Inactif — cliquer pour activer' }}">
+                            <i class="bi {{ item.is_active ? 'bi-toggle-on' : 'bi-toggle-off' }}"></i>
+                        </button>
+                    {% endif %}
+                    {% if delete_url is defined and delete_url %}
+                        <button type="button" class="btn btn-sm btn-outline-danger list-editor-delete-btn" data-id="{{ item.id }}"
+                                {{ can_delete ? '' : 'disabled' }}
+                                aria-label="{{ can_delete ? 'Supprimer' : item.delete_blocked_reason|default('Suppression impossible.') }}"
+                                title="{{ can_delete ? 'Supprimer' : item.delete_blocked_reason|default('Suppression impossible.') }}">
+                            <i class="bi bi-trash"></i>
+                        </button>
+                    {% endif %}
                 </div>
             </div>
         {% else %}
             <p class="text-body-secondary fst-italic mb-0">{{ empty_label|default('Aucun élément.') }}</p>
         {% endfor %}
     </div>
-    <button type="button" class="btn btn-sm btn-primary list-editor-add-btn" data-url="{{ add_url }}">
-        <i class="bi bi-plus-lg"></i> {{ add_label|default('Ajouter') }}
-    </button>
+    {% if add_url is defined and add_url %}
+        <button type="button" class="btn btn-sm btn-primary list-editor-add-btn" data-url="{{ add_url }}">
+            <i class="bi bi-plus-lg"></i> {{ add_label|default('Ajouter') }}
+        </button>
+    {% endif %}
 </div>

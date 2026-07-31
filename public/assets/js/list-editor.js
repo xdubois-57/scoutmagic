@@ -52,8 +52,11 @@
 
         function persistOrder() {
             if (!reorderUrl) return;
+            // Sent as-is (not parseInt'd) — an item's id isn't always
+            // numeric (e.g. the general configuration page's module list
+            // uses each module's string id).
             var ids = Array.from(itemsEl.querySelectorAll('.list-editor-item')).map(function (el) {
-                return parseInt(el.dataset.id, 10);
+                return el.dataset.id;
             });
             postJson(reorderUrl, { ids: ids }).then(function (data) {
                 if (!data.success) alert(data.error || 'Erreur lors de la réorganisation.');

@@ -79,4 +79,49 @@ class ModuleRegistryRepositoryTest extends TestCase
         $this->assertContains('mod_b', $ids);
         $this->assertContains('mod_c', $ids);
     }
+
+    public function testUpsertAppendsNewEntryAfterCurrentMax(): void
+    {
+        $this->repo->upsert('mod_a', true, '1.0.0', null);
+        $this->repo->upsert('mod_b', true, '1.0.0', null);
+        $this->repo->upsert('mod_c', true, '1.0.0', null);
+
+        $this->assertSame(0, $this->repo->findByModuleId('mod_a')['sort_order']);
+        $this->assertSame(1, $this->repo->findByModuleId('mod_b')['sort_order']);
+        $this->assertSame(2, $this->repo->findByModuleId('mod_c')['sort_order']);
+    }
+
+    public function testUpsertOnExistingEntryLeavesSortOrderUntouched(): void
+    {
+        $this->repo->upsert('mod_a', true, '1.0.0', null);
+        $this->repo->upsert('mod_b', true, '1.0.0', null);
+        $this->repo->reorder(['mod_b', 'mod_a']);
+
+        $this->repo->upsert('mod_a', false, '1.1.0', null);
+
+        $this->assertSame(1, $this->repo->findByModuleId('mod_a')['sort_order']);
+    }
+
+    public function testFindAllOrdersBySortOrderThenModuleId(): void
+    {
+        $this->repo->upsert('mod_a', true, '1.0.0', null);
+        $this->repo->upsert('mod_b', true, '1.0.0', null);
+        $this->repo->upsert('mod_c', true, '1.0.0', null);
+
+        $this->repo->reorder(['mod_c', 'mod_a', 'mod_b']);
+
+        $ids = array_map(fn(array $e) => $e['module_id'], $this->repo->findAll());
+        $this->assertSame(['mod_c', 'mod_a', 'mod_b'], $ids);
+    }
+
+    public function testReorderPersistsPositionsByIndex(): void
+    {
+        $this->repo->upsert('mod_a', true, '1.0.0', null);
+        $this->repo->upsert('mod_b', true, '1.0.0', null);
+
+        $this->repo->reorder(['mod_b', 'mod_a']);
+
+        $this->assertSame(0, $this->repo->findByModuleId('mod_b')['sort_order']);
+        $this->assertSame(1, $this->repo->findByModuleId('mod_a')['sort_order']);
+    }
 }

@@ -198,7 +198,8 @@ Validation rules enforced by `ModuleManager` at load time:
 - `role_min` is **mandatory** on every route. A route without `role_min` is rejected (fail-safe: no access by default).
 - `menu` must be one of: `notre_unite`, `espace_animes`, `espace_chefs`, `espace_admin`, `configuration`.
 - A route may require a stricter role than its menu's minimum, never more permissive.
-- A route's optional `menu_order` (int, default 100) controls where its menu entry sorts within its menu — lower sorts earlier. In `espace_animes`, dynamic per-member entries use 10+index and the separator before static pages sits at 50, so the default 100 always lands after them; a module can set a lower value to appear before them instead.
+- A route's optional `menu_order` (int, default 100) controls where its menu entry sorts within its menu — lower sorts earlier. In `espace_animes`, dynamic per-member entries use 10+index and the separator before static pages sits at 50, so the default 100 always lands after them; a module can set a lower value to appear before them instead. That explicit value is absolute, unaffected by the module reordering below.
+- Modules can be reordered on the general configuration page (`/config/general`, superadmin — drag-and-drop, or up/down arrows on mobile, same list component as the banner list). This persists to `module_registry.sort_order` and determines both that page's own listing order and, for routes left at the default `menu_order`, a base offset (`1000 * module position`) added on top — so those pages sort by module order across every menu, always after core's own hardcoded page order.
 - A module's optional top-level `enabled_by_default` (bool, default false) auto-activates it the very first time it is discovered on disk (no `module_registry` row yet). An admin's later explicit deactivation always sticks.
 - A disabled module: all routes return 404, menu entries disappear, but data and schema remain.
 

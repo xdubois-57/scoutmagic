@@ -13,6 +13,15 @@ use Core\View\MenuBuilder;
 
 class ModuleManager
 {
+    // Effective menu_order for a module's default-order (non-explicit)
+    // routes is BASE + position*STEP + the route's own (always-100) value —
+    // 1000 apart is far more than any single module will ever declare
+    // routes in one menu, and BASE (1000) is always above every hardcoded
+    // core page order (all ≤ ~50 today), so core pages sort first without
+    // needing any structural guarantee beyond that convention.
+    private const MODULE_ORDER_BASE = 1000;
+    private const MODULE_ORDER_STEP = 1000;
+
     /** @var array<string, string> module_id::task_key => handler class */
     private array $taskHandlers = [];
 
@@ -44,6 +53,17 @@ class ModuleManager
         foreach ($registryEntries as $entry) {
             $registryMap[$entry['module_id']] = $entry;
         }
+
+        // A module with no registry row yet (never toggled, not
+        // enabled_by_default) has no persisted position — it sorts after
+        // every module the admin has actually seen/ordered, ties broken
+        // alphabetically. Deliberately read-only: no row is created here,
+        // so this never interferes with loadEnabledModules()'s own
+        // "registry row === null" check for first-discovery auto-activation
+        // below. A row (and a real sort_order) is only ever created when
+        // the module is toggled (upsert()) or explicitly reordered
+        // (see reorder()).
+        $sortKeys = [];
 
         // Scan disk
         if (is_dir($this->modulesDir)) {
@@ -78,6 +98,7 @@ class ModuleManager
                     $installedVersion = $registry['installed_version'] ?? null;
 
                     $modules[$dir] = new ModuleInfo($manifest, $enabled, $installedVersion, true, $validationError);
+                    $sortKeys[$dir] = $registry['sort_order'] ?? PHP_INT_MAX;
                     unset($registryMap[$dir]);
                 }
             }
@@ -87,10 +108,44 @@ class ModuleManager
         foreach ($registryMap as $moduleId => $entry) {
             $manifest = new ModuleManifest($moduleId, $moduleId, $entry['installed_version'], [], [], [], [], []);
             $modules[$moduleId] = new ModuleInfo($manifest, $entry['enabled'], $entry['installed_version'], false, null);
+            $sortKeys[$moduleId] = $entry['sort_order'];
         }
 
-        ksort($modules);
+        uksort($modules, fn(string $a, string $b) => [$sortKeys[$a], $a] <=> [$sortKeys[$b], $b]);
         return array_values($modules);
+    }
+
+    /**
+     * Persist a new module display/menu order from the general
+     * configuration page's drag-and-drop list. A module the admin drags
+     * but has never toggled (no registry row yet) gets one created here
+     * first (disabled — dragging it must not implicitly enable it), purely
+     * so it has somewhere to persist its new position.
+     *
+     * @param string[] $orderedModuleIds
+     */
+    public function reorder(array $orderedModuleIds): void
+    {
+        foreach ($orderedModuleIds as $moduleId) {
+            if ($this->registryRepo->findByModuleId($moduleId) !== null) {
+                continue;
+            }
+
+            $version = '0.0.0';
+            $manifestPath = $this->modulesDir . '/' . $moduleId . '/module.json';
+            if (file_exists($manifestPath)) {
+                try {
+                    $version = ModuleManifest::fromFile($manifestPath)->version;
+                } catch (ModuleException) {
+                    // Invalid manifest — still give it a registry row so its
+                    // position persists, just with a placeholder version.
+                }
+            }
+
+            $this->registryRepo->upsert($moduleId, false, $version, null);
+        }
+
+        $this->registryRepo->reorder($orderedModuleIds);
     }
 
     /**
@@ -99,6 +154,7 @@ class ModuleManager
     public function loadEnabledModules(): void
     {
         $modules = $this->discoverModules();
+        $modulePosition = 0;
 
         foreach ($modules as $module) {
             if (!$module->presentOnDisk || $module->validationError !== null) {
@@ -131,7 +187,8 @@ class ModuleManager
             }
 
             $this->enabledModuleIds[] = $module->manifest->id;
-            $this->loadModule($module->manifest);
+            $this->loadModule($module->manifest, $modulePosition);
+            $modulePosition++;
         }
     }
 
@@ -217,8 +274,11 @@ class ModuleManager
 
     /**
      * Load a single module: register its routes, settings, cookies, menu pages, task handlers.
+     * $modulePosition is this module's index among enabled modules in their
+     * current admin-defined order (see reorder()) — it only affects routes
+     * using the default menu_order (see ModuleManifest::validateRoute()).
      */
-    private function loadModule(ModuleManifest $manifest): void
+    private function loadModule(ModuleManifest $manifest, int $modulePosition): void
     {
         // Register routes
         foreach ($manifest->routes as $route) {
@@ -232,12 +292,16 @@ class ModuleManager
 
             // Register menu page if route has a label
             if ($route['label'] !== '') {
+                $menuOrder = $route['menu_order_explicit']
+                    ? $route['menu_order']
+                    : self::MODULE_ORDER_BASE + ($modulePosition * self::MODULE_ORDER_STEP) + $route['menu_order'];
+
                 $this->menuBuilder->addPage(
                     $route['menu'],
                     $route['label'],
                     $route['path'],
                     $route['role_min'],
-                    $route['menu_order']
+                    $menuOrder
                 );
             }
         }
