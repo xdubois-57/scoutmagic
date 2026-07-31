@@ -567,6 +567,12 @@ class BoardService implements RetroEventLinkLookupInterface
      * Empty/whitespace-only form input is stored as NULL, never as an
      * empty string — close()'s "closeNotifyEmail !== null" check is the
      * single source of truth for "is a recipient actually configured".
+     *
+     * @throws RetroException when a non-empty address isn't a valid email —
+     *     caught here (save time) rather than left to fail silently inside
+     *     sendCloseNotification()'s best-effort try/catch at close time,
+     *     which would otherwise leave the chief with no idea why nothing
+     *     arrived.
      */
     private function normalizeEmail(?string $email): ?string
     {
@@ -574,8 +580,14 @@ class BoardService implements RetroEventLinkLookupInterface
             return null;
         }
         $trimmed = trim($email);
+        if ($trimmed === '') {
+            return null;
+        }
+        if (filter_var($trimmed, FILTER_VALIDATE_EMAIL) === false) {
+            throw new RetroException('L\'adresse e-mail de notification est invalide.');
+        }
 
-        return $trimmed !== '' ? $trimmed : null;
+        return $trimmed;
     }
 
     /**
@@ -584,6 +596,10 @@ class BoardService implements RetroEventLinkLookupInterface
      * must never depend on network/SMTP availability). Only ever includes
      * $visibleComments (module spec: "except hidden words") and the AI
      * summary already persisted onto $board by the caller, if any.
+     *
+     * A failure is still journal-logged (same 'board_summary_failed'
+     * precedent right above in close()) — silently swallowing it left no
+     * trace anywhere that the notification never went out.
      *
      * @param array<int, \Modules\Retro\Repository\Comment> $visibleComments
      */
@@ -613,8 +629,14 @@ class BoardService implements RetroEventLinkLookupInterface
                 bodyHtml: $bodyHtml,
                 bodyText: $bodyText
             );
-        } catch (\Throwable) {
-            // Best-effort — see method docblock.
+        } catch (\Throwable $e) {
+            $this->journalService->log(
+                'retro',
+                'board_close_notification_failed',
+                'info',
+                'Échec de l\'envoi de la notification de clôture',
+                ['board_id' => $board->id, 'error' => $e->getMessage()]
+            );
         }
     }
 }

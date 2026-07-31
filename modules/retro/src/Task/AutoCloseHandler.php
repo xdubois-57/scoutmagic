@@ -89,6 +89,8 @@ class AutoCloseHandler implements TaskHandlerInterface
      * handler reason as the rest of this class's docblock. TaskContext
      * exposes no Twig environment, so a standalone one is built here,
      * pointed at the same template roots the real composition root uses.
+     * A failure is journal-logged, same 'board_close_notification_failed'
+     * event as the manual-close path — the swallow was previously silent.
      *
      * @param array<int, \Modules\Retro\Repository\Comment> $visibleComments
      */
@@ -126,8 +128,14 @@ class AutoCloseHandler implements TaskHandlerInterface
                 bodyHtml: $bodyHtml,
                 bodyText: $bodyText
             );
-        } catch (\Throwable) {
-            // Best-effort — see method docblock.
+        } catch (\Throwable $e) {
+            $context->journal->log(
+                'retro',
+                'board_close_notification_failed',
+                'info',
+                'Échec de l\'envoi de la notification de clôture',
+                ['board_id' => $board->id, 'error' => $e->getMessage()]
+            );
         }
     }
 }

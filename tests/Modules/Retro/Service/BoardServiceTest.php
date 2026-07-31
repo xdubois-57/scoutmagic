@@ -409,6 +409,53 @@ class BoardServiceTest extends TestCase
         $this->assertSame('closed', $closed->status);
     }
 
+    public function testCloseJournalLogsWhenTheMailServiceThrows(): void
+    {
+        $mailService = $this->createMock(MailService::class);
+        $mailService->method('send')->willThrowException(new \RuntimeException('SMTP down'));
+        $service = $this->service(mailService: $mailService);
+        $board = $service->create(
+            'Camp', null, '2026-07-15', true, 'unlimited', 5, true, 'cookie', 140, 'none', Role::CHIEF, 3,
+            true, 'chief@example.com'
+        );
+
+        $service->close($board->id, 3);
+
+        $entries = (new JournalRepository($this->pdo))->search('retro');
+        $failure = null;
+        foreach ($entries as $entry) {
+            if ($entry['event_type'] === 'board_close_notification_failed') {
+                $failure = $entry;
+                break;
+            }
+        }
+        $this->assertNotNull($failure, 'a failed close notification must leave a journal trace');
+        $this->assertStringContainsString('SMTP down', (string) $failure['context']);
+    }
+
+    public function testCreateRejectsAnInvalidNotificationEmail(): void
+    {
+        $service = $this->service();
+
+        $this->expectException(RetroException::class);
+        $service->create(
+            'Camp', null, '2026-07-15', true, 'unlimited', 5, true, 'cookie', 140, 'none', Role::CHIEF, 3,
+            true, 'not-an-email'
+        );
+    }
+
+    public function testUpdateRejectsAnInvalidNotificationEmail(): void
+    {
+        $service = $this->service();
+        $board = $service->create('Camp', null, '2026-07-15', true, 'unlimited', 5, true, 'cookie', 140, 'none', Role::CHIEF, 3);
+
+        $this->expectException(RetroException::class);
+        $service->update(
+            $board->id, 'Camp', null, '2026-07-15', true, 'unlimited', 5, true, 'cookie', 140, 'none', Role::CHIEF, 3,
+            true, 'not-an-email'
+        );
+    }
+
     public function testCloseDegradesGracefullyWithoutSummaryService(): void
     {
         $service = $this->service();

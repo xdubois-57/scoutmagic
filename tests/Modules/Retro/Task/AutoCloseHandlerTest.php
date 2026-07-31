@@ -124,4 +124,23 @@ class AutoCloseHandlerTest extends TestCase
 
         (new AutoCloseHandler())->handle(['board_id' => $boardId], $this->context);
     }
+
+    public function testJournalLogsWhenTheMailServiceThrows(): void
+    {
+        $boardId = $this->createOpenBoard(true, 'chief@example.com');
+        $this->context->mailService->method('send')->willThrowException(new \RuntimeException('SMTP down'));
+
+        (new AutoCloseHandler())->handle(['board_id' => $boardId], $this->context);
+
+        $entries = (new JournalRepository($this->pdo))->search('retro');
+        $failure = null;
+        foreach ($entries as $entry) {
+            if ($entry['event_type'] === 'board_close_notification_failed') {
+                $failure = $entry;
+                break;
+            }
+        }
+        $this->assertNotNull($failure, 'a failed close notification must leave a journal trace');
+        $this->assertStringContainsString('SMTP down', (string) $failure['context']);
+    }
 }
