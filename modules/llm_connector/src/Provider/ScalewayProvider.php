@@ -63,10 +63,7 @@ class ScalewayProvider implements LlmProviderInterface
 
         $messages[] = ['role' => 'user', 'content' => $this->buildUserContent($prompt, $attachments)];
 
-        $body = [
-            'model' => $modelId,
-            'messages' => $messages,
-        ];
+        $body = $this->buildRequestBody($modelId, $messages, $options);
 
         $response = $this->httpPost($url, $body, $timeout);
 
@@ -75,11 +72,7 @@ class ScalewayProvider implements LlmProviderInterface
             throw LlmException::apiError($errorMsg);
         }
 
-        $outputText = '';
-        $choices = $response['choices'] ?? [];
-        if (!empty($choices)) {
-            $outputText = (string) ($choices[0]['message']['content'] ?? '');
-        }
+        [$outputText, $truncated] = $this->parseChoice($response);
 
         $inputTokens = (int) ($response['usage']['prompt_tokens'] ?? 0);
         $outputTokens = (int) ($response['usage']['completion_tokens'] ?? 0);
@@ -87,8 +80,47 @@ class ScalewayProvider implements LlmProviderInterface
         return new ProviderResponse(
             content: $outputText,
             inputTokens: $inputTokens,
-            outputTokens: $outputTokens
+            outputTokens: $outputTokens,
+            truncated: $truncated
         );
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $messages
+     * @param array<string, mixed> $options
+     * @return array<string, mixed>
+     */
+    private function buildRequestBody(string $modelId, array $messages, array $options): array
+    {
+        return [
+            'model' => $modelId,
+            'messages' => $messages,
+            // Always sent explicitly — LlmConnectorService::complete() always
+            // populates $options['max_tokens'], but the 4096 fallback here
+            // guards a provider called directly with no options too. Never
+            // omitted: without it, this API falls back to its own
+            // server-side default, which can be far too small for a
+            // long-form request and silently truncate an otherwise-valid
+            // (HTTP 200) response.
+            'max_tokens' => (int) ($options['max_tokens'] ?? 4096),
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $response
+     * @return array{0: string, 1: bool} [content, truncated]
+     */
+    private function parseChoice(array $response): array
+    {
+        $choices = $response['choices'] ?? [];
+        if (empty($choices)) {
+            return ['', false];
+        }
+
+        $content = (string) ($choices[0]['message']['content'] ?? '');
+        $truncated = ($choices[0]['finish_reason'] ?? null) === 'length';
+
+        return [$content, $truncated];
     }
 
     /**

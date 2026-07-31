@@ -131,4 +131,50 @@ class MistralProviderTest extends TestCase
         $this->assertNull($tiers['cheap']);
         $this->assertSame('mistral-medium-20250514', $tiers['capable']);
     }
+
+    public function testBuildRequestBodyAlwaysIncludesMaxTokens(): void
+    {
+        $method = new \ReflectionMethod(MistralProvider::class, 'buildRequestBody');
+        $method->setAccessible(true);
+
+        $body = $method->invoke($this->provider, 'model-1', [], []);
+
+        $this->assertSame(4096, $body['max_tokens'], 'a call with no max_tokens option must still send a default — never omitted');
+    }
+
+    public function testBuildRequestBodyUsesTheProvidedMaxTokens(): void
+    {
+        $method = new \ReflectionMethod(MistralProvider::class, 'buildRequestBody');
+        $method->setAccessible(true);
+
+        $body = $method->invoke($this->provider, 'model-1', [], ['max_tokens' => 8192]);
+
+        $this->assertSame(8192, $body['max_tokens']);
+    }
+
+    public function testParseChoiceDetectsTruncationFromFinishReasonLength(): void
+    {
+        $method = new \ReflectionMethod(MistralProvider::class, 'parseChoice');
+        $method->setAccessible(true);
+
+        [$content, $truncated] = $method->invoke($this->provider, [
+            'choices' => [['message' => ['content' => 'Partial text'], 'finish_reason' => 'length']],
+        ]);
+
+        $this->assertSame('Partial text', $content);
+        $this->assertTrue($truncated);
+    }
+
+    public function testParseChoiceIsNotTruncatedOnNormalCompletion(): void
+    {
+        $method = new \ReflectionMethod(MistralProvider::class, 'parseChoice');
+        $method->setAccessible(true);
+
+        [$content, $truncated] = $method->invoke($this->provider, [
+            'choices' => [['message' => ['content' => 'Full text'], 'finish_reason' => 'stop']],
+        ]);
+
+        $this->assertSame('Full text', $content);
+        $this->assertFalse($truncated);
+    }
 }

@@ -155,10 +155,17 @@ class RgpdConfigController extends AbstractController
                 'trace_preview' => array_slice($e->getTrace(), 0, 5),
             ];
 
+            // event_log.level is a MySQL ENUM('info', 'security') — 'error'
+            // is not a member and made this INSERT itself throw a
+            // PDOException, defeating the whole point of this catch block
+            // (a clean JSON error response instead of an uncaught
+            // exception). 'info' is what every other failure-logging call
+            // site in the codebase already uses for the same reason (see
+            // e.g. Modules\News\Service\ResponseService).
             $this->journalService->log(
                 'core',
                 'rgpd_generation_failed',
-                'error',
+                'info',
                 'Échec de génération du contenu RGPD via IA',
                 $errorDetails,
                 $userId

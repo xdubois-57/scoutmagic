@@ -24,6 +24,13 @@ use Modules\LlmConnector\Repository\ProviderRepository;
  */
 class LlmConnectorService implements LlmConnectorInterface
 {
+    // Always sent to the provider (LlmRequest::$maxTokens overrides it) —
+    // some drivers (Scaleway, Mistral) previously sent no output-length cap
+    // at all, silently falling back to the provider's own server-side
+    // default, which could be far too small for a long-form request and
+    // produce an accepted-but-truncated response with no way to detect it.
+    private const DEFAULT_MAX_TOKENS = 4096;
+
     public function __construct(
         private ProviderRepository $providerRepo,
         private ProviderModelRepository $modelRepo,
@@ -69,6 +76,7 @@ class LlmConnectorService implements LlmConnectorInterface
             'system_prompt' => $request->systemPrompt,
             'attachments' => $request->attachments,
             'response_schema' => $request->responseSchema,
+            'max_tokens' => $request->maxTokens ?? self::DEFAULT_MAX_TOKENS,
         ];
 
         if ($request->timeoutSeconds !== null) {
@@ -122,7 +130,8 @@ class LlmConnectorService implements LlmConnectorInterface
             content: $providerResponse->content,
             parsed: $parsed,
             inputTokens: $providerResponse->inputTokens,
-            outputTokens: $providerResponse->outputTokens
+            outputTokens: $providerResponse->outputTokens,
+            truncated: $providerResponse->truncated
         );
     }
 

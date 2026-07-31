@@ -14,11 +14,14 @@ class ProviderResponse
      * @param string $content Raw text content
      * @param int $inputTokens Input tokens consumed
      * @param int $outputTokens Output tokens produced
+     * @param bool $truncated True when the provider stopped early because it
+     *        hit the max_tokens cap, not because generation finished naturally
      */
     public function __construct(
         public readonly string $content,
         public readonly int $inputTokens,
-        public readonly int $outputTokens
+        public readonly int $outputTokens,
+        public readonly bool $truncated = false
     ) {
     }
 }

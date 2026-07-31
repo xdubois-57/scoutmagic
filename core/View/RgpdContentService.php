@@ -92,7 +92,15 @@ class RgpdContentService
             prompt: "Génère le contenu RGPD complet en HTML selon la structure imposée dans le prompt système.",
             tier: LlmTier::CAPABLE,
             systemPrompt: $systemPrompt,
-            timeoutSeconds: 90
+            timeoutSeconds: 90,
+            // The full 10-section document this prompt demands runs well
+            // past LlmConnectorService::DEFAULT_MAX_TOKENS (4096, tuned for
+            // short replies) — without this override, every provider was
+            // either capped at that default or (Scaleway/Mistral, before
+            // they always sent an explicit max_tokens) capped even lower by
+            // their own server-side default, silently truncating the
+            // response with no way to detect it.
+            maxTokens: 8192
         );
 
         // The RGPD system prompt is unusually large (full default content +
@@ -108,6 +116,15 @@ class RgpdContentService
             $response = $this->llmConnector->complete($request);
         } finally {
             set_time_limit((int) $previousLimit);
+        }
+
+        if ($response->truncated) {
+            // Accepting this as-is would hand back a cut-off document
+            // (likely with unclosed HTML tags too) with no indication
+            // anything went wrong — surface it clearly instead.
+            throw new \RuntimeException(
+                'La réponse générée a été tronquée (limite de longueur atteinte côté fournisseur IA). Réessayez, ou raccourcissez les instructions personnalisées.'
+            );
         }
 
         try {

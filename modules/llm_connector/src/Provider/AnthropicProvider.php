@@ -56,17 +56,7 @@ class AnthropicProvider implements LlmProviderInterface
 
         $effectiveSystem = $this->buildSystemPrompt($systemPrompt, $responseSchema);
 
-        $body = [
-            'model' => $modelId,
-            'max_tokens' => 4096,
-            'messages' => [
-                ['role' => 'user', 'content' => $content],
-            ],
-        ];
-
-        if ($effectiveSystem !== null) {
-            $body['system'] = $effectiveSystem;
-        }
+        $body = $this->buildRequestBody($modelId, $content, $effectiveSystem, $options);
 
         $response = $this->httpPost($url, $body, $timeout);
 
@@ -84,12 +74,38 @@ class AnthropicProvider implements LlmProviderInterface
         $outputText = $this->extractTextContent($response);
         $inputTokens = (int) ($response['usage']['input_tokens'] ?? 0);
         $outputTokens = (int) ($response['usage']['output_tokens'] ?? 0);
+        $truncated = ($response['stop_reason'] ?? null) === 'max_tokens';
 
         return new ProviderResponse(
             content: $outputText,
             inputTokens: $inputTokens,
-            outputTokens: $outputTokens
+            outputTokens: $outputTokens,
+            truncated: $truncated
         );
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $content
+     * @param array<string, mixed> $options
+     * @return array<string, mixed>
+     */
+    private function buildRequestBody(string $modelId, array $content, ?string $effectiveSystem, array $options): array
+    {
+        $body = [
+            'model' => $modelId,
+            // Always sent explicitly — see ScalewayProvider::buildRequestBody()
+            // for why this can never be omitted.
+            'max_tokens' => (int) ($options['max_tokens'] ?? 4096),
+            'messages' => [
+                ['role' => 'user', 'content' => $content],
+            ],
+        ];
+
+        if ($effectiveSystem !== null) {
+            $body['system'] = $effectiveSystem;
+        }
+
+        return $body;
     }
 
     /**

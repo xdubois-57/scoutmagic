@@ -19,6 +19,12 @@ class LlmRequest
      * @param int|null $timeoutSeconds Optional override for the provider's HTTP timeout
      *        (falls back to the provider's own default when null). Use for
      *        requests with unusually large prompts that may need more time.
+     * @param int|null $maxTokens Optional override for the provider's output-length
+     *        cap (falls back to LlmConnectorService::DEFAULT_MAX_TOKENS when
+     *        null — every provider is always sent an explicit value, never
+     *        left to its own server-side default). Use a higher value for
+     *        requests expecting a long-form response (e.g. a full generated
+     *        document) — the default is tuned for short/typical replies.
      */
     public function __construct(
         public readonly LlmTier $tier,
@@ -26,7 +32,8 @@ class LlmRequest
         public readonly array $attachments = [],
         public readonly ?string $systemPrompt = null,
         public readonly ?array $responseSchema = null,
-        public readonly ?int $timeoutSeconds = null
+        public readonly ?int $timeoutSeconds = null,
+        public readonly ?int $maxTokens = null
     ) {
     }
 }

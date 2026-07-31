@@ -109,4 +109,24 @@ class AnthropicProviderTest extends TestCase
         $this->assertNull($tiers['cheap']);
         $this->assertNull($tiers['capable']);
     }
+
+    public function testBuildRequestBodyDefaultsMaxTokensTo4096(): void
+    {
+        $method = new \ReflectionMethod(AnthropicProvider::class, 'buildRequestBody');
+        $method->setAccessible(true);
+
+        $body = $method->invoke($this->provider, 'model-1', [], null, []);
+
+        $this->assertSame(4096, $body['max_tokens']);
+    }
+
+    public function testBuildRequestBodyUsesTheProvidedMaxTokens(): void
+    {
+        $method = new \ReflectionMethod(AnthropicProvider::class, 'buildRequestBody');
+        $method->setAccessible(true);
+
+        $body = $method->invoke($this->provider, 'model-1', [], null, ['max_tokens' => 8192]);
+
+        $this->assertSame(8192, $body['max_tokens']);
+    }
 }

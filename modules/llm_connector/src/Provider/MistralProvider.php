@@ -61,10 +61,7 @@ class MistralProvider implements LlmProviderInterface
 
         $messages[] = ['role' => 'user', 'content' => $this->buildUserContent($prompt, $attachments)];
 
-        $body = [
-            'model' => $modelId,
-            'messages' => $messages,
-        ];
+        $body = $this->buildRequestBody($modelId, $messages, $options);
 
         $response = $this->httpPost($url, $body, $timeout);
 
@@ -73,11 +70,7 @@ class MistralProvider implements LlmProviderInterface
             throw LlmException::apiError($errorMsg);
         }
 
-        $outputText = '';
-        $choices = $response['choices'] ?? [];
-        if (!empty($choices)) {
-            $outputText = (string) ($choices[0]['message']['content'] ?? '');
-        }
+        [$outputText, $truncated] = $this->parseChoice($response);
 
         $inputTokens = (int) ($response['usage']['prompt_tokens'] ?? 0);
         $outputTokens = (int) ($response['usage']['completion_tokens'] ?? 0);
@@ -85,8 +78,43 @@ class MistralProvider implements LlmProviderInterface
         return new ProviderResponse(
             content: $outputText,
             inputTokens: $inputTokens,
-            outputTokens: $outputTokens
+            outputTokens: $outputTokens,
+            truncated: $truncated
         );
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $messages
+     * @param array<string, mixed> $options
+     * @return array<string, mixed>
+     */
+    private function buildRequestBody(string $modelId, array $messages, array $options): array
+    {
+        return [
+            'model' => $modelId,
+            'messages' => $messages,
+            // See ScalewayProvider::buildRequestBody() — same "never omit
+            // this, the provider's own default may silently truncate a
+            // long-form response" reasoning applies here.
+            'max_tokens' => (int) ($options['max_tokens'] ?? 4096),
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $response
+     * @return array{0: string, 1: bool} [content, truncated]
+     */
+    private function parseChoice(array $response): array
+    {
+        $choices = $response['choices'] ?? [];
+        if (empty($choices)) {
+            return ['', false];
+        }
+
+        $content = (string) ($choices[0]['message']['content'] ?? '');
+        $truncated = ($choices[0]['finish_reason'] ?? null) === 'length';
+
+        return [$content, $truncated];
     }
 
     /**
