@@ -41,11 +41,52 @@ class RgpdContentServiceTest extends TestCase
         $this->assertStringContainsString('Contenu', $result);
     }
 
-    public function testGenerateWithAiThrowsWhenTheResponseWasTruncated(): void
+    public function testGenerateWithAiContinuesGenerationWhenTheFirstResponseIsTruncated(): void
     {
         $llmConnector = $this->createMock(LlmConnectorInterface::class);
         $llmConnector->method('isAvailable')->willReturn(true);
-        $llmConnector->method('complete')->willReturn(
+        $llmConnector->expects($this->exactly(2))->method('complete')
+            ->willReturnOnConsecutiveCalls(
+                new LlmResponse(content: '<h2>Titre</h2><p>Début du contenu', parsed: null, inputTokens: 10, outputTokens: 8192, truncated: true),
+                new LlmResponse(content: ' et fin du contenu.</p>', parsed: null, inputTokens: 10, outputTokens: 50, truncated: false)
+            );
+
+        $service = new RgpdContentService($this->moduleManager, $this->settingService, $llmConnector);
+
+        $result = $service->generateWithAi('Instructions');
+
+        $this->assertStringContainsString('Début du contenu et fin du contenu.', $result);
+    }
+
+    public function testContinuationRequestAsksToResumeFromThePartialContent(): void
+    {
+        $llmConnector = $this->createMock(LlmConnectorInterface::class);
+        $llmConnector->method('isAvailable')->willReturn(true);
+
+        $capturedContinuationRequest = null;
+        $llmConnector->expects($this->exactly(2))->method('complete')
+            ->willReturnCallback(function (LlmRequest $request) use (&$capturedContinuationRequest) {
+                if ($capturedContinuationRequest === null && str_contains($request->prompt, 'Génère le contenu RGPD complet')) {
+                    return new LlmResponse(content: '<h2>Titre</h2><p>Début du contenu', parsed: null, inputTokens: 10, outputTokens: 8192, truncated: true);
+                }
+                $capturedContinuationRequest = $request;
+                return new LlmResponse(content: ' et fin.</p>', parsed: null, inputTokens: 10, outputTokens: 50, truncated: false);
+            });
+
+        $service = new RgpdContentService($this->moduleManager, $this->settingService, $llmConnector);
+        $service->generateWithAi('Instructions');
+
+        $this->assertNotNull($capturedContinuationRequest);
+        $this->assertStringContainsString('Début du contenu', $capturedContinuationRequest->prompt);
+        $this->assertStringContainsString('Continue directement', $capturedContinuationRequest->prompt);
+    }
+
+    public function testGenerateWithAiThrowsAfterExhaustingAllContinuations(): void
+    {
+        $llmConnector = $this->createMock(LlmConnectorInterface::class);
+        $llmConnector->method('isAvailable')->willReturn(true);
+        // MAX_CONTINUATIONS = 2 → 1 initial call + 2 continuations = 3 total.
+        $llmConnector->expects($this->exactly(3))->method('complete')->willReturn(
             new LlmResponse(content: '<h2>Titre</h2><p>Contenu incompl', parsed: null, inputTokens: 10, outputTokens: 8192, truncated: true)
         );
 

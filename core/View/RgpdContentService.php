@@ -15,6 +15,13 @@ use Modules\LlmConnector\Repository\ProviderRepository;
 
 class RgpdContentService
 {
+    // How many extra "continue where you stopped" calls generateWithAi()
+    // will make if the model's response comes back truncated — see
+    // completeWithContinuation(). 2 extra calls (3 total) comfortably
+    // covers a full RGPD document even if a single call's real ceiling
+    // turns out to be much lower than the requested max_tokens.
+    private const MAX_CONTINUATIONS = 2;
+
     // Set after construction (public/index.php builds this service before
     // the gallery module's own block, which is where its repository is
     // built) — nullable either way, since the gallery module itself is
@@ -99,42 +106,84 @@ class RgpdContentService
             // either capped at that default or (Scaleway/Mistral, before
             // they always sent an explicit max_tokens) capped even lower by
             // their own server-side default, silently truncating the
-            // response with no way to detect it.
+            // response with no way to detect it. Even so, some models cap a
+            // single response well below this (or below whatever a very
+            // detailed document plus custom instructions needs) — see
+            // completeWithContinuation() below, which is what actually
+            // guarantees the full document regardless of that per-call
+            // ceiling.
             maxTokens: 8192
         );
 
         // The RGPD system prompt is unusually large (full default content +
-        // detailed rules), so the provider can take longer to respond than
-        // PHP's default 30s max_execution_time. That limit is a hard script
-        // timeout — unlike the provider's own HTTP timeout, it is NOT
-        // catchable and would otherwise produce a raw fatal error page
-        // instead of a normal LlmException. Raise it just for this call.
+        // detailed rules) and completeWithContinuation() below may issue
+        // several sequential calls, so the provider can take much longer to
+        // respond than PHP's default 30s max_execution_time. That limit is a
+        // hard script timeout — unlike the provider's own HTTP timeout, it
+        // is NOT catchable and would otherwise produce a raw fatal error
+        // page instead of a normal exception. Raise it just for this call.
         $previousLimit = ini_get('max_execution_time');
-        set_time_limit(120);
+        set_time_limit(300);
 
         try {
-            $response = $this->llmConnector->complete($request);
+            $content = $this->completeWithContinuation($request);
         } finally {
             set_time_limit((int) $previousLimit);
         }
 
-        if ($response->truncated) {
-            // Accepting this as-is would hand back a cut-off document
-            // (likely with unclosed HTML tags too) with no indication
-            // anything went wrong — surface it clearly instead.
-            throw new \RuntimeException(
-                'La réponse générée a été tronquée (limite de longueur atteinte côté fournisseur IA). Réessayez, ou raccourcissez les instructions personnalisées.'
-            );
-        }
-
         try {
-            return $this->sanitizeHtmlOutput($response->content);
+            return $this->sanitizeHtmlOutput($content);
         } catch (\RuntimeException $e) {
             // Log the raw LLM response to help diagnose the issue
             error_log('RGPD AI Generation Error: ' . $e->getMessage());
-            error_log('Raw LLM Response (first 1000 chars): ' . substr($response->content, 0, 1000));
+            error_log('Raw LLM Response (first 1000 chars): ' . substr($content, 0, 1000));
             throw $e;
         }
+    }
+
+    /**
+     * A single call's response can come back truncated (finish_reason
+     * "length"/stop_reason "max_tokens") well before the requested
+     * max_tokens ceiling if the model/provider enforces a lower per-call
+     * cap of its own — no max_tokens value chosen up front can be trusted
+     * to always be high enough. This is what actually guarantees the whole
+     * document gets generated regardless of that: on truncation, it asks
+     * the model (as a plain follow-up single-turn request, same system
+     * prompt) to continue writing exactly where it stopped, and
+     * concatenates the results, up to self::MAX_CONTINUATIONS extra calls.
+     *
+     * @throws \RuntimeException if still truncated after every continuation
+     */
+    private function completeWithContinuation(LlmRequest $request): string
+    {
+        $response = $this->llmConnector->complete($request);
+        $accumulated = $response->content;
+
+        $attempts = 0;
+        while ($response->truncated && $attempts < self::MAX_CONTINUATIONS) {
+            $attempts++;
+
+            $continuationRequest = new LlmRequest(
+                tier: $request->tier,
+                prompt: "Voici le document HTML généré jusqu'ici, interrompu en cours de génération (peut-être en plein milieu d'une balise ou d'un mot) :\n\n"
+                    . $accumulated
+                    . "\n\nContinue directement l'écriture EXACTEMENT à partir de là où elle s'est arrêtée, jusqu'à la fin du document (section 10 incluse). Ne répète rien de ce qui précède, ne réécris pas depuis le début, n'ajoute aucun préambule ni commentaire — uniquement la suite du HTML.",
+                systemPrompt: $request->systemPrompt,
+                timeoutSeconds: $request->timeoutSeconds,
+                maxTokens: $request->maxTokens
+            );
+
+            $response = $this->llmConnector->complete($continuationRequest);
+            $accumulated .= $response->content;
+        }
+
+        if ($response->truncated) {
+            throw new \RuntimeException(
+                'La réponse générée a été tronquée malgré ' . (self::MAX_CONTINUATIONS + 1) . ' tentatives. Réessayez, ou raccourcissez les instructions personnalisées.'
+            );
+        }
+
+        return $accumulated;
     }
 
     /**
