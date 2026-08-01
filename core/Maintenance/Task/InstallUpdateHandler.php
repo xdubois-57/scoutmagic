@@ -18,11 +18,14 @@ use Core\Scheduler\TaskContext;
 use Core\Scheduler\TaskHandlerInterface;
 
 /**
- * Background installation of a GitHub release — scheduled by
- * Core\Http\Controller\MaintenanceController::installUpdate(). Never
- * re-queries GitHub: $payload['download_url'] is the artifact URL already
- * cached by Task\CheckUpdateHandler at the time the admin clicked
- * "Installer".
+ * Background installation of either a GitHub release or (development mode)
+ * a branch archive — scheduled by Core\Http\Controller\
+ * MaintenanceController::installUpdate() (manual) or
+ * Core\Maintenance\GitHubWebhookService (automatic, via the GitHub
+ * webhook). Never re-queries GitHub: $payload['download_url'] is the
+ * artifact URL already resolved by the caller, and $payload['version_to']
+ * (via the UpdateHistory row) already carries either the release tag or a
+ * "dev-{short sha}" string.
  *
  * Steps, each recorded in update_history.status: backing_up (a real,
  * restorable Core\Maintenance\BackupService backup — not shortcut, since
@@ -46,6 +49,9 @@ class InstallUpdateHandler implements TaskHandlerInterface
     {
         $historyId = (int) ($payload['history_id'] ?? 0);
         $downloadUrl = (string) ($payload['download_url'] ?? '');
+        // Defaults to 'release' (not 'branch') so an already-queued task
+        // scheduled before this field existed still installs correctly.
+        $sourceType = (string) ($payload['source_type'] ?? 'release');
         if ($historyId <= 0 || $downloadUrl === '') {
             return;
         }
@@ -111,7 +117,10 @@ class InstallUpdateHandler implements TaskHandlerInterface
                 $this->extract($artifactPath, $extractedDir);
 
                 $updateHistoryRepository->setStatus($historyId, 'installing');
-                $this->installFiles($extractedDir, $basePath);
+                $sourceRoot = $sourceType === 'branch'
+                    ? $this->resolveBranchArchiveRoot($extractedDir)
+                    : $extractedDir;
+                $this->installFiles($sourceRoot, $basePath);
 
                 $updateHistoryRepository->setStatus($historyId, 'migrating');
                 $migrationRunner = new MigrationRunner(
@@ -267,6 +276,25 @@ class InstallUpdateHandler implements TaskHandlerInterface
             }
             $this->copyRecursive($sourceDir . '/' . $entry, $destDir . '/' . $entry);
         }
+    }
+
+    /**
+     * GitHub's branch/commit zipball always wraps its contents in a single
+     * top-level "{owner}-{repo}-{sha}/" directory — unlike scripts/
+     * release.sh's artifact, which zips the repo contents directly at the
+     * top level (`zip -r artifact.zip .`). Only ever called for
+     * source_type "branch" (never for a release artifact, which must
+     * never have this stripping applied even if it coincidentally had a
+     * single top-level entry).
+     */
+    private function resolveBranchArchiveRoot(string $extractedDir): string
+    {
+        $entries = array_values(array_diff(scandir($extractedDir) ?: [], ['.', '..']));
+        if (count($entries) === 1 && is_dir($extractedDir . '/' . $entries[0])) {
+            return $extractedDir . '/' . $entries[0];
+        }
+
+        return $extractedDir;
     }
 
     private function copyRecursive(string $source, string $dest): void

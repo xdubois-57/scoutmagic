@@ -20,11 +20,12 @@ use Core\Scheduler\SchedulerService;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\Security\EncryptionService;
+use Core\Security\SecretManager;
 use Twig\Environment;
 
 /**
- * Configuration > Maintenance: "Mise à jour", "Sauvegardes",
- * "Réinitialisation" (in that page order) sections.
+ * Configuration > Maintenance: "Mise à jour", "Mises à jour automatiques",
+ * "Sauvegardes", "Réinitialisation" (in that page order) sections.
  */
 class MaintenanceController extends AbstractController
 {
@@ -42,10 +43,20 @@ class MaintenanceController extends AbstractController
     private const KEYWORD_FULL_RESET = 'EFFACER';
     private const KEYWORD_RESTORE = 'RESTAURER';
 
+    // Same server-side-verified-keyword pattern, for the "Mode
+    // développement" danger zone (module spec).
+    private const KEYWORD_DEV_MODE = 'DÉVELOPPEMENT';
+
     private const RESTORE_UPLOAD_MAX_BYTES = 500 * 1024 * 1024;
 
     /** @var string[] */
     private const AUTO_BACKUP_FREQUENCIES = ['none', 'daily', 'weekly', 'biweekly', 'monthly'];
+
+    /** @var string[] */
+    private const AUTO_UPDATE_LEVELS = ['patch', 'minor', 'major'];
+
+    /** @var string[] */
+    private const WEEK_DAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
 
     public function __construct(
         protected Environment $twig,
@@ -58,7 +69,8 @@ class MaintenanceController extends AbstractController
         private EncryptionService $encryption,
         private JournalService $journalService,
         private SettingService $settingService,
-        private string $storagePath
+        private string $storagePath,
+        private SecretManager $secretManager
     ) {
     }
 
@@ -70,6 +82,9 @@ class MaintenanceController extends AbstractController
         $latestVersion = (string) ($this->settingService->get('update_latest_version') ?: '');
         $installedVersion = VersionFile::read(dirname($this->storagePath));
         $updateAvailable = $latestVersion !== '' && version_compare($latestVersion, $installedVersion, '>');
+
+        $autoUpdateEnabled = (bool) ((int) ($this->settingService->get('auto_update_enabled') ?: '0'));
+        $webhookConfigured = $this->webhookSecret() !== '';
 
         return $this->render('config/maintenance.html.twig', [
             'installed_version' => $installedVersion,
@@ -85,6 +100,15 @@ class MaintenanceController extends AbstractController
             'zip_encryption_supported' => $this->backupService->supportsZipEncryption(),
             'backup_auto_frequency' => (string) ($this->settingService->get('backup_auto_frequency') ?: 'monthly'),
             'backup_auto_last_run' => (string) ($this->settingService->get('backup_auto_last_run') ?: ''),
+            'auto_update_enabled' => $autoUpdateEnabled,
+            'auto_update_level' => (string) ($this->settingService->get('auto_update_level') ?: 'patch'),
+            'auto_update_day' => (string) ($this->settingService->get('auto_update_day') ?: 'monday'),
+            'auto_update_time' => (string) ($this->settingService->get('auto_update_time') ?: '03:00'),
+            'webhook_configured' => $webhookConfigured,
+            'webhook_warning' => $autoUpdateEnabled && !$webhookConfigured,
+            'webhook_url' => rtrim((string) ($this->settingService->get('base_url') ?: ''), '/') . '/api/webhook/github',
+            'dev_update_enabled' => (bool) ((int) ($this->settingService->get('dev_update_enabled') ?: '0')),
+            'dev_update_branch' => (string) ($this->settingService->get('dev_update_branch') ?: 'main'),
         ]);
     }
 
@@ -459,6 +483,154 @@ class MaintenanceController extends AbstractController
             'status' => $action['status'],
             'error_message' => $action['last_error'],
         ]);
+    }
+
+    /**
+     * POST /config/maintenance/auto-update/save (AJAX, JSON) — the "Mises
+     * à jour automatiques" section's toggle/level/schedule, all saved
+     * together on one "Enregistrer" click (module spec).
+     *
+     * @param array<string, string> $params
+     */
+    public function saveAutoUpdatePreferences(Request $request, array $params): Response
+    {
+        $data = json_decode($request->getRawBody(), true);
+        if (!is_array($data) || !CsrfGuard::validateToken((string) ($data['_csrf_token'] ?? ''))) {
+            return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
+        }
+
+        $enabled = (bool) ($data['enabled'] ?? false);
+        $level = (string) ($data['level'] ?? '');
+        $day = (string) ($data['day'] ?? '');
+        $time = (string) ($data['time'] ?? '');
+
+        if (!in_array($level, self::AUTO_UPDATE_LEVELS, true)) {
+            return $this->json(['success' => false, 'error' => 'Niveau de version invalide.'], 400);
+        }
+        if (!in_array($day, self::WEEK_DAYS, true)) {
+            return $this->json(['success' => false, 'error' => 'Jour invalide.'], 400);
+        }
+        if (!preg_match('/^([01]\d|2[0-3]):[0-5]\d$/', $time)) {
+            return $this->json(['success' => false, 'error' => 'Heure invalide (format HH:MM attendu).'], 400);
+        }
+
+        $userId = AuthSession::getUserAccountId();
+
+        $this->settingService->set('auto_update_enabled', $enabled ? '1' : '0');
+        $this->settingService->set('auto_update_level', $level);
+        $this->settingService->set('auto_update_day', $day);
+        $this->settingService->set('auto_update_time', $time);
+
+        $this->journalService->log(
+            'core', 'auto_update_settings_changed', 'info', 'Préférences de mise à jour automatique modifiées',
+            ['enabled' => $enabled, 'level' => $level, 'day' => $day, 'time' => $time], $userId
+        );
+
+        return $this->json(['success' => true]);
+    }
+
+    /**
+     * POST /api/maintenance/webhook-secret (AJAX, JSON) — generates (or
+     * regenerates, replacing any existing one) the shared secret GitHub
+     * signs webhook requests with. Returned in cleartext exactly once, in
+     * this response — never persisted anywhere it could be read back
+     * (secrets.enc only, never Core\Config\SettingService — see module
+     * spec's "Ne pas stocker le secret webhook dans settings ou en code").
+     *
+     * @param array<string, string> $params
+     */
+    public function generateWebhookSecret(Request $request, array $params): Response
+    {
+        $data = json_decode($request->getRawBody(), true);
+        if (!is_array($data) || !CsrfGuard::validateToken((string) ($data['_csrf_token'] ?? ''))) {
+            return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
+        }
+
+        $wasConfigured = $this->webhookSecret() !== '';
+        $newSecret = bin2hex(random_bytes(32));
+
+        $secrets = $this->secretManager->readSecrets();
+        $secrets['github_webhook_secret'] = $newSecret;
+        $this->secretManager->writeSecrets($secrets);
+
+        $userId = AuthSession::getUserAccountId();
+        $this->journalService->log(
+            'core',
+            $wasConfigured ? 'webhook_secret_regenerated' : 'webhook_secret_generated',
+            'security',
+            $wasConfigured ? 'Secret du webhook GitHub régénéré (l\'ancien webhook cessera de fonctionner)' : 'Secret du webhook GitHub généré',
+            [],
+            $userId
+        );
+
+        return $this->json(['success' => true, 'secret' => $newSecret]);
+    }
+
+    /**
+     * POST /config/maintenance/dev-mode/enable (AJAX, JSON) — the danger
+     * zone. Requires typing KEYWORD_DEV_MODE, verified server-side (same
+     * pattern as every "Réinitialisation" action).
+     *
+     * @param array<string, string> $params
+     */
+    public function enableDevMode(Request $request, array $params): Response
+    {
+        $data = json_decode($request->getRawBody(), true);
+        if (!is_array($data) || !CsrfGuard::validateToken((string) ($data['_csrf_token'] ?? ''))) {
+            return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
+        }
+        if ((string) ($data['confirm_keyword'] ?? '') !== self::KEYWORD_DEV_MODE) {
+            return $this->json(['success' => false, 'error' => 'Mot de confirmation incorrect.'], 400);
+        }
+
+        $branch = trim((string) ($data['branch'] ?? ''));
+        if ($branch === '' || strlen($branch) > 100) {
+            return $this->json(['success' => false, 'error' => 'Nom de branche invalide.'], 400);
+        }
+
+        $userId = AuthSession::getUserAccountId();
+        $this->settingService->set('dev_update_branch', $branch);
+        $this->settingService->set('dev_update_enabled', '1');
+
+        $this->journalService->log(
+            'core', 'dev_mode_enabled', 'security',
+            'Mode développement activé (installation automatique depuis une branche)',
+            ['branch' => $branch], $userId
+        );
+
+        return $this->json(['success' => true]);
+    }
+
+    /**
+     * POST /config/maintenance/dev-mode/disable (AJAX, JSON) — no keyword
+     * required, disabling is always the safe direction (module spec).
+     *
+     * @param array<string, string> $params
+     */
+    public function disableDevMode(Request $request, array $params): Response
+    {
+        $data = json_decode($request->getRawBody(), true);
+        if (!is_array($data) || !CsrfGuard::validateToken((string) ($data['_csrf_token'] ?? ''))) {
+            return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
+        }
+
+        $userId = AuthSession::getUserAccountId();
+        $this->settingService->set('dev_update_enabled', '0');
+
+        $this->journalService->log('core', 'dev_mode_disabled', 'info', 'Mode développement désactivé', [], $userId);
+
+        return $this->json(['success' => true]);
+    }
+
+    private function webhookSecret(): string
+    {
+        try {
+            $secrets = $this->secretManager->readSecrets();
+        } catch (\Throwable) {
+            return '';
+        }
+
+        return (string) ($secrets['github_webhook_secret'] ?? '');
     }
 
     private function relativePath(string $absolutePath): string

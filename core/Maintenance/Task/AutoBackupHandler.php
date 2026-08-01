@@ -19,15 +19,17 @@ use Core\Scheduler\TaskHandlerInterface;
  * frequency configurable from Configuration > Maintenance
  * (Core\Config\SettingService key backup_auto_frequency: none/daily/
  * weekly/biweekly/monthly, default monthly). Self-reschedules at the end
- * of every run (same pattern as Task\CheckUpdateHandler's daily check —
- * Core\Scheduler has no first-class recurring-task concept), re-reading
- * the setting each time so a frequency change takes effect on the next
- * run without needing to touch the currently-pending scheduled action.
+ * of every run (same pattern as Modules\LlmConnector\Task\
+ * RefreshModelsHandler's weekly refresh — Core\Scheduler has no
+ * first-class recurring-task concept), re-reading the setting each time so
+ * a frequency change takes effect on the next run without needing to touch
+ * the currently-pending scheduled action.
  *
  * Unencrypted (same as Task\ResetSettingsHandler/Task\InstallUpdateHandler's
  * own safety backups) — there is no admin present to supply a password on
  * a fully automatic run. No requester, so no push notification (mirrors
- * Task\CheckUpdateHandler's own "no human requester" reasoning).
+ * Core\Maintenance\GitHubWebhookService's own "no human requester"
+ * reasoning for a webhook-triggered install).
  */
 class AutoBackupHandler implements TaskHandlerInterface
 {

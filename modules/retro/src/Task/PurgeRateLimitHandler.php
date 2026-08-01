@@ -14,7 +14,7 @@ use Modules\Retro\Repository\RateLimitRepository;
  * Deletes retro_rate_limits rows older than the rate-limit window — module
  * spec: "a small dedicated table with short-lived rows... purged by a
  * scheduled task". Self-reschedules daily (same pattern as Core\
- * Maintenance\Task\CheckUpdateHandler) rather than being a first-class
+ * Maintenance\Task\AutoBackupHandler) rather than being a first-class
  * recurring task.
  */
 class PurgeRateLimitHandler implements TaskHandlerInterface

@@ -28,6 +28,7 @@ This document defines the non-negotiable security requirements for the project. 
 
 - CSRF token on every form, verified on every POST/PUT/DELETE.
 - Token bound to session, regenerated per session.
+- One deliberate exception: `POST /api/webhook/github` (`Core\Http\Controller\WebhookController`) — a machine-to-machine call from GitHub with no session to bind a token to. Authenticated instead by an HMAC-SHA256 signature (`X-Hub-Signature-256`, constant-time `hash_equals()` comparison) against a secret stored only in `secrets.enc`.
 
 ## 5. Encryption at rest
 
@@ -56,7 +57,7 @@ All fields identifying a natural person are encrypted (AES-256-GCM) as BLOB:
 ### Secrets
 
 - `storage/keys/master.key`: `chmod 600`, generated via `random_bytes()`.
-- `storage/config/secrets.enc`: AES-256-GCM blob with DB + SMTP credentials.
+- `storage/config/secrets.enc`: AES-256-GCM blob with DB + SMTP credentials, plus the GitHub webhook HMAC secret (`github_webhook_secret`) — generated via Configuration > Maintenance, shown to the admin exactly once, never stored in `settings`.
 - Key and blob in separate directories.
 
 ## 6. File access

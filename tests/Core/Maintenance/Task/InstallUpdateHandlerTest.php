@@ -141,4 +141,74 @@ class InstallUpdateHandlerTest extends TestCase
 
         $this->assertDirectoryDoesNotExist($tempDir);
     }
+
+    public function testHandleAcceptsABranchSourceTypeInThePayloadWithoutError(): void
+    {
+        // Full success path can't run here (see class docblock — the
+        // safety-backup step fails fast against fake DB credentials before
+        // ever reaching the branch-specific install logic) — this only
+        // confirms the new field doesn't break the existing early pipeline.
+        $id = $this->updateHistoryRepository->create('1.0.0', 'dev-a1b2c3d', false, $this->userId);
+
+        $this->handler->handle(
+            ['history_id' => $id, 'download_url' => 'https://example.test/artifact.zip', 'source_type' => 'branch'],
+            $this->context
+        );
+
+        $this->assertSame('failed', $this->updateHistoryRepository->findById($id)->status);
+    }
+
+    /**
+     * The actual behavior guaranteed by source_type "branch" — resolving
+     * GitHub's single wrapping "{owner}-{repo}-{sha}/" directory before
+     * installFiles() runs — is pure filesystem logic with no DB/network
+     * dependency, so it's tested directly here rather than through the
+     * full handle() pipeline (which this test class's own fake-DB-creds
+     * constraint can't reach past the safety-backup step — see above).
+     */
+    private function invokeResolveBranchArchiveRoot(string $extractedDir): string
+    {
+        $method = new \ReflectionMethod(InstallUpdateHandler::class, 'resolveBranchArchiveRoot');
+        $method->setAccessible(true);
+
+        return $method->invoke($this->handler, $extractedDir);
+    }
+
+    public function testResolveBranchArchiveRootDescendsIntoTheSingleWrappingDirectory(): void
+    {
+        $extractedDir = $this->storagePath . '/extracted_wrapped';
+        $wrapped = $extractedDir . '/owner-repo-a1b2c3d';
+        mkdir($wrapped, 0755, true);
+        file_put_contents($wrapped . '/composer.json', '{}');
+
+        $root = $this->invokeResolveBranchArchiveRoot($extractedDir);
+
+        $this->assertSame($wrapped, $root);
+    }
+
+    public function testResolveBranchArchiveRootLeavesAFlatArchiveUnchanged(): void
+    {
+        $extractedDir = $this->storagePath . '/extracted_flat';
+        mkdir($extractedDir, 0755, true);
+        mkdir($extractedDir . '/core', 0755, true);
+        mkdir($extractedDir . '/modules', 0755, true);
+        file_put_contents($extractedDir . '/composer.json', '{}');
+
+        $root = $this->invokeResolveBranchArchiveRoot($extractedDir);
+
+        $this->assertSame($extractedDir, $root);
+    }
+
+    public function testResolveBranchArchiveRootLeavesASingleTopLevelFileUnchanged(): void
+    {
+        // A single top-level entry that is a FILE (not a directory) must
+        // never be treated as a wrapping directory.
+        $extractedDir = $this->storagePath . '/extracted_single_file';
+        mkdir($extractedDir, 0755, true);
+        file_put_contents($extractedDir . '/README.md', 'hello');
+
+        $root = $this->invokeResolveBranchArchiveRoot($extractedDir);
+
+        $this->assertSame($extractedDir, $root);
+    }
 }

@@ -5,8 +5,9 @@ declare(strict_types=1);
 namespace Core\Maintenance;
 
 /**
- * Thin, unauthenticated GitHub REST client for the update checker
- * (Core\Maintenance\Task\CheckUpdateHandler) — only the two read-only
+ * Thin, unauthenticated GitHub REST client used by
+ * Core\Maintenance\GitHubWebhookService (composerLockChanged(), when a
+ * "release published" webhook event arrives) — only the two read-only
  * endpoints it needs. No composer dependency: same file_get_contents() +
  * stream_context_create() approach as Modules\LlmConnector\Provider\
  * AnthropicProvider, the only other outbound-HTTP precedent in this

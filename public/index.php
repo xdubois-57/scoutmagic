@@ -315,6 +315,31 @@ $settingService->register('backup_auto_frequency', 'monthly', 'select', 'Fréque
 $settingService->register('backup_auto_last_run', '', 'text', 'Dernière sauvegarde automatique',
     'Horodatage de la dernière sauvegarde automatique effectuée avec succès. Géré automatiquement.',
     null, null, null, false, 119);
+// The following 6 settings are managed exclusively from the "Mises à jour
+// automatiques" section of Configuration > Maintenance (Core\Http\
+// Controller\MaintenanceController) — deliberately excluded from the
+// generic Configuration > Paramètres page's grouped rendering
+// (Core\Http\Controller\SettingsController::EXCLUDED_FROM_GENERIC_PAGE),
+// since that page's plain editable-row UI has no room for the semver
+// explainer / danger-zone confirm-keyword flow this feature needs.
+$settingService->register('auto_update_enabled', '0', 'boolean', 'Mises à jour automatiques activées',
+    'Active l\'installation automatique des mises à jour selon les préférences ci-dessous.',
+    null, null, null, true, 120);
+$settingService->register('auto_update_level', 'patch', 'select', 'Niveau de version autorisé',
+    'Types de versions installés automatiquement (patch, mineure, majeure).',
+    null, null, ['patch', 'minor', 'major'], true, 121);
+$settingService->register('auto_update_day', 'monday', 'select', 'Jour d\'installation automatique',
+    'Jour de la semaine auquel une mise à jour disponible est installée automatiquement.',
+    null, null, ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'], true, 122);
+$settingService->register('auto_update_time', '03:00', 'text', 'Heure d\'installation automatique',
+    'Heure (HH:MM) à laquelle une mise à jour disponible est installée automatiquement.',
+    null, '^([01]\d|2[0-3]):[0-5]\d$', null, true, 123);
+$settingService->register('dev_update_enabled', '0', 'boolean', 'Mode développement activé',
+    'Installe automatiquement, sans délai, chaque nouveau commit poussé sur la branche de développement configurée. Réservé aux environnements de test.',
+    null, null, null, true, 124);
+$settingService->register('dev_update_branch', 'main', 'text', 'Branche de développement',
+    'Branche GitHub surveillée pour l\'installation immédiate en mode développement.',
+    null, null, null, true, 125);
 $settingService->register('scheduler_last_run', '0', 'number', 'Dernier passage du planificateur',
     'Horodatage Unix du dernier passage du planificateur de tâches. Géré automatiquement.',
     null, null, null, false, 200);
@@ -624,7 +649,6 @@ $schedulerRunner->setTaskContext(new TaskContext(
 // Core (not module) scheduled task handlers — registered directly since
 // module.json's scheduled_tasks mechanism only applies to module handlers.
 $schedulerRunner->registerHandler('core', 'create_backup', new \Core\Maintenance\Task\CreateBackupHandler());
-$schedulerRunner->registerHandler('core', 'check_update', new \Core\Maintenance\Task\CheckUpdateHandler());
 $schedulerRunner->registerHandler('core', 'install_update', new \Core\Maintenance\Task\InstallUpdateHandler());
 $schedulerRunner->registerHandler('core', 'reset_settings', new \Core\Maintenance\Task\ResetSettingsHandler());
 $schedulerRunner->registerHandler('core', 'full_reset', new \Core\Maintenance\Task\FullResetHandler());
@@ -632,20 +656,12 @@ $schedulerRunner->registerHandler('core', 'restore_backup', new \Core\Maintenanc
 $schedulerRunner->registerHandler('core', 'auto_backup', new \Core\Maintenance\Task\AutoBackupHandler());
 
 // Bootstrap the recurring automatic backup — Task\AutoBackupHandler
-// re-schedules itself at the end of every run (see Task\CheckUpdateHandler
-// for the same self-rescheduling pattern), but the very first occurrence
-// needs an initial nudge.
+// re-schedules itself at the end of every run (same pattern as
+// Modules\LlmConnector\Task\RefreshModelsHandler's weekly refresh, since
+// Core\Scheduler has no first-class recurring-task concept), but the very
+// first occurrence needs an initial nudge.
 if ($schedulerService->find('core', 'auto_backup', 'auto') === null) {
     $schedulerService->schedule('core', 'auto_backup', new DateTimeImmutable(), [], 'auto');
-}
-
-// Bootstrap the recurring daily update check — Task\CheckUpdateHandler
-// re-schedules itself for the next day at the end of every run, but the
-// very first occurrence needs an initial nudge (no first-class recurring
-// task concept in Core\Scheduler — see llm_connector's weekly model
-// refresh for the same pattern).
-if ($schedulerService->find('core', 'check_update', 'daily') === null) {
-    $schedulerService->schedule('core', 'check_update', new DateTimeImmutable(), [], 'daily');
 }
 
 // Add dynamic member entries to Espace des animés
@@ -785,6 +801,15 @@ $router->addRoute('POST', '/config/maintenance/reset/settings', MaintenanceContr
 $router->addRoute('POST', '/config/maintenance/reset/full', MaintenanceController::class, 'fullReset', 'admin');
 $router->addRoute('POST', '/config/maintenance/reset/restore', MaintenanceController::class, 'restoreBackup', 'admin');
 $router->addRoute('GET', '/api/maintenance/reset-status/{id}', MaintenanceController::class, 'resetStatus', 'admin');
+$router->addRoute('POST', '/config/maintenance/auto-update/save', MaintenanceController::class, 'saveAutoUpdatePreferences', 'admin');
+$router->addRoute('POST', '/api/maintenance/webhook-secret', MaintenanceController::class, 'generateWebhookSecret', 'admin');
+$router->addRoute('POST', '/config/maintenance/dev-mode/enable', MaintenanceController::class, 'enableDevMode', 'admin');
+$router->addRoute('POST', '/config/maintenance/dev-mode/disable', MaintenanceController::class, 'disableDevMode', 'admin');
+// The only public, CSRF-free route in the codebase — GitHub is a machine
+// caller with no session; the HMAC-SHA256 signature (Core\Maintenance\
+// GitHubWebhookService::verifySignature()) is what authenticates it
+// instead. See Core\Http\Controller\WebhookController's own docblock.
+$router->addRoute('POST', '/api/webhook/github', \Core\Http\Controller\WebhookController::class, 'github', 'public');
 
 // Configuration générale
 $router->addRoute('GET', '/config/general', ConfigGeneralController::class, 'index', 'superadmin');
@@ -919,7 +944,13 @@ $frontController->registerController(AuthController::class, $authController);
 $frontController->registerController(AccountController::class, new AccountController($twig, $userAccountRepo, $webAuthnCredentialRepo, $webAuthnService));
 $frontController->registerController(PushSubscriptionController::class, new PushSubscriptionController($twig, $notificationService, $journalService));
 $frontController->registerController(MaintenanceController::class, new MaintenanceController(
-    $twig, $backupService, $backupRepository, $fileRepository, $updateHistoryRepository, $schedulerService, $moduleManager, $encryptionService, $journalService, $settingService, $storagePath
+    $twig, $backupService, $backupRepository, $fileRepository, $updateHistoryRepository, $schedulerService, $moduleManager, $encryptionService, $journalService, $settingService, $storagePath, $secretManager
+));
+$githubWebhookService = new \Core\Maintenance\GitHubWebhookService(
+    $settingService, $schedulerService, $updateHistoryRepository, $journalService, dirname($storagePath)
+);
+$frontController->registerController(\Core\Http\Controller\WebhookController::class, new \Core\Http\Controller\WebhookController(
+    $twig, $githubWebhookService, $secretManager, $journalService
 ));
 $frontController->registerController(PasswordResetController::class, new PasswordResetController($twig, $passwordResetService));
 $frontController->registerController(ShortUrlController::class, new ShortUrlController($twig, $shortUrlService));
@@ -1476,9 +1507,10 @@ if (in_array('retro', $moduleManager->getEnabledModuleIds(), true)) {
 
     // Bootstrap the recurring rate-limit purge — Task\PurgeRateLimitHandler
     // re-schedules itself daily at the end of every run (same pattern as
-    // Task\CheckUpdateHandler), but the very first occurrence needs an
-    // initial nudge. auto_close_board needs no such bootstrap — it's
-    // scheduled per-board by Service\BoardService::create()/update().
+    // Core\Maintenance\Task\AutoBackupHandler), but the very first
+    // occurrence needs an initial nudge. auto_close_board needs no such
+    // bootstrap — it's scheduled per-board by Service\BoardService::
+    // create()/update().
     if ($schedulerService->find('retro', 'purge_rate_limits', 'daily') === null) {
         $schedulerService->schedule('retro', 'purge_rate_limits', new DateTimeImmutable(), [], 'daily');
     }

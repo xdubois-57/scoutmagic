@@ -64,6 +64,26 @@ class SettingsControllerTest extends TestCase
         $this->assertStringContainsString('Test Key', $response->getBody());
     }
 
+    public function testIndexExcludesAutoUpdateSettingsFromTheGenericRendering(): void
+    {
+        $this->settingService->register('auto_update_enabled', '0', 'boolean', 'Mises à jour automatiques activées', 'D');
+        $this->settingService->register('auto_update_level', 'patch', 'select', 'Niveau', 'D', null, null, ['patch', 'minor', 'major']);
+        $this->settingService->register('auto_update_day', 'monday', 'select', 'Jour', 'D', null, null, ['monday']);
+        $this->settingService->register('auto_update_time', '03:00', 'text', 'Heure', 'D');
+        $this->settingService->register('dev_update_enabled', '0', 'boolean', 'Mode développement activé', 'D');
+        $this->settingService->register('dev_update_branch', 'main', 'text', 'Branche', 'D');
+        $this->settingService->register('an_ordinary_setting', 'val', 'text', 'Ordinaire', 'D');
+        $this->settingService->clearCache();
+
+        $request = new Request('GET', '/config/settings', [], [], [], []);
+        $response = $this->controller->index($request, []);
+
+        $body = $response->getBody();
+        $this->assertStringNotContainsString('Mises à jour automatiques activées', $body);
+        $this->assertStringNotContainsString('Mode développement activé', $body);
+        $this->assertStringContainsString('Ordinaire', $body);
+    }
+
     public function testUpdateWithInvalidCsrf(): void
     {
         $this->settingService->register('editable', 'old', 'text', 'L', 'D');

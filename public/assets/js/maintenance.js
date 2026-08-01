@@ -180,6 +180,119 @@
     });
 })();
 
+// "Mises à jour automatiques" section — toggle/level/schedule are all
+// saved together on one "Enregistrer" click (not autosaved per-field, unlike
+// the backup frequency select above), plus the webhook secret's
+// generate/regenerate (shown in cleartext exactly once) and the semver
+// explainer/major-version-warning show/hide.
+(function () {
+    var enabledCheckbox = document.getElementById('auto-update-enabled');
+    if (!enabledCheckbox) return;
+
+    function csrf() {
+        var meta = document.querySelector('meta[name="csrf-token"]');
+        return meta ? meta.content : '';
+    }
+
+    var detailsEl = document.getElementById('auto-update-details');
+    enabledCheckbox.addEventListener('change', function () {
+        detailsEl.classList.toggle('d-none', !enabledCheckbox.checked);
+    });
+
+    var majorWarning = document.getElementById('auto-update-major-warning');
+    document.querySelectorAll('input[name="auto-update-level"]').forEach(function (radio) {
+        radio.addEventListener('change', function () {
+            majorWarning.classList.toggle('d-none', radio.value !== 'major' || !radio.checked);
+        });
+    });
+
+    var semverToggle = document.getElementById('auto-update-semver-toggle');
+    var semverExplainer = document.getElementById('auto-update-semver-explainer');
+    if (semverToggle && semverExplainer) {
+        semverToggle.addEventListener('click', function (e) {
+            e.preventDefault();
+            semverExplainer.classList.toggle('d-none');
+        });
+    }
+
+    var saveBtn = document.getElementById('auto-update-save');
+    var savedEl = document.getElementById('auto-update-saved');
+    var errorEl = document.getElementById('auto-update-error');
+    if (saveBtn) {
+        saveBtn.addEventListener('click', function () {
+            var levelRadio = document.querySelector('input[name="auto-update-level"]:checked');
+            errorEl.classList.add('d-none');
+
+            fetch('/config/maintenance/auto-update/save', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    enabled: enabledCheckbox.checked,
+                    level: levelRadio ? levelRadio.value : 'patch',
+                    day: document.getElementById('auto-update-day').value,
+                    time: document.getElementById('auto-update-time').value,
+                    _csrf_token: csrf()
+                })
+            })
+                .then(function (res) { return res.json(); })
+                .then(function (data) {
+                    if (!data.success) {
+                        errorEl.textContent = data.error || 'Erreur lors de l\'enregistrement.';
+                        errorEl.classList.remove('d-none');
+                        return;
+                    }
+                    savedEl.classList.remove('d-none');
+                    setTimeout(function () { savedEl.classList.add('d-none'); }, 1500);
+                })
+                .catch(function () {
+                    errorEl.textContent = 'Erreur réseau.';
+                    errorEl.classList.remove('d-none');
+                });
+        });
+    }
+
+    var webhookBtn = document.getElementById('webhook-generate-secret');
+    if (webhookBtn) {
+        webhookBtn.addEventListener('click', function () {
+            webhookBtn.disabled = true;
+            fetch('/api/maintenance/webhook-secret', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ _csrf_token: csrf() })
+            })
+                .then(function (res) { return res.json(); })
+                .then(function (data) {
+                    webhookBtn.disabled = false;
+                    if (!data.success) {
+                        window.alert(data.error || 'Erreur lors de la génération du secret.');
+                        return;
+                    }
+                    document.getElementById('webhook-secret-value').textContent = data.secret;
+                    document.getElementById('webhook-secret-display').classList.remove('d-none');
+                    document.getElementById('webhook-setup-instructions').classList.add('d-none');
+
+                    var badge = document.getElementById('webhook-status-badge');
+                    badge.textContent = '✓ Configuré';
+                    badge.classList.remove('text-bg-secondary');
+                    badge.classList.add('text-bg-success');
+
+                    document.getElementById('webhook-generate-secret-label').textContent = 'Régénérer le secret';
+                    webhookBtn.classList.remove('btn-outline-primary');
+                    webhookBtn.classList.add('btn-outline-secondary');
+                    var icon = webhookBtn.querySelector('i');
+                    if (icon) {
+                        icon.classList.remove('bi-key');
+                        icon.classList.add('bi-arrow-repeat');
+                    }
+                })
+                .catch(function () {
+                    webhookBtn.disabled = false;
+                    window.alert('Erreur réseau.');
+                });
+        });
+    }
+})();
+
 // "Réinitialisation" section — three danger actions. The typed keyword is
 // only a client-side UX gate (enabling the submit button); the real check
 // always happens server-side (Core\Http\Controller\MaintenanceController).
@@ -367,6 +480,78 @@
             // ?restore_id={id}, picked up by the polling block below.
             var submitBtn = document.getElementById('restore-backup-submit');
             submitBtn.disabled = true;
+        });
+    }
+
+    // --- Mode développement (danger zone) ---
+    var devModeUpdate = wireKeywordGate('dev-mode-keyword', 'DÉVELOPPEMENT');
+    var devEnableForm = document.getElementById('dev-mode-enable-form');
+    if (devEnableForm) {
+        devEnableForm.addEventListener('submit', function (e) {
+            e.preventDefault();
+            var submitBtn = document.getElementById('dev-mode-enable-submit');
+            var errorEl = document.getElementById('dev-mode-enable-error');
+            var csrfInput = devEnableForm.querySelector('input[name="_csrf_token"]');
+            errorEl.classList.add('d-none');
+            submitBtn.disabled = true;
+
+            fetch('/config/maintenance/dev-mode/enable', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    branch: document.getElementById('dev-mode-branch').value,
+                    confirm_keyword: document.getElementById('dev-mode-keyword').value,
+                    _csrf_token: csrfInput ? csrfInput.value : ''
+                })
+            })
+                .then(function (res) { return res.json(); })
+                .then(function (data) {
+                    if (!data.success) {
+                        errorEl.textContent = data.error || 'Erreur lors de l\'activation.';
+                        errorEl.classList.remove('d-none');
+                        if (devModeUpdate) devModeUpdate();
+                        return;
+                    }
+                    window.location.reload();
+                })
+                .catch(function () {
+                    errorEl.textContent = 'Erreur réseau.';
+                    errorEl.classList.remove('d-none');
+                    if (devModeUpdate) devModeUpdate();
+                });
+        });
+    }
+
+    var devDisableForm = document.getElementById('dev-mode-disable-form');
+    if (devDisableForm) {
+        devDisableForm.addEventListener('submit', function (e) {
+            e.preventDefault();
+            var submitBtn = document.getElementById('dev-mode-disable-submit');
+            var errorEl = document.getElementById('dev-mode-disable-error');
+            var csrfInput = devDisableForm.querySelector('input[name="_csrf_token"]');
+            errorEl.classList.add('d-none');
+            submitBtn.disabled = true;
+
+            fetch('/config/maintenance/dev-mode/disable', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ _csrf_token: csrfInput ? csrfInput.value : '' })
+            })
+                .then(function (res) { return res.json(); })
+                .then(function (data) {
+                    if (!data.success) {
+                        submitBtn.disabled = false;
+                        errorEl.textContent = data.error || 'Erreur lors de la désactivation.';
+                        errorEl.classList.remove('d-none');
+                        return;
+                    }
+                    window.location.reload();
+                })
+                .catch(function () {
+                    submitBtn.disabled = false;
+                    errorEl.textContent = 'Erreur réseau.';
+                    errorEl.classList.remove('d-none');
+                });
         });
     }
 

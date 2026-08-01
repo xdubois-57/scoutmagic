@@ -23,6 +23,7 @@ use Core\Scheduler\SchedulerRepository;
 use Core\Scheduler\SchedulerService;
 use Core\Security\AuthSession;
 use Core\Security\EncryptionService;
+use Core\Security\SecretManager;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Twig\Environment;
@@ -39,6 +40,7 @@ class MaintenanceControllerTest extends TestCase
     private UpdateHistoryRepository $updateHistoryRepository;
     private SchedulerRepository $schedulerRepository;
     private SettingService $settingService;
+    private SecretManager $secretManager;
     private Environment $twig;
 
     protected function setUp(): void
@@ -59,11 +61,22 @@ class MaintenanceControllerTest extends TestCase
         $this->settingService->register('update_dependencies_changed', '0', 'boolean', 'update_dependencies_changed', 'update_dependencies_changed');
         $this->settingService->register('backup_auto_frequency', 'monthly', 'select', 'L', 'D', null, null, ['none', 'daily', 'weekly', 'biweekly', 'monthly']);
         $this->settingService->register('backup_auto_last_run', '', 'text', 'L', 'D');
+        $this->settingService->register('auto_update_enabled', '0', 'boolean', 'L', 'D');
+        $this->settingService->register('auto_update_level', 'patch', 'select', 'L', 'D', null, null, ['patch', 'minor', 'major']);
+        $this->settingService->register('auto_update_day', 'monday', 'select', 'L', 'D', null, null, ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']);
+        $this->settingService->register('auto_update_time', '03:00', 'text', 'L', 'D');
+        $this->settingService->register('dev_update_enabled', '0', 'boolean', 'L', 'D');
+        $this->settingService->register('dev_update_branch', 'main', 'text', 'L', 'D');
+        $this->settingService->register('base_url', 'https://example.test', 'url', 'L', 'D');
 
         $connection = new Connection('127.0.0.1', 3306, 'nonexistent_db', 'nobody', '');
         $storagePath = sys_get_temp_dir() . '/maintenance_controller_test_' . uniqid();
         mkdir($storagePath, 0755, true);
         $backupService = new BackupService($connection, $storagePath, dirname($storagePath));
+
+        $this->secretManager = new SecretManager($storagePath . '/keys/master.key', $storagePath . '/config/secrets.enc');
+        $this->secretManager->generateMasterKey();
+        $this->secretManager->writeSecrets([]);
 
         $moduleManager = $this->createMock(ModuleManager::class);
         $moduleManager->method('getEnabledModuleIds')->willReturn([]);
@@ -84,7 +97,7 @@ class MaintenanceControllerTest extends TestCase
 
         $this->controller = new MaintenanceController(
             $this->twig, $backupService, $this->backupRepository, $fileRepository, $this->updateHistoryRepository, $schedulerService,
-            $moduleManager, $encryption, $journalService, $this->settingService, $storagePath
+            $moduleManager, $encryption, $journalService, $this->settingService, $storagePath, $this->secretManager
         );
 
         if (session_status() === PHP_SESSION_NONE) {
@@ -497,6 +510,172 @@ class MaintenanceControllerTest extends TestCase
         $location = $response->getHeaders()['Location'] ?? '';
         $this->assertStringContainsString('restore_id=', $location);
         $this->assertCount(1, $this->schedulerRepository->findByModuleAndTaskKey('core', 'restore_backup'));
+    }
+
+    // --- Mises à jour automatiques ---
+
+    public function testSaveAutoUpdatePreferencesPersistsAllFourFields(): void
+    {
+        $token = $this->csrfToken();
+        $request = $this->jsonRequest([
+            'enabled' => true, 'level' => 'minor', 'day' => 'friday', 'time' => '22:30', '_csrf_token' => $token,
+        ]);
+
+        $response = $this->controller->saveAutoUpdatePreferences($request, []);
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertTrue($decoded['success']);
+
+        $this->settingService->clearCache();
+        $this->assertSame('1', $this->settingService->get('auto_update_enabled'));
+        $this->assertSame('minor', $this->settingService->get('auto_update_level'));
+        $this->assertSame('friday', $this->settingService->get('auto_update_day'));
+        $this->assertSame('22:30', $this->settingService->get('auto_update_time'));
+    }
+
+    public function testSaveAutoUpdatePreferencesRejectsAnInvalidLevel(): void
+    {
+        $token = $this->csrfToken();
+        $request = $this->jsonRequest(['enabled' => true, 'level' => 'bogus', 'day' => 'monday', 'time' => '03:00', '_csrf_token' => $token]);
+
+        $response = $this->controller->saveAutoUpdatePreferences($request, []);
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertFalse($decoded['success']);
+    }
+
+    public function testSaveAutoUpdatePreferencesRejectsAnInvalidTime(): void
+    {
+        $token = $this->csrfToken();
+        $request = $this->jsonRequest(['enabled' => true, 'level' => 'patch', 'day' => 'monday', 'time' => '25:99', '_csrf_token' => $token]);
+
+        $response = $this->controller->saveAutoUpdatePreferences($request, []);
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertFalse($decoded['success']);
+    }
+
+    public function testSaveAutoUpdatePreferencesValidatesCsrf(): void
+    {
+        $request = $this->jsonRequest(['enabled' => true, 'level' => 'patch', 'day' => 'monday', 'time' => '03:00', '_csrf_token' => 'bad']);
+
+        $response = $this->controller->saveAutoUpdatePreferences($request, []);
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertFalse($decoded['success']);
+    }
+
+    public function testGenerateWebhookSecretReturnsTheSecretExactlyOnceAndPersistsIt(): void
+    {
+        $token = $this->csrfToken();
+        $response = $this->controller->generateWebhookSecret($this->jsonRequest(['_csrf_token' => $token]), []);
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertTrue($decoded['success']);
+        $this->assertSame(64, strlen($decoded['secret']));
+
+        $secrets = $this->secretManager->readSecrets();
+        $this->assertSame($decoded['secret'], $secrets['github_webhook_secret']);
+    }
+
+    public function testGenerateWebhookSecretRegeneratesAndReplacesAnExistingOne(): void
+    {
+        $first = json_decode(
+            $this->controller->generateWebhookSecret($this->jsonRequest(['_csrf_token' => $this->csrfToken()]), [])->getBody(),
+            true
+        );
+        $second = json_decode(
+            $this->controller->generateWebhookSecret($this->jsonRequest(['_csrf_token' => $this->csrfToken()]), [])->getBody(),
+            true
+        );
+
+        $this->assertNotSame($first['secret'], $second['secret']);
+        $secrets = $this->secretManager->readSecrets();
+        $this->assertSame($second['secret'], $secrets['github_webhook_secret']);
+    }
+
+    // --- Mode développement (danger zone) ---
+
+    public function testEnableDevModeRequiresTheExactKeyword(): void
+    {
+        $token = $this->csrfToken();
+        $request = $this->jsonRequest(['branch' => 'develop', 'confirm_keyword' => 'wrong', '_csrf_token' => $token]);
+
+        $response = $this->controller->enableDevMode($request, []);
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertFalse($decoded['success']);
+        $this->settingService->clearCache();
+        $this->assertSame('0', $this->settingService->get('dev_update_enabled'));
+    }
+
+    public function testEnableDevModeSucceedsWithTheCorrectKeyword(): void
+    {
+        $token = $this->csrfToken();
+        $request = $this->jsonRequest(['branch' => 'develop', 'confirm_keyword' => 'DÉVELOPPEMENT', '_csrf_token' => $token]);
+
+        $response = $this->controller->enableDevMode($request, []);
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertTrue($decoded['success']);
+        $this->settingService->clearCache();
+        $this->assertSame('1', $this->settingService->get('dev_update_enabled'));
+        $this->assertSame('develop', $this->settingService->get('dev_update_branch'));
+
+        $count = (int) $this->pdo->query("SELECT COUNT(*) FROM event_log WHERE event_type = 'dev_mode_enabled'")->fetchColumn();
+        $this->assertSame(1, $count);
+    }
+
+    public function testEnableDevModeRejectsAnEmptyBranch(): void
+    {
+        $token = $this->csrfToken();
+        $request = $this->jsonRequest(['branch' => '  ', 'confirm_keyword' => 'DÉVELOPPEMENT', '_csrf_token' => $token]);
+
+        $response = $this->controller->enableDevMode($request, []);
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertFalse($decoded['success']);
+    }
+
+    public function testDisableDevModeRequiresNoKeyword(): void
+    {
+        $this->settingService->set('dev_update_enabled', '1');
+        $this->settingService->clearCache();
+
+        $token = $this->csrfToken();
+        $response = $this->controller->disableDevMode($this->jsonRequest(['_csrf_token' => $token]), []);
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertTrue($decoded['success']);
+        $this->settingService->clearCache();
+        $this->assertSame('0', $this->settingService->get('dev_update_enabled'));
+    }
+
+    public function testIndexShowsTheWebhookWarningWhenAutoUpdateEnabledButWebhookNotConfigured(): void
+    {
+        $this->settingService->set('auto_update_enabled', '1');
+        $this->settingService->clearCache();
+
+        $response = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), []);
+
+        $this->assertStringContainsString('webhook GitHub n\'est pas configuré', $response->getBody());
+    }
+
+    public function testIndexDoesNotShowTheWebhookWarningWhenAutoUpdateDisabled(): void
+    {
+        $response = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), []);
+
+        $this->assertStringNotContainsString('webhook GitHub n\'est pas configuré', $response->getBody());
+    }
+
+    public function testIndexNeverRendersTheWebhookSecretItself(): void
+    {
+        $this->controller->generateWebhookSecret($this->jsonRequest(['_csrf_token' => $this->csrfToken()]), []);
+        $secrets = $this->secretManager->readSecrets();
+
+        $response = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), []);
+
+        $this->assertStringNotContainsString($secrets['github_webhook_secret'], $response->getBody());
     }
 
     public function testResetStatusReturns404ForUnknownId(): void

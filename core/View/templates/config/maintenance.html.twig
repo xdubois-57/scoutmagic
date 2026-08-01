@@ -99,6 +99,146 @@
         </div>
     </div>
 
+    {# ————— Mises à jour automatiques ————— #}
+    <div class="card mb-4" id="maintenance-auto-update">
+        <div class="card-body">
+            <h2 class="h5 mb-3">Mises à jour automatiques</h2>
+
+            {% if webhook_warning %}
+                <div class="alert alert-warning small">
+                    Les mises à jour automatiques sont activées mais le webhook GitHub n'est pas configuré.
+                    Les nouvelles versions ne seront pas détectées automatiquement.
+                </div>
+            {% endif %}
+
+            <div class="form-check form-switch mb-3">
+                <input class="form-check-input" type="checkbox" id="auto-update-enabled" {{ auto_update_enabled ? 'checked' : '' }}>
+                <label class="form-check-label" for="auto-update-enabled">Activer les mises à jour automatiques</label>
+            </div>
+
+            <div id="auto-update-details" class="{{ auto_update_enabled ? '' : 'd-none' }}">
+                <h3 class="h6">Types de versions à installer</h3>
+                <div class="form-check">
+                    <input class="form-check-input" type="radio" name="auto-update-level" id="auto-update-level-patch" value="patch" {{ auto_update_level == 'patch' ? 'checked' : '' }}>
+                    <label class="form-check-label small" for="auto-update-level-patch">
+                        Patch uniquement (ex : 2.4.1 → 2.4.2) <span class="badge text-bg-success">Recommandé</span>
+                    </label>
+                </div>
+                <div class="form-check">
+                    <input class="form-check-input" type="radio" name="auto-update-level" id="auto-update-level-minor" value="minor" {{ auto_update_level == 'minor' ? 'checked' : '' }}>
+                    <label class="form-check-label small" for="auto-update-level-minor">
+                        Patch + Mineur (ex : 2.4.1 → 2.5.0)
+                    </label>
+                </div>
+                <div class="form-check mb-2">
+                    <input class="form-check-input" type="radio" name="auto-update-level" id="auto-update-level-major" value="major" {{ auto_update_level == 'major' ? 'checked' : '' }}>
+                    <label class="form-check-label small" for="auto-update-level-major">
+                        Patch + Mineur + Majeur (ex : 2.4.1 → 3.0.0) <span class="badge text-bg-danger">⚠ Risqué</span>
+                    </label>
+                </div>
+                <div class="alert alert-danger small {{ auto_update_level == 'major' ? '' : 'd-none' }}" id="auto-update-major-warning">
+                    Les versions majeures peuvent modifier le fonctionnement du site de manière significative.
+                    Il est recommandé de ne pas installer ces versions automatiquement sur un site en production.
+                </div>
+
+                <p class="small mb-2">
+                    <a href="#" id="auto-update-semver-toggle">Qu'est-ce que ça veut dire ?</a>
+                </p>
+                <div class="small text-body-secondary mb-3 d-none" id="auto-update-semver-explainer">
+                    <p class="mb-1"><strong>Z (Patch)</strong> : corrections de bugs et de sécurité, aucun changement fonctionnel.</p>
+                    <p class="mb-1"><strong>Y (Mineur)</strong> : nouvelles fonctionnalités, compatibles avec l'existant.</p>
+                    <p class="mb-0"><strong>X (Majeur)</strong> : changements importants, potentiellement incompatibles.</p>
+                </div>
+
+                <h3 class="h6">Détection des nouvelles versions</h3>
+                <p class="small mb-2">
+                    Webhook GitHub :
+                    <span class="badge {{ webhook_configured ? 'text-bg-success' : 'text-bg-secondary' }}" id="webhook-status-badge">
+                        {{ webhook_configured ? '✓ Configuré' : '✗ Non configuré' }}
+                    </span>
+                </p>
+                <div class="small mb-3 {{ webhook_configured ? 'd-none' : '' }}" id="webhook-setup-instructions">
+                    <p class="mb-1">Dans les paramètres du dépôt GitHub (Settings → Webhooks → Add webhook), configurez :</p>
+                    <ul class="mb-2">
+                        <li>Payload URL : <code>{{ webhook_url }}</code></li>
+                        <li>Content type : <code>application/json</code></li>
+                        <li>Events : « Releases » et « Pushes »</li>
+                    </ul>
+                </div>
+                <button type="button" class="btn btn-outline-{{ webhook_configured ? 'secondary' : 'primary' }} btn-sm mb-2" id="webhook-generate-secret">
+                    <i class="bi {{ webhook_configured ? 'bi-arrow-repeat' : 'bi-key' }}"></i>
+                    <span id="webhook-generate-secret-label">{{ webhook_configured ? 'Régénérer le secret' : 'Générer le secret' }}</span>
+                </button>
+                <div class="mt-2 mb-3 d-none" id="webhook-secret-display">
+                    <p class="small mb-1 text-danger">Copiez ce secret maintenant — il ne sera plus jamais affiché :</p>
+                    <code class="user-select-all d-block p-2 bg-body-secondary rounded" id="webhook-secret-value"></code>
+                </div>
+
+                <h3 class="h6">Moment d'installation</h3>
+                <p class="small text-body-secondary mb-2">
+                    Quand une nouvelle version est détectée, elle sera installée automatiquement au prochain créneau prévu.
+                </p>
+                <div class="d-flex align-items-center gap-2 flex-wrap mb-3">
+                    <select class="form-select form-select-sm w-auto" id="auto-update-day">
+                        <option value="monday" {{ auto_update_day == 'monday' ? 'selected' : '' }}>Lundi</option>
+                        <option value="tuesday" {{ auto_update_day == 'tuesday' ? 'selected' : '' }}>Mardi</option>
+                        <option value="wednesday" {{ auto_update_day == 'wednesday' ? 'selected' : '' }}>Mercredi</option>
+                        <option value="thursday" {{ auto_update_day == 'thursday' ? 'selected' : '' }}>Jeudi</option>
+                        <option value="friday" {{ auto_update_day == 'friday' ? 'selected' : '' }}>Vendredi</option>
+                        <option value="saturday" {{ auto_update_day == 'saturday' ? 'selected' : '' }}>Samedi</option>
+                        <option value="sunday" {{ auto_update_day == 'sunday' ? 'selected' : '' }}>Dimanche</option>
+                    </select>
+                    <input type="time" class="form-control form-control-sm w-auto" id="auto-update-time" value="{{ auto_update_time }}">
+                </div>
+            </div>
+
+            <button type="button" class="btn btn-primary btn-sm" id="auto-update-save">Enregistrer</button>
+            <span class="small text-success d-none" id="auto-update-saved">Enregistré</span>
+            <div class="mt-2 small text-danger d-none" id="auto-update-error"></div>
+        </div>
+    </div>
+
+    {# ————— Versions de développement (danger zone) ————— #}
+    <div class="card mb-4 border-danger" id="maintenance-dev-mode">
+        <div class="card-body">
+            <h2 class="h5 mb-3 text-danger"><i class="bi bi-exclamation-triangle"></i> Versions de développement</h2>
+            <div class="alert alert-danger small">
+                Réservé aux environnements de test. Cette option installe automatiquement les derniers commits d'une
+                branche de développement. Ces versions peuvent être instables, incomplètes, ou contenir des bugs.
+                Ne jamais activer sur un site en production.
+            </div>
+
+            {% if dev_update_enabled %}
+                <div class="alert alert-danger small">
+                    Actif — Installation automatique depuis la branche <code>{{ dev_update_branch }}</code>
+                </div>
+                <p class="small text-body-secondary">
+                    Les nouvelles versions sont installées immédiatement à chaque commit, sans attendre le créneau
+                    planifié ci-dessus. Les mises à jour de versions stables sont ignorées tant que ce mode est actif.
+                </p>
+                <form id="dev-mode-disable-form">
+                    {{ csrf_field()|raw }}
+                    <button type="submit" class="btn btn-outline-danger btn-sm" id="dev-mode-disable-submit">Désactiver</button>
+                    <div class="mt-2 small text-danger d-none" id="dev-mode-disable-error"></div>
+                </form>
+            {% else %}
+                <form id="dev-mode-enable-form">
+                    {{ csrf_field()|raw }}
+                    <div class="mb-2">
+                        <label class="form-label small" for="dev-mode-branch">Branche de développement</label>
+                        <input type="text" class="form-control form-control-sm" id="dev-mode-branch" value="{{ dev_update_branch }}" style="max-width:300px;">
+                    </div>
+                    <label class="form-label small">Pour activer, tapez <strong>DÉVELOPPEMENT</strong> ci-dessous :</label>
+                    <input type="text" class="form-control form-control-sm mb-2 border-danger" id="dev-mode-keyword" autocomplete="off" style="max-width:300px;">
+                    <button type="submit" class="btn btn-danger btn-sm" id="dev-mode-enable-submit" disabled>
+                        Activer les versions de développement
+                    </button>
+                    <div class="mt-2 small text-danger d-none" id="dev-mode-enable-error"></div>
+                </form>
+            {% endif %}
+        </div>
+    </div>
+
     {# ————— Sauvegardes ————— #}
     <div class="card mb-4" id="maintenance-backups">
         <div class="card-body">

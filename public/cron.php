@@ -24,7 +24,6 @@ use Core\Journal\JournalService;
 use Core\Mail\DkimManager;
 use Core\Mail\MailServiceFactory;
 use Core\Maintenance\Task\AutoBackupHandler;
-use Core\Maintenance\Task\CheckUpdateHandler;
 use Core\Maintenance\Task\CreateBackupHandler;
 use Core\Maintenance\Task\FullResetHandler;
 use Core\Maintenance\Task\InstallUpdateHandler;
@@ -120,7 +119,6 @@ $runner->setModuleManager($moduleManager);
 // checks, and update installs — with "No handler registered", unless a web
 // request happened to win the race first.
 $runner->registerHandler('core', 'create_backup', new CreateBackupHandler());
-$runner->registerHandler('core', 'check_update', new CheckUpdateHandler());
 $runner->registerHandler('core', 'install_update', new InstallUpdateHandler());
 $runner->registerHandler('core', 'reset_settings', new ResetSettingsHandler());
 $runner->registerHandler('core', 'full_reset', new FullResetHandler());

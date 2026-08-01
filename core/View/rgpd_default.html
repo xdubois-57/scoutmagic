@@ -28,7 +28,7 @@
 <p>Ces composants sont maintenus par leurs communautés respectives et font l'objet de mises à jour de sécurité régulières.</p>
 
 <h3>1.6. Vérification des mises à jour</h3>
-<p>Le site interroge automatiquement, une fois par jour, l'API publique de GitHub (api.github.com) pour vérifier si une nouvelle version du logiciel a été publiée, et ponctuellement pour télécharger l'archive d'une mise à jour lorsqu'un administrateur choisit de l'installer. Ces requêtes ne transmettent aucune donnée personnelle : il s'agit uniquement de lectures de métadonnées publiques (numéro de version, notes de version). GitHub n'est donc pas un sous-traitant au sens du RGPD pour ce site — il s'agit d'une intégration technique, mentionnée ici par souci de transparence.</p>
+<p>Le site est averti par GitHub, via un webhook (une requête entrante depuis github.com vers le site), lorsqu'une nouvelle version du logiciel est publiée, ou — si le mode développement est activé, réservé aux environnements de test — lorsqu'un nouveau commit est envoyé sur la branche surveillée. Le site interroge également ponctuellement l'API publique de GitHub (api.github.com) pour télécharger l'archive d'une mise à jour lors de son installation, automatique ou déclenchée par un administrateur. Aucune donnée personnelle ne transite dans ces échanges, dans un sens comme dans l'autre : il s'agit uniquement de métadonnées publiques (numéro de version, notes de version) et du code source du logiciel lui-même. GitHub n'est donc pas un sous-traitant au sens du RGPD pour ce site — il s'agit d'une intégration technique, mentionnée ici par souci de transparence.</p>
 
 <h2>2. Quelles données collectons-nous et pourquoi</h2>
 
