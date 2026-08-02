@@ -7,6 +7,7 @@ namespace Core\Http\Controller;
 use Core\Badge\BadgeService;
 use Core\Http\Request;
 use Core\Http\Response;
+use Core\Import\AgeBranchRepository;
 use Core\Import\FunctionRepository;
 use Core\Journal\JournalService;
 use Core\Member\SectionService;
@@ -38,6 +39,7 @@ class FunctionsController extends AbstractController
         private UnitStaffSectionService $unitStaffSectionService,
         private ScoutYearResolver $scoutYearResolver,
         private BadgeService $badgeService,
+        private AgeBranchRepository $ageBranchRepository,
         private ?FunctionFlagsProvider $functionFlagsProvider = null
     ) {
     }
@@ -95,12 +97,18 @@ class FunctionsController extends AbstractController
             $sectionGroups[$branchName]['sections'][] = $section;
         }
 
+        $branches = array_map(function (array $branch): array {
+            $branch['default_logo'] = AgeBranchRepository::defaultLogoFilename($branch['sort_order']);
+            return $branch;
+        }, $this->ageBranchRepository->findAllOrdered());
+
         return $this->render('config/functions.html.twig', [
             'unconfirmed' => $unconfirmed,
             'confirmed_by_role' => $confirmedByRole,
             'roles' => self::ROLE_DEFINITIONS,
             'function_flags' => $functionFlags,
             'section_groups' => array_values($sectionGroups),
+            'branches' => $branches,
         ]);
     }
 
@@ -402,5 +410,50 @@ class FunctionsController extends AbstractController
             'branch_sort_order' => $section['branch_sort_order'],
             'color' => $color,
         ])]);
+    }
+
+    /**
+     * POST /config/functions/branch-url — set a branch's federation
+     * explanation link (member page branch card, AJAX, JSON). The logo
+     * itself goes through the generic /upload flow (context
+     * age_branch_logo), not this action.
+     *
+     * @param array<string, string> $params
+     */
+    public function updateBranchUrl(Request $request, array $params): Response
+    {
+        $json = json_decode($request->getRawBody(), true);
+        if (!is_array($json)) {
+            return $this->json(['success' => false, 'error' => 'Requête invalide.']);
+        }
+
+        $csrfToken = (string) ($json['_csrf_token'] ?? '');
+        if (!CsrfGuard::validateToken($csrfToken)) {
+            return $this->json(['success' => false, 'error' => 'Jeton CSRF invalide.']);
+        }
+
+        $branchId = isset($json['branch_id']) ? (int) $json['branch_id'] : 0;
+        $branch = $this->ageBranchRepository->findById($branchId);
+        if ($branch === null) {
+            return $this->json(['success' => false, 'error' => 'Branche introuvable.']);
+        }
+
+        $url = trim((string) ($json['url'] ?? ''));
+        if ($url === '' || filter_var($url, FILTER_VALIDATE_URL) === false) {
+            return $this->json(['success' => false, 'error' => 'URL invalide.']);
+        }
+
+        $this->ageBranchRepository->setExplanationUrl($branchId, $url);
+
+        $this->journalService->log(
+            'core',
+            'age_branch_url_changed',
+            'info',
+            "URL d'explication de la branche {$branch['desk_code']} modifiée",
+            ['age_branch_id' => $branchId],
+            AuthSession::getUserAccountId()
+        );
+
+        return $this->json(['success' => true]);
     }
 }

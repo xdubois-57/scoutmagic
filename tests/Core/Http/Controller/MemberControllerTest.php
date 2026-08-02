@@ -8,6 +8,7 @@ use Core\Http\Controller\MemberController;
 use Core\Http\Request;
 use Core\Journal\JournalService;
 use Core\Member\MemberNotFoundException;
+use Core\Member\MemberPageService;
 use Core\Member\MemberProfile;
 use Core\Member\MemberService;
 use Core\Member\MemberYearService;
@@ -94,11 +95,15 @@ class MemberControllerTest extends TestCase
 
     private function newController(Environment $twig, MemberService $memberService): MemberController
     {
+        $memberPageService = $this->createMock(MemberPageService::class);
+        $memberPageService->method('buildPageData')->willReturn([]);
+
         return new MemberController(
             $twig,
             $memberService,
             new MemberYearService(),
-            $this->createMock(JournalService::class)
+            $this->createMock(JournalService::class),
+            $memberPageService
         );
     }
 

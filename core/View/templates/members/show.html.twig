@@ -1,169 +1,333 @@
 {% extends 'base.html.twig' %}
 {% block title %}{{ member|display_name }} — {{ site_name }}{% endblock %}
 {% block content %}
-    {# Header #}
+    {# Header — photo (replaceable by the member themselves outside config
+       mode via the $editable param), sized to match the two-line text
+       beside it: name/totem, then section/year. Same sizing technique as
+       the trombinoscope/Staffs photos (member_photo() with a
+       width+aspect-ratio class, no wrapper) — see .member-photo-header
+       in components.css for why that matters. #}
     <div class="d-flex align-items-center gap-3 mb-4">
-        <div class="rounded-circle bg-primary-subtle d-flex align-items-center justify-content-center"
-             style="width:56px;height:56px;">
-            <span class="fs-4 fw-semibold text-primary">
-                {{ member.getDisplayName()[:2] }}
-            </span>
-        </div>
+        {{ member_photo(member.memberId, member|display_name, 'rounded-circle member-photo-header', is_self) }}
         <div>
-            <h1 class="h3 mb-0">{{ member|display_name|normalize_name }}</h1>
-            {% if member.totem and member.quali %}
-                <span class="text-body-secondary">{{ member.totem|normalize_totem }} {{ member.quali }}</span>
-            {% endif %}
+            <h1 class="h5 mb-0">{{ member|display_name_full }}</h1>
             <div class="text-body-secondary small">
-                {{ member.firstName|normalize_name }} {{ member.lastName|normalize_name }}
+                {% if section_info %}{{ section_info.section.name ?? section_info.section.desk_code }} — {% endif %}{{ member.scoutYearLabel }}
             </div>
         </div>
     </div>
 
-    {# Functions / Roles #}
-    <div class="card mb-3">
-        <div class="card-body">
-            <h2 class="h5 mb-3">Fonctions</h2>
-            {% for func in member.functions %}
-                <div class="d-flex align-items-center gap-2 {% if not loop.last %}mb-2{% endif %}">
-                    <i class="bi bi-star{% if func.isMainFunction %}-fill text-warning{% endif %}"></i>
-                    <div>
-                        <span class="fw-semibold">{{ func.functionLabel }}</span>
-                        {% if func.sectionName or func.branchName %}
-                            <span class="text-body-secondary">
-                                — {{ func.sectionName ?? func.sectionCode }}
-                                {% if func.branchName %}({{ func.branchName }}){% endif %}
-                            </span>
+    <div class="row g-4">
+        <div class="col-12 col-lg-8">
+            {# §3 — Informations essentielles — always shown; falls back to
+               a plain message when the member has no section at all. #}
+            <div class="card mb-3">
+                <div class="card-body">
+                    <h2 class="h5 mb-3">Informations essentielles</h2>
+                    {% if not section_info %}
+                        <p class="text-body-secondary small mb-0">Aucune section connue pour ce membre.</p>
+                    {% else %}
+                        <div class="mb-3">
+                            <span class="text-body-secondary d-block small">Section</span>
+                            {{ section_info.section.name ?? section_info.section.desk_code }}
+                            {% if section_info.section.email %}
+                                <div class="small">
+                                    <i class="bi bi-envelope text-body-secondary"></i>
+                                    <a href="mailto:{{ section_info.section.email }}">{{ section_info.section.email }}</a>
+                                </div>
+                            {% endif %}
+                        </div>
+
+                        {% if section_info.responsable %}
+                            <div class="mb-3">
+                                <span class="text-body-secondary d-block small">Responsable</span>
+                                {{ section_info.responsable|display_name_full }}
+                                {% if section_info.responsable.addresses|length > 0 %}
+                                    <div class="small text-body-secondary">{{ section_info.responsable.addresses[0].format()|normalize_address }}</div>
+                                {% endif %}
+                            </div>
                         {% endif %}
-                        {% if func.startDate %}
-                            <div class="text-body-secondary small">
-                                Depuis le {{ func.startDate|date('d/m/Y') }}
-                                {% if func.endDate %} — jusqu'au {{ func.endDate|date('d/m/Y') }}{% endif %}
+
+                        {% if section_info.badge_assignments|length > 0 %}
+                            <div class="mb-3">
+                                <span class="text-body-secondary d-block small">Badges de la section</span>
+                                <ul class="list-unstyled mb-0 small">
+                                    {% for badge_name, holders in section_info.badge_assignments %}
+                                        <li>
+                                            {{ badge_name }} —
+                                            {% for holder in holders %}{{ holder|display_name_full }}{% if not loop.last %}, {% endif %}{% endfor %}
+                                        </li>
+                                    {% endfor %}
+                                </ul>
+                            </div>
+                        {% endif %}
+
+                        {% if section_info.referent_holders|length > 0 %}
+                            <div class="mb-3">
+                                <span class="text-body-secondary d-block small">Référent(s) Staff d'U</span>
+                                <span class="small">
+                                    {% for holder in section_info.referent_holders %}{{ holder|display_name_full }}{% if not loop.last %}, {% endif %}{% endfor %}
+                                </span>
+                            </div>
+                        {% endif %}
+
+                        {% if calendar_enabled and section_info.next_event %}
+                            <div class="mb-3">
+                                <span class="text-body-secondary d-block small">Prochain évènement</span>
+                                <span class="small">{{ section_info.next_event.title }} — {{ section_info.next_event.startDate|french_date }}</span>
+                            </div>
+                        {% endif %}
+
+                        {% if section_info.functions_this_year|length > 0 %}
+                            <div class="mb-3">
+                                <span class="text-body-secondary d-block small">Fonctions cette année</span>
+                                <ul class="list-unstyled mb-0 small">
+                                    {% for func in section_info.functions_this_year %}
+                                        <li>{{ func.functionLabel }}</li>
+                                    {% endfor %}
+                                </ul>
+                            </div>
+                        {% endif %}
+
+                        {% if trombinoscope_enabled or calendar_enabled %}
+                            <div class="d-flex flex-wrap gap-2 mt-3">
+                                {% if trombinoscope_enabled %}
+                                    <a href="/trombinoscope?section={{ section_info.section.id }}" class="btn btn-sm btn-outline-secondary">
+                                        <i class="bi bi-people"></i> Trombinoscope de la section
+                                    </a>
+                                {% endif %}
+                                {% if calendar_enabled %}
+                                    <a href="/calendar?section={{ section_info.section.id }}" class="btn btn-sm btn-outline-secondary">
+                                        <i class="bi bi-calendar3"></i> Calendrier de la section
+                                    </a>
+                                {% endif %}
+                            </div>
+                        {% endif %}
+                    {% endif %}
+                </div>
+            </div>
+
+            {# §4 — Communications récentes — always shown when mass_mail is
+               enabled, with an empty-state message when there's nothing yet
+               (an empty array alone can't tell "no data" from "disabled"). #}
+            {% if mass_mail_enabled %}
+                <div class="card mb-3">
+                    <div class="card-body">
+                        <h2 class="h5 mb-3">Communications récentes</h2>
+                        {% if recent_mass_mail_emails|length > 0 %}
+                            <ul class="list-unstyled mb-0 small">
+                                {% for item in recent_mass_mail_emails %}
+                                    <li class="d-flex justify-content-between border-bottom py-2">
+                                        <a href="/members/{{ member.memberYearId }}/emails/{{ item.id }}" class="text-decoration-none">{{ item.subject }}</a>
+                                        <span class="text-body-secondary">{{ item.section_name }} · {{ item.sent_at|french_date }}</span>
+                                    </li>
+                                {% endfor %}
+                            </ul>
+                        {% else %}
+                            <p class="text-body-secondary small mb-0">Aucune communication pour le moment.</p>
+                        {% endif %}
+                    </div>
+                </div>
+            {% endif %}
+
+            {# §5 — Documents privés (self only, no staff bypass) — always
+               shown to the member themselves, empty-state when there's
+               nothing yet. #}
+            {% if is_self %}
+                <div class="card mb-3">
+                    <div class="card-body">
+                        <h2 class="h5 mb-3">Documents privés</h2>
+                        {% if member_documents|length > 0 %}
+                            <ul class="list-unstyled mb-0 small">
+                                {% for document in member_documents %}
+                                    <li class="d-flex justify-content-between border-bottom py-2">
+                                        <a href="{{ file_url(document.fileId) }}" class="text-decoration-none">
+                                            <i class="bi bi-file-earmark-lock"></i> {{ document.title }}
+                                        </a>
+                                        <span class="text-body-secondary">{{ document.createdAt|french_date }}</span>
+                                    </li>
+                                {% endfor %}
+                            </ul>
+                        {% else %}
+                            <p class="text-body-secondary small mb-0">Aucun document privé pour le moment.</p>
+                        {% endif %}
+                    </div>
+                </div>
+            {% endif %}
+
+            {# §6 — Galeries photos (gallery module, optional) — always shown
+               when the module is enabled, empty-state when there's nothing
+               yet. #}
+            {% if gallery_enabled %}
+                <div class="card mb-3">
+                    <div class="card-body">
+                        <h2 class="h5 mb-3">Galeries photos</h2>
+                        {% if gallery_albums|length > 0 %}
+                            <div class="row g-2">
+                                {% for album in gallery_albums %}
+                                    <div class="col-6 col-md-4 col-lg-2">
+                                        <a href="{{ album.url }}" class="text-decoration-none text-body" {{ album.url starts with 'http' ? 'target="_blank" rel="noopener"' : '' }}>
+                                            <div class="bg-light rounded d-flex align-items-center justify-content-center" style="aspect-ratio:1/1;overflow:hidden;">
+                                                {% if album.cover_url %}
+                                                    <img src="{{ album.cover_url }}" alt="" class="w-100 h-100" style="object-fit:cover;">
+                                                {% else %}
+                                                    <i class="bi bi-images text-muted"></i>
+                                                {% endif %}
+                                            </div>
+                                            <p class="small mb-0 mt-1 text-truncate">{{ album.title }}</p>
+                                        </a>
+                                    </div>
+                                {% endfor %}
+                            </div>
+                        {% else %}
+                            <p class="text-body-secondary small mb-0">Aucune galerie pour le moment.</p>
+                        {% endif %}
+                    </div>
+                </div>
+            {% endif %}
+
+            {# §7 — Contact et connexion #}
+            {% if show_contact %}
+                <div class="card mb-3">
+                    <div class="card-body">
+                        <h2 class="h5 mb-3">Contact et connexion</h2>
+                        <table class="table table-sm mb-0">
+                            <tbody>
+                                {% if member.email %}
+                                    <tr>
+                                        <td class="text-body-secondary small">Email</td>
+                                        <td><a href="mailto:{{ member.email }}">{{ member.email }}</a></td>
+                                    </tr>
+                                {% else %}
+                                    <tr>
+                                        <td class="text-body-secondary small" colspan="2">Aucune adresse email connue.</td>
+                                    </tr>
+                                {% endif %}
+                            </tbody>
+                        </table>
+                        {% if member.phone %}
+                            <div class="d-flex align-items-center gap-2 mt-2">
+                                <i class="bi bi-telephone text-body-secondary"></i>
+                                <a href="tel:{{ member.phone|normalize_phone|replace({' ': ''}) }}">{{ member.phone|normalize_phone }}</a>
+                            </div>
+                        {% endif %}
+                        {% if member.mobile %}
+                            <div class="d-flex align-items-center gap-2 mt-2">
+                                <i class="bi bi-phone text-body-secondary"></i>
+                                <a href="tel:{{ member.mobile|normalize_phone|replace({' ': ''}) }}">{{ member.mobile|normalize_phone }}</a>
                             </div>
                         {% endif %}
                     </div>
                 </div>
-            {% endfor %}
-        </div>
-    </div>
+            {% endif %}
 
-    {# Contact info — only shown based on role visibility rules #}
-    {% if show_contact %}
-        <div class="card mb-3">
-            <div class="card-body">
-                <h2 class="h5 mb-3">Contact</h2>
-                {% if member.email %}
-                    <div class="d-flex align-items-center gap-2 mb-2">
-                        <i class="bi bi-envelope text-body-secondary"></i>
-                        <a href="mailto:{{ member.email }}">{{ member.email }}</a>
-                    </div>
-                {% endif %}
-                {% if member.phone %}
-                    <div class="d-flex align-items-center gap-2 mb-2">
-                        <i class="bi bi-telephone text-body-secondary"></i>
-                        <a href="tel:{{ member.phone|normalize_phone|replace({' ': ''}) }}">{{ member.phone|normalize_phone }}</a>
-                    </div>
-                {% endif %}
-                {% if member.mobile %}
-                    <div class="d-flex align-items-center gap-2 mb-2">
-                        <i class="bi bi-phone text-body-secondary"></i>
-                        <a href="tel:{{ member.mobile|normalize_phone|replace({' ': ''}) }}">{{ member.mobile|normalize_phone }}</a>
-                    </div>
-                {% endif %}
-            </div>
-        </div>
-    {% endif %}
-
-    {# Addresses — only shown to self or chief/admin #}
-    {% if show_addresses %}
-        <div class="card mb-3">
-            <div class="card-body">
-                <h2 class="h5 mb-3">Adresses</h2>
-                {% for address in member.addresses %}
-                    <div class="{% if not loop.last %}mb-3{% endif %}">
-                        <span class="badge bg-secondary-subtle text-secondary-emphasis mb-1">
-                            {{ address.type }}
-                        </span>
-                        <div>{{ address.format() }}</div>
-                    </div>
-                {% endfor %}
-            </div>
-        </div>
-    {% endif %}
-
-    {# Personal info #}
-    <div class="card mb-3">
-        <div class="card-body">
-            <h2 class="h5 mb-3">Informations</h2>
-            <div class="row g-3 small">
-                {% if member.birthDate %}
-                    <div class="col-6 col-md-4">
-                        <span class="text-body-secondary d-block">Date de naissance</span>
-                        {{ member.birthDate|date('d/m/Y') }}
-                    </div>
-                {% endif %}
-                {% if member.gender %}
-                    <div class="col-6 col-md-4">
-                        <span class="text-body-secondary d-block">Genre</span>
-                        {{ member.gender }}
-                    </div>
-                {% endif %}
-                {% if member.patrol %}
-                    <div class="col-6 col-md-4">
-                        <span class="text-body-secondary d-block">Sizaine / Patrouille</span>
-                        {{ member.patrol }}
-                    </div>
-                {% endif %}
-                {% if member.formationLevel %}
-                    <div class="col-6 col-md-4">
-                        <span class="text-body-secondary d-block">Formation</span>
-                        {{ member.formationLevel }}
-                    </div>
-                {% endif %}
-            </div>
-        </div>
-    </div>
-
-    {# Module sections will be injected here in future iterations #}
-    {# Each module can add cards to the member page via a hook #}
-
-    {% if recent_mass_mail_emails is defined and recent_mass_mail_emails|length > 0 %}
-        <div class="card mb-3">
-            <div class="card-body">
-                <h2 class="h5 mb-3">Emails reçus</h2>
-                <ul class="list-unstyled mb-0 small">
-                    {% for item in recent_mass_mail_emails %}
-                        <li class="d-flex justify-content-between border-bottom py-2">
-                            <span>{{ item.subject }}</span>
-                            <span class="text-body-secondary">{{ item.section_name }} · {{ item.sent_at|date('d/m/Y') }}</span>
-                        </li>
-                    {% endfor %}
-                </ul>
-            </div>
-        </div>
-    {% endif %}
-
-    {% if gallery_albums is defined and gallery_albums|length > 0 %}
-        <div class="card mb-3">
-            <div class="card-body">
-                <h2 class="h5 mb-3">Galerie</h2>
-                <div class="row g-2">
-                    {% for album in gallery_albums %}
-                        <div class="col-6 col-md-4 col-lg-2">
-                            <a href="{{ album.url }}" class="text-decoration-none text-body" {{ album.url starts with 'http' ? 'target="_blank" rel="noopener"' : '' }}>
-                                <div class="bg-light rounded d-flex align-items-center justify-content-center" style="aspect-ratio:1/1;overflow:hidden;">
-                                    {% if album.cover_url %}
-                                        <img src="{{ album.cover_url }}" alt="" class="w-100 h-100" style="object-fit:cover;">
-                                    {% else %}
-                                        <i class="bi bi-images text-muted"></i>
-                                    {% endif %}
+            {# §8 — Informations personnelles #}
+            {% if show_contact %}
+                <div class="card mb-3">
+                    <div class="card-body">
+                        <h2 class="h5 mb-3">Informations personnelles</h2>
+                        <p class="small text-body-secondary">
+                            Ces informations sont exportées de la base de donnée de la fédération et ne peuvent pas être modifiées via le site. Merci de contacter le staff d'U si une modification importante est nécessaire.
+                        </p>
+                        <div class="row g-3 small">
+                            <div class="col-6 col-md-4">
+                                <span class="text-body-secondary d-block">Nom complet</span>
+                                {{ member|full_name }}
+                            </div>
+                            {% if member.totem %}
+                                <div class="col-6 col-md-4">
+                                    <span class="text-body-secondary d-block">Totem</span>
+                                    {{ member.totem|normalize_totem }}{% if member.quali %} — {{ member.quali }}{% endif %}
                                 </div>
-                                <p class="small mb-0 mt-1 text-truncate">{{ album.title }}</p>
+                            {% endif %}
+                            {% if member.birthDate %}
+                                <div class="col-6 col-md-4">
+                                    <span class="text-body-secondary d-block">Date de naissance</span>
+                                    {{ member.birthDate|date('d/m/Y') }}
+                                </div>
+                            {% endif %}
+                            {% if member.gender %}
+                                <div class="col-6 col-md-4">
+                                    <span class="text-body-secondary d-block">Genre</span>
+                                    {{ member.gender }}
+                                </div>
+                            {% endif %}
+                            {% if member.patrol %}
+                                <div class="col-6 col-md-4">
+                                    <span class="text-body-secondary d-block">Sizaine / Patrouille</span>
+                                    {{ member.patrol }}
+                                </div>
+                            {% endif %}
+                            {% if member.formationLevel %}
+                                <div class="col-6 col-md-4">
+                                    <span class="text-body-secondary d-block">Formation</span>
+                                    {{ member.formationLevel }}
+                                </div>
+                            {% endif %}
+                            {% if member.handicap %}
+                                <div class="col-6 col-md-4">
+                                    <span class="text-body-secondary d-block">Handicap</span>
+                                    {% if member.handicap == 'true' %}Oui{% elseif member.handicap == 'false' %}Non{% else %}{{ member.handicap }}{% endif %}
+                                </div>
+                            {% endif %}
+                            {% if member.supplementaryInsurance %}
+                                <div class="col-6 col-md-4">
+                                    <span class="text-body-secondary d-block">Assurance complémentaire</span>
+                                    {{ member.supplementaryInsurance }}
+                                </div>
+                            {% endif %}
+                        </div>
+                        {% if show_addresses and member.addresses|length > 0 %}
+                            <div class="mt-3">
+                                <span class="text-body-secondary d-block small">Adresse(s)</span>
+                                {% for address in member.addresses %}
+                                    <div class="small {% if not loop.last %}mb-2{% endif %}">
+                                        <span class="badge bg-secondary-subtle text-secondary-emphasis mb-1">{{ address.type }}</span>
+                                        <div>{{ address.format()|normalize_address }}</div>
+                                    </div>
+                                {% endfor %}
+                            </div>
+                        {% endif %}
+                    </div>
+                </div>
+            {% endif %}
+        </div>
+
+        {# §2 — Right column: ordered, extensible stack of cards. Branch
+           card first, then the section's staff photo — both optional,
+           each independently absent when its data isn't available, but
+           kept in one column so they stack directly under each other
+           rather than wrapping onto a new row. #}
+        {% if branch_card or (section_info and trombinoscope_enabled) %}
+            <div class="col-12 col-lg-4">
+                {% if branch_card %}
+                    <div class="card mb-3">
+                        <div class="card-body text-center">
+                            {% if branch_card.logo_file_id %}
+                                <img src="{{ file_url(branch_card.logo_file_id) }}" alt="{{ branch_card.label }}" class="img-fluid mb-2" style="max-height:120px;">
+                            {% elseif branch_card.default_logo %}
+                                <img src="/assets/img/branches/{{ branch_card.default_logo }}" alt="{{ branch_card.label }}" class="img-fluid mb-2" style="max-height:120px;">
+                            {% endif %}
+                            <h2 class="h6 mb-2">{{ branch_card.label }}</h2>
+                            <a href="{{ branch_card.explanation_url }}" target="_blank" rel="noopener" class="btn btn-sm btn-outline-primary">
+                                En savoir plus <i class="bi bi-box-arrow-up-right"></i>
                             </a>
                         </div>
-                    {% endfor %}
-                </div>
+                    </div>
+                {% endif %}
+
+                {% if section_info and trombinoscope_enabled %}
+                    <div class="card mb-3">
+                        <div class="card-body text-center">
+                            <h2 class="h6 mb-2">Staff de la section</h2>
+                            {{ section_photo(section_info.section.id, section_info.section.name ?? section_info.section.desk_code) }}
+                            <a href="/trombinoscope?section={{ section_info.section.id }}" class="btn btn-sm btn-outline-primary mt-2">
+                                Voir dans le trombinoscope <i class="bi bi-box-arrow-up-right"></i>
+                            </a>
+                        </div>
+                    </div>
+                {% endif %}
             </div>
-        </div>
-    {% endif %}
+        {% endif %}
+    </div>
 {% endblock %}

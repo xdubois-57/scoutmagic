@@ -20,6 +20,38 @@
     aspect-ratio: 1 / 1;
     font-size: 0.9rem;
 }
+/* Member page (Espace des animés) header — a circular variant of
+   member_photo(), sized for a page header rather than a trombinoscope
+   grid cell. Same self-contained sizing technique as .member-photo above
+   (fixed width + aspect-ratio directly on the photo/placeholder class
+   itself, NOT a percentage of a wrapper) — that's deliberate, not
+   incidental: member_photo()'s editable-mode markup wraps the photo in
+   `.editable-image`, which has no explicit size of its own (see
+   editable.css — only position:relative, for the overlay button).
+   Percentage sizing (width/height:100%) inside that wrapper has nothing
+   definite to resolve against and silently falls back to the image's
+   raw intrinsic pixel size — which is how a placeholder ended up a
+   normal small box while a real uploaded photo rendered at full
+   original size. aspect-ratio sidesteps that failure mode entirely
+   (it computes a definite height from the width alone, independent of
+   any ancestor), which is exactly why the trombinoscope/Staffs photos
+   never had this bug despite going through the same .editable-image
+   wrapper in configuration mode. Sized to roughly match the two-line
+   name/section text next to it, while staying comfortably bigger than
+   the 44px edit-overlay button that sits in its corner (in
+   configuration mode, or for the member themselves) — a placeholder box
+   smaller than its own "change photo" button reads as broken. */
+.member-photo-header {
+    width: 64px;
+    aspect-ratio: 1 / 1;
+    object-fit: cover;
+    flex-shrink: 0;
+}
+.member-photo-header .member-photo-initials {
+    width: 100%;
+    height: 100%;
+    font-size: 1.5rem;
+}
 
 .section-picker {
     -webkit-overflow-scrolling: touch;

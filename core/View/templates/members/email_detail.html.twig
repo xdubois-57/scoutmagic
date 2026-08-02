@@ -1,0 +1,21 @@
+{% extends 'base.html.twig' %}
+{% block title %}{{ email.subject }} — {{ site_name }}{% endblock %}
+{% block content %}
+    <div class="mb-3">
+        <a href="/members/{{ member.memberYearId }}" class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-arrow-left"></i> Retour
+        </a>
+    </div>
+
+    <div class="card">
+        <div class="card-body">
+            <h1 class="h4 mb-1">{{ email.subject }}</h1>
+            <p class="text-body-secondary small mb-4">
+                Envoyé le {{ email.sent_at|french_date }} · {{ email.section_name }}
+            </p>
+            <div class="border-top pt-3">
+                {{ email.body_html|raw }}
+            </div>
+        </div>
+    </div>
+{% endblock %}

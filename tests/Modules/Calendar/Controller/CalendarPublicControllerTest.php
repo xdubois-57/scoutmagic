@@ -245,6 +245,43 @@ class CalendarPublicControllerTest extends TestCase
         $this->assertStringContainsString('Connectez-vous', $response->getBody());
     }
 
+    /**
+     * Member page "Link to Calendrier filtered on that section" (§3) —
+     * ?section={id} pre-selects that section's own calendar.
+     */
+    public function testIndexPreselectsTheCalendarForAValidSectionQueryParam(): void
+    {
+        $stmt = $this->pdo->prepare('INSERT INTO age_branches (desk_code, label, sort_order) VALUES (?, ?, ?)');
+        $stmt->execute(['BAL', 'Baladins', 10]);
+        $branchId = (int) $this->pdo->lastInsertId();
+        $stmt = $this->pdo->prepare('INSERT INTO sections (desk_code, age_branch_id, name) VALUES (?, ?, ?)');
+        $stmt->execute(['BAL01', $branchId, 'Renards']);
+        $sectionId = (int) $this->pdo->lastInsertId();
+
+        $this->calendarService->ensureSectionCalendars();
+        $sectionCalendar = $this->calendarRepository->findAll()[0];
+
+        $request = new Request('GET', '/calendar', ['section' => (string) $sectionId], [], [], []);
+        $response = $this->controller->index($request, []);
+
+        $this->assertMatchesRegularExpression(
+            '/href="\/calendar\?calendar=' . $sectionCalendar->id . '[^"]*"\s+class="btn btn-sm btn-primary/',
+            $response->getBody()
+        );
+    }
+
+    /**
+     * An unknown/bogus section id is silently ignored (same treatment as
+     * an unknown ?calendar= id) rather than trusted or erroring.
+     */
+    public function testIndexIgnoresAnUnknownSectionQueryParam(): void
+    {
+        $request = new Request('GET', '/calendar', ['section' => '999999'], [], [], []);
+        $response = $this->controller->index($request, []);
+
+        $this->assertSame(200, $response->getStatusCode());
+    }
+
     public function testCalendarFeedReturnsIcsContentType(): void
     {
         $calendar = $this->calendarService->addCalendar('Test', 'public');

@@ -147,6 +147,42 @@ class SectionService
     }
 
     /**
+     * Resolve a section (with branch info) from its Desk code — the only
+     * identifier MemberFunctionInfo carries (sectionCode, not a numeric
+     * id). Used where a caller only has a MemberProfile's function list to
+     * start from (e.g. the member page resolving "this member's own
+     * section" from their main function).
+     *
+     * @return array{id: int, desk_code: string, name: ?string, email: ?string, age_branch_id: int, branch_name: string, branch_sort_order: int, color: ?string}|null
+     */
+    public function findByDeskCode(string $deskCode): ?array
+    {
+        $pdo = $this->connection->getPdo();
+        $stmt = $pdo->prepare(
+            'SELECT s.id, s.desk_code, s.name, s.email, s.age_branch_id, s.color,
+                    ab.label AS branch_name, ab.sort_order AS branch_sort_order
+             FROM sections s
+             JOIN age_branches ab ON s.age_branch_id = ab.id
+             WHERE s.desk_code = ?'
+        );
+        $stmt->execute([$deskCode]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+        if ($row === false) {
+            return null;
+        }
+        return [
+            'id' => (int) $row['id'],
+            'desk_code' => (string) $row['desk_code'],
+            'name' => $row['name'] !== null ? (string) $row['name'] : null,
+            'email' => $row['email'] !== null ? (string) $row['email'] : null,
+            'age_branch_id' => (int) $row['age_branch_id'],
+            'branch_name' => (string) $row['branch_name'],
+            'branch_sort_order' => (int) $row['branch_sort_order'],
+            'color' => $row['color'] !== null ? (string) $row['color'] : null,
+        ];
+    }
+
+    /**
      * Get the staff (chiefs / chef d'unité) for a section in the current
      * scout year. Returns decrypted MemberProfile objects for members whose
      * function is linked to this section AND whose role is chief or admin —

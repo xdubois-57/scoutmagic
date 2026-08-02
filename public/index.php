@@ -493,6 +493,10 @@ $memberBadgeRepository = new MemberBadgeRepository($pdo);
 $sectionService = new SectionService($connection, $encryptionService, $memberBadgeRepository);
 $badgeService = new BadgeService($badgeRepository, $memberBadgeRepository, $sectionService);
 
+// Member page (Espace des animés) "Documents privés" storage — see
+// Core\Member\MemberDocumentService.
+$memberDocumentService = new \Core\Member\MemberDocumentService(new \Core\Member\MemberDocumentRepository($pdo));
+
 // Scout year resolution (public / staff / session-preview priority)
 $scoutYearResolver = new ScoutYearResolver($scoutYearService, $settingService, $memberYearRepo);
 $scoutYearAdminService = new ScoutYearAdminService($settingService);
@@ -518,7 +522,6 @@ if ($autoSwitchedLabel !== null) {
 // Create file services
 $storagePath = dirname(__DIR__) . '/storage';
 $fileRepository = new FileRepository($pdo);
-$fileAccessGuard = new FileAccessGuard($fileRepository, Role::fromString(AuthSession::getRole()));
 $uploadHandler = new UploadHandler($fileRepository, $storagePath);
 $encryptedFileStorageService = new \Core\File\EncryptedFileStorageService($fileRepository, $encryptionService, $storagePath);
 
@@ -567,6 +570,7 @@ $effectiveScoutYear = $scoutYearResolver->getEffectiveYear(
 // Update user display name based on linked members
 $displayName = AuthSession::getEmail() ?? '';
 $memberCount = 0;
+$linkedMembers = [];
 if (AuthSession::isAuthenticated()) {
     $linkedMembers = $memberService->getLinkedMembers(
         AuthSession::getEmail(),
@@ -578,6 +582,17 @@ if (AuthSession::isAuthenticated()) {
         $memberCount = count($linkedMembers);
     }
 }
+
+// Built here (not earlier, alongside $fileRepository) because the
+// owner-scoping check (Core\File\FileAccessGuard) needs $linkedMembers,
+// which isn't resolved until this point — see the class docblock for why
+// there's deliberately no chief/admin bypass on that check.
+$fileAccessGuard = new FileAccessGuard(
+    $fileRepository,
+    Role::fromString($currentRole),
+    array_map(fn($m) => $m->memberId, $linkedMembers)
+);
+
 $twig->addGlobal('current_user_display_name', $displayName);
 $twig->addGlobal('current_user_member_count', $memberCount);
 $twig->addGlobal('current_user_role_label', $roleLabelMap[$currentRole] ?? 'Public');
@@ -735,6 +750,10 @@ $router->addRoute('DELETE', '/api/push-subscription', PushSubscriptionController
 // Member pages
 $router->addRoute('GET', '/members/{id}', MemberController::class, 'show', 'identified');
 $router->addRoute('POST', '/members/{id}/scout-year-offset', MemberController::class, 'updateScoutYearOffset', 'chief');
+// The email-detail route (/members/{id}/emails/{recipient_id}) is
+// registered inside the mass_mail module block below (module-owned data,
+// core only ever links to it) — it doesn't exist at all when mass_mail is
+// disabled.
 
 // Configuration mode
 $router->addRoute('POST', '/config-mode/activate', ConfigModeController::class, 'activate', 'superadmin');
@@ -757,9 +776,13 @@ $router->addRoute('GET', '/files/{id}/thumbnail', FileController::class, 'thumbn
 // Generic short-URL redirector (Core\Url)
 $router->addRoute('GET', '/s/{code}', ShortUrlController::class, 'resolve', 'public');
 
-// File upload
-$router->addRoute('GET', '/upload', UploadController::class, 'index', 'superadmin');
-$router->addRoute('POST', '/upload', UploadController::class, 'store', 'superadmin');
+// File upload — role_min is deliberately loosened to `identified` so a
+// member can upload their own photo from the member page outside
+// configuration mode; UploadController::isUploadAuthorized() is the real
+// authorization boundary per context (still effectively superadmin-only
+// for every context except member_photo — see that method's docblock).
+$router->addRoute('GET', '/upload', UploadController::class, 'index', 'identified');
+$router->addRoute('POST', '/upload', UploadController::class, 'store', 'identified');
 
 // Setup routes (admin, but bypassed when not initialized)
 $router->addRoute('GET', '/setup', SetupController::class, 'index', 'superadmin');
@@ -838,6 +861,7 @@ $router->addRoute('POST', '/config/functions/section-name', FunctionsController:
 $router->addRoute('POST', '/config/functions/section-email', FunctionsController::class, 'updateSectionEmail', 'superadmin');
 $router->addRoute('POST', '/config/functions/section-visibility', FunctionsController::class, 'updateSectionVisibility', 'superadmin');
 $router->addRoute('POST', '/config/functions/section-color', FunctionsController::class, 'updateSectionColor', 'superadmin');
+$router->addRoute('POST', '/config/functions/branch-url', FunctionsController::class, 'updateBranchUrl', 'superadmin');
 
 // Load enabled modules (routes registered AFTER core routes so core takes priority)
 $moduleManager->loadEnabledModules();
@@ -914,6 +938,19 @@ $frontController = new FrontController($router, $twig, $config);
 // $newsArticleService further down.
 $sectionResponsableProvider = null;
 
+// Optional dependency on the calendar module (ARCHITECTURE.md §7.5) for
+// the member page's "next upcoming event" (§3) — set below only when
+// 'calendar' is enabled, same pattern as $sectionResponsableProvider
+// above.
+$calendarEventLookup = null;
+
+// Baseline MemberPageService (core deps only) — re-registered further
+// down, once mass_mail/gallery/trombinoscope/calendar availability is
+// known, exactly like MemberController itself.
+$memberPageService = new \Core\Member\MemberPageService(
+    $sectionService, $memberService, $badgeRepository, $memberBadgeRepository, $ageBranchRepo, $memberDocumentService
+);
+
 // Register controllers with dependencies
 $frontController->registerController(PageController::class, new PageController($twig, $editableContentService, $sectionRepository, $settingService, $rgpdContentService, $sectionService, $unitStaffSectionService, $scoutYearService));
 $frontController->registerController(CookieController::class, new CookieController($twig, $cookieConsentService));
@@ -955,7 +992,7 @@ $frontController->registerController(\Core\Http\Controller\WebhookController::cl
 $frontController->registerController(PasswordResetController::class, new PasswordResetController($twig, $passwordResetService));
 $frontController->registerController(ShortUrlController::class, new ShortUrlController($twig, $shortUrlService));
 $frontController->registerController(ImportController::class, new ImportController($twig, $importService, $scoutYearResolver, $importJournalRepo, $functionRepo, $storagePath));
-$frontController->registerController(MemberController::class, new MemberController($twig, $memberService, $memberYearService, $journalService));
+$frontController->registerController(MemberController::class, new MemberController($twig, $memberService, $memberYearService, $journalService, $memberPageService));
 $frontController->registerController(StaffsController::class, new StaffsController($twig, $sectionService, $memberService, $scoutYearResolver, $journalService, $badgeService, $unitStaffSectionService));
 $frontController->registerController(ConfigModeController::class, new ConfigModeController($twig));
 $editableContentController = new EditableContentController($twig, $editableContentService);
@@ -964,7 +1001,7 @@ $frontController->registerController(EditableContentController::class, $editable
 $fileController = new FileController($twig, $fileAccessGuard, $storagePath, $encryptedFileStorageService);
 $fileController->setJournalService($journalService);
 $frontController->registerController(FileController::class, $fileController);
-$uploadController = new UploadController($twig, $uploadHandler, $editableContentService, $memberPhotoService, $sectionPhotoService, $sectionPhotoProcessor, $landscapeImageProcessor);
+$uploadController = new UploadController($twig, $uploadHandler, $editableContentService, $memberPhotoService, $sectionPhotoService, $sectionPhotoProcessor, $landscapeImageProcessor, $memberService, $ageBranchRepo);
 $uploadController->setJournalService($journalService);
 $frontController->registerController(UploadController::class, $uploadController);
 $frontController->registerController(JournalController::class, new JournalController($twig, $journalRepo, $userAccountRepo));
@@ -973,7 +1010,7 @@ $frontController->registerController(MemberSearchController::class, new MemberSe
 $frontController->registerController(SettingsController::class, new SettingsController($twig, $settingService, $journalService));
 $frontController->registerController(ScheduledActionsController::class, new ScheduledActionsController($twig, $schedulerRepo));
 $frontController->registerController(ConfigGeneralController::class, new ConfigGeneralController($twig, $moduleManager, $badgeService, $journalService));
-$frontController->registerController(FunctionsController::class, new FunctionsController($twig, $functionRepo, $journalService, $sectionService, $unitStaffSectionService, $scoutYearResolver, $badgeService));
+$frontController->registerController(FunctionsController::class, new FunctionsController($twig, $functionRepo, $journalService, $sectionService, $unitStaffSectionService, $scoutYearResolver, $badgeService, $ageBranchRepo));
 $frontController->registerController(PlaceholderController::class, new PlaceholderController($twig));
 
 // Module controllers with dependencies (only wired when the module is enabled).
@@ -999,7 +1036,7 @@ if (in_array('trombinoscope', $moduleManager->getEnabledModuleIds(), true)) {
     );
     $frontController->registerController(
         FunctionsController::class,
-        new FunctionsController($twig, $functionRepo, $journalService, $sectionService, $unitStaffSectionService, $scoutYearResolver, $badgeService, $trombinoscopeFunctionFlagsService)
+        new FunctionsController($twig, $functionRepo, $journalService, $sectionService, $unitStaffSectionService, $scoutYearResolver, $badgeService, $ageBranchRepo, $trombinoscopeFunctionFlagsService)
     );
 
     $trombinoscopeService = new \Modules\Trombinoscope\Service\TrombinoscopeService(
@@ -1328,17 +1365,20 @@ if (in_array('mass_mail', $moduleManager->getEnabledModuleIds(), true)) {
         new \Modules\MassMail\Controller\ConfigController($twig, $massMailListService, $settingService)
     );
 
-    // Re-registers MemberController with the mass_mail public API
-    // (ARCHITECTURE.md §7.5) so the member page's "Emails reçus" section
-    // can render — core never depends on the module directly, only on
-    // Modules\MassMail\Api\MassMailQueryInterface.
+    // The member page's "view as sent" email detail route
+    // (/members/{id}/emails/{recipient_id}, module.json) — lives here, not
+    // in Core\Http\Controller\MemberController, since the content is
+    // entirely mass_mail's own data (ARCHITECTURE.md §8.22).
     $frontController->registerController(
-        MemberController::class,
-        new MemberController(
-            $twig, $memberService, $memberYearService, $journalService,
-            new \Modules\MassMail\Service\MassMailQueryService($massMailRecipientRepo)
+        \Modules\MassMail\Controller\MemberEmailController::class,
+        new \Modules\MassMail\Controller\MemberEmailController(
+            $twig, $memberService, new \Modules\MassMail\Service\MassMailQueryService($massMailRecipientRepo)
         )
     );
+
+    // MemberController is re-registered once, with every optional
+    // provider (mass_mail included), in the combined block further down
+    // — see the comment there for why.
 }
 
 if (in_array('news', $moduleManager->getEnabledModuleIds(), true)) {
@@ -1532,6 +1572,10 @@ if (in_array('calendar', $moduleManager->getEnabledModuleIds(), true)) {
     $calendarService = new \Modules\Calendar\Service\CalendarService(
         $calendarRepo, $calendarEventRepo, $sectionService, $calendarUnitFeedTokenRepo, $retroEventLinkLookup
     );
+    // CalendarService implements Modules\Calendar\Api\CalendarEventLookupInterface
+    // — reused as-is (member page §3's "next upcoming event", no interface
+    // change needed) rather than adding a second lookup surface.
+    $calendarEventLookup = $calendarService;
     $calendarRetroAutoCreateService = new \Modules\Calendar\Service\CalendarRetroAutoCreateService(
         $schedulerService, $retroEventLinkLookup
     );
@@ -1562,26 +1606,38 @@ if (in_array('calendar', $moduleManager->getEnabledModuleIds(), true)) {
     );
 }
 
-// Re-registers MemberController with whichever optional providers are
-// available — mass_mail's "Emails reçus" section and/or gallery's
-// "Galerie" section (ARCHITECTURE.md §7.5); each stays null when its
-// module is disabled and the corresponding template section just doesn't
-// render. Placed after both modules' blocks above so their repositories
-// are in scope.
-if (in_array('mass_mail', $moduleManager->getEnabledModuleIds(), true) || in_array('gallery', $moduleManager->getEnabledModuleIds(), true)) {
+// Re-registers MemberController (and its MemberPageService) with
+// whichever optional providers are available — mass_mail's "Communications
+// récentes", gallery's "Galeries photos", trombinoscope's section-
+// responsable lookup (via $sectionResponsableProvider, ARCHITECTURE.md
+// §7.4), and calendar's next-upcoming-event lookup (via
+// $calendarEventLookup); each stays null when its module is disabled and
+// the corresponding page block just doesn't render. Placed after every
+// one of those modules' blocks above so their repositories/services are
+// in scope.
+if (
+    in_array('mass_mail', $moduleManager->getEnabledModuleIds(), true)
+    || in_array('gallery', $moduleManager->getEnabledModuleIds(), true)
+    || in_array('calendar', $moduleManager->getEnabledModuleIds(), true)
+    || in_array('trombinoscope', $moduleManager->getEnabledModuleIds(), true)
+) {
+    $massMailQueryForMember = in_array('mass_mail', $moduleManager->getEnabledModuleIds(), true)
+        ? new \Modules\MassMail\Service\MassMailQueryService($massMailRecipientRepo)
+        : null;
+    $galleryAlbumProviderForMember = in_array('gallery', $moduleManager->getEnabledModuleIds(), true)
+        ? new \Modules\Gallery\Service\GalleryMemberQueryService(
+            $galleryAlbumRepo, $galleryMediaRepo, $galleryMediaService, $sectionService, $scoutYearService
+        )
+        : null;
+
+    $memberPageService = new \Core\Member\MemberPageService(
+        $sectionService, $memberService, $badgeRepository, $memberBadgeRepository, $ageBranchRepo, $memberDocumentService,
+        $sectionResponsableProvider, $massMailQueryForMember, $galleryAlbumProviderForMember, $calendarEventLookup
+    );
+
     $frontController->registerController(
         MemberController::class,
-        new MemberController(
-            $twig, $memberService, $memberYearService, $journalService,
-            in_array('mass_mail', $moduleManager->getEnabledModuleIds(), true)
-                ? new \Modules\MassMail\Service\MassMailQueryService($massMailRecipientRepo)
-                : null,
-            in_array('gallery', $moduleManager->getEnabledModuleIds(), true)
-                ? new \Modules\Gallery\Service\GalleryMemberQueryService(
-                    $galleryAlbumRepo, $galleryMediaRepo, $galleryMediaService, $sectionService, $scoutYearService
-                )
-                : null
-        )
+        new MemberController($twig, $memberService, $memberYearService, $journalService, $memberPageService)
     );
 }
 

@@ -90,10 +90,18 @@ CREATE TABLE files (
     role_min VARCHAR(20) NOT NULL DEFAULT 'public',
     custom_resolver VARCHAR(100),
     encrypted BOOLEAN NOT NULL DEFAULT FALSE,
+    -- Nullable owner scoping (Core\File\FileAccessGuard): when set, a
+    -- request may only read this file if the session's linked members
+    -- (members.id, not member_years.id — ownership outlives a single
+    -- scout year) include this member, on top of the usual role_min
+    -- check — never a replacement for it. Generic: any future
+    -- member-scoped file (not just member_documents) gets this for free.
+    owner_member_id INT UNSIGNED,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     created_by INT UNSIGNED,
     UNIQUE INDEX idx_path (relative_path),
-    CONSTRAINT fk_file_created_by FOREIGN KEY (created_by) REFERENCES user_accounts(id) ON DELETE SET NULL
+    CONSTRAINT fk_file_created_by FOREIGN KEY (created_by) REFERENCES user_accounts(id) ON DELETE SET NULL,
+    CONSTRAINT fk_file_owner_member FOREIGN KEY (owner_member_id) REFERENCES members(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE functions (
@@ -118,7 +126,18 @@ CREATE TABLE age_branches (
     desk_code VARCHAR(50) NOT NULL,
     label VARCHAR(100) NOT NULL,
     sort_order INT NOT NULL DEFAULT 0,
-    UNIQUE INDEX idx_desk_code (desk_code)
+    -- Member page "branch card" (Core\Http\Controller\MemberController):
+    -- federation logo (uploaded via the generic /upload flow, context
+    -- "age_branch_logo") and the link to the federation's explanation
+    -- page for that branch — both configurable per branch from
+    -- Configuration > Config Desk (superadmin). logo_file_id is null
+    -- until an admin uploads one; the page falls back to a shipped
+    -- default asset (matched by canonicalSortOrder(), never by comparing
+    -- the branch's free-text label), then to nothing.
+    logo_file_id INT UNSIGNED,
+    explanation_url VARCHAR(500) NOT NULL DEFAULT 'https://lesscouts.be/fr/site-parents/le-parcours-scout',
+    UNIQUE INDEX idx_desk_code (desk_code),
+    CONSTRAINT fk_age_branch_logo FOREIGN KEY (logo_file_id) REFERENCES files(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE sections (
@@ -321,6 +340,29 @@ CREATE TABLE section_staff_photos (
     CONSTRAINT fk_ssp_year FOREIGN KEY (scout_year_id) REFERENCES scout_years(id),
     CONSTRAINT fk_ssp_file FOREIGN KEY (file_id) REFERENCES files(id),
     CONSTRAINT fk_ssp_created_by FOREIGN KEY (created_by) REFERENCES user_accounts(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Private per-member documents (member page "Documents privés" —
+-- Core\Member\MemberDocumentService), e.g. a future fiscal attestation.
+-- The file itself is stored encrypted-at-rest (Core\File\
+-- EncryptedFileStorageService) with files.owner_member_id set to
+-- member_id, which is what Core\File\FileAccessGuard actually enforces
+-- download access on — this table is metadata only (title, which member/
+-- year it belongs to), never a second access-control path. Storage +
+-- listing only in this iteration; no generation or admin upload UI yet.
+CREATE TABLE member_documents (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    member_id INT UNSIGNED NOT NULL,
+    scout_year_id INT UNSIGNED NOT NULL,
+    title VARCHAR(255) NOT NULL,
+    file_id INT UNSIGNED NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_by INT UNSIGNED,
+    INDEX idx_md_member (member_id),
+    CONSTRAINT fk_md_member FOREIGN KEY (member_id) REFERENCES members(id) ON DELETE CASCADE,
+    CONSTRAINT fk_md_year FOREIGN KEY (scout_year_id) REFERENCES scout_years(id),
+    CONSTRAINT fk_md_file FOREIGN KEY (file_id) REFERENCES files(id),
+    CONSTRAINT fk_md_created_by FOREIGN KEY (created_by) REFERENCES user_accounts(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Transversal roles assignable to chiefs/chief-d'unité (e.g. Infirmier,

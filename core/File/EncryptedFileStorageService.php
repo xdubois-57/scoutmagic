@@ -46,7 +46,8 @@ class EncryptedFileStorageService
         string $subDirectory,
         string $roleMin,
         ?string $moduleId = null,
-        ?int $createdBy = null
+        ?int $createdBy = null,
+        ?int $ownerMemberId = null
     ): int {
         $extension = self::EXTENSION_BY_MIME[$mimeType] ?? 'bin';
         $randomName = bin2hex(random_bytes(16)) . '.' . $extension . '.enc';
@@ -70,7 +71,8 @@ class EncryptedFileStorageService
             $roleMin,
             $moduleId,
             $createdBy,
-            true
+            true,
+            $ownerMemberId
         );
     }
 

@@ -81,7 +81,9 @@ class DatabaseTestHelper
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             desk_code TEXT NOT NULL UNIQUE,
             label TEXT NOT NULL,
-            sort_order INTEGER NOT NULL DEFAULT 0
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            logo_file_id INTEGER,
+            explanation_url TEXT NOT NULL DEFAULT \'https://lesscouts.be/fr/site-parents/le-parcours-scout\'
         )');
 
         $pdo->exec('CREATE TABLE sections (
@@ -190,6 +192,7 @@ class DatabaseTestHelper
             role_min TEXT NOT NULL DEFAULT \'public\',
             custom_resolver TEXT,
             encrypted INTEGER NOT NULL DEFAULT 0,
+            owner_member_id INTEGER,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             created_by INTEGER
         )');
@@ -234,6 +237,19 @@ class DatabaseTestHelper
             created_by INTEGER,
             UNIQUE(section_id, scout_year_id),
             FOREIGN KEY (section_id) REFERENCES sections(id),
+            FOREIGN KEY (scout_year_id) REFERENCES scout_years(id),
+            FOREIGN KEY (file_id) REFERENCES files(id)
+        )');
+
+        $pdo->exec('CREATE TABLE member_documents (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            member_id INTEGER NOT NULL,
+            scout_year_id INTEGER NOT NULL,
+            title TEXT NOT NULL,
+            file_id INTEGER NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            created_by INTEGER,
+            FOREIGN KEY (member_id) REFERENCES members(id),
             FOREIGN KEY (scout_year_id) REFERENCES scout_years(id),
             FOREIGN KEY (file_id) REFERENCES files(id)
         )');

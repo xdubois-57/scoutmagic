@@ -9,13 +9,17 @@ use Core\File\UploadHandler;
 use Core\Http\FlashMessage;
 use Core\Http\Request;
 use Core\Http\Response;
+use Core\Import\AgeBranchRepository;
 use Core\Journal\JournalService;
+use Core\Member\MemberService;
 use Core\Photo\LandscapeImageProcessor;
 use Core\Photo\MemberPhotoService;
 use Core\Photo\SectionPhotoProcessor;
 use Core\Photo\SectionPhotoService;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
+use Core\Security\Role;
+use Core\View\ConfigurationMode;
 use Core\View\EditableContentService;
 use Twig\Environment;
 
@@ -30,7 +34,9 @@ class UploadController extends AbstractController
         private MemberPhotoService $memberPhotoService,
         private SectionPhotoService $sectionPhotoService,
         private SectionPhotoProcessor $sectionPhotoProcessor,
-        private LandscapeImageProcessor $landscapeImageProcessor
+        private LandscapeImageProcessor $landscapeImageProcessor,
+        private MemberService $memberService,
+        private AgeBranchRepository $ageBranchRepository
     ) {
     }
 
@@ -72,6 +78,10 @@ class UploadController extends AbstractController
         $context = (string) $request->getBody('context', '');
         $key = (string) $request->getBody('key', '');
         $returnUrl = (string) $request->getBody('return_url', '/');
+
+        if (!$this->isUploadAuthorized($context, $key)) {
+            return (new Response('', 403))->setBody('Forbidden.');
+        }
 
         $uploadedFile = $request->getFile('file');
         if ($uploadedFile === null) {
@@ -117,6 +127,7 @@ class UploadController extends AbstractController
             $subDirectory = match ($context) {
                 'member_photo' => 'core/member_photos',
                 'section_photo' => 'core/section_photos',
+                'age_branch_logo' => 'core/branch_logos',
                 default => 'core/editable_contents',
             };
             $roleMin = match ($context) {
@@ -181,6 +192,26 @@ class UploadController extends AbstractController
                 }
             }
 
+            // For age_branch_logo context, key is the age_branch id — the
+            // member page branch card's federation logo, configured from
+            // Configuration > Config Desk (superadmin). See
+            // Core\Import\AgeBranchRepository::setLogo().
+            if ($context === 'age_branch_logo' && $key !== '') {
+                $ageBranchId = (int) $key;
+                $userId = AuthSession::getUserAccountId();
+                if ($ageBranchId > 0) {
+                    $this->ageBranchRepository->setLogo($ageBranchId, $fileId);
+                    $this->journalService?->log(
+                        'core',
+                        'age_branch_logo_updated',
+                        'info',
+                        'Logo de branche d\'âge modifié',
+                        ['age_branch_id' => $ageBranchId],
+                        $userId
+                    );
+                }
+            }
+
             FlashMessage::set('success', 'Fichier téléchargé avec succès.');
 
             return $this->redirect($returnUrl);
@@ -188,6 +219,46 @@ class UploadController extends AbstractController
             FlashMessage::set('error', $e->getMessage());
             return $this->redirect('/upload?context=' . urlencode($context) . '&key=' . urlencode($key) . '&return=' . urlencode($returnUrl));
         }
+    }
+
+    /**
+     * The real authorization boundary for /upload — the route's own
+     * role_min (`identified`) only gets a logged-in user in the door; a UI
+     * flag (member_photo()'s $editable param) is never sufficient on its
+     * own. member_photo uploads are allowed either through configuration
+     * mode (unchanged, existing superadmin-only path) OR when the
+     * requesting account is linked to the member the upload key names —
+     * this is what lets a member replace their own photo from the member
+     * page outside configuration mode. age_branch_logo (Config Desk's
+     * branch card logo) is a direct role check instead — that page is its
+     * own superadmin-only admin area, not the front-end configuration-mode
+     * overlay, so there's no session flag to require. Every other context
+     * keeps the pre-existing configuration-mode-only behavior (effectively
+     * superadmin-only, since only a superadmin session can activate it).
+     */
+    private function isUploadAuthorized(string $context, string $key): bool
+    {
+        if ($context === 'member_photo') {
+            if (ConfigurationMode::isActive()) {
+                return true;
+            }
+
+            [$memberIdStr, $yearIdStr] = array_pad(explode(':', $key, 2), 2, '');
+            $memberId = (int) $memberIdStr;
+            $scoutYearId = (int) $yearIdStr;
+            $email = AuthSession::getEmail();
+            if ($memberId <= 0 || $scoutYearId <= 0 || $email === null) {
+                return false;
+            }
+
+            return $this->memberService->isLinkedToMember($email, $memberId, $scoutYearId);
+        }
+
+        if ($context === 'age_branch_logo') {
+            return Role::fromString(AuthSession::getRole())->hasAccess(Role::SUPERADMIN);
+        }
+
+        return ConfigurationMode::isActive();
     }
 
     /**

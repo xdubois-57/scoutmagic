@@ -149,6 +149,38 @@ class MemberService
     }
 
     /**
+     * The scout_year_id a member_year row belongs to — MemberProfile only
+     * carries the year's label, not its numeric id, so callers that need
+     * the id (e.g. the member page, for section-staff/badge/document
+     * lookups scoped to this exact year) resolve it here rather than
+     * re-parsing the label.
+     */
+    public function getScoutYearIdForMemberYear(int $memberYearId): ?int
+    {
+        $row = $this->memberYearRepo->findById($memberYearId);
+        return $row !== null ? (int) $row['scout_year_id'] : null;
+    }
+
+    /**
+     * Whether $email is linked (blind-index email match, same rule as
+     * canAccess()) to the persistent member $memberId for $scoutYearId —
+     * used where the authorization boundary must be "this is really you",
+     * not "you outrank this member" (e.g. the member page photo upload,
+     * which deliberately has no chief/admin bypass outside configuration
+     * mode — see Core\Http\Controller\UploadController::store()).
+     */
+    public function isLinkedToMember(string $email, int $memberId, int $scoutYearId): bool
+    {
+        $row = $this->memberYearRepo->findByMemberAndYear($memberId, $scoutYearId);
+        if ($row === null) {
+            return false;
+        }
+
+        $userBlindIndex = $this->encryption->blindIndex(strtolower(trim($email)));
+        return $row['email_blind_index'] === $userBlindIndex;
+    }
+
+    /**
      * Convert a database row (with joined data) into a MemberProfile.
      *
      * @param array<string, mixed> $row

@@ -59,6 +59,22 @@ class CalendarPublicController extends AbstractController
             $eligibleCalendars
         );
 
+        // Member page "Link to Calendrier filtered on that section"
+        // (§3) — a ?section= query param pre-selects that section's own
+        // calendar, server-validated against the real section calendars
+        // (a bogus/unknown id is silently ignored, same as an unknown
+        // ?calendar= id above) rather than trusted as-is.
+        $sectionParam = $request->getQuery('section');
+        if ($sectionParam !== null && $sectionParam !== '') {
+            $requestedSectionId = (int) $sectionParam;
+            foreach ($this->calendarService->getSectionCalendars() as $sectionCalendar) {
+                if ($sectionCalendar->sectionId === $requestedSectionId) {
+                    $selectedCalendarId = $sectionCalendar->id;
+                    break;
+                }
+            }
+        }
+
         [$year, $month] = $this->resolveRequestedMonth($request->getQuery('month'));
 
         $calendarIds = $this->calendarPickerService->resolveCalendarIdsForGrid($selectedCalendarId, $eligibleCalendars, $email, $effectiveYear->id);

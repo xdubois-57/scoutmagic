@@ -153,13 +153,15 @@ class RecipientRepository
      * espace des animés member page's optional "Emails reçus" section
      * (ARCHITECTURE.md §7.5). Only ever 'sent' recipients — a still-
      * pending or errored row was never actually delivered to this member.
+     * `id` is the recipient id, not the email id — it's what the member
+     * page's detail-view link passes back to findSentByIdAndMember() below.
      *
-     * @return array<int, array{subject: string, sent_at: string, section_name: string}>
+     * @return array<int, array{id: int, subject: string, sent_at: string, section_name: string}>
      */
     public function findRecentSentForMember(int $memberId, int $limit): array
     {
         $stmt = $this->pdo->prepare(
-            "SELECT e.subject AS subject, r.sent_at AS sent_at, s.name AS section_name
+            "SELECT r.id AS id, e.subject AS subject, r.sent_at AS sent_at, s.name AS section_name
              FROM mass_mail_recipients r
              JOIN mass_mail_emails e ON e.id = r.email_id
              JOIN sections s ON s.id = e.section_id
@@ -170,10 +172,44 @@ class RecipientRepository
         $stmt->execute([$memberId]);
 
         return array_map(fn(array $row) => [
+            'id' => (int) $row['id'],
             'subject' => (string) $row['subject'],
             'sent_at' => (string) $row['sent_at'],
             'section_name' => (string) $row['section_name'],
         ], $stmt->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
+    /**
+     * Backs Api\MassMailQueryInterface::findEmailDetailForMember() — the
+     * member page's "view as sent" detail page. Deliberately re-checks
+     * r.member_id = ? server-side here (not just role_min on the route),
+     * so a recipient id can never be used to fetch another member's email;
+     * status = 'sent' for the same reason as findRecentSentForMember()
+     * above — a pending/errored row was never actually delivered.
+     *
+     * @return array{subject: string, body_html: string, sent_at: string, section_name: string}|null
+     */
+    public function findSentDetailForMember(int $recipientId, int $memberId): ?array
+    {
+        $stmt = $this->pdo->prepare(
+            "SELECT e.subject AS subject, e.body_html AS body_html, r.sent_at AS sent_at, s.name AS section_name
+             FROM mass_mail_recipients r
+             JOIN mass_mail_emails e ON e.id = r.email_id
+             JOIN sections s ON s.id = e.section_id
+             WHERE r.id = ? AND r.member_id = ? AND r.status = 'sent'"
+        );
+        $stmt->execute([$recipientId, $memberId]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+        if ($row === false) {
+            return null;
+        }
+
+        return [
+            'subject' => (string) $row['subject'],
+            'body_html' => (string) $row['body_html'],
+            'sent_at' => (string) $row['sent_at'],
+            'section_name' => (string) $row['section_name'],
+        ];
     }
 
     /**

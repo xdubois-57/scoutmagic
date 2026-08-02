@@ -257,6 +257,7 @@ RÈGLES CRITIQUES (ne JAMAIS déroger) :
 2. **Acceptation par participation** : Section 1.3 doit mentionner que participation aux activités = acceptation RGPD
 3. **Formation animateurs** : Section 1.4 doit mentionner Code Qualité des Adultes avec lien
 4. **Photos et consentement** : Section 2.3 complète : participation = consentement explicite photos, partage parents uniquement, pas promotionnel, pas fédération sans consentement, droit retrait
+4bis. **Espace des animés (page membre)** : Section 2.2 doit conserver explicitement : (a) que l'espace personnel d'un membre peut afficher des documents qui lui sont propres (documents privés, ex. future attestation fiscale), chiffrés au repos et accessibles uniquement aux comptes explicitement liés à ce membre — jamais à un chef ou administrateur non lié, même avec un rôle plus élevé ; (b) que le nom complet et l'adresse postale du chef désigné responsable d'une section sont affichés, sur la page de chaque membre de cette section, aux comptes qui lui sont liés (le membre, ses parents) — jamais publiquement
 5. **Modules actifs uniquement** : Retirer les sections des modules INACTIFS (comparer avec liste modules actifs)
 6. **Personnalisation obligatoire** : Remplacer {$unitName} et {$contactEmail} partout. Ne JAMAIS laisser de placeholder générique
 7. **Délai raisonnable bénévoles** : Section 1.1 doit mentionner "délai raisonnable" car organisation bénévole, visant 1 mois art. 12.3

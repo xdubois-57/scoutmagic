@@ -8,13 +8,12 @@ use Core\Http\Request;
 use Core\Http\Response;
 use Core\Journal\JournalService;
 use Core\Member\MemberNotFoundException;
+use Core\Member\MemberPageService;
 use Core\Member\MemberService;
 use Core\Member\MemberYearService;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\Security\Role;
-use Modules\Gallery\Api\GalleryAlbumProvider;
-use Modules\MassMail\Api\MassMailQueryInterface;
 use Twig\Environment;
 
 class MemberController extends AbstractController
@@ -24,13 +23,15 @@ class MemberController extends AbstractController
         private MemberService $memberService,
         private MemberYearService $memberYearService,
         private JournalService $journalService,
-        private ?MassMailQueryInterface $massMailQuery = null,
-        private ?GalleryAlbumProvider $galleryAlbumProvider = null
+        private MemberPageService $memberPageService
     ) {
     }
 
     /**
-     * GET /members/{id} — display a member's detail page.
+     * GET /members/{id} — display a member's detail page ("Espace des
+     * animés"). All the page's data (branch card, section info, optional-
+     * module blocks) is built by MemberPageService — this method only
+     * handles HTTP concerns (access check, param parsing, render).
      *
      * @param array<string, string> $params
      */
@@ -40,7 +41,9 @@ class MemberController extends AbstractController
         $userEmail = AuthSession::getEmail() ?? '';
         $userRole = AuthSession::getRole();
 
-        // Fine-grained access check
+        // Fine-grained access check — role_min:identified alone only
+        // proves the visitor is logged in; canAccess() is what actually
+        // scopes this page to "chief/admin, or the member themselves".
         if (!$this->memberService->canAccess($userEmail, $memberYearId, $userRole)) {
             return new Response('Forbidden', 403);
         }
@@ -51,43 +54,18 @@ class MemberController extends AbstractController
             return new Response('Member not found', 404);
         }
 
-        // Determine visibility flags
+        $scoutYearId = $this->memberService->getScoutYearIdForMemberYear($memberYearId) ?? 0;
         $isSelf = $this->memberService->canAccess($userEmail, $memberYearId, 'identified');
         $isChiefOrAbove = Role::fromString($userRole)->hasAccess(Role::CHIEF);
 
-        // Contact info: visible to self always, visible to chiefs for members in their sections
-        $showContact = $isSelf || $isChiefOrAbove;
+        $pageData = $this->memberPageService->buildPageData($profile, $scoutYearId, $isSelf, $isChiefOrAbove, Role::fromString($userRole));
 
-        // Addresses: visible only to self and chiefs/admin
-        $showAddresses = $isSelf || $isChiefOrAbove;
-
-        // "Emails reçus" section — only when mass_mail is enabled (§7.5:
-        // the section simply doesn't appear otherwise) and only to self or
-        // a chief/admin, same visibility rule as contact info.
-        $recentMassMailEmails = $showContact && $this->massMailQuery !== null
-            ? $this->massMailQuery->getRecentEmailsForMember($profile->memberId, 10)
-            : [];
-
-        // "Galerie" section — only when the gallery module is enabled
-        // (§7.5: the section simply doesn't appear otherwise), scoped to
-        // the sections this specific member-year row belongs to and the
-        // scout year it belongs to (not "current or previous" — this page
-        // can display a past scout year's member row).
-        $galleryAlbums = $this->galleryAlbumProvider !== null
-            ? $this->galleryAlbumProvider->getAlbumsForMember(
-                array_values(array_filter(array_map(fn($f) => $f->sectionCode, $profile->functions))),
-                $profile->scoutYearLabel,
-                6
-            )
-            : [];
-
-        return $this->render('members/show.html.twig', [
+        return $this->render('members/show.html.twig', array_merge($pageData, [
             'member' => $profile,
-            'show_contact' => $showContact,
-            'show_addresses' => $showAddresses,
-            'recent_mass_mail_emails' => $recentMassMailEmails,
-            'gallery_albums' => $galleryAlbums,
-        ]);
+            'is_self' => $isSelf,
+            'show_contact' => $isSelf || $isChiefOrAbove,
+            'show_addresses' => $isSelf || $isChiefOrAbove,
+        ]));
     }
 
     /**

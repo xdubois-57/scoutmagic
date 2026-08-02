@@ -25,6 +25,7 @@ class FileRepositoryTest extends TestCase
             role_min TEXT NOT NULL DEFAULT "public",
             custom_resolver TEXT,
             encrypted INTEGER NOT NULL DEFAULT 0,
+            owner_member_id INTEGER,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             created_by INTEGER
         )');

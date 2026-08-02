@@ -158,6 +158,48 @@
             Aucune section importée. Les sections apparaîtront après le premier import Desk.
         </p>
     {% endif %}
+
+    <hr class="my-4">
+
+    <h2 class="h4">Branches</h2>
+    <p class="text-body-secondary mb-4">
+        Configurez, pour chaque branche d'âge, le logo fédéral et le lien
+        d'explication affichés sur la carte de branche de l'espace des
+        animés. Sans logo téléversé, un logo par défaut est utilisé quand
+        il existe ; sans lien personnalisé, le lien par défaut de la
+        fédération Les Scouts est utilisé.
+    </p>
+
+    {% if branches|length > 0 %}
+        <div class="border rounded-3 overflow-hidden mb-4">
+            {% for branch in branches %}
+                <div class="d-flex flex-wrap align-items-center gap-2 gap-md-3 p-3 border-bottom branch-row" data-id="{{ branch.id }}">
+                    <div class="d-flex align-items-center gap-2" style="min-width:64px;">
+                        {% if branch.logo_file_id %}
+                            <img src="{{ file_url(branch.logo_file_id) }}" alt="{{ branch.label }}" class="rounded" style="width:48px;height:48px;object-fit:contain;">
+                        {% elseif branch.default_logo %}
+                            <img src="/assets/img/branches/{{ branch.default_logo }}" alt="{{ branch.label }}" class="rounded" style="width:48px;height:48px;object-fit:contain;">
+                        {% else %}
+                            <div class="d-flex align-items-center justify-content-center bg-light rounded" style="width:48px;height:48px;">
+                                <i class="bi bi-image text-muted"></i>
+                            </div>
+                        {% endif %}
+                        <a class="btn btn-sm btn-outline-secondary" href="/upload?context=age_branch_logo&key={{ branch.id }}&return=/config/functions">
+                            {{ branch.logo_file_id ? 'Changer' : 'Ajouter' }}
+                        </a>
+                    </div>
+                    <span class="fw-semibold text-nowrap" style="min-width:100px;">{{ branch.label }}</span>
+                    <input type="url" class="form-control form-control-sm branch-url-input flex-grow-1"
+                           value="{{ branch.explanation_url }}" placeholder="https://lesscouts.be/..."
+                           style="min-width:220px;">
+                </div>
+            {% endfor %}
+        </div>
+    {% else %}
+        <p class="text-body-secondary fst-italic">
+            Aucune branche d'âge importée. Les branches apparaîtront après le premier import Desk.
+        </p>
+    {% endif %}
 {% endblock %}
 
 {% block scripts %}
@@ -288,6 +330,26 @@ document.querySelectorAll('.section-row').forEach(row => {
 
     colorInput.addEventListener('change', () => saveColor(colorInput.value));
     colorReset.addEventListener('click', () => saveColor(null));
+});
+
+document.querySelectorAll('.branch-row').forEach(row => {
+    const branchId = row.dataset.id;
+    const urlInput = row.querySelector('.branch-url-input');
+    const csrf = () => document.querySelector('meta[name="csrf-token"]')?.content;
+
+    urlInput.addEventListener('blur', async () => {
+        urlInput.disabled = true;
+        const res = await fetch('/config/functions/branch-url', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ branch_id: parseInt(branchId), url: urlInput.value, _csrf_token: csrf() })
+        });
+        const data = await res.json();
+        urlInput.disabled = false;
+        if (!data.success) {
+            alert(data.error);
+        }
+    });
 });
 </script>
 {% endblock %}

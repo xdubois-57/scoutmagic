@@ -146,12 +146,43 @@ class RecipientRepositoryTest extends TestCase
 
     public function testFindRecentSentForMemberOnlyReturnsSentRows(): void
     {
-        $this->repository->create($this->emailId, $this->memberId, $this->scoutYearId, 'a@test.be', Recipient::STATUS_SENT, null);
+        $sentId = $this->repository->create($this->emailId, $this->memberId, $this->scoutYearId, 'a@test.be', Recipient::STATUS_SENT, null);
         $this->repository->create($this->emailId, $this->memberId, $this->scoutYearId, 'b@test.be', Recipient::STATUS_PENDING, null);
 
         $recent = $this->repository->findRecentSentForMember($this->memberId, 10);
 
         $this->assertCount(1, $recent);
         $this->assertSame('Sujet', $recent[0]['subject']);
+        $this->assertSame($sentId, $recent[0]['id']);
+    }
+
+    public function testFindSentDetailForMemberReturnsSubjectAndBody(): void
+    {
+        $sentId = $this->repository->create($this->emailId, $this->memberId, $this->scoutYearId, 'a@test.be', Recipient::STATUS_SENT, null);
+
+        $detail = $this->repository->findSentDetailForMember($sentId, $this->memberId);
+
+        $this->assertNotNull($detail);
+        $this->assertSame('Sujet', $detail['subject']);
+        $this->assertSame('<p>Corps</p>', $detail['body_html']);
+    }
+
+    public function testFindSentDetailForMemberReturnsNullForAPendingRecipient(): void
+    {
+        $pendingId = $this->repository->create($this->emailId, $this->memberId, $this->scoutYearId, 'a@test.be', Recipient::STATUS_PENDING, null);
+
+        $this->assertNull($this->repository->findSentDetailForMember($pendingId, $this->memberId));
+    }
+
+    /**
+     * Server-side ownership check — a recipient id belonging to a
+     * different member must never resolve, even though the email itself
+     * was really sent (member page detail route, no role_min bypass).
+     */
+    public function testFindSentDetailForMemberReturnsNullForAWrongMemberId(): void
+    {
+        $sentId = $this->repository->create($this->emailId, $this->memberId, $this->scoutYearId, 'a@test.be', Recipient::STATUS_SENT, null);
+
+        $this->assertNull($this->repository->findSentDetailForMember($sentId, $this->memberId + 999));
     }
 }

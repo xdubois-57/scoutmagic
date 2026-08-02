@@ -2,9 +2,18 @@
   "id": "mass_mail",
   "name": "Envoi de mails",
   "description": "Envoi de mails groupés aux membres de l'unité : listes de diffusion par défaut ou personnalisées, mode test, envoi en arrière-plan par lots, suivi détaillé des envois.",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "enabled_by_default": false,
   "routes": [
+    {
+      "path": "/members/{id}/emails/{recipient_id}",
+      "method": "GET",
+      "controller": "Modules\\MassMail\\Controller\\MemberEmailController",
+      "action": "show",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
     {
       "path": "/mass-mail",
       "method": "GET",

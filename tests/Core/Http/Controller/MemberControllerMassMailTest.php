@@ -4,14 +4,21 @@ declare(strict_types=1);
 
 namespace Tests\Core\Http\Controller;
 
+use Core\Badge\BadgeRepository;
+use Core\Badge\MemberBadgeRepository;
 use Core\Database\Connection;
 use Core\Http\Controller\MemberController;
 use Core\Http\Request;
+use Core\Import\AgeBranchRepository;
 use Core\Import\MemberYearRepository;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
+use Core\Member\MemberDocumentRepository;
+use Core\Member\MemberDocumentService;
+use Core\Member\MemberPageService;
 use Core\Member\MemberService;
 use Core\Member\MemberYearService;
+use Core\Member\SectionService;
 use Core\Security\AuthSession;
 use Core\Security\EncryptionService;
 use Modules\MassMail\Api\MassMailQueryInterface;
@@ -21,7 +28,8 @@ use Twig\Environment;
 
 /**
  * MemberController's optional Modules\MassMail\Api\MassMailQueryInterface
- * dependency (ARCHITECTURE.md §7.5) — verifies the "Emails reçus" section
+ * dependency (ARCHITECTURE.md §7.5), threaded through Core\Member\
+ * MemberPageService — verifies the "Communications récentes" section
  * degrades gracefully (simply absent) when mass_mail is disabled/not
  * wired, and is populated when it is.
  *
@@ -76,15 +84,37 @@ class MemberControllerMassMailTest extends TestCase
         return $twig;
     }
 
-    public function testRecentEmailsIsEmptyWhenMassMailDependencyIsNull(): void
+    private function buildMemberPageService(?MassMailQueryInterface $massMailQuery): MemberPageService
     {
-        $controller = new MemberController(
-            $this->buildTwigCapturingContext(),
+        $connection = Connection::withPdo($this->pdo);
+        $memberBadgeRepository = new MemberBadgeRepository($this->pdo);
+
+        return new MemberPageService(
+            new SectionService($connection, $this->encryption, $memberBadgeRepository),
+            $this->memberService,
+            new BadgeRepository($this->pdo),
+            $memberBadgeRepository,
+            new AgeBranchRepository($this->pdo),
+            new MemberDocumentService(new MemberDocumentRepository($this->pdo)),
+            null,
+            $massMailQuery
+        );
+    }
+
+    private function buildController(Environment $twig, ?MassMailQueryInterface $massMailQuery): MemberController
+    {
+        return new MemberController(
+            $twig,
             $this->memberService,
             new MemberYearService(),
             new JournalService(new JournalRepository($this->pdo)),
-            null
+            $this->buildMemberPageService($massMailQuery)
         );
+    }
+
+    public function testRecentEmailsIsEmptyWhenMassMailDependencyIsNull(): void
+    {
+        $controller = $this->buildController($this->buildTwigCapturingContext(), null);
 
         $response = $controller->show(new Request('GET', '/members/' . $this->memberYearId, [], [], [], []), ['id' => (string) $this->memberYearId]);
 
@@ -99,15 +129,9 @@ class MemberControllerMassMailTest extends TestCase
         $massMailQuery->expects($this->once())
             ->method('getRecentEmailsForMember')
             ->with($this->memberId, 10)
-            ->willReturn([['subject' => 'Sujet', 'sent_at' => '2026-01-01 10:00:00', 'section_name' => 'Meute A']]);
+            ->willReturn([['id' => 1, 'subject' => 'Sujet', 'sent_at' => '2026-01-01 10:00:00', 'section_name' => 'Meute A']]);
 
-        $controller = new MemberController(
-            $this->buildTwigCapturingContext(),
-            $this->memberService,
-            new MemberYearService(),
-            new JournalService(new JournalRepository($this->pdo)),
-            $massMailQuery
-        );
+        $controller = $this->buildController($this->buildTwigCapturingContext(), $massMailQuery);
 
         $response = $controller->show(new Request('GET', '/members/' . $this->memberYearId, [], [], [], []), ['id' => (string) $this->memberYearId]);
 

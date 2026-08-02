@@ -22,4 +22,9 @@ class MassMailQueryService implements MassMailQueryInterface
     {
         return $this->recipientRepository->findRecentSentForMember($memberId, $limit);
     }
+
+    public function findEmailDetailForMember(int $memberId, int $recipientId): ?array
+    {
+        return $this->recipientRepository->findSentDetailForMember($recipientId, $memberId);
+    }
 }

@@ -61,6 +61,27 @@ class MemberBadgeRepository
         return $result;
     }
 
+    /**
+     * member_year ids holding $badgeId this scout year — used by the
+     * member page's "Référent {section}" block (member_badges is keyed by
+     * member_year_id, not by the section the badge refers to, so the
+     * badge's holders can't be found via a section-scoped staff query;
+     * they're Staff d'U members, not members of the target section).
+     *
+     * @return int[]
+     */
+    public function findMemberYearIdsForBadgeAndYear(int $badgeId, int $scoutYearId): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT mb.member_year_id
+             FROM member_badges mb
+             JOIN member_years my ON my.id = mb.member_year_id
+             WHERE mb.badge_id = ? AND my.scout_year_id = ? AND my.is_active = 1'
+        );
+        $stmt->execute([$badgeId, $scoutYearId]);
+        return array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN));
+    }
+
     public function isAssigned(int $memberYearId, int $badgeId): bool
     {
         $stmt = $this->pdo->prepare(

@@ -54,6 +54,18 @@ class FileController extends AbstractController
             return (new Response('Forbidden', 403));
         }
 
+        // Owner-scoped files (member page private documents, §8.3) are the
+        // only ones journaled on successful access — every other /files/{id}
+        // hit (public assets, ordinary role-gated content) would be pure
+        // noise here. member_id reference only, never personal data.
+        if ($file->ownerMemberId !== null) {
+            $this->journalService?->log(
+                'core', 'owner_scoped_file_accessed', 'info', 'Document privé d\'un membre consulté',
+                ['file_id' => $id, 'owner_member_id' => $file->ownerMemberId],
+                AuthSession::getUserAccountId()
+            );
+        }
+
         if ($file->encrypted) {
             try {
                 $content = $this->encryptedFileStorageService->retrieve($file->id);

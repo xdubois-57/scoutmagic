@@ -4,12 +4,16 @@ declare(strict_types=1);
 
 namespace Tests\Core\Http\Controller;
 
+use Core\Database\Connection;
 use Core\File\FileRepository;
 use Core\File\UploadHandler;
 use Core\Http\Controller\UploadController;
 use Core\Http\Request;
+use Core\Import\AgeBranchRepository;
+use Core\Import\MemberYearRepository;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
+use Core\Member\MemberService;
 use Core\Photo\LandscapeImageProcessor;
 use Core\Photo\MemberPhotoRepository;
 use Core\Photo\MemberPhotoService;
@@ -18,6 +22,8 @@ use Core\Photo\SectionPhotoRepository;
 use Core\Photo\SectionPhotoService;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
+use Core\Security\EncryptionService;
+use Core\View\ConfigurationMode;
 use Core\View\EditableContentRepository;
 use Core\View\EditableContentService;
 use PHPUnit\Framework\TestCase;
@@ -36,9 +42,11 @@ class UploadControllerTest extends TestCase
     private MemberPhotoService $memberPhotoService;
     private SectionPhotoService $sectionPhotoService;
     private JournalRepository $journalRepo;
+    private EncryptionService $encryption;
     private int $memberId;
     private int $sectionId;
     private int $scoutYearId;
+    private int $branchId;
 
     protected function setUp(): void
     {
@@ -62,6 +70,12 @@ class UploadControllerTest extends TestCase
         $this->memberPhotoService = new MemberPhotoService(new MemberPhotoRepository($this->pdo));
         $this->sectionPhotoService = new SectionPhotoService(new SectionPhotoRepository($this->pdo));
         $this->journalRepo = new JournalRepository($this->pdo);
+        $this->encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $memberService = new MemberService(
+            new MemberYearRepository($this->pdo),
+            $this->encryption,
+            Connection::withPdo($this->pdo)
+        );
 
         $templateDir = dirname(__DIR__, 4) . '/core/View/templates';
         $twig = new Environment(new FilesystemLoader($templateDir), ['cache' => false, 'autoescape' => 'html']);
@@ -73,7 +87,8 @@ class UploadControllerTest extends TestCase
 
         $this->controller = new UploadController(
             $twig, $uploadHandler, $editableContentService, $this->memberPhotoService,
-            $this->sectionPhotoService, new SectionPhotoProcessor(), new LandscapeImageProcessor()
+            $this->sectionPhotoService, new SectionPhotoProcessor(), new LandscapeImageProcessor(),
+            $memberService, new AgeBranchRepository($this->pdo)
         );
         $this->controller->setJournalService(new JournalService($this->journalRepo));
 
@@ -81,6 +96,7 @@ class UploadControllerTest extends TestCase
         $this->memberId = (int) $this->pdo->lastInsertId();
         $this->pdo->exec("INSERT INTO age_branches (desk_code, label, sort_order) VALUES ('BR1', 'Branch', 10)");
         $branchId = (int) $this->pdo->lastInsertId();
+        $this->branchId = $branchId;
         $this->pdo->exec("INSERT INTO sections (desk_code, age_branch_id, name) VALUES ('LOU01', {$branchId}, 'Louveteaux')");
         $this->sectionId = (int) $this->pdo->lastInsertId();
         $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date) VALUES ('2025-2026', '2025-09-01', '2026-08-31')");
@@ -88,14 +104,38 @@ class UploadControllerTest extends TestCase
 
         $token = bin2hex(random_bytes(32));
         $_SESSION['_csrf_token'] = $token;
-        $_SESSION['user'] = ['user_account_id' => 1, 'email' => 'admin@test.com', 'role' => 'admin'];
-        AuthSession::login(1, 'admin@test.com', 'admin');
+        $_SESSION['user'] = ['user_account_id' => 1, 'email' => 'admin@test.com', 'role' => 'superadmin'];
+        AuthSession::login(1, 'admin@test.com', 'superadmin');
+        ConfigurationMode::activate('superadmin');
     }
 
     protected function tearDown(): void
     {
         $this->recursiveDelete($this->tmpDir);
+        ConfigurationMode::deactivate();
         $_SESSION = [];
+    }
+
+    /**
+     * Inserts a member_years row for $this->memberId whose email blind
+     * index matches $email, so MemberService::isLinkedToMember() resolves
+     * true for it — used by the outside-config-mode member_photo tests.
+     */
+    private function linkMemberToEmail(string $email): void
+    {
+        $blindIndex = $this->encryption->blindIndex(strtolower(trim($email)));
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted, email_encrypted, email_blind_index)
+             VALUES (?, ?, ?, ?, ?, ?)'
+        );
+        $stmt->execute([
+            $this->memberId,
+            $this->scoutYearId,
+            $this->encryption->encrypt('Test'),
+            $this->encryption->encrypt('Member'),
+            $this->encryption->encrypt($email),
+            $blindIndex,
+        ]);
     }
 
     public function testMemberPhotoContextSetsPhotoForMemberAndYear(): void
@@ -147,6 +187,143 @@ class UploadControllerTest extends TestCase
         $secondFileId = $this->memberPhotoService->resolveFileId($this->memberId, $this->scoutYearId);
 
         $this->assertNotSame($firstFileId, $secondFileId);
+
+        unset($_FILES['file']);
+    }
+
+    /**
+     * The member page's photo-replace overlay works outside configuration
+     * mode — the logged-in account must be linked to the member the upload
+     * key names. Covers the DoD's "allowed for linked account outside
+     * config mode" requirement.
+     */
+    public function testMemberPhotoContextAllowedOutsideConfigModeForLinkedAccount(): void
+    {
+        ConfigurationMode::deactivate();
+        AuthSession::login(1, 'parent@test.com', 'identified');
+        $this->linkMemberToEmail('parent@test.com');
+
+        $tmpFile = $this->createTempImage();
+        $_FILES['file'] = ['tmp_name' => $tmpFile, 'name' => 'photo.jpg', 'size' => filesize($tmpFile), 'error' => UPLOAD_ERR_OK];
+
+        $request = new Request('POST', '/upload', [], [
+            '_csrf_token' => CsrfGuard::generateToken(),
+            'context' => 'member_photo',
+            'key' => $this->memberId . ':' . $this->scoutYearId,
+            'return_url' => '/members/1',
+        ], [], []);
+
+        $response = $this->controller->store($request, []);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertNotNull($this->memberPhotoService->resolveFileId($this->memberId, $this->scoutYearId));
+
+        unset($_FILES['file']);
+    }
+
+    /**
+     * Covers the DoD's "denied for non-linked logged-in account" — a
+     * logged-in identified user with no member_years row matching this
+     * member/year must be rejected, even with no chief/admin bypass
+     * (member_photo has none outside configuration mode).
+     */
+    public function testMemberPhotoContextDeniedOutsideConfigModeForNonLinkedAccount(): void
+    {
+        ConfigurationMode::deactivate();
+        AuthSession::login(1, 'stranger@test.com', 'identified');
+
+        $tmpFile = $this->createTempImage();
+        $_FILES['file'] = ['tmp_name' => $tmpFile, 'name' => 'photo.jpg', 'size' => filesize($tmpFile), 'error' => UPLOAD_ERR_OK];
+
+        $request = new Request('POST', '/upload', [], [
+            '_csrf_token' => CsrfGuard::generateToken(),
+            'context' => 'member_photo',
+            'key' => $this->memberId . ':' . $this->scoutYearId,
+            'return_url' => '/members/1',
+        ], [], []);
+
+        $response = $this->controller->store($request, []);
+
+        $this->assertSame(403, $response->getStatusCode());
+        $this->assertNull($this->memberPhotoService->resolveFileId($this->memberId, $this->scoutYearId));
+
+        unset($_FILES['file']);
+    }
+
+    /**
+     * Non-member_photo contexts stay configuration-mode-only even now that
+     * the /upload route's role_min is loosened to `identified` — a
+     * superadmin who hasn't activated configuration mode must still be
+     * rejected.
+     */
+    public function testSectionPhotoContextDeniedWithoutConfigModeEvenForSuperadmin(): void
+    {
+        ConfigurationMode::deactivate();
+
+        $tmpFile = $this->createTempImage();
+        $_FILES['file'] = ['tmp_name' => $tmpFile, 'name' => 'staff.jpg', 'size' => filesize($tmpFile), 'error' => UPLOAD_ERR_OK];
+
+        $request = new Request('POST', '/upload', [], [
+            '_csrf_token' => CsrfGuard::generateToken(),
+            'context' => 'section_photo',
+            'key' => $this->sectionId . ':' . $this->scoutYearId,
+            'return_url' => '/chefs/staffs',
+        ], [], []);
+
+        $response = $this->controller->store($request, []);
+
+        $this->assertSame(403, $response->getStatusCode());
+
+        unset($_FILES['file']);
+    }
+
+    /**
+     * age_branch_logo is a direct role check, not configuration-mode-only
+     * — Config Desk is its own superadmin-only admin area with no session
+     * flag to toggle, unlike editable_image/section_photo.
+     */
+    public function testAgeBranchLogoContextAllowedForSuperadminWithoutConfigMode(): void
+    {
+        ConfigurationMode::deactivate();
+
+        $tmpFile = $this->createTempImage();
+        $_FILES['file'] = ['tmp_name' => $tmpFile, 'name' => 'logo.png', 'size' => filesize($tmpFile), 'error' => UPLOAD_ERR_OK];
+
+        $request = new Request('POST', '/upload', [], [
+            '_csrf_token' => CsrfGuard::generateToken(),
+            'context' => 'age_branch_logo',
+            'key' => (string) $this->branchId,
+            'return_url' => '/config/functions',
+        ], [], []);
+
+        $response = $this->controller->store($request, []);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $stmt = $this->pdo->prepare('SELECT logo_file_id FROM age_branches WHERE id = ?');
+        $stmt->execute([$this->branchId]);
+        $this->assertNotNull($stmt->fetchColumn());
+
+        unset($_FILES['file']);
+    }
+
+    public function testAgeBranchLogoContextDeniedForNonSuperadminRole(): void
+    {
+        ConfigurationMode::deactivate();
+        AuthSession::login(1, 'admin@test.com', 'admin');
+
+        $tmpFile = $this->createTempImage();
+        $_FILES['file'] = ['tmp_name' => $tmpFile, 'name' => 'logo.png', 'size' => filesize($tmpFile), 'error' => UPLOAD_ERR_OK];
+
+        $request = new Request('POST', '/upload', [], [
+            '_csrf_token' => CsrfGuard::generateToken(),
+            'context' => 'age_branch_logo',
+            'key' => (string) $this->branchId,
+            'return_url' => '/config/functions',
+        ], [], []);
+
+        $response = $this->controller->store($request, []);
+
+        $this->assertSame(403, $response->getStatusCode());
 
         unset($_FILES['file']);
     }

@@ -53,5 +53,12 @@ class MassMailQueryServiceTest extends TestCase
         $this->assertCount(1, $result);
         $this->assertSame('Sujet envoyé', $result[0]['subject']);
         $this->assertSame('Meute A', $result[0]['section_name']);
+
+        $detail = $queryService->findEmailDetailForMember($memberId, $result[0]['id']);
+        $this->assertNotNull($detail);
+        $this->assertSame('Sujet envoyé', $detail['subject']);
+        $this->assertSame('<p>x</p>', $detail['body_html']);
+
+        $this->assertNull($queryService->findEmailDetailForMember($memberId + 999, $result[0]['id']));
     }
 }

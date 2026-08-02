@@ -10,6 +10,7 @@ use Core\Http\Request;
 use Core\Import\MemberYearRepository;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
+use Core\Member\MemberPageService;
 use Core\Member\MemberService;
 use Core\Member\MemberYearService;
 use Core\Security\AuthSession;
@@ -49,7 +50,8 @@ class MemberControllerScoutYearOffsetTest extends TestCase
             $this->createMock(Environment::class),
             $this->memberService,
             new MemberYearService(),
-            $journalService
+            $journalService,
+            $this->createMock(MemberPageService::class)
         );
 
         // Scout year 2025-2026 → reference year 2025.

@@ -98,12 +98,12 @@ class MemberYearRepository
     }
 
     /**
-     * @return array{id: int, member_id: int, scout_year_id: int}|null
+     * @return array{id: int, member_id: int, scout_year_id: int, email_blind_index: ?string}|null
      */
     public function findByMemberAndYear(int $memberId, int $scoutYearId): ?array
     {
         $stmt = $this->pdo->prepare(
-            'SELECT id, member_id, scout_year_id FROM member_years WHERE member_id = ? AND scout_year_id = ?'
+            'SELECT id, member_id, scout_year_id, email_blind_index FROM member_years WHERE member_id = ? AND scout_year_id = ?'
         );
         $stmt->execute([$memberId, $scoutYearId]);
         $row = $stmt->fetch(\PDO::FETCH_ASSOC);
@@ -114,6 +114,7 @@ class MemberYearRepository
             'id' => (int) $row['id'],
             'member_id' => (int) $row['member_id'],
             'scout_year_id' => (int) $row['scout_year_id'],
+            'email_blind_index' => $row['email_blind_index'],
         ];
     }
 

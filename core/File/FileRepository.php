@@ -13,7 +13,7 @@ class FileRepository
     public function findById(int $id): ?FileRecord
     {
         $stmt = $this->pdo->prepare(
-            'SELECT id, relative_path, original_name, mime_type, size_bytes, role_min, custom_resolver, encrypted
+            'SELECT id, relative_path, original_name, mime_type, size_bytes, role_min, custom_resolver, encrypted, owner_member_id
              FROM files WHERE id = ?'
         );
         $stmt->execute([$id]);
@@ -31,7 +31,8 @@ class FileRepository
             sizeBytes: (int) $row['size_bytes'],
             roleMin: $row['role_min'],
             customResolver: $row['custom_resolver'],
-            encrypted: (bool) $row['encrypted']
+            encrypted: (bool) $row['encrypted'],
+            ownerMemberId: $row['owner_member_id'] !== null ? (int) $row['owner_member_id'] : null
         );
     }
 
@@ -43,13 +44,14 @@ class FileRepository
         string $roleMin,
         ?string $moduleId,
         ?int $createdBy,
-        bool $encrypted = false
+        bool $encrypted = false,
+        ?int $ownerMemberId = null
     ): int {
         $stmt = $this->pdo->prepare(
-            'INSERT INTO files (relative_path, original_name, mime_type, size_bytes, role_min, module_id, created_by, encrypted)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+            'INSERT INTO files (relative_path, original_name, mime_type, size_bytes, role_min, module_id, created_by, encrypted, owner_member_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
-        $stmt->execute([$relativePath, $originalName, $mimeType, $sizeBytes, $roleMin, $moduleId, $createdBy, $encrypted ? 1 : 0]);
+        $stmt->execute([$relativePath, $originalName, $mimeType, $sizeBytes, $roleMin, $moduleId, $createdBy, $encrypted ? 1 : 0, $ownerMemberId]);
 
         return (int) $this->pdo->lastInsertId();
     }

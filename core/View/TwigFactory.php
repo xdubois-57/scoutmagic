@@ -127,7 +127,13 @@ class TwigFactory
         // logged-in account menu (partials/nav.html.twig), sized to the same
         // box as a real photo so grids stay aligned. In configuration mode,
         // renders the same click-to-replace overlay as editable_image().
-        $environment->addFunction(new TwigFunction('member_photo', function (int $memberId, string $alt = '', string $cssClass = 'rounded-circle') use ($environment): string {
+        // The $editable parameter is an explicit opt-in for the one other
+        // place a non-config-mode user may replace their own photo (the
+        // member page, outside configuration mode) — config_mode remains
+        // the trigger everywhere else. Server-side authorization for the
+        // resulting upload is enforced by UploadController, never by this
+        // flag alone (see Core\Http\Controller\UploadController::store()).
+        $environment->addFunction(new TwigFunction('member_photo', function (int $memberId, string $alt = '', string $cssClass = 'rounded-circle', bool $editable = false) use ($environment): string {
             /** @var \Core\Photo\MemberPhotoService|null $service */
             $service = $environment->getGlobals()['_member_photo_service'] ?? null;
             $scoutYearId = (int) ($environment->getGlobals()['effective_scout_year_id'] ?? 0);
@@ -145,7 +151,7 @@ class TwigFactory
                     . '</span></div>';
             }
 
-            if ($configMode && $scoutYearId > 0) {
+            if (($configMode || $editable) && $scoutYearId > 0) {
                 $key = $memberId . ':' . $scoutYearId;
                 return '<div class="editable-image" data-key="' . htmlspecialchars($key, ENT_QUOTES) . '" data-context="member_photo">'
                     . '<div class="editable-overlay"><button class="btn btn-sm btn-outline-primary editable-edit-btn"><i class="bi bi-pencil"></i></button></div>'
@@ -212,6 +218,50 @@ class TwigFactory
                 return $member['totem'] ?? $member['first_name'] ?? '?';
             }
             return (string) $member;
+        }));
+
+        // Shared by full_name and display_name_full below — first name +
+        // surname, normalized, never the totem.
+        $buildFullName = function ($member): string {
+            if ($member instanceof \Core\Member\MemberProfile) {
+                return trim(
+                    \Core\Service\TextNormalizerService::normalizeName($member->firstName)
+                    . ' ' . \Core\Service\TextNormalizerService::normalizeName($member->lastName)
+                );
+            }
+            if (is_array($member)) {
+                $first = (string) ($member['first_name'] ?? '');
+                $last = (string) ($member['last_name'] ?? '');
+                return trim(
+                    \Core\Service\TextNormalizerService::normalizeName($first)
+                    . ' ' . \Core\Service\TextNormalizerService::normalizeName($last)
+                );
+            }
+            return (string) $member;
+        };
+
+        // Register full_name filter — first name + surname, NEVER totem.
+        // Used where the site must show a person's legal identity alone
+        // (e.g. a postal address needs the name it's actually addressed
+        // to) — do not use this for ordinary member display.
+        $environment->addFilter(new TwigFilter('full_name', $buildFullName));
+
+        // Register display_name_full filter — "Totem (Prénom Nom)" when a
+        // totem is set, else just "Prénom Nom". Used wherever a totem
+        // would otherwise be shown on its own (member page: badge/
+        // référent holder lists, section responsable) so a reader who
+        // doesn't know the totem can still identify the person.
+        $environment->addFilter(new TwigFilter('display_name_full', function ($member) use ($buildFullName) {
+            $full = $buildFullName($member);
+            $totem = $member instanceof \Core\Member\MemberProfile
+                ? $member->totem
+                : (is_array($member) ? ($member['totem'] ?? null) : null);
+
+            if ($totem) {
+                return \Core\Service\TextNormalizerService::normalizeTotem($totem) . ' (' . $full . ')';
+            }
+
+            return $full;
         }));
 
         // Register french_date filter — formats a Y-m-d(-His) string or

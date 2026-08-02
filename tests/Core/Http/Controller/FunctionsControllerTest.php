@@ -13,6 +13,7 @@ use Core\Config\ScoutYearService;
 use Core\Database\Connection;
 use Core\Http\Controller\FunctionsController;
 use Core\Http\Request;
+use Core\Import\AgeBranchRepository;
 use Core\Import\FunctionRepository;
 use Core\Import\MemberYearRepository;
 use Core\Journal\JournalRepository;
@@ -86,7 +87,7 @@ class FunctionsControllerTest extends TestCase
         $this->twig->addFunction(new \Twig\TwigFunction('file_url', fn() => ''));
         $this->twig->addFunction(new \Twig\TwigFunction('param', fn(string $k) => 'Test'));
 
-        $this->controller = new FunctionsController($this->twig, $this->functionRepo, $journalService, $this->sectionService, $this->unitStaffSectionService, $this->scoutYearResolver, $this->badgeService);
+        $this->controller = new FunctionsController($this->twig, $this->functionRepo, $journalService, $this->sectionService, $this->unitStaffSectionService, $this->scoutYearResolver, $this->badgeService, new AgeBranchRepository($this->pdo));
     }
 
     public function testIndexRendersEmptyState(): void
@@ -343,7 +344,7 @@ class FunctionsControllerTest extends TestCase
     {
         $this->functionRepo->create('Animateur', 'Animateur', 'chief', true);
 
-        $controller = new FunctionsController($this->twig, $this->functionRepo, new JournalService($this->journalRepo), $this->sectionService, $this->unitStaffSectionService, $this->scoutYearResolver, $this->badgeService, $this->stubFlagsProvider());
+        $controller = new FunctionsController($this->twig, $this->functionRepo, new JournalService($this->journalRepo), $this->sectionService, $this->unitStaffSectionService, $this->scoutYearResolver, $this->badgeService, new AgeBranchRepository($this->pdo), $this->stubFlagsProvider());
 
         $request = new Request('GET', '/config/functions', [], [], [], []);
         $response = $controller->index($request, []);
@@ -389,7 +390,7 @@ class FunctionsControllerTest extends TestCase
 
         $id = $this->functionRepo->create('Animateur', 'Animateur', 'chief', true);
         $provider = $this->stubFlagsProvider();
-        $controller = new FunctionsController($this->twig, $this->functionRepo, new JournalService($this->journalRepo), $this->sectionService, $this->unitStaffSectionService, $this->scoutYearResolver, $this->badgeService, $provider);
+        $controller = new FunctionsController($this->twig, $this->functionRepo, new JournalService($this->journalRepo), $this->sectionService, $this->unitStaffSectionService, $this->scoutYearResolver, $this->badgeService, new AgeBranchRepository($this->pdo), $provider);
 
         $request = $this->createJsonRequest(['function_id' => $id, 'lead' => true, '_csrf_token' => $token]);
         $response = $controller->updateFlags($request, []);
@@ -402,7 +403,7 @@ class FunctionsControllerTest extends TestCase
     public function testUpdateFlagsWithInvalidCsrfReturnsError(): void
     {
         $id = $this->functionRepo->create('Animateur', 'Animateur', 'chief', true);
-        $controller = new FunctionsController($this->twig, $this->functionRepo, new JournalService($this->journalRepo), $this->sectionService, $this->unitStaffSectionService, $this->scoutYearResolver, $this->badgeService, $this->stubFlagsProvider());
+        $controller = new FunctionsController($this->twig, $this->functionRepo, new JournalService($this->journalRepo), $this->sectionService, $this->unitStaffSectionService, $this->scoutYearResolver, $this->badgeService, new AgeBranchRepository($this->pdo), $this->stubFlagsProvider());
 
         $request = $this->createJsonRequest(['function_id' => $id, 'lead' => false, '_csrf_token' => 'bad']);
         $response = $controller->updateFlags($request, []);
@@ -731,5 +732,79 @@ class FunctionsControllerTest extends TestCase
         $request->method('getRawBody')->willReturn(json_encode($data));
 
         return $request;
+    }
+
+    public function testUpdateBranchUrlPersistsAValidUrlAndJournals(): void
+    {
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+        $token = bin2hex(random_bytes(32));
+        $_SESSION['_csrf_token'] = $token;
+        $_SESSION['user'] = ['user_account_id' => 1, 'email' => 'admin@test.com', 'role' => 'superadmin'];
+
+        $ageBranchRepository = new AgeBranchRepository($this->pdo);
+        $branchId = $ageBranchRepository->create('LOU', 'Louveteaux');
+        $controller = new FunctionsController($this->twig, $this->functionRepo, new JournalService($this->journalRepo), $this->sectionService, $this->unitStaffSectionService, $this->scoutYearResolver, $this->badgeService, $ageBranchRepository);
+
+        $request = $this->createJsonRequest(['branch_id' => $branchId, 'url' => 'https://example.test/louveteaux', '_csrf_token' => $token]);
+        $response = $controller->updateBranchUrl($request, []);
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertTrue($decoded['success']);
+        $branch = $ageBranchRepository->findById($branchId);
+        $this->assertSame('https://example.test/louveteaux', $branch['explanation_url']);
+
+        $stmt = $this->pdo->query("SELECT COUNT(*) FROM event_log WHERE event_type = 'age_branch_url_changed'");
+        $this->assertSame(1, (int) $stmt->fetchColumn());
+    }
+
+    public function testUpdateBranchUrlRejectsAnInvalidUrl(): void
+    {
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+        $token = bin2hex(random_bytes(32));
+        $_SESSION['_csrf_token'] = $token;
+
+        $ageBranchRepository = new AgeBranchRepository($this->pdo);
+        $branchId = $ageBranchRepository->create('LOU', 'Louveteaux');
+        $controller = new FunctionsController($this->twig, $this->functionRepo, new JournalService($this->journalRepo), $this->sectionService, $this->unitStaffSectionService, $this->scoutYearResolver, $this->badgeService, $ageBranchRepository);
+        $originalUrl = $ageBranchRepository->findById($branchId)['explanation_url'];
+
+        $request = $this->createJsonRequest(['branch_id' => $branchId, 'url' => 'not-a-url', '_csrf_token' => $token]);
+        $response = $controller->updateBranchUrl($request, []);
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertFalse($decoded['success']);
+        $this->assertSame($originalUrl, $ageBranchRepository->findById($branchId)['explanation_url']);
+    }
+
+    public function testUpdateBranchUrlRejectsInvalidCsrf(): void
+    {
+        $ageBranchRepository = new AgeBranchRepository($this->pdo);
+        $branchId = $ageBranchRepository->create('LOU', 'Louveteaux');
+        $controller = new FunctionsController($this->twig, $this->functionRepo, new JournalService($this->journalRepo), $this->sectionService, $this->unitStaffSectionService, $this->scoutYearResolver, $this->badgeService, $ageBranchRepository);
+
+        $request = $this->createJsonRequest(['branch_id' => $branchId, 'url' => 'https://example.test', '_csrf_token' => 'bad']);
+        $response = $controller->updateBranchUrl($request, []);
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertFalse($decoded['success']);
+    }
+
+    public function testUpdateBranchUrlReturnsErrorForUnknownBranch(): void
+    {
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+        $token = bin2hex(random_bytes(32));
+        $_SESSION['_csrf_token'] = $token;
+
+        $request = $this->createJsonRequest(['branch_id' => 999999, 'url' => 'https://example.test', '_csrf_token' => $token]);
+        $response = $this->controller->updateBranchUrl($request, []);
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertFalse($decoded['success']);
     }
 }
