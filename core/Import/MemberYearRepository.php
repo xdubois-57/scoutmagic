@@ -119,6 +119,33 @@ class MemberYearRepository
     }
 
     /**
+     * The member's own (Desk-imported) email blind index, from their most
+     * recent scout year that actually has one — Core\Security\AuthService's
+     * resolution point for "which user_accounts row does this member's
+     * primary address belong to", used when a magic link is requested via
+     * a secondary address instead (Core\Member\MemberEmailRepository) so
+     * the link can still be tied to a real account. Not scout-year-gated
+     * on purpose: unlike login authorization (Core\Security\RoleResolver::
+     * isEmailAuthorizedToLogin(), which correctly requires a CURRENT-year
+     * row), this only needs to find whichever user_accounts row Core\
+     * Import\DeskImportService::ensureUserAccount() already created for
+     * this member — that check happens separately, later in the flow.
+     */
+    public function findMostRecentEmailBlindIndexForMember(int $memberId): ?string
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT my.email_blind_index FROM member_years my
+             JOIN scout_years sy ON sy.id = my.scout_year_id
+             WHERE my.member_id = ? AND my.email_blind_index IS NOT NULL
+             ORDER BY sy.start_date DESC LIMIT 1'
+        );
+        $stmt->execute([$memberId]);
+        $value = $stmt->fetchColumn();
+
+        return $value !== false ? (string) $value : null;
+    }
+
+    /**
      * Find all member_year rows for a given email blind index and scout year.
      *
      * @return array<int, array<string, mixed>>

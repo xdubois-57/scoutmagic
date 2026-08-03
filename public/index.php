@@ -528,6 +528,23 @@ $csvParser = new DeskCsvParser();
 $unitStaffSectionService = new UnitStaffSectionService($pdo);
 $sectionMembershipRepository = new \Core\Member\SectionMembershipRepository($pdo);
 $sectionMembershipService = new \Core\Member\SectionMembershipService($sectionMembershipRepository, $scoutYearService);
+
+// One-time seed for installs where member_section_periods was added after
+// member/function data already existed — see SectionMembershipService::
+// backfillFromFunctions()'s own docblock. Without this, the member page's
+// "Documents de section" box stays empty for every existing member until
+// their section changes on a future Desk import.
+if ($settingService->get('member_section_periods_backfilled') !== '1') {
+    $settingService->register('member_section_periods_backfilled', '0', 'boolean', 'Historique de sections reconstitué',
+        'Indique si l\'historique d\'appartenance aux sections a été reconstitué depuis les fonctions existantes.',
+        null, null, null, false, 999);
+
+    $sectionMembershipService->backfillFromFunctions();
+
+    $settingRepo->updateValue(null, 'member_section_periods_backfilled', '1');
+    $settingService->clearCache();
+}
+
 $sectionDocumentRepository = new \Core\Member\SectionDocumentRepository($pdo);
 $importService = new DeskImportService(
     $pdo, $encryptionService, $csvParser, $mappingResolver,

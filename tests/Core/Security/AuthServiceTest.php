@@ -54,6 +54,39 @@ class AuthServiceTest extends TestCase
                 created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
             )
         ');
+        // Secondary-email login resolution (AuthService::resolveAccountForEmail()).
+        $this->pdo->exec('
+            CREATE TABLE member_emails (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                member_id INTEGER NOT NULL,
+                email_encrypted BLOB NOT NULL,
+                email_blind_index CHAR(64) NOT NULL,
+                source VARCHAR(20) NOT NULL DEFAULT "manual",
+                status VARCHAR(20) NOT NULL DEFAULT "pending",
+                confirmation_token_hash VARCHAR(255),
+                confirmation_expires_at DATETIME,
+                last_confirmation_sent_at DATETIME,
+                confirmed_at DATETIME,
+                deactivated_at DATETIME,
+                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        ');
+        $this->pdo->exec('
+            CREATE TABLE scout_years (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                label VARCHAR(9) NOT NULL,
+                start_date DATE NOT NULL,
+                end_date DATE NOT NULL
+            )
+        ');
+        $this->pdo->exec('
+            CREATE TABLE member_years (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                member_id INTEGER NOT NULL,
+                scout_year_id INTEGER NOT NULL,
+                email_blind_index CHAR(64)
+            )
+        ');
 
         $this->encryption = new EncryptionService(
             str_repeat('a', 32),
@@ -114,6 +147,50 @@ class AuthServiceTest extends TestCase
         $this->assertNotNull($result->magicLinkId);
         $this->assertNull($result->error);
         // But email should NOT be sent
+        $this->assertFalse($this->emailSent);
+    }
+
+    public function testRequestMagicLinkWithValidSecondaryEmailSendsAndAttachesToThePrimaryAccount(): void
+    {
+        $this->userRepo->create('primary@test.com');
+
+        $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date) VALUES ('2025-2026', '2025-09-01', '2026-08-31')");
+
+        $memberId = 42;
+        $this->pdo->prepare('INSERT INTO member_years (member_id, scout_year_id, email_blind_index) VALUES (?, 1, ?)')
+            ->execute([$memberId, $this->encryption->blindIndex('primary@test.com')]);
+        $this->pdo->prepare(
+            'INSERT INTO member_emails (member_id, email_encrypted, email_blind_index, source, status)
+             VALUES (?, ?, ?, "manual", "valid")'
+        )->execute([$memberId, $this->encryption->encrypt('secondary@test.com'), $this->encryption->blindIndex('secondary@test.com')]);
+
+        $result = $this->authService->requestMagicLink('secondary@test.com');
+
+        $this->assertTrue($result->success);
+        $this->assertTrue($this->emailSent);
+
+        // The stored magic link must resolve to the PRIMARY account's blind
+        // index, not the secondary address's — otherwise verifyMagicLink()
+        // could never find a matching user_accounts row.
+        $stmt = $this->pdo->query('SELECT email_blind_index FROM magic_links ORDER BY id DESC LIMIT 1');
+        $this->assertSame($this->encryption->blindIndex('primary@test.com'), $stmt->fetchColumn());
+    }
+
+    public function testRequestMagicLinkWithPendingSecondaryEmailDoesNotSend(): void
+    {
+        $this->userRepo->create('primary2@test.com');
+
+        $memberId = 43;
+        $this->pdo->prepare('INSERT INTO member_years (member_id, scout_year_id, email_blind_index) VALUES (?, 1, ?)')
+            ->execute([$memberId, $this->encryption->blindIndex('primary2@test.com')]);
+        $this->pdo->prepare(
+            'INSERT INTO member_emails (member_id, email_encrypted, email_blind_index, source, status)
+             VALUES (?, ?, ?, "manual", "pending")'
+        )->execute([$memberId, $this->encryption->encrypt('unconfirmed@test.com'), $this->encryption->blindIndex('unconfirmed@test.com')]);
+
+        $result = $this->authService->requestMagicLink('unconfirmed@test.com');
+
+        $this->assertTrue($result->success);
         $this->assertFalse($this->emailSent);
     }
 

@@ -99,6 +99,48 @@ class SectionMembershipRepository
     }
 
     /**
+     * Every distinct (member, section, scout year) triple derivable from
+     * member_functions right now — the raw material for
+     * SectionMembershipService::backfillFromFunctions()'s one-time seed.
+     *
+     * @return array<int, array{member_id: int, section_id: int, scout_year_id: int}>
+     */
+    public function findDistinctMemberSectionYearTriples(): array
+    {
+        $stmt = $this->pdo->query(
+            'SELECT DISTINCT my.member_id, mf.section_id, my.scout_year_id
+             FROM member_functions mf
+             JOIN member_years my ON my.id = mf.member_year_id
+             WHERE mf.section_id IS NOT NULL'
+        );
+
+        return array_map(
+            fn(array $row) => [
+                'member_id' => (int) $row['member_id'],
+                'section_id' => (int) $row['section_id'],
+                'scout_year_id' => (int) $row['scout_year_id'],
+            ],
+            $stmt->fetchAll(\PDO::FETCH_ASSOC)
+        );
+    }
+
+    /**
+     * Whether ANY period (open or closed) already exists for (member,
+     * section, scout year) — the dedup guard for
+     * SectionMembershipService::backfillFromFunctions(), so re-running it
+     * (e.g. if it's ever invoked more than once) never creates duplicates.
+     */
+    public function hasAnyPeriod(int $memberId, int $sectionId, int $scoutYearId): bool
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT 1 FROM member_section_periods WHERE member_id = ? AND section_id = ? AND scout_year_id = ? LIMIT 1'
+        );
+        $stmt->execute([$memberId, $sectionId, $scoutYearId]);
+
+        return $stmt->fetchColumn() !== false;
+    }
+
+    /**
      * Every period ever recorded for this member, most recent first — the
      * member page (Core\Member\SectionDocumentPageService) walks this to
      * find every (section, scout year) the member was ever active in.

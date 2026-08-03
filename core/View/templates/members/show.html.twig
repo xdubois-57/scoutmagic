@@ -241,6 +241,7 @@
                 <div class="card mb-3">
                     <div class="card-body">
                         <h2 class="h5 mb-3">Adresses email</h2>
+                        <p class="small text-body-secondary">Les emails qui vous concernent seront envoyés à toutes les adresses ci-dessous, et chacune d'elles peut être utilisée pour vous connecter.</p>
                         {% for row in member_emails %}
                             <div class="d-flex justify-content-between align-items-start border-bottom py-2 flex-wrap gap-2">
                                 <div>
@@ -255,7 +256,7 @@
                                         {% endif %}
                                     </div>
                                     {% if row.source == 'desk' %}
-                                        <div class="small text-body-secondary">Adresse importée depuis Desk</div>
+                                        <div class="small text-body-secondary">Adresse importée depuis la base de données de la fédération</div>
                                         {% if row.status == 'inactive' %}
                                             <div class="small text-body-secondary">Désinscrit(e) des emails groupés le {{ row.deactivatedAt|french_date }}</div>
                                         {% endif %}

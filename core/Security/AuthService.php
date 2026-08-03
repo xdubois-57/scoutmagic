@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace Core\Security;
 
 use Core\Database\Connection;
+use Core\Import\MemberYearRepository;
 use Core\Journal\JournalService;
 use Core\Mail\MailService;
+use Core\Member\MemberEmailRepository;
 use Twig\Environment;
 
 class AuthService
@@ -16,6 +18,8 @@ class AuthService
 
     private UserAccountRepository $userRepo;
     private MagicLinkRepository $magicLinkRepo;
+    private MemberEmailRepository $memberEmailRepo;
+    private MemberYearRepository $memberYearRepo;
     private ?JournalService $journalService = null;
 
     public function __construct(
@@ -29,6 +33,8 @@ class AuthService
         $pdo = $this->connection->getPdo();
         $this->userRepo = new UserAccountRepository($pdo, $this->encryption);
         $this->magicLinkRepo = new MagicLinkRepository($pdo);
+        $this->memberEmailRepo = new MemberEmailRepository($pdo, $this->encryption);
+        $this->memberYearRepo = new MemberYearRepository($pdo);
     }
 
     public function setJournalService(JournalService $journalService): void
@@ -62,11 +68,19 @@ class AuthService
         $tokenHash = password_hash($rawToken, PASSWORD_DEFAULT);
         $expiresAt = new \DateTimeImmutable('+' . self::TOKEN_EXPIRY_MINUTES . ' minutes');
 
-        // Store in database
-        $magicLinkId = $this->magicLinkRepo->create($blindIndex, $tokenHash, $expiresAt);
+        // Resolve which user_accounts row this request should attach to —
+        // a direct match (Desk-imported/primary address) first, else,
+        // since a secondary address (Core\Member\MemberEmailService) never
+        // gets its own user_accounts row, the primary account of whichever
+        // member currently has this exact address confirmed as valid. The
+        // magic link itself is always stored against the RESOLVED primary
+        // blind index (never the submitted one) so verifyMagicLink()'s
+        // existing user_accounts lookup keeps working unmodified — only
+        // the address the email actually gets SENT to differs.
+        [$user, $linkBlindIndex, $viaSecondaryEmail] = $this->resolveAccountForEmail($normalizedEmail, $blindIndex);
 
-        // Check if email exists in user_accounts
-        $user = $this->userRepo->findByEmail($normalizedEmail);
+        // Store in database
+        $magicLinkId = $this->magicLinkRepo->create($linkBlindIndex, $tokenHash, $expiresAt);
 
         if ($user !== null) {
             // Send the magic link email
@@ -74,12 +88,34 @@ class AuthService
             try {
                 $this->sendMagicLinkEmail($normalizedEmail, $magicLinkUrl);
             } catch (\Throwable $e) {
+                $reason = str_replace($normalizedEmail, '[adresse]', $e->getMessage());
+                $this->journalService?->log(
+                    'core', 'magic_link_send_failed', 'info', "Échec de l'envoi de l'email de lien magique",
+                    ['error' => $reason, 'via_secondary_email' => $viaSecondaryEmail], $user->id
+                );
+
                 return new MagicLinkResult(
                     success: false,
                     magicLinkId: null,
                     error: 'Impossible d\'envoyer l\'email. Vérifiez la configuration SMTP.'
                 );
             }
+
+            $this->journalService?->log(
+                'core', 'magic_link_email_sent', 'info', 'Email de lien magique envoyé',
+                ['via_secondary_email' => $viaSecondaryEmail], $user->id
+            );
+        } else {
+            // No enumeration in the response (still returns success below)
+            // but worth a distinct journal entry — an admin trying to
+            // diagnose "my colleague never got the email" needs to be able
+            // to tell "no account matched at all" apart from "matched but
+            // the send failed" apart from "sent fine, check spam".
+            $this->journalService?->log(
+                'core', 'magic_link_no_account_found', 'info',
+                'Demande de lien magique pour une adresse sans compte correspondant',
+                [], null
+            );
         }
 
         $this->journalService?->log(
@@ -93,6 +129,31 @@ class AuthService
             magicLinkId: $magicLinkId,
             error: null
         );
+    }
+
+    /**
+     * @return array{0: ?UserAccount, 1: string, 2: bool}
+     */
+    private function resolveAccountForEmail(string $normalizedEmail, string $blindIndex): array
+    {
+        $user = $this->userRepo->findByEmail($normalizedEmail);
+        if ($user !== null) {
+            return [$user, $blindIndex, false];
+        }
+
+        foreach ($this->memberEmailRepo->findMemberIdsByValidBlindIndex($blindIndex) as $memberId) {
+            $primaryBlindIndex = $this->memberYearRepo->findMostRecentEmailBlindIndexForMember($memberId);
+            if ($primaryBlindIndex === null) {
+                continue;
+            }
+
+            $candidate = $this->userRepo->findByBlindIndex($primaryBlindIndex);
+            if ($candidate !== null) {
+                return [$candidate, $primaryBlindIndex, true];
+            }
+        }
+
+        return [null, $blindIndex, false];
     }
 
     /**

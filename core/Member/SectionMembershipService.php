@@ -56,6 +56,48 @@ class SectionMembershipService
     }
 
     /**
+     * One-time seed (public/index.php, gated by the
+     * 'member_section_periods_backfilled' setting) for installs where this
+     * table was added after member/function data already existed —
+     * without it, every existing member's Section documents box on the
+     * member page stays empty until their section changes on a future Desk
+     * import, since syncForMember() only ever reacts to a change (see this
+     * class's own docblock). Reconstructs a period for every (member,
+     * section, scout year) triple derivable from member_functions right
+     * now: real join/leave dates aren't known, so each period is
+     * approximated as covering the whole scout year (start_date =
+     * scout_years.start_date), closed at that year's own end_date unless
+     * it's the currently active scout year (left open, NULL end_date) —
+     * this is what makes the period cover the configured reference date
+     * (Core\Member\SectionDocumentOwnershipChecker) regardless of where in
+     * the year it falls, not just "from today onward". A later Desk import
+     * still corrects these as real changes happen — this is a best-effort
+     * seed, not a source of truth. Skips any triple that already has a
+     * period (defensive; the table is expected to be empty the one time
+     * this actually runs).
+     */
+    public function backfillFromFunctions(): void
+    {
+        $currentScoutYearId = $this->scoutYearService->getCurrentYear()['id'];
+
+        foreach ($this->repository->findDistinctMemberSectionYearTriples() as $triple) {
+            if ($this->repository->hasAnyPeriod($triple['member_id'], $triple['section_id'], $triple['scout_year_id'])) {
+                continue;
+            }
+
+            $scoutYear = $this->scoutYearService->findById($triple['scout_year_id']);
+            if ($scoutYear === null) {
+                continue;
+            }
+
+            $periodId = $this->repository->open($triple['member_id'], $triple['section_id'], $triple['scout_year_id'], $scoutYear['start_date']);
+            if ($triple['scout_year_id'] !== $currentScoutYearId) {
+                $this->repository->close($periodId, $scoutYear['end_date']);
+            }
+        }
+    }
+
+    /**
      * Combines the 'section_document_reference_date' setting (DD-MM) with
      * a scout year's own start calendar year into a real Y-m-d date — the
      * point in time Core\Member\SectionDocumentOwnershipChecker checks
