@@ -7,7 +7,7 @@ Open-source website for Belgian scout units in the "Les Scouts" federation.
 - Member management from Desk CSV import
 - Role-based access control (6 levels)
 - Passwordless authentication (magic link, password, passkey)
-- Mobile-first responsive design
+- Mobile-first responsive design, installable as a home-screen app (PWA) with offline fallback
 - Configuration mode for inline content editing
 - Modular architecture for extensibility
 - Encrypted personal data at rest

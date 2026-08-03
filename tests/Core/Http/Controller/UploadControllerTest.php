@@ -41,6 +41,7 @@ class UploadControllerTest extends TestCase
     private UploadController $controller;
     private MemberPhotoService $memberPhotoService;
     private SectionPhotoService $sectionPhotoService;
+    private \Core\Photo\PwaIconService $pwaIconService;
     private JournalRepository $journalRepo;
     private EncryptionService $encryption;
     private int $memberId;
@@ -85,10 +86,20 @@ class UploadControllerTest extends TestCase
         $twig->addGlobal('menus', null);
         $twig->addGlobal('csp_nonce', 'n');
 
+        $settingService = new \Core\Config\SettingService(new \Core\Config\SettingRepository($this->pdo));
+        $settingService->register('pwa_background_color', '#ffffff', 'color', 'x', 'x');
+        $settingService->register('pwa_icon_version', '1', 'number', 'x', 'x', null, null, null, false);
+        $this->pwaIconService = new \Core\Photo\PwaIconService(
+            new \Core\Photo\PwaIconProcessor(),
+            $settingService,
+            $this->tmpDir . '/pwa',
+            $this->tmpDir . '/pwa_defaults'
+        );
+
         $this->controller = new UploadController(
             $twig, $uploadHandler, $editableContentService, $this->memberPhotoService,
             $this->sectionPhotoService, new SectionPhotoProcessor(), new LandscapeImageProcessor(),
-            $memberService, new AgeBranchRepository($this->pdo)
+            $memberService, new AgeBranchRepository($this->pdo), $this->pwaIconService
         );
         $this->controller->setJournalService(new JournalService($this->journalRepo));
 

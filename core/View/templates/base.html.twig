@@ -5,6 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>{% block title %}{{ site_name }}{% endblock %}</title>
+    {# Installable PWA (Lot 1) — manifest values (name, colors, icons) all
+       come from Core\Config\SettingService via PwaController::manifest(),
+       never hardcoded (ARCHITECTURE §1). theme-color must match the
+       manifest's own for a consistent OS status-bar/task-switcher color
+       whether the site is installed or just open in a tab. #}
+    <link rel="manifest" href="/manifest.webmanifest">
+    <link rel="apple-touch-icon" href="/pwa/icon-180.png?v={{ pwa_icon_version|default(1) }}">
+    <meta name="theme-color" content="{{ pwa_theme_color|default('#0d6efd') }}">
     {% block head_meta %}{% endblock %}
     <link rel="stylesheet" href="/assets/vendor/bootstrap/css/bootstrap.min.css">
     <link rel="stylesheet" href="/assets/vendor/bootstrap-icons/bootstrap-icons.min.css">
@@ -98,6 +106,21 @@
        dependent code on the modal's presence. #}
     <script src="/assets/js/editable.js" defer></script>
     <script src="/assets/js/cookie-consent.js" defer></script>
+    {# Installable PWA (Lot 1) — appVersion (Core\Maintenance\VersionFile)
+       is the entire update mechanism: the query string changes on every
+       release, so the browser treats /sw.js as a new script and installs
+       it, purging every stale app-shell cache (see public/sw.js's own
+       activate handler). updateViaCache: 'none' additionally stops the
+       browser from serving the WORKER SCRIPT ITSELF from its own HTTP
+       cache — without it, a changed ?v= alone can still resolve to a
+       byte-identical cached sw.js response on some browsers. #}
+    <script nonce="{{ csp_nonce }}">
+    if ('serviceWorker' in navigator) {
+        window.addEventListener('load', function () {
+            navigator.serviceWorker.register('/sw.js?v={{ app_version|default('0.0.0') }}', { updateViaCache: 'none' });
+        });
+    }
+    </script>
     {% block scripts %}{% endblock %}
 
     {% if cookie_consent_given is defined and not cookie_consent_given %}

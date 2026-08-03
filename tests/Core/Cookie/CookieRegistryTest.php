@@ -9,10 +9,10 @@ use PHPUnit\Framework\TestCase;
 
 class CookieRegistryTest extends TestCase
 {
-    public function testGetCoreCookiesReturnsFourCookies(): void
+    public function testGetCoreCookiesReturnsFiveCookies(): void
     {
         $cookies = CookieRegistry::getCoreCookies();
-        $this->assertCount(4, $cookies);
+        $this->assertCount(5, $cookies);
     }
 
     public function testEachCookieHasRequiredKeys(): void

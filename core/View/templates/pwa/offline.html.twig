@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hors ligne — {{ site_name }}</title>
+    {# Deliberately NOT extending base.html.twig: that template pulls in
+       per-request dynamic globals (menus, current_user_*, config_mode,
+       cookie_consent_given) built from the DB/session at render time —
+       this page is precached once by the service worker and can be
+       served back much later with no network at all, so nothing dynamic
+       or personal must ever end up baked into that cached snapshot. Only
+       app.css (already precached as part of the app shell) is used. #}
+    <link rel="stylesheet" href="/assets/vendor/bootstrap/css/bootstrap.min.css">
+    <link rel="stylesheet" href="/assets/css/app.css">
+</head>
+<body>
+    <div class="d-flex flex-column align-items-center justify-content-center text-center" style="min-height:100vh; padding:2rem;">
+        <i class="bi bi-wifi-off" style="font-size:3rem;" aria-hidden="true"></i>
+        <h1 class="h4 mt-3">Pas de connexion</h1>
+        <p class="text-body-secondary">
+            Cette page n'est pas disponible hors ligne. Vérifiez votre connexion puis réessayez.
+        </p>
+        <button type="button" class="btn btn-primary mt-2" onclick="window.location.reload()">Réessayer</button>
+    </div>
+</body>
+</html>

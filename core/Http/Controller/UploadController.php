@@ -14,6 +14,7 @@ use Core\Journal\JournalService;
 use Core\Member\MemberService;
 use Core\Photo\LandscapeImageProcessor;
 use Core\Photo\MemberPhotoService;
+use Core\Photo\PwaIconService;
 use Core\Photo\SectionPhotoProcessor;
 use Core\Photo\SectionPhotoService;
 use Core\Security\AuthSession;
@@ -36,7 +37,8 @@ class UploadController extends AbstractController
         private SectionPhotoProcessor $sectionPhotoProcessor,
         private LandscapeImageProcessor $landscapeImageProcessor,
         private MemberService $memberService,
-        private AgeBranchRepository $ageBranchRepository
+        private AgeBranchRepository $ageBranchRepository,
+        private PwaIconService $pwaIconService
     ) {
     }
 
@@ -97,6 +99,29 @@ class UploadController extends AbstractController
         try {
             $allowedMimes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
             $maxSize = 5 * 1024 * 1024; // 5 MB
+
+            // pwa_icon (the installable-app logo, Configuration > PWA) is
+            // deliberately never handed to UploadHandler::handle() at all:
+            // it never becomes a `files` row / /files/{id} download, since
+            // a manifest/home-screen icon is fetched with no session —
+            // see Core\Photo\PwaIconService's own docblock. Returns here,
+            // short-circuiting the generic files-table flow below entirely.
+            if ($context === 'pwa_icon') {
+                $tmpName = (string) ($uploadedFile['tmp_name'] ?? '');
+                if ($tmpName === '' || !is_file($tmpName)) {
+                    throw new UploadException('Fichier invalide.');
+                }
+                $mimeType = (string) (new \finfo(FILEINFO_MIME_TYPE))->file($tmpName);
+                if (!in_array($mimeType, $allowedMimes, true)) {
+                    throw new UploadException('Type de fichier non accepté — formats attendus : JPEG, PNG, GIF, WebP.');
+                }
+
+                $this->pwaIconService->storeUploadedLogo((string) file_get_contents($tmpName), $mimeType);
+                $this->journalService?->log('core', 'pwa_icon_updated', 'info', 'Icône PWA modifiée', [], AuthSession::getUserAccountId());
+
+                FlashMessage::set('success', 'Icône mise à jour.');
+                return $this->redirect($returnUrl);
+            }
 
             // section_photo (the Staffs page's group photo of a section's
             // chiefs) is always cropped to a fixed 4:3 landscape rendition
@@ -255,6 +280,14 @@ class UploadController extends AbstractController
         }
 
         if ($context === 'age_branch_logo') {
+            return Role::fromString(AuthSession::getRole())->hasAccess(Role::SUPERADMIN);
+        }
+
+        // pwa_icon (Configuration > PWA's logo upload) — same direct
+        // role check as age_branch_logo above: its own admin page is
+        // already superadmin-gated, not the front-end configuration-mode
+        // overlay, so there's no session flag to require here either.
+        if ($context === 'pwa_icon') {
             return Role::fromString(AuthSession::getRole())->hasAccess(Role::SUPERADMIN);
         }
 

@@ -378,6 +378,19 @@ $settingService->register('section_document_compression_backend', \Core\Pdf\PdfC
 $settingService->register('section_document_oversize_warning_mb', '5', 'number', 'Seuil d\'avertissement — gros document de section',
     'Taille (Mo) à partir de laquelle un avertissement s\'affiche avant l\'ajout d\'un document, uniquement lorsqu\'aucun outil de compression n\'est disponible sur le serveur.',
     null, '^[1-9][0-9]*$', null, true, 254);
+// Installable PWA (Lot 1) — theme_color/background_color feed both the
+// manifest and the maskable icon's own backdrop (Core\Photo\
+// PwaIconProcessor), so a re-uploaded logo always matches whatever the
+// unit has configured, never a hardcoded color (ARCHITECTURE §1).
+$settingService->register('pwa_theme_color', '#0d6efd', 'color', 'Couleur du thème (PWA)',
+    'Couleur de la barre d\'état/du thème lorsque le site est installé comme application.',
+    null, null, null, true, 255);
+$settingService->register('pwa_background_color', '#ffffff', 'color', 'Couleur de fond (PWA)',
+    'Couleur de fond affichée pendant le chargement de l\'application installée, et derrière l\'icône adaptative (maskable).',
+    null, null, null, true, 256);
+$settingService->register('pwa_icon_version', '1', 'number', 'Version de l\'icône PWA',
+    'Incrémentée automatiquement à chaque nouvel envoi de logo — sert à invalider le cache navigateur/OS de l\'icône. Lecture seule.',
+    null, null, null, false, 257);
 
 // Migrate non-secret settings from secrets.enc to settings table (one-time)
 if ($settingService->get('settings_migrated') !== '1') {
@@ -428,6 +441,14 @@ $twig->addFunction(new TwigFunction('param', function (string $key, ?string $mod
 
 // Set site_name global from settings (used extensively in templates)
 $twig->addGlobal('site_name', (string) ($settingService->get('site_name') ?: 'Unité scoute'));
+
+// Installable PWA (Lot 1) — the service worker's cache name derives from
+// this same value client-side (base.html.twig's registration script), so
+// a VERSION bump after a GitHub release install (§8.17) is the entire
+// update/cache-busting mechanism: a new query string on /sw.js makes the
+// browser see a new worker, which purges every cache not matching it.
+$twig->addGlobal('app_version', \Core\Maintenance\VersionFile::read(dirname(__DIR__)));
+$twig->addGlobal('pwa_theme_color', (string) ($settingService->get('pwa_theme_color') ?: '#0d6efd'));
 
 // Create MailService — short_name, mail_from_address, mail_from_name and
 // dkim_selector all live in the settings table (migrated out of
@@ -574,6 +595,17 @@ $sectionDocumentService = new \Core\Member\SectionDocumentService(
     $sectionService, $scoutYearService, $journalService, $schedulerService, $settingService,
     new \Core\Pdf\PdfCompressor($storagePath . '/temp')
 );
+
+// Installable PWA (Lot 1) — icon storage lives under storage/core/pwa/,
+// deliberately outside the files table (see Core\Photo\PwaIconService's
+// own docblock); the shipped defaults ship under public/assets/img/pwa/.
+$pwaIconService = new \Core\Photo\PwaIconService(
+    new \Core\Photo\PwaIconProcessor(),
+    $settingService,
+    $storagePath . '/core/pwa',
+    dirname(__DIR__) . '/public/assets/img/pwa'
+);
+$twig->addGlobal('pwa_icon_version', $pwaIconService->currentVersion());
 
 // Create backup service (Configuration > Maintenance)
 $backupRepository = new BackupRepository($pdo);
@@ -849,6 +881,13 @@ $router->addRoute('GET', '/s/{code}', ShortUrlController::class, 'resolve', 'pub
 $router->addRoute('GET', '/upload', UploadController::class, 'index', 'identified');
 $router->addRoute('POST', '/upload', UploadController::class, 'store', 'identified');
 
+// Installable PWA (Lot 1) — all public: a manifest, its icons, and the
+// offline fallback are all fetched with no session at all (an installed
+// app's home-screen icon lookup, or a navigation with no network).
+$router->addRoute('GET', '/manifest.webmanifest', \Core\Http\Controller\PwaController::class, 'manifest', 'public');
+$router->addRoute('GET', '/pwa/icon-{size}.png', \Core\Http\Controller\PwaController::class, 'icon', 'public');
+$router->addRoute('GET', '/offline', \Core\Http\Controller\PwaController::class, 'offline', 'public');
+
 // Setup routes (admin, but bypassed when not initialized)
 $router->addRoute('GET', '/setup', SetupController::class, 'index', 'superadmin');
 $router->addRoute('POST', '/setup/test-db', SetupController::class, 'testDatabase', 'superadmin');
@@ -1076,9 +1115,10 @@ $frontController->registerController(EditableContentController::class, $editable
 $fileController = new FileController($twig, $fileAccessGuard, $storagePath, $encryptedFileStorageService);
 $fileController->setJournalService($journalService);
 $frontController->registerController(FileController::class, $fileController);
-$uploadController = new UploadController($twig, $uploadHandler, $editableContentService, $memberPhotoService, $sectionPhotoService, $sectionPhotoProcessor, $landscapeImageProcessor, $memberService, $ageBranchRepo);
+$uploadController = new UploadController($twig, $uploadHandler, $editableContentService, $memberPhotoService, $sectionPhotoService, $sectionPhotoProcessor, $landscapeImageProcessor, $memberService, $ageBranchRepo, $pwaIconService);
 $uploadController->setJournalService($journalService);
 $frontController->registerController(UploadController::class, $uploadController);
+$frontController->registerController(\Core\Http\Controller\PwaController::class, new \Core\Http\Controller\PwaController($twig, $settingService, $pwaIconService));
 $frontController->registerController(JournalController::class, new JournalController($twig, $journalRepo, $userAccountRepo));
 $frontController->registerController(ScoutYearController::class, new ScoutYearController($twig, $scoutYearResolver, $scoutYearAdminService, $scoutYearService, $journalService));
 $frontController->registerController(MemberSearchController::class, new MemberSearchController($twig, $memberSearchService, $memberService, $scoutYearResolver, $memberYearService));
