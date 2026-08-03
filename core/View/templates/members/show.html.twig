@@ -1,5 +1,15 @@
 {% extends 'base.html.twig' %}
 {% block title %}{{ member|display_name }} — {{ site_name }}{% endblock %}
+{# member_photo()/section_photo() sizing (.member-photo-header, .member-photo
+   etc.) lives in components.css, which base.html.twig does NOT load by
+   default — every other page using these components (Staffs, trombinoscope,
+   calendar) links it explicitly via this same block. Without this link the
+   photo/placeholder has no sizing rule at all and the <img> renders at its
+   raw intrinsic size, which is the actual root cause of the member photo
+   "taking the whole screen" — not the CSS technique itself. #}
+{% block stylesheets %}
+<link rel="stylesheet" href="/assets/css/components.css">
+{% endblock %}
 {% block content %}
     {# Header — photo (replaceable by the member themselves outside config
        mode via the $editable param), sized to match the two-line text
@@ -319,7 +329,7 @@
                 {% if section_info and trombinoscope_enabled %}
                     <div class="card mb-3">
                         <div class="card-body text-center">
-                            <h2 class="h6 mb-2">Staff de la section</h2>
+                            <h2 class="h6 mb-2">Staff {{ section_info.section.name ?? section_info.section.desk_code }}</h2>
                             {{ section_photo(section_info.section.id, section_info.section.name ?? section_info.section.desk_code) }}
                             <a href="/trombinoscope?section={{ section_info.section.id }}" class="btn btn-sm btn-outline-primary mt-2">
                                 Voir dans le trombinoscope <i class="bi bi-box-arrow-up-right"></i>

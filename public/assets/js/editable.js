@@ -1,4 +1,42 @@
 (function () {
+    // Image upload — navigate to upload page. data-context lets other core
+    // components (e.g. member_photo()) reuse this same overlay/click wiring
+    // with their own upload context, defaulting to 'editable_image'. Wired
+    // unconditionally, before the richTextEditorModal check below: pages
+    // like the member page render .editable-image outside configuration
+    // mode (member_photo()'s $editable flag), where partials/
+    // rich_text_editor.html.twig — and its modal — is never included at
+    // all (base.html.twig only includes it when config_mode is true). That
+    // modal has nothing to do with image upload, so image click handling
+    // must not depend on it existing.
+    function navigateToUpload(container) {
+        var key = container.dataset.key;
+        var context = container.dataset.context || 'editable_image';
+        window.location.href = '/upload?context=' + encodeURIComponent(context) + '&key=' + encodeURIComponent(key) + '&return=' + encodeURIComponent(window.location.pathname);
+    }
+
+    document.querySelectorAll('.editable-image .editable-edit-btn').forEach(function (btn) {
+        btn.addEventListener('click', function (e) {
+            e.stopPropagation();
+            navigateToUpload(btn.closest('.editable-image'));
+        });
+    });
+
+    // An empty editable-image (no file set yet) has no img/photo to look
+    // at, only its "Cliquer pour ajouter une image" placeholder text — so
+    // the whole box is clickable too, not just the hover-revealed button
+    // above (that stopPropagation() keeps this from double-firing).
+    document.querySelectorAll('.editable-image').forEach(function (container) {
+        if (container.querySelector('img')) return;
+        container.addEventListener('click', function () {
+            navigateToUpload(container);
+        });
+    });
+
+    // Everything below is rich-text (.editable-content) editing, which
+    // needs the modal from partials/rich_text_editor.html.twig — only
+    // rendered in configuration mode (see base.html.twig) — so it stays
+    // gated on the modal actually being present.
     var modalEl = document.getElementById('richTextEditorModal');
     if (!modalEl) return;
 
@@ -60,33 +98,6 @@
         })
         .catch(function () {
             alert('Erreur réseau.');
-        });
-    });
-
-    // Image upload — navigate to upload page. data-context lets other core
-    // components (e.g. member_photo()) reuse this same overlay/click wiring
-    // with their own upload context, defaulting to 'editable_image'.
-    function navigateToUpload(container) {
-        var key = container.dataset.key;
-        var context = container.dataset.context || 'editable_image';
-        window.location.href = '/upload?context=' + encodeURIComponent(context) + '&key=' + encodeURIComponent(key) + '&return=' + encodeURIComponent(window.location.pathname);
-    }
-
-    document.querySelectorAll('.editable-image .editable-edit-btn').forEach(function (btn) {
-        btn.addEventListener('click', function (e) {
-            e.stopPropagation();
-            navigateToUpload(btn.closest('.editable-image'));
-        });
-    });
-
-    // An empty editable-image (no file set yet) has no img/photo to look
-    // at, only its "Cliquer pour ajouter une image" placeholder text — so
-    // the whole box is clickable too, not just the hover-revealed button
-    // above (that stopPropagation() keeps this from double-firing).
-    document.querySelectorAll('.editable-image').forEach(function (container) {
-        if (container.querySelector('img')) return;
-        container.addEventListener('click', function () {
-            navigateToUpload(container);
         });
     });
 })();

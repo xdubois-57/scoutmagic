@@ -9,9 +9,13 @@
     <link rel="stylesheet" href="/assets/vendor/bootstrap/css/bootstrap.min.css">
     <link rel="stylesheet" href="/assets/vendor/bootstrap-icons/bootstrap-icons.min.css">
     <link rel="stylesheet" href="/assets/css/app.css">
-    {% if config_mode is defined and config_mode %}
+    {# editable.css styles both .editable-content (rich text — config mode
+       only) and .editable-image (member_photo()'s $editable flag lets a
+       member replace their own photo outside configuration mode too, see
+       the editable.js include below) — must load unconditionally, or
+       .editable-image never gets its position:relative and the overlay
+       button positions itself against the wrong ancestor. #}
     <link rel="stylesheet" href="/assets/css/editable.css">
-    {% endif %}
     {% block stylesheets %}{% endblock %}
 </head>
 <body>
@@ -84,8 +88,15 @@
     <script src="/assets/js/nav.js"></script>
     {% if config_mode is defined and config_mode %}
     {% include 'partials/rich_text_editor.html.twig' %}
-    <script src="/assets/js/editable.js" defer></script>
     {% endif %}
+    {# editable.js wires up both .editable-content (rich text — needs the
+       modal above, only rendered in configuration mode) and .editable-image
+       (needs no modal at all — a plain navigation to /upload). The member
+       page uses .editable-image outside configuration mode (member_photo()'s
+       $editable flag lets a member replace their own photo), so this script
+       must load unconditionally; editable.js itself gates its modal-
+       dependent code on the modal's presence. #}
+    <script src="/assets/js/editable.js" defer></script>
     <script src="/assets/js/cookie-consent.js" defer></script>
     {% block scripts %}{% endblock %}
 
