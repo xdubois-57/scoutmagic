@@ -218,12 +218,17 @@ class SetupController extends AbstractController
             return $this->json(['success' => false, 'message' => 'Adresse email invalide.']);
         }
 
-        // short_name lives in the settings table (migrated out of
-        // secrets.enc by public/index.php's one-time migration) — without
-        // this, the "[XX]" subject prefix silently comes out empty on any
-        // install that already ran that migration.
+        // short_name, mail_from_address, mail_from_name and dkim_selector
+        // all live in the settings table (migrated out of secrets.enc by
+        // public/index.php's one-time migration) — without this merge,
+        // mail_from_address in particular comes out permanently empty on
+        // any install that already ran that migration, which makes
+        // PHPMailer reject the send outright ("Invalid address: (From): "),
+        // same root cause fixed in public/index.php and public/cron.php.
         if ($this->settingService !== null) {
-            $secrets['short_name'] = (string) ($this->settingService->get('short_name') ?: ($secrets['short_name'] ?? ''));
+            foreach (['short_name', 'mail_from_address', 'mail_from_name', 'dkim_selector'] as $mailSecretKey) {
+                $secrets[$mailSecretKey] = (string) ($this->settingService->get($mailSecretKey) ?: ($secrets[$mailSecretKey] ?? ''));
+            }
         }
 
         try {

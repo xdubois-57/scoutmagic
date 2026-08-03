@@ -429,12 +429,18 @@ $twig->addFunction(new TwigFunction('param', function (string $key, ?string $mod
 // Set site_name global from settings (used extensively in templates)
 $twig->addGlobal('site_name', (string) ($settingService->get('site_name') ?: 'Unité scoute'));
 
-// Create MailService — short_name lives in the settings table (migrated out
-// of secrets.enc, see the one-time migration below), so it must be merged
-// back in here: $secrets['short_name'] is permanently empty on any install
+// Create MailService — short_name, mail_from_address, mail_from_name and
+// dkim_selector all live in the settings table (migrated out of
+// secrets.enc, see the one-time migration below), so each must be merged
+// back in here: $secrets[...] is permanently empty/stale on any install
 // that already ran that migration, which silently emptied the "[XX]"
-// subject prefix on every email (magic links, mass mail, test emails).
-$secrets['short_name'] = (string) ($settingService->get('short_name') ?: ($secrets['short_name'] ?? ''));
+// subject prefix (short_name) and, worse, the From address on every email
+// (magic links, mass mail, test emails, confirmation links) — PHPMailer
+// rejects an empty From outright ("Invalid address: (From): "), so this
+// wasn't a "no SMTP configured" situation, it never even tried to connect.
+foreach (['short_name', 'mail_from_address', 'mail_from_name', 'dkim_selector'] as $mailSecretKey) {
+    $secrets[$mailSecretKey] = (string) ($settingService->get($mailSecretKey) ?: ($secrets[$mailSecretKey] ?? ''));
+}
 $mailService = MailServiceFactory::create($secrets, $dkimManager);
 
 // Create NotificationService (Web Push, Core\Notification) — VAPID subject

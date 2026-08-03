@@ -265,6 +265,113 @@ class SetupControllerTest extends TestCase
         $pdo->exec('SET FOREIGN_KEY_CHECKS = 1');
     }
 
+    /**
+     * Regression for the bug fixed alongside public/index.php and
+     * public/cron.php: mail_from_address (and mail_from_name,
+     * dkim_selector) are migrated out of secrets.enc into the settings
+     * table on any install past the one-time migration — secrets.enc's
+     * own copy is then permanently empty/stale. Without merging the
+     * settings-table value back in before MailServiceFactory::create(),
+     * PHPMailer rejects the send outright with "Invalid address: (From): ",
+     * which looks like a transport/SMTP problem but never even reaches
+     * the transport.
+     */
+    public function testTestEmailMergesMailFromAddressFromSettingsWhenSecretsCopyIsEmpty(): void
+    {
+        $this->secretManager->generateMasterKey();
+        $this->secretManager->writeSecrets([
+            'db_host' => 'localhost', 'db_port' => 3306, 'db_name' => 'test',
+            'db_user' => 'root', 'db_password' => 'pass',
+            'site_name' => 'Mon Unité',
+            // Simulates a post-migration install: these are permanently
+            // empty in secrets.enc, the settings table is now the source
+            // of truth.
+            'short_name' => '',
+            'base_url' => 'https://example.com',
+            'mail_mode' => 'local',
+            'mail_from_address' => '',
+            'mail_from_name' => '',
+            'dkim_selector' => '',
+            'dmarc_report_email' => '',
+        ]);
+
+        $pdo = \Tests\DatabaseTestHelper::createTestDatabase();
+        $settingService = new \Core\Config\SettingService(new \Core\Config\SettingRepository($pdo));
+        $settingService->register('short_name', '25SV', 'text', 'x', 'x');
+        $settingService->register('mail_from_address', 'unit@example.com', 'email', 'x', 'x');
+        $settingService->register('mail_from_name', 'Mon Unité', 'text', 'x', 'x');
+        $settingService->register('dkim_selector', 'mail', 'text', 'x', 'x');
+
+        $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath);
+        $controller->setSettingService($settingService);
+
+        $token = $this->issueCsrfToken();
+        $request = new Request('POST', '/setup/test-email', [], [
+            '_csrf_token' => $token,
+            'recipient' => 'someone@example.com',
+        ], [], []);
+
+        $response = $controller->testEmail($request, []);
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertNotSame('Jeton CSRF invalide.', $decoded['message'] ?? null, 'test setup itself is broken, not the assertion below');
+        // 'local' mode calls PHP's real mail() — whether that succeeds
+        // depends on the test environment's MTA, which isn't what this
+        // test cares about. What matters is that it got PAST PHPMailer's
+        // own From-address validation, which throws synchronously before
+        // any transport is touched — proving mail_from_address was
+        // actually merged in from settings.
+        $this->assertStringNotContainsString('Invalid address', (string) ($decoded['message'] ?? ''));
+    }
+
+    /**
+     * Baseline proving the test above actually exercises the bug: with no
+     * SettingService wired at all (pre-migration codepath, or a caller
+     * that never calls setSettingService()), an empty secrets.enc
+     * mail_from_address must still fail exactly the way the user's real
+     * report did.
+     */
+    public function testTestEmailFailsWithInvalidAddressWhenNeitherSecretsNorSettingsHaveAFromAddress(): void
+    {
+        $this->secretManager->generateMasterKey();
+        $this->secretManager->writeSecrets([
+            'db_host' => 'localhost', 'db_port' => 3306, 'db_name' => 'test',
+            'db_user' => 'root', 'db_password' => 'pass',
+            'site_name' => 'Mon Unité', 'short_name' => '', 'base_url' => 'https://example.com',
+            'mail_mode' => 'local', 'mail_from_address' => '', 'mail_from_name' => '',
+            'dkim_selector' => '', 'dmarc_report_email' => '',
+        ]);
+
+        $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath);
+        // Deliberately no setSettingService() call.
+
+        $token = $this->issueCsrfToken();
+        $request = new Request('POST', '/setup/test-email', [], [
+            '_csrf_token' => $token,
+            'recipient' => 'someone@example.com',
+        ], [], []);
+
+        $response = $controller->testEmail($request, []);
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertFalse($decoded['success']);
+        $this->assertStringContainsString('Invalid address', (string) $decoded['message']);
+    }
+
+    /**
+     * CsrfGuard::validateRequest() reads the raw $_POST superglobal, not
+     * the Request object's own body array — the Request constructor's
+     * $body param alone (used everywhere else in this file for
+     * ->getBody() reads) doesn't populate it.
+     */
+    private function issueCsrfToken(): string
+    {
+        $token = bin2hex(random_bytes(32));
+        $_SESSION['_csrf_token'] = $token;
+        $_POST['_csrf_token'] = $token;
+        return $token;
+    }
+
     private function removeDirectory(string $dir): void
     {
         if (!is_dir($dir)) {
