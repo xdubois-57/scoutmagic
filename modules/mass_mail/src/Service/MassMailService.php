@@ -10,6 +10,7 @@ use Core\Import\ImportJournalRepository;
 use Core\Journal\JournalService;
 use Core\Mail\MailException;
 use Core\Mail\MailService;
+use Core\Member\MemberEmailService;
 use Core\Member\MemberService;
 use Core\Member\SectionService;
 use Core\Scheduler\SchedulerService;
@@ -38,6 +39,7 @@ class MassMailService
         private FileRepository $fileRepository,
         private MailingListService $mailingListService,
         private MemberService $memberService,
+        private MemberEmailService $memberEmailService,
         private SectionService $sectionService,
         private MailService $mailService,
         private SchedulerService $schedulerService,
@@ -266,11 +268,16 @@ class MassMailService
     /**
      * test → sending. Freezes the recipient list right now (module spec:
      * "le système fige la liste des destinataires") — every member the
-     * list resolves to at this exact instant becomes one
-     * mass_mail_recipients row, with their address copied in (encrypted).
-     * A member with no usable address is written straight to 'error',
-     * never 'pending'. The actual sending is left to Task\
-     * SendBatchHandler, kicked off here with an immediate first run.
+     * list resolves to at this exact instant is expanded into ALL of
+     * their currently-valid addresses (module addendum, multi-email
+     * support: Desk + secondary, via Core\Member\MemberEmailService), one
+     * mass_mail_recipients row per address, each address copied in
+     * (encrypted) and tagged with the Core\Member\MemberEmail row it maps
+     * to (member_email_id — what the one-click unsubscribe link is built
+     * from later, in Task\SendBatchHandler). A member with no usable
+     * address at all gets a single row written straight to 'error', never
+     * 'pending'. The actual sending is left to Task\SendBatchHandler,
+     * kicked off here with an immediate first run.
      *
      * @throws MassMailException when the email doesn't exist or isn't in test
      */
@@ -288,14 +295,23 @@ class MassMailService
         $validCount = 0;
         $invalidCount = 0;
         foreach ($members as $member) {
-            $address = $member['email'];
-            $isValid = $address !== null && filter_var($address, FILTER_VALIDATE_EMAIL) !== false;
-            if ($isValid) {
-                $this->recipientRepository->create($id, $member['member_id'], $member['scout_year_id'], $address, Recipient::STATUS_PENDING, null);
-                $validCount++;
-            } else {
+            $deskEmail = $member['email'] !== null && filter_var($member['email'], FILTER_VALIDATE_EMAIL) !== false
+                ? $member['email']
+                : null;
+            $addresses = $this->memberEmailService->resolveValidAddressesForMassMail($member['member_id'], $deskEmail);
+
+            if ($addresses === []) {
                 $this->recipientRepository->create($id, $member['member_id'], $member['scout_year_id'], null, Recipient::STATUS_ERROR, 'Adresse invalide');
                 $invalidCount++;
+                continue;
+            }
+
+            foreach ($addresses as $memberEmail) {
+                $this->recipientRepository->create(
+                    $id, $member['member_id'], $member['scout_year_id'], $memberEmail->email,
+                    Recipient::STATUS_PENDING, null, $memberEmail->id
+                );
+                $validCount++;
             }
         }
 

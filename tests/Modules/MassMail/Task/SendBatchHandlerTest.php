@@ -123,6 +123,43 @@ class SendBatchHandlerTest extends TestCase
         }
     }
 
+    /**
+     * Module addendum (RFC 8058 one-click unsubscribe): every send must
+     * carry both headers plus a human-facing footer link, and the
+     * recipient row must end up with a verifiable token — never a bare
+     * member/email id trusted from the URL alone.
+     */
+    public function testEverySendIncludesListUnsubscribeHeadersFooterAndAToken(): void
+    {
+        $this->pdo->exec("DELETE FROM mass_mail_recipients WHERE id NOT IN (SELECT MIN(id) FROM mass_mail_recipients)");
+        $recipientBefore = $this->recipientRepository->findByEmailId($this->emailId)[0];
+
+        $capturedExtraHeaders = null;
+        $capturedBodyHtml = null;
+        $mailService = $this->createMock(MailService::class);
+        $mailService->expects($this->once())
+            ->method('send')
+            ->willReturnCallback(function (...$args) use (&$capturedExtraHeaders, &$capturedBodyHtml): void {
+                $capturedBodyHtml = $args[2];
+                $capturedExtraHeaders = $args[8] ?? null;
+            });
+
+        $handler = new SendBatchHandler();
+        $handler->handle([], $this->buildContext($mailService));
+
+        $this->assertIsArray($capturedExtraHeaders);
+        $this->assertArrayHasKey('List-Unsubscribe', $capturedExtraHeaders);
+        $this->assertArrayHasKey('List-Unsubscribe-Post', $capturedExtraHeaders);
+        $this->assertSame('List-Unsubscribe=One-Click', $capturedExtraHeaders['List-Unsubscribe-Post']);
+        $this->assertMatchesRegularExpression('#^<.*/mass-mail/unsubscribe/\d+\?token=[a-f0-9]{64}>$#', $capturedExtraHeaders['List-Unsubscribe']);
+        $this->assertStringContainsString('/mass-mail/unsubscribe/', $capturedBodyHtml);
+        $this->assertStringContainsString('Se désinscrire des emails groupés', $capturedBodyHtml);
+
+        $stmt = $this->pdo->prepare('SELECT unsubscribe_token_hash FROM mass_mail_recipients WHERE id = ?');
+        $stmt->execute([$recipientBefore->id]);
+        $this->assertNotNull($stmt->fetchColumn());
+    }
+
     public function testMarksParentEmailSentOnceAllRecipientsProcessed(): void
     {
         $this->pdo->exec("DELETE FROM mass_mail_recipients WHERE id NOT IN (SELECT MIN(id) FROM mass_mail_recipients)");

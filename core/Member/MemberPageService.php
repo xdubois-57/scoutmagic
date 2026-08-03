@@ -33,6 +33,7 @@ class MemberPageService
         private MemberBadgeRepository $memberBadgeRepository,
         private AgeBranchRepository $ageBranchRepository,
         private MemberDocumentService $memberDocumentService,
+        private MemberEmailService $memberEmailService,
         private ?SectionResponsableProvider $sectionResponsableProvider = null,
         private ?MassMailQueryInterface $massMailQuery = null,
         private ?GalleryAlbumProvider $galleryAlbumProvider = null,
@@ -56,11 +57,28 @@ class MemberPageService
 
         $section = $this->resolveOwnSection($profile);
 
+        // "Adresses email" — self-service only (no chief/admin UI in this
+        // iteration), same self-only rule as member_documents.
+        // $resendCooldownMinutes is a display-only aid (keyed by
+        // MemberEmail::$id) — the template disables "Renvoyer" and shows
+        // the wait time for a still-cooling-down pending row; the real
+        // enforcement is server-side, in MemberEmailService::
+        // resendConfirmation() itself.
+        $memberEmails = $isSelf ? $this->memberEmailService->listForMember($profile->memberId, $profile->email) : [];
+        $resendCooldownMinutes = [];
+        foreach ($memberEmails as $memberEmail) {
+            if ($memberEmail->isPending()) {
+                $resendCooldownMinutes[$memberEmail->id] = $this->memberEmailService->resendCooldownRemainingMinutes($memberEmail);
+            }
+        }
+
         return [
             'branch_card' => $section !== null ? $this->buildBranchCard($section) : null,
             'section_info' => $section !== null ? $this->buildSectionInfo($profile, $section, $scoutYearId) : null,
             'recent_mass_mail_emails' => $showPersonal ? $this->getRecentMassMailEmails($profile) : [],
             'member_documents' => $isSelf ? $this->memberDocumentService->listForMember($profile->memberId, $scoutYearId) : [],
+            'member_emails' => $memberEmails,
+            'member_email_resend_cooldown_minutes' => $resendCooldownMinutes,
             'gallery_albums' => $this->getGalleryAlbums($profile),
             'trombinoscope_enabled' => $this->sectionResponsableProvider !== null,
             'calendar_enabled' => $this->calendarEventLookup !== null,

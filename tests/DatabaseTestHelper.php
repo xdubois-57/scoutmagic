@@ -254,6 +254,23 @@ class DatabaseTestHelper
             FOREIGN KEY (file_id) REFERENCES files(id)
         )');
 
+        $pdo->exec('CREATE TABLE member_emails (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            member_id INTEGER NOT NULL,
+            email_encrypted BLOB NOT NULL,
+            email_blind_index TEXT NOT NULL,
+            source TEXT NOT NULL DEFAULT "manual",
+            status TEXT NOT NULL DEFAULT "pending",
+            confirmation_token_hash TEXT,
+            confirmation_expires_at TEXT,
+            last_confirmation_sent_at TEXT,
+            confirmed_at TEXT,
+            deactivated_at TEXT,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE (member_id, email_blind_index),
+            FOREIGN KEY (member_id) REFERENCES members(id)
+        )');
+
         $pdo->exec('CREATE TABLE badges (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL UNIQUE,

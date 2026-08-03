@@ -1,0 +1,15 @@
+{% extends 'email/base.html.twig' %}
+{% block content %}
+    <h2 style="margin:0 0 16px;font-size:20px;">Confirmation de désinscription</h2>
+    <p>Cette adresse a bien été désinscrite des emails groupés de {{ site_name }}. Elle ne recevra plus d'emails groupés et ne peut plus non plus être utilisée pour se connecter au site par lien magique.</p>
+    {% if member_names|length > 0 %}
+        <p>Cette adresse était associée au(x) membre(s) suivant(s) :</p>
+        <ul>
+            {% for name in member_names %}
+                <li>{{ name }}</li>
+            {% endfor %}
+        </ul>
+    {% endif %}
+    <p><strong>Si c'est une erreur</strong>, vous pouvez réactiver cette adresse depuis l'espace personnel d'un des membres ci-dessus, en vous connectant avec une autre adresse email déjà configurée pour ce membre.
+    {% if staffdu_email %}Vous pouvez aussi contacter le Staff d'U à <a href="mailto:{{ staffdu_email }}">{{ staffdu_email }}</a>.{% else %}Vous pouvez aussi contacter le Staff d'U de l'unité.{% endif %}</p>
+{% endblock %}

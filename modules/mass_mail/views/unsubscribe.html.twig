@@ -1,0 +1,25 @@
+{% extends "base.html.twig" %}
+
+{% block title %}Désinscription des emails groupés — {{ site_name }}{% endblock %}
+
+{% block content %}
+<div class="page-narrow">
+    <h1 class="mb-4 text-center">Désinscription des emails groupés</h1>
+
+    <div class="card">
+        <div class="card-body text-center py-4">
+            {% if state == 'confirm' %}
+                <p class="mb-3">Voulez-vous vraiment vous désinscrire des emails groupés envoyés à cette adresse ? Vous pourrez vous réinscrire à tout moment depuis votre espace des animés.</p>
+                <form method="post" action="/mass-mail/unsubscribe/{{ recipient_id }}">
+                    <input type="hidden" name="token" value="{{ token }}">
+                    <button type="submit" class="btn btn-outline-danger">Se désinscrire</button>
+                </form>
+            {% elseif state == 'done' %}
+                <p class="text-success mb-0"><i class="bi bi-check-circle"></i> Vous avez bien été désinscrit(e) des emails groupés pour cette adresse.</p>
+            {% else %}
+                <p class="text-danger mb-0">Ce lien de désinscription n'est plus valide.</p>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}

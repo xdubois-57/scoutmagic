@@ -136,6 +136,36 @@ class MemberYearRepository
     }
 
     /**
+     * The active member_year rows for a set of persistent member ids, for
+     * one scout year — same row shape as findAllByEmail() (my.*, m.desk_id,
+     * is_active = 1 only). Core\Security\RoleResolver's extension point
+     * for matching a member reachable only through a valid secondary
+     * email (Core\Member\MemberEmailRepository::
+     * findMemberIdsByValidBlindIndex()), which yields member ids rather
+     * than a blind index directly matchable against this table's own
+     * column.
+     *
+     * @param int[] $memberIds
+     * @return array<int, array<string, mixed>>
+     */
+    public function findAllByMemberIds(array $memberIds, int $scoutYearId): array
+    {
+        if ($memberIds === []) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($memberIds), '?'));
+        $stmt = $this->pdo->prepare(
+            "SELECT my.*, m.desk_id
+             FROM member_years my
+             JOIN members m ON my.member_id = m.id
+             WHERE my.member_id IN ({$placeholders}) AND my.scout_year_id = ? AND my.is_active = 1"
+        );
+        $stmt->execute([...$memberIds, $scoutYearId]);
+        return $stmt->fetchAll(\PDO::FETCH_ASSOC);
+    }
+
+    /**
      * Replace all addresses for a member_year.
      *
      * @param array<int, array<string, mixed>> $addresses

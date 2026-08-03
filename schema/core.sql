@@ -365,6 +365,56 @@ CREATE TABLE member_documents (
     CONSTRAINT fk_md_created_by FOREIGN KEY (created_by) REFERENCES user_accounts(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- member_emails: additional email addresses for a member, beyond the one
+-- imported from Desk (member_years.email_encrypted) — tied to the
+-- persistent members entity, not member_years, so the list survives a
+-- scout year change exactly like desk_id. Two sources:
+-- - 'manual': added by the member themselves from their own member page.
+--   Starts 'pending' until the emailed confirmation link is clicked (same
+--   token scheme as magic_links: bin2hex(random_bytes(32)), hashed with
+--   password_hash() before storage, 48h expiry — see Core\Member\
+--   MemberEmailService::addEmail()/confirmEmail()).
+-- - 'desk': a status override for the CURRENT Desk-imported address
+--   itself. The Desk address is otherwise always usable (member_years'
+--   own column, never touched here) and never editable/deletable by the
+--   member — this row only ever exists to record that address having
+--   been unsubscribed from mass-mail (status='inactive') and lets the
+--   member reactivate it from their own page, same as a manual address.
+--   Lazily created (find-or-create, keyed by the unique index below) only
+--   the first time that exact address is actually unsubscribed — never
+--   proactively synced at Desk import, so a changed Desk email simply
+--   starts fresh with no row here until/unless it's unsubscribed too.
+-- status: 'pending' (manual only, awaiting confirmation), 'valid'
+-- (receives mass-mail; a manual address also grants login — see
+-- Core\Security\RoleResolver), 'inactive' (mass-mail opt-out only, via
+-- the unsubscribe mechanism — never reachable by the member's own UI
+-- directly, only via delete-then-nothing or the unsubscribe link/one-
+-- click endpoint; reactivating goes straight back to 'valid', no
+-- reconfirmation).
+CREATE TABLE member_emails (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    member_id INT UNSIGNED NOT NULL,
+    email_encrypted BLOB NOT NULL,
+    email_blind_index CHAR(64) NOT NULL,
+    source ENUM('manual', 'desk') NOT NULL DEFAULT 'manual',
+    status ENUM('pending', 'valid', 'inactive') NOT NULL DEFAULT 'pending',
+    confirmation_token_hash VARCHAR(255),
+    confirmation_expires_at DATETIME,
+    -- Resend cooldown (module addendum: once every 5 minutes per address) —
+    -- read from this column, never from session, so it holds across
+    -- devices/tabs.
+    last_confirmation_sent_at DATETIME,
+    confirmed_at DATETIME,
+    deactivated_at DATETIME,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    -- Duplicate email within the same member (any status) must reuse the
+    -- existing row rather than create a second one — enforced here, not
+    -- only in Service\MemberEmailService.
+    UNIQUE INDEX idx_me_member_blind (member_id, email_blind_index),
+    INDEX idx_me_blind (email_blind_index),
+    CONSTRAINT fk_me_member FOREIGN KEY (member_id) REFERENCES members(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- Transversal roles assignable to chiefs/chief-d'unité (e.g. Infirmier,
 -- Trésorier), configured once in Configuration générale and displayed on the
 -- trombinoscope. See Core\Badge.

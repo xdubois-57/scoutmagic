@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Core\Security;
 
 use Core\Import\MemberYearRepository;
+use Core\Member\MemberEmailRepository;
 use Core\Security\EncryptionService;
 use Core\Security\RoleResolver;
 use PHPUnit\Framework\TestCase;
@@ -185,5 +186,142 @@ class RoleResolverTest extends TestCase
     public function testUnknownEmailIsNotAuthorized(): void
     {
         $this->assertFalse($this->resolver->isEmailAuthorizedToLogin('never-seen@test.com', $this->scoutYearId));
+    }
+
+    // --- Multi-email support: login via a valid secondary address (module addendum) ---
+
+    private function memberIdForEmail(string $email): int
+    {
+        $stmt = $this->pdo->prepare('SELECT member_id FROM member_years WHERE email_blind_index = ?');
+        $stmt->execute([$this->encryption->blindIndex(strtolower($email))]);
+        return (int) $stmt->fetchColumn();
+    }
+
+    private function addMemberEmail(int $memberId, string $email, string $status): void
+    {
+        $normalized = strtolower($email);
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO member_emails (member_id, email_encrypted, email_blind_index, source, status)
+             VALUES (?, ?, ?, ?, ?)'
+        );
+        $stmt->execute([
+            $memberId,
+            $this->encryption->encrypt($normalized),
+            $this->encryption->blindIndex($normalized),
+            'manual',
+            $status,
+        ]);
+    }
+
+    private function resolverWithSecondaryEmailSupport(): RoleResolver
+    {
+        return new RoleResolver(
+            new MemberYearRepository($this->pdo),
+            $this->encryption,
+            $this->pdo,
+            new MemberEmailRepository($this->pdo, $this->encryption)
+        );
+    }
+
+    public function testResolveMatchesAValidSecondaryEmail(): void
+    {
+        $this->createUserAccount('chief-desk@test.com');
+        $this->createMemberWithFunction('chief-desk@test.com', 'Animateur', 'chief', true);
+        $memberId = $this->memberIdForEmail('chief-desk@test.com');
+        $this->addMemberEmail($memberId, 'chief-secondary@test.com', 'valid');
+
+        $resolver = $this->resolverWithSecondaryEmailSupport();
+
+        $this->assertSame('chief', $resolver->resolve('chief-secondary@test.com', $this->scoutYearId));
+    }
+
+    public function testResolveIgnoresAPendingSecondaryEmail(): void
+    {
+        $this->createUserAccount('pending-desk@test.com');
+        $this->createMemberWithFunction('pending-desk@test.com', 'Animateur', 'chief', true);
+        $memberId = $this->memberIdForEmail('pending-desk@test.com');
+        $this->addMemberEmail($memberId, 'pending-secondary@test.com', 'pending');
+
+        $resolver = $this->resolverWithSecondaryEmailSupport();
+
+        $this->assertSame('identified', $resolver->resolve('pending-secondary@test.com', $this->scoutYearId));
+    }
+
+    public function testResolveIgnoresAnInactiveSecondaryEmail(): void
+    {
+        $this->createUserAccount('inactive-desk@test.com');
+        $this->createMemberWithFunction('inactive-desk@test.com', 'Animateur', 'chief', true);
+        $memberId = $this->memberIdForEmail('inactive-desk@test.com');
+        $this->addMemberEmail($memberId, 'inactive-secondary@test.com', 'inactive');
+
+        $resolver = $this->resolverWithSecondaryEmailSupport();
+
+        $this->assertSame('identified', $resolver->resolve('inactive-secondary@test.com', $this->scoutYearId));
+    }
+
+    public function testGetLinkedMemberYearsIncludesTheMemberViaAValidSecondaryEmail(): void
+    {
+        $this->createUserAccount('linked-desk@test.com');
+        $this->createMemberWithFunction('linked-desk@test.com', 'Animé', 'identified', true);
+        $memberId = $this->memberIdForEmail('linked-desk@test.com');
+        $this->addMemberEmail($memberId, 'linked-secondary@test.com', 'valid');
+
+        $resolver = $this->resolverWithSecondaryEmailSupport();
+
+        $ids = $resolver->getLinkedMemberYears('linked-secondary@test.com', $this->scoutYearId);
+        $this->assertCount(1, $ids);
+    }
+
+    public function testIsEmailAuthorizedToLoginViaAValidSecondaryEmail(): void
+    {
+        $this->createUserAccount('authorized-desk@test.com');
+        $this->createMemberWithFunction('authorized-desk@test.com', 'Animé', 'identified', true);
+        $memberId = $this->memberIdForEmail('authorized-desk@test.com');
+        $this->addMemberEmail($memberId, 'authorized-secondary@test.com', 'valid');
+
+        $resolver = $this->resolverWithSecondaryEmailSupport();
+
+        $this->assertTrue($resolver->isEmailAuthorizedToLogin('authorized-secondary@test.com', $this->scoutYearId));
+    }
+
+    /**
+     * Module addendum: unsubscribing an address revokes login too, even
+     * for the Desk-imported address itself — the one exception to "the
+     * Desk address is always usable, no exceptions" (see schema/core.sql).
+     */
+    public function testResolveDeniesLoginForAnUnsubscribedDeskAddress(): void
+    {
+        $this->createUserAccount('unsubscribed-desk@test.com');
+        $this->createMemberWithFunction('unsubscribed-desk@test.com', 'Animateur', 'chief', true);
+        $memberId = $this->memberIdForEmail('unsubscribed-desk@test.com');
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO member_emails (member_id, email_encrypted, email_blind_index, source, status)
+             VALUES (?, ?, ?, ?, ?)'
+        );
+        $stmt->execute([
+            $memberId,
+            $this->encryption->encrypt('unsubscribed-desk@test.com'),
+            $this->encryption->blindIndex('unsubscribed-desk@test.com'),
+            'desk',
+            'inactive',
+        ]);
+
+        $resolver = $this->resolverWithSecondaryEmailSupport();
+
+        $this->assertSame('identified', $resolver->resolve('unsubscribed-desk@test.com', $this->scoutYearId));
+        $this->assertFalse($resolver->isEmailAuthorizedToLogin('unsubscribed-desk@test.com', $this->scoutYearId));
+        $this->assertSame([], $resolver->getLinkedMemberYears('unsubscribed-desk@test.com', $this->scoutYearId));
+    }
+
+    public function testIsEmailNotAuthorizedViaAPendingSecondaryEmail(): void
+    {
+        $this->createUserAccount('unauthorized-desk@test.com');
+        $this->createMemberWithFunction('unauthorized-desk@test.com', 'Animé', 'identified', true);
+        $memberId = $this->memberIdForEmail('unauthorized-desk@test.com');
+        $this->addMemberEmail($memberId, 'unauthorized-secondary@test.com', 'pending');
+
+        $resolver = $this->resolverWithSecondaryEmailSupport();
+
+        $this->assertFalse($resolver->isEmailAuthorizedToLogin('unauthorized-secondary@test.com', $this->scoutYearId));
     }
 }

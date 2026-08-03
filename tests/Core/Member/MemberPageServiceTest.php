@@ -11,6 +11,8 @@ use Core\Import\AgeBranchRepository;
 use Core\Import\MemberYearRepository;
 use Core\Member\MemberDocumentRepository;
 use Core\Member\MemberDocumentService;
+use Core\Member\MemberEmailRepository;
+use Core\Member\MemberEmailService;
 use Core\Member\MemberPageService;
 use Core\Member\MemberProfile;
 use Core\Member\MemberService;
@@ -38,6 +40,7 @@ class MemberPageServiceTest extends TestCase
     private MemberBadgeRepository $memberBadgeRepository;
     private AgeBranchRepository $ageBranchRepository;
     private MemberDocumentService $memberDocumentService;
+    private MemberEmailService $memberEmailService;
     private int $scoutYearId;
     private int $sectionId;
     private int $branchId;
@@ -53,6 +56,17 @@ class MemberPageServiceTest extends TestCase
         $this->badgeRepository = new BadgeRepository($this->pdo);
         $this->ageBranchRepository = new AgeBranchRepository($this->pdo);
         $this->memberDocumentService = new MemberDocumentService(new MemberDocumentRepository($this->pdo));
+        $this->memberEmailService = new MemberEmailService(
+            new MemberEmailRepository($this->pdo, $this->encryption),
+            $this->createMock(\Core\Mail\MailService::class),
+            $this->createMock(\Twig\Environment::class),
+            $this->createMock(\Core\Journal\JournalService::class),
+            $this->sectionService,
+            $this->memberService,
+            new \Core\Config\ScoutYearService($this->pdo),
+            'https://example.test',
+            'Test Unité'
+        );
 
         $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES ('2025-2026', '2025-09-01', '2026-08-31', 1)");
         $this->scoutYearId = (int) $this->pdo->lastInsertId();
@@ -76,6 +90,7 @@ class MemberPageServiceTest extends TestCase
             $this->memberBadgeRepository,
             $this->ageBranchRepository,
             $this->memberDocumentService,
+            $this->memberEmailService,
             $responsableProvider,
             $massMailQuery,
             $galleryAlbumProvider,

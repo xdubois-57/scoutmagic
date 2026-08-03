@@ -196,37 +196,73 @@
                 </div>
             {% endif %}
 
-            {# §7 — Contact et connexion #}
-            {% if show_contact %}
+            {# §7bis — Adresses email (self-service only, no chief/admin
+               bypass — module addendum: "a member manages ONLY their own
+               secondary emails"). The Desk-imported address is always
+               shown first, never editable/deletable, and stays 'valide'
+               unless it was unsubscribed from mass-mail (see
+               Core\Member\MemberEmailService::listForMember()). #}
+            {% if is_self %}
                 <div class="card mb-3">
                     <div class="card-body">
-                        <h2 class="h5 mb-3">Contact et connexion</h2>
-                        <table class="table table-sm mb-0">
-                            <tbody>
-                                {% if member.email %}
-                                    <tr>
-                                        <td class="text-body-secondary small">Email</td>
-                                        <td><a href="mailto:{{ member.email }}">{{ member.email }}</a></td>
-                                    </tr>
-                                {% else %}
-                                    <tr>
-                                        <td class="text-body-secondary small" colspan="2">Aucune adresse email connue.</td>
-                                    </tr>
-                                {% endif %}
-                            </tbody>
-                        </table>
-                        {% if member.phone %}
-                            <div class="d-flex align-items-center gap-2 mt-2">
-                                <i class="bi bi-telephone text-body-secondary"></i>
-                                <a href="tel:{{ member.phone|normalize_phone|replace({' ': ''}) }}">{{ member.phone|normalize_phone }}</a>
+                        <h2 class="h5 mb-3">Adresses email</h2>
+                        {% for row in member_emails %}
+                            <div class="d-flex justify-content-between align-items-start border-bottom py-2 flex-wrap gap-2">
+                                <div>
+                                    <div>
+                                        {{ row.email }}
+                                        {% if row.status == 'valid' %}
+                                            <span class="badge bg-success">Valide</span>
+                                        {% elseif row.status == 'pending' %}
+                                            <span class="badge bg-warning text-dark">En attente de confirmation</span>
+                                        {% else %}
+                                            <span class="badge bg-secondary">Inactif</span>
+                                        {% endif %}
+                                    </div>
+                                    {% if row.source == 'desk' %}
+                                        <div class="small text-body-secondary">Adresse importée depuis Desk</div>
+                                        {% if row.status == 'inactive' %}
+                                            <div class="small text-body-secondary">Désinscrit(e) des emails groupés le {{ row.deactivatedAt|french_date }}</div>
+                                        {% endif %}
+                                    {% elseif row.status == 'valid' %}
+                                        <div class="small text-body-secondary">Confirmée le {{ row.confirmedAt|french_date }}</div>
+                                    {% elseif row.status == 'pending' %}
+                                        <div class="small text-body-secondary">Email de confirmation envoyé le {{ row.lastConfirmationSentAt|french_date }}</div>
+                                    {% elseif row.status == 'inactive' %}
+                                        <div class="small text-body-secondary">Désinscrit(e) des emails groupés le {{ row.deactivatedAt|french_date }}</div>
+                                    {% endif %}
+                                </div>
+                                <div class="d-flex flex-wrap gap-2">
+                                    {% if row.status == 'pending' %}
+                                        {% set cooldown = member_email_resend_cooldown_minutes[row.id] ?? 0 %}
+                                        <form method="post" action="/members/{{ member.memberYearId }}/emails/{{ row.id }}/resend">
+                                            {{ csrf_field() }}
+                                            <button type="submit" class="btn btn-sm btn-outline-secondary" {% if cooldown > 0 %}disabled title="Veuillez patienter avant de renvoyer"{% endif %}>
+                                                Renvoyer{% if cooldown > 0 %} (dans {{ cooldown }} min){% endif %}
+                                            </button>
+                                        </form>
+                                    {% endif %}
+                                    {% if row.status == 'inactive' %}
+                                        <form method="post" action="/members/{{ member.memberYearId }}/emails/{{ row.id }}/reactivate">
+                                            {{ csrf_field() }}
+                                            <button type="submit" class="btn btn-sm btn-outline-primary">Réactiver</button>
+                                        </form>
+                                    {% endif %}
+                                    {% if row.source != 'desk' %}
+                                        <form method="post" action="/members/{{ member.memberYearId }}/emails/{{ row.id }}/delete" data-confirm="{% if row.status == 'pending' %}Annuler l'ajout de cette adresse email ?{% else %}Supprimer cette adresse email ?{% endif %}">
+                                            {{ csrf_field() }}
+                                            <button type="submit" class="btn btn-sm btn-outline-danger">{% if row.status == 'pending' %}Annuler{% else %}Supprimer{% endif %}</button>
+                                        </form>
+                                    {% endif %}
+                                </div>
                             </div>
-                        {% endif %}
-                        {% if member.mobile %}
-                            <div class="d-flex align-items-center gap-2 mt-2">
-                                <i class="bi bi-phone text-body-secondary"></i>
-                                <a href="tel:{{ member.mobile|normalize_phone|replace({' ': ''}) }}">{{ member.mobile|normalize_phone }}</a>
-                            </div>
-                        {% endif %}
+                        {% endfor %}
+
+                        <form method="post" action="/members/{{ member.memberYearId }}/emails" class="d-flex flex-wrap gap-2 mt-3">
+                            {{ csrf_field() }}
+                            <input type="email" name="email" class="form-control form-control-sm" style="max-width:260px;" placeholder="nouvelle-adresse@example.com" required>
+                            <button type="submit" class="btn btn-sm btn-primary text-nowrap">Ajouter une adresse</button>
+                        </form>
                     </div>
                 </div>
             {% endif %}
@@ -244,6 +280,18 @@
                                 <span class="text-body-secondary d-block">Nom complet</span>
                                 {{ member|full_name }}
                             </div>
+                            {% if member.phone %}
+                                <div class="col-6 col-md-4">
+                                    <span class="text-body-secondary d-block">Téléphone</span>
+                                    <a href="tel:{{ member.phone|normalize_phone|replace({' ': ''}) }}">{{ member.phone|normalize_phone }}</a>
+                                </div>
+                            {% endif %}
+                            {% if member.mobile %}
+                                <div class="col-6 col-md-4">
+                                    <span class="text-body-secondary d-block">GSM</span>
+                                    <a href="tel:{{ member.mobile|normalize_phone|replace({' ': ''}) }}">{{ member.mobile|normalize_phone }}</a>
+                                </div>
+                            {% endif %}
                             {% if member.totem %}
                                 <div class="col-6 col-md-4">
                                     <span class="text-body-secondary d-block">Totem</span>
@@ -340,4 +388,20 @@
             </div>
         {% endif %}
     </div>
+{% endblock %}
+{# Inline onsubmit="confirm(...)" is blocked by the site's CSP
+   (script-src has no 'unsafe-inline' — see core/Http/Response.php) — same
+   nonce-carrying-inline-<script> pattern as config/general.html.twig and
+   config/rgpd.html.twig, delegated to every data-confirm form on this
+   page rather than one listener per form. #}
+{% block scripts %}
+<script nonce="{{ csp_nonce }}">
+document.querySelectorAll('form[data-confirm]').forEach(function (form) {
+    form.addEventListener('submit', function (e) {
+        if (!confirm(form.dataset.confirm)) {
+            e.preventDefault();
+        }
+    });
+});
+</script>
 {% endblock %}

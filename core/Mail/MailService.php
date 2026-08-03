@@ -31,6 +31,9 @@ class MailService
      *                                          signs under the site's own configured domain regardless — that's the
      *                                          only domain with a verified key/DNS record, and mismatching it against
      *                                          an arbitrary override domain would produce an invalid signature.
+     * @param array<string, string> $extraHeaders Raw header name => value pairs added as-is (e.g. mass_mail's
+     *                                             List-Unsubscribe / List-Unsubscribe-Post, RFC 8058) — the caller is
+     *                                             responsible for values being header-safe (no newlines).
      * @throws MailException on failure
      */
     public function send(
@@ -41,7 +44,8 @@ class MailService
         ?string $replyTo = null,
         array $attachments = [],
         ?string $fromAddressOverride = null,
-        ?string $fromNameOverride = null
+        ?string $fromNameOverride = null,
+        array $extraHeaders = []
     ): void {
         $mail = new PHPMailer(true);
 
@@ -82,6 +86,10 @@ class MailService
             // Attachments
             foreach ($attachments as $attachment) {
                 $mail->addAttachment($attachment['path'], $attachment['name']);
+            }
+
+            foreach ($extraHeaders as $name => $value) {
+                $mail->addCustomHeader($name, $value);
             }
 
             // DKIM signing — deliberately always the site's own configured

@@ -14,6 +14,8 @@ use Core\Import\MemberYearRepository;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Mail\MailService;
+use Core\Member\MemberEmailRepository;
+use Core\Member\MemberEmailService;
 use Core\Member\MemberService;
 use Core\Member\SectionService;
 use Core\Scheduler\SchedulerRepository;
@@ -75,6 +77,7 @@ class MassMailServiceTest extends TestCase
             new FileRepository($this->pdo),
             $listService,
             $memberService,
+            $this->buildMemberEmailService($encryption, $sectionService, $memberService),
             $sectionService,
             $this->createMock(MailService::class),
             new SchedulerService(new SchedulerRepository($this->pdo)),
@@ -95,6 +98,21 @@ class MassMailServiceTest extends TestCase
         $this->otherSectionId = (int) $this->pdo->lastInsertId();
 
         $this->unrestricted = new SenderAuthorization(true, [], null);
+    }
+
+    private function buildMemberEmailService(EncryptionService $encryption, SectionService $sectionService, MemberService $memberService): MemberEmailService
+    {
+        return new MemberEmailService(
+            new MemberEmailRepository($this->pdo, $encryption),
+            $this->createMock(MailService::class),
+            $this->createMock(\Twig\Environment::class),
+            new JournalService(new JournalRepository($this->pdo)),
+            $sectionService,
+            $memberService,
+            new ScoutYearService($this->pdo),
+            'https://example.test',
+            'Test Unité'
+        );
     }
 
     private function createMemberWithEmail(?string $email, bool $consent = true, ?int $scoutYearId = null): int
@@ -465,6 +483,7 @@ class MassMailServiceTest extends TestCase
             new FileRepository($this->pdo),
             $listService,
             $memberService,
+            $this->buildMemberEmailService($encryption, $sectionService, $memberService),
             $sectionService,
             $mailServiceMock,
             new SchedulerService(new SchedulerRepository($this->pdo)),

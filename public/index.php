@@ -480,7 +480,11 @@ $importService = new DeskImportService(
     $pdo, $encryptionService, $csvParser, $mappingResolver,
     $memberRepo, $memberYearRepo, $importJournalRepo, $userAccountRepo, $unitStaffSectionService
 );
-$roleResolver = new RoleResolver($memberYearRepo, $encryptionService, $pdo);
+// Multi-email support per member (Core\Member\MemberEmailService) — built
+// before $roleResolver so login-by-email resolution can also match a
+// currently-valid secondary address (see RoleResolver's own docblock).
+$memberEmailRepository = new \Core\Member\MemberEmailRepository($pdo, $encryptionService);
+$roleResolver = new RoleResolver($memberYearRepo, $encryptionService, $pdo, $memberEmailRepository);
 $memberService = new MemberService($memberYearRepo, $encryptionService, $connection);
 $memberYearService = new MemberYearService();
 $memberSearchService = new MemberSearchService(new MemberSearchRepository($connection, $encryptionService));
@@ -496,6 +500,14 @@ $badgeService = new BadgeService($badgeRepository, $memberBadgeRepository, $sect
 // Member page (Espace des animés) "Documents privés" storage — see
 // Core\Member\MemberDocumentService.
 $memberDocumentService = new \Core\Member\MemberDocumentService(new \Core\Member\MemberDocumentRepository($pdo));
+
+// Member page "Adresses email" — multi-email support per member (Core\
+// Member\MemberEmailService). $memberEmailRepository was already built
+// above, before $roleResolver.
+$memberEmailService = new \Core\Member\MemberEmailService(
+    $memberEmailRepository, $mailService, $twig, $journalService, $sectionService, $memberService, $scoutYearService,
+    (string) $settingService->get('base_url'), (string) ($settingService->get('site_name') ?: 'Unité scoute')
+);
 
 // Scout year resolution (public / staff / session-preview priority)
 $scoutYearResolver = new ScoutYearResolver($scoutYearService, $settingService, $memberYearRepo);
@@ -750,6 +762,16 @@ $router->addRoute('DELETE', '/api/push-subscription', PushSubscriptionController
 // Member pages
 $router->addRoute('GET', '/members/{id}', MemberController::class, 'show', 'identified');
 $router->addRoute('POST', '/members/{id}/scout-year-offset', MemberController::class, 'updateScoutYearOffset', 'chief');
+// Member page "Adresses email" — self-service only, no chief/admin route
+// exists for this (Core\Http\Controller\MemberEmailAddressController
+// re-verifies self access on every action regardless of role_min).
+$router->addRoute('POST', '/members/{id}/emails', \Core\Http\Controller\MemberEmailAddressController::class, 'add', 'identified');
+$router->addRoute('POST', '/members/{id}/emails/{email_id}/resend', \Core\Http\Controller\MemberEmailAddressController::class, 'resend', 'identified');
+$router->addRoute('POST', '/members/{id}/emails/{email_id}/reactivate', \Core\Http\Controller\MemberEmailAddressController::class, 'reactivate', 'identified');
+$router->addRoute('POST', '/members/{id}/emails/{email_id}/delete', \Core\Http\Controller\MemberEmailAddressController::class, 'delete', 'identified');
+// The confirmation link's target — public, unauthenticated, same reasoning
+// as /auth/verify and /password-reset/{id}.
+$router->addRoute('GET', '/members/emails/confirm/{id}', \Core\Http\Controller\MemberEmailAddressController::class, 'confirm', 'public');
 // The email-detail route (/members/{id}/emails/{recipient_id}) is
 // registered inside the mass_mail module block below (module-owned data,
 // core only ever links to it) — it doesn't exist at all when mass_mail is
@@ -948,7 +970,7 @@ $calendarEventLookup = null;
 // down, once mass_mail/gallery/trombinoscope/calendar availability is
 // known, exactly like MemberController itself.
 $memberPageService = new \Core\Member\MemberPageService(
-    $sectionService, $memberService, $badgeRepository, $memberBadgeRepository, $ageBranchRepo, $memberDocumentService
+    $sectionService, $memberService, $badgeRepository, $memberBadgeRepository, $ageBranchRepo, $memberDocumentService, $memberEmailService
 );
 
 // Register controllers with dependencies
@@ -993,6 +1015,10 @@ $frontController->registerController(PasswordResetController::class, new Passwor
 $frontController->registerController(ShortUrlController::class, new ShortUrlController($twig, $shortUrlService));
 $frontController->registerController(ImportController::class, new ImportController($twig, $importService, $scoutYearResolver, $importJournalRepo, $functionRepo, $storagePath));
 $frontController->registerController(MemberController::class, new MemberController($twig, $memberService, $memberYearService, $journalService, $memberPageService));
+$frontController->registerController(
+    \Core\Http\Controller\MemberEmailAddressController::class,
+    new \Core\Http\Controller\MemberEmailAddressController($twig, $memberEmailService, $memberService)
+);
 $frontController->registerController(StaffsController::class, new StaffsController($twig, $sectionService, $memberService, $scoutYearResolver, $journalService, $badgeService, $unitStaffSectionService));
 $frontController->registerController(ConfigModeController::class, new ConfigModeController($twig));
 $editableContentController = new EditableContentController($twig, $editableContentService);
@@ -1349,7 +1375,7 @@ if (in_array('mass_mail', $moduleManager->getEnabledModuleIds(), true)) {
     $massMailAccessService = new \Modules\MassMail\Service\MassMailAccessService($memberService, $sectionService);
     $massMailService = new \Modules\MassMail\Service\MassMailService(
         $massMailEmailRepo, $massMailRecipientRepo, $massMailAttachmentRepo, $fileRepository,
-        $massMailListService, $memberService, $sectionService, $mailService, $schedulerService, $journalService,
+        $massMailListService, $memberService, $memberEmailService, $sectionService, $mailService, $schedulerService, $journalService,
         new \Core\Security\HtmlSanitizer(), $scoutYearService, $importJournalRepo, $storagePath
     );
 
@@ -1374,6 +1400,13 @@ if (in_array('mass_mail', $moduleManager->getEnabledModuleIds(), true)) {
         new \Modules\MassMail\Controller\MemberEmailController(
             $twig, $memberService, new \Modules\MassMail\Service\MassMailQueryService($massMailRecipientRepo)
         )
+    );
+
+    // One-click unsubscribe (module addendum, RFC 8058) — public, no
+    // session, token-authenticated (see the controller's own docblock).
+    $frontController->registerController(
+        \Modules\MassMail\Controller\UnsubscribeController::class,
+        new \Modules\MassMail\Controller\UnsubscribeController($twig, $massMailRecipientRepo, $memberEmailService)
     );
 
     // MemberController is re-registered once, with every optional
@@ -1631,7 +1664,7 @@ if (
         : null;
 
     $memberPageService = new \Core\Member\MemberPageService(
-        $sectionService, $memberService, $badgeRepository, $memberBadgeRepository, $ageBranchRepo, $memberDocumentService,
+        $sectionService, $memberService, $badgeRepository, $memberBadgeRepository, $ageBranchRepo, $memberDocumentService, $memberEmailService,
         $sectionResponsableProvider, $massMailQueryForMember, $galleryAlbumProviderForMember, $calendarEventLookup
     );
 

@@ -16,6 +16,12 @@ final class Recipient
         public readonly int $memberId,
         public readonly int $scoutYearId,
         public readonly ?string $emailAddress,
+        // Which Core\Member\MemberEmail row this address maps to (module
+        // addendum, multi-email support) — null only for the "no usable
+        // address at all" error row. Task\SendBatchHandler's one-click
+        // unsubscribe link is built from this, never a bare member/email
+        // id in the URL.
+        public readonly ?int $memberEmailId,
         public readonly string $status,
         public readonly ?string $errorMessage,
         public readonly ?string $sentAt,

@@ -82,16 +82,42 @@ class SendBatchHandler implements TaskHandlerInterface
             }
             $sender = $senderIdentityBySection[$email->sectionId];
 
+            // One-click unsubscribe (module addendum, RFC 8058) — a fresh
+            // token generated right before this actual send (never at
+            // freeze time in MassMailService::startSending(), which only
+            // resolves member_email_id; there'd be nowhere safe to hold a
+            // raw token between freezing and sending), same generation/
+            // hashing convention as Core\Security\AuthService's magic
+            // links. Every send gets the footer link + both headers,
+            // regardless of whether this recipient's address maps to the
+            // Desk-imported email or a secondary one — Modules\MassMail\
+            // Controller\UnsubscribeController resolves the right
+            // Core\Member\MemberEmail row from recipient->memberEmailId.
+            $rawUnsubscribeToken = bin2hex(random_bytes(32));
+            $recipientRepository->setUnsubscribeTokenHash($recipient->id, password_hash($rawUnsubscribeToken, PASSWORD_DEFAULT));
+            $unsubscribeUrl = rtrim((string) $context->settings->get('base_url'), '/')
+                . '/mass-mail/unsubscribe/' . $recipient->id . '?token=' . $rawUnsubscribeToken;
+
+            $bodyHtml = $email->bodyHtml
+                . '<hr><p style="font-size:12px;color:#999;">Vous recevez cet email en tant que membre de l\'unité. '
+                . '<a href="' . htmlspecialchars($unsubscribeUrl, ENT_QUOTES) . '">Se désinscrire des emails groupés</a>.</p>';
+            $bodyText = strip_tags($email->bodyHtml)
+                . "\n\n---\nVous recevez cet email en tant que membre de l'unité.\nSe désinscrire des emails groupés : " . $unsubscribeUrl;
+
             try {
                 $context->mailService->send(
                     $recipient->emailAddress,
                     $email->subject,
-                    $email->bodyHtml,
-                    strip_tags($email->bodyHtml),
+                    $bodyHtml,
+                    $bodyText,
                     null,
                     $attachments,
                     $sender['address'],
-                    $sender['name']
+                    $sender['name'],
+                    [
+                        'List-Unsubscribe' => '<' . $unsubscribeUrl . '>',
+                        'List-Unsubscribe-Post' => 'List-Unsubscribe=One-Click',
+                    ]
                 );
                 $recipientRepository->recordSendSuccess($recipient->id);
                 $sentCount++;
@@ -144,6 +170,30 @@ class SendBatchHandler implements TaskHandlerInterface
             new \Core\Badge\MemberBadgeRepository($pdo)
         );
 
+        $memberService = new \Core\Member\MemberService(new \Core\Import\MemberYearRepository($pdo), $context->encryption, $context->connection);
+        $scoutYearService = new \Core\Config\ScoutYearService($pdo);
+
+        // No module namespace needed — Core\Member\MemberEmailService only
+        // ever renders core's own email/member_email_confirmation.html.twig
+        // from this reconstruction path (via resolveValidAddressesForMassMail()
+        // → findOrCreateDeskOverride(), which never actually sends mail —
+        // $sectionService/$memberService/$scoutYearService are only here
+        // to satisfy the constructor, unsubscribe() is never reached from
+        // this particular call path). Same TwigFactory::create()
+        // task-context pattern as Modules\News\Task\SendResponseDigestHandler.
+        $twig = \Core\View\TwigFactory::create(dirname(__DIR__, 4) . '/core/View/templates');
+        $memberEmailService = new \Core\Member\MemberEmailService(
+            new \Core\Member\MemberEmailRepository($pdo, $context->encryption),
+            $context->mailService,
+            $twig,
+            $context->journal,
+            $sectionService,
+            $memberService,
+            $scoutYearService,
+            (string) $context->settings->get('base_url'),
+            (string) ($context->settings->get('site_name') ?: 'Unité scoute')
+        );
+
         return new MassMailService(
             new EmailRepository($pdo),
             new RecipientRepository($pdo, $context->encryption),
@@ -155,13 +205,14 @@ class SendBatchHandler implements TaskHandlerInterface
                 $sectionService,
                 new \Core\Import\FunctionRepository($pdo)
             ),
-            new \Core\Member\MemberService(new \Core\Import\MemberYearRepository($pdo), $context->encryption, $context->connection),
+            $memberService,
+            $memberEmailService,
             $sectionService,
             $context->mailService,
             new SchedulerService(new \Core\Scheduler\SchedulerRepository($pdo)),
             $context->journal,
             new \Core\Security\HtmlSanitizer(),
-            new \Core\Config\ScoutYearService($pdo),
+            $scoutYearService,
             new \Core\Import\ImportJournalRepository($pdo),
             $context->storagePath
         );

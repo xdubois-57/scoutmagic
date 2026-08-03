@@ -26,23 +26,65 @@ class RecipientRepository
      * Whether $emailAddress is valid decides the caller's $status/
      * $errorMessage before calling this — this method only ever persists
      * what it's told (no validation here, see Service\MassMailService::
-     * startSending()).
+     * startSending()). $memberEmailId is null only for the defensive
+     * "no usable address at all" error row.
      */
-    public function create(int $emailId, int $memberId, int $scoutYearId, ?string $emailAddress, string $status, ?string $errorMessage): int
+    public function create(int $emailId, int $memberId, int $scoutYearId, ?string $emailAddress, string $status, ?string $errorMessage, ?int $memberEmailId = null): int
     {
         $stmt = $this->pdo->prepare(
-            'INSERT INTO mass_mail_recipients (email_id, member_id, scout_year_id, email_address_encrypted, status, error_message)
-             VALUES (?, ?, ?, ?, ?, ?)'
+            'INSERT INTO mass_mail_recipients (email_id, member_id, scout_year_id, email_address_encrypted, member_email_id, status, error_message)
+             VALUES (?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([
             $emailId,
             $memberId,
             $scoutYearId,
             $emailAddress !== null ? $this->encryption->encrypt($emailAddress) : null,
+            $memberEmailId,
             $status,
             $errorMessage,
         ]);
         return (int) $this->pdo->lastInsertId();
+    }
+
+    /**
+     * Task\SendBatchHandler generates a fresh one-click unsubscribe token
+     * right before actually sending each recipient (never at freeze time
+     * in startSending() — there'd be nowhere safe to hold the raw token
+     * between freezing and sending) — same generation/hashing convention
+     * as Core\Security\AuthService's magic links
+     * (bin2hex(random_bytes(32)), hashed with password_hash()). Unlike a
+     * login token this is never single-use/expiring, so there's no
+     * separate "mark used" step.
+     */
+    public function setUnsubscribeTokenHash(int $id, string $tokenHash): void
+    {
+        $stmt = $this->pdo->prepare('UPDATE mass_mail_recipients SET unsubscribe_token_hash = ? WHERE id = ?');
+        $stmt->execute([$tokenHash, $id]);
+    }
+
+    /**
+     * The one-click unsubscribe endpoint's authentication — never trusts
+     * a bare recipient id in the URL, always re-verifies the token against
+     * the stored hash. Null on any mismatch (unknown id, no token ever
+     * generated for this row, wrong token) — Modules\MassMail\Controller\
+     * UnsubscribeController fails gracefully either way, same "no stack
+     * trace, no enumeration" contract as every other token check in this
+     * codebase.
+     */
+    public function verifyUnsubscribeToken(int $id, string $rawToken): ?Recipient
+    {
+        $stmt = $this->pdo->prepare('SELECT * FROM mass_mail_recipients WHERE id = ?');
+        $stmt->execute([$id]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+        if ($row === false || $row['unsubscribe_token_hash'] === null) {
+            return null;
+        }
+        if (!password_verify($rawToken, $row['unsubscribe_token_hash'])) {
+            return null;
+        }
+
+        return $this->hydrate($row);
     }
 
     public function findById(int $id): ?Recipient
@@ -223,6 +265,7 @@ class RecipientRepository
             memberId: (int) $row['member_id'],
             scoutYearId: (int) $row['scout_year_id'],
             emailAddress: $row['email_address_encrypted'] !== null ? $this->encryption->decrypt($row['email_address_encrypted']) : null,
+            memberEmailId: $row['member_email_id'] !== null ? (int) $row['member_email_id'] : null,
             status: (string) $row['status'],
             errorMessage: $row['error_message'] !== null ? (string) $row['error_message'] : null,
             sentAt: $row['sent_at'] !== null ? (string) $row['sent_at'] : null,

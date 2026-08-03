@@ -72,6 +72,8 @@ class MassMailTestHelper
             member_id INTEGER NOT NULL,
             scout_year_id INTEGER NOT NULL,
             email_address_encrypted BLOB,
+            member_email_id INTEGER,
+            unsubscribe_token_hash TEXT,
             status TEXT NOT NULL DEFAULT \'pending\',
             error_message TEXT,
             sent_at TEXT,
@@ -79,7 +81,8 @@ class MassMailTestHelper
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (email_id) REFERENCES mass_mail_emails(id),
             FOREIGN KEY (member_id) REFERENCES members(id),
-            FOREIGN KEY (scout_year_id) REFERENCES scout_years(id)
+            FOREIGN KEY (scout_year_id) REFERENCES scout_years(id),
+            FOREIGN KEY (member_email_id) REFERENCES member_emails(id)
         )');
 
         $pdo->exec('CREATE TABLE mass_mail_attachments (

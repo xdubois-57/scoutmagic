@@ -15,6 +15,8 @@ use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Member\MemberDocumentRepository;
 use Core\Member\MemberDocumentService;
+use Core\Member\MemberEmailRepository;
+use Core\Member\MemberEmailService;
 use Core\Member\MemberPageService;
 use Core\Member\MemberService;
 use Core\Member\MemberYearService;
@@ -89,6 +91,18 @@ class MemberControllerMassMailTest extends TestCase
         $connection = Connection::withPdo($this->pdo);
         $memberBadgeRepository = new MemberBadgeRepository($this->pdo);
 
+        $memberEmailService = new MemberEmailService(
+            new MemberEmailRepository($this->pdo, $this->encryption),
+            $this->createMock(\Core\Mail\MailService::class),
+            $this->createMock(Environment::class),
+            new JournalService(new JournalRepository($this->pdo)),
+            new SectionService($connection, $this->encryption, $memberBadgeRepository),
+            $this->memberService,
+            new \Core\Config\ScoutYearService($this->pdo),
+            'https://example.test',
+            'Test Unité'
+        );
+
         return new MemberPageService(
             new SectionService($connection, $this->encryption, $memberBadgeRepository),
             $this->memberService,
@@ -96,6 +110,7 @@ class MemberControllerMassMailTest extends TestCase
             $memberBadgeRepository,
             new AgeBranchRepository($this->pdo),
             new MemberDocumentService(new MemberDocumentRepository($this->pdo)),
+            $memberEmailService,
             null,
             $massMailQuery
         );

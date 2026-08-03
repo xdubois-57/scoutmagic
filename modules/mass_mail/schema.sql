@@ -96,11 +96,14 @@ CREATE TABLE IF NOT EXISTS mass_mail_email_scout_years (
     CONSTRAINT fk_mmesy_scout_year FOREIGN KEY (scout_year_id) REFERENCES scout_years(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- mass_mail_recipients: one row per member the list resolved to at the
--- moment the email left 'draft'/'test' for 'sending' (Service\
+-- mass_mail_recipients: one row per (member, address) the list resolved
+-- to at the moment the email left 'draft'/'test' for 'sending' (Service\
 -- MassMailService::startSending() "freezes" the list here — resolved
 -- fresh from Service\MailingListService, never cached before this
--- point). member_id references the permanent members(id), not
+-- point). A member with several currently-valid addresses (Desk +
+-- secondary, Core\Member\MemberEmailService) gets one row per address,
+-- not one row for the member — member_id is deliberately NOT unique per
+-- email_id. member_id references the permanent members(id), not
 -- member_years, so the link (and the tracking page) survives a scout
 -- year change. email_address_encrypted is personal data copied at that
 -- same instant → BLOB + EncryptionService, decrypted only in
@@ -120,6 +123,21 @@ CREATE TABLE IF NOT EXISTS mass_mail_recipients (
     -- that year, not necessarily the current one).
     scout_year_id INT UNSIGNED NOT NULL,
     email_address_encrypted BLOB NULL,
+    -- The member_emails row this specific address maps to (Core\Member\
+    -- MemberEmailService::resolveOrCreateForMassMail() — for a Desk
+    -- address, lazily find-or-creates a 'desk'-sourced override row the
+    -- first time it's needed here, so unsubscribing it later always has
+    -- something to flip to 'inactive'). NULL only for the defensive
+    -- "invalid address" branch above, which never gets a real address or
+    -- an unsubscribe token either.
+    member_email_id INT UNSIGNED NULL,
+    -- Per-recipient one-click unsubscribe token (module addendum, RFC
+    -- 8058) — same generation/hashing convention as magic_links
+    -- (bin2hex(random_bytes(32)), hashed with password_hash() before
+    -- storage). Unlike a login token this is never single-use/expiring:
+    -- it must keep working for as long as this specific send's footer
+    -- link exists in the recipient's mailbox.
+    unsubscribe_token_hash VARCHAR(255) NULL,
     status ENUM('pending', 'sent', 'error') NOT NULL DEFAULT 'pending',
     error_message TEXT NULL,
     sent_at DATETIME NULL,
@@ -129,7 +147,8 @@ CREATE TABLE IF NOT EXISTS mass_mail_recipients (
     INDEX idx_mmr_email (email_id),
     CONSTRAINT fk_mmr_email FOREIGN KEY (email_id) REFERENCES mass_mail_emails(id) ON DELETE CASCADE,
     CONSTRAINT fk_mmr_member FOREIGN KEY (member_id) REFERENCES members(id),
-    CONSTRAINT fk_mmr_scout_year FOREIGN KEY (scout_year_id) REFERENCES scout_years(id)
+    CONSTRAINT fk_mmr_scout_year FOREIGN KEY (scout_year_id) REFERENCES scout_years(id),
+    CONSTRAINT fk_mmr_member_email FOREIGN KEY (member_email_id) REFERENCES member_emails(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- mass_mail_attachments: plain Core\File\UploadHandler + FileAccessGuard
