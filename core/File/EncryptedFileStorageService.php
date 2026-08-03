@@ -23,6 +23,16 @@ class EncryptedFileStorageService
     private const EXTENSION_BY_MIME = [
         'application/pdf' => 'pdf',
         'application/vnd.openxmlformats-officedocument.wordprocessingml.document' => 'docx',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' => 'xlsx',
+        'application/vnd.openxmlformats-officedocument.presentationml.presentation' => 'pptx',
+        'application/msword' => 'doc',
+        'application/vnd.ms-excel' => 'xls',
+        'application/vnd.ms-powerpoint' => 'ppt',
+        'application/vnd.oasis.opendocument.text' => 'odt',
+        'application/vnd.oasis.opendocument.spreadsheet' => 'ods',
+        'application/vnd.oasis.opendocument.presentation' => 'odp',
+        'text/plain' => 'txt',
+        'text/csv' => 'csv',
         'image/jpeg' => 'jpg',
         'image/png' => 'png',
     ];
@@ -47,7 +57,9 @@ class EncryptedFileStorageService
         string $roleMin,
         ?string $moduleId = null,
         ?int $createdBy = null,
-        ?int $ownerMemberId = null
+        ?int $ownerMemberId = null,
+        ?string $ownerType = null,
+        ?int $ownerId = null
     ): int {
         $extension = self::EXTENSION_BY_MIME[$mimeType] ?? 'bin';
         $randomName = bin2hex(random_bytes(16)) . '.' . $extension . '.enc';
@@ -72,7 +84,9 @@ class EncryptedFileStorageService
             $moduleId,
             $createdBy,
             true,
-            $ownerMemberId
+            $ownerMemberId,
+            $ownerType,
+            $ownerId
         );
     }
 
@@ -95,6 +109,30 @@ class EncryptedFileStorageService
         }
 
         return $this->encryption->decrypt($raw);
+    }
+
+    /**
+     * Swaps a stored file's content in place — same file id and
+     * relative_path, re-encrypted, size_bytes updated. Used by the PDF
+     * compression background task (Core\Member\Task\
+     * CompressSectionDocumentHandler): the document keeps pointing at the
+     * same file_id throughout, so nothing referencing it needs to change.
+     *
+     * @throws \RuntimeException if the file record is missing or the disk write fails
+     */
+    public function replace(int $fileId, string $newContent): void
+    {
+        $file = $this->fileRepository->findById($fileId);
+        if ($file === null) {
+            throw new \RuntimeException("Fichier {$fileId} introuvable.");
+        }
+
+        $encrypted = $this->encryption->encrypt($newContent);
+        if (file_put_contents($this->storagePath . '/' . $file->relativePath, $encrypted) === false) {
+            throw new \RuntimeException('Impossible d\'écrire le fichier chiffré sur le disque.');
+        }
+
+        $this->fileRepository->updateSizeBytes($fileId, strlen($newContent));
     }
 
     /**

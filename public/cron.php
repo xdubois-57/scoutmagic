@@ -124,6 +124,7 @@ $runner->registerHandler('core', 'reset_settings', new ResetSettingsHandler());
 $runner->registerHandler('core', 'full_reset', new FullResetHandler());
 $runner->registerHandler('core', 'restore_backup', new RestoreBackupHandler());
 $runner->registerHandler('core', 'auto_backup', new AutoBackupHandler());
+$runner->registerHandler('core', 'compress_section_document', new \Core\Member\Task\CompressSectionDocumentHandler());
 
 // Web Push (Core\Notification) — same construction as public/index.php.
 // Null when VAPID keys aren't provisioned yet (e.g. this script running

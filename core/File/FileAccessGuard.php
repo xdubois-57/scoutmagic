@@ -11,12 +11,19 @@ class FileAccessGuard
     /**
      * @param array<int, int> $linkedMemberIds Persistent members.id values the current
      *     session is linked to (e.g. via blind-index email match) — used only for the
-     *     owner-scoping check below, never for role_min itself.
+     *     owner-scoping checks below, never for role_min itself.
+     * @param FileOwnershipCheckerInterface[] $ownershipCheckers Registry consulted when
+     *     a file carries owner_type (schema/core.sql's generic polymorphic ownership,
+     *     distinct from the owner_member_id special case below) — one checker per
+     *     owner_type, e.g. Core\Member\SectionDocumentOwnershipChecker for
+     *     'section_document'. A file whose owner_type has no matching checker is denied
+     *     (fail-safe), same posture as RBAC's own "no role_min = no access" default.
      */
     public function __construct(
         private FileRepository $fileRepository,
         private Role $currentRole,
-        private array $linkedMemberIds = []
+        private array $linkedMemberIds = [],
+        private array $ownershipCheckers = []
     ) {
     }
 
@@ -24,15 +31,13 @@ class FileAccessGuard
      * Check if the current user can access a file.
      * Returns the file record if allowed, null if denied or not found.
      *
-     * Two independent checks, both required: the usual role_min floor,
-     * plus — when the file carries an owner_member_id (Core\File\
-     * FileRecord::$ownerMemberId, e.g. a member's private document) — the
-     * current session must be linked to that exact member. This is
-     * deliberately generic (any file, not just member_documents) and has
-     * NO chief/admin bypass: a higher role_min alone never substitutes for
-     * being the actual owner, so a chief browsing with a role_min that
-     * would otherwise satisfy the file's floor still cannot fetch another
-     * member's owner-scoped document.
+     * The usual role_min floor is always required, plus — independently —
+     * whichever of the two ownership mechanisms the file actually uses:
+     * owner_member_id (e.g. a member's private document — the current
+     * session must be linked to that exact member) or owner_type/owner_id
+     * (the generic registry above). Neither has a chief/admin bypass: a
+     * higher role_min alone never substitutes for being the actual owner
+     * or satisfying the registered checker.
      */
     public function check(int $fileId): ?FileRecord
     {
@@ -52,6 +57,24 @@ class FileAccessGuard
             return null;
         }
 
+        if ($file->ownerType !== null) {
+            \assert($file->ownerId !== null);
+            if (!$this->isAllowedByRegistry($file->ownerType, $file->ownerId)) {
+                return null;
+            }
+        }
+
         return $file;
+    }
+
+    private function isAllowedByRegistry(string $ownerType, int $ownerId): bool
+    {
+        foreach ($this->ownershipCheckers as $checker) {
+            if ($checker->supports($ownerType)) {
+                return $checker->isAllowed($ownerId, $this->currentRole, $this->linkedMemberIds);
+            }
+        }
+
+        return false;
     }
 }

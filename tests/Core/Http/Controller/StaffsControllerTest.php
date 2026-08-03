@@ -40,6 +40,7 @@ class StaffsControllerTest extends TestCase
     private SectionService $sectionService;
     private MemberService $memberService;
     private BadgeService $badgeService;
+    private \Core\Member\SectionDocumentService $sectionDocumentService;
     private EncryptionService $encryption;
     private int $scoutYearId;
 
@@ -59,6 +60,23 @@ class StaffsControllerTest extends TestCase
         $journalRepo = new JournalRepository($this->pdo);
         $journalService = new JournalService($journalRepo);
         $this->badgeService = new BadgeService(new BadgeRepository($this->pdo), $memberBadgeRepository, $this->sectionService);
+
+        $settingService->register('section_document_compression_enabled', '1', 'boolean', 'x', 'x');
+        $settingService->register('section_document_compression_quality', \Core\Pdf\PdfCompressor::QUALITY_BALANCED, 'select', 'x', 'x');
+        $settingService->register('section_document_compression_backend', \Core\Pdf\PdfCompressor::BACKEND_NONE, 'text', 'x', 'x', null, null, null, false);
+        $storagePath = sys_get_temp_dir() . '/staffs_controller_test_' . uniqid();
+        $this->sectionDocumentService = new \Core\Member\SectionDocumentService(
+            new \Core\Member\SectionDocumentRepository($this->pdo),
+            new \Core\Member\SectionMembershipRepository($this->pdo),
+            new \Core\File\EncryptedFileStorageService(new \Core\File\FileRepository($this->pdo), $this->encryption, $storagePath),
+            new \Core\File\FileRepository($this->pdo),
+            $this->sectionService,
+            $scoutYearService,
+            $journalService,
+            new \Core\Scheduler\SchedulerService(new \Core\Scheduler\SchedulerRepository($this->pdo)),
+            $settingService,
+            new \Core\Pdf\PdfCompressor($storagePath . '/temp')
+        );
 
         // Create scout year
         $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES ('2025-2026', '2025-09-01', '2026-08-31', 1)");
@@ -109,7 +127,9 @@ class StaffsControllerTest extends TestCase
             $scoutYearResolver,
             $journalService,
             $this->badgeService,
-            new UnitStaffSectionService($this->pdo)
+            new UnitStaffSectionService($this->pdo),
+            $this->sectionDocumentService,
+            $settingService
         );
 
         // Set up session as chief
@@ -189,6 +209,39 @@ class StaffsControllerTest extends TestCase
         // (Core\Member\SectionService::colorForSection()) as every other
         // section picker/list across the site.
         $this->assertStringContainsString('background-color:', $body);
+    }
+
+    public function testIndexRendersSectionDocumentsAccordionWithACompressedDocument(): void
+    {
+        $branchId = $this->createBranch('BAL', 'Baladins', 1);
+        $sectionId = $this->createSection('BAL01', $branchId, 'Ma section');
+        $this->createMemberInSection($sectionId, 'Alice', 'chief');
+
+        $document = $this->sectionDocumentService->upload(
+            $sectionId, $this->scoutYearId, str_repeat('%PDF-1.4 x', 500), 'application/pdf',
+            'camp.pdf', 'Carnet de camp', 'Description du carnet', null
+        );
+        $this->sectionDocumentService->refreshDetectedBackend();
+        // Simulate a completed compression for the size-badge assertion below.
+        $repo = new \Core\Member\SectionDocumentRepository($this->pdo);
+        $repo->markCompressed($document->id, 1000);
+
+        $request = new Request('GET', '/chefs/staffs?section=' . $sectionId, ['section' => (string) $sectionId], [], [], []);
+        $response = $this->controller->index($request, []);
+
+        $body = $response->getBody();
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertStringContainsString('Documents de section', $body);
+        $this->assertStringContainsString('Carnet de camp', $body);
+        $this->assertStringContainsString($this->scoutYear2025Label(), $body);
+        $this->assertStringContainsString('Mo', $body);
+    }
+
+    private function scoutYear2025Label(): string
+    {
+        $stmt = $this->pdo->prepare('SELECT label FROM scout_years WHERE id = ?');
+        $stmt->execute([$this->scoutYearId]);
+        return (string) $stmt->fetchColumn();
     }
 
     public function testIndexRendersTheSectionStaffPhotoWhenOneExists(): void

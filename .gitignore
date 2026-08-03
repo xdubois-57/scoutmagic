@@ -13,6 +13,7 @@ storage/gallery/
 storage/maintenance/
 storage/core/
 storage/mass_mail/
+storage/section_documents/
 
 # Local configuration
 config/app.php

@@ -355,6 +355,29 @@ $settingService->register('rgpd_generation_mode', 'default', 'select', 'Mode de 
 $settingService->register('rgpd_custom_prompt', '', 'textarea', 'Prompt RGPD personnalisé',
     'Instructions pour la génération IA du contenu RGPD.',
     null, null, null, false, 240);
+// Section documents (Core\Member\SectionDocumentOwnershipChecker /
+// SectionMembershipRepository::hasPeriodCovering()) — the calendar date
+// within a scout year used to decide "who was active in which section
+// that year" for document access, deliberately independent from
+// Core\Member\MemberYearService::getEffectiveAge()'s own scout-year
+// offset concept (module addendum: never touch that logic). Combined
+// with a scout year's start calendar year, e.g. default '30-09' + 2025 =
+// 2025-09-30.
+$settingService->register('section_document_reference_date', '30-09', 'text', 'Date de référence — documents de section',
+    'Jour et mois (JJ-MM) utilisés pour déterminer qui était actif dans quelle section une année scoute donnée, pour l\'accès aux documents de section.',
+    null, '^(0[1-9]|[12]\d|3[01])-(0[1-9]|1[0-2])$', null, true, 250);
+$settingService->register('section_document_compression_enabled', '1', 'boolean', 'Compression des documents PDF de section',
+    'Compresse automatiquement les documents PDF de section en arrière-plan après leur ajout, si un outil de compression est disponible sur le serveur.',
+    null, null, null, true, 251);
+$settingService->register('section_document_compression_quality', \Core\Pdf\PdfCompressor::QUALITY_BALANCED, 'select', 'Qualité de compression — documents de section',
+    'Niveau de compression appliqué aux documents PDF de section.',
+    null, null, [\Core\Pdf\PdfCompressor::QUALITY_MIN_SIZE, \Core\Pdf\PdfCompressor::QUALITY_BALANCED, \Core\Pdf\PdfCompressor::QUALITY_HIGH], true, 252);
+$settingService->register('section_document_compression_backend', \Core\Pdf\PdfCompressor::BACKEND_NONE, 'text', 'Outil de compression PDF détecté',
+    'Outil de compression PDF détecté automatiquement sur le serveur (ghostscript, qpdf, pdftocairo, ou none). Lecture seule — mis à jour automatiquement.',
+    null, null, null, false, 253);
+$settingService->register('section_document_oversize_warning_mb', '5', 'number', 'Seuil d\'avertissement — gros document de section',
+    'Taille (Mo) à partir de laquelle un avertissement s\'affiche avant l\'ajout d\'un document, uniquement lorsqu\'aucun outil de compression n\'est disponible sur le serveur.',
+    null, '^[1-9][0-9]*$', null, true, 254);
 
 // Migrate non-secret settings from secrets.enc to settings table (one-time)
 if ($settingService->get('settings_migrated') !== '1') {
@@ -476,9 +499,13 @@ $userAccountRepo = new UserAccountRepository($pdo, $encryptionService);
 $mappingResolver = new MappingResolver($functionRepo, $ageBranchRepo, $importSectionRepo, $feeCategoryRepo);
 $csvParser = new DeskCsvParser();
 $unitStaffSectionService = new UnitStaffSectionService($pdo);
+$sectionMembershipRepository = new \Core\Member\SectionMembershipRepository($pdo);
+$sectionMembershipService = new \Core\Member\SectionMembershipService($sectionMembershipRepository, $scoutYearService);
+$sectionDocumentRepository = new \Core\Member\SectionDocumentRepository($pdo);
 $importService = new DeskImportService(
     $pdo, $encryptionService, $csvParser, $mappingResolver,
-    $memberRepo, $memberYearRepo, $importJournalRepo, $userAccountRepo, $unitStaffSectionService
+    $memberRepo, $memberYearRepo, $importJournalRepo, $userAccountRepo, $unitStaffSectionService,
+    $sectionMembershipService
 );
 // Multi-email support per member (Core\Member\MemberEmailService) — built
 // before $roleResolver so login-by-email resolution can also match a
@@ -536,6 +563,11 @@ $storagePath = dirname(__DIR__) . '/storage';
 $fileRepository = new FileRepository($pdo);
 $uploadHandler = new UploadHandler($fileRepository, $storagePath);
 $encryptedFileStorageService = new \Core\File\EncryptedFileStorageService($fileRepository, $encryptionService, $storagePath);
+$sectionDocumentService = new \Core\Member\SectionDocumentService(
+    $sectionDocumentRepository, $sectionMembershipRepository, $encryptedFileStorageService, $fileRepository,
+    $sectionService, $scoutYearService, $journalService, $schedulerService, $settingService,
+    new \Core\Pdf\PdfCompressor($storagePath . '/temp')
+);
 
 // Create backup service (Configuration > Maintenance)
 $backupRepository = new BackupRepository($pdo);
@@ -599,10 +631,14 @@ if (AuthSession::isAuthenticated()) {
 // owner-scoping check (Core\File\FileAccessGuard) needs $linkedMembers,
 // which isn't resolved until this point — see the class docblock for why
 // there's deliberately no chief/admin bypass on that check.
+$sectionDocumentOwnershipChecker = new \Core\Member\SectionDocumentOwnershipChecker(
+    $sectionDocumentRepository, $sectionMembershipRepository, $scoutYearService, $settingService
+);
 $fileAccessGuard = new FileAccessGuard(
     $fileRepository,
     Role::fromString($currentRole),
-    array_map(fn($m) => $m->memberId, $linkedMembers)
+    array_map(fn($m) => $m->memberId, $linkedMembers),
+    [$sectionDocumentOwnershipChecker]
 );
 
 $twig->addGlobal('current_user_display_name', $displayName);
@@ -681,6 +717,7 @@ $schedulerRunner->registerHandler('core', 'reset_settings', new \Core\Maintenanc
 $schedulerRunner->registerHandler('core', 'full_reset', new \Core\Maintenance\Task\FullResetHandler());
 $schedulerRunner->registerHandler('core', 'restore_backup', new \Core\Maintenance\Task\RestoreBackupHandler());
 $schedulerRunner->registerHandler('core', 'auto_backup', new \Core\Maintenance\Task\AutoBackupHandler());
+$schedulerRunner->registerHandler('core', 'compress_section_document', new \Core\Member\Task\CompressSectionDocumentHandler());
 
 // Bootstrap the recurring automatic backup — Task\AutoBackupHandler
 // re-schedules itself at the end of every run (same pattern as
@@ -874,6 +911,10 @@ $router->addRoute('POST', '/config/rgpd/reset', RgpdConfigController::class, 're
 // Staffs
 $router->addRoute('GET', '/chefs/staffs', StaffsController::class, 'index', 'intendant');
 $router->addRoute('POST', '/chefs/staffs/badge-toggle', StaffsController::class, 'toggleBadge', 'chief');
+$router->addRoute('POST', '/chefs/staffs/documents', \Core\Http\Controller\SectionDocumentController::class, 'add', 'chief');
+$router->addRoute('POST', '/chefs/staffs/documents/reorder', \Core\Http\Controller\SectionDocumentController::class, 'reorder', 'chief');
+$router->addRoute('POST', '/chefs/staffs/documents/delete', \Core\Http\Controller\SectionDocumentController::class, 'delete', 'chief');
+$router->addRoute('POST', '/chefs/staffs/documents/{id}', \Core\Http\Controller\SectionDocumentController::class, 'update', 'chief');
 
 // Functions configuration
 $router->addRoute('GET', '/config/functions', FunctionsController::class, 'index', 'superadmin');
@@ -970,7 +1011,8 @@ $calendarEventLookup = null;
 // down, once mass_mail/gallery/trombinoscope/calendar availability is
 // known, exactly like MemberController itself.
 $memberPageService = new \Core\Member\MemberPageService(
-    $sectionService, $memberService, $badgeRepository, $memberBadgeRepository, $ageBranchRepo, $memberDocumentService, $memberEmailService
+    $sectionService, $memberService, $badgeRepository, $memberBadgeRepository, $ageBranchRepo, $memberDocumentService, $memberEmailService,
+    $sectionDocumentService
 );
 
 // Register controllers with dependencies
@@ -1019,7 +1061,8 @@ $frontController->registerController(
     \Core\Http\Controller\MemberEmailAddressController::class,
     new \Core\Http\Controller\MemberEmailAddressController($twig, $memberEmailService, $memberService)
 );
-$frontController->registerController(StaffsController::class, new StaffsController($twig, $sectionService, $memberService, $scoutYearResolver, $journalService, $badgeService, $unitStaffSectionService));
+$frontController->registerController(StaffsController::class, new StaffsController($twig, $sectionService, $memberService, $scoutYearResolver, $journalService, $badgeService, $unitStaffSectionService, $sectionDocumentService, $settingService));
+$frontController->registerController(\Core\Http\Controller\SectionDocumentController::class, new \Core\Http\Controller\SectionDocumentController($twig, $sectionDocumentService));
 $frontController->registerController(ConfigModeController::class, new ConfigModeController($twig));
 $editableContentController = new EditableContentController($twig, $editableContentService);
 $editableContentController->setJournalService($journalService);
@@ -1665,7 +1708,7 @@ if (
 
     $memberPageService = new \Core\Member\MemberPageService(
         $sectionService, $memberService, $badgeRepository, $memberBadgeRepository, $ageBranchRepo, $memberDocumentService, $memberEmailService,
-        $sectionResponsableProvider, $massMailQueryForMember, $galleryAlbumProviderForMember, $calendarEventLookup
+        $sectionDocumentService, $sectionResponsableProvider, $massMailQueryForMember, $galleryAlbumProviderForMember, $calendarEventLookup
     );
 
     $frontController->registerController(

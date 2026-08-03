@@ -97,9 +97,21 @@ CREATE TABLE files (
     -- check — never a replacement for it. Generic: any future
     -- member-scoped file (not just member_documents) gets this for free.
     owner_member_id INT UNSIGNED,
+    -- Generic polymorphic ownership, alongside (not replacing) the
+    -- owner_member_id special case above: Core\File\FileAccessGuard
+    -- consults a registry of Core\File\FileOwnershipCheckerInterface
+    -- implementations, keyed by owner_type, after its usual role_min
+    -- check — so a brand-new feature (first consumer: section documents,
+    -- owner_type = 'section_document', owner_id = section_documents.id)
+    -- gets fine-grained access control without FileController or
+    -- FileAccessGuard ever hardcoding anything feature-specific. No FK
+    -- here — the referenced table varies by owner_type.
+    owner_type VARCHAR(50) NULL,
+    owner_id INT UNSIGNED NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     created_by INT UNSIGNED,
     UNIQUE INDEX idx_path (relative_path),
+    INDEX idx_file_owner (owner_type, owner_id),
     CONSTRAINT fk_file_created_by FOREIGN KEY (created_by) REFERENCES user_accounts(id) ON DELETE SET NULL,
     CONSTRAINT fk_file_owner_member FOREIGN KEY (owner_member_id) REFERENCES members(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -233,6 +245,78 @@ CREATE TABLE member_functions (
     CONSTRAINT fk_mf_function FOREIGN KEY (function_id) REFERENCES functions(id),
     CONSTRAINT fk_mf_section FOREIGN KEY (section_id) REFERENCES sections(id),
     CONSTRAINT fk_mf_branch FOREIGN KEY (age_branch_id) REFERENCES age_branches(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Section membership as periods, tied to the persistent members entity
+-- (not member_years — a period can span a scout-year boundary while a
+-- member stays in the same section). member_functions is an annual
+-- snapshot overwritten wholesale on every Desk import
+-- (MemberYearRepository::replaceFunctions()), so a mid-year section
+-- change within the same scout year was previously lost — this table is
+-- the history member_functions never kept. A NULL end_date means the
+-- period is still open. Written by Core\Member\SectionMembershipService,
+-- called from Core\Import\DeskImportService right after each member's
+-- functions are replaced: any section no longer in the member's function
+-- set is closed (end_date = the import date), any new section gets a
+-- freshly opened period (start_date = the import date) — sections
+-- unchanged since the last import are left untouched, so re-running the
+-- same CSV creates nothing new. A period from an earlier scout year that
+-- is still open when a later year's import runs (i.e. scout-year
+-- rollover was never explicitly triggered) is closed at that earlier
+-- year's own end_date, never at today's import date — "active in
+-- section S for scout year Y" (Core\Member\SectionDocumentOwnershipChecker,
+-- the Staffs/member-page section documents feature) means Y's configured
+-- reference date falls within a period for (member, S, Y).
+CREATE TABLE member_section_periods (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    member_id INT UNSIGNED NOT NULL,
+    section_id INT UNSIGNED NOT NULL,
+    scout_year_id INT UNSIGNED NOT NULL,
+    start_date DATE NOT NULL,
+    end_date DATE NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_msp_member (member_id),
+    INDEX idx_msp_member_section_year (member_id, section_id, scout_year_id),
+    INDEX idx_msp_open (member_id, end_date),
+    CONSTRAINT fk_msp_member FOREIGN KEY (member_id) REFERENCES members(id) ON DELETE CASCADE,
+    CONSTRAINT fk_msp_section FOREIGN KEY (section_id) REFERENCES sections(id) ON DELETE CASCADE,
+    CONSTRAINT fk_msp_year FOREIGN KEY (scout_year_id) REFERENCES scout_years(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Section documents (camp booklets, activity sheets, material lists) —
+-- managed by staff from the Staffs page, shown read-only on the member
+-- page for every section/year a member was active in (per
+-- member_section_periods above). No personal data column on this table
+-- itself — the file's content is what may hold personal data, which is
+-- why it is encrypted at rest (Core\File\EncryptedFileStorageService)
+-- and access-gated via Core\File\FileAccessGuard's generic ownership
+-- registry (files.owner_type = 'section_document', owner_id = this row's
+-- id — see Core\Member\SectionDocumentOwnershipChecker), never by the
+-- file's role_min alone.
+CREATE TABLE section_documents (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    section_id INT UNSIGNED NOT NULL,
+    scout_year_id INT UNSIGNED NOT NULL,
+    file_id INT UNSIGNED NOT NULL,
+    title VARCHAR(255) NOT NULL,
+    description VARCHAR(1000) NULL,
+    sort_order INT NOT NULL DEFAULT 0,
+    -- Core\Pdf\PdfCompressor background pass (core/compress_section_document
+    -- scheduled task) — 'pending' until the task runs, then 'compressed' or
+    -- 'skipped' (no backend available, output not smaller, or not a PDF at
+    -- all). The original stays downloadable throughout; the file is only
+    -- ever swapped for a smaller one that still starts with the PDF magic
+    -- bytes.
+    compression_status ENUM('pending', 'compressed', 'skipped') NOT NULL DEFAULT 'pending',
+    size_before_bytes INT UNSIGNED NULL,
+    size_after_bytes INT UNSIGNED NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_by INT UNSIGNED,
+    INDEX idx_sd_section_year (section_id, scout_year_id),
+    CONSTRAINT fk_sd_section FOREIGN KEY (section_id) REFERENCES sections(id) ON DELETE CASCADE,
+    CONSTRAINT fk_sd_year FOREIGN KEY (scout_year_id) REFERENCES scout_years(id),
+    CONSTRAINT fk_sd_file FOREIGN KEY (file_id) REFERENCES files(id),
+    CONSTRAINT fk_sd_created_by FOREIGN KEY (created_by) REFERENCES user_accounts(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE import_journal (

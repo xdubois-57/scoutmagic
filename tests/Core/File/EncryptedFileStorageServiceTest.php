@@ -30,6 +30,8 @@ class EncryptedFileStorageServiceTest extends TestCase
             custom_resolver TEXT,
             encrypted INTEGER NOT NULL DEFAULT 0,
             owner_member_id INTEGER,
+            owner_type TEXT,
+            owner_id INTEGER,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             created_by INTEGER
         )');

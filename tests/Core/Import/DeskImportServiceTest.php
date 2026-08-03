@@ -72,7 +72,8 @@ class DeskImportServiceTest extends TestCase
         return new DeskImportService(
             $this->pdo, $this->encryption, $parser, $mappingResolver,
             $memberRepo, $memberYearRepo, $importJournalRepo, $userAccountRepo,
-            new UnitStaffSectionService($this->pdo)
+            new UnitStaffSectionService($this->pdo),
+            new \Core\Member\SectionMembershipService(new \Core\Member\SectionMembershipRepository($this->pdo), new \Core\Config\ScoutYearService($this->pdo))
         );
     }
 

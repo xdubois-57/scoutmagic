@@ -102,7 +102,8 @@ class ImportControllerTest extends TestCase
         $importService = new DeskImportService(
             $this->pdo, $this->encryption, $parser, $mappingResolver,
             $memberRepo, $memberYearRepo, $importJournalRepo, $userAccountRepo,
-            new UnitStaffSectionService($this->pdo)
+            new UnitStaffSectionService($this->pdo),
+            new \Core\Member\SectionMembershipService(new \Core\Member\SectionMembershipRepository($this->pdo), $scoutYearService)
         );
 
         $settingService = new SettingService(new SettingRepository($this->pdo));

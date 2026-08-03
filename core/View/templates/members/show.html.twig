@@ -165,6 +165,41 @@
                 </div>
             {% endif %}
 
+            {# §5bis — Documents de section: every past/present section the
+               member was active in that has staff-uploaded documents, most
+               recent year first (module addendum). Unlike Documents privés
+               above, shown to both the member and a viewing chief/admin —
+               staff-shared content, not a private upload — and the whole
+               card is simply omitted when there's nothing to show, since
+               member_section_documents is already pre-filtered server-side
+               to years that actually have documents. #}
+            {% if member_section_documents|length > 0 %}
+                <div class="card mb-3">
+                    <div class="card-body">
+                        <h2 class="h5 mb-3">Documents de section</h2>
+                        {% for year_block in member_section_documents %}
+                            <div class="mb-3">
+                                <div class="fw-semibold small text-body-secondary mb-1">
+                                    {{ year_block.section.name ?? year_block.section.desk_code }} — {{ year_block.scout_year.label }}
+                                </div>
+                                <ul class="list-unstyled mb-0 small">
+                                    {% for document in year_block.documents %}
+                                        <li class="d-flex justify-content-between border-bottom py-2">
+                                            <a href="{{ file_url(document.fileId) }}" class="text-decoration-none" target="_blank" rel="noopener">
+                                                <i class="bi bi-file-earmark-arrow-down"></i> {{ document.title }}
+                                                {% if document.description %}
+                                                    <span class="text-body-secondary">— {{ document.description }}</span>
+                                                {% endif %}
+                                            </a>
+                                        </li>
+                                    {% endfor %}
+                                </ul>
+                            </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            {% endif %}
+
             {# §6 — Galeries photos (gallery module, optional) — always shown
                when the module is enabled, empty-state when there's nothing
                yet. #}

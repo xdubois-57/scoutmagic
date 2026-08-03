@@ -145,6 +145,37 @@ class MemberEmailServiceTest extends TestCase
         $this->assertCount(1, $this->repository->findByMember($this->memberId));
     }
 
+    /**
+     * A confirmation-send failure (e.g. no SMTP configured) must still
+     * create the row — "Renvoyer" lets the member retry — but must also
+     * leave a diagnosable trace, since previously the only visible symptom
+     * was a generic flash message with no way to tell a real bug from a
+     * misconfigured mail transport.
+     */
+    public function testAddEmailJournalsTheReasonWhenConfirmationSendFails(): void
+    {
+        $this->mailService->method('send')->willThrowException(new \Core\Mail\MailException('SMTP connect() failed: someone@example.com refused'));
+
+        $this->expectException(\Core\Mail\MailException::class);
+        try {
+            $this->service->addEmail($this->memberId, 'someone@example.com', 7);
+        } finally {
+            // The row is kept even though the send failed.
+            $this->assertCount(1, $this->repository->findByMember($this->memberId));
+
+            $stmt = $this->pdo->query("SELECT * FROM event_log WHERE event_type = 'member_email_confirmation_send_failed'");
+            $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+            $this->assertCount(1, $rows);
+            $context = json_decode($rows[0]['context'], true);
+            $this->assertSame($this->memberId, $context['member_id']);
+            $this->assertArrayHasKey('member_email_id', $context);
+            $this->assertStringContainsString('SMTP connect() failed', $context['error']);
+            // The address itself must never end up in the journal.
+            $this->assertStringNotContainsString('someone@example.com', $context['error']);
+            $this->assertSame(7, (int) $rows[0]['user_account_id']);
+        }
+    }
+
     // --- confirmEmail() (48h expiry, single-use, hashed storage) ---
 
     public function testConfirmEmailWithCorrectTokenMarksValid(): void

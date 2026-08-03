@@ -34,6 +34,7 @@ class MemberPageService
         private AgeBranchRepository $ageBranchRepository,
         private MemberDocumentService $memberDocumentService,
         private MemberEmailService $memberEmailService,
+        private SectionDocumentService $sectionDocumentService,
         private ?SectionResponsableProvider $sectionResponsableProvider = null,
         private ?MassMailQueryInterface $massMailQuery = null,
         private ?GalleryAlbumProvider $galleryAlbumProvider = null,
@@ -77,6 +78,12 @@ class MemberPageService
             'section_info' => $section !== null ? $this->buildSectionInfo($profile, $section, $scoutYearId) : null,
             'recent_mass_mail_emails' => $showPersonal ? $this->getRecentMassMailEmails($profile) : [],
             'member_documents' => $isSelf ? $this->memberDocumentService->listForMember($profile->memberId, $scoutYearId) : [],
+            // §7bis — "Documents de section": every past/present section the
+            // member was active in that has staff-uploaded documents, most
+            // recent year first. Not self-only, unlike member_documents
+            // above — these are staff-shared content, not private uploads,
+            // so a chief/admin viewing the page sees the same thing.
+            'member_section_documents' => $showPersonal ? $this->sectionDocumentService->listForMemberPage($profile->memberId) : [],
             'member_emails' => $memberEmails,
             'member_email_resend_cooldown_minutes' => $resendCooldownMinutes,
             'gallery_albums' => $this->getGalleryAlbums($profile),

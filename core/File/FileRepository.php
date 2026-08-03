@@ -13,7 +13,7 @@ class FileRepository
     public function findById(int $id): ?FileRecord
     {
         $stmt = $this->pdo->prepare(
-            'SELECT id, relative_path, original_name, mime_type, size_bytes, role_min, custom_resolver, encrypted, owner_member_id
+            'SELECT id, relative_path, original_name, mime_type, size_bytes, role_min, custom_resolver, encrypted, owner_member_id, owner_type, owner_id
              FROM files WHERE id = ?'
         );
         $stmt->execute([$id]);
@@ -32,7 +32,9 @@ class FileRepository
             roleMin: $row['role_min'],
             customResolver: $row['custom_resolver'],
             encrypted: (bool) $row['encrypted'],
-            ownerMemberId: $row['owner_member_id'] !== null ? (int) $row['owner_member_id'] : null
+            ownerMemberId: $row['owner_member_id'] !== null ? (int) $row['owner_member_id'] : null,
+            ownerType: $row['owner_type'] !== null ? (string) $row['owner_type'] : null,
+            ownerId: $row['owner_id'] !== null ? (int) $row['owner_id'] : null
         );
     }
 
@@ -45,13 +47,15 @@ class FileRepository
         ?string $moduleId,
         ?int $createdBy,
         bool $encrypted = false,
-        ?int $ownerMemberId = null
+        ?int $ownerMemberId = null,
+        ?string $ownerType = null,
+        ?int $ownerId = null
     ): int {
         $stmt = $this->pdo->prepare(
-            'INSERT INTO files (relative_path, original_name, mime_type, size_bytes, role_min, module_id, created_by, encrypted, owner_member_id)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+            'INSERT INTO files (relative_path, original_name, mime_type, size_bytes, role_min, module_id, created_by, encrypted, owner_member_id, owner_type, owner_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
-        $stmt->execute([$relativePath, $originalName, $mimeType, $sizeBytes, $roleMin, $moduleId, $createdBy, $encrypted ? 1 : 0, $ownerMemberId]);
+        $stmt->execute([$relativePath, $originalName, $mimeType, $sizeBytes, $roleMin, $moduleId, $createdBy, $encrypted ? 1 : 0, $ownerMemberId, $ownerType, $ownerId]);
 
         return (int) $this->pdo->lastInsertId();
     }
@@ -72,5 +76,29 @@ class FileRepository
     {
         $stmt = $this->pdo->prepare('UPDATE files SET role_min = ? WHERE id = ?');
         $stmt->execute([$roleMin, $id]);
+    }
+
+    /**
+     * Sets the generic owner_type/owner_id after the fact — needed when
+     * the owning row's own id doesn't exist yet at store() time (e.g.
+     * Core\Member\SectionDocumentService: the file must exist before
+     * section_documents.file_id can reference it, but owner_id needs to
+     * be that same section_documents row's id).
+     */
+    public function updateOwner(int $id, string $ownerType, int $ownerId): void
+    {
+        $stmt = $this->pdo->prepare('UPDATE files SET owner_type = ?, owner_id = ? WHERE id = ?');
+        $stmt->execute([$ownerType, $ownerId, $id]);
+    }
+
+    /**
+     * Reflects an in-place content swap (Core\File\EncryptedFileStorageService
+     * ::replace(), used by the PDF compression background task — same
+     * file id/relative_path, smaller content).
+     */
+    public function updateSizeBytes(int $id, int $sizeBytes): void
+    {
+        $stmt = $this->pdo->prepare('UPDATE files SET size_bytes = ? WHERE id = ?');
+        $stmt->execute([$sizeBytes, $id]);
     }
 }

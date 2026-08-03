@@ -41,6 +41,7 @@ class MemberPageServiceTest extends TestCase
     private AgeBranchRepository $ageBranchRepository;
     private MemberDocumentService $memberDocumentService;
     private MemberEmailService $memberEmailService;
+    private \Core\Member\SectionDocumentService $sectionDocumentService;
     private int $scoutYearId;
     private int $sectionId;
     private int $branchId;
@@ -67,6 +68,23 @@ class MemberPageServiceTest extends TestCase
             'https://example.test',
             'Test Unité'
         );
+        $settingService = new \Core\Config\SettingService(new \Core\Config\SettingRepository($this->pdo));
+        $settingService->register('section_document_compression_enabled', '1', 'boolean', 'x', 'x');
+        $settingService->register('section_document_compression_quality', \Core\Pdf\PdfCompressor::QUALITY_BALANCED, 'select', 'x', 'x');
+        $settingService->register('section_document_compression_backend', \Core\Pdf\PdfCompressor::BACKEND_NONE, 'text', 'x', 'x', null, null, null, false);
+        $storagePath = sys_get_temp_dir() . '/member_page_service_test_' . uniqid();
+        $this->sectionDocumentService = new \Core\Member\SectionDocumentService(
+            new \Core\Member\SectionDocumentRepository($this->pdo),
+            new \Core\Member\SectionMembershipRepository($this->pdo),
+            new \Core\File\EncryptedFileStorageService(new \Core\File\FileRepository($this->pdo), $this->encryption, $storagePath),
+            new \Core\File\FileRepository($this->pdo),
+            $this->sectionService,
+            new \Core\Config\ScoutYearService($this->pdo),
+            $this->createMock(\Core\Journal\JournalService::class),
+            new \Core\Scheduler\SchedulerService(new \Core\Scheduler\SchedulerRepository($this->pdo)),
+            $settingService,
+            new \Core\Pdf\PdfCompressor($storagePath . '/temp')
+        );
 
         $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES ('2025-2026', '2025-09-01', '2026-08-31', 1)");
         $this->scoutYearId = (int) $this->pdo->lastInsertId();
@@ -91,6 +109,7 @@ class MemberPageServiceTest extends TestCase
             $this->ageBranchRepository,
             $this->memberDocumentService,
             $this->memberEmailService,
+            $this->sectionDocumentService,
             $responsableProvider,
             $massMailQuery,
             $galleryAlbumProvider,
@@ -357,6 +376,34 @@ class MemberPageServiceTest extends TestCase
 
         $dataAsChief = $this->buildService()->buildPageData($profile, $this->scoutYearId, false, true, Role::CHIEF);
         $this->assertSame([], $dataAsChief['member_documents']);
+    }
+
+    /**
+     * Unlike member_documents (self-only, no staff bypass), section
+     * documents are staff-shared content — visible to both self and a
+     * viewing chief/admin (module addendum).
+     */
+    public function testSectionDocumentsShownToBothSelfAndChiefButNotToAnUnrelatedIntendant(): void
+    {
+        $profile = $this->createMemberInSection();
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO member_section_periods (member_id, section_id, scout_year_id, start_date) VALUES (?, ?, ?, ?)'
+        );
+        $stmt->execute([$profile->memberId, $this->sectionId, $this->scoutYearId, '2025-09-01']);
+
+        $this->sectionDocumentService->upload(
+            $this->sectionId, $this->scoutYearId, 'content', 'text/plain', 'a.txt', 'Carnet de camp', null, null
+        );
+
+        $dataAsSelf = $this->buildService()->buildPageData($profile, $this->scoutYearId, true, false, Role::IDENTIFIED);
+        $this->assertCount(1, $dataAsSelf['member_section_documents']);
+        $this->assertSame('Carnet de camp', $dataAsSelf['member_section_documents'][0]['documents'][0]->title);
+
+        $dataAsChief = $this->buildService()->buildPageData($profile, $this->scoutYearId, false, true, Role::CHIEF);
+        $this->assertCount(1, $dataAsChief['member_section_documents']);
+
+        $dataAsUnrelated = $this->buildService()->buildPageData($profile, $this->scoutYearId, false, false, Role::IDENTIFIED);
+        $this->assertSame([], $dataAsUnrelated['member_section_documents']);
     }
 
     public function testGalleryAlbumsDegradesToEmptyWhenProviderIsNull(): void

@@ -90,7 +90,7 @@ class MemberEmailService
                 throw new MemberEmailException("C'est déjà votre adresse importée depuis Desk.");
             }
             if ($existing->isPending() && $this->isCooldownElapsed($existing)) {
-                $this->regenerateAndSendConfirmation($existing);
+                $this->regenerateAndSendConfirmation($existing, $actorId);
             }
             return $existing;
         }
@@ -103,7 +103,7 @@ class MemberEmailService
         $created = $this->repository->findById($id);
         \assert($created !== null);
 
-        $this->sendConfirmationEmail($created->id, $normalized, $rawToken);
+        $this->sendConfirmationEmail($created->id, $memberId, $normalized, $rawToken, $actorId);
 
         // member_email_id (a numeric FK, not personal data) is what lets
         // this entry be traced back to exactly which address changed
@@ -132,7 +132,7 @@ class MemberEmailService
             throw new MemberEmailException('Veuillez patienter avant de renvoyer un nouvel email de confirmation.');
         }
 
-        $this->regenerateAndSendConfirmation($row);
+        $this->regenerateAndSendConfirmation($row, $actorId);
 
         $this->journalService->log(
             'core', 'member_email_confirmation_resent', 'info', "Renvoi de la confirmation d'une adresse email secondaire",
@@ -340,17 +340,28 @@ class MemberEmailService
         return new \DateTimeImmutable() >= $cooldownEnd;
     }
 
-    private function regenerateAndSendConfirmation(MemberEmail $row): void
+    private function regenerateAndSendConfirmation(MemberEmail $row, ?int $actorId): void
     {
         $rawToken = bin2hex(random_bytes(32));
         $tokenHash = password_hash($rawToken, PASSWORD_DEFAULT);
         $expiresAt = new \DateTimeImmutable('+' . self::CONFIRMATION_EXPIRY_HOURS . ' hours');
 
         $this->repository->refreshConfirmation($row->id, $tokenHash, $expiresAt);
-        $this->sendConfirmationEmail($row->id, $row->email, $rawToken);
+        $this->sendConfirmationEmail($row->id, $row->memberId, $row->email, $rawToken, $actorId);
     }
 
-    private function sendConfirmationEmail(int $emailId, string $to, string $rawToken): void
+    /**
+     * @throws MailException on a send failure — journaled first (with the
+     *         technical reason, e.g. "SMTP connect() failed", so a
+     *         misconfigured mail transport is actually diagnosable from
+     *         the journal instead of just a generic flash message) then
+     *         rethrown so the caller's existing "row kept, retry with
+     *         Renvoyer" handling is unaffected. $to is stripped out of the
+     *         logged reason even though PHPMailer's ErrorInfo rarely
+     *         includes it, since SECURITY.md §11 bars personal data from
+     *         journal entries unconditionally.
+     */
+    private function sendConfirmationEmail(int $emailId, int $memberId, string $to, string $rawToken, ?int $actorId): void
     {
         $confirmUrl = rtrim($this->baseUrl, '/') . "/members/emails/confirm/{$emailId}?token={$rawToken}";
         $context = [
@@ -362,7 +373,17 @@ class MemberEmailService
         $bodyHtml = $this->twig->render('email/member_email_confirmation.html.twig', $context);
         $bodyText = $this->twig->render('email/member_email_confirmation.text.twig', $context);
 
-        $this->mailService->send(to: $to, subject: 'Confirmez votre adresse email', bodyHtml: $bodyHtml, bodyText: $bodyText);
+        try {
+            $this->mailService->send(to: $to, subject: 'Confirmez votre adresse email', bodyHtml: $bodyHtml, bodyText: $bodyText);
+        } catch (MailException $e) {
+            $reason = str_replace($to, '[adresse]', $e->getMessage());
+            $this->journalService->log(
+                'core', 'member_email_confirmation_send_failed', 'info',
+                "Échec de l'envoi de l'email de confirmation d'une adresse email secondaire",
+                ['member_id' => $memberId, 'member_email_id' => $emailId, 'error' => $reason], $actorId
+            );
+            throw $e;
+        }
     }
 
     /**

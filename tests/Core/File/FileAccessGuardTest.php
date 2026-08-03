@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Core\File;
 
 use Core\File\FileAccessGuard;
+use Core\File\FileOwnershipCheckerInterface;
 use Core\File\FileRepository;
 use Core\Security\Role;
 use PHPUnit\Framework\TestCase;
@@ -28,6 +29,8 @@ class FileAccessGuardTest extends TestCase
             custom_resolver TEXT,
             encrypted INTEGER NOT NULL DEFAULT 0,
             owner_member_id INTEGER,
+            owner_type TEXT,
+            owner_id INTEGER,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             created_by INTEGER
         )');
@@ -114,5 +117,63 @@ class FileAccessGuardTest extends TestCase
 
         $guard = new FileAccessGuard($this->repo, Role::PUBLIC, []);
         $this->assertNotNull($guard->check($id));
+    }
+
+    // --- Generic owner_type/owner_id registry (Core\File\FileOwnershipCheckerInterface) ---
+
+    private function fakeChecker(string $ownerType, bool $allowed): FileOwnershipCheckerInterface
+    {
+        return new class ($ownerType, $allowed) implements FileOwnershipCheckerInterface {
+            public function __construct(private string $ownerType, private bool $allowed)
+            {
+            }
+
+            public function supports(string $ownerType): bool
+            {
+                return $ownerType === $this->ownerType;
+            }
+
+            public function isAllowed(int $ownerId, Role $currentRole, array $linkedMemberIds): bool
+            {
+                return $this->allowed;
+            }
+        };
+    }
+
+    public function testOwnerTypeFileGrantedByAMatchingChecker(): void
+    {
+        $id = $this->repo->create('f.pdf', 'f.pdf', 'application/pdf', 100, 'identified', null, null, false, null, 'section_document', 5);
+
+        $guard = new FileAccessGuard($this->repo, Role::IDENTIFIED, [], [$this->fakeChecker('section_document', true)]);
+        $this->assertNotNull($guard->check($id));
+    }
+
+    public function testOwnerTypeFileDeniedByAMatchingChecker(): void
+    {
+        $id = $this->repo->create('f.pdf', 'f.pdf', 'application/pdf', 100, 'identified', null, null, false, null, 'section_document', 5);
+
+        $guard = new FileAccessGuard($this->repo, Role::IDENTIFIED, [], [$this->fakeChecker('section_document', false)]);
+        $this->assertNull($guard->check($id));
+    }
+
+    /**
+     * Fail-safe: an owner_type with no registered checker at all must
+     * deny, not silently fall through to "allowed" — same posture as
+     * RBAC's own "no role_min = no access" default.
+     */
+    public function testOwnerTypeFileWithNoMatchingCheckerIsDenied(): void
+    {
+        $id = $this->repo->create('f.pdf', 'f.pdf', 'application/pdf', 100, 'identified', null, null, false, null, 'section_document', 5);
+
+        $guard = new FileAccessGuard($this->repo, Role::CHIEF, [], [$this->fakeChecker('some_other_type', true)]);
+        $this->assertNull($guard->check($id));
+    }
+
+    public function testOwnerTypeCheckStillRequiresRoleMinFirst(): void
+    {
+        $id = $this->repo->create('f.pdf', 'f.pdf', 'application/pdf', 100, 'chief', null, null, false, null, 'section_document', 5);
+
+        $guard = new FileAccessGuard($this->repo, Role::IDENTIFIED, [], [$this->fakeChecker('section_document', true)]);
+        $this->assertNull($guard->check($id));
     }
 }

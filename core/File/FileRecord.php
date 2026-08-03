@@ -15,7 +15,9 @@ class FileRecord
         public readonly string $roleMin,
         public readonly ?string $customResolver,
         public readonly bool $encrypted,
-        public readonly ?int $ownerMemberId = null
+        public readonly ?int $ownerMemberId = null,
+        public readonly ?string $ownerType = null,
+        public readonly ?int $ownerId = null
     ) {
     }
 }

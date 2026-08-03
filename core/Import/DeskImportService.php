@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Core\Import;
 
+use Core\Member\SectionMembershipService;
 use Core\Member\UnitStaffSectionService;
 use Core\Security\EncryptionService;
 use Core\Security\UserAccountRepository;
@@ -19,7 +20,8 @@ class DeskImportService
         private MemberYearRepository $memberYearRepository,
         private ImportJournalRepository $importJournalRepository,
         private UserAccountRepository $userAccountRepository,
-        private UnitStaffSectionService $unitStaffSectionService
+        private UnitStaffSectionService $unitStaffSectionService,
+        private SectionMembershipService $sectionMembershipService
     ) {
     }
 
@@ -30,6 +32,7 @@ class DeskImportService
     {
         $parsed = $this->parser->parse($filePath);
         $warnings = [];
+        $asOf = new \DateTimeImmutable();
 
         $this->pdo->beginTransaction();
 
@@ -49,7 +52,7 @@ class DeskImportService
             $this->unitStaffSectionService->ensureSection();
 
             foreach ($parsed->members as $member) {
-                $this->importMember($member, $scoutYearId, $warnings);
+                $this->importMember($member, $scoutYearId, $warnings, $asOf);
             }
 
             // Chef d'unité role is only known once a function is confirmed
@@ -89,7 +92,7 @@ class DeskImportService
     /**
      * @param string[] $warnings
      */
-    private function importMember(ParsedMember $member, int $scoutYearId, array &$warnings): void
+    private function importMember(ParsedMember $member, int $scoutYearId, array &$warnings, \DateTimeImmutable $asOf): void
     {
         // Upsert member
         $memberId = $this->memberRepository->upsertByDeskId($member->deskId);
@@ -179,6 +182,8 @@ class DeskImportService
             ];
         }
         $this->memberYearRepository->replaceFunctions($memberYearId, $functions);
+
+        $this->sectionMembershipService->syncForMember($memberId, $memberYearId, $scoutYearId, $asOf);
     }
 
     private function ensureUserAccount(string $email, string $blindIndex): void

@@ -9,10 +9,13 @@ use Core\Badge\BadgeException;
 use Core\Badge\BadgeService;
 use Core\Http\Request;
 use Core\Http\Response;
+use Core\Config\SettingService;
 use Core\Journal\JournalService;
 use Core\Member\MemberService;
+use Core\Member\SectionDocumentService;
 use Core\Member\SectionService;
 use Core\Member\UnitStaffSectionService;
+use Core\Pdf\PdfCompressor;
 use Core\ScoutYear\ScoutYearResolver;
 use Core\ScoutYear\ScoutYearSession;
 use Core\Security\AuthSession;
@@ -30,7 +33,9 @@ class StaffsController extends AbstractController
         private ScoutYearResolver $scoutYearResolver,
         private JournalService $journalService,
         private BadgeService $badgeService,
-        private UnitStaffSectionService $unitStaffSectionService
+        private UnitStaffSectionService $unitStaffSectionService,
+        private SectionDocumentService $sectionDocumentService,
+        private SettingService $settingService
     ) {
     }
 
@@ -105,11 +110,26 @@ class StaffsController extends AbstractController
             $availableBadges = array_values(array_filter($availableBadges, fn(Badge $b) => $b->referentSectionId === null));
         }
 
+        // Documents de section (module addendum) — built for any selected
+        // section regardless of role (intendants see it read-only via
+        // can_edit_section, same as the rest of this page); the
+        // compression-backend re-detection only runs here, not on every
+        // request site-wide, since it's a real subprocess spawn.
+        $sectionDocumentYears = [];
+        if ($currentSection !== null) {
+            $sectionDocumentYears = $this->sectionDocumentService->listYearsForStaffsPage($currentSection['id'], $scoutYearId);
+        }
+        $compressionBackend = $this->sectionDocumentService->refreshDetectedBackend();
+
         return $this->render('chefs/staffs.html.twig', [
             'sections' => $sections,
             'current_section' => $currentSection,
             'staff' => $staff,
             'can_edit_section' => $canEditSection,
+            'section_document_years' => $sectionDocumentYears,
+            'section_document_compression_backend' => $compressionBackend,
+            'section_document_compression_backend_none' => $compressionBackend === PdfCompressor::BACKEND_NONE,
+            'section_document_oversize_warning_mb' => (int) ($this->settingService->get('section_document_oversize_warning_mb') ?: 5),
             'available_badges' => $availableBadges,
         ]);
     }

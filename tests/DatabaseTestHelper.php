@@ -160,6 +160,37 @@ class DatabaseTestHelper
             FOREIGN KEY (age_branch_id) REFERENCES age_branches(id)
         )');
 
+        $pdo->exec('CREATE TABLE member_section_periods (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            member_id INTEGER NOT NULL,
+            section_id INTEGER NOT NULL,
+            scout_year_id INTEGER NOT NULL,
+            start_date TEXT NOT NULL,
+            end_date TEXT,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (member_id) REFERENCES members(id),
+            FOREIGN KEY (section_id) REFERENCES sections(id),
+            FOREIGN KEY (scout_year_id) REFERENCES scout_years(id)
+        )');
+
+        $pdo->exec('CREATE TABLE section_documents (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            section_id INTEGER NOT NULL,
+            scout_year_id INTEGER NOT NULL,
+            file_id INTEGER NOT NULL,
+            title TEXT NOT NULL,
+            description TEXT,
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            compression_status TEXT NOT NULL DEFAULT "pending",
+            size_before_bytes INTEGER,
+            size_after_bytes INTEGER,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            created_by INTEGER,
+            FOREIGN KEY (section_id) REFERENCES sections(id),
+            FOREIGN KEY (scout_year_id) REFERENCES scout_years(id),
+            FOREIGN KEY (file_id) REFERENCES files(id)
+        )');
+
         $pdo->exec('CREATE TABLE import_journal (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             scout_year_id INTEGER NOT NULL,
@@ -193,6 +224,8 @@ class DatabaseTestHelper
             custom_resolver TEXT,
             encrypted INTEGER NOT NULL DEFAULT 0,
             owner_member_id INTEGER,
+            owner_type TEXT,
+            owner_id INTEGER,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             created_by INTEGER
         )');

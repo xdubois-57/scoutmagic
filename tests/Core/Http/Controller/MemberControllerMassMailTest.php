@@ -103,6 +103,24 @@ class MemberControllerMassMailTest extends TestCase
             'Test Unité'
         );
 
+        $settingService = new \Core\Config\SettingService(new \Core\Config\SettingRepository($this->pdo));
+        $settingService->register('section_document_compression_enabled', '1', 'boolean', 'x', 'x');
+        $settingService->register('section_document_compression_quality', \Core\Pdf\PdfCompressor::QUALITY_BALANCED, 'select', 'x', 'x');
+        $settingService->register('section_document_compression_backend', \Core\Pdf\PdfCompressor::BACKEND_NONE, 'text', 'x', 'x', null, null, null, false);
+        $storagePath = sys_get_temp_dir() . '/member_controller_mass_mail_test_' . uniqid();
+        $sectionDocumentService = new \Core\Member\SectionDocumentService(
+            new \Core\Member\SectionDocumentRepository($this->pdo),
+            new \Core\Member\SectionMembershipRepository($this->pdo),
+            new \Core\File\EncryptedFileStorageService(new \Core\File\FileRepository($this->pdo), $this->encryption, $storagePath),
+            new \Core\File\FileRepository($this->pdo),
+            new SectionService($connection, $this->encryption, $memberBadgeRepository),
+            new \Core\Config\ScoutYearService($this->pdo),
+            new JournalService(new JournalRepository($this->pdo)),
+            new \Core\Scheduler\SchedulerService(new \Core\Scheduler\SchedulerRepository($this->pdo)),
+            $settingService,
+            new \Core\Pdf\PdfCompressor($storagePath . '/temp')
+        );
+
         return new MemberPageService(
             new SectionService($connection, $this->encryption, $memberBadgeRepository),
             $this->memberService,
@@ -111,6 +129,7 @@ class MemberControllerMassMailTest extends TestCase
             new AgeBranchRepository($this->pdo),
             new MemberDocumentService(new MemberDocumentRepository($this->pdo)),
             $memberEmailService,
+            $sectionDocumentService,
             null,
             $massMailQuery
         );
