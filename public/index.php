@@ -184,10 +184,12 @@ if (!$isInitialized) {
     }
 
     // Handle setup routes
-    $setupController = new SetupController($twig, $secretManager, $dkimManager, $schemaPath);
+    $setupController = new SetupController($twig, $secretManager, $dkimManager, $schemaPath, __DIR__);
 
     if ($request->getMethod() === 'GET' && $request->getPath() === '/setup') {
         $response = $setupController->index($request, []);
+    } elseif ($request->getMethod() === 'POST' && $request->getPath() === '/setup/verify-token') {
+        $response = $setupController->verifyToken($request, []);
     } elseif ($request->getMethod() === 'POST' && $request->getPath() === '/setup/test-db') {
         $response = $setupController->testDatabase($request, []);
     } elseif ($request->getMethod() === 'POST' && $request->getPath() === '/setup/save') {
@@ -1031,6 +1033,7 @@ $router->addRoute('GET', '/offline', \Core\Http\Controller\PwaController::class,
 
 // Setup routes (admin, but bypassed when not initialized)
 $router->addRoute('GET', '/setup', SetupController::class, 'index', 'superadmin');
+$router->addRoute('POST', '/setup/verify-token', SetupController::class, 'verifyToken', 'superadmin');
 $router->addRoute('POST', '/setup/test-db', SetupController::class, 'testDatabase', 'superadmin');
 $router->addRoute('POST', '/setup/save', SetupController::class, 'save', 'superadmin');
 $router->addRoute('GET', '/setup/dns', SetupController::class, 'checkDns', 'superadmin');
@@ -1204,7 +1207,7 @@ $memberPageService = new \Core\Member\MemberPageService(
 // Register controllers with dependencies
 $frontController->registerController(PageController::class, new PageController($twig, $editableContentService, $sectionRepository, $settingService, $rgpdContentService, $sectionService, $unitStaffSectionService, $scoutYearService));
 $frontController->registerController(CookieController::class, new CookieController($twig, $cookieConsentService));
-$setupController = new SetupController($twig, $secretManager, $dkimManager, $schemaPath);
+$setupController = new SetupController($twig, $secretManager, $dkimManager, $schemaPath, __DIR__);
 $setupController->setSettingService($settingService);
 $setupController->setJournalService($journalService);
 $frontController->registerController(SetupController::class, $setupController);

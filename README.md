@@ -48,13 +48,35 @@ vendor/bin/phpstan analyse core/   # static analysis
 
 ## Deployment
 
+### Cutting a release (maintainers)
+
 ```bash
-# Set environment variables: FTP_HOST, FTP_USER, FTP_PASS, FTP_REMOTE_DIR
-./scripts/deploy.sh               # differential FTP deploy
 ./scripts/release.sh              # create a new release (patch by default)
 ./scripts/release.sh --minor      # minor version bump
 ./scripts/release.sh --major      # major version bump
 ```
+
+Publishes a GitHub release with the install artifact and `bootstrap.php` as assets. Requires the GitHub CLI (`gh`).
+
+### Installation sur hébergement mutualisé (unit administrators)
+
+No SSH, Git, or Composer needed on the server — only FTP, and only once.
+
+1. Download `bootstrap.php` from the [latest release](https://github.com/xdubois-57/scoutmagic/releases/latest).
+2. Upload it via FTP to the empty web folder your host serves as the document root.
+3. Open it in a browser (e.g. `https://votre-domaine.be/bootstrap.php`). It downloads the latest release, installs it, and runs a full security check before showing you anything else — the confirmation screen explains which of the two installation layouts it picked for your host and why.
+4. Click **Installer**. It reports progress step by step, then a pass/fail table for every security check it ran (including checks your own browser performed by fetching URLs directly). Any failure rolls back cleanly and explains what to fix — nothing is left half-installed.
+5. Once every check passes, it writes a `token.php` file next to itself (or tells you to create it manually over FTP if it couldn't), deletes itself, and redirects you to the setup wizard.
+6. The setup wizard asks for the value in `token.php` before showing anything else — copy it from the file over FTP if you didn't note it down. It's deleted automatically once you finish the wizard.
+7. Complete the wizard: database credentials, unit settings, email configuration, and your admin account.
+
+**Enabling automatic updates**: once installed, go to *Configuration > Maintenance* and generate a GitHub webhook secret. In your GitHub repository's *Settings > Webhooks*, add a webhook with:
+- **Payload URL**: `https://votre-domaine.be/api/webhook/github`
+- **Content type**: `application/json`
+- **Secret**: the value generated on the Maintenance page
+- **Events**: select only *Releases*
+
+Without this, the site never learns a new release exists — see ARCHITECTURE.md §8.17 for how update installation itself works once notified.
 
 ## Architecture
 

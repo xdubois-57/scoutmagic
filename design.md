@@ -107,8 +107,10 @@ SectionPicker → section header (name/code, branch badge, count) → section st
 
 ## 3. Deployment
 
-### 3.1 FTP deployment
-`deploy.sh`: CI build → `lftp mirror` (differential, deletes removed) → trigger migration.
+### 3.1 First install: bootstrap.php
+FTP is used only once, to upload the standalone `bootstrap/bootstrap.php` to an empty web folder. It downloads the latest GitHub release, installs into whichever of two layouts fits the host (Layout A: writable parent directory, public/'s contents merge into the document root; Layout B: single tree in the document root, protected by one root `.htaccess`), runs a full acceptance gate (server-side checks + browser-fetched probes proving `storage/`, `core/`, `vendor/`, etc. aren't web-reachable), writes `token.php` only once every check passes, then deletes itself and redirects to the token-gated setup wizard. See ARCHITECTURE.md §9 for the full mechanism.
+
+Every subsequent update goes through §8.17/§8.18 (GitHub release polling + webhook), never FTP again.
 
 ### 3.2 Database migration
 Backup → introspect → compare to `schema.sql` files → generate DDL → execute.

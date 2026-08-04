@@ -426,7 +426,25 @@ Extends Lot 1's app-shell-only service worker to a whitelisted set of content pa
 
 ## 9. Installation / bootstrap
 
-First access without `secrets.enc` → setup page (no auth required, works once). Collects DB credentials, unit settings (including short name ≤5 chars), email config, initial admin email. Same page accessible later from Configuration as normal admin page.
+### 9.1 First install: bootstrap.php
+
+FTP is used exactly once: the operator uploads a single self-contained `bootstrap/bootstrap.php` to an empty web folder and opens it in a browser. It has no Composer dependency (it must run before `vendor/` exists) and never touches `Core\Maintenance\BackupService`, `InstallUpdateHandler`, `RestoreBackupHandler`, or `FileAccessGuard` — it is their first-run twin, not a rewrite of them: same `VERSION` format (`Core\Maintenance\VersionFile`), same archive-root handling as `InstallUpdateHandler::resolveBranchArchiveRoot()` (decided from source type, never entry count), same "no new dependency" constraint.
+
+It resolves the latest published GitHub release (hardcoded repo, never read from the request), picks one of two supported layouts, runs an 11-step POST-driven install (the browser drives a short poll loop — a single long request would time out on shared hosting), then a full acceptance gate, then writes `token.php` and deletes itself.
+
+**Layout A — "Natural" (preferred)**: the document root sits inside a writable parent directory. The artifact's `public/` contents are merged directly into the document root; everything else (`core/`, `modules/`, `storage/`, `vendor/`, `schema/`, `config/`) goes into the parent. The result is the exact project tree in §12, with the document root simply *being* `public/`.
+
+**Layout B — "Single-tree" (fallback)**: used whenever the parent isn't writable, doesn't physically contain the document root (chrooted/symlinked hosting), or looks like a filesystem root. The entire artifact is installed into the document root, and exactly one root `.htaccess` (never per-directory deny files — those miss module `storage/<name>/` folders created long after install, and get overwritten by every update since they'd live inside the artifact) denies `storage/|core/|modules/|config/|schema/|vendor/|tests/|scripts/` and dotfiles, then rewrites everything else to `public/`.
+
+Either way, no code elsewhere in the codebase is aware of which layout is in use — `dirname(__DIR__)` from `public/index.php` resolves to the same project root in both cases by construction. The one narrow exception is the token-gate check in `SetupController`, which tries the two fixed candidate locations for `token.php` itself (see §9.2) — not a general path-resolution abstraction.
+
+**Acceptance gate**: before the wizard is reachable, `bootstrap.php` runs server-side checks (`VERSION`, `vendor/autoload.php`, `schema/core.sql`, `storage/` subdirectories and permissions, no `.htaccess` shipped in the artifact, temp dir cleaned up) and has the *browser itself* fetch a set of canary files it just wrote (a positive control, `token.php` executing as PHP rather than being served as source, `storage/keys/`, a `storage/` subdirectory created moments earlier, `vendor/autoload.php`, a docroot dotfile, no `storage/` directory listing) to prove what's and isn't web-reachable — trusting the browser's report is deliberate here, the same precedent `MaintenanceController::installUpdate()` sets for accepting client-observed results server-side, and it's safe because only the operator running the install can forge the verdict and doing so grants no privilege. Any failure rolls back the entire installed tree — not just the failing piece — and no `token.php` is ever written. Full report also saved to `storage/config/install-report.json` on success.
+
+### 9.2 Setup wizard token gate
+
+Until `secrets.enc` exists, `/setup` (`Core\Http\Controller\SetupController`) is gated behind `token.php`, which `bootstrap.php` writes to the document root only after its acceptance gate fully passes. `SetupController` never generates a token itself: if `token.php` is missing, it refuses and displays the exact file content to create over FTP; if present, it compares a submitted value against the file's own content via `hash_equals()`, with session-based progressive lockout (there is no database yet at this point, so `Core\Security\LoginThrottler`'s DB-backed pattern doesn't apply) escalating to a hard stop after ~10 attempts. On successful completion of first-time setup, `token.php` is deleted; a persistent journal entry (and a flash message) warns the operator if deletion fails, since leaving it in place is an unnecessary — though not by itself exploitable — risk.
+
+Collects DB credentials, unit settings (including short name ≤5 chars), email config, initial admin email. Once `secrets.enc` exists, `/setup` reverts to being a normal `superadmin` Configuration page under `RbacGuard`, unchanged — the token gate never applies again.
 
 ## 10. Database schema management
 
@@ -481,8 +499,11 @@ public/
   index.php
   assets/
 
+bootstrap/
+  bootstrap.php    Standalone first-install script (§9.1) — published as its
+                    own release asset, excluded from the main artifact
+
 scripts/
-  deploy.sh
   release.sh
 
 docs/

@@ -33,7 +33,8 @@ class SetupController extends AbstractController
         protected Environment $twig,
         private SecretManager $secretManager,
         private DkimManager $dkimManager,
-        private string $schemaPath
+        private string $schemaPath,
+        private string $publicDir = ''
     ) {
     }
 
@@ -55,6 +56,14 @@ class SetupController extends AbstractController
     public function index(Request $request, array $params): Response
     {
         $isInitialized = $this->secretManager->isInitialized();
+
+        if (!$isInitialized) {
+            $gate = $this->checkTokenGate();
+            if ($gate !== null) {
+                return $gate;
+            }
+        }
+
         $currentValues = [];
 
         if ($isInitialized) {
@@ -197,6 +206,69 @@ class SetupController extends AbstractController
     }
 
     /**
+     * POST /setup/verify-token — checks a submitted token against token.php
+     * (created via FTP by the bootstrap installer, or manually by the
+     * operator). Session-based progressive lockout: there is no database
+     * to back Core\Security\LoginThrottler's pattern yet at this point
+     * (that's the whole reason this gate exists), so failures are tracked
+     * per-session instead, with the same tiered escalation shape.
+     *
+     * @param array<string, string> $params
+     */
+    public function verifyToken(Request $request, array $params): Response
+    {
+        if ($this->secretManager->isInitialized()) {
+            return $this->redirect('/setup');
+        }
+        if (!CsrfGuard::validateRequest()) {
+            return $this->redirect('/setup');
+        }
+
+        $lockedUntil = (int) ($_SESSION['setup_token_locked_until'] ?? 0);
+        if ($lockedUntil > time()) {
+            return $this->redirect('/setup');
+        }
+
+        $tokenPath = $this->findTokenFile();
+        $expected = $tokenPath !== null ? $this->extractTokenValue((string) @file_get_contents($tokenPath)) : '';
+        $submitted = trim((string) $request->getBody('token', ''));
+
+        $valid = $tokenPath !== null && $expected !== '' && $submitted !== '' && hash_equals($expected, $submitted);
+
+        if ($valid) {
+            unset($_SESSION['setup_token_attempts'], $_SESSION['setup_token_locked_until'], $_SESSION['setup_token_error']);
+            $_SESSION['setup_token_verified'] = true;
+            $this->journalService?->log(
+                'core', 'setup_token_verified', 'security', 'Jeton d\'installation vérifié avec succès',
+                ['ip' => $_SERVER['REMOTE_ADDR'] ?? '']
+            );
+            return $this->redirect('/setup');
+        }
+
+        $attempts = (int) ($_SESSION['setup_token_attempts'] ?? 0) + 1;
+        $_SESSION['setup_token_attempts'] = $attempts;
+        $_SESSION['setup_token_error'] = 'Jeton invalide.';
+
+        if ($attempts >= 10) {
+            $_SESSION['setup_token_locked_until'] = time() + 86400;
+            $_SESSION['setup_token_error'] = 'Trop de tentatives — nouvel essai possible dans 24 heures.';
+        } elseif ($attempts >= 8) {
+            $_SESSION['setup_token_locked_until'] = time() + 1800;
+        } elseif ($attempts >= 6) {
+            $_SESSION['setup_token_locked_until'] = time() + 300;
+        } elseif ($attempts >= 4) {
+            $_SESSION['setup_token_locked_until'] = time() + 60;
+        }
+
+        $this->journalService?->log(
+            'core', 'setup_token_failed', 'security', 'Tentative de jeton d\'installation invalide',
+            ['ip' => $_SERVER['REMOTE_ADDR'] ?? '', 'attempts' => $attempts]
+        );
+
+        return $this->redirect('/setup');
+    }
+
+    /**
      * POST /setup/test-email — AJAX: send a test email.
      *
      * @param array<string, string> $params
@@ -328,7 +400,14 @@ class SetupController extends AbstractController
             // Create initial admin account (use base64 keys to match boot sequence)
             $this->createAdminAccount($connection, $secrets['encryption_key'], $secrets['blind_index_key'], $data['admin_email'], $data['admin_password']);
 
-            FlashMessage::set('success', 'Installation terminée avec succès. Bienvenue !');
+            $tokenDeleted = $this->deleteTokenFileWithWarning();
+
+            FlashMessage::set(
+                $tokenDeleted ? 'success' : 'warning',
+                $tokenDeleted
+                    ? 'Installation terminée avec succès. Bienvenue !'
+                    : 'Installation terminée avec succès, mais token.php n\'a pas pu être supprimé automatiquement — retirez-le manuellement via FTP pour des raisons de sécurité.'
+            );
             return $this->redirect('/');
         } catch (\Throwable $e) {
             $this->cleanupFailedSetup();
@@ -630,6 +709,115 @@ class SetupController extends AbstractController
             @unlink($secrets);
         }
         $this->dkimManager->deleteKey();
+    }
+
+    /**
+     * Gates GET /setup while the site isn't initialized: no token.php,
+     * no wizard — ever. Returns null when access is already granted this
+     * session, otherwise a Response for whichever gate screen applies.
+     */
+    private function checkTokenGate(): ?Response
+    {
+        if (($_SESSION['setup_token_verified'] ?? false) === true) {
+            return null;
+        }
+
+        $tokenPath = $this->findTokenFile();
+
+        if ($tokenPath === null) {
+            $example = bin2hex(random_bytes(32));
+            return $this->render('setup/token_gate.html.twig', [
+                'state' => 'missing',
+                'example_content' => "<?php /* TOKEN: {$example} */\n",
+            ]);
+        }
+
+        $lockedUntil = (int) ($_SESSION['setup_token_locked_until'] ?? 0);
+        if ($lockedUntil > time()) {
+            return $this->render('setup/token_gate.html.twig', [
+                'state' => 'locked',
+                'retry_after' => $lockedUntil - time(),
+            ]);
+        }
+
+        $error = $_SESSION['setup_token_error'] ?? null;
+        unset($_SESSION['setup_token_error']);
+
+        return $this->render('setup/token_gate.html.twig', [
+            'state' => 'form',
+            'csrf_token' => CsrfGuard::generateToken(),
+            'error' => $error,
+        ]);
+    }
+
+    /**
+     * token.php always lives in the HTTP document root, which sits at a
+     * different relative position from this controller depending on which
+     * layout bootstrap.php chose (Layout A: same directory as index.php;
+     * Layout B: one level above public/) — see bootstrap/bootstrap.php's
+     * own layout-selection comments. Checking both fixed candidates is a
+     * narrow exception scoped to this one gate file, not a general
+     * path-resolution abstraction (ARCHITECTURE.md §9's governing
+     * constraint is about not teaching the rest of the codebase about
+     * hosting layouts, which this doesn't).
+     *
+     * @return string[]
+     */
+    private function candidateTokenPaths(): array
+    {
+        $candidates = [];
+        if ($this->publicDir !== '') {
+            $candidates[] = rtrim($this->publicDir, '/') . '/token.php';
+            $candidates[] = dirname(rtrim($this->publicDir, '/')) . '/token.php';
+        }
+
+        return array_values(array_unique($candidates));
+    }
+
+    private function findTokenFile(): ?string
+    {
+        foreach ($this->candidateTokenPaths() as $path) {
+            if (is_file($path)) {
+                return $path;
+            }
+        }
+
+        return null;
+    }
+
+    private function extractTokenValue(string $fileContent): string
+    {
+        if (preg_match('/TOKEN:\s*([0-9a-f]+)/i', $fileContent, $matches) === 1) {
+            return $matches[1];
+        }
+
+        return '';
+    }
+
+    /**
+     * Deletes token.php once first-time setup genuinely completes — not at
+     * token verification (which only unlocks the form), matching
+     * bootstrap.php's own framing of token.php as gating the whole wizard,
+     * not just its first screen.
+     */
+    private function deleteTokenFileWithWarning(): bool
+    {
+        $tokenPath = $this->findTokenFile();
+        if ($tokenPath === null) {
+            return true;
+        }
+
+        if (@unlink($tokenPath)) {
+            return true;
+        }
+
+        $this->journalService?->log(
+            'core', 'setup_token_delete_failed', 'security',
+            'Impossible de supprimer token.php après l\'installation — à retirer manuellement via FTP.',
+            []
+        );
+
+        return false;
     }
 
     private function extractDomain(string $host): string

@@ -40,19 +40,44 @@ git push origin "${TAG}"
 
 # Create GitHub release (requires gh CLI)
 if command -v gh &> /dev/null; then
-    # Build release artifact
+    # Build release artifact. vendor/ must be present — there is no
+    # Composer on a shared host, so a vendor-less artifact installs
+    # cleanly (per bootstrap.php's own artifact verification) but yields a
+    # dead site. bootstrap/ is excluded: it's the installer, not something
+    # an install/update should ever re-plant into a live site.
     composer install --no-dev --optimize-autoloader --no-interaction --quiet
     ARTIFACT="release-${TAG}.zip"
     zip -r "${ARTIFACT}" . \
         -x ".git/*" ".github/*" "tests/*" "storage/keys/*" "storage/config/*" \
-           "storage/temp/*" "config/app.php" ".gitignore" ".env" "*.zip"
+           "storage/temp/*" "config/app.php" ".gitignore" ".env" "*.zip" \
+           "bootstrap/*"
 
-    gh release create "${TAG}" "${ARTIFACT}" \
+    # bootstrap.php protects a Layout B (single-tree) install with exactly
+    # one root .htaccess it writes itself at install time — the artifact
+    # must never ship one, or bootstrap's own S7 acceptance check would
+    # correctly refuse the very release this script is about to publish.
+    if unzip -l "${ARTIFACT}" | awk '{print $4}' | grep -qx '\.htaccess'; then
+        echo "ERROR: release artifact contains a root-level .htaccess — aborting release." >&2
+        rm -f "${ARTIFACT}"
+        exit 1
+    fi
+
+    if ! unzip -l "${ARTIFACT}" | grep -q 'vendor/autoload.php'; then
+        echo "ERROR: release artifact is missing vendor/autoload.php — aborting release." >&2
+        rm -f "${ARTIFACT}"
+        exit 1
+    fi
+
+    # bootstrap.php is published as a second asset — the zip artifact is
+    # listed first so it lands as assets[0]. Core\Maintenance\
+    # GitHubReleaseClient and bootstrap.php's own resolveArchiveUrl() both
+    # prefer assets[0] as the main installable artifact.
+    gh release create "${TAG}" "${ARTIFACT}" "bootstrap/bootstrap.php" \
         --title "Release ${TAG}" \
         --generate-notes
 
     rm -f "${ARTIFACT}"
-    echo "GitHub release ${TAG} created with artifact."
+    echo "GitHub release ${TAG} created with artifact and bootstrap.php."
 else
     echo "Tag ${TAG} pushed. Install GitHub CLI (gh) to auto-create releases."
 fi
