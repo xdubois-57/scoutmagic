@@ -9,10 +9,10 @@ use PHPUnit\Framework\TestCase;
 
 class CookieRegistryTest extends TestCase
 {
-    public function testGetCoreCookiesReturnsFiveCookies(): void
+    public function testGetCoreCookiesReturnsSixCookies(): void
     {
         $cookies = CookieRegistry::getCoreCookies();
-        $this->assertCount(5, $cookies);
+        $this->assertCount(6, $cookies);
     }
 
     public function testEachCookieHasRequiredKeys(): void
@@ -48,12 +48,13 @@ class CookieRegistryTest extends TestCase
         $this->assertContains('last_login_method', $names);
     }
 
-    public function testMostCoreCookiesAreNecessaryExceptLastLoginMethod(): void
+    public function testMostCoreCookiesAreNecessaryExceptTheFunctionalOnes(): void
     {
         $cookies = CookieRegistry::getCoreCookies();
+        $functionalNames = ['last_login_method', 'content-{accountScope}-{version}'];
 
         foreach ($cookies as $cookie) {
-            $expected = $cookie['name'] === 'last_login_method' ? 'functional' : 'necessary';
+            $expected = in_array($cookie['name'], $functionalNames, true) ? 'functional' : 'necessary';
             $this->assertSame($expected, $cookie['category'], "Cookie '{$cookie['name']}' has unexpected category.");
         }
     }

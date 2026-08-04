@@ -7,9 +7,10 @@ namespace Modules\Trombinoscope\Service;
 use Core\Member\MemberProfile;
 use Core\Member\SectionService;
 use Core\Module\SectionResponsableProvider;
+use Core\Module\StaffDirectoryProvider;
 use Modules\Trombinoscope\Repository\TrombinoscopeRepository;
 
-class TrombinoscopeService implements SectionResponsableProvider
+class TrombinoscopeService implements SectionResponsableProvider, StaffDirectoryProvider
 {
     public function __construct(
         private TrombinoscopeRepository $repository,
@@ -53,5 +54,15 @@ class TrombinoscopeService implements SectionResponsableProvider
     public function getResponsable(int $sectionId, int $scoutYearId): ?MemberProfile
     {
         return $this->getSectionStaff($sectionId, $scoutYearId)['lead'];
+    }
+
+    /**
+     * Core\Module\StaffDirectoryProvider implementation.
+     *
+     * @return int[]
+     */
+    public function getAllEligibleStaffMemberIds(int $scoutYearId): array
+    {
+        return $this->repository->getAllEligibleStaffMemberIds($scoutYearId);
     }
 }

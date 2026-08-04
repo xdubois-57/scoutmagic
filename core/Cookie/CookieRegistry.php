@@ -54,6 +54,24 @@ class CookieRegistry
                 'purpose' => 'Stocke localement les fichiers nécessaires à l\'installation et l\'ouverture de l\'application (mise en page, styles, icônes) — aucune donnée personnelle, aucun contenu du site.',
                 'duration' => 'Jusqu\'à la prochaine mise à jour du site (remplacé automatiquement)',
             ],
+            [
+                // Also a Cache Storage API entry, not an HTTP cookie — the
+                // Lot 3 content cache the app-shell entry above's comment
+                // anticipated. Functional, with a real consent gate this
+                // time (Core\Offline, public/sw.js): stores full page
+                // copies of a fixed, server-declared whitelist (public
+                // pages, calendar, notification centre, trombinoscope —
+                // never /files/{id}, never finance/documents/mass-mail
+                // content, never the member's own page) plus staff face
+                // thumbnails, so they open while offline. Scoped per
+                // signed-in account so a different member on the same
+                // device never inherits the previous one's copies; emptied
+                // on logout or on withdrawing this consent.
+                'name' => 'content-{accountScope}-{version}',
+                'category' => 'functional',
+                'purpose' => 'Conserve localement une copie des pages consultées (calendrier, notifications, trombinoscope, pages publiques) et des photos du trombinoscope, pour pouvoir les consulter hors connexion.',
+                'duration' => 'Jusqu\'à péremption (durée configurable, 7 jours par défaut), déconnexion, ou retrait de ce consentement',
+            ],
         ];
     }
 }

@@ -52,4 +52,32 @@ class TrombinoscopeRepository
 
         return array_values($byMember);
     }
+
+    /**
+     * Every currently eligible staff member's persistent member id, across
+     * every section combined (Lot 3 offline photo pre-download —
+     * Core\Http\Controller\OfflineController). Same eligibility rule as
+     * getEligibleStaffForSection() above (chief/admin role, active
+     * member_year) but deliberately member_id, not member_year_id: the
+     * photo tables (Core\Photo\MemberPhotoRepository) are keyed by the
+     * persistent member, not the year-specific row.
+     *
+     * @return int[]
+     */
+    public function getAllEligibleStaffMemberIds(int $scoutYearId): array
+    {
+        $pdo = $this->connection->getPdo();
+
+        $stmt = $pdo->prepare(
+            "SELECT DISTINCT my.member_id
+             FROM member_functions mf
+             JOIN member_years my ON mf.member_year_id = my.id
+             JOIN functions f ON mf.function_id = f.id
+             WHERE my.scout_year_id = ? AND my.is_active = 1
+               AND f.role IN ('chief', 'admin')"
+        );
+        $stmt->execute([$scoutYearId]);
+
+        return array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN));
+    }
 }

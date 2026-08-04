@@ -39,6 +39,20 @@
 // call could never do). Deliberately no `tag` on any notification —
 // several arriving the same evening must all remain visible, never
 // collapse into one.
+//
+// Scope of content caching (Lot 3): network-first, cache-fallback, for
+// exactly the server-declared whitelist (Core\Offline\OfflineWhitelist —
+// public pages, the calendar, the notification centre, the
+// trombinoscope). `/files/{id}` is NEVER in that whitelist and is never
+// reachable through this path — nothing here changes the "network-only"
+// rule above for it. Cache name is `content-{accountScope}-{version}`:
+// scoped to the signed-in account (or 'guest') so a different member on
+// the same device never inherits the previous one's cache, and to the
+// app version like the shell cache above. Config (staleness threshold,
+// consent, the whitelist itself, account scope) arrives via postMessage
+// from base.html.twig on every page load — never hardcoded here — and is
+// persisted in its own small Cache Storage entry so it survives this
+// worker being terminated and restarted between messages and fetches.
 
 const params = new URLSearchParams(self.location.search);
 const VERSION = params.get('v') || 'dev';
@@ -61,6 +75,60 @@ const APP_SHELL_URLS = [
     '/pwa/icon-180.png',
     '/offline',
 ];
+
+// --- Lot 3: content caching config ---
+// Not durable as a plain JS variable — the browser can terminate and
+// restart this worker between the postMessage that delivers it and the
+// next fetch event that needs it. Storing it as a synthetic Cache
+// Storage entry (same API already used for everything else here, no new
+// browser feature) survives that restart.
+const CONFIG_CACHE_NAME = 'offline-config';
+const CONFIG_URL = 'https://offline-config.internal/v1';
+const CONTENT_CACHE_PREFIX = 'content-';
+
+function storeOfflineConfig(data) {
+    return caches.open(CONFIG_CACHE_NAME).then(function (cache) {
+        return cache.put(CONFIG_URL, new Response(JSON.stringify(data), {
+            headers: { 'Content-Type': 'application/json' },
+        }));
+    });
+}
+
+function getOfflineConfig() {
+    return caches.open(CONFIG_CACHE_NAME).then(function (cache) {
+        return cache.match(CONFIG_URL);
+    }).then(function (response) {
+        return response ? response.json() : null;
+    });
+}
+
+function purgeAllContentCaches() {
+    return caches.keys().then(function (names) {
+        return Promise.all(
+            names
+                .filter(function (name) { return name.indexOf(CONTENT_CACHE_PREFIX) === 0; })
+                .map(function (name) { return caches.delete(name); })
+        );
+    });
+}
+
+self.addEventListener('message', function (event) {
+    const data = event.data || {};
+
+    if (data.type === 'offline-config') {
+        // A config delivering consent === false (withdrawn/refused) must
+        // itself purge — this is the one path a plain page reload of the
+        // cookie preferences page goes through (see offline-cache.js),
+        // not just the explicit 'purge-content-caches' message below.
+        event.waitUntil(
+            storeOfflineConfig(data).then(function () {
+                return data.consent ? undefined : purgeAllContentCaches();
+            })
+        );
+    } else if (data.type === 'purge-content-caches') {
+        event.waitUntil(purgeAllContentCaches());
+    }
+});
 
 self.addEventListener('install', function (event) {
     event.waitUntil(
@@ -103,19 +171,109 @@ self.addEventListener('fetch', function (event) {
         return;
     }
 
-    // Network-only for everything else in this lot. The one exception:
-    // a failed page navigation (airplane mode, etc.) falls back to the
-    // precached offline page instead of the browser's own network-error
-    // interstitial — this is the one thing an installed, standalone app
-    // must never show, since there is no browser chrome to explain it.
+    // Every other GET (including every /files/{id} download) stays
+    // strictly network-only — no exception, this is the one line that
+    // keeps SECURITY.md's file-access rule true for the service worker.
+    // Navigations get the one exception below.
     if (request.mode === 'navigate') {
-        event.respondWith(
-            fetch(request).catch(function () {
-                return caches.match('/offline');
-            })
-        );
+        event.respondWith(handleNavigate(request, url));
     }
 });
+
+function handleNavigate(request, url) {
+    return getOfflineConfig().then(function (config) {
+        if (!config || !config.consent || !isWhitelisted(url.pathname, config.whitelist)) {
+            // Lot 1 behavior, unchanged: a failed navigation falls back to
+            // the precached offline page instead of the browser's own
+            // network-error interstitial — the one thing an installed,
+            // standalone app must never show, since there's no browser
+            // chrome to explain it.
+            return fetch(request).catch(function () {
+                return caches.match('/offline');
+            });
+        }
+
+        return networkFirstWithCacheFallback(request, url, config);
+    });
+}
+
+function isWhitelisted(pathname, whitelist) {
+    if (!whitelist) {
+        return false;
+    }
+    for (let i = 0; i < whitelist.length; i++) {
+        if (whitelist[i].path === pathname) {
+            return true;
+        }
+    }
+    return false;
+}
+
+function networkFirstWithCacheFallback(request, url, config) {
+    const cacheName = CONTENT_CACHE_PREFIX + config.account_scope + '-' + config.version;
+
+    return fetch(request).then(function (response) {
+        // response.redirected (e.g. an identified-only page bounced to
+        // /login because the session had actually expired) must never be
+        // cached under the original whitelisted URL — that would silently
+        // serve the LOGIN page back as if it were the calendar the next
+        // time this is read from cache while offline.
+        if (response && response.ok && !response.redirected) {
+            const copy = response.clone();
+            caches.open(cacheName).then(function (cache) { cache.put(request, copy); });
+        }
+        return response;
+    }).catch(function () {
+        return caches.open(cacheName).then(function (cache) {
+            return cache.match(request);
+        }).then(function (cached) {
+            if (!cached) {
+                return caches.match('/offline');
+            }
+
+            const dateHeader = cached.headers.get('date');
+            const ageMs = dateHeader ? Date.now() - new Date(dateHeader).getTime() : Infinity;
+            const stalenessDays = config.staleness_days || 7;
+            if (ageMs > stalenessDays * 24 * 60 * 60 * 1000) {
+                return caches.match('/offline');
+            }
+
+            return injectOfflineBanner(cached, dateHeader);
+        });
+    });
+}
+
+// Not a badge — module spec is explicit this must be a readable sentence,
+// visible at the top of the page, not silently implied by anything else
+// on screen. Injected here (rather than server-rendered) because the same
+// HTML is served whether the request succeeds live or is replayed from
+// cache — only the service worker, at serve time, knows which one this
+// is and how old the cached copy actually is.
+function injectOfflineBanner(response, dateHeader) {
+    return response.text().then(function (html) {
+        const banner = '<div class="alert alert-warning text-center small rounded-0 mb-0 border-start-0 border-end-0" role="status">'
+            + formatOfflineTimestamp(dateHeader) + '</div>';
+        const injected = html.replace(/<body([^>]*)>/i, '<body$1>' + banner);
+
+        return new Response(injected, {
+            status: response.status,
+            statusText: response.statusText,
+            headers: response.headers,
+        });
+    });
+}
+
+function formatOfflineTimestamp(dateHeader) {
+    if (!dateHeader) {
+        return 'Version hors ligne';
+    }
+
+    const months = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
+    const d = new Date(dateHeader);
+    const minutes = String(d.getMinutes()).padStart(2, '0');
+
+    return 'Version hors ligne du ' + d.getDate() + ' ' + months[d.getMonth()] + ', ' + d.getHours() + ' h ' + minutes;
+}
 
 self.addEventListener('push', function (event) {
     var data = {};

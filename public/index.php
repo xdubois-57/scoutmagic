@@ -40,6 +40,7 @@ use Core\Http\Controller\ImportController;
 use Core\Http\Controller\JournalController;
 use Core\Http\Controller\MemberController;
 use Core\Http\Controller\MaintenanceController;
+use Core\Http\Controller\OfflineController;
 use Core\Http\Controller\PageController;
 use Core\Http\Controller\PlaceholderController;
 use Core\Http\Controller\PushSubscriptionController;
@@ -63,6 +64,7 @@ use Core\Notification\NotificationPreferenceRepository;
 use Core\Notification\NotificationRepository;
 use Core\Notification\NotificationService;
 use Core\Notification\PushSubscriptionRepository;
+use Core\Offline\OfflineWhitelist;
 use Core\Scheduler\SchedulerRepository;
 use Core\Scheduler\SchedulerRunner;
 use Core\Scheduler\SchedulerService;
@@ -435,6 +437,15 @@ $settingService->register('notifications_retention_days', '90', 'number', 'Conse
     'Une notification lue est supprimée automatiquement après ce délai. Une notification non lue n\'est jamais supprimée.',
     null, null, null, true, 260);
 
+// Offline content caching (Lot 3) — how old a cached copy of a
+// whitelisted page (Core\Offline\OfflineWhitelist) may be before the
+// service worker refuses to serve it and falls back to the offline page
+// instead. Passed to public/sw.js via postMessage — never hardcoded
+// there (see base.html.twig).
+$settingService->register('offline_cache_staleness_days', '7', 'number', 'Péremption du contenu hors ligne (jours)',
+    'Au-delà de ce délai, une page mise en cache pour la consultation hors ligne n\'est plus affichée — la page hors ligne générique est montrée à la place plutôt qu\'un contenu obsolète.',
+    null, null, null, true, 261);
+
 // Migrate non-secret settings from secrets.enc to settings table (one-time)
 if ($settingService->get('settings_migrated') !== '1') {
     $settingService->register('settings_migrated', '0', 'boolean', 'Migration effectuée',
@@ -781,6 +792,21 @@ $twig->addGlobal('_section_photo_service', $sectionPhotoService);
 $twig->addGlobal('cookie_consent_given', $cookieConsentService->hasConsented());
 $twig->addGlobal('vapid_public_key', (string) ($secrets['vapid_public_key'] ?? ''));
 
+// Offline content caching (Lot 3) — single server-side source of truth
+// for both public/sw.js (routing decisions) and offline-nav.js (greying
+// out unavailable links), delivered to the page as JSON and handed to
+// the service worker via postMessage (base.html.twig) — never
+// hardcoded/duplicated client-side. accountScope is what the cache name
+// is namespaced by, so a different member logging in on the same device
+// never inherits the previous one's cache (offline-cache.js).
+$twig->addGlobal('offline_whitelist', OfflineWhitelist::getPaths());
+$twig->addGlobal('offline_cache_staleness_days', (int) $settingService->get('offline_cache_staleness_days', null, '7'));
+$twig->addGlobal('offline_functional_consent', $cookieConsentService->isAllowed('functional'));
+$twig->addGlobal(
+    'offline_account_scope',
+    AuthSession::isAuthenticated() ? (string) AuthSession::getUserAccountId() : 'guest'
+);
+
 // Build menu
 $menuBuilder = new MenuBuilder(Role::fromString($currentRole));
 
@@ -979,6 +1005,11 @@ $router->addRoute('POST', '/cookies/reject-all', CookieController::class, 'rejec
 // File serving
 $router->addRoute('GET', '/files/{id}', FileController::class, 'serve', 'public');
 $router->addRoute('GET', '/files/{id}/thumbnail', FileController::class, 'thumbnail', 'public');
+// Offline mode (Lot 3) — distinct, narrower routes than /files/{id}; see
+// Core\Http\Controller\OfflineController's class docblock for why this
+// is not a precedent for bypassing FileAccessGuard elsewhere.
+$router->addRoute('GET', '/api/offline/photo-manifest', OfflineController::class, 'photoManifest', 'identified');
+$router->addRoute('GET', '/api/offline/photo/{member_id}', OfflineController::class, 'photo', 'identified');
 
 // Generic short-URL redirector (Core\Url)
 $router->addRoute('GET', '/s/{code}', ShortUrlController::class, 'resolve', 'public');
@@ -1252,6 +1283,16 @@ $frontController->registerController(EditableContentController::class, $editable
 $fileController = new FileController($twig, $fileAccessGuard, $storagePath, $encryptedFileStorageService);
 $fileController->setJournalService($journalService);
 $frontController->registerController(FileController::class, $fileController);
+// staffDirectoryProvider is wired for real inside the trombinoscope block
+// below (re-registered there, same Core\Module\SectionResponsableProvider
+// precedent as PageController) — null here degrades to an empty manifest
+// when that module is disabled.
+$staffThumbnailProcessor = new \Core\Photo\StaffThumbnailProcessor();
+$offlineController = new OfflineController(
+    $twig, $memberPhotoService, $fileAccessGuard, $scoutYearService, $staffThumbnailProcessor,
+    $storagePath, $encryptedFileStorageService, null
+);
+$frontController->registerController(OfflineController::class, $offlineController);
 $uploadController = new UploadController($twig, $uploadHandler, $editableContentService, $memberPhotoService, $sectionPhotoService, $sectionPhotoProcessor, $landscapeImageProcessor, $memberService, $ageBranchRepo, $pwaIconService);
 $uploadController->setJournalService($journalService);
 $frontController->registerController(UploadController::class, $uploadController);
@@ -1307,6 +1348,17 @@ if (in_array('trombinoscope', $moduleManager->getEnabledModuleIds(), true)) {
     $frontController->registerController(
         PageController::class,
         new PageController($twig, $editableContentService, $sectionRepository, $settingService, $rgpdContentService, $sectionService, $unitStaffSectionService, $scoutYearService, null, null, $sectionResponsableProvider)
+    );
+
+    // Re-registers OfflineController with the real staff directory
+    // (Core\Module\StaffDirectoryProvider) — same core-hook precedent as
+    // $sectionResponsableProvider just above.
+    $frontController->registerController(
+        OfflineController::class,
+        new OfflineController(
+            $twig, $memberPhotoService, $fileAccessGuard, $scoutYearService, $staffThumbnailProcessor,
+            $storagePath, $encryptedFileStorageService, $trombinoscopeService
+        )
     );
 }
 
