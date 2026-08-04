@@ -45,7 +45,7 @@ class GalleryMemberQueryService implements GalleryAlbumProvider
 
         return array_map(fn(Album $album) => [
             'id' => $album->id,
-            'title' => $album->isLocal() || $album->ogTitle === null ? $album->title : $album->ogTitle,
+            'title' => $album->displayTitle(),
             'album_date' => $album->albumDate,
             'cover_url' => $this->coverUrl($album),
             'url' => $album->isLocal() ? '/gallery/' . $album->id : (string) $album->externalUrl,

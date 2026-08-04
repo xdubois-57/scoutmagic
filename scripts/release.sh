@@ -47,10 +47,25 @@ if command -v gh &> /dev/null; then
     # an install/update should ever re-plant into a live site.
     composer install --no-dev --optimize-autoloader --no-interaction --quiet
     ARTIFACT="release-${TAG}.zip"
+    # storage/* is excluded WHOLESALE, not just keys/config/temp: it's
+    # where every module keeps real uploaded content (gallery photos and
+    # videos, finance receipts, section documents, local backups, etc.)
+    # on a live or local dev install — publishing any of it in a public
+    # release artifact would be a real personal-data leak. Neither
+    # InstallUpdateHandler::installFiles() nor bootstrap.php's
+    # bootstrap_copy_tree() ever reads storage/ from the artifact anyway
+    # (both explicitly skip it as a top-level entry when installing/
+    # updating), so there is nothing lost by excluding it entirely — the
+    # 5 empty subdirs are created fresh by the installer/updater instead.
+    #
+    # .claude/* matters for the same "never publish local-only state"
+    # reason: it can hold worktrees (each a full nested checkout,
+    # .claude/worktrees/<name>/), which would otherwise get zipped into
+    # the artifact wholesale.
     zip -r "${ARTIFACT}" . \
-        -x ".git/*" ".github/*" "tests/*" "storage/keys/*" "storage/config/*" \
-           "storage/temp/*" "config/app.php" ".gitignore" ".env" "*.zip" \
-           "bootstrap/*"
+        -x ".git/*" ".github/*" "tests/*" "storage/*" \
+           "config/app.php" ".gitignore" ".env" "*.zip" \
+           "bootstrap/*" ".claude/*" ".idea/*" ".vscode/*" "*.DS_Store"
 
     # bootstrap.php protects a Layout B (single-tree) install with exactly
     # one root .htaccess it writes itself at install time — the artifact
@@ -68,10 +83,12 @@ if command -v gh &> /dev/null; then
         exit 1
     fi
 
-    # bootstrap.php is published as a second asset — the zip artifact is
-    # listed first so it lands as assets[0]. Core\Maintenance\
-    # GitHubReleaseClient and bootstrap.php's own resolveArchiveUrl() both
-    # prefer assets[0] as the main installable artifact.
+    # bootstrap.php is published as a second asset. GitHub does not
+    # preserve this command's argument order in the assets array (observed:
+    # it sorts alphabetically, putting bootstrap.php before the zip) — both
+    # Core\Maintenance\GitHubReleaseClient and bootstrap.php's own
+    # resolveArchiveUrl() select the artifact by its .zip filename, never
+    # by array position, so upload order here doesn't matter.
     gh release create "${TAG}" "${ARTIFACT}" "bootstrap/bootstrap.php" \
         --title "Release ${TAG}" \
         --generate-notes

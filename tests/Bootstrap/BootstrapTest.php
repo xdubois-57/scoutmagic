@@ -38,12 +38,39 @@ class BootstrapTest extends TestCase
 
     public function testResolveArchiveUrlPrefersAsset(): void
     {
-        $release = ['assets' => [['browser_download_url' => 'https://example.com/artifact.zip', 'size' => 1234]], 'zipball_url' => 'https://example.com/zip'];
+        $release = ['assets' => [['name' => 'release-v1.0.0.zip', 'browser_download_url' => 'https://example.com/artifact.zip', 'size' => 1234]], 'zipball_url' => 'https://example.com/zip'];
         $result = \bootstrap_resolve_archive_url($release);
 
         $this->assertSame('https://example.com/artifact.zip', $result['url']);
         $this->assertSame(1234, $result['size']);
         $this->assertSame('asset', $result['source']);
+    }
+
+    /**
+     * Regression: scripts/release.sh publishes bootstrap.php as a second
+     * asset. GitHub does not preserve upload order in the assets array
+     * (observed: it sorts alphabetically, landing bootstrap.php before the
+     * zip at assets[0]) — the zip must be found by filename, not position.
+     */
+    public function testResolveArchiveUrlFindsZipRegardlessOfAssetOrder(): void
+    {
+        $release = ['assets' => [
+            ['name' => 'bootstrap.php', 'browser_download_url' => 'https://example.com/bootstrap.php', 'size' => 100],
+            ['name' => 'release-v1.0.1.zip', 'browser_download_url' => 'https://example.com/release-v1.0.1.zip', 'size' => 5000],
+        ]];
+        $result = \bootstrap_resolve_archive_url($release);
+
+        $this->assertSame('https://example.com/release-v1.0.1.zip', $result['url']);
+        $this->assertSame('asset', $result['source']);
+    }
+
+    public function testResolveArchiveUrlFallsBackToZipballWhenNoZipNamedAsset(): void
+    {
+        $release = ['assets' => [['name' => 'bootstrap.php', 'browser_download_url' => 'https://example.com/bootstrap.php', 'size' => 100]], 'zipball_url' => 'https://example.com/zip'];
+        $result = \bootstrap_resolve_archive_url($release);
+
+        $this->assertSame('https://example.com/zip', $result['url']);
+        $this->assertSame('zipball', $result['source']);
     }
 
     public function testResolveArchiveUrlFallsBackToZipball(): void

@@ -44,12 +44,9 @@ final class GitHubReleaseClient implements GitHubReleaseClientInterface
             throw new UpdateException('Réponse GitHub invalide (releases/latest).');
         }
 
-        $downloadUrl = null;
-        if (!empty($decoded['assets'][0]['browser_download_url'])) {
-            $downloadUrl = (string) $decoded['assets'][0]['browser_download_url'];
-        } elseif (!empty($decoded['zipball_url'])) {
-            $downloadUrl = (string) $decoded['zipball_url'];
-        }
+        $assets = is_array($decoded['assets'] ?? null) ? $decoded['assets'] : [];
+        $downloadUrl = self::selectZipAssetUrl($assets)
+            ?? (!empty($decoded['zipball_url']) ? (string) $decoded['zipball_url'] : null);
 
         return new ReleaseInfo(
             tagName: (string) $decoded['tag_name'],
@@ -57,6 +54,32 @@ final class GitHubReleaseClient implements GitHubReleaseClientInterface
             htmlUrl: (string) ($decoded['html_url'] ?? ''),
             downloadUrl: $downloadUrl
         );
+    }
+
+    /**
+     * Selected by filename (.zip suffix), never by array position: GitHub
+     * does not preserve upload order in the assets array (a release built
+     * by scripts/release.sh also ships bootstrap.php as a second asset —
+     * observed ordering puts it before the zip at assets[0]), so picking
+     * assets[0] unconditionally can resolve to the wrong file entirely.
+     * Extracted as a pure static method so it's testable without a real
+     * network call — the rest of this class has no such seam.
+     *
+     * @param array<int, mixed> $assets
+     */
+    public static function selectZipAssetUrl(array $assets): ?string
+    {
+        foreach ($assets as $asset) {
+            if (!is_array($asset)) {
+                continue;
+            }
+            $name = strtolower((string) ($asset['name'] ?? ''));
+            if (str_ends_with($name, '.zip') && !empty($asset['browser_download_url'])) {
+                return (string) $asset['browser_download_url'];
+            }
+        }
+
+        return null;
     }
 
     public function composerLockChanged(string $base, string $head): bool

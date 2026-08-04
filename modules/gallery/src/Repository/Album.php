@@ -45,6 +45,24 @@ final class Album
     }
 
     /**
+     * For an external album, `og_title` is re-scraped (and re-decoded)
+     * every time the URL changes or a chief hits "Rafraîchir"
+     * (AlbumService::update()/refreshOg()), while `title` is only ever
+     * set once at creation and never rewritten after — so an album
+     * created before OgScraperService's UTF-8 decoding fix keeps stale
+     * mojibake in `title` forever even after a refresh corrects
+     * `og_title`. Preferring `og_title` here is what
+     * GalleryController::cardContext() and
+     * GalleryMemberQueryService::getAlbumsForMember() already do for the
+     * member-facing pages; this makes every other rendering path
+     * (currently just the chief "Gérer la galerie" list) agree.
+     */
+    public function displayTitle(): string
+    {
+        return $this->isLocal() || $this->ogTitle === null ? $this->title : $this->ogTitle;
+    }
+
+    /**
      * Media reads/listings must be gated while a migration is in flight (a
      * partially copied media set could render inconsistently) — a 'failed'
      * migration does NOT gate availability, since the source is always left

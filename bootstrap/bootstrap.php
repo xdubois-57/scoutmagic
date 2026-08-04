@@ -239,17 +239,28 @@ function bootstrap_select_layout(string $docRoot, callable $writableProbe): arra
 // =============================================================================
 
 /**
+ * The zip artifact is selected by filename (.zip suffix), never by array
+ * position — GitHub does not preserve `gh release create`'s file argument
+ * order in the assets array (observed: it sorts assets alphabetically, so
+ * "bootstrap.php" lands before "release-vX.Y.Z.zip" at assets[0]).
+ * Picking assets[0] unconditionally downloaded bootstrap.php itself and
+ * failed the ZIP-magic-byte check downstream.
+ *
  * @param array<string, mixed> $release
  * @return array{url: string, size: int, source: 'asset'|'zipball'}
  */
 function bootstrap_resolve_archive_url(array $release): array
 {
-    if (!empty($release['assets']) && is_array($release['assets']) && isset($release['assets'][0]['browser_download_url'])) {
-        return [
-            'url' => (string) $release['assets'][0]['browser_download_url'],
-            'size' => (int) ($release['assets'][0]['size'] ?? 0),
-            'source' => 'asset',
-        ];
+    $assets = is_array($release['assets'] ?? null) ? $release['assets'] : [];
+    foreach ($assets as $asset) {
+        $name = strtolower((string) ($asset['name'] ?? ''));
+        if (str_ends_with($name, '.zip') && isset($asset['browser_download_url'])) {
+            return [
+                'url' => (string) $asset['browser_download_url'],
+                'size' => (int) ($asset['size'] ?? 0),
+                'source' => 'asset',
+            ];
+        }
     }
 
     if (!empty($release['zipball_url'])) {
@@ -1575,7 +1586,7 @@ function bootstrap_handle_step_request(string $docRoot, string $stateFile): void
             return;
         }
         if (!bootstrap_acquire_lock($lockFile)) {
-            echo json_encode(['error' => "Une installation est déjà en cours (ou une tentative précédente n'a pas été nettoyée — réessayez dans 10 minutes)."]);
+            echo json_encode(['error' => "Une installation est déjà en cours (ou une tentative précédente n'a pas été nettoyée). Réessayez dans 10 minutes, ou supprimez immédiatement le fichier " . BOOTSTRAP_LOCK_FILE . " via FTP à la racine du site pour débloquer tout de suite."]);
             return;
         }
     } elseif (!is_file($lockFile)) {
@@ -1635,6 +1646,7 @@ function bootstrap_handle_step_request(string $docRoot, string $stateFile): void
 function bootstrap_handle_gate_report(string $docRoot, string $stateFile): void
 {
     header('Content-Type: application/json; charset=utf-8');
+    $lockFile = $docRoot . '/' . BOOTSTRAP_LOCK_FILE;
     $input = json_decode((string) file_get_contents('php://input'), true);
     $results = is_array($input) && is_array($input['results'] ?? null) ? $input['results'] : [];
 
@@ -1644,14 +1656,27 @@ function bootstrap_handle_gate_report(string $docRoot, string $stateFile): void
         return;
     }
 
-    $state = bootstrap_evaluate_gate_report($docRoot, $state, $results);
+    try {
+        $state = bootstrap_evaluate_gate_report($docRoot, $state, $results);
 
-    if (($state['gate_passed'] ?? false) === false) {
-        bootstrap_release_lock($docRoot . '/' . BOOTSTRAP_LOCK_FILE);
+        if (($state['gate_passed'] ?? false) === false) {
+            bootstrap_release_lock($lockFile);
+        }
+
+        bootstrap_write_state($stateFile, $state);
+        echo json_encode(bootstrap_public_state($state));
+    } catch (\Throwable $e) {
+        // Same guarantee as bootstrap_handle_step_request's catch block —
+        // an unexpected failure here must never leave the lock file
+        // stranded, or every subsequent retry wrongly reports "an
+        // install is already in progress" for up to
+        // BOOTSTRAP_LOCK_STALE_SECONDS.
+        $state['error'] = bootstrap_sanitize_error_for_client($e->getMessage(), $docRoot);
+        bootstrap_rollback_install($docRoot, $state);
+        bootstrap_write_state($stateFile, $state);
+        bootstrap_release_lock($lockFile);
+        echo json_encode(['done' => true, 'error' => $state['error']]);
     }
-
-    bootstrap_write_state($stateFile, $state);
-    echo json_encode(bootstrap_public_state($state));
 }
 
 function bootstrap_html_escape(string $value): string
@@ -1890,7 +1915,12 @@ function bootstrap_render_ui(string $docRoot, string $stateFile): void
       if (data.token_write_warning) { logLine(data.token_write_warning, true); }
       setTimeout(function () { window.location.href = '/'; }, 5000);
     } else {
-      summary.textContent = 'L\\'installation a été annulée et les fichiers déjà copiés ont été retirés. Corrigez le point signalé ci-dessus puis rechargez cette page pour réessayer.';
+      // For a plain step failure (steps 1-8/10), there are no s_checks/
+      // b_checks/f_checks rows at all — data.error is the ONLY place the
+      // actual reason lives, and the progress screen's log line for it
+      // just got hidden by the switch to this screen. Show it directly.
+      var reasonSuffix = data.error ? (' Raison : ' + data.error) : '';
+      summary.textContent = 'L\\'installation a été annulée et les fichiers déjà copiés ont été retirés.' + reasonSuffix + ' Corrigez le point signalé ci-dessus puis rechargez cette page pour réessayer.';
       summary.className = 'alert alert-error';
     }
   }

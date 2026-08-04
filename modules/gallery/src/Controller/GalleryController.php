@@ -361,7 +361,7 @@ class GalleryController extends AbstractController
         return [
             'album' => $album,
             'cover_url' => $coverUrl,
-            'display_title' => $album->isLocal() || $album->ogTitle === null ? $album->title : $album->ogTitle,
+            'display_title' => $album->displayTitle(),
             'storage_unavailable' => $unavailable,
             'storage_unavailable_reason' => $unavailableReason,
         ];

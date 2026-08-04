@@ -35,7 +35,7 @@
                             </span>
                         {% endif %}
                         <div class="flex-grow-1" style="min-width:0;">
-                            <h2 class="h6 mb-0 text-truncate">{{ album.title }}</h2>
+                            <h2 class="h6 mb-0 text-truncate">{{ album.displayTitle() }}</h2>
                             <p class="small text-body-secondary mb-0">
                                 {{ album.albumDate|french_date }}
                                 {% if album.sectionId %}· {{ album.sectionId is not null ? 'Section spécifique' : '' }}{% else %}· Toute l'unité{% endif %}
