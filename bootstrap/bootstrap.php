@@ -495,7 +495,7 @@ function bootstrap_verify_artifact(string $sourceRoot): array
  */
 function bootstrap_copy_tree(string $source, string $dest, array $excludeTopLevel = []): array
 {
-    if (!is_dir($dest) && !mkdir($dest, 0755, true) && !is_dir($dest)) {
+    if (!is_dir($dest) && !@mkdir($dest, 0755, true) && !is_dir($dest)) {
         throw new RuntimeException("Impossible de créer le dossier de destination.");
     }
 
@@ -518,7 +518,7 @@ function bootstrap_copy_tree(string $source, string $dest, array $excludeTopLeve
 function bootstrap_copy_entry(string $source, string $dest): void
 {
     if (is_dir($source)) {
-        if (!is_dir($dest) && !mkdir($dest, 0755, true) && !is_dir($dest)) {
+        if (!is_dir($dest) && !@mkdir($dest, 0755, true) && !is_dir($dest)) {
             throw new RuntimeException('Impossible de créer un dossier pendant la copie.');
         }
         $items = new \RecursiveIteratorIterator(
@@ -530,7 +530,7 @@ function bootstrap_copy_entry(string $source, string $dest): void
             $target = $dest . '/' . $relative;
             if ($item->isDir()) {
                 if (!is_dir($target)) {
-                    mkdir($target, 0755, true);
+                    @mkdir($target, 0755, true);
                 }
             } elseif (!@copy((string) $item, $target)) {
                 throw new RuntimeException('Échec de la copie d\'un fichier pendant l\'installation.');
@@ -1576,21 +1576,29 @@ function bootstrap_preview_preflight(string $docRoot): array
 function bootstrap_handle_step_request(string $docRoot, string $stateFile): void
 {
     header('Content-Type: application/json; charset=utf-8');
+    // See bootstrap_send_json() — every exit point below goes through it
+    // rather than a bare echo json_encode(), so a stray PHP warning never
+    // corrupts the JSON response.
+    ob_start();
     $input = json_decode((string) file_get_contents('php://input'), true);
     $step = (int) (is_array($input) ? ($input['step'] ?? 0) : 0);
     $lockFile = $docRoot . '/' . BOOTSTRAP_LOCK_FILE;
 
     if ($step === 1) {
-        if (bootstrap_already_installed($docRoot)) {
-            echo json_encode(['error' => 'Ce dossier contient déjà une installation ScoutMagic.']);
-            return;
-        }
+        // Deliberately NOT checking bootstrap_already_installed() here —
+        // bootstrap_step_preflight() already makes the exact same check
+        // moments later, INSIDE the try/catch below, where a failure
+        // correctly triggers rollback (an abandoned attempt whose files
+        // were already copied by an earlier request's step 6 must be torn
+        // down, not just refused). A short-circuit here would return the
+        // identical error message without ever reaching that rollback,
+        // permanently stranding those files with no recovery path.
         if (!bootstrap_acquire_lock($lockFile)) {
-            echo json_encode(['error' => "Une installation est déjà en cours (ou une tentative précédente n'a pas été nettoyée). Réessayez dans 10 minutes, ou supprimez immédiatement le fichier " . BOOTSTRAP_LOCK_FILE . " via FTP à la racine du site pour débloquer tout de suite."]);
+            bootstrap_send_json(['error' => "Une installation est déjà en cours (ou une tentative précédente n'a pas été nettoyée). Réessayez dans 10 minutes, ou supprimez immédiatement le fichier " . BOOTSTRAP_LOCK_FILE . " via FTP à la racine du site pour débloquer tout de suite."]);
             return;
         }
     } elseif (!is_file($lockFile)) {
-        echo json_encode(['error' => 'Aucune installation en cours. Rechargez la page.']);
+        bootstrap_send_json(['error' => 'Aucune installation en cours. Rechargez la page.']);
         return;
     }
 
@@ -1611,10 +1619,10 @@ function bootstrap_handle_step_request(string $docRoot, string $stateFile): void
             case 11:
                 $state = bootstrap_step_cleanup($docRoot, $state);
                 bootstrap_release_lock($lockFile);
-                echo json_encode(bootstrap_public_state($state));
+                bootstrap_send_json(bootstrap_public_state($state));
                 return;
             default:
-                echo json_encode(['error' => 'Étape inconnue.']);
+                bootstrap_send_json(['error' => 'Étape inconnue.']);
                 return;
         }
 
@@ -1623,12 +1631,22 @@ function bootstrap_handle_step_request(string $docRoot, string $stateFile): void
         }
 
         bootstrap_write_state($stateFile, $state);
-        echo json_encode(bootstrap_public_state($state));
+        bootstrap_send_json(bootstrap_public_state($state));
     } catch (\Throwable $e) {
         $state['error'] = bootstrap_sanitize_error_for_client($e->getMessage(), $docRoot);
         $state['failed_step'] = $step;
-        if ($step >= 6 && $step <= 8) {
-            // Files/storage/.htaccess may already be on disk — full rollback.
+        if (!empty($state['install_target']) && !empty($state['installed_entries'])) {
+            // Something was actually copied onto disk — always roll it
+            // back on any failure, regardless of which step number the
+            // CURRENT request happens to be. Deliberately NOT keyed to
+            // "$step is 6-8": a retry can fail at step 1 with "already
+            // installed" (bootstrap_step_preflight()'s own guard) against
+            // state left behind by an EARLIER request's step 6 that
+            // succeeded server-side but whose response the browser never
+            // got to process (a network error, or the exact bug
+            // bootstrap_send_json() now guards against) — that install_
+            // target/installed_entries pair is exactly as real and exactly
+            // as much in need of rollback as one from the current request.
             bootstrap_rollback_install($docRoot, $state);
         } elseif (!empty($state['temp_dir'])) {
             // Nothing installed yet, but the temp dir (steps 2-5: download/
@@ -1639,20 +1657,51 @@ function bootstrap_handle_step_request(string $docRoot, string $stateFile): void
         }
         bootstrap_write_state($stateFile, $state);
         bootstrap_release_lock($lockFile);
-        echo json_encode(['done' => true, 'error' => $state['error'], 'step' => $step]);
+        bootstrap_send_json(['done' => true, 'error' => $state['error'], 'step' => $step]);
     }
+}
+
+/**
+ * The browser can never be sure a step actually failed server-side just
+ * because it couldn't parse the response (a network error, or the exact
+ * class of bug bootstrap_send_json() now guards against) — the step may
+ * well have completed and left real files on disk with the lock still
+ * held. Without an explicit way to force a clean rollback, that leaves
+ * the install permanently stuck: bootstrap_step_preflight()'s own
+ * "already installed" check then refuses every subsequent retry, and
+ * there is no FTP-free way out. This performs the same rollback a
+ * caught failure would have, from whatever was last durably written to
+ * .bootstrap-state.php (state is written on every successful step
+ * server-side regardless of whether the client ever saw the response),
+ * then clears the lock and state file so a fresh attempt starts clean.
+ */
+function bootstrap_handle_abort_request(string $docRoot, string $stateFile): void
+{
+    header('Content-Type: application/json; charset=utf-8');
+    ob_start();
+
+    $state = bootstrap_read_state($stateFile);
+    bootstrap_rollback_install($docRoot, $state);
+    @unlink($stateFile);
+    bootstrap_release_lock($docRoot . '/' . BOOTSTRAP_LOCK_FILE);
+
+    bootstrap_send_json([
+        'ok' => true,
+        'message' => "Installation abandonnée : les fichiers déjà copiés ont été retirés. Rechargez la page pour recommencer.",
+    ]);
 }
 
 function bootstrap_handle_gate_report(string $docRoot, string $stateFile): void
 {
     header('Content-Type: application/json; charset=utf-8');
+    ob_start();
     $lockFile = $docRoot . '/' . BOOTSTRAP_LOCK_FILE;
     $input = json_decode((string) file_get_contents('php://input'), true);
     $results = is_array($input) && is_array($input['results'] ?? null) ? $input['results'] : [];
 
     $state = bootstrap_read_state($stateFile);
     if (empty($state['awaiting_gate_report'])) {
-        echo json_encode(['error' => 'Aucun contrôle en attente.']);
+        bootstrap_send_json(['error' => 'Aucun contrôle en attente.']);
         return;
     }
 
@@ -1664,7 +1713,7 @@ function bootstrap_handle_gate_report(string $docRoot, string $stateFile): void
         }
 
         bootstrap_write_state($stateFile, $state);
-        echo json_encode(bootstrap_public_state($state));
+        bootstrap_send_json(bootstrap_public_state($state));
     } catch (\Throwable $e) {
         // Same guarantee as bootstrap_handle_step_request's catch block —
         // an unexpected failure here must never leave the lock file
@@ -1675,8 +1724,30 @@ function bootstrap_handle_gate_report(string $docRoot, string $stateFile): void
         bootstrap_rollback_install($docRoot, $state);
         bootstrap_write_state($stateFile, $state);
         bootstrap_release_lock($lockFile);
-        echo json_encode(['done' => true, 'error' => $state['error']]);
+        bootstrap_send_json(['done' => true, 'error' => $state['error']]);
     }
+}
+
+/**
+ * Discards any output already buffered — a stray PHP warning/notice
+ * (an unsuppressed mkdir()/file_put_contents() hitting an edge case, or
+ * simply a host with display_errors on) printed ahead of the intended
+ * JSON would otherwise land in the same response body and break
+ * response.json() client-side with an opaque "did not match the
+ * expected pattern" parse error. bootstrap_handle_step_request() and
+ * bootstrap_handle_gate_report() both call ob_start() first, and every
+ * exit point goes through this instead of a bare echo json_encode(),
+ * so the response is always exactly one clean JSON document regardless
+ * of what else the host's PHP tried to print along the way.
+ *
+ * @param array<string, mixed> $payload
+ */
+function bootstrap_send_json(array $payload): void
+{
+    while (ob_get_level() > 0) {
+        ob_end_clean();
+    }
+    echo json_encode($payload);
 }
 
 function bootstrap_html_escape(string $value): string
@@ -1697,6 +1768,8 @@ function bootstrap_render_ui(string $docRoot, string $stateFile): void
 {
     header('Content-Type: text/html; charset=utf-8');
     $preview = bootstrap_preview_preflight($docRoot);
+    $stateFileNameJs = json_encode(BOOTSTRAP_STATE_FILE);
+    $lockFileNameJs = json_encode(BOOTSTRAP_LOCK_FILE);
 
     $layoutBlock = '';
     if ($preview['ok'] && $preview['layout'] !== null) {
@@ -1775,6 +1848,8 @@ function bootstrap_render_ui(string $docRoot, string $stateFile): void
 
 <script nonce="">
 (function () {
+  var STATE_FILE_NAME = {$stateFileNameJs};
+  var LOCK_FILE_NAME = {$lockFileNameJs};
   var screens = {
     confirm: document.getElementById('screen-confirm'),
     progress: document.getElementById('screen-progress'),
@@ -1850,6 +1925,7 @@ function bootstrap_render_ui(string $docRoot, string $stateFile): void
       runStep(step + 1);
     }).catch(function (err) {
       logLine('Erreur réseau : ' + err, true);
+      showAbortRecovery();
     });
   }
 
@@ -1870,7 +1946,43 @@ function bootstrap_render_ui(string $docRoot, string $stateFile): void
         logLine('Échec des contrôles de sécurité — annulation de l\\'installation.', true);
         showReport(gateData, false);
       }
+    }).catch(function (err) {
+      logLine('Erreur réseau : ' + err, true);
+      showAbortRecovery();
     });
+  }
+
+  // The browser can never be sure a step genuinely failed server-side
+  // just because the request errored or its response couldn't be parsed
+  // — files may already be on disk with the install lock still held,
+  // and bootstrap_step_preflight()'s own "already installed" check would
+  // then refuse every retry with no way out. ?action=abort forces the
+  // same rollback a caught failure would have, from whatever was last
+  // durably written to .bootstrap-state.php.
+  function attachAbortButton(summary) {
+    var abortBtn = document.createElement('button');
+    abortBtn.textContent = "Annuler l'installation et nettoyer";
+    abortBtn.addEventListener('click', function () {
+      abortBtn.disabled = true;
+      postJson('?action=abort', {}).then(function (data) {
+        summary.textContent = (data.message || 'Nettoyage effectué.') + ' Rechargement…';
+        summary.className = 'alert alert-ok';
+        setTimeout(function () { window.location.reload(); }, 2500);
+      }).catch(function () {
+        summary.textContent = 'Le nettoyage automatique a également échoué. Supprimez manuellement via FTP les fichiers déjà copiés, ainsi que ' + STATE_FILE_NAME + ' et ' + LOCK_FILE_NAME + ', puis rechargez cette page.';
+        abortBtn.disabled = false;
+      });
+    });
+    summary.insertAdjacentElement('afterend', abortBtn);
+  }
+
+  function showAbortRecovery() {
+    showScreen('report');
+    document.getElementById('report-table').innerHTML = '';
+    var summary = document.getElementById('report-summary');
+    summary.textContent = "La réponse du serveur n'a pas pu être interprétée (problème réseau, ou le serveur a renvoyé une réponse inattendue). Des fichiers ont peut-être déjà été copiés. Cliquez ci-dessous pour annuler proprement cette tentative avant de réessayer.";
+    summary.className = 'alert alert-error';
+    attachAbortButton(summary);
   }
 
   function showReport(data, passed) {
@@ -1956,6 +2068,11 @@ function bootstrap_main(): void
 
     if ($action === 'gate-report' && $method === 'POST') {
         bootstrap_handle_gate_report($docRoot, $stateFile);
+        return;
+    }
+
+    if ($action === 'abort' && $method === 'POST') {
+        bootstrap_handle_abort_request($docRoot, $stateFile);
         return;
     }
 

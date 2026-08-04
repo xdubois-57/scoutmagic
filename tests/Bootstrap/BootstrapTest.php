@@ -508,6 +508,180 @@ class BootstrapTest extends TestCase
         \bootstrap_step_token($this->tempDir, ['gate_passed' => false]);
     }
 
+    // -------------------------------------------------------------------
+    // ?action=abort recovery — the browser can't tell "step actually
+    // failed" from "response unparseable"; abort must roll back from
+    // whatever was last durably written to .bootstrap-state.php and
+    // leave the install target clean, regardless of which case it was.
+    // bootstrap_handle_abort_request() calls bootstrap_send_json()
+    // internally, which clears every open buffer level including any
+    // this test opens to capture output — same reason bootstrap_send_json
+    // itself is tested via a subprocess.
+    // -------------------------------------------------------------------
+
+    public function testAbortRequestRollsBackInstalledFilesClearsLockAndState(): void
+    {
+        file_put_contents($this->tempDir . '/index.php', '<?php // installed');
+        mkdir($this->tempDir . '/core', 0755, true);
+        file_put_contents($this->tempDir . '/VERSION', "1.0.0\n");
+        file_put_contents($this->tempDir . '/.bootstrap.lock', (string) getmypid());
+
+        $stateFile = $this->tempDir . '/.bootstrap-state.php';
+        \bootstrap_write_state($stateFile, [
+            'layout' => 'B',
+            'install_target' => $this->tempDir,
+            'installed_entries' => ['index.php', 'core'],
+            'temp_dir' => null,
+        ]);
+
+        $script = <<<'PHP'
+define('BOOTSTRAP_TEST', true);
+require %s;
+bootstrap_handle_abort_request(%s, %s . '/.bootstrap-state.php');
+PHP;
+        $decoded = json_decode($this->lastLineOfSubprocessWithDocRoot($script), true);
+
+        $this->assertIsArray($decoded);
+        $this->assertTrue($decoded['ok'] ?? false);
+        $this->assertFileDoesNotExist($this->tempDir . '/index.php');
+        $this->assertDirectoryDoesNotExist($this->tempDir . '/core');
+        $this->assertFileDoesNotExist($this->tempDir . '/VERSION');
+        $this->assertFileDoesNotExist($this->tempDir . '/.bootstrap.lock');
+        $this->assertFileDoesNotExist($stateFile);
+    }
+
+    public function testAbortRequestSucceedsEvenWithNoStateFileAtAll(): void
+    {
+        // A genuinely fresh/never-started attempt — abort must still
+        // respond cleanly rather than erroring, since the client can't
+        // always know whether anything was ever written.
+        $stateFile = $this->tempDir . '/.bootstrap-state.php';
+        $script = <<<'PHP'
+define('BOOTSTRAP_TEST', true);
+require %s;
+bootstrap_handle_abort_request(%s, %s . '/.bootstrap-state.php');
+PHP;
+        $decoded = json_decode($this->lastLineOfSubprocessWithDocRoot($script), true);
+
+        $this->assertIsArray($decoded);
+        $this->assertTrue($decoded['ok'] ?? false);
+    }
+
+    /**
+     * Regression: a retry that fails at step 1 ("already installed",
+     * bootstrap_step_preflight()'s own guard) must still roll back files
+     * an EARLIER request's step 6 already copied, even though the
+     * CURRENTLY failing step number (1) is nowhere near 6-8. Before this
+     * fix, the catch block only rolled back when $step was itself in
+     * [6,8], leaving the install permanently stuck with no recovery path
+     * once the operator retried after clearing the lock.
+     */
+    public function testStepOneFailureStillRollsBackFilesFromAnEarlierSuccessfulStepSix(): void
+    {
+        file_put_contents($this->tempDir . '/index.php', '<?php // installed');
+        mkdir($this->tempDir . '/core', 0755, true);
+        file_put_contents($this->tempDir . '/VERSION', "1.0.0\n");
+
+        $stateFile = $this->tempDir . '/.bootstrap-state.php';
+        \bootstrap_write_state($stateFile, [
+            'layout' => 'B',
+            'install_target' => $this->tempDir,
+            'installed_entries' => ['index.php', 'core'],
+            'temp_dir' => null,
+        ]);
+
+        // No lock file: simulates the operator having already cleared it
+        // (via the 10-minute expiry or the manual-remedy hint) before
+        // retrying — bootstrap_handle_step_request's step===1 branch
+        // re-acquires it fresh, then bootstrap_step_preflight() throws
+        // "already installed" against the files still on disk above.
+        //
+        // bootstrap_handle_step_request() reads the step number from
+        // php://input, which the CLI SAPI never populates (confirmed:
+        // `php -r` and `php -f script < body` both return an empty
+        // string for it regardless of stdin) — a real HTTP SAPI is
+        // required, hence php's own built-in web server rather than a
+        // plain subprocess.
+        $decoded = json_decode($this->postStepViaHttpServer($this->tempDir, $stateFile, 1), true);
+
+        $this->assertIsArray($decoded, 'response body must be valid JSON');
+        $this->assertTrue($decoded['done'] ?? false);
+        $this->assertStringContainsString('déjà une installation', (string) ($decoded['error'] ?? ''));
+        $this->assertFileDoesNotExist($this->tempDir . '/index.php');
+        $this->assertDirectoryDoesNotExist($this->tempDir . '/core');
+        $this->assertFileDoesNotExist($this->tempDir . '/VERSION');
+    }
+
+    /**
+     * Starts php -S serving a tiny router that calls
+     * bootstrap_handle_step_request() for real, POSTs {"step": $step} to
+     * it, and returns the raw response body.
+     */
+    private function postStepViaHttpServer(string $docRoot, string $stateFile, int $step): string
+    {
+        $router = $this->tempDir . '-router.php';
+        file_put_contents($router, sprintf(
+            "<?php\ndefine('BOOTSTRAP_TEST', true);\nrequire %s;\nbootstrap_handle_step_request(%s, %s);\n",
+            var_export(dirname(__DIR__, 2) . '/bootstrap/bootstrap.php', true),
+            var_export($docRoot, true),
+            var_export($stateFile, true)
+        ));
+
+        $port = random_int(20000, 60000);
+        $process = proc_open(
+            ['php', '-S', "127.0.0.1:{$port}", $router],
+            [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+            $pipes
+        );
+        $this->assertIsResource($process, 'failed to start php -S for test');
+
+        try {
+            $connected = false;
+            for ($i = 0; $i < 50; $i++) {
+                $conn = @fsockopen('127.0.0.1', $port, $errno, $errstr, 0.1);
+                if ($conn !== false) {
+                    fclose($conn);
+                    $connected = true;
+                    break;
+                }
+                usleep(50000);
+            }
+            $this->assertTrue($connected, 'php -S never became ready');
+
+            $context = stream_context_create([
+                'http' => [
+                    'method' => 'POST',
+                    'header' => "Content-Type: application/json\r\n",
+                    'content' => json_encode(['step' => $step]),
+                    'ignore_errors' => true,
+                ],
+            ]);
+
+            return (string) file_get_contents("http://127.0.0.1:{$port}/", false, $context);
+        } finally {
+            proc_terminate($process);
+            proc_close($process);
+            @unlink($router);
+        }
+    }
+
+    /**
+     * Same purpose as lastLineOfSubprocess() but for scripts that also
+     * need the temp docRoot substituted in (twice, for the abort handler's
+     * two path arguments) — %s placeholders filled in order: bootstrap.php
+     * path, then $this->tempDir twice.
+     */
+    private function lastLineOfSubprocessWithDocRoot(string $script): string
+    {
+        $bootstrapPath = var_export(dirname(__DIR__, 2) . '/bootstrap/bootstrap.php', true);
+        $docRoot = var_export($this->tempDir, true);
+        $filled = sprintf($script, $bootstrapPath, $docRoot, $docRoot);
+        $output = (string) shell_exec('php -r ' . escapeshellarg($filled) . ' 2>&1');
+        $lines = array_values(array_filter(explode("\n", trim($output)), static fn (string $l): bool => trim($l) !== ''));
+
+        return $lines === [] ? '' : end($lines);
+    }
+
     /**
      * @return array<string, mixed>
      */
@@ -836,6 +1010,68 @@ class BootstrapTest extends TestCase
         $this->assertArrayNotHasKey('install_target', $public);
         $this->assertArrayNotHasKey('source_root', $public);
         $this->assertArrayNotHasKey('file', $public['probes'][0]);
+    }
+
+    // -------------------------------------------------------------------
+    // JSON output must survive stray output ahead of it (a PHP warning
+    // from an edge case, display_errors on, etc.) — this is what broke a
+    // live install: some prior write emitted a stray warning that landed
+    // in what was supposed to be a pure JSON response body, and
+    // response.json() failed client-side with an opaque parse error.
+    // -------------------------------------------------------------------
+
+    /**
+     * bootstrap_send_json() clears every open output-buffer level via its
+     * own while(ob_get_level()>0) loop — which means it also consumes any
+     * buffer *this test* opens to capture its output, making the
+     * assertion untestable in-process. A real PHP subprocess sidesteps
+     * that entirely: its stdout is exactly what a real HTTP response body
+     * would be.
+     */
+    public function testSendJsonDiscardsStrayOutputBufferedBeforeIt(): void
+    {
+        $script = <<<'PHP'
+define('BOOTSTRAP_TEST', true);
+require %s;
+ob_start();
+echo '<b>Warning</b>: mkdir(): File exists in bootstrap.php on line 123';
+bootstrap_send_json(['ok' => true, 'label' => 'Stockage']);
+PHP;
+        $decoded = json_decode($this->lastLineOfSubprocess($script), true);
+        $this->assertNotNull($decoded, 'response body must be valid JSON even with stray output buffered ahead of it');
+        $this->assertSame(['ok' => true, 'label' => 'Stockage'], $decoded);
+    }
+
+    public function testSendJsonDiscardsMultipleNestedBufferedWrites(): void
+    {
+        $script = <<<'PHP'
+define('BOOTSTRAP_TEST', true);
+require %s;
+ob_start();
+echo 'first stray write';
+ob_start();
+echo 'second stray write, nested buffer';
+bootstrap_send_json(['ok' => true]);
+PHP;
+        $this->assertSame(['ok' => true], json_decode($this->lastLineOfSubprocess($script), true));
+    }
+
+    /**
+     * Runs $script (a %s-templated PHP -r body, %s filled with the
+     * bootstrap.php path) in a real subprocess and returns its last
+     * output line — bootstrap_send_json()'s echo is always the last thing
+     * printed, and taking only that line sidesteps unrelated noise this
+     * local environment's php CLI happens to print to stdout (e.g. a
+     * duplicate-extension warning), which isn't part of what's being
+     * tested here.
+     */
+    private function lastLineOfSubprocess(string $script): string
+    {
+        $bootstrapPath = var_export(dirname(__DIR__, 2) . '/bootstrap/bootstrap.php', true);
+        $output = (string) shell_exec('php -r ' . escapeshellarg(sprintf($script, $bootstrapPath)) . ' 2>&1');
+        $lines = array_values(array_filter(explode("\n", trim($output)), static fn (string $l): bool => trim($l) !== ''));
+
+        return $lines === [] ? '' : end($lines);
     }
 
     private function removeDirectory(string $dir): void
