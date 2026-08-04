@@ -59,6 +59,7 @@ use Core\Maintenance\BackupRepository;
 use Core\Maintenance\BackupService;
 use Core\Module\ModuleManager;
 use Core\Module\ModuleRegistryRepository;
+use Core\Notification\NotificationPreferenceRepository;
 use Core\Notification\NotificationRepository;
 use Core\Notification\NotificationService;
 use Core\Notification\PushSubscriptionRepository;
@@ -230,6 +231,35 @@ $encryptionService = new EncryptionService(
     $secrets['blind_index_key'] ?? ''
 );
 
+// One-time cleanup ahead of the notification-centre schema upgrade (Lot
+// 2): notifications/push_subscriptions gain new NOT NULL columns
+// (type_id, endpoint_blind_index) and their title/body/endpoint move from
+// plaintext to encrypted BLOB. Pre-existing rows can't be retrofitted with
+// a type_id, and re-reading their plaintext content through the new
+// decrypt-on-read path would fail — but both tables are purely ephemeral
+// operational state (a push subscription re-establishes itself on the
+// device's next visit; a notification history entry has no legal-record
+// value), so they're truncated once, before the schema change below is
+// applied, rather than migrated in place. Raw PDO because this runs
+// before SettingService exists yet.
+$preMigrationPdo = $connection->getPdo();
+$notificationsV2Migrated = (bool) $preMigrationPdo->query(
+    "SELECT 1 FROM settings WHERE module_id IS NULL AND setting_key = 'notifications_v2_migrated'"
+)->fetchColumn();
+if (!$notificationsV2Migrated) {
+    $preMigrationPdo->exec('TRUNCATE TABLE notifications');
+    $preMigrationPdo->exec('TRUNCATE TABLE push_subscriptions');
+    $preMigrationPdo->prepare(
+        'INSERT INTO settings (module_id, setting_key, setting_value, default_value, setting_type, label, description, editable, sort_order)
+         VALUES (NULL, ?, ?, ?, ?, ?, ?, ?, ?)'
+    )->execute([
+        'notifications_v2_migrated', '1', '0', 'boolean',
+        'Migration notifications v2 effectuée',
+        'Indique si le nettoyage ponctuel des anciennes notifications/souscriptions push (passage au format chiffré) a été effectué.',
+        0, 999,
+    ]);
+}
+
 // Auto-migrate: apply any pending schema changes from core.sql
 $migrationRunner = new MigrationRunner(
     $connection,
@@ -392,6 +422,19 @@ $settingService->register('pwa_icon_version', '1', 'number', 'Version de l\'icô
     'Incrémentée automatiquement à chaque nouvel envoi de logo — sert à invalider le cache navigateur/OS de l\'icône. Lecture seule.',
     null, null, null, false, 257);
 
+// Notification centre (Lot 2) — global defaults, overridable per account
+// for quiet hours (Core\Security\UserAccountRepository::
+// updateNotificationSettings()) via "Mon compte".
+$settingService->register('notifications_quiet_hours_start', '22:00', 'text', 'Heures calmes — début',
+    'Heure à partir de laquelle une notification push est retardée jusqu\'à la fin de la période calme (format HH:MM). Chaque membre peut définir ses propres heures dans "Mon compte".',
+    null, '^([01]\d|2[0-3]):[0-5]\d$', null, true, 258);
+$settingService->register('notifications_quiet_hours_end', '07:00', 'text', 'Heures calmes — fin',
+    'Heure à laquelle les notifications push retardées par la période calme sont envoyées (format HH:MM).',
+    null, '^([01]\d|2[0-3]):[0-5]\d$', null, true, 259);
+$settingService->register('notifications_retention_days', '90', 'number', 'Conservation des notifications (jours)',
+    'Une notification lue est supprimée automatiquement après ce délai. Une notification non lue n\'est jamais supprimée.',
+    null, null, null, true, 260);
+
 // Migrate non-secret settings from secrets.enc to settings table (one-time)
 if ($settingService->get('settings_migrated') !== '1') {
     $settingService->register('settings_migrated', '0', 'boolean', 'Migration effectuée',
@@ -475,8 +518,11 @@ $webPush = new WebPush(['VAPID' => [
     'privateKey' => (string) ($secrets['vapid_private_key'] ?? ''),
 ]]);
 $pushSubscriptionRepo = new PushSubscriptionRepository($pdo, $encryptionService);
-$notificationRepo = new NotificationRepository($pdo);
-$notificationService = new NotificationService($notificationRepo, $pushSubscriptionRepo, $webPush);
+$notificationRepo = new NotificationRepository($pdo, $encryptionService);
+$notificationPreferenceRepo = new NotificationPreferenceRepository($pdo);
+// $notificationService itself is constructed further below, once
+// $roleResolver/$scoutYearService exist (dispatch()'s role_min re-check
+// needs both) — see that construction's own comment.
 
 // Create AuthService
 $authService = new AuthService(
@@ -556,6 +602,24 @@ $importService = new DeskImportService(
 // currently-valid secondary address (see RoleResolver's own docblock).
 $memberEmailRepository = new \Core\Member\MemberEmailRepository($pdo, $encryptionService);
 $roleResolver = new RoleResolver($memberYearRepo, $encryptionService, $pdo, $memberEmailRepository);
+
+// Notification centre (Lot 2) — built here, not alongside $webPush/
+// $pushSubscriptionRepo above, because dispatch()'s role_min re-check
+// needs $roleResolver and $scoutYearService, both only available from
+// this point on.
+$notificationService = new NotificationService(
+    $notificationRepo,
+    $pushSubscriptionRepo,
+    $notificationPreferenceRepo,
+    $webPush,
+    $settingService,
+    $journalService,
+    $schedulerService,
+    $userAccountRepo,
+    $roleResolver,
+    $scoutYearService
+);
+
 $memberService = new MemberService($memberYearRepo, $encryptionService, $connection);
 $memberYearService = new MemberYearService();
 $memberSearchService = new MemberSearchService(new MemberSearchRepository($connection, $encryptionService));
@@ -698,6 +762,12 @@ $fileAccessGuard = new FileAccessGuard(
 
 $twig->addGlobal('current_user_display_name', $displayName);
 $twig->addGlobal('current_user_member_count', $memberCount);
+// Server-rendered on page load — public/assets/js/notification-badge.js
+// refreshes it live afterward (60s poll + immediate on an incoming push).
+$twig->addGlobal(
+    'unread_notifications_count',
+    AuthSession::isAuthenticated() ? $notificationRepo->countUnread((int) AuthSession::getUserAccountId()) : 0
+);
 $twig->addGlobal('current_user_role_label', $roleLabelMap[$currentRole] ?? 'Public');
 $twig->addGlobal('current_path', $request->getPath());
 $twig->addGlobal('config_mode', ConfigurationMode::isActive());
@@ -731,6 +801,8 @@ $menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Paramètres', '/config/s
 $menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'RGPD', '/config/rgpd', 'superadmin', 35);
 $menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Actions planifiées', '/config/scheduled', 'superadmin', 40);
 $menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Maintenance', '/config/maintenance', 'admin', 45);
+$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Notifications', '/config/notifications', 'superadmin', 46);
+$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ANIMES, 'Notifications', '/notifications', 'identified', 60);
 
 // Create router early so ModuleManager can register routes
 $router = new Router();
@@ -746,7 +818,8 @@ $moduleManager = new ModuleManager(
     $moduleRegistryRepo,
     $migrationRunner,
     $journalService,
-    $router
+    $router,
+    $notificationService
 );
 
 // Set up SchedulerRunner with ModuleManager and the context task handlers run
@@ -773,6 +846,8 @@ $schedulerRunner->registerHandler('core', 'full_reset', new \Core\Maintenance\Ta
 $schedulerRunner->registerHandler('core', 'restore_backup', new \Core\Maintenance\Task\RestoreBackupHandler());
 $schedulerRunner->registerHandler('core', 'auto_backup', new \Core\Maintenance\Task\AutoBackupHandler());
 $schedulerRunner->registerHandler('core', 'compress_section_document', new \Core\Member\Task\CompressSectionDocumentHandler());
+$schedulerRunner->registerHandler('core', 'send_notifications', new \Core\Notification\Task\SendNotificationsHandler());
+$schedulerRunner->registerHandler('core', 'purge_notifications', new \Core\Notification\Task\PurgeNotificationsHandler());
 
 // Bootstrap the recurring automatic backup — Task\AutoBackupHandler
 // re-schedules itself at the end of every run (same pattern as
@@ -781,6 +856,12 @@ $schedulerRunner->registerHandler('core', 'compress_section_document', new \Core
 // first occurrence needs an initial nudge.
 if ($schedulerService->find('core', 'auto_backup', 'auto') === null) {
     $schedulerService->schedule('core', 'auto_backup', new DateTimeImmutable(), [], 'auto');
+}
+
+// Same bootstrap for the notification retention purge (Core\Notification\
+// Task\PurgeNotificationsHandler).
+if ($schedulerService->find('core', 'purge_notifications', \Core\Notification\Task\PurgeNotificationsHandler::REFERENCE) === null) {
+    $schedulerService->schedule('core', 'purge_notifications', new DateTimeImmutable(), [], \Core\Notification\Task\PurgeNotificationsHandler::REFERENCE);
 }
 
 // Add dynamic member entries to Espace des animés
@@ -850,6 +931,18 @@ $router->addRoute('POST', '/account/passkey/register', AccountController::class,
 $router->addRoute('POST', '/account/passkey/delete', AccountController::class, 'passkeyDelete', 'identified');
 $router->addRoute('POST', '/api/push-subscription', PushSubscriptionController::class, 'subscribe', 'identified');
 $router->addRoute('DELETE', '/api/push-subscription', PushSubscriptionController::class, 'unsubscribe', 'identified');
+
+// Notification centre (Core\Notification, Lot 2)
+$router->addRoute('GET', '/notifications', \Core\Http\Controller\NotificationController::class, 'index', 'identified');
+$router->addRoute('POST', '/notifications/{id}/read', \Core\Http\Controller\NotificationController::class, 'markRead', 'identified');
+$router->addRoute('POST', '/notifications/mark-all-read', \Core\Http\Controller\NotificationController::class, 'markAllRead', 'identified');
+$router->addRoute('GET', '/api/notifications/unread-count', \Core\Http\Controller\NotificationController::class, 'unreadCount', 'identified');
+$router->addRoute('GET', '/notifications/preferences', \Core\Http\Controller\NotificationPreferenceController::class, 'index', 'identified');
+$router->addRoute('POST', '/notifications/preferences', \Core\Http\Controller\NotificationPreferenceController::class, 'updateChannel', 'identified');
+$router->addRoute('POST', '/notifications/quiet-hours', \Core\Http\Controller\NotificationPreferenceController::class, 'updateAccountSettings', 'identified');
+$router->addRoute('GET', '/config/notifications', \Core\Http\Controller\NotificationConfigController::class, 'index', 'superadmin');
+$router->addRoute('POST', '/config/notifications/rotate-vapid', \Core\Http\Controller\NotificationConfigController::class, 'rotateVapid', 'superadmin');
+$router->addRoute('POST', '/config/notifications/test', \Core\Http\Controller\NotificationConfigController::class, 'sendTest', 'superadmin');
 
 // Member pages
 $router->addRoute('GET', '/members/{id}', MemberController::class, 'show', 'identified');
@@ -1106,6 +1199,33 @@ $authController->setWebAuthnService($webAuthnService);
 $frontController->registerController(AuthController::class, $authController);
 $frontController->registerController(AccountController::class, new AccountController($twig, $userAccountRepo, $webAuthnCredentialRepo, $webAuthnService));
 $frontController->registerController(PushSubscriptionController::class, new PushSubscriptionController($twig, $notificationService, $journalService));
+
+$frontController->registerController(
+    \Core\Http\Controller\NotificationController::class,
+    new \Core\Http\Controller\NotificationController($twig, $notificationRepo)
+);
+$frontController->registerController(
+    \Core\Http\Controller\NotificationPreferenceController::class,
+    new \Core\Http\Controller\NotificationPreferenceController(
+        $twig,
+        $notificationService,
+        $notificationPreferenceRepo,
+        $userAccountRepo,
+        $roleResolver,
+        $scoutYearService
+    )
+);
+$frontController->registerController(
+    \Core\Http\Controller\NotificationConfigController::class,
+    new \Core\Http\Controller\NotificationConfigController(
+        $twig,
+        $notificationService,
+        $settingService,
+        $journalService,
+        $secretManager,
+        $pdo
+    )
+);
 $frontController->registerController(MaintenanceController::class, new MaintenanceController(
     $twig, $backupService, $backupRepository, $fileRepository, $updateHistoryRepository, $schedulerService, $moduleManager, $encryptionService, $journalService, $settingService, $storagePath, $secretManager
 ));
@@ -1200,7 +1320,7 @@ if (in_array('calendar', $moduleManager->getEnabledModuleIds(), true)) {
         $calendarRepo, $calendarEventRepo, $sectionService, $calendarUnitFeedTokenRepo
     );
     $calendarNotificationService = new \Modules\Calendar\Service\CalendarNotificationService(
-        $schedulerService, $settingService, $calendarService, $calendarEventRepo
+        $schedulerService, $settingService, $calendarService, $calendarEventRepo, $notificationService, $userAccountRepo
     );
     $calendarEventService = new \Modules\Calendar\Service\CalendarEventService(
         $calendarEventRepo, $calendarService, $calendarNotificationService
@@ -1604,7 +1724,8 @@ if (in_array('gallery', $moduleManager->getEnabledModuleIds(), true)) {
     $galleryAlbumService = new \Modules\Gallery\Service\AlbumService(
         $galleryAlbumRepo, $galleryMediaRepo, $galleryAccessService, $galleryOgScraperService,
         $galleryStorageBackendFactory, $galleryStorageLocationRepo, $galleryStorageLocationService,
-        $scoutYearService, $settingService, $schedulerService, $uploadHandler
+        $scoutYearService, $settingService, $schedulerService, $uploadHandler,
+        $notificationService, $userAccountRepo
     );
     $galleryMediaService = new \Modules\Gallery\Service\MediaService(
         $galleryMediaRepo, $galleryAlbumRepo, $uploadHandler, $schedulerService, $settingService,

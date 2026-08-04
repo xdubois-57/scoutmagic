@@ -50,4 +50,13 @@ class SessionManagerTest extends TestCase
 
         $this->assertSame($sessionId, session_id());
     }
+
+    public function testStartConfiguresALongLivedCookieForInstalledPwaSessions(): void
+    {
+        @SessionManager::start();
+
+        $thirtyDaysInSeconds = 30 * 24 * 60 * 60;
+        $this->assertSame((string) $thirtyDaysInSeconds, ini_get('session.cookie_lifetime'));
+        $this->assertSame((string) $thirtyDaysInSeconds, ini_get('session.gc_maxlifetime'));
+    }
 }

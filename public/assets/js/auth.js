@@ -43,6 +43,18 @@
     var emailError = document.getElementById('email-error');
     var sentEmailSpan = document.getElementById('sent-email');
     var pollingInterval = null;
+    var visibilityHandler = null;
+
+    function stopPolling() {
+        if (pollingInterval) {
+            clearInterval(pollingInterval);
+            pollingInterval = null;
+        }
+        if (visibilityHandler) {
+            document.removeEventListener('visibilitychange', visibilityHandler);
+            visibilityHandler = null;
+        }
+    }
 
     function showState(state) {
         stateEmail.classList.add('d-none');
@@ -103,10 +115,7 @@
     });
 
     backBtn.addEventListener('click', function() {
-        if (pollingInterval) {
-            clearInterval(pollingInterval);
-            pollingInterval = null;
-        }
+        stopPolling();
         showState(stateEmail);
     });
 
@@ -118,13 +127,12 @@
     });
 
     function startPolling(pollId) {
-        pollingInterval = setInterval(function() {
+        function checkOnce() {
             fetch('/auth/poll/' + pollId)
                 .then(function(r) { return r.json(); })
                 .then(function(data) {
-                    if (data.confirmed) {
-                        clearInterval(pollingInterval);
-                        pollingInterval = null;
+                    if (data.confirmed && pollingInterval) {
+                        stopPolling();
                         showState(stateConfirmed);
                         setTimeout(function() {
                             window.location.href = '/';
@@ -132,13 +140,26 @@
                     }
                 })
                 .catch(function() {});
-        }, 3000);
+        }
+
+        // Confirming the magic link happens in a different tab/app (the
+        // mail client) — when the user switches back to this tab, check
+        // immediately rather than waiting for the next 3s tick. Needed
+        // because backgrounded tabs (especially an installed PWA) can
+        // have their setInterval throttled or fully suspended by the
+        // browser/OS, so the regular poll may not fire promptly (or at
+        // all) while this tab was out of view.
+        visibilityHandler = function() {
+            if (document.visibilityState === 'visible') {
+                checkOnce();
+            }
+        };
+        document.addEventListener('visibilitychange', visibilityHandler);
+
+        pollingInterval = setInterval(checkOnce, 3000);
 
         setTimeout(function() {
-            if (pollingInterval) {
-                clearInterval(pollingInterval);
-                pollingInterval = null;
-            }
+            stopPolling();
         }, 15 * 60 * 1000);
     }
 

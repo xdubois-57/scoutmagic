@@ -40,9 +40,10 @@
 <li><strong>Nom et prénom</strong> (chiffrés) — affichage du profil</li>
 <li><strong>Mot de passe</strong> (haché de manière irréversible) — authentification par mot de passe</li>
 <li><strong>Clés WebAuthn</strong> (optionnel) — authentification par passkey</li>
-<li><strong>Souscription aux notifications push</strong> (optionnel, par appareil) — endpoint et clés de chiffrement générées par votre navigateur (chiffrées au repos), pour vous notifier quand une tâche que vous avez lancée en arrière-plan est terminée. Le contenu de ces notifications ne contient aucune donnée personnelle (ex. « Sauvegarde terminée »).</li>
+<li><strong>Centre de notifications</strong> (identifiants connectés) — le site conserve un historique de vos notifications (par exemple : nouvel évènement au calendrier, nouvel album photo, email groupé reçu, tâche d'arrière-plan terminée), chacune associée à un type déclaré et affichée dans votre centre de notifications personnel. Le titre et le contenu de chaque notification sont chiffrés au repos ; ils ne sont jamais partagés avec un tiers ni consignés en clair dans le journal d'audit (celui-ci n'enregistre que le type de notification et le compte destinataire).</li>
+<li><strong>Souscription aux notifications push</strong> (optionnel, par appareil) — endpoint et clés de chiffrement générées par votre navigateur (chiffrées au repos), ainsi qu'un nom d'appareil dérivé automatiquement de votre navigateur (ex. « Chrome sur Windows », pour vous aider à distinguer vos appareils dans « Mon compte »). Vous choisissez, par type de notification, si vous souhaitez le recevoir en notification push, dans le centre de notifications, et/ou par email (certains types sont imposés par l'unité et ne peuvent pas être désactivés). Vous pouvez également définir une plage horaire de silence (aucune notification push envoyée durant cette plage, elle attend la fin de la plage) et activer un mode discret (le contenu de la notification push n'affiche alors qu'un texte générique, le détail restant visible uniquement dans le centre de notifications une fois le site ouvert).</li>
 </ul>
-<p><strong>Base légale</strong> : Exécution d'un contrat (accès au service) et intérêt légitime (sécurité).</p>
+<p><strong>Base légale</strong> : Exécution d'un contrat (accès au service) et intérêt légitime (sécurité, information des membres).</p>
 
 <h3>2.2. Gestion des membres de l'unité</h3>
 <p><strong>Finalité</strong> : Gérer les inscriptions, organiser les activités, communiquer avec les membres et leurs familles.</p>
@@ -206,6 +207,7 @@ Modèles : Llama, Qwen, divers modèles open source</li>
 <li><strong>Jetons ICS (calendrier)</strong> : Valides tant que le compte utilisateur existe. Peuvent être régénérés manuellement à tout moment.</li>
 <li><strong>Photos des membres</strong> : Conservées pour l'année scoute en cours. Les photos des années précédentes peuvent être supprimées lors de l'import annuel ou conservées si pertinentes.</li>
 <li><strong>Documents privés des membres</strong> : Conservés tant qu'ils sont pertinents pour le membre concerné (par exemple, le temps de la validité d'une attestation).</li>
+<li><strong>Notifications</strong> : Une notification lue est automatiquement supprimée après une durée configurable (par défaut 90 jours). Une notification non lue n'est jamais supprimée automatiquement, quelle que soit son ancienneté. Une souscription aux notifications push est automatiquement désinscrite après plusieurs échecs de livraison consécutifs (appareil désinstallé ou hors ligne durablement).</li>
 </ul>
 
 <h3>3.2. Archivage et conservation prolongée</h3>

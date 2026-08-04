@@ -2,7 +2,7 @@
   "id": "gallery",
   "name": "Galerie photos et vidéos",
   "description": "Albums photo/vidéo (envoi local avec redimensionnement/transcodage automatique, ou lien vers un album externe) visibles par les membres identifiés.",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -327,5 +327,15 @@
     "gallery": {
       "role_min": "identified"
     }
-  }
+  },
+  "notifications": [
+    {
+      "id": "gallery.album_published",
+      "label": "Nouvel album",
+      "description": "Un nouvel album photo/vidéo a été publié dans la galerie.",
+      "group": "Galerie",
+      "role_min": "identified",
+      "channels": { "in_app": "default_on", "push": "default_on", "email": "default_off" }
+    }
+  ]
 }

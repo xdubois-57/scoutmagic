@@ -93,7 +93,17 @@ The directory name **must** match the `id` field in `module.json`.
     "attachments": {
       "role_min": "identified"
     }
-  }
+  },
+  "notifications": [
+    {
+      "id": "calendar.event_published",
+      "label": "Nouvelle activité",
+      "description": "Un nouvel évènement a été ajouté au calendrier.",
+      "group": "Calendrier",
+      "role_min": "identified",
+      "channels": { "in_app": "default_on", "push": "default_on", "email": "default_off" }
+    }
+  ]
 }
 ```
 
@@ -115,6 +125,10 @@ The directory name **must** match the `id` field in `module.json`.
   - `category`: one of `necessary`, `functional`, `analytics`.
 - **scheduled_tasks**: optional, each entry must have `key`, `handler` (FQCN).
 - **storage**: optional, keys are subdirectory names, values have `role_min`.
+- **notifications**: optional, each entry must have `id`, `label`, `description`, `group`, `role_min`, `channels`.
+  - `id`: must be prefixed `"{module_id}."` (e.g. `calendar.event_published`).
+  - `role_min`: same role list as routes — the minimum role a recipient must currently hold to actually receive it (re-checked at send time, not at whatever moment the caller built the recipient list).
+  - `channels`: an object with exactly the keys `in_app`, `push`, `email`, each one of `on` (always sent, member can't opt out), `off` (never sent, member can't opt in), `default_on`/`default_off` (member can override on the preferences page). See the Notifications section below.
 - **enabled_by_default**: optional boolean, defaults to `false`. When `true`, the module is activated automatically the very first time it is discovered on disk (no `module_registry` row yet) — no admin action needed. An admin's later explicit deactivation always sticks; this never re-activates a module that already has a registry row.
 
 ## Controller conventions
@@ -211,7 +225,7 @@ CREATE TABLE IF NOT EXISTS calendar_events (
 - Declared in `module.json` under the `scheduled_tasks` section.
 - The `handler` field is a fully qualified class name implementing `Core\Scheduler\TaskHandlerInterface`.
 - The handler receives `array $payload` and `Core\Scheduler\TaskContext $context`.
-- `TaskContext` provides: `$context->connection`, `$context->encryption`, `$context->mailService`, `$context->journal`, `$context->settings`, `$context->userAccounts`, `$context->storagePath` (root of `storage/`, for handlers that need `Core\File\EncryptedFileStorageService` or similar file access), `$context->notifications` (`?Core\Notification\NotificationService` — call `->notify($userAccountId, $title, $body, $url)` to push a Web Push notification + record it once the task finishes; the requester's account id, if any, is available as `$payload['requested_by_user_account_id']` — `null` for tasks scheduled without a human requester, e.g. daily cron).
+- `TaskContext` provides: `$context->connection`, `$context->encryption`, `$context->mailService`, `$context->journal`, `$context->settings`, `$context->userAccounts`, `$context->storagePath` (root of `storage/`, for handlers that need `Core\File\EncryptedFileStorageService` or similar file access), `$context->notifications` (`?Core\Notification\NotificationService` — see the Notifications section below for `dispatch()`).
 
 Example handler:
 
@@ -240,6 +254,34 @@ Schedule a task from a service:
 ```php
 $schedulerService->schedule('calendar', 'send_reminders', $runAt, ['event_id' => 42]);
 ```
+
+## Notifications
+
+- Declared in `module.json` under the `notifications` section — every type a module can send must be declared there before it can be dispatched (an undeclared `type_id` throws).
+- Declared types are aggregated with core's own (`Core\Notification\NotificationRegistry`) into a single registry, exposed on the member-facing preferences page (grouped by `group`) and used to validate every `dispatch()` call.
+- Send a notification from a service or controller — never in-request for push (see below), but the call itself is the same either way:
+
+```php
+$notificationService->dispatch(
+    'calendar.event_published',
+    [
+        ['userAccountId' => 12, 'memberId' => null],
+        ['userAccountId' => 13, 'memberId' => null],
+    ],
+    [
+        'title' => 'Nouvelle activité',
+        'body' => $event->title,
+        'url' => '/calendar',
+    ],
+    $actorUserAccountId // optional — the acting user never gets a push for their own action, but still sees the row in their own centre
+);
+```
+
+- `dispatch()` re-checks each recipient's *current* role against the type's `role_min` — pass every plausible candidate (e.g. every account id via `UserAccountRepository::findAllIds()`) and let it filter, rather than pre-filtering yourself.
+- It always creates the in-app `notifications` row, even for a recipient whose `push`/`email` channel is off for that type.
+- Push is never sent synchronously in the request that calls `dispatch()` — it schedules a `core/send_notifications` task (grouped by the recipient's quiet-hours-adjusted send time), which `Core\Notification\Task\SendNotificationsHandler` later batches out via Web Push. Never call anything push-related directly from a controller.
+- Never pass personal data as the `title`/`body` beyond what the recipient is already meant to see — both are encrypted at rest, but the type `id` itself is what appears in the journal (`notification_sent`), never the text.
+- A handful of pre-existing, out-of-scope Maintenance task types (reset/restore/update) use the older, simpler `notify($userAccountId, $title, $body, $url)` instead — single recipient, immediate, no role/channel/quiet-hours resolution. New module types should use `dispatch()`.
 
 ## Module lifecycle
 

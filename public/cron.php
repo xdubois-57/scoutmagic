@@ -31,11 +31,13 @@ use Core\Maintenance\Task\ResetSettingsHandler;
 use Core\Maintenance\Task\RestoreBackupHandler;
 use Core\Module\ModuleManager;
 use Core\Module\ModuleRegistryRepository;
+use Core\Notification\NotificationPreferenceRepository;
 use Core\Notification\NotificationRepository;
 use Core\Notification\NotificationService;
 use Core\Notification\PushSubscriptionRepository;
 use Core\Scheduler\SchedulerRepository;
 use Core\Scheduler\SchedulerRunner;
+use Core\Scheduler\SchedulerService;
 use Core\Scheduler\TaskContext;
 use Core\Security\EncryptionService;
 use Core\Security\Role;
@@ -74,6 +76,17 @@ $encryptionService = new EncryptionService(
 
 // Create services
 $settingService = new SettingService(new SettingRepository($pdo));
+
+// Marks that THIS entry point (a real crontab), not just the poor-man's-
+// cron in public/index.php (which stamps its own 'scheduler_last_run' on
+// every web hit), actually ran — Core\Http\Controller\
+// NotificationConfigController warns on /config/notifications when this
+// is missing or stale, since a member-facing push relying solely on the
+// poor-man's-cron only ever fires on someone's next page view.
+$settingService->register('cron_last_run', '0', 'number', 'Dernier passage du cron réel',
+    'Horodatage (timestamp Unix) du dernier passage de public/cron.php — jamais mis à jour par le pseudo-cron. Lecture seule.',
+    null, null, null, false, 999);
+(new SettingRepository($pdo))->updateValue(null, 'cron_last_run', (string) time());
 $journalRepo = new JournalRepository($pdo);
 $journalService = new JournalService($journalRepo);
 $schedulerRepo = new SchedulerRepository($pdo);
@@ -130,6 +143,8 @@ $runner->registerHandler('core', 'full_reset', new FullResetHandler());
 $runner->registerHandler('core', 'restore_backup', new RestoreBackupHandler());
 $runner->registerHandler('core', 'auto_backup', new AutoBackupHandler());
 $runner->registerHandler('core', 'compress_section_document', new \Core\Member\Task\CompressSectionDocumentHandler());
+$runner->registerHandler('core', 'send_notifications', new \Core\Notification\Task\SendNotificationsHandler());
+$runner->registerHandler('core', 'purge_notifications', new \Core\Notification\Task\PurgeNotificationsHandler());
 
 // Web Push (Core\Notification) — same construction as public/index.php.
 // Null when VAPID keys aren't provisioned yet (e.g. this script running
@@ -147,9 +162,20 @@ if (!empty($secrets['vapid_public_key']) && !empty($secrets['vapid_private_key']
         'privateKey' => (string) $secrets['vapid_private_key'],
     ]]);
     $notificationService = new NotificationService(
-        new NotificationRepository($pdo),
+        new NotificationRepository($pdo, $encryptionService),
         new PushSubscriptionRepository($pdo, $encryptionService),
-        $webPush
+        new NotificationPreferenceRepository($pdo),
+        $webPush,
+        $settingService,
+        $journalService,
+        new SchedulerService($schedulerRepo),
+        $userAccountRepo
+        // No RoleResolver/ScoutYearService here — a cron-triggered
+        // dispatch() (e.g. CreateBackupHandler's auto_backup path, which
+        // has no human requester and so never actually calls dispatch()
+        // with a real recipient anyway) simply skips the role_min re-check
+        // rather than reject every recipient, same documented degradation
+        // as NotificationService's own class docblock.
     );
 }
 

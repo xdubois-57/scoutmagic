@@ -1,0 +1,46 @@
+{% extends 'base.html.twig' %}
+{% block title %}Notifications — {{ site_name }}{% endblock %}
+{% block content %}
+<div class="page-narrow">
+    <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+        <h1 class="mb-0">Notifications</h1>
+        {% if unread_count > 0 %}
+            <form method="post" action="/notifications/mark-all-read">
+                {{ csrf_field() }}
+                <button type="submit" class="btn btn-outline-secondary btn-sm">Tout marquer comme lu</button>
+            </form>
+        {% endif %}
+    </div>
+
+    {% if day_groups|length == 0 %}
+        <p class="text-body-secondary">Aucune notification pour le moment.</p>
+    {% endif %}
+
+    {% for group in day_groups %}
+        <h2 class="h6 text-body-secondary text-uppercase mb-2 mt-4">{{ group.label }}</h2>
+        <div class="list-group mb-3">
+            {% for notification in group.notifications %}
+                <form method="post" action="/notifications/{{ notification.id }}/read" class="list-group-item list-group-item-action p-0 border-0 mb-2 rounded {% if not notification.isRead %}bg-primary-subtle{% else %}bg-white border{% endif %}">
+                    {{ csrf_field() }}
+                    <button type="submit" class="btn btn-link text-decoration-none text-start text-body w-100 p-3 d-flex gap-2 align-items-start">
+                        {% if not notification.isRead %}
+                            <span class="badge bg-primary rounded-circle p-1 mt-1" style="width:8px;height:8px;" aria-hidden="true"></span>
+                        {% else %}
+                            <span style="width:8px;" aria-hidden="true"></span>
+                        {% endif %}
+                        <span class="flex-grow-1">
+                            <span class="d-block fw-semibold">{{ notification.title }}</span>
+                            <span class="d-block small text-body-secondary">{{ notification.body }}</span>
+                            <span class="d-block text-body-secondary" style="font-size:.75rem;">{{ notification.createdAt|date('H:i') }}</span>
+                        </span>
+                    </button>
+                </form>
+            {% endfor %}
+        </div>
+    {% endfor %}
+
+    <p class="mt-4">
+        <a href="/notifications/preferences" class="text-decoration-none">Préférences de notification</a>
+    </p>
+</div>
+{% endblock %}

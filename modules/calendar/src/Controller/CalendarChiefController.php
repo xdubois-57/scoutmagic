@@ -196,7 +196,8 @@ class CalendarChiefController extends AbstractController
                 $this->stringOrNull($data['end_time'] ?? null),
                 $this->stringOrNull($data['location'] ?? null),
                 $this->stringOrNull($data['description'] ?? null),
-                ($data['auto_create_retro'] ?? false) === true
+                ($data['auto_create_retro'] ?? false) === true,
+                AuthSession::getUserAccountId()
             );
         } catch (CalendarException $e) {
             return $this->json(['success' => false, 'error' => $e->getMessage()], 400);

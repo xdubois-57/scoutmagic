@@ -65,6 +65,23 @@ class UserAccountRepository
      * alerts that need a human to notify but have no more specific
      * recipient (e.g. a scheduled task failure — see Core\Scheduler\TaskContext).
      */
+    /**
+     * Every account id — the broad candidate list for a notification
+     * type whose audience is "every identified member" (e.g. a new
+     * calendar event). dispatch() itself re-checks each recipient's
+     * current role against the type's role_min, so passing every account
+     * here is safe: recipients below the floor are silently dropped.
+     *
+     * @return int[]
+     */
+    public function findAllIds(): array
+    {
+        $stmt = $this->pdo->query('SELECT id FROM user_accounts ORDER BY id ASC');
+        \assert($stmt !== false);
+
+        return array_map(static fn(array $row) => (int) $row['id'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
     public function findFirstSuperAdmin(): ?UserAccount
     {
         $stmt = $this->pdo->query(
@@ -216,7 +233,28 @@ class UserAccountRepository
             passwordHash: $row['password_hash'] ?? null,
             isSuperAdmin: (bool) $row['is_super_admin'],
             lastLoginAt: $lastLoginAt,
-            passwordChangedAt: $passwordChangedAt
+            passwordChangedAt: $passwordChangedAt,
+            quietHoursStart: $row['quiet_hours_start'] ?? null,
+            quietHoursEnd: $row['quiet_hours_end'] ?? null,
+            notificationDiscretion: (bool) ($row['notification_discretion'] ?? false)
         );
+    }
+
+    /**
+     * Updates the account-level Web Push overrides (Configuration >
+     * Notifications preferences page, "Mon compte") —
+     * Core\Notification\NotificationService reads these back to compute a
+     * push's effective quiet-hours window and whether to substitute a
+     * generic title/body (discretion mode). $quietHoursStart/$quietHoursEnd
+     * are both null together ("follow the global default") or both set
+     * ("HH:MM" strings) — never independently null, enforced by the
+     * caller (Core\Http\Controller\AccountController).
+     */
+    public function updateNotificationSettings(int $id, ?string $quietHoursStart, ?string $quietHoursEnd, bool $discretion): void
+    {
+        $stmt = $this->pdo->prepare(
+            'UPDATE user_accounts SET quiet_hours_start = ?, quiet_hours_end = ?, notification_discretion = ? WHERE id = ?'
+        );
+        $stmt->execute([$quietHoursStart, $quietHoursEnd, $discretion ? 1 : 0, $id]);
     }
 }

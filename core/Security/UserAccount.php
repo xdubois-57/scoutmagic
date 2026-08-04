@@ -14,7 +14,10 @@ class UserAccount
         public readonly ?string $passwordHash,
         public readonly bool $isSuperAdmin,
         public readonly ?\DateTimeImmutable $lastLoginAt,
-        public readonly ?\DateTimeImmutable $passwordChangedAt = null
+        public readonly ?\DateTimeImmutable $passwordChangedAt = null,
+        public readonly ?string $quietHoursStart = null,
+        public readonly ?string $quietHoursEnd = null,
+        public readonly bool $notificationDiscretion = false
     ) {
     }
 }

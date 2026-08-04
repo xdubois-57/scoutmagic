@@ -42,10 +42,13 @@
         return;
     }
 
+    // The single site-wide worker (public/sw.js) is already registered by
+    // base.html.twig on every page load — registering a second one here
+    // (as an earlier iteration did, at /sw-push.js) would silently fight
+    // it for control of the page, since both resolve to the same
+    // (default, web-root) scope. This just waits for it to be ready.
     function getRegistration() {
-        return navigator.serviceWorker.register('/sw-push.js').then(function () {
-            return navigator.serviceWorker.ready;
-        });
+        return navigator.serviceWorker.ready;
     }
 
     // Reflect this device's real subscription state on load.

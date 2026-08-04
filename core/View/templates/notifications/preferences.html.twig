@@ -1,0 +1,90 @@
+{% extends 'base.html.twig' %}
+{% block title %}Préférences de notification — {{ site_name }}{% endblock %}
+{% block content %}
+<div class="page-narrow" id="notification-preferences" data-vapid-public-key="{{ vapid_public_key }}">
+    <h1 class="mb-1">Préférences de notification</h1>
+    <p class="text-body-secondary mb-4">
+        Un canal grisé est fixé par le site et ne peut pas être modifié.
+        La colonne « Push » reste désactivée tant que ton navigateur n'a pas donné la permission.
+    </p>
+
+    <p class="text-body-secondary small mb-3 d-none" id="push-permission-notice">
+        La colonne « Push » est désactivée : active d'abord les notifications push pour cet appareil depuis
+        <a href="/account">Mon compte</a>.
+    </p>
+
+    {% for group_name, items in groups %}
+        <div class="card mb-3">
+            <div class="card-body">
+                <h2 class="h5 mb-3">{{ group_name }}</h2>
+                <div class="table-responsive">
+                    <table class="table align-middle mb-0">
+                        <thead>
+                            <tr>
+                                <th scope="col">Type</th>
+                                <th scope="col" class="text-center" style="width:90px;">Site</th>
+                                <th scope="col" class="text-center" style="width:90px;">Push</th>
+                                <th scope="col" class="text-center" style="width:90px;">Mail</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in items %}
+                                <tr>
+                                    <td>
+                                        <div class="fw-semibold">{{ item.type.label }}</div>
+                                        <div class="text-body-secondary small">{{ item.type.description }}</div>
+                                    </td>
+                                    {% for channel in ['in_app', 'push', 'email'] %}
+                                        <td class="text-center">
+                                            <div class="form-check form-switch d-inline-block">
+                                                <input class="form-check-input notification-channel-toggle" type="checkbox" role="switch"
+                                                       data-type-id="{{ item.type.id }}"
+                                                       data-channel="{{ channel }}"
+                                                       {% if channel == 'push' %}data-is-push="1"{% endif %}
+                                                       {% if item.channels[channel].value %}checked{% endif %}
+                                                       {% if item.channels[channel].locked %}disabled{% endif %}>
+                                            </div>
+                                        </td>
+                                    {% endfor %}
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    {% endfor %}
+
+    <div class="card mb-3">
+        <div class="card-body">
+            <h2 class="h5 mb-3">Heures calmes et discrétion</h2>
+            <div class="row g-3 align-items-end">
+                <div class="col-6 col-sm-3">
+                    <label class="form-label small">Début (facultatif)</label>
+                    <input type="time" class="form-control form-control-sm" id="quiet-hours-start" value="{{ quiet_hours_start ? quiet_hours_start[:5] : '' }}">
+                </div>
+                <div class="col-6 col-sm-3">
+                    <label class="form-label small">Fin</label>
+                    <input type="time" class="form-control form-control-sm" id="quiet-hours-end" value="{{ quiet_hours_end ? quiet_hours_end[:5] : '' }}">
+                </div>
+                <div class="col-12 col-sm-6">
+                    <div class="form-check form-switch">
+                        <input class="form-check-input" type="checkbox" role="switch" id="notification-discretion" {% if notification_discretion %}checked{% endif %}>
+                        <label class="form-check-label small" for="notification-discretion">
+                            Discrétion — masquer le contenu sur l'écran verrouillé
+                        </label>
+                    </div>
+                </div>
+            </div>
+            <p class="text-body-secondary small mt-2 mb-0">
+                Laisse les deux heures vides pour suivre le réglage général du site.
+            </p>
+            <p class="text-success small mt-2 mb-0 d-none" id="account-settings-saved-notice">Enregistré.</p>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/assets/js/notification-preferences.js" defer nonce="{{ csp_nonce }}"></script>
+{% endblock %}

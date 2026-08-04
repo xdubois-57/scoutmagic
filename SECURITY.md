@@ -15,7 +15,7 @@ This document defines the non-negotiable security requirements for the project. 
 - Identical error messages for "unknown email" and "wrong password" — no account enumeration.
 - Progressive lockout on failed attempts.
 - Session ID regenerated at login (`session_regenerate_id(true)`).
-- Session cookies: `HttpOnly`, `Secure`, `SameSite=Lax`.
+- Session cookies: `HttpOnly`, `Secure`, `SameSite=Lax`, 30-day lifetime (`Core\Security\SessionManager`, matching `session.gc_maxlifetime` so server-side session data doesn't expire before the cookie does) — an installed PWA shouldn't demand a fresh magic link every few days.
 
 ## 3. RBAC
 

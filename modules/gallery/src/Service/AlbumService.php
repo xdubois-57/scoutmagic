@@ -8,8 +8,10 @@ use Core\Config\ScoutYearService;
 use Core\Config\SettingService;
 use Core\File\UploadException;
 use Core\File\UploadHandler;
+use Core\Notification\NotificationService;
 use Core\Scheduler\SchedulerService;
 use Core\Security\Role;
+use Core\Security\UserAccountRepository;
 use Modules\Gallery\Repository\Album;
 use Modules\Gallery\Repository\AlbumRepository;
 use Modules\Gallery\Repository\MediaRepository;
@@ -32,7 +34,9 @@ class AlbumService
         private ScoutYearService $scoutYearService,
         private SettingService $settingService,
         private SchedulerService $schedulerService,
-        private UploadHandler $uploadHandler
+        private UploadHandler $uploadHandler,
+        private ?NotificationService $notificationService = null,
+        private ?UserAccountRepository $userAccountRepository = null
     ) {
     }
 
@@ -123,7 +127,40 @@ class AlbumService
             $this->albumRepository->updateOgMetadata($id, $ogTags['title'], $ogTags['description'], $ogTags['image'], $ogImageFileId);
         }
 
-        return $this->albumRepository->findById($id);
+        $created = $this->albumRepository->findById($id);
+        \assert($created !== null);
+        $this->dispatchAlbumPublished($created, $createdBy);
+
+        return $created;
+    }
+
+    /**
+     * Notification centre + push: "a new album was published" — every
+     * identified member is a candidate recipient (no per-section
+     * targeting, matching the calendar module's own "every identified
+     * member" simplification for its event notifications); dispatch()
+     * itself re-checks role_min per recipient and never pushes to the
+     * chief who created the album.
+     */
+    private function dispatchAlbumPublished(Album $album, int $createdBy): void
+    {
+        if ($this->notificationService === null || $this->userAccountRepository === null) {
+            return;
+        }
+
+        $recipients = array_map(
+            static fn(int $id): array => ['userAccountId' => $id, 'memberId' => null],
+            $this->userAccountRepository->findAllIds()
+        );
+        if ($recipients === []) {
+            return;
+        }
+
+        $this->notificationService->dispatch('gallery.album_published', $recipients, [
+            'title' => 'Nouvel album',
+            'body' => $album->title,
+            'url' => '/gallery',
+        ], $createdBy);
     }
 
     /**

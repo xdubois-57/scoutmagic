@@ -4,12 +4,15 @@ declare(strict_types=1);
 
 namespace Modules\MassMail\Task;
 
+use Core\Import\MemberYearRepository;
 use Core\Mail\MailException;
 use Core\Scheduler\SchedulerService;
 use Core\Scheduler\TaskContext;
 use Core\Scheduler\TaskHandlerInterface;
+use Modules\MassMail\Repository\Email;
 use Modules\MassMail\Repository\EmailAttachmentRepository;
 use Modules\MassMail\Repository\EmailRepository;
+use Modules\MassMail\Repository\Recipient;
 use Modules\MassMail\Repository\RecipientRepository;
 use Modules\MassMail\Service\MassMailService;
 
@@ -121,6 +124,7 @@ class SendBatchHandler implements TaskHandlerInterface
                 );
                 $recipientRepository->recordSendSuccess($recipient->id);
                 $sentCount++;
+                $this->dispatchEmailReceivedNotification($context, $recipient, $email);
             } catch (MailException $e) {
                 // $e->getMessage() is a transport-level error (SMTP
                 // response, connection failure) — never contains the
@@ -142,6 +146,43 @@ class SendBatchHandler implements TaskHandlerInterface
         }
 
         $this->rescheduleIfPendingRemain($context, $recipientRepository);
+    }
+
+    /**
+     * Notification centre + push (module.json's "mass_mail.email_received"
+     * — push default-on, email channel forced off since a redundant
+     * "you got an email" email would defeat the point). Only fires when
+     * the recipient's plaintext address matches an existing login
+     * account — most recipients are scouts with no account of their own,
+     * so this is a targeted single-recipient dispatch, not a broadcast
+     * (unlike the calendar/gallery modules' "every identified member"
+     * notifications, which have no such natural single-recipient
+     * resolution). The deep link resolves the member_year row for this
+     * recipient's own snapshot scout year, matching MemberEmailController's
+     * `/members/{member_year_id}/emails/{recipient_id}` route.
+     */
+    private function dispatchEmailReceivedNotification(TaskContext $context, Recipient $recipient, Email $email): void
+    {
+        if ($context->notifications === null || $recipient->emailAddress === null) {
+            return;
+        }
+
+        $account = $context->userAccounts->findByEmail($recipient->emailAddress);
+        if ($account === null) {
+            return;
+        }
+
+        $pdo = $context->connection->getPdo();
+        $memberYear = (new MemberYearRepository($pdo))->findByMemberAndYear($recipient->memberId, $recipient->scoutYearId);
+        $url = $memberYear !== null ? '/members/' . $memberYear['id'] . '/emails/' . $recipient->id : null;
+
+        $context->notifications->dispatch('mass_mail.email_received', [
+            ['userAccountId' => $account->id, 'memberId' => $recipient->memberId],
+        ], [
+            'title' => 'Nouvel email',
+            'body' => $email->subject,
+            'url' => $url,
+        ], $email->createdBy);
     }
 
     private function rescheduleIfPendingRemain(TaskContext $context, RecipientRepository $recipientRepository): void

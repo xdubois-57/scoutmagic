@@ -11,10 +11,16 @@ use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Mail\MailException;
 use Core\Mail\MailService;
+use Core\Notification\NotificationPreferenceRepository;
+use Core\Notification\NotificationRepository;
+use Core\Notification\NotificationService;
+use Core\Notification\PushSubscriptionRepository;
 use Core\Scheduler\SchedulerRepository;
+use Core\Scheduler\SchedulerService;
 use Core\Scheduler\TaskContext;
 use Core\Security\EncryptionService;
 use Core\Security\UserAccountRepository;
+use Minishlink\WebPush\WebPush;
 use Modules\MassMail\Repository\Email;
 use Modules\MassMail\Repository\Recipient;
 use Modules\MassMail\Repository\RecipientRepository;
@@ -31,7 +37,10 @@ class SendBatchHandlerTest extends TestCase
     private \PDO $pdo;
     private EncryptionService $encryption;
     private RecipientRepository $recipientRepository;
+    private UserAccountRepository $userAccountRepository;
     private int $emailId;
+    private int $memberId;
+    private int $scoutYearId;
 
     protected function setUp(): void
     {
@@ -39,9 +48,10 @@ class SendBatchHandlerTest extends TestCase
         MassMailTestHelper::createTables($this->pdo);
         $this->encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $this->recipientRepository = new RecipientRepository($this->pdo, $this->encryption);
+        $this->userAccountRepository = new UserAccountRepository($this->pdo, $this->encryption);
 
         $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES ('2025-2026', '2025-09-01', '2026-08-31', 1)");
-        $scoutYearId = (int) $this->pdo->lastInsertId();
+        $this->scoutYearId = (int) $this->pdo->lastInsertId();
         $this->pdo->exec("INSERT INTO age_branches (desk_code, label, sort_order) VALUES ('LOU', 'Louveteaux', 1)");
         $branchId = (int) $this->pdo->lastInsertId();
         $this->pdo->exec("INSERT INTO sections (desk_code, age_branch_id, name) VALUES ('LOU01', {$branchId}, 'Meute A')");
@@ -53,10 +63,10 @@ class SendBatchHandlerTest extends TestCase
         $this->emailId = (int) $this->pdo->lastInsertId();
 
         $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('DESK_1')");
-        $memberId = (int) $this->pdo->lastInsertId();
+        $this->memberId = (int) $this->pdo->lastInsertId();
 
         for ($i = 0; $i < 3; $i++) {
-            $this->recipientRepository->create($this->emailId, $memberId, $scoutYearId, "member{$i}@test.be", Recipient::STATUS_PENDING, null);
+            $this->recipientRepository->create($this->emailId, $this->memberId, $this->scoutYearId, "member{$i}@test.be", Recipient::STATUS_PENDING, null);
         }
 
         $settingRepository = new SettingRepository($this->pdo);
@@ -73,8 +83,22 @@ class SendBatchHandlerTest extends TestCase
             $mailService,
             new JournalService(new JournalRepository($this->pdo)),
             new SettingService(new SettingRepository($this->pdo)),
-            new UserAccountRepository($this->pdo, $this->encryption),
+            $this->userAccountRepository,
             sys_get_temp_dir()
+        );
+    }
+
+    private function buildContextWithNotifications(MailService $mailService, NotificationService $notificationService): TaskContext
+    {
+        return new TaskContext(
+            Connection::withPdo($this->pdo),
+            $this->encryption,
+            $mailService,
+            new JournalService(new JournalRepository($this->pdo)),
+            new SettingService(new SettingRepository($this->pdo)),
+            $this->userAccountRepository,
+            sys_get_temp_dir(),
+            $notificationService
         );
     }
 
@@ -171,5 +195,66 @@ class SendBatchHandlerTest extends TestCase
         $stmt = $this->pdo->prepare('SELECT status FROM mass_mail_emails WHERE id = ?');
         $stmt->execute([$this->emailId]);
         $this->assertSame(Email::STATUS_SENT, $stmt->fetchColumn());
+    }
+
+    private function buildNotificationService(): NotificationService
+    {
+        $settingService = new SettingService(new SettingRepository($this->pdo));
+        $notificationService = new NotificationService(
+            new NotificationRepository($this->pdo, $this->encryption),
+            new PushSubscriptionRepository($this->pdo, $this->encryption),
+            new NotificationPreferenceRepository($this->pdo),
+            $this->createMock(WebPush::class),
+            $settingService,
+            new JournalService(new JournalRepository($this->pdo)),
+            new SchedulerService(new SchedulerRepository($this->pdo)),
+            $this->userAccountRepository
+        );
+        $notificationService->registerModuleTypes('mass_mail', [[
+            'id' => 'mass_mail.email_received', 'label' => 'Nouvel email reçu', 'description' => 'd',
+            'group' => 'Emails groupés', 'role_min' => 'identified',
+            'channels' => ['in_app' => 'default_on', 'push' => 'default_on', 'email' => 'off'],
+        ]]);
+
+        return $notificationService;
+    }
+
+    public function testDispatchesEmailReceivedNotificationWhenRecipientHasALoginAccount(): void
+    {
+        $this->pdo->exec("DELETE FROM mass_mail_recipients WHERE id NOT IN (SELECT MIN(id) FROM mass_mail_recipients)");
+        $recipient = $this->recipientRepository->findByEmailId($this->emailId)[0];
+
+        $account = $this->userAccountRepository->create($recipient->emailAddress);
+
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted) VALUES (?, ?, ?, ?)'
+        );
+        $stmt->execute([$this->memberId, $this->scoutYearId, $this->encryption->encrypt('Jean'), $this->encryption->encrypt('Dupont')]);
+        $memberYearId = (int) $this->pdo->lastInsertId();
+
+        $mailService = $this->createMock(MailService::class);
+        $notificationService = $this->buildNotificationService();
+
+        $handler = new SendBatchHandler();
+        $handler->handle([], $this->buildContextWithNotifications($mailService, $notificationService));
+
+        $notifications = (new NotificationRepository($this->pdo, $this->encryption))->findByUserAccountId($account->id);
+        $this->assertCount(1, $notifications);
+        $this->assertSame('mass_mail.email_received', $notifications[0]->typeId);
+        $this->assertSame('Sujet', $notifications[0]->body);
+        $this->assertSame('/members/' . $memberYearId . '/emails/' . $recipient->id, $notifications[0]->url);
+    }
+
+    public function testDoesNotDispatchWhenRecipientHasNoLoginAccount(): void
+    {
+        $this->pdo->exec("DELETE FROM mass_mail_recipients WHERE id NOT IN (SELECT MIN(id) FROM mass_mail_recipients)");
+
+        $mailService = $this->createMock(MailService::class);
+        $notificationService = $this->buildNotificationService();
+
+        $handler = new SendBatchHandler();
+        $handler->handle([], $this->buildContextWithNotifications($mailService, $notificationService));
+
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM notifications')->fetchColumn());
     }
 }

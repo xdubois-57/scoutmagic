@@ -39,6 +39,9 @@ class DatabaseTestHelper
             password_hash TEXT,
             password_changed_at TEXT,
             is_super_admin INTEGER NOT NULL DEFAULT 0,
+            quiet_hours_start TEXT,
+            quiet_hours_end TEXT,
+            notification_discretion INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             last_login_at TEXT
         )');
@@ -383,20 +386,37 @@ class DatabaseTestHelper
         $pdo->exec('CREATE TABLE push_subscriptions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_account_id INTEGER NOT NULL,
-            endpoint TEXT NOT NULL,
+            endpoint BLOB NOT NULL,
+            endpoint_blind_index CHAR(64) NOT NULL,
             auth_key BLOB NOT NULL,
             p256dh_key BLOB NOT NULL,
-            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            device_label TEXT,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            last_success_at TEXT,
+            failure_count INTEGER NOT NULL DEFAULT 0
         )');
 
         $pdo->exec('CREATE TABLE notifications (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_account_id INTEGER NOT NULL,
-            title TEXT NOT NULL,
-            body TEXT NOT NULL,
+            member_id INTEGER,
+            type_id TEXT NOT NULL,
+            title BLOB NOT NULL,
+            body BLOB NOT NULL,
             url TEXT,
-            is_read INTEGER NOT NULL DEFAULT 0,
-            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            read_at TEXT
+        )');
+
+        $pdo->exec('CREATE TABLE notification_preferences (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_account_id INTEGER NOT NULL,
+            type_id TEXT NOT NULL,
+            in_app INTEGER,
+            push INTEGER,
+            email INTEGER,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(user_account_id, type_id)
         )');
 
         $pdo->exec('CREATE TABLE backups (

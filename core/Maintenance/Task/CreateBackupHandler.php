@@ -88,11 +88,14 @@ class CreateBackupHandler implements TaskHandlerInterface
             );
 
             if ($backup->requestedBy !== null) {
-                $context->notifications?->notify(
-                    $backup->requestedBy,
-                    'Sauvegarde prête',
-                    'Votre sauvegarde est prête à être téléchargée.',
-                    '/config/maintenance'
+                $context->notifications?->dispatch(
+                    'core.backup_completed',
+                    [['userAccountId' => $backup->requestedBy, 'memberId' => null]],
+                    [
+                        'title' => 'Sauvegarde prête',
+                        'body' => 'Votre sauvegarde est prête à être téléchargée.',
+                        'url' => '/config/maintenance',
+                    ]
                 );
             }
         } catch (\Throwable $e) {
@@ -107,11 +110,14 @@ class CreateBackupHandler implements TaskHandlerInterface
             );
 
             if ($backup->requestedBy !== null) {
-                $context->notifications?->notify(
-                    $backup->requestedBy,
-                    'Échec de la sauvegarde',
-                    'La génération de votre sauvegarde a échoué. Consultez la page Maintenance pour plus de détails.',
-                    '/config/maintenance'
+                $context->notifications?->dispatch(
+                    'core.backup_failed',
+                    [['userAccountId' => $backup->requestedBy, 'memberId' => null]],
+                    [
+                        'title' => 'Échec de la sauvegarde',
+                        'body' => 'La génération de votre sauvegarde a échoué. Consultez la page Maintenance pour plus de détails.',
+                        'url' => '/config/maintenance',
+                    ]
                 );
             }
         }

@@ -1,0 +1,76 @@
+{% extends 'base.html.twig' %}
+{% block title %}Notifications — {{ site_name }}{% endblock %}
+{% block content %}
+<h1 class="mb-4">Configuration — Notifications</h1>
+
+<div class="card mb-3">
+    <div class="card-body">
+        <h2 class="h5 mb-3">État</h2>
+        <p class="small mb-1">
+            Clés VAPID :
+            {% if vapid_configured %}<span class="text-success">configurées</span>{% else %}<span class="text-danger">absentes</span>{% endif %}
+        </p>
+        <p class="small mb-1">Appareils inscrits au push : <strong>{{ device_count }}</strong></p>
+        <p class="small mb-1">Types de notification déclarés : <strong>{{ declared_types_count }}</strong></p>
+
+        {% if not cron_detected %}
+            <div class="alert alert-warning mt-3 mb-0">
+                Aucun passage de cron réel n'a été détecté récemment. Sans crontab configuré sur le serveur
+                (<code>* * * * * php public/cron.php</code>), les notifications ne sont envoyées que lorsqu'un
+                membre visite le site (pseudo-cron) — les rappels peuvent donc être en retard, voire ne jamais partir.
+            </div>
+        {% endif %}
+    </div>
+</div>
+
+<div class="card mb-3">
+    <div class="card-body">
+        <h2 class="h5 mb-3">Clés VAPID</h2>
+        <p class="small text-body-secondary">
+            Régénérer les clés déconnecte immédiatement tous les appareils actuellement inscrits
+            ({{ device_count }} appareil{{ device_count > 1 ? 's' : '' }}) — chacun devra réactiver les
+            notifications push depuis son propre appareil.
+        </p>
+        <form method="post" action="/config/notifications/rotate-vapid" id="rotate-vapid-form">
+            {{ csrf_field() }}
+            <button type="submit" class="btn btn-outline-danger">Régénérer les clés VAPID</button>
+        </form>
+    </div>
+</div>
+
+<div class="card mb-3">
+    <div class="card-body">
+        <h2 class="h5 mb-3">Notification test</h2>
+        <p class="small text-body-secondary">Envoie une notification push à tes propres appareils inscrits.</p>
+        <form method="post" action="/config/notifications/test">
+            {{ csrf_field() }}
+            <button type="submit" class="btn btn-outline-primary">Envoyer une notification test</button>
+        </form>
+    </div>
+</div>
+
+<div class="card mb-3">
+    <div class="card-body">
+        <h2 class="h5 mb-3">Réglages généraux</h2>
+        <p class="small text-body-secondary mb-2">
+            Les heures calmes par défaut et la durée de conservation des notifications se règlent depuis la page
+            générale des paramètres.
+        </p>
+        <a href="/config/settings" class="btn btn-outline-secondary btn-sm">Paramètres</a>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script nonce="{{ csp_nonce }}">
+(function () {
+    var form = document.getElementById('rotate-vapid-form');
+    if (!form) return;
+    form.addEventListener('submit', function (e) {
+        if (!window.confirm('Régénérer les clés VAPID ? Cela déconnectera immédiatement {{ device_count }} appareil(s).')) {
+            e.preventDefault();
+        }
+    });
+})();
+</script>
+{% endblock %}

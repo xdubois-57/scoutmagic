@@ -1,7 +1,19 @@
-// Installable-PWA app shell (Lot 1) — hand-written, no Workbox/build tool.
-// Must sit at the web root (public/ is the document root, so this
-// resolves to /sw.js) — moving it under /assets/ would silently scope it
-// to that subtree instead of the whole site.
+// Installable-PWA app shell (Lot 1) + Web Push (Lot 2) — hand-written, no
+// Workbox/build tool. Must sit at the web root (public/ is the document
+// root, so this resolves to /sw.js) — moving it under /assets/ would
+// silently scope it to that subtree instead of the whole site.
+//
+// This is deliberately the ONLY service worker on the site. An earlier,
+// separate push-notifications iteration registered its own worker at
+// /sw-push.js — since both that file and this one resolve to the same
+// (default, web-root) scope, whichever registered LAST on a given page
+// load silently became the sole controller for that tab, and the other's
+// handlers (push here, or the app-shell cache there) simply never fired.
+// Lot 2 merges push handling into this single worker and retires
+// /sw-push.js/push-notifications.js's own registration entirely — see
+// public/assets/js/push-notifications.js, which now waits on the
+// registration base.html.twig already performs instead of registering a
+// second worker.
 //
 // Registered as /sw.js?v={appVersion} (see base.html.twig) — appVersion
 // comes from Core\Maintenance\VersionFile, the same file a GitHub-release
@@ -13,11 +25,20 @@
 // script), which installs, precaches fresh copies under a new cache name,
 // and activate() below deletes every cache that doesn't match it.
 //
-// Scope of this lot: precache the app shell ONLY (Bootstrap, the site's
-// own CSS/JS, the icons, /offline). Cache-first for exactly those URLs;
+// Scope of the app-shell cache (Lot 1): the shell ONLY (Bootstrap, the
+// site's own CSS/JS, the icons, /offline). Cache-first for exactly those;
 // everything else — including every authenticated page and every
-// /files/{id} download — is network-only. No content caching, no
-// notifications; those are explicitly out of scope here.
+// /files/{id} download — is network-only. No content caching.
+//
+// Scope of push (Lot 2): receive a push, show a real, visible
+// notification for it — Chrome silently substitutes "this site was
+// updated in the background" for any push that doesn't call
+// showNotification(), so a silent/data-only push is not an option — and
+// update the installed app's icon badge (navigator.setAppBadge(), only
+// from here: it must update while the app is closed, which a page-side
+// call could never do). Deliberately no `tag` on any notification —
+// several arriving the same evening must all remain visible, never
+// collapse into one.
 
 const params = new URLSearchParams(self.location.search);
 const VERSION = params.get('v') || 'dev';
@@ -94,4 +115,71 @@ self.addEventListener('fetch', function (event) {
             })
         );
     }
+});
+
+self.addEventListener('push', function (event) {
+    var data = {};
+    if (event.data) {
+        try {
+            data = event.data.json();
+        } catch (e) {
+            data = { title: 'Notification', body: event.data.text() };
+        }
+    }
+
+    var title = data.title || 'Notification';
+    var options = {
+        body: data.body || '',
+        data: { url: data.url || null }
+    };
+
+    event.waitUntil(
+        self.registration.showNotification(title, options).then(function () {
+            var tasks = [];
+
+            // Progressive enhancement only — works on installed iOS >= 16.4
+            // and desktop Chrome, does nothing on Android (the launcher
+            // shows its own unread dot instead). Must run here, not from
+            // the page: this is the one place that still executes while
+            // the app itself is closed.
+            if ('setAppBadge' in navigator && typeof data.unread_count === 'number') {
+                tasks.push(navigator.setAppBadge(data.unread_count).catch(function () {}));
+            }
+
+            // Nudge any open tab to refresh its own avatar badge
+            // immediately, rather than waiting for its next 60s poll —
+            // see public/assets/js/notification-badge.js.
+            tasks.push(
+                self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function (clientList) {
+                    clientList.forEach(function (client) {
+                        client.postMessage({ type: 'push-received', unreadCount: data.unread_count });
+                    });
+                })
+            );
+
+            return Promise.all(tasks);
+        })
+    );
+});
+
+self.addEventListener('notificationclick', function (event) {
+    event.notification.close();
+
+    var url = event.notification.data && event.notification.data.url;
+    if (!url) {
+        return;
+    }
+
+    event.waitUntil(
+        self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function (clientList) {
+            for (var i = 0; i < clientList.length; i++) {
+                if (clientList[i].url === url && 'focus' in clientList[i]) {
+                    return clientList[i].focus();
+                }
+            }
+            if (self.clients.openWindow) {
+                return self.clients.openWindow(url);
+            }
+        })
+    );
 });

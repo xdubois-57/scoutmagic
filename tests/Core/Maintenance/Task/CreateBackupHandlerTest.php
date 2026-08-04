@@ -12,9 +12,12 @@ use Core\Journal\JournalService;
 use Core\Maintenance\BackupRepository;
 use Core\Maintenance\Task\CreateBackupHandler;
 use Core\Mail\MailService;
+use Core\Notification\NotificationPreferenceRepository;
 use Core\Notification\NotificationRepository;
 use Core\Notification\NotificationService;
 use Core\Notification\PushSubscriptionRepository;
+use Core\Scheduler\SchedulerRepository;
+use Core\Scheduler\SchedulerService;
 use Core\Scheduler\TaskContext;
 use Core\Security\EncryptionService;
 use Core\Security\UserAccountRepository;
@@ -43,7 +46,7 @@ class CreateBackupHandlerTest extends TestCase
         $this->handler = new CreateBackupHandler();
 
         $stmt = $this->pdo->prepare('INSERT INTO user_accounts (email_encrypted, email_blind_index) VALUES (?, ?)');
-        $stmt->execute(['enc', 'idx']);
+        $stmt->execute([$encryption->encrypt('backup-requester@test.example'), $encryption->blindIndex('backup-requester@test.example')]);
         $this->userId = (int) $this->pdo->lastInsertId();
 
         $this->storagePath = sys_get_temp_dir() . '/create_backup_handler_test_' . uniqid();
@@ -57,19 +60,27 @@ class CreateBackupHandlerTest extends TestCase
         // BackupServiceTest for that, gated behind @group database + a
         // reachable TEST_DB_* server).
         $connection = Connection::withPdo($this->pdo);
+        $settingService = new SettingService(new SettingRepository($this->pdo));
+        $journalService = new JournalService(new JournalRepository($this->pdo));
+        $userAccountRepository = new UserAccountRepository($this->pdo, $encryption);
 
         $this->context = new TaskContext(
             $connection,
             $encryption,
             $this->createMock(MailService::class),
-            new JournalService(new JournalRepository($this->pdo)),
-            new SettingService(new SettingRepository($this->pdo)),
-            new UserAccountRepository($this->pdo, $encryption),
+            $journalService,
+            $settingService,
+            $userAccountRepository,
             $this->storagePath,
             new NotificationService(
-                new NotificationRepository($this->pdo),
+                new NotificationRepository($this->pdo, $encryption),
                 new PushSubscriptionRepository($this->pdo, $encryption),
-                $this->createMock(WebPush::class)
+                new NotificationPreferenceRepository($this->pdo),
+                $this->createMock(WebPush::class),
+                $settingService,
+                $journalService,
+                new SchedulerService(new SchedulerRepository($this->pdo)),
+                $userAccountRepository
             )
         );
     }
@@ -125,8 +136,10 @@ class CreateBackupHandlerTest extends TestCase
 
         $this->handler->handle(['backup_id' => $id, 'scope' => 'full_config', 'encrypted_password' => 'not-valid-base64!!!'], $this->context);
 
-        $notifications = (new NotificationRepository($this->pdo))->findByUserAccountId($this->userId);
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $notifications = (new NotificationRepository($this->pdo, $encryption))->findByUserAccountId($this->userId);
         $this->assertCount(1, $notifications);
         $this->assertSame('Échec de la sauvegarde', $notifications[0]->title);
+        $this->assertSame('core.backup_failed', $notifications[0]->typeId);
     }
 }

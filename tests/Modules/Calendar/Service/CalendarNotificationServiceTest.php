@@ -8,10 +8,18 @@ use Core\Badge\MemberBadgeRepository;
 use Core\Config\SettingRepository;
 use Core\Config\SettingService;
 use Core\Database\Connection;
+use Core\Journal\JournalRepository;
+use Core\Journal\JournalService;
 use Core\Member\SectionService;
+use Core\Notification\NotificationPreferenceRepository;
+use Core\Notification\NotificationRepository;
+use Core\Notification\NotificationService;
+use Core\Notification\PushSubscriptionRepository;
 use Core\Scheduler\SchedulerRepository;
 use Core\Scheduler\SchedulerService;
 use Core\Security\EncryptionService;
+use Core\Security\UserAccountRepository;
+use Minishlink\WebPush\WebPush;
 use Modules\Calendar\Repository\Calendar;
 use Modules\Calendar\Repository\CalendarEventRepository;
 use Modules\Calendar\Repository\CalendarRepository;
@@ -30,9 +38,14 @@ class CalendarNotificationServiceTest extends TestCase
 {
     private \PDO $pdo;
     private CalendarNotificationService $service;
+    private CalendarNotificationService $serviceWithNotifications;
+    private NotificationService $notificationService;
+    private NotificationRepository $notificationRepository;
+    private UserAccountRepository $userAccountRepository;
     private CalendarEventRepository $eventRepository;
     private CalendarRepository $calendarRepository;
     private SchedulerRepository $schedulerRepository;
+    private SettingService $settingService;
     private int $sectionCalendarId;
     private int $supplementaryCalendarId;
 
@@ -52,16 +65,56 @@ class CalendarNotificationServiceTest extends TestCase
             $this->calendarRepository, $this->eventRepository, $sectionService, new CalendarUnitFeedTokenRepository($this->pdo)
         );
 
-        $settingService = new SettingService(new SettingRepository($this->pdo));
-        $settingService->register('notify_multiday_events_enabled', '0', 'boolean', 'Rappels', 'desc', 'calendar');
-        $settingService->register('notify_multiday_events_days_before', '14', 'text', 'Délai', 'desc', 'calendar');
+        $this->settingService = new SettingService(new SettingRepository($this->pdo));
+        $this->settingService->register('notify_multiday_events_enabled', '0', 'boolean', 'Rappels', 'desc', 'calendar');
+        $this->settingService->register('notify_multiday_events_days_before', '14', 'text', 'Délai', 'desc', 'calendar');
+        $this->settingService->register('event_reminder_hour', '18:00', 'text', 'Heure du rappel', 'desc', 'calendar');
 
         $this->schedulerRepository = new SchedulerRepository($this->pdo);
         $this->service = new CalendarNotificationService(
             new SchedulerService($this->schedulerRepository),
-            $settingService,
+            $this->settingService,
             $calendarService,
             $this->eventRepository
+        );
+
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $this->notificationRepository = new NotificationRepository($this->pdo, $encryption);
+        $this->userAccountRepository = new UserAccountRepository($this->pdo, $encryption);
+        $this->notificationService = new NotificationService(
+            $this->notificationRepository,
+            new PushSubscriptionRepository($this->pdo, $encryption),
+            new NotificationPreferenceRepository($this->pdo),
+            $this->createMock(WebPush::class),
+            $this->settingService,
+            new JournalService(new JournalRepository($this->pdo)),
+            new SchedulerService($this->schedulerRepository),
+            $this->userAccountRepository
+        );
+        $this->notificationService->registerModuleTypes('calendar', [
+            [
+                'id' => 'calendar.event_published', 'label' => 'Nouvelle activité', 'description' => 'd',
+                'group' => 'Calendrier', 'role_min' => 'identified',
+                'channels' => ['in_app' => 'default_on', 'push' => 'default_on', 'email' => 'default_off'],
+            ],
+            [
+                'id' => 'calendar.event_changed', 'label' => 'Activité modifiée', 'description' => 'd',
+                'group' => 'Calendrier', 'role_min' => 'identified',
+                'channels' => ['in_app' => 'default_on', 'push' => 'default_on', 'email' => 'default_off'],
+            ],
+            [
+                'id' => 'calendar.event_reminder', 'label' => 'Rappel', 'description' => 'd',
+                'group' => 'Calendrier', 'role_min' => 'identified',
+                'channels' => ['in_app' => 'default_on', 'push' => 'default_on', 'email' => 'default_off'],
+            ],
+        ]);
+        $this->serviceWithNotifications = new CalendarNotificationService(
+            new SchedulerService($this->schedulerRepository),
+            $this->settingService,
+            $calendarService,
+            $this->eventRepository,
+            $this->notificationService,
+            $this->userAccountRepository
         );
 
         $stmt = $this->pdo->prepare('INSERT INTO age_branches (desk_code, label, sort_order) VALUES (?, ?, ?)');
@@ -241,5 +294,132 @@ class CalendarNotificationServiceTest extends TestCase
     {
         $this->expectException(CalendarException::class);
         $this->service->setDaysBefore(400);
+    }
+
+    // --- Notification-centre / push dispatch ---
+
+    public function testDispatchEventPublishedCreatesNotificationForEveryAccountExceptTheActor(): void
+    {
+        $actor = $this->userAccountRepository->create('actor@test.com')->id;
+        $other = $this->userAccountRepository->create('other@test.com')->id;
+        $eventId = $this->createEvent($this->sectionCalendarId, (new \DateTimeImmutable('+5 days'))->format('Y-m-d'), null);
+        $event = $this->eventRepository->findById($eventId);
+
+        $this->serviceWithNotifications->dispatchEventPublished($event, $actor);
+
+        $actorNotifications = $this->notificationRepository->findByUserAccountId($actor);
+        $otherNotifications = $this->notificationRepository->findByUserAccountId($other);
+        $this->assertCount(1, $actorNotifications);
+        $this->assertCount(1, $otherNotifications);
+        $this->assertSame('calendar.event_published', $otherNotifications[0]->typeId);
+        $this->assertSame('Camp', $otherNotifications[0]->body);
+    }
+
+    public function testDispatchEventChangedUsesItsOwnType(): void
+    {
+        $other = $this->userAccountRepository->create('other2@test.com')->id;
+        $eventId = $this->createEvent($this->sectionCalendarId, (new \DateTimeImmutable('+5 days'))->format('Y-m-d'), null);
+        $event = $this->eventRepository->findById($eventId);
+
+        $this->serviceWithNotifications->dispatchEventChanged($event, null);
+
+        $notifications = $this->notificationRepository->findByUserAccountId($other);
+        $this->assertCount(1, $notifications);
+        $this->assertSame('calendar.event_changed', $notifications[0]->typeId);
+    }
+
+    public function testDispatchIsANoOpWithoutNotificationDependencies(): void
+    {
+        $this->userAccountRepository->create('solo@test.com');
+        $eventId = $this->createEvent($this->sectionCalendarId, (new \DateTimeImmutable('+5 days'))->format('Y-m-d'), null);
+        $event = $this->eventRepository->findById($eventId);
+
+        // $this->service has no NotificationService/UserAccountRepository —
+        // must degrade to a no-op rather than throw.
+        $this->service->dispatchEventPublished($event, null);
+
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM notifications')->fetchColumn());
+    }
+
+    // --- Activity reminder (day-before, calendar.event_reminder) ---
+
+    private function reminderRowCount(): int
+    {
+        $stmt = $this->pdo->query("SELECT COUNT(*) FROM scheduled_actions WHERE module_id = 'calendar' AND task_key = 'event_reminder' AND status = 'pending'");
+        return (int) $stmt->fetchColumn();
+    }
+
+    public function testSyncActivityReminderSchedulesForDayBeforeAtConfiguredHour(): void
+    {
+        $start = (new \DateTimeImmutable('+10 days'))->format('Y-m-d');
+        $eventId = $this->createEvent($this->sectionCalendarId, $start, null);
+        $event = $this->eventRepository->findById($eventId);
+
+        $this->serviceWithNotifications->syncActivityReminderForEvent($event);
+
+        $this->assertSame(1, $this->reminderRowCount());
+        $row = $this->pdo->query("SELECT run_at FROM scheduled_actions WHERE task_key = 'event_reminder' AND status = 'pending'")->fetch(\PDO::FETCH_ASSOC);
+        $expected = (new \DateTimeImmutable($start))->modify('-1 day')->setTime(18, 0);
+        $this->assertSame($expected->format('Y-m-d H:i:s'), $row['run_at']);
+    }
+
+    public function testSyncActivityReminderSkipsWhenReminderInstantAlreadyPassed(): void
+    {
+        $start = (new \DateTimeImmutable('+12 hours'))->format('Y-m-d');
+        $eventId = $this->createEvent($this->sectionCalendarId, $start, null);
+        $event = $this->eventRepository->findById($eventId);
+
+        $this->serviceWithNotifications->syncActivityReminderForEvent($event);
+
+        $this->assertSame(0, $this->reminderRowCount());
+    }
+
+    public function testSyncActivityReminderIsANoOpWithoutNotificationService(): void
+    {
+        $start = (new \DateTimeImmutable('+10 days'))->format('Y-m-d');
+        $eventId = $this->createEvent($this->sectionCalendarId, $start, null);
+        $event = $this->eventRepository->findById($eventId);
+
+        $this->service->syncActivityReminderForEvent($event);
+
+        $this->assertSame(0, $this->reminderRowCount());
+    }
+
+    public function testCancelActivityReminderCancelsPendingRow(): void
+    {
+        $start = (new \DateTimeImmutable('+10 days'))->format('Y-m-d');
+        $eventId = $this->createEvent($this->sectionCalendarId, $start, null);
+        $event = $this->eventRepository->findById($eventId);
+        $this->serviceWithNotifications->syncActivityReminderForEvent($event);
+
+        $this->serviceWithNotifications->cancelActivityReminderForEvent($eventId);
+
+        $this->assertSame(0, $this->reminderRowCount());
+    }
+
+    public function testResyncingActivityReminderReplacesThePreviousOne(): void
+    {
+        $start = (new \DateTimeImmutable('+10 days'))->format('Y-m-d');
+        $eventId = $this->createEvent($this->sectionCalendarId, $start, null);
+        $event = $this->eventRepository->findById($eventId);
+
+        $this->serviceWithNotifications->syncActivityReminderForEvent($event);
+        $this->serviceWithNotifications->syncActivityReminderForEvent($event);
+
+        $this->assertSame(1, $this->reminderRowCount());
+    }
+
+    public function testActivityReminderHourSettingIsRespected(): void
+    {
+        $this->settingService->set('event_reminder_hour', '09:30', 'calendar');
+        $start = (new \DateTimeImmutable('+10 days'))->format('Y-m-d');
+        $eventId = $this->createEvent($this->sectionCalendarId, $start, null);
+        $event = $this->eventRepository->findById($eventId);
+
+        $this->serviceWithNotifications->syncActivityReminderForEvent($event);
+
+        $row = $this->pdo->query("SELECT run_at FROM scheduled_actions WHERE task_key = 'event_reminder' AND status = 'pending'")->fetch(\PDO::FETCH_ASSOC);
+        $expected = (new \DateTimeImmutable($start))->modify('-1 day')->setTime(9, 30);
+        $this->assertSame($expected->format('Y-m-d H:i:s'), $row['run_at']);
     }
 }

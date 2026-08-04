@@ -31,6 +31,19 @@ CREATE TABLE user_accounts (
     -- expiry/rotation logic.
     password_changed_at DATETIME,
     is_super_admin BOOLEAN NOT NULL DEFAULT FALSE,
+    -- Per-account overrides for Core\Notification\NotificationService's
+    -- push dispatch (Configuration > Notifications preferences, "Mon
+    -- compte"). NULL on both means "follow the global
+    -- notifications_quiet_hours_start/end SettingService keys" — only a
+    -- member who explicitly wants a different window sets these, and both
+    -- are always set together (never one without the other). Discretion
+    -- mode (off by default): when on, every push notification's title/body
+    -- is substituted for a generic placeholder at composition time — the
+    -- lock screen shows nothing identifying — while the in-app centre
+    -- still shows the real text once the member is on the site.
+    quiet_hours_start TIME,
+    quiet_hours_end TIME,
+    notification_discretion BOOLEAN NOT NULL DEFAULT FALSE,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     last_login_at DATETIME,
     UNIQUE INDEX idx_email_blind (email_blind_index)
@@ -580,41 +593,101 @@ CREATE TABLE scheduled_actions (
 
 -- Web Push (Core\Notification, RFC 8030) — one row per subscribed device.
 -- A user can have several (phone, laptop, ...); each is registered/dropped
--- independently by the browser's own PushManager. auth_key/p256dh_key are
--- per-device cryptographic secrets the browser generates for message
--- encryption (RFC 8291) — not personal data, but still encrypted at rest
--- via EncryptionService like any other secret this app stores, since they
--- grant the ability to push to that device. Tied to user_accounts, never
--- to members — a push subscription belongs to a browser session, not a
+-- independently by the browser's own PushManager. endpoint is a stable
+-- identifier tied to a natural person's device, so — unlike Iteration 1,
+-- which stored it as plaintext TEXT — it is encrypted like any other
+-- personal-data field, with endpoint_blind_index alongside for the exact-
+-- match lookups a WHERE on the encrypted column could never do (see
+-- SECURITY.md §5, "never write WHERE on an encrypted field"). auth_key/
+-- p256dh_key are per-device cryptographic secrets the browser generates
+-- for message encryption (RFC 8291) — not personal data themselves, but
+-- still encrypted at rest since they grant the ability to push to that
+-- device. device_label (e.g. "Chrome sur Android", best-effort parsed
+-- from the subscribing request's User-Agent) lets a member tell their
+-- devices apart in "Mes appareils" without needing to decrypt anything for
+-- display. last_success_at/failure_count back the Web Push sender's
+-- dead-subscription cleanup (Core\Notification\NotificationService::
+-- dispatchPush() deletes a subscription on 404/410 immediately, or once
+-- failure_count crosses its threshold on repeated other failures — a
+-- success anywhere resets it to 0). Tied to user_accounts, never to
+-- members — a push subscription belongs to a browser session, not a
 -- scout profile.
 CREATE TABLE push_subscriptions (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     user_account_id INT UNSIGNED NOT NULL,
-    endpoint TEXT NOT NULL,
+    endpoint BLOB NOT NULL,
+    endpoint_blind_index CHAR(64) NOT NULL,
     auth_key BLOB NOT NULL,
     p256dh_key BLOB NOT NULL,
+    device_label VARCHAR(200),
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_success_at DATETIME,
+    failure_count INT UNSIGNED NOT NULL DEFAULT 0,
     INDEX idx_ps_user (user_account_id),
+    INDEX idx_ps_endpoint (endpoint_blind_index),
     CONSTRAINT fk_ps_user FOREIGN KEY (user_account_id) REFERENCES user_accounts(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- History of notifications sent via Core\Notification\NotificationService
--- (one row per notify() call, regardless of how many devices — or zero —
--- actually received a push for it). title/body/url are functional
--- descriptions only ("Sauvegarde terminée") — never personal data, so
--- plain columns, no encryption needed (see AGENTS.md "No personal data in
--- log entries" — same principle applied here even though this isn't the
--- event journal).
+-- History of notifications dispatched via Core\Notification\
+-- NotificationService::dispatch() (one row per recipient/member pair,
+-- regardless of how many devices — or zero — actually received a push for
+-- it; see notification_preferences below for per-recipient channel
+-- resolution). type_id is the declared notification type this row was
+-- sent for (Core\Notification\NotificationRegistry or a module's
+-- module.json "notifications" section — see their own comments) — sending
+-- an undeclared type is rejected at dispatch time, never silently
+-- accepted. member_id is nullable and names the member this notification
+-- is ABOUT, not who receives it (that's user_account_id) — a parent linked
+-- to three children each getting a notification about their own activity
+-- gets three separate rows, one per child. title/body are frozen text
+-- composed once at send time (never re-rendered from live data later) and
+-- almost always name a totem or a member — encrypted at rest per
+-- SECURITY.md §5 even though the columns aren't in its nominative list,
+-- since their CONTENT routinely is personal data even if the column
+-- itself isn't. url is a same-origin path only ("/gallery/42"), never
+-- personal data, so it stays plain. No scout_year_id — a notification is
+-- a dated event, not an annual state, same reasoning as calendar_events/
+-- sos_oncall_assignments (AGENTS.md "Database" section).
 CREATE TABLE notifications (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     user_account_id INT UNSIGNED NOT NULL,
-    title VARCHAR(200) NOT NULL,
-    body TEXT NOT NULL,
+    member_id INT UNSIGNED,
+    type_id VARCHAR(100) NOT NULL,
+    title BLOB NOT NULL,
+    body BLOB NOT NULL,
     url VARCHAR(500),
-    is_read BOOLEAN NOT NULL DEFAULT FALSE,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    read_at DATETIME,
     INDEX idx_notif_user (user_account_id),
-    CONSTRAINT fk_notif_user FOREIGN KEY (user_account_id) REFERENCES user_accounts(id) ON DELETE CASCADE
+    INDEX idx_notif_user_unread (user_account_id, read_at),
+    INDEX idx_notif_type (type_id),
+    CONSTRAINT fk_notif_user FOREIGN KEY (user_account_id) REFERENCES user_accounts(id) ON DELETE CASCADE,
+    CONSTRAINT fk_notif_member FOREIGN KEY (member_id) REFERENCES members(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Per-account, per-type channel overrides (Configuration > Notifications
+-- preferences page). Absence of a row for a given (user_account_id,
+-- type_id) means "use the type's declared default for every channel" —
+-- rows are never pre-populated for every member/type combination, only
+-- created the first time a member actually changes a channel away from
+-- its default. Each channel column is independently nullable: NULL means
+-- "not customized, still follows the type default" even when the row
+-- exists because another channel of the SAME type was customized — a
+-- member toggling only "push" for a type must not silently pin "in_app"/
+-- "email" to whatever their current default happened to be. A channel the
+-- type declares locked (`"on"`/`"off"` in module.json, forced) is never
+-- writable here regardless of what a request sends — enforced in
+-- Core\Notification\NotificationPreferenceService, not by a DB constraint.
+CREATE TABLE notification_preferences (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    user_account_id INT UNSIGNED NOT NULL,
+    type_id VARCHAR(100) NOT NULL,
+    in_app TINYINT(1),
+    push TINYINT(1),
+    email TINYINT(1),
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE INDEX idx_np_user_type (user_account_id, type_id),
+    CONSTRAINT fk_np_user FOREIGN KEY (user_account_id) REFERENCES user_accounts(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- On-demand backups (Core\Maintenance\BackupService), Configuration >

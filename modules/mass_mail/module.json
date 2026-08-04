@@ -2,7 +2,7 @@
   "id": "mass_mail",
   "name": "Envoi de mails",
   "description": "Envoi de mails groupés aux membres de l'unité : listes de diffusion par défaut ou personnalisées, mode test, envoi en arrière-plan par lots, suivi détaillé des envois.",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -212,5 +212,15 @@
     "attachments": {
       "role_min": "chief"
     }
-  }
+  },
+  "notifications": [
+    {
+      "id": "mass_mail.email_received",
+      "label": "Nouvel email reçu",
+      "description": "Un email groupé de l'unité vient de vous être envoyé.",
+      "group": "Emails groupés",
+      "role_min": "identified",
+      "channels": { "in_app": "default_on", "push": "default_on", "email": "off" }
+    }
+  ]
 }

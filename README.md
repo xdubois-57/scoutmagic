@@ -16,7 +16,7 @@ Open-source website for Belgian scout units in the "Les Scouts" federation.
 - Automated schema migration
 - Task scheduler (cron + poor man's cron)
 - Audit journal
-- Web Push notifications
+- Notification centre with Web Push, per-type preferences (in-app/push/email), quiet hours, and a discretion mode
 - On-demand and automatic encrypted backups, one-click update from GitHub releases, reset/restore
 - Optional modules: financial management (bank statement import, receipts, receivables), news/event articles with registration forms and payment, activity calendar with ICS feeds, photo/video gallery (local or S3 storage), post-activity retrospective boards, staff trombinoscope, mass email, homepage banners, member statistics, on-call phone forwarding for the unit's emergency number
 - Optional AI integration (receipt data extraction, RGPD text generation, retrospective moderation, article summaries)

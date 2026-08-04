@@ -35,12 +35,15 @@ class ModuleManifest
 
     private const VALID_COOKIE_CATEGORIES = ['necessary', 'functional', 'analytics'];
 
+    private const VALID_CHANNEL_VALUES = ['on', 'off', 'default_on', 'default_off'];
+
     /**
      * @param array<int, array{path: string, method: string, controller: string, action: string, menu: string, role_min: string, label: string, menu_order: int, menu_order_explicit: bool}> $routes
      * @param array<int, array{key: string, default_value: string, type: string, label: string, description: string}> $settings
      * @param array<int, array{name: string, category: string, purpose: string, duration: string}> $cookies
      * @param array<int, array{key: string, handler: string}> $scheduledTasks
      * @param array<string, array{role_min: string}> $storage
+     * @param array<int, array{id: string, label: string, description: string, group: string, role_min: string, channels: array{in_app: string, push: string, email: string}}> $notifications
      */
     public function __construct(
         public readonly string $id,
@@ -52,7 +55,8 @@ class ModuleManifest
         public readonly array $scheduledTasks,
         public readonly array $storage,
         public readonly bool $enabledByDefault = false,
-        public readonly string $description = ''
+        public readonly string $description = '',
+        public readonly array $notifications = []
     ) {
     }
 
@@ -168,10 +172,21 @@ class ModuleManifest
             }
         }
 
+        // Validate notifications
+        $notifications = [];
+        if (isset($data['notifications'])) {
+            if (!is_array($data['notifications'])) {
+                throw new ModuleException("Module '{$id}' notifications must be an array");
+            }
+            foreach ($data['notifications'] as $i => $notification) {
+                $notifications[] = self::validateNotification($id, $notification, $i);
+            }
+        }
+
         $enabledByDefault = (bool) ($data['enabled_by_default'] ?? false);
         $description = (string) ($data['description'] ?? '');
 
-        return new self($id, $data['name'], $data['version'], $routes, $settings, $cookies, $scheduledTasks, $storage, $enabledByDefault, $description);
+        return new self($id, $data['name'], $data['version'], $routes, $settings, $cookies, $scheduledTasks, $storage, $enabledByDefault, $description, $notifications);
     }
 
     /**
@@ -300,6 +315,54 @@ class ModuleManifest
             'category' => $cookie['category'],
             'purpose' => $cookie['purpose'],
             'duration' => $cookie['duration'],
+        ];
+    }
+
+    /**
+     * @param array<string, mixed>|mixed $notification
+     * @return array{id: string, label: string, description: string, group: string, role_min: string, channels: array{in_app: string, push: string, email: string}}
+     */
+    private static function validateNotification(string $moduleId, mixed $notification, int $index): array
+    {
+        if (!is_array($notification)) {
+            throw new ModuleException("Module '{$moduleId}' notifications[{$index}] must be an object");
+        }
+
+        $required = ['id', 'label', 'description', 'group', 'role_min'];
+        foreach ($required as $field) {
+            if (empty($notification[$field]) || !is_string($notification[$field])) {
+                throw new ModuleException("Module '{$moduleId}' notifications[{$index}] missing or invalid '{$field}'");
+            }
+        }
+
+        if (!in_array($notification['role_min'], self::VALID_ROLES, true)) {
+            throw new ModuleException("Module '{$moduleId}' notifications[{$index}] invalid role_min '{$notification['role_min']}'");
+        }
+
+        if (!str_starts_with($notification['id'], $moduleId . '.')) {
+            throw new ModuleException("Module '{$moduleId}' notifications[{$index}] id '{$notification['id']}' must be prefixed '{$moduleId}.'");
+        }
+
+        if (!isset($notification['channels']) || !is_array($notification['channels'])) {
+            throw new ModuleException("Module '{$moduleId}' notifications[{$index}] missing 'channels'");
+        }
+
+        $channels = [];
+        foreach (['in_app', 'push', 'email'] as $channel) {
+            $value = $notification['channels'][$channel] ?? null;
+            if (!is_string($value) || !in_array($value, self::VALID_CHANNEL_VALUES, true)) {
+                throw new ModuleException("Module '{$moduleId}' notifications[{$index}] channels.{$channel} must be one of: " . implode(', ', self::VALID_CHANNEL_VALUES));
+            }
+            $channels[$channel] = $value;
+        }
+
+        return [
+            'id' => $notification['id'],
+            'label' => $notification['label'],
+            'description' => $notification['description'],
+            'group' => $notification['group'],
+            'role_min' => $notification['role_min'],
+            'channels' => $channels,
         ];
     }
 

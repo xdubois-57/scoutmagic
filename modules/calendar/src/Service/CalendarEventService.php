@@ -75,6 +75,8 @@ class CalendarEventService
         $event = $this->eventRepository->findById($id);
         \assert($event !== null);
         $this->notificationService->syncReminderForEvent($event);
+        $this->notificationService->syncActivityReminderForEvent($event);
+        $this->notificationService->dispatchEventPublished($event, $createdBy);
         $this->retroAutoCreateService?->syncAutoCreateForEvent($event);
         return $event;
     }
@@ -92,7 +94,8 @@ class CalendarEventService
         ?string $endTime,
         ?string $location,
         ?string $description,
-        bool $autoCreateRetro = false
+        bool $autoCreateRetro = false,
+        ?int $updatedBy = null
     ): CalendarEvent {
         if ($this->eventRepository->findById($id) === null) {
             throw new CalendarException('Évènement introuvable.');
@@ -119,6 +122,8 @@ class CalendarEventService
         $updated = $this->eventRepository->findById($id);
         \assert($updated !== null);
         $this->notificationService->syncReminderForEvent($updated);
+        $this->notificationService->syncActivityReminderForEvent($updated);
+        $this->notificationService->dispatchEventChanged($updated, $updatedBy);
         $this->retroAutoCreateService?->syncAutoCreateForEvent($updated);
         return $updated;
     }
@@ -132,6 +137,7 @@ class CalendarEventService
             throw new CalendarException('Évènement introuvable.');
         }
         $this->notificationService->cancelReminderForEvent($id);
+        $this->notificationService->cancelActivityReminderForEvent($id);
         $this->retroAutoCreateService?->cancelAutoCreateForEvent($id);
         $this->eventRepository->delete($id);
     }

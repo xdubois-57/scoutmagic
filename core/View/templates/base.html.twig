@@ -106,6 +106,9 @@
        dependent code on the modal's presence. #}
     <script src="/assets/js/editable.js" defer></script>
     <script src="/assets/js/cookie-consent.js" defer></script>
+    {% if is_authenticated %}
+    <script src="/assets/js/notification-badge.js" defer></script>
+    {% endif %}
     {# Installable PWA (Lot 1) — appVersion (Core\Maintenance\VersionFile)
        is the entire update mechanism: the query string changes on every
        release, so the browser treats /sw.js as a new script and installs

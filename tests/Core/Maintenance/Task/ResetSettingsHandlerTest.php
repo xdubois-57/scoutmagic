@@ -11,9 +11,12 @@ use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Maintenance\Task\ResetSettingsHandler;
 use Core\Mail\MailService;
+use Core\Notification\NotificationPreferenceRepository;
 use Core\Notification\NotificationRepository;
 use Core\Notification\NotificationService;
 use Core\Notification\PushSubscriptionRepository;
+use Core\Scheduler\SchedulerRepository;
+use Core\Scheduler\SchedulerService;
 use Core\Scheduler\TaskContext;
 use Core\Security\EncryptionService;
 use Core\Security\UserAccountRepository;
@@ -58,18 +61,25 @@ class ResetSettingsHandlerTest extends TestCase
         mkdir($storagePath, 0755, true);
 
         $connection = Connection::withPdo($this->pdo);
+        $journalService = new JournalService(new JournalRepository($this->pdo));
+        $userAccountRepository = new UserAccountRepository($this->pdo, $encryption);
         $this->context = new TaskContext(
             $connection,
             $encryption,
             $this->createMock(MailService::class),
-            new JournalService(new JournalRepository($this->pdo)),
+            $journalService,
             $this->settings,
-            new UserAccountRepository($this->pdo, $encryption),
+            $userAccountRepository,
             $storagePath,
             new NotificationService(
-                new NotificationRepository($this->pdo),
+                new NotificationRepository($this->pdo, $encryption),
                 new PushSubscriptionRepository($this->pdo, $encryption),
-                $this->createMock(WebPush::class)
+                new NotificationPreferenceRepository($this->pdo),
+                $this->createMock(WebPush::class),
+                $this->settings,
+                $journalService,
+                new SchedulerService(new SchedulerRepository($this->pdo)),
+                $userAccountRepository
             )
         );
     }
@@ -86,7 +96,8 @@ class ResetSettingsHandlerTest extends TestCase
     {
         $this->handler->handle(['requested_by_user_account_id' => $this->userId], $this->context);
 
-        $notifications = (new NotificationRepository($this->pdo))->findByUserAccountId($this->userId);
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $notifications = (new NotificationRepository($this->pdo, $encryption))->findByUserAccountId($this->userId);
         $this->assertCount(1, $notifications);
         $this->assertSame('Échec de la réinitialisation', $notifications[0]->title);
     }

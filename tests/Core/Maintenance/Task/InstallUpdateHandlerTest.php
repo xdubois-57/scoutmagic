@@ -12,9 +12,12 @@ use Core\Journal\JournalService;
 use Core\Maintenance\Task\InstallUpdateHandler;
 use Core\Maintenance\UpdateHistoryRepository;
 use Core\Mail\MailService;
+use Core\Notification\NotificationPreferenceRepository;
 use Core\Notification\NotificationRepository;
 use Core\Notification\NotificationService;
 use Core\Notification\PushSubscriptionRepository;
+use Core\Scheduler\SchedulerRepository;
+use Core\Scheduler\SchedulerService;
 use Core\Scheduler\TaskContext;
 use Core\Security\EncryptionService;
 use Core\Security\UserAccountRepository;
@@ -65,19 +68,26 @@ class InstallUpdateHandlerTest extends TestCase
         // against these, which is exactly the branch these tests exercise
         // (see class docblock).
         $connection = Connection::withPdo($this->pdo);
+        $journalService = new JournalService(new JournalRepository($this->pdo));
+        $userAccountRepository = new UserAccountRepository($this->pdo, $encryption);
 
         $this->context = new TaskContext(
             $connection,
             $encryption,
             $this->createMock(MailService::class),
-            new JournalService(new JournalRepository($this->pdo)),
+            $journalService,
             $settings,
-            new UserAccountRepository($this->pdo, $encryption),
+            $userAccountRepository,
             $this->storagePath,
             new NotificationService(
-                new NotificationRepository($this->pdo),
+                new NotificationRepository($this->pdo, $encryption),
                 new PushSubscriptionRepository($this->pdo, $encryption),
-                $this->createMock(WebPush::class)
+                new NotificationPreferenceRepository($this->pdo),
+                $this->createMock(WebPush::class),
+                $settings,
+                $journalService,
+                new SchedulerService(new SchedulerRepository($this->pdo)),
+                $userAccountRepository
             )
         );
     }
@@ -124,7 +134,8 @@ class InstallUpdateHandlerTest extends TestCase
         $this->assertNotNull($history->errorMessage);
         $this->assertNull($history->backupId);
 
-        $notifications = (new NotificationRepository($this->pdo))->findByUserAccountId($this->userId);
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $notifications = (new NotificationRepository($this->pdo, $encryption))->findByUserAccountId($this->userId);
         $this->assertCount(1, $notifications);
         $this->assertSame('Échec de la mise à jour', $notifications[0]->title);
     }

@@ -6,8 +6,9 @@ namespace Core\Notification;
 
 /**
  * One browser/device subscribed to Web Push for a given account.
- * authKey/p256dhKey are already decrypted here — PushSubscriptionRepository
- * is the only layer that touches EncryptionService.
+ * endpoint/authKey/p256dhKey are already decrypted here —
+ * PushSubscriptionRepository is the only layer that touches
+ * EncryptionService.
  */
 class PushSubscription
 {
@@ -17,7 +18,10 @@ class PushSubscription
         public readonly string $endpoint,
         public readonly string $authKey,
         public readonly string $p256dhKey,
-        public readonly string $createdAt
+        public readonly ?string $deviceLabel,
+        public readonly string $createdAt,
+        public readonly ?string $lastSuccessAt,
+        public readonly int $failureCount
     ) {
     }
 }

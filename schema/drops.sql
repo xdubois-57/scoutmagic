@@ -13,3 +13,8 @@
 
 -- Removed with the badge logo/icon picker feature.
 ALTER TABLE badges DROP COLUMN icon;
+
+-- Removed with the notification centre feature (Lot 2) — replaced by the
+-- nullable read_at DATETIME, which also carries "when" a notification was
+-- read, not just whether.
+ALTER TABLE notifications DROP COLUMN is_read;

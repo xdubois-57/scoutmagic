@@ -5,12 +5,22 @@ declare(strict_types=1);
 namespace Tests\Modules\Gallery\Service;
 
 use Core\Config\ScoutYearService;
+use Core\Config\SettingRepository;
 use Core\Config\SettingService;
 use Core\File\FileRepository;
 use Core\File\UploadHandler;
+use Core\Journal\JournalRepository;
+use Core\Journal\JournalService;
+use Core\Notification\NotificationPreferenceRepository;
+use Core\Notification\NotificationRepository;
+use Core\Notification\NotificationService;
+use Core\Notification\PushSubscriptionRepository;
+use Core\Scheduler\SchedulerRepository;
 use Core\Scheduler\SchedulerService;
 use Core\Security\EncryptionService;
 use Core\Security\Role;
+use Core\Security\UserAccountRepository;
+use Minishlink\WebPush\WebPush;
 use Modules\Gallery\Repository\Album;
 use Modules\Gallery\Repository\AlbumRepository;
 use Modules\Gallery\Repository\MediaRepository;
@@ -407,5 +417,48 @@ class AlbumServiceTest extends TestCase
         $settingService = $this->createMock(SettingService::class);
         $settingService->method('get')->willReturnCallback(fn($key, $module, $default) => $default);
         return $settingService;
+    }
+
+    public function testCreateDispatchesAlbumPublishedToEveryAccountExceptTheAuthor(): void
+    {
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $userAccountRepository = new UserAccountRepository($this->pdo, $encryption);
+        $notificationRepository = new NotificationRepository($this->pdo, $encryption);
+        $settingService = new SettingService(new SettingRepository($this->pdo));
+        $notificationService = new NotificationService(
+            $notificationRepository,
+            new PushSubscriptionRepository($this->pdo, $encryption),
+            new NotificationPreferenceRepository($this->pdo),
+            $this->createMock(WebPush::class),
+            $settingService,
+            new JournalService(new JournalRepository($this->pdo)),
+            new SchedulerService(new SchedulerRepository($this->pdo)),
+            $userAccountRepository
+        );
+        $notificationService->registerModuleTypes('gallery', [[
+            'id' => 'gallery.album_published', 'label' => 'Nouvel album', 'description' => 'd',
+            'group' => 'Galerie', 'role_min' => 'identified',
+            'channels' => ['in_app' => 'default_on', 'push' => 'default_on', 'email' => 'default_off'],
+        ]]);
+
+        $other = $userAccountRepository->create('other-member@test.com')->id;
+
+        $service = new AlbumService(
+            $this->albumRepository, new MediaRepository($this->pdo), $this->accessService, $this->createMock(OgScraperService::class),
+            $this->storageBackendFactory, $this->storageLocationRepository, $this->storageLocationService,
+            new ScoutYearService($this->pdo), $this->settingServiceAllowingEverything(), $this->schedulerService, $this->uploadHandler,
+            $notificationService, $userAccountRepository
+        );
+
+        $album = $service->create(
+            Album::TYPE_LOCAL, 'Camp', null, '2026-07-01', $this->sectionId, null, $this->authorId, Role::CHIEF, 'chief@test.com'
+        );
+
+        $authorNotifications = $notificationRepository->findByUserAccountId($this->authorId);
+        $otherNotifications = $notificationRepository->findByUserAccountId($other);
+        $this->assertCount(1, $authorNotifications); // row created, just no push (actor exclusion)
+        $this->assertCount(1, $otherNotifications);
+        $this->assertSame('gallery.album_published', $otherNotifications[0]->typeId);
+        $this->assertSame($album->title, $otherNotifications[0]->body);
     }
 }

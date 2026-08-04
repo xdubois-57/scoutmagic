@@ -9,6 +9,7 @@ use Core\Cookie\CookieConsentService;
 use Core\Database\MigrationRunner;
 use Core\Http\Router;
 use Core\Journal\JournalService;
+use Core\Notification\NotificationService;
 use Core\View\MenuBuilder;
 
 class ModuleManager
@@ -36,7 +37,8 @@ class ModuleManager
         private ModuleRegistryRepository $registryRepo,
         private MigrationRunner $migrationRunner,
         private JournalService $journalService,
-        private Router $router
+        private Router $router,
+        private ?NotificationService $notificationService = null
     ) {
     }
 
@@ -321,6 +323,11 @@ class ModuleManager
         // Register cookies
         if (!empty($manifest->cookies)) {
             $this->cookieConsentService->registerModuleCookies($manifest->id, $manifest->cookies);
+        }
+
+        // Register notification types
+        if (!empty($manifest->notifications)) {
+            $this->notificationService?->registerModuleTypes($manifest->id, $manifest->notifications);
         }
 
         // Register scheduled task handlers

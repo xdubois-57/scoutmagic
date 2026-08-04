@@ -5,17 +5,23 @@ declare(strict_types=1);
 namespace Tests\Core\Http\Controller;
 
 use Core\Config\AppConfig;
+use Core\Config\SettingRepository;
+use Core\Config\SettingService;
 use Core\Http\Controller\PushSubscriptionController;
 use Core\Http\FrontController;
 use Core\Http\Request;
 use Core\Http\Router;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
+use Core\Notification\NotificationPreferenceRepository;
 use Core\Notification\NotificationRepository;
 use Core\Notification\NotificationService;
 use Core\Notification\PushSubscriptionRepository;
+use Core\Scheduler\SchedulerRepository;
+use Core\Scheduler\SchedulerService;
 use Core\Security\AuthSession;
 use Core\Security\EncryptionService;
+use Core\Security\UserAccountRepository;
 use Minishlink\WebPush\WebPush;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
@@ -39,10 +45,20 @@ class PushSubscriptionControllerTest extends TestCase
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
 
         $this->subscriptionRepository = new PushSubscriptionRepository($this->pdo, $encryption);
-        $notificationRepository = new NotificationRepository($this->pdo);
+        $notificationRepository = new NotificationRepository($this->pdo, $encryption);
         $webPush = $this->createMock(WebPush::class);
-        $notificationService = new NotificationService($notificationRepository, $this->subscriptionRepository, $webPush);
         $journalService = new JournalService(new JournalRepository($this->pdo));
+        $settingService = new SettingService(new SettingRepository($this->pdo));
+        $notificationService = new NotificationService(
+            $notificationRepository,
+            $this->subscriptionRepository,
+            new NotificationPreferenceRepository($this->pdo),
+            $webPush,
+            $settingService,
+            $journalService,
+            new SchedulerService(new SchedulerRepository($this->pdo)),
+            new UserAccountRepository($this->pdo, $encryption)
+        );
 
         $templateDir = dirname(__DIR__, 4) . '/core/View/templates';
         $this->twig = new Environment(new FilesystemLoader($templateDir), ['cache' => false, 'autoescape' => 'html']);

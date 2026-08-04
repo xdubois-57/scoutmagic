@@ -149,4 +149,18 @@ class UserAccountRepositoryTest extends TestCase
 
         $this->assertNull($found);
     }
+
+    public function testFindAllIdsReturnsEveryAccountIdInOrder(): void
+    {
+        $a = $this->repo->create('a@test.com');
+        $b = $this->repo->create('b@test.com');
+        $c = $this->repo->create('c@test.com');
+
+        $this->assertSame([$a->id, $b->id, $c->id], $this->repo->findAllIds());
+    }
+
+    public function testFindAllIdsReturnsEmptyArrayWhenNoAccounts(): void
+    {
+        $this->assertSame([], $this->repo->findAllIds());
+    }
 }

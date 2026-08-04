@@ -51,7 +51,7 @@ class PushSubscriptionController extends AbstractController
             return $this->json(['success' => false, 'error' => 'Non authentifié.'], 401);
         }
 
-        $this->notificationService->subscribe($userId, $endpoint, $authKey, $p256dhKey);
+        $this->notificationService->subscribe($userId, $endpoint, $authKey, $p256dhKey, $this->deviceLabelFromUserAgent($request));
 
         $this->journalService->log(
             'core',
@@ -99,5 +99,43 @@ class PushSubscriptionController extends AbstractController
         );
 
         return $this->json(['success' => true]);
+    }
+
+    /**
+     * Best-effort "browser sur OS" label from User-Agent (e.g. "Chrome sur
+     * Android") — display-only, so a member can tell their devices apart
+     * in a future "Mes appareils" list (push_subscriptions.device_label).
+     * Never parsed for anything security- or logic-relevant.
+     */
+    private function deviceLabelFromUserAgent(Request $request): ?string
+    {
+        $userAgent = (string) $request->getServer('HTTP_USER_AGENT', '');
+        if ($userAgent === '') {
+            return null;
+        }
+
+        $os = match (true) {
+            str_contains($userAgent, 'Android') => 'Android',
+            str_contains($userAgent, 'iPhone'), str_contains($userAgent, 'iPad') => 'iOS',
+            str_contains($userAgent, 'Windows') => 'Windows',
+            str_contains($userAgent, 'Macintosh') => 'macOS',
+            str_contains($userAgent, 'Linux') => 'Linux',
+            default => null,
+        };
+
+        $browser = match (true) {
+            str_contains($userAgent, 'Edg/') => 'Edge',
+            str_contains($userAgent, 'OPR/') => 'Opera',
+            str_contains($userAgent, 'Firefox/') => 'Firefox',
+            str_contains($userAgent, 'CriOS/'), str_contains($userAgent, 'Chrome/') => 'Chrome',
+            str_contains($userAgent, 'Safari/') => 'Safari',
+            default => null,
+        };
+
+        if ($browser === null && $os === null) {
+            return null;
+        }
+
+        return trim(($browser ?? 'Navigateur') . ($os !== null ? " sur {$os}" : ''));
     }
 }
