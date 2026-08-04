@@ -8,8 +8,10 @@ use Core\Config\ScoutYearService;
 use Core\Config\SettingService;
 use Core\Journal\JournalService;
 use Core\Scheduler\SchedulerService;
+use Core\Security\DecryptionException;
 use Core\Security\Role;
 use Core\Security\RoleResolver;
+use Core\Security\UserAccount;
 use Core\Security\UserAccountRepository;
 use Minishlink\WebPush\Subscription;
 use Minishlink\WebPush\WebPush;
@@ -293,7 +295,7 @@ class NotificationService
      */
     public function resolveQuietHours(int $userAccountId): array
     {
-        $account = $this->userAccountRepository->findById($userAccountId);
+        $account = $this->findAccountSafely($userAccountId);
         if ($account !== null && $account->quietHoursStart !== null && $account->quietHoursEnd !== null) {
             return [substr($account->quietHoursStart, 0, 5), substr($account->quietHoursEnd, 0, 5)];
         }
@@ -359,13 +361,40 @@ class NotificationService
         return $hour * 60 + $minute;
     }
 
+    /**
+     * `UserAccountRepository::findById()` decrypts the account's email on
+     * every call — a single corrupted or key-mismatched row (e.g. an
+     * account whose data predates a master key rotation) must never take
+     * down an entire dispatch() to potentially hundreds of other, healthy
+     * recipients. Treated the same as "account not found": the affected
+     * recipient is silently skipped for this send, and the failure is
+     * journaled once so it stays discoverable rather than swallowed.
+     */
+    private function findAccountSafely(int $userAccountId): ?UserAccount
+    {
+        try {
+            return $this->userAccountRepository->findById($userAccountId);
+        } catch (DecryptionException $e) {
+            $this->journalService->log(
+                'core',
+                'notification_account_decrypt_failed',
+                'security',
+                'Compte illisible ignoré lors d\'un envoi de notification',
+                ['user_account_id' => $userAccountId, 'error' => $e->getMessage()],
+                null
+            );
+
+            return null;
+        }
+    }
+
     private function isRoleAllowed(int $userAccountId, string $roleMin, ?int $currentScoutYearId): bool
     {
         if ($this->roleResolver === null || $currentScoutYearId === null) {
             return true;
         }
 
-        $account = $this->userAccountRepository->findById($userAccountId);
+        $account = $this->findAccountSafely($userAccountId);
         if ($account === null) {
             return false;
         }
@@ -385,7 +414,7 @@ class NotificationService
             return;
         }
 
-        $account = $this->userAccountRepository->findById($record->userAccountId);
+        $account = $this->findAccountSafely($record->userAccountId);
         $discretion = $account?->notificationDiscretion ?? false;
 
         try {

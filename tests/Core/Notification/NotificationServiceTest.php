@@ -241,6 +241,58 @@ class NotificationServiceTest extends TestCase
         $this->assertCount(0, $this->notificationRepository->findByUserAccountId($userId));
     }
 
+    /**
+     * Real production bug: a user_accounts row whose email_encrypted
+     * predates a master key rotation (or is otherwise corrupted) throws
+     * Core\Security\DecryptionException from findById() — dispatch()'s
+     * own role re-check must swallow that for the one affected recipient
+     * rather than let it crash the whole request and block every other,
+     * healthy recipient.
+     */
+    public function testDispatchSkipsAnUndecryptableAccountWithoutCrashingAndStillNotifiesOthers(): void
+    {
+        $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES ('2025-2026', '2025-09-01', '2026-08-31', 1)");
+
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $memberYearRepo = new MemberYearRepository($this->pdo);
+        $roleResolver = new RoleResolver($memberYearRepo, $encryption, $this->pdo);
+        $scoutYearService = new \Core\Config\ScoutYearService($this->pdo);
+
+        $service = new NotificationService(
+            $this->notificationRepository,
+            $this->subscriptionRepository,
+            $this->preferenceRepository,
+            $this->webPush,
+            $this->settingService,
+            new JournalService(new JournalRepository($this->pdo)),
+            new SchedulerService($this->schedulerRepository),
+            $this->userAccountRepository,
+            $roleResolver,
+            $scoutYearService
+        );
+        $service->registerModuleTypes('test_module', [[
+            'id' => 'test_module.for_everyone',
+            'label' => 'L', 'description' => 'D', 'group' => 'G', 'role_min' => 'identified',
+            'channels' => ['in_app' => 'default_on', 'push' => 'default_on', 'email' => 'default_off'],
+        ]]);
+
+        // A row whose ciphertext can never decrypt under this key — same
+        // shape as an account whose data predates a master key rotation.
+        $stmt = $this->pdo->prepare('INSERT INTO user_accounts (email_encrypted, email_blind_index) VALUES (?, ?)');
+        $stmt->execute([random_bytes(40), bin2hex(random_bytes(32))]);
+        $corruptedUserId = (int) $this->pdo->lastInsertId();
+
+        $healthyUserId = $this->createUserAccount();
+
+        $service->dispatch('test_module.for_everyone', [
+            ['userAccountId' => $corruptedUserId, 'memberId' => null],
+            ['userAccountId' => $healthyUserId, 'memberId' => null],
+        ], ['title' => 'T', 'body' => 'B']);
+
+        $this->assertCount(0, $this->notificationRepository->findByUserAccountId($corruptedUserId));
+        $this->assertCount(1, $this->notificationRepository->findByUserAccountId($healthyUserId));
+    }
+
     // --- channelEnabled() ---
 
     public function testChannelEnabledLockedOnIgnoresAnyPreference(): void
