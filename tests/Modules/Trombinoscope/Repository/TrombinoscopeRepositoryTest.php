@@ -110,4 +110,63 @@ class TrombinoscopeRepositoryTest extends TestCase
         $this->assertTrue($byMember[$leadMy]);
         $this->assertFalse($byMember[$regularMy]);
     }
+
+    private function memberIdForMemberYear(int $memberYearId): int
+    {
+        $stmt = $this->pdo->prepare('SELECT member_id FROM member_years WHERE id = ?');
+        $stmt->execute([$memberYearId]);
+        return (int) $stmt->fetchColumn();
+    }
+
+    public function testGetAllEligibleStaffMemberIdsCombinesEverySection(): void
+    {
+        $stmt = $this->pdo->prepare('INSERT INTO sections (desk_code, age_branch_id) VALUES (?, ?)');
+        $stmt->execute(['ECL02', (int) $this->pdo->query('SELECT age_branch_id FROM sections WHERE id = ' . $this->sectionId)->fetchColumn()]);
+        $otherSectionId = (int) $this->pdo->lastInsertId();
+
+        $chiefFn = $this->createFunction('CHEF', 'chief');
+        $my1 = $this->createStaffMember('D1', $chiefFn, $this->sectionId);
+        $my2 = $this->createStaffMember('D2', $chiefFn, $otherSectionId);
+
+        $ids = $this->repository->getAllEligibleStaffMemberIds($this->scoutYearId);
+
+        $this->assertCount(2, $ids);
+        $this->assertContains($this->memberIdForMemberYear($my1), $ids);
+        $this->assertContains($this->memberIdForMemberYear($my2), $ids);
+    }
+
+    public function testGetAllEligibleStaffMemberIdsExcludesAnimeAndInactive(): void
+    {
+        $chiefFn = $this->createFunction('CHEF', 'chief');
+        $animeFn = $this->createFunction('SCOUT', 'identified');
+
+        $this->createStaffMember('D1', $animeFn, $this->sectionId);
+        $this->createStaffMember('D2', $chiefFn, $this->sectionId, active: false);
+
+        $ids = $this->repository->getAllEligibleStaffMemberIds($this->scoutYearId);
+
+        $this->assertSame([], $ids);
+    }
+
+    public function testGetAllEligibleStaffMemberIdsDedupesAMemberWithSeveralFunctions(): void
+    {
+        $chiefFn = $this->createFunction('CHEF', 'chief');
+        $adminFn = $this->createFunction('RESP', 'admin');
+
+        $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('D1')");
+        $memberId = (int) $this->pdo->lastInsertId();
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted, is_active) VALUES (?, ?, ?, ?, 1)'
+        );
+        $stmt->execute([$memberId, $this->scoutYearId, 'enc', 'enc']);
+        $memberYearId = (int) $this->pdo->lastInsertId();
+
+        $stmt = $this->pdo->prepare('INSERT INTO member_functions (member_year_id, function_id, section_id, is_main_function) VALUES (?, ?, ?, 1)');
+        $stmt->execute([$memberYearId, $chiefFn, $this->sectionId]);
+        $stmt->execute([$memberYearId, $adminFn, $this->sectionId]);
+
+        $ids = $this->repository->getAllEligibleStaffMemberIds($this->scoutYearId);
+
+        $this->assertSame([$memberId], $ids);
+    }
 }

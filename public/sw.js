@@ -171,6 +171,14 @@ self.addEventListener('fetch', function (event) {
         return;
     }
 
+    // Staff photo thumbnails (trombinoscope pre-download) — a narrow,
+    // separate cacheable exception, same as the route itself
+    // (Core\Http\Controller\OfflineController — never /files/{id}).
+    if (url.pathname.indexOf('/api/offline/photo/') === 0) {
+        event.respondWith(getOfflineConfig().then(function (config) { return handlePhotoFetch(request, config); }));
+        return;
+    }
+
     // Every other GET (including every /files/{id} download) stays
     // strictly network-only — no exception, this is the one line that
     // keeps SECURITY.md's file-access rule true for the service worker.
@@ -179,6 +187,24 @@ self.addEventListener('fetch', function (event) {
         event.respondWith(handleNavigate(request, url));
     }
 });
+
+function handlePhotoFetch(request, config) {
+    if (!config || !config.consent) {
+        return fetch(request);
+    }
+
+    const cacheName = CONTENT_CACHE_PREFIX + config.account_scope + '-' + config.version;
+
+    return fetch(request).then(function (response) {
+        if (response && response.ok) {
+            const copy = response.clone();
+            caches.open(cacheName).then(function (cache) { cache.put(request, copy); });
+        }
+        return response;
+    }).catch(function () {
+        return caches.open(cacheName).then(function (cache) { return cache.match(request); });
+    });
+}
 
 function handleNavigate(request, url) {
     return getOfflineConfig().then(function (config) {

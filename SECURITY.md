@@ -64,6 +64,7 @@ All fields identifying a natural person are encrypted (AES-256-GCM) as BLOB:
 
 - All non-public files under `storage/` (outside webroot).
 - Every download through `FileAccessGuard` via `/files/{id}` — no exceptions.
+- **The one deliberate, narrow exception** (Lot 3, offline mode): `GET /api/offline/photo/{member_id}` (`Core\Http\Controller\OfflineController`) serves a square ~160px WebP derivative of a staff member's current photo, generated on demand, never the original bytes. This is what makes the offline trombinoscope pre-download possible — `/files/{id}` responses are never cached by the service worker (`public/sw.js` keeps that path strictly network-only) and staff photos would otherwise be unavailable offline. It still calls `FileAccessGuard::check()` on the underlying file, *and* additionally gates on `Core\Module\StaffDirectoryProvider` (is this member id currently eligible staff at all, not just "does the viewer's role clear the file's floor") — a member id that isn't currently staff can never be used to fetch an arbitrary member's photo through this route. Confined to one identified, low-sensitivity resource (staff faces already visible to any identified member via `/trombinoscope`). This is not a precedent — no other file type or context may bypass `/files/{id}` this way.
 - File links via `file_url($id)` — never direct paths.
 - Upload: true MIME check, random filename, EXIF stripped, size limit, non-executable directory.
 - Access denied: 403 + journal entry (security level).
