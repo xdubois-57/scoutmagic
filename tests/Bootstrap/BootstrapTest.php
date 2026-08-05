@@ -993,6 +993,28 @@ PHP;
     }
 
     /**
+     * Regression: observed in the wild on OVH-style mutualized hosting,
+     * which ships a placeholder page (e.g. default_index.html) and lists
+     * it ahead of index.php in its own vhost-level DirectoryIndex. Without
+     * an explicit DirectoryIndex override here, mod_dir's directory-index
+     * resolution for the bare "/" request can win against this
+     * .htaccess's own rewrite rules depending on the host's Apache module
+     * hook ordering, serving the host's placeholder instead of ever
+     * reaching the catch-all rule that routes to the index.php stub.
+     */
+    public function testHtaccessContentForcesDirectoryIndexToTheStub(): void
+    {
+        $content = \bootstrap_htaccess_content();
+        $directiveOpos = strpos($content, 'DirectoryIndex index.php');
+        $engineOnPos = strpos($content, 'RewriteEngine On');
+        $catchAllPos = strpos($content, 'RewriteRule ^ index.php [L]');
+
+        $this->assertIsInt($directiveOpos, 'DirectoryIndex must be forced to the index.php stub');
+        $this->assertGreaterThan($engineOnPos, $directiveOpos);
+        $this->assertLessThan($catchAllPos, $directiveOpos);
+    }
+
+    /**
      * Regression: an earlier version rewrote PHP execution straight to
      * public/index.php via a two-hop chain across directories (root
      * .htaccess → public/'s own .htaccess re-triggering a second

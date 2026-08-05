@@ -599,6 +599,17 @@ function bootstrap_htaccess_content(): string
     return <<<'HTACCESS'
 RewriteEngine On
 
+# Some hosts (observed: OVH-style mutualized hosting) ship a placeholder
+# page (e.g. default_index.html) and configure their own vhost-level
+# DirectoryIndex to list it ahead of index.php. mod_dir's directory-index
+# resolution for the bare "/" request can win that race against this
+# .htaccess's own rewrite rules depending on the host's Apache module
+# hook ordering, serving the host's placeholder instead of ever reaching
+# the catch-all rule below. Overriding DirectoryIndex here — a directive
+# virtually every host's AllowOverride permits — removes the ambiguity
+# outright rather than relying on rewrite-vs-mod_dir ordering.
+DirectoryIndex index.php
+
 # Deny internal directories at any depth — a prefix rule catches
 # runtime-created subdirectories (e.g. module storage/<name>/ folders) that
 # don't exist yet at install time, unlike a per-directory deny file.
