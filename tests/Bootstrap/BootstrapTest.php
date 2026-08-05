@@ -879,6 +879,46 @@ PHP;
     }
 
     // -------------------------------------------------------------------
+    // config/app.php seeding — config/app.php is deliberately excluded
+    // from every release artifact (never overwrite an existing prod
+    // config on update), but a genuinely fresh install has none to
+    // protect, and Core\Config\AppConfig throws on every single request
+    // without one — bootstrap.php is the only place positioned to seed
+    // it from the shipped config/app.php.dist template.
+    // -------------------------------------------------------------------
+
+    public function testSeedAppConfigCopiesDistWhenRealFileAbsent(): void
+    {
+        mkdir($this->tempDir . '/config', 0755, true);
+        file_put_contents($this->tempDir . '/config/app.php.dist', "<?php\nreturn ['debug' => false];\n");
+
+        \bootstrap_seed_app_config($this->tempDir);
+
+        $this->assertFileExists($this->tempDir . '/config/app.php');
+        $this->assertStringContainsString('debug', (string) file_get_contents($this->tempDir . '/config/app.php'));
+    }
+
+    public function testSeedAppConfigNeverOverwritesAnExistingRealFile(): void
+    {
+        mkdir($this->tempDir . '/config', 0755, true);
+        file_put_contents($this->tempDir . '/config/app.php.dist', "<?php\nreturn ['debug' => false];\n");
+        file_put_contents($this->tempDir . '/config/app.php', "<?php\nreturn ['debug' => true, 'custom' => 'kept'];\n");
+
+        \bootstrap_seed_app_config($this->tempDir);
+
+        $this->assertStringContainsString('kept', (string) file_get_contents($this->tempDir . '/config/app.php'));
+    }
+
+    public function testSeedAppConfigIsANoOpWhenNoDistTemplateShipped(): void
+    {
+        mkdir($this->tempDir . '/config', 0755, true);
+
+        \bootstrap_seed_app_config($this->tempDir);
+
+        $this->assertFileDoesNotExist($this->tempDir . '/config/app.php');
+    }
+
+    // -------------------------------------------------------------------
     // State persistence + token content + version write
     // -------------------------------------------------------------------
 

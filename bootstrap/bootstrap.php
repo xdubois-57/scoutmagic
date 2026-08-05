@@ -1006,12 +1006,37 @@ function bootstrap_step_install(string $docRoot, array $state): array
         file_put_contents($docRoot . '/.htaccess', bootstrap_htaccess_content());
     }
 
+    bootstrap_seed_app_config($installTarget);
+
     $state['install_target'] = $installTarget;
     $state['installed_entries'] = $copied;
     $state['label'] = 'Installation des fichiers';
     $state['percent'] = 100;
 
     return $state;
+}
+
+/**
+ * config/app.php is deliberately excluded from every release artifact
+ * (scripts/release.sh) and never touched by InstallUpdateHandler's
+ * copy-over-live-install step — it holds per-site values (currently just
+ * debug mode) that must never be silently clobbered by an update. But a
+ * genuinely first install has no existing config/app.php to protect, and
+ * without one Core\Config\AppConfig throws immediately on every single
+ * request (it's constructed before anything else in public/index.php,
+ * ahead of even the setup-wizard routing) — bootstrap.php is the only
+ * place in the whole install path positioned to seed it from the shipped
+ * config/app.php.dist template, and only if the real file doesn't
+ * already exist (never overwrites — matches the "protect existing
+ * config" intent everywhere else this file is handled).
+ */
+function bootstrap_seed_app_config(string $installTarget): void
+{
+    $configPath = $installTarget . '/config/app.php';
+    $distPath = $installTarget . '/config/app.php.dist';
+    if (!is_file($configPath) && is_file($distPath)) {
+        @copy($distPath, $configPath);
+    }
 }
 
 /**
@@ -1680,15 +1705,26 @@ function bootstrap_handle_abort_request(string $docRoot, string $stateFile): voi
     header('Content-Type: application/json; charset=utf-8');
     ob_start();
 
-    $state = bootstrap_read_state($stateFile);
-    bootstrap_rollback_install($docRoot, $state);
-    @unlink($stateFile);
-    bootstrap_release_lock($docRoot . '/' . BOOTSTRAP_LOCK_FILE);
+    try {
+        $state = bootstrap_read_state($stateFile);
+        bootstrap_rollback_install($docRoot, $state);
+        @unlink($stateFile);
+        bootstrap_release_lock($docRoot . '/' . BOOTSTRAP_LOCK_FILE);
 
-    bootstrap_send_json([
-        'ok' => true,
-        'message' => "Installation abandonnée : les fichiers déjà copiés ont été retirés. Rechargez la page pour recommencer.",
-    ]);
+        bootstrap_send_json([
+            'ok' => true,
+            'message' => "Installation abandonnée : les fichiers déjà copiés ont été retirés. Rechargez la page pour recommencer.",
+        ]);
+    } catch (\Throwable $e) {
+        // Even the recovery path itself must degrade to a parseable
+        // response rather than a raw fatal error the browser can't read
+        // — the JS fallback text already tells the operator to finish
+        // the cleanup manually via FTP if this happens.
+        bootstrap_send_json([
+            'ok' => false,
+            'message' => bootstrap_sanitize_error_for_client($e->getMessage(), $docRoot),
+        ]);
+    }
 }
 
 function bootstrap_handle_gate_report(string $docRoot, string $stateFile): void
@@ -1965,11 +2001,18 @@ function bootstrap_render_ui(string $docRoot, string $stateFile): void
     abortBtn.addEventListener('click', function () {
       abortBtn.disabled = true;
       postJson('?action=abort', {}).then(function (data) {
+        if (data.ok === false) {
+          summary.textContent = (data.message || 'Le nettoyage automatique a échoué.') + ' Supprimez manuellement via FTP les fichiers déjà copiés, ainsi que ' + STATE_FILE_NAME + ' et ' + LOCK_FILE_NAME + ', puis rechargez cette page.';
+          summary.className = 'alert alert-error';
+          abortBtn.disabled = false;
+          return;
+        }
         summary.textContent = (data.message || 'Nettoyage effectué.') + ' Rechargement…';
         summary.className = 'alert alert-ok';
         setTimeout(function () { window.location.reload(); }, 2500);
       }).catch(function () {
         summary.textContent = 'Le nettoyage automatique a également échoué. Supprimez manuellement via FTP les fichiers déjà copiés, ainsi que ' + STATE_FILE_NAME + ' et ' + LOCK_FILE_NAME + ', puis rechargez cette page.';
+        summary.className = 'alert alert-error';
         abortBtn.disabled = false;
       });
     });
