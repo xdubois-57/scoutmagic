@@ -13,12 +13,6 @@ class DnsVerifier
      */
     public function checkSpf(string $domain, string $mode, ?string $smtpDomain = null): array
     {
-        if ($mode === 'smtp' && $smtpDomain !== null) {
-            $expected = "v=spf1 include:_spf.{$smtpDomain} ~all";
-        } else {
-            $expected = 'v=spf1 a mx ~all';
-        }
-
         $records = $this->getTxtRecords($domain);
         $actual = null;
 
@@ -39,7 +33,51 @@ class DnsVerifier
             }
         }
 
+        $expected = $this->buildSpfExpected($actual, $mode, $smtpDomain);
+
         return ['exists' => $exists, 'expected' => $expected, 'actual' => $actual];
+    }
+
+    /**
+     * A domain may only have one SPF TXT record — a second one is invalid
+     * per the SPF spec (RFC 7208 §4.5) and providers will typically pick
+     * one arbitrarily. So when a record already exists, this never
+     * proposes a fresh replacement: it inserts the missing mechanism into
+     * the existing record (right before the trailing "all" qualifier),
+     * preserving every mechanism and the qualifier strictness the
+     * operator already chose rather than silently downgrading it.
+     */
+    private function buildSpfExpected(?string $actual, string $mode, ?string $smtpDomain): string
+    {
+        $mechanism = ($mode === 'smtp' && $smtpDomain !== null) ? "include:_spf.{$smtpDomain}" : null;
+
+        if ($actual === null) {
+            return $mechanism !== null ? "v=spf1 {$mechanism} ~all" : 'v=spf1 a mx ~all';
+        }
+
+        if ($mechanism === null) {
+            // Local mode: the existing record is already a valid SPF
+            // record (a/mx mechanisms aren't specifically required), so
+            // there's nothing to merge in.
+            return $actual;
+        }
+
+        if (str_contains($actual, $mechanism)) {
+            return $actual;
+        }
+
+        $tokens = preg_split('/\s+/', trim($actual)) ?: [];
+        $last = end($tokens);
+
+        if ($last !== false && preg_match('/^[+\-~?]?all$/i', $last)) {
+            array_pop($tokens);
+            $tokens[] = $mechanism;
+            $tokens[] = $last;
+        } else {
+            $tokens[] = $mechanism;
+        }
+
+        return implode(' ', $tokens);
     }
 
     /**
@@ -79,7 +117,6 @@ class DnsVerifier
      */
     public function checkDmarc(string $domain, string $reportEmail): array
     {
-        $expected = "v=DMARC1; p=none; rua=mailto:{$reportEmail}";
         $host = "_dmarc.{$domain}";
 
         $records = $this->getTxtRecords($host);
@@ -97,7 +134,31 @@ class DnsVerifier
             $exists = str_contains($actual, "rua=mailto:{$reportEmail}");
         }
 
+        $expected = $this->buildDmarcExpected($actual, $reportEmail);
+
         return ['exists' => $exists, 'expected' => $expected, 'actual' => $actual];
+    }
+
+    /**
+     * A domain may only have one _dmarc TXT record, so when one already
+     * exists this never proposes a fresh p=none replacement — that would
+     * silently downgrade a policy the operator may have deliberately
+     * tightened (e.g. p=quarantine/p=reject). Only the missing rua= report
+     * address is appended; an existing rua= is left untouched even if it
+     * points elsewhere, since that may be an intentional third-party
+     * monitoring address.
+     */
+    private function buildDmarcExpected(?string $actual, string $reportEmail): string
+    {
+        if ($actual === null) {
+            return "v=DMARC1; p=none; rua=mailto:{$reportEmail}";
+        }
+
+        if (str_contains($actual, 'rua=')) {
+            return $actual;
+        }
+
+        return rtrim($actual, '; ') . '; rua=mailto:' . $reportEmail;
     }
 
     /**

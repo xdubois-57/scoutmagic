@@ -191,18 +191,52 @@ class SetupController extends AbstractController
             return $this->json(['error' => 'Domain and selector are required.'], 400);
         }
 
-        $publicKey = $this->dkimManager->hasKey() ? $this->dkimManager->getPublicKey() : '';
-
+        $hasDkimKey = $this->dkimManager->hasKey();
         $smtpDomain = $smtpHost !== '' ? $this->extractDomain($smtpHost) : null;
 
         $verifier = new DnsVerifier();
         $results = [
             'spf' => $verifier->checkSpf($domain, $mode, $smtpDomain),
-            'dkim' => $verifier->checkDkim($domain, $selector, $publicKey),
+            // The DKIM DNS value can't be computed before a key pair
+            // exists — there's nothing to publish yet, not even a
+            // placeholder. key_missing lets the client show "generate the
+            // key first" instead of a broken partial record.
+            'dkim' => $hasDkimKey
+                ? $verifier->checkDkim($domain, $selector, $this->dkimManager->getPublicKey())
+                : ['exists' => false, 'expected' => null, 'actual' => null, 'key_missing' => true],
             'dmarc' => $verifier->checkDmarc($domain, (string) $request->getQuery('dmarc_email', '')),
         ];
 
         return $this->json($results);
+    }
+
+    /**
+     * POST /setup/generate-dkim-key — AJAX: generate the DKIM key pair on
+     * demand, ahead of finishing the rest of setup. DNS propagation can
+     * take time, so operators need the public key value early to start
+     * configuring it — the wizard used to only generate it as the very
+     * last step of handleFirstTimeSetup(), which was too late to be useful
+     * for the DNS check on this same page. Idempotent: never regenerates
+     * an existing key (that would invalidate whatever DNS record was
+     * already published), just returns its public value.
+     *
+     * @param array<string, string> $params
+     */
+    public function generateDkimKey(Request $request, array $params): Response
+    {
+        if (!CsrfGuard::validateRequest()) {
+            return $this->json(['success' => false, 'message' => 'Jeton CSRF invalide.'], 403);
+        }
+
+        try {
+            if (!$this->dkimManager->hasKey()) {
+                $this->dkimManager->generateKey();
+            }
+
+            return $this->json(['success' => true, 'public_key' => $this->dkimManager->getPublicKey()]);
+        } catch (\Throwable $e) {
+            return $this->json(['success' => false, 'message' => $e->getMessage()], 500);
+        }
     }
 
     /**
@@ -601,9 +635,10 @@ class SetupController extends AbstractController
         } elseif (!preg_match('/^[a-z0-9]+$/', $data['dkim_selector'])) {
             $errors['dkim_selector'] = 'Le sélecteur DKIM ne doit contenir que des lettres minuscules et des chiffres.';
         }
-        if ($data['dmarc_report_email'] === '') {
-            $errors['dmarc_report_email'] = 'L\'email pour les rapports DMARC est requis.';
-        } elseif (!filter_var($data['dmarc_report_email'], FILTER_VALIDATE_EMAIL)) {
+        // Optional: left empty, DNS guidance and any future real use fall
+        // back to mail_from_address (see setup.js) — no need to force a
+        // choice this early, and it stays editable later.
+        if ($data['dmarc_report_email'] !== '' && !filter_var($data['dmarc_report_email'], FILTER_VALIDATE_EMAIL)) {
             $errors['dmarc_report_email'] = 'L\'email pour les rapports DMARC n\'est pas valide.';
         }
 

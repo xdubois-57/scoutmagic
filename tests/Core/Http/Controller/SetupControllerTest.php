@@ -451,6 +451,131 @@ class SetupControllerTest extends TestCase
         $this->assertStringContainsString('Invalid address', (string) $decoded['message']);
     }
 
+    public function testGenerateDkimKeyRejectsInvalidCsrfToken(): void
+    {
+        $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath);
+        $request = new Request('POST', '/setup/generate-dkim-key', [], [], [], []);
+
+        $response = $controller->generateDkimKey($request, []);
+
+        $this->assertSame(403, $response->getStatusCode());
+        $this->assertFalse($this->dkimManager->hasKey());
+    }
+
+    public function testGenerateDkimKeyCreatesKeyWhenNoneExists(): void
+    {
+        $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath);
+        $this->issueCsrfToken();
+        $request = new Request('POST', '/setup/generate-dkim-key', [], [], [], []);
+
+        $response = $controller->generateDkimKey($request, []);
+        $decoded = json_decode($response->getBody(), true);
+
+        $this->assertTrue($decoded['success']);
+        $this->assertNotEmpty($decoded['public_key']);
+        $this->assertTrue($this->dkimManager->hasKey());
+    }
+
+    /**
+     * Regeneration must stay an explicit, separate action (the existing
+     * "Régénérer" checkbox + full form save) — this endpoint exists so an
+     * operator can get the public key early, not to silently rotate it on
+     * a second click.
+     */
+    public function testGenerateDkimKeyIsIdempotentWhenKeyAlreadyExists(): void
+    {
+        $existingPublicKey = $this->dkimManager->generateKey();
+
+        $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath);
+        $this->issueCsrfToken();
+        $request = new Request('POST', '/setup/generate-dkim-key', [], [], [], []);
+
+        $response = $controller->generateDkimKey($request, []);
+        $decoded = json_decode($response->getBody(), true);
+
+        $this->assertTrue($decoded['success']);
+        $this->assertSame($existingPublicKey, $decoded['public_key']);
+    }
+
+    public function testCheckDnsReturnsKeyMissingMarkerForDkimWhenNoKeyExists(): void
+    {
+        $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath);
+        $request = new Request('GET', '/setup/dns', [
+            'domain' => 'example.com',
+            'selector' => 's2026',
+            'mode' => 'local',
+        ], [], [], []);
+
+        $response = $controller->checkDns($request, []);
+        $decoded = json_decode($response->getBody(), true);
+
+        $this->assertTrue($decoded['dkim']['key_missing']);
+        $this->assertNull($decoded['dkim']['expected']);
+        $this->assertFalse($decoded['dkim']['exists']);
+    }
+
+    public function testCheckDnsReturnsRealDkimExpectedValueOnceKeyExists(): void
+    {
+        $publicKey = $this->dkimManager->generateKey();
+
+        $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath);
+        $request = new Request('GET', '/setup/dns', [
+            'domain' => 'example.com',
+            'selector' => 's2026',
+            'mode' => 'local',
+        ], [], [], []);
+
+        $response = $controller->checkDns($request, []);
+        $decoded = json_decode($response->getBody(), true);
+
+        $this->assertArrayNotHasKey('key_missing', $decoded['dkim']);
+        $this->assertSame("v=DKIM1; k=rsa; p={$publicKey}", $decoded['dkim']['expected']);
+    }
+
+    public function testValidateFormDataAllowsEmptyDmarcReportEmail(): void
+    {
+        $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath);
+        $method = new \ReflectionMethod(SetupController::class, 'validateFormData');
+        $method->setAccessible(true);
+
+        $data = $this->validFormData();
+        $data['dmarc_report_email'] = '';
+
+        $errors = $method->invoke($controller, $data, false);
+
+        $this->assertArrayNotHasKey('dmarc_report_email', $errors);
+    }
+
+    public function testValidateFormDataStillRejectsAnInvalidNonEmptyDmarcReportEmail(): void
+    {
+        $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath);
+        $method = new \ReflectionMethod(SetupController::class, 'validateFormData');
+        $method->setAccessible(true);
+
+        $data = $this->validFormData();
+        $data['dmarc_report_email'] = 'not-an-email';
+
+        $errors = $method->invoke($controller, $data, false);
+
+        $this->assertArrayHasKey('dmarc_report_email', $errors);
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function validFormData(): array
+    {
+        return [
+            'db_host' => 'localhost', 'db_port' => '3306', 'db_name' => 'db',
+            'db_user' => 'user', 'db_password' => 'pass',
+            'site_name' => 'Test Unit', 'short_name' => 'TU1', 'base_url' => 'https://example.com',
+            'mail_mode' => 'local', 'smtp_host' => '', 'smtp_port' => '587', 'smtp_user' => '', 'smtp_password' => '',
+            'mail_from_address' => 'unit@example.com', 'mail_from_name' => 'Test Unit',
+            'dkim_selector' => 's2026', 'dmarc_report_email' => 'dmarc@example.com',
+            'admin_email' => 'admin@example.com', 'admin_password' => 'password123',
+        ];
+    }
+
     /**
      * CsrfGuard::validateRequest() reads the raw $_POST superglobal, not
      * the Request object's own body array — the Request constructor's

@@ -9,16 +9,18 @@ use PHPUnit\Framework\TestCase;
 
 class DnsVerifierTest extends TestCase
 {
-    private DnsVerifier $verifier;
-
-    protected function setUp(): void
-    {
-        $this->verifier = new DnsVerifier();
-    }
-
+    /**
+     * Uses FakeDnsVerifier (no real record for this host) rather than a
+     * live lookup on example.com: that domain genuinely has its own SPF/
+     * DMARC records in the real world, which this environment can reach —
+     * a live assertion here would be both flaky (breaks if example.com's
+     * records ever change) and, after the merge-aware rewrite below,
+     * simply wrong (the real expected value now depends on what's already
+     * there, exactly the behavior being tested deliberately elsewhere).
+     */
     public function testCheckSpfReturnsCorrectExpectedValueForSmtpMode(): void
     {
-        $result = $this->verifier->checkSpf('example.com', 'smtp', 'gmail.com');
+        $result = (new FakeDnsVerifier([]))->checkSpf('example.com', 'smtp', 'gmail.com');
 
         $this->assertSame('v=spf1 include:_spf.gmail.com ~all', $result['expected']);
         $this->assertArrayHasKey('exists', $result);
@@ -27,7 +29,7 @@ class DnsVerifierTest extends TestCase
 
     public function testCheckSpfReturnsCorrectExpectedValueForLocalMode(): void
     {
-        $result = $this->verifier->checkSpf('example.com', 'local');
+        $result = (new FakeDnsVerifier([]))->checkSpf('example.com', 'local');
 
         $this->assertSame('v=spf1 a mx ~all', $result['expected']);
     }
@@ -35,7 +37,7 @@ class DnsVerifierTest extends TestCase
     public function testCheckDkimReturnsCorrectExpectedValue(): void
     {
         $publicKey = 'MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA...';
-        $result = $this->verifier->checkDkim('example.com', 'mail', $publicKey);
+        $result = (new FakeDnsVerifier([]))->checkDkim('example.com', 'mail', $publicKey);
 
         $this->assertSame("v=DKIM1; k=rsa; p={$publicKey}", $result['expected']);
         $this->assertArrayHasKey('exists', $result);
@@ -44,10 +46,92 @@ class DnsVerifierTest extends TestCase
 
     public function testCheckDmarcReturnsCorrectExpectedValue(): void
     {
-        $result = $this->verifier->checkDmarc('example.com', 'dmarc@example.com');
+        $result = (new FakeDnsVerifier([]))->checkDmarc('example.com', 'dmarc@example.com');
 
         $this->assertSame('v=DMARC1; p=none; rua=mailto:dmarc@example.com', $result['expected']);
         $this->assertArrayHasKey('exists', $result);
         $this->assertArrayHasKey('actual', $result);
+    }
+
+    public function testCheckSpfMergesMissingIncludeIntoExistingRecordPreservingQualifier(): void
+    {
+        $verifier = new FakeDnsVerifier([
+            'example.com' => ['v=spf1 mx:example.com a:mail.example.com -all'],
+        ]);
+
+        $result = $verifier->checkSpf('example.com', 'smtp', 'sendgrid.net');
+
+        $this->assertSame(
+            'v=spf1 mx:example.com a:mail.example.com include:_spf.sendgrid.net -all',
+            $result['expected']
+        );
+        $this->assertFalse($result['exists']);
+    }
+
+    public function testCheckSpfReturnsExistingRecordUnchangedWhenMechanismAlreadyPresent(): void
+    {
+        $verifier = new FakeDnsVerifier([
+            'example.com' => ['v=spf1 include:_spf.sendgrid.net -all'],
+        ]);
+
+        $result = $verifier->checkSpf('example.com', 'smtp', 'sendgrid.net');
+
+        $this->assertSame('v=spf1 include:_spf.sendgrid.net -all', $result['expected']);
+        $this->assertTrue($result['exists']);
+    }
+
+    public function testCheckSpfLocalModeReturnsExistingRecordUnchanged(): void
+    {
+        $verifier = new FakeDnsVerifier([
+            'example.com' => ['v=spf1 a mx -all'],
+        ]);
+
+        $result = $verifier->checkSpf('example.com', 'local');
+
+        $this->assertSame('v=spf1 a mx -all', $result['expected']);
+    }
+
+    public function testCheckDmarcAddsMissingRuaToExistingRecordPreservingPolicy(): void
+    {
+        $verifier = new FakeDnsVerifier([
+            '_dmarc.example.com' => ['v=DMARC1; p=quarantine;'],
+        ]);
+
+        $result = $verifier->checkDmarc('example.com', 'dmarc@example.com');
+
+        $this->assertSame('v=DMARC1; p=quarantine; rua=mailto:dmarc@example.com', $result['expected']);
+        $this->assertFalse($result['exists']);
+    }
+
+    public function testCheckDmarcNeverOverridesAnExistingRuaEvenWhenDifferent(): void
+    {
+        $verifier = new FakeDnsVerifier([
+            '_dmarc.example.com' => ['v=DMARC1; p=reject; rua=mailto:other@thirdparty.com'],
+        ]);
+
+        $result = $verifier->checkDmarc('example.com', 'dmarc@example.com');
+
+        $this->assertSame('v=DMARC1; p=reject; rua=mailto:other@thirdparty.com', $result['expected']);
+        $this->assertFalse($result['exists']);
+    }
+}
+
+/**
+ * getTxtRecords() is explicitly documented as "overridable for testing" —
+ * this fixture stubs it with canned per-host records instead of a real
+ * dns_get_record() call, so the merge logic above is deterministic.
+ */
+final class FakeDnsVerifier extends DnsVerifier
+{
+    /**
+     * @param array<string, array<string>> $recordsByHost
+     */
+    public function __construct(private array $recordsByHost)
+    {
+    }
+
+    protected function getTxtRecords(string $host): array
+    {
+        return $this->recordsByHost[$host] ?? [];
     }
 }

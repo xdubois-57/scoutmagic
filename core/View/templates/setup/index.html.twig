@@ -171,15 +171,15 @@
 
             <div class="mb-3">
                 <label for="dkim_selector" class="form-label">Sélecteur DKIM</label>
-                <input type="text" class="form-control{% if errors.dkim_selector is defined %} is-invalid{% endif %}" id="dkim_selector" name="dkim_selector" value="{{ values.dkim_selector ?? '' }}" pattern="[a-z0-9]+" required>
-                <div class="form-text">Identifiant technique de la clé DKIM utilisée pour signer les emails, présent dans l'enregistrement DNS correspondant.</div>
+                <input type="text" class="form-control{% if errors.dkim_selector is defined %} is-invalid{% endif %}" id="dkim_selector" name="dkim_selector" value="{{ values.dkim_selector ?? 's2026' }}" pattern="[a-z0-9]+" required>
+                <div class="form-text">Identifiant technique de la clé DKIM utilisée pour signer les emails, présent dans l'enregistrement DNS correspondant. La valeur pré-remplie convient dans la grande majorité des cas (convention "s" + année, pour faciliter une rotation future) — vous pouvez la laisser telle quelle.</div>
                 {% if errors.dkim_selector is defined %}<div class="invalid-feedback">{{ errors.dkim_selector }}</div>{% endif %}
             </div>
 
             <div class="mb-3">
-                <label for="dmarc_report_email" class="form-label">Email rapports DMARC</label>
-                <input type="email" class="form-control{% if errors.dmarc_report_email is defined %} is-invalid{% endif %}" id="dmarc_report_email" name="dmarc_report_email" value="{{ values.dmarc_report_email ?? '' }}" required>
-                <div class="form-text">Adresse à laquelle les fournisseurs de messagerie envoient un résumé périodique des emails reçus au nom du domaine. Certains services externes traitent automatiquement ces résumés.</div>
+                <label for="dmarc_report_email" class="form-label">Email rapports DMARC <span class="text-muted fw-normal">(optionnel)</span></label>
+                <input type="email" class="form-control{% if errors.dmarc_report_email is defined %} is-invalid{% endif %}" id="dmarc_report_email" name="dmarc_report_email" value="{{ values.dmarc_report_email ?? '' }}" placeholder="{{ values.mail_from_address ?? '' }}">
+                <div class="form-text">Adresse à laquelle les fournisseurs de messagerie envoient un résumé périodique des emails reçus au nom du domaine. Certains services externes traitent automatiquement ces résumés. Laissez vide pour utiliser l'adresse d'expédition ci-dessus — modifiable à tout moment par la suite.</div>
                 {% if errors.dmarc_report_email is defined %}<div class="invalid-feedback">{{ errors.dmarc_report_email }}</div>{% endif %}
             </div>
 
@@ -202,6 +202,7 @@
             <div class="card bg-light mt-3">
                 <div class="card-body">
                     <h3 class="h6 mb-2">Configuration DNS requise</h3>
+                    <p class="text-muted small mb-2">Un domaine ne peut avoir qu'un seul enregistrement TXT SPF et qu'un seul enregistrement <code>_dmarc</code> : si une valeur actuelle est déjà affichée ci-dessous, la valeur suggérée l'intègre automatiquement (elle ne supprime rien de votre configuration existante) — remplacez l'enregistrement existant par cette valeur suggérée plutôt que d'en ajouter un second. Le DKIM utilise en revanche un sous-domaine dédié au sélecteur choisi ci-dessus : il n'entre jamais en conflit avec un enregistrement existant sous un autre nom, et nécessite d'avoir généré la clé DKIM (section « Clé DKIM » ci-dessous) pour connaître sa valeur.</p>
                     <div id="dns-records">
                         <p class="text-muted small mb-2">Complétez les champs ci-dessus puis cliquez sur « Vérifier les DNS » pour afficher les enregistrements requis.</p>
                     </div>
@@ -233,7 +234,14 @@
                     <div class="form-text text-warning">Attention : si vous régénérez la clé, vous devrez mettre à jour l'enregistrement DNS correspondant.</div>
                 </div>
             {% else %}
-                <p class="text-muted">Aucune clé DKIM. Une clé sera générée automatiquement lors de l'enregistrement.</p>
+                <p class="text-muted">Aucune clé DKIM pour le moment — une clé sera générée automatiquement lors de l'enregistrement final, mais la propagation DNS peut prendre du temps : générez-la dès maintenant si vous voulez configurer l'enregistrement DNS DKIM sans attendre la fin de l'installation.</p>
+                <div class="mb-2">
+                    <button type="button" class="btn btn-outline-secondary btn-sm" id="btn-generate-dkim">
+                        <span class="spinner-border spinner-border-sm d-none" id="dkim-gen-spinner" role="status"></span>
+                        Générer la clé maintenant
+                    </button>
+                    <span id="dkim-gen-result" class="small ms-2"></span>
+                </div>
             {% endif %}
         </div>
     </div>

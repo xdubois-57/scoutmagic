@@ -196,6 +196,8 @@ if (!$isInitialized) {
         $response = $setupController->save($request, []);
     } elseif ($request->getMethod() === 'GET' && $request->getPath() === '/setup/dns') {
         $response = $setupController->checkDns($request, []);
+    } elseif ($request->getMethod() === 'POST' && $request->getPath() === '/setup/generate-dkim-key') {
+        $response = $setupController->generateDkimKey($request, []);
     } else {
         (new Response('', 302))->setHeader('Location', '/setup')->send();
         exit;
@@ -1038,6 +1040,7 @@ $router->addRoute('POST', '/setup/test-db', SetupController::class, 'testDatabas
 $router->addRoute('POST', '/setup/save', SetupController::class, 'save', 'superadmin');
 $router->addRoute('GET', '/setup/dns', SetupController::class, 'checkDns', 'superadmin');
 $router->addRoute('POST', '/setup/test-email', SetupController::class, 'testEmail', 'superadmin');
+$router->addRoute('POST', '/setup/generate-dkim-key', SetupController::class, 'generateDkimKey', 'superadmin');
 
 // Import
 $router->addRoute('GET', '/admin/import', ImportController::class, 'index', 'admin');

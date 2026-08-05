@@ -95,6 +95,36 @@
         });
     }
 
+    // Generate DKIM key on demand (before the rest of setup is finished)
+    var btnGenerateDkim = document.getElementById('btn-generate-dkim');
+    if (btnGenerateDkim) {
+        var dkimGenSpinner = document.getElementById('dkim-gen-spinner');
+        var dkimGenResult = document.getElementById('dkim-gen-result');
+
+        btnGenerateDkim.addEventListener('click', function() {
+            dkimGenSpinner.classList.remove('d-none');
+            dkimGenResult.textContent = '';
+
+            var data = new FormData();
+            data.append('_csrf_token', form.elements['_csrf_token'].value);
+
+            fetch('/setup/generate-dkim-key', { method: 'POST', body: data })
+                .then(function(r) { return r.json(); })
+                .then(function(json) {
+                    if (json.success) {
+                        location.reload();
+                        return;
+                    }
+                    dkimGenSpinner.classList.add('d-none');
+                    dkimGenResult.innerHTML = '<span class="text-danger">\u2717 ' + json.message + '</span>';
+                })
+                .catch(function() {
+                    dkimGenSpinner.classList.add('d-none');
+                    dkimGenResult.innerHTML = '<span class="text-danger">\u2717 Erreur r\u00e9seau</span>';
+                });
+        });
+    }
+
     // Check DNS
     btnCheckDns.addEventListener('click', function() {
         dnsSpinner.classList.remove('d-none');
@@ -104,7 +134,7 @@
         var selector = document.getElementById('dkim_selector').value;
         var mode = mailMode.value;
         var smtpHost = document.getElementById('smtp_host').value;
-        var dmarcEmail = document.getElementById('dmarc_report_email').value;
+        var dmarcEmail = document.getElementById('dmarc_report_email').value.trim() || fromAddress;
 
         if (!domain || !selector) {
             dnsSpinner.classList.add('d-none');
@@ -125,13 +155,22 @@
                 ];
                 records.forEach(function(rec) {
                     var data = json[rec.key];
+                    html += '<div class="mb-2 small">';
+
+                    if (data.key_missing) {
+                        html += '<strong>' + rec.label + '</strong> <span class="badge bg-warning text-dark">Cl\u00e9 DKIM requise</span><br>';
+                        html += '<span class="text-warning">G\u00e9n\u00e9rez d\'abord la cl\u00e9 DKIM (section \u00ab\u00a0Cl\u00e9 DKIM\u00a0\u00bb ci-dessous), puis relancez cette v\u00e9rification.</span>';
+                        html += '</div>';
+                        return;
+                    }
+
                     var badge = data.exists
                         ? '<span class="badge bg-success">OK</span>'
                         : '<span class="badge bg-warning text-dark">Manquant</span>';
-                    html += '<div class="mb-2 small">';
+                    var expectedLabel = data.actual ? 'Valeur sugg\u00e9r\u00e9e (remplace l\'actuelle)' : 'Valeur attendue';
                     html += '<strong>' + rec.label + '</strong> ' + badge + '<br>';
                     html += '<span class="text-muted">H\u00f4te :</span> <code>' + rec.host + '</code><br>';
-                    html += '<span class="text-muted">Valeur attendue :</span> ';
+                    html += '<span class="text-muted">' + expectedLabel + ' :</span> ';
                     html += '<div class="input-group input-group-sm mt-1 mb-1">';
                     html += '<input type="text" class="form-control form-control-sm font-monospace" value="' + data.expected.replace(/"/g, '&quot;') + '" readonly>';
                     html += '<button type="button" class="btn btn-outline-secondary btn-sm" onclick="navigator.clipboard.writeText(this.previousElementSibling.value)">Copier</button>';
