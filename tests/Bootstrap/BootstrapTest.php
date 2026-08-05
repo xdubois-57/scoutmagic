@@ -992,6 +992,58 @@ PHP;
         $this->assertStringContainsString('key|enc|sql|log|sqlite', $content);
     }
 
+    /**
+     * Regression: an earlier version rewrote PHP execution straight to
+     * public/index.php via a two-hop chain across directories (root
+     * .htaccess → public/'s own .htaccess re-triggering a second
+     * rewrite) — a well-documented trap on some Apache + PHP-FPM/FastCGI
+     * setups, where SCRIPT_FILENAME is computed from the request's
+     * original path rather than the rewritten target and the request
+     * fails with a raw "File not found." even though the file genuinely
+     * exists. PHP execution must only ever be routed to a same-directory
+     * file (the index.php stub); only static assets may cross directories.
+     */
+    public function testHtaccessContentNeverRewritesPhpExecutionAcrossDirectories(): void
+    {
+        $content = \bootstrap_htaccess_content();
+
+        $this->assertStringNotContainsString('public/index.php', $content, 'must never rewrite PHP execution straight to public/index.php across a directory boundary');
+        $this->assertStringContainsString('RewriteRule ^ index.php [L]', $content, 'the catch-all must route to the same-directory stub');
+        // The static-asset rewrite must exclude .php requests, or a direct
+        // request for e.g. /index.php itself could still be misrouted
+        // across directories to a PHP file.
+        $this->assertStringContainsString('!\.php$', $content);
+        // A real file/dir sitting directly in the document root (the gate's
+        // own control-*.txt canary, token.php) must be served/executed
+        // as-is, never swept into the catch-all — otherwise the B1/B2 gate
+        // probes could never observe them correctly.
+        $this->assertStringContainsString('%{REQUEST_FILENAME} -f', $content);
+    }
+
+    /**
+     * Regression: the "serve a real docroot file as-is" rule must check
+     * -f only, never -d. The document root itself is always a directory,
+     * so an -f-or-d condition would match the root path "/" too and
+     * serve it "as-is" — silently depending on the host's DirectoryIndex
+     * configuration listing index.php (true almost everywhere, but never
+     * something this file may assume). Without this, the root path must
+     * fall through to the explicit catch-all instead.
+     */
+    public function testHtaccessRealFileRuleNeverMatchesOnDirectoryAlone(): void
+    {
+        $content = \bootstrap_htaccess_content();
+
+        $this->assertStringNotContainsString('%{REQUEST_FILENAME} -d', $content);
+    }
+
+    public function testIndexStubRequiresThePublicFrontControllerFromItsOwnDirectory(): void
+    {
+        $content = \bootstrap_index_stub_content();
+
+        $this->assertStringStartsWith('<?php', $content);
+        $this->assertStringContainsString("require __DIR__ . '/public/index.php';", $content);
+    }
+
     // -------------------------------------------------------------------
     // Error sanitization — no absolute paths leak to the client
     // -------------------------------------------------------------------
@@ -1031,6 +1083,32 @@ PHP;
         $this->assertFileDoesNotExist($this->tempDir . '/VERSION');
         $this->assertFileDoesNotExist($this->tempDir . '/.htaccess');
         $this->assertFileDoesNotExist($this->tempDir . '/token.php');
+    }
+
+    /**
+     * The real layout-B scenario, distinct from the test above: the
+     * index.php stub is written directly at docRoot by
+     * bootstrap_step_install() itself (never via installed_entries, since
+     * it has no counterpart in the extracted artifact at all) — rollback
+     * must remove it via its own dedicated path or a rolled-back attempt
+     * leaves an orphaned stub require()-ing a now-deleted public/index.php.
+     */
+    public function testRollbackRemovesTheIndexPhpStubWrittenOutsideInstalledEntries(): void
+    {
+        mkdir($this->tempDir . '/public', 0755, true);
+        file_put_contents($this->tempDir . '/public/index.php', '<?php // real front controller');
+        file_put_contents($this->tempDir . '/index.php', \bootstrap_index_stub_content());
+        file_put_contents($this->tempDir . '/.htaccess', \bootstrap_htaccess_content());
+
+        \bootstrap_rollback_install($this->tempDir, [
+            'layout' => 'B',
+            'install_target' => $this->tempDir,
+            'installed_entries' => ['public'],
+        ]);
+
+        $this->assertFileDoesNotExist($this->tempDir . '/index.php');
+        $this->assertFileDoesNotExist($this->tempDir . '/.htaccess');
+        $this->assertDirectoryDoesNotExist($this->tempDir . '/public');
     }
 
     // -------------------------------------------------------------------

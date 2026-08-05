@@ -30,6 +30,7 @@
         dbResult.textContent = '';
 
         var data = new FormData();
+        data.append('_csrf_token', form.elements['_csrf_token'].value);
         data.append('db_host', document.getElementById('db_host').value);
         data.append('db_port', document.getElementById('db_port').value);
         data.append('db_name', document.getElementById('db_name').value);
@@ -74,6 +75,7 @@
             emailResult.textContent = '';
 
             var data = new FormData();
+            data.append('_csrf_token', form.elements['_csrf_token'].value);
             data.append('recipient', recipient);
 
             fetch('/setup/test-email', { method: 'POST', body: data })

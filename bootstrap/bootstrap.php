@@ -37,6 +37,7 @@ const BOOTSTRAP_STATE_FILE = '.bootstrap-state.php';
 const BOOTSTRAP_LOCK_FILE = '.bootstrap.lock';
 const BOOTSTRAP_LOCK_STALE_SECONDS = 600;
 const BOOTSTRAP_TOKEN_FILE = 'token.php';
+const BOOTSTRAP_INDEX_STUB_FILE = 'index.php';
 const BOOTSTRAP_TEMP_DIR_PREFIX = '.tmp-';
 const BOOTSTRAP_MIN_PHP_VERSION = '8.4.0';
 const BOOTSTRAP_STORAGE_SUBDIRS = ['keys', 'config', 'core', 'modules', 'temp'];
@@ -577,7 +578,21 @@ function bootstrap_remove_directory(string $dir): void
  * files (which miss runtime-created directories like module storage/<name>/
  * folders that appear long after install, and which get overwritten by
  * every update since they'd live inside core/modules/vendor). Placed before
- * the rewrite-to-public/ rule.
+ * every other rule.
+ *
+ * PHP execution is routed to the index.php stub sitting in THIS SAME
+ * directory (bootstrap_index_stub_content()) — never rewritten across
+ * directories to public/index.php. An earlier version rewrote straight to
+ * public/index.php via a two-hop chain (root .htaccess → public/'s own
+ * .htaccess re-triggering a second rewrite for the same request) — that
+ * cross-directory PHP-execution rewrite is a well-documented trap on some
+ * Apache + PHP-FPM/FastCGI configurations, where SCRIPT_FILENAME is
+ * computed from the request's original path rather than the rewritten
+ * target and PHP-FPM reports a raw "File not found." even though the
+ * target file genuinely exists. A same-directory rewrite to a real,
+ * directly-executable PHP file (the stub) is the one universally-supported
+ * case; only static assets are ever routed across directories here, which
+ * never touches PHP execution or SCRIPT_FILENAME at all.
  */
 function bootstrap_htaccess_content(): string
 {
@@ -592,18 +607,55 @@ RewriteRule ^(storage|core|modules|config|schema|vendor|tests|scripts)(/|$) - [F
 # Deny dotfiles anywhere in the tree.
 RewriteRule (^|/)\. - [F,L]
 
-# Everything else is served from public/ — public/.htaccess (already part
-# of the installed tree, never modified here) takes over from there with
-# its own front-controller rewrite to index.php.
-RewriteCond %{REQUEST_URI} !^/public/
-RewriteRule ^$ public/index.php [L]
-RewriteCond %{REQUEST_URI} !^/public/
-RewriteRule ^(.+)$ public/$1 [L]
+# Real, non-PHP files that exist under public/ (assets, etc.) are served
+# directly as static files — safe to route across directories since no PHP
+# execution is involved. .php is explicitly excluded: it must never be
+# routed this way, only through the same-directory index.php stub below.
+RewriteCond %{REQUEST_URI} !\.php$
+RewriteCond %{DOCUMENT_ROOT}/public%{REQUEST_URI} -f
+RewriteRule ^(.*)$ public/$1 [L]
+
+# A real FILE sitting directly in the document root — the index.php stub
+# itself, token.php once written, the acceptance gate's own control-*.txt
+# canary — is served/executed as-is, same path, no rewrite: never swept
+# into the front controller. Deliberately -f only, never -d: the document
+# root itself is always a directory, and the root path must fall through
+# to the explicit catch-all below rather than being served "as-is" here,
+# which would silently depend on the host's DirectoryIndex configuration
+# including index.php (usually true, but never assumed).
+RewriteCond %{REQUEST_FILENAME} -f
+RewriteRule ^ - [L]
+
+# Everything else runs through the index.php stub in this same directory.
+RewriteRule ^ index.php [L]
 
 <FilesMatch "\.(key|enc|sql|log|sqlite)$">
     Require all denied
 </FilesMatch>
 HTACCESS;
+}
+
+/**
+ * The one file bootstrap.php places outside the repository's own tree
+ * (ARCHITECTURE.md §12) — see bootstrap_htaccess_content()'s own comment
+ * for why a same-directory PHP stub is required at all. __DIR__ inside the
+ * required file always reflects its own real location regardless of how
+ * it's included, so public/index.php's own path resolution (AppConfig,
+ * Twig template dir, SecretManager, etc. — all built from its own
+ * __DIR__) needs no changes whatsoever to be required from here.
+ */
+function bootstrap_index_stub_content(): string
+{
+    return <<<'PHP'
+<?php
+
+declare(strict_types=1);
+
+// Single-tree layout stub (bootstrap.php, Layout B) — see this install's
+// root .htaccess for why PHP execution is routed here rather than
+// straight to public/index.php.
+require __DIR__ . '/public/index.php';
+PHP;
 }
 
 // =============================================================================
@@ -1004,6 +1056,7 @@ function bootstrap_step_install(string $docRoot, array $state): array
 
     if ($state['layout'] === 'B') {
         file_put_contents($docRoot . '/.htaccess', bootstrap_htaccess_content());
+        file_put_contents($docRoot . '/' . BOOTSTRAP_INDEX_STUB_FILE, bootstrap_index_stub_content());
     }
 
     bootstrap_seed_app_config($installTarget);
@@ -1246,6 +1299,7 @@ function bootstrap_rollback_install(string $docRoot, array $state): void
     }
     if (($state['layout'] ?? null) === 'B') {
         bootstrap_remove_path($docRoot . '/.htaccess');
+        bootstrap_remove_path($docRoot . '/' . BOOTSTRAP_INDEX_STUB_FILE);
     }
     bootstrap_remove_path($docRoot . '/' . BOOTSTRAP_TOKEN_FILE);
     bootstrap_cleanup_gate_probes($state);
@@ -1839,7 +1893,7 @@ function bootstrap_render_ui(string $docRoot, string $stateFile): void
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>ScoutMagic — Installation</title>
 <style>
-  :root { color-scheme: light dark; }
+  :root { color-scheme: light; }
   body { font-family: system-ui, -apple-system, sans-serif; max-width: 640px; margin: 0 auto; padding: 1.25rem; line-height: 1.5; }
   h1 { font-size: 1.4rem; }
   h3 { font-size: 1.05rem; margin-top: 0; }
