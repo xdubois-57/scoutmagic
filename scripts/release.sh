@@ -67,17 +67,33 @@ if command -v gh &> /dev/null; then
            "config/app.php" ".gitignore" ".env" "*.zip" \
            "bootstrap/*" ".claude/*" ".idea/*" ".vscode/*" "*.DS_Store"
 
+    # Listed to a real file rather than piped live into grep -q: with
+    # `set -o pipefail` (line 2), a `grep -q` that matches early closes its
+    # read end, SIGPIPE-killing whatever wrote to that pipe — pipefail then
+    # reports the pipeline's exit status as the writer's 141, not grep's
+    # own (successful) 0, even though the match was genuinely found. On a
+    # large listing (thousands of entries, as this artifact has grown to)
+    # there's enough left to write that the race reliably loses — this bit
+    # both checks below in the wild despite the artifact being correct
+    # both times. Grepping a file has no live writer to kill, so no race.
+    LISTING_FILE="$(mktemp)"
+    trap 'rm -f "${LISTING_FILE}"' EXIT
+    unzip -l "${ARTIFACT}" > "${LISTING_FILE}"
+
     # bootstrap.php protects a Layout B (single-tree) install with exactly
     # one root .htaccess it writes itself at install time — the artifact
     # must never ship one, or bootstrap's own S7 acceptance check would
     # correctly refuse the very release this script is about to publish.
-    if unzip -l "${ARTIFACT}" | awk '{print $4}' | grep -qx '\.htaccess'; then
+    # Matched directly against the whitespace-then-filename tail of an
+    # `unzip -l` row rather than via awk '{print $4}' | grep -qx, which
+    # reintroduces the same live-pipe SIGPIPE race one level down.
+    if grep -qE '[[:space:]]\.htaccess$' "${LISTING_FILE}"; then
         echo "ERROR: release artifact contains a root-level .htaccess — aborting release." >&2
         rm -f "${ARTIFACT}"
         exit 1
     fi
 
-    if ! unzip -l "${ARTIFACT}" | grep -q 'vendor/autoload.php'; then
+    if ! grep -q 'vendor/autoload.php' "${LISTING_FILE}"; then
         echo "ERROR: release artifact is missing vendor/autoload.php — aborting release." >&2
         rm -f "${ARTIFACT}"
         exit 1
