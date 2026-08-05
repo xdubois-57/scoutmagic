@@ -11,6 +11,56 @@
     var dnsSpinner = document.getElementById('dns-spinner');
     var dnsRecords = document.getElementById('dns-records');
 
+    // Copy-to-clipboard for the DKIM key and DNS record values. Delegated
+    // on document (not inline onclick="" attributes) because this app's
+    // CSP has no 'unsafe-inline' in script-src \u2014 inline event handler
+    // attributes are silently blocked by the browser, which is exactly
+    // why these buttons previously did nothing. navigator.clipboard also
+    // requires a secure context (HTTPS), so a first-time HTTP install
+    // falls back to the older select()+execCommand('copy') approach,
+    // which works everywhere the async API doesn't.
+    function copyValue(button) {
+        var input = button.dataset.copyTarget ? document.getElementById(button.dataset.copyTarget) : button.previousElementSibling;
+        if (!input) {
+            return;
+        }
+
+        var originalLabel = button.textContent;
+        function showCopied() {
+            button.textContent = 'Copi\u00e9 !';
+            setTimeout(function() { button.textContent = originalLabel; }, 1500);
+        }
+        function showFailed() {
+            button.textContent = '\u00c9chec';
+            setTimeout(function() { button.textContent = originalLabel; }, 1500);
+        }
+        function fallbackCopy() {
+            input.select();
+            input.setSelectionRange(0, 99999);
+            try {
+                if (document.execCommand('copy')) {
+                    showCopied();
+                } else {
+                    showFailed();
+                }
+            } catch (e) {
+                showFailed();
+            }
+        }
+
+        if (navigator.clipboard && navigator.clipboard.writeText && window.isSecureContext) {
+            navigator.clipboard.writeText(input.value).then(showCopied).catch(fallbackCopy);
+        } else {
+            fallbackCopy();
+        }
+    }
+
+    document.addEventListener('click', function(event) {
+        if (event.target.classList && event.target.classList.contains('btn-copy-value')) {
+            copyValue(event.target);
+        }
+    });
+
     // Toggle SMTP fields visibility
     function toggleSmtp() {
         smtpFields.style.display = mailMode.value === 'smtp' ? 'block' : 'none';
@@ -147,15 +197,20 @@
             .then(function(r) { return r.json(); })
             .then(function(json) {
                 dnsSpinner.classList.add('d-none');
-                var html = '';
+                // "name" is the record name relative to the zone root, as
+                // most DNS provider UIs expect it (they already scope
+                // everything to the domain you're editing) \u2014 "host" is
+                // the full name, kept as a fallback for providers that want
+                // it spelled out completely instead.
                 var records = [
-                    { key: 'spf', label: 'SPF', host: domain, type: 'TXT' },
-                    { key: 'dkim', label: 'DKIM', host: selector + '._domainkey.' + domain, type: 'TXT' },
-                    { key: 'dmarc', label: 'DMARC', host: '_dmarc.' + domain, type: 'TXT' }
+                    { key: 'spf', label: 'SPF', name: '@', host: domain, type: 'TXT' },
+                    { key: 'dkim', label: 'DKIM', name: selector + '._domainkey', host: selector + '._domainkey.' + domain, type: 'TXT' },
+                    { key: 'dmarc', label: 'DMARC', name: '_dmarc', host: '_dmarc.' + domain, type: 'TXT' }
                 ];
+                var html = '<p class="text-muted small mb-2">Chez la plupart des h\u00e9bergeurs, la zone DNS demande un <strong>Type</strong>, un <strong>Nom</strong> (parfois appel\u00e9 \u00ab\u00a0Enregistrement\u00a0\u00bb ou \u00ab\u00a0H\u00f4te\u00a0\u00bb) et une <strong>Valeur</strong>. Utilisez le nom court ci-dessous (\u00ab\u00a0@\u00a0\u00bb d\u00e9signe la racine du domaine)\u00a0; si l\'interface de votre h\u00e9bergeur demande le nom complet plut\u00f4t que le nom court, utilisez celui indiqu\u00e9 en bas de chaque bloc.</p>';
                 records.forEach(function(rec) {
                     var data = json[rec.key];
-                    html += '<div class="mb-2 small">';
+                    html += '<div class="mb-3 small border-bottom pb-2">';
 
                     if (data.key_missing) {
                         html += '<strong>' + rec.label + '</strong> <span class="badge bg-warning text-dark">Cl\u00e9 DKIM requise</span><br>';
@@ -169,15 +224,21 @@
                         : '<span class="badge bg-warning text-dark">Manquant</span>';
                     var expectedLabel = data.actual ? 'Valeur sugg\u00e9r\u00e9e (remplace l\'actuelle)' : 'Valeur attendue';
                     html += '<strong>' + rec.label + '</strong> ' + badge + '<br>';
-                    html += '<span class="text-muted">H\u00f4te :</span> <code>' + rec.host + '</code><br>';
+                    html += '<span class="text-muted">Type :</span> <code>' + rec.type + '</code><br>';
+                    html += '<span class="text-muted">Nom :</span> ';
+                    html += '<div class="input-group input-group-sm mt-1 mb-1">';
+                    html += '<input type="text" class="form-control form-control-sm font-monospace" value="' + rec.name + '" readonly>';
+                    html += '<button type="button" class="btn btn-outline-secondary btn-sm btn-copy-value">Copier</button>';
+                    html += '</div>';
                     html += '<span class="text-muted">' + expectedLabel + ' :</span> ';
                     html += '<div class="input-group input-group-sm mt-1 mb-1">';
                     html += '<input type="text" class="form-control form-control-sm font-monospace" value="' + data.expected.replace(/"/g, '&quot;') + '" readonly>';
-                    html += '<button type="button" class="btn btn-outline-secondary btn-sm" onclick="navigator.clipboard.writeText(this.previousElementSibling.value)">Copier</button>';
+                    html += '<button type="button" class="btn btn-outline-secondary btn-sm btn-copy-value">Copier</button>';
                     html += '</div>';
                     if (data.actual) {
-                        html += '<span class="text-muted">Valeur actuelle :</span> <code class="text-break">' + data.actual + '</code>';
+                        html += '<span class="text-muted">Valeur actuelle :</span> <code class="text-break">' + data.actual + '</code><br>';
                     }
+                    html += '<span class="text-muted">Nom complet (si votre h\u00e9bergeur le demande \u00e0 la place du nom court) :</span> <code class="text-break">' + rec.host + '</code>';
                     html += '</div>';
                 });
                 dnsRecords.innerHTML = html;

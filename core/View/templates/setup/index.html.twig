@@ -225,7 +225,7 @@
                     <small class="text-muted">Clé publique (pour l'enregistrement DNS) :</small>
                     <div class="input-group input-group-sm mt-1">
                         <input type="text" class="form-control font-monospace" value="{{ dkim_public_key }}" readonly id="dkim-pubkey-display">
-                        <button type="button" class="btn btn-outline-secondary" onclick="navigator.clipboard.writeText(document.getElementById('dkim-pubkey-display').value)">Copier</button>
+                        <button type="button" class="btn btn-outline-secondary btn-copy-value" data-copy-target="dkim-pubkey-display">Copier</button>
                     </div>
                 </div>
                 <div class="form-check mt-2">
