@@ -226,6 +226,9 @@ class BackupService implements BackupServiceInterface
             throw new BackupException('Fichier de sauvegarde introuvable.');
         }
 
+        if (!ExecutableLocator::isExecAvailable()) {
+            throw new BackupException('La fonction PHP exec() est désactivée sur ce serveur (disable_functions) — aucune commande externe ne peut être lancée.');
+        }
         $mysqlBin = ExecutableLocator::find('mysql');
         if ($mysqlBin === null) {
             throw new BackupException('mysql n\'est pas disponible sur ce serveur.');
@@ -295,6 +298,9 @@ class BackupService implements BackupServiceInterface
      */
     private function dump(?array $onlyTables): string
     {
+        if (!ExecutableLocator::isExecAvailable()) {
+            throw new BackupException('La fonction PHP exec() est désactivée sur ce serveur (disable_functions) — aucune commande externe ne peut être lancée.');
+        }
         $mysqldumpBin = ExecutableLocator::find('mysqldump');
         if ($mysqldumpBin === null) {
             throw new BackupException('mysqldump n\'est pas disponible sur ce serveur.');

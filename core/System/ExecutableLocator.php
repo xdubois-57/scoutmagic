@@ -47,6 +47,30 @@ final class ExecutableLocator
         return self::$cache[$name] === false ? null : self::$cache[$name];
     }
 
+    /**
+     * find() returning null is ambiguous on its own: it means either "this
+     * binary genuinely isn't installed anywhere probed" or "exec() itself
+     * can't run at all", which look identical from the outside but need
+     * completely different fixes (an operator can't install a missing
+     * binary on shared hosting, but disable_functions is at least
+     * something their host's support can act on). Checked here rather
+     * than folded into find()'s own null, so callers can give a
+     * specific, actionable message instead of a generic "not found".
+     *
+     * function_exists('exec') is not enough on its own: disable_functions
+     * removes the ability to *call* a function without undefining it, so
+     * function_exists() still reports true for a disabled function.
+     */
+    public static function isExecAvailable(): bool
+    {
+        if (!function_exists('exec')) {
+            return false;
+        }
+
+        $disabled = array_map('trim', explode(',', (string) ini_get('disable_functions')));
+        return !in_array('exec', $disabled, true);
+    }
+
     private static function locate(string $name): string|false
     {
         @exec('command -v ' . escapeshellarg($name) . ' 2>/dev/null', $output, $returnCode);

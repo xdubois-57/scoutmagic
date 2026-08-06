@@ -238,6 +238,10 @@ class MigrationRunner
      */
     private function attemptBackup(array &$warnings): bool
     {
+        if (!ExecutableLocator::isExecAvailable()) {
+            $warnings[] = 'PHP exec() is disabled on this server (disable_functions) — skipping backup. Proceed with caution.';
+            return false;
+        }
         $mysqldumpBin = ExecutableLocator::find('mysqldump');
         if ($mysqldumpBin === null) {
             $warnings[] = 'mysqldump not available — skipping backup. Proceed with caution.';

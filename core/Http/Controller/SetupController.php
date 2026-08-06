@@ -261,7 +261,9 @@ class SetupController extends AbstractController
 
         $dumpPath = null;
         $backupError = null;
-        if (\Core\System\ExecutableLocator::find('mysqldump') === null) {
+        if (!\Core\System\ExecutableLocator::isExecAvailable()) {
+            $backupError = 'La fonction PHP exec() est désactivée sur ce serveur (disable_functions) — aucune commande externe ne peut être lancée, y compris mysqldump. Contactez votre hébergeur pour l\'activer, ou sauvegardez manuellement (par exemple via phpMyAdmin) avant de continuer.';
+        } elseif (\Core\System\ExecutableLocator::find('mysqldump') === null) {
             $backupError = 'mysqldump est indisponible sur ce serveur.';
         } else {
             try {

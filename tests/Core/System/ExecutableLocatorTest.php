@@ -60,4 +60,16 @@ class ExecutableLocatorTest extends TestCase
         $this->assertNotNull($path);
         $this->assertStringEndsWith('/git', $path);
     }
+
+    /**
+     * disable_functions is PHP_INI_SYSTEM (fixed at process startup, not
+     * changeable via ini_set()), so the actual "exec disabled" case can't
+     * be simulated here — this just confirms the happy path returns true
+     * in an environment where exec() genuinely works, which every other
+     * test in this class already relies on implicitly.
+     */
+    public function testIsExecAvailableReturnsTrueWhenExecIsNotDisabled(): void
+    {
+        $this->assertTrue(ExecutableLocator::isExecAvailable());
+    }
 }

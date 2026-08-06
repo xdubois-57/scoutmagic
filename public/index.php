@@ -300,6 +300,12 @@ $migrationResultForTimeline = $migrationRunner->migrate([$schemaPath]);
 \Core\Debug\RequestTimeline::mark('migration_done', [
     'executed_statements' => count($migrationResultForTimeline->executedStatements),
     'warnings' => count($migrationResultForTimeline->warnings),
+    // Full text, not just counts: when this keeps re-running on every
+    // request instead of settling into the hash-cache no-op path, the
+    // warning text is what tells us why the run never reaches "clean"
+    // (see MigrationRunner::migrate()'s caching condition).
+    'warning_details' => $migrationResultForTimeline->warnings,
+    'executed_statements_sample' => array_slice($migrationResultForTimeline->executedStatements, 0, 15),
 ]);
 
 $pdo = $connection->getPdo();
