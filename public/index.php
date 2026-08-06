@@ -145,6 +145,7 @@ $schemaPath = __DIR__ . '/../schema/core.sql';
 
 // Create the request early to check the path
 $request = Request::fromGlobals();
+\Core\Debug\RequestTimeline::mark('request_parsed', ['path' => $request->getPath()]);
 
 // A POST whose body exceeded post_max_size arrives with $_POST/$_FILES
 // both silently emptied by PHP — caught here, before the rest of the
@@ -168,7 +169,9 @@ $isSetupRoute = str_starts_with($request->getPath(), '/setup');
 
 // Start session for setup routes or when initialized
 if ($isInitialized || $isSetupRoute) {
+    \Core\Debug\RequestTimeline::mark('session_start_begin');
     SessionManager::start();
+    \Core\Debug\RequestTimeline::mark('session_start_done');
 }
 
 if (!$isInitialized) {
@@ -263,7 +266,9 @@ $encryptionService = new EncryptionService(
 // value), so they're truncated once, before the schema change below is
 // applied, rather than migrated in place. Raw PDO because this runs
 // before SettingService exists yet.
+\Core\Debug\RequestTimeline::mark('db_connect_begin');
 $preMigrationPdo = $connection->getPdo();
+\Core\Debug\RequestTimeline::mark('db_connect_done');
 $notificationsV2Migrated = (bool) $preMigrationPdo->query(
     "SELECT 1 FROM settings WHERE module_id IS NULL AND setting_key = 'notifications_v2_migrated'"
 )->fetchColumn();
@@ -282,13 +287,18 @@ if (!$notificationsV2Migrated) {
 }
 
 // Auto-migrate: apply any pending schema changes from core.sql
+\Core\Debug\RequestTimeline::mark('migration_begin');
 $migrationRunner = new MigrationRunner(
     $connection,
     new SchemaIntrospector($connection->getPdo()),
     new SchemaComparator(),
     new SqlParser()
 );
-$migrationRunner->migrate([$schemaPath]);
+$migrationResultForTimeline = $migrationRunner->migrate([$schemaPath]);
+\Core\Debug\RequestTimeline::mark('migration_done', [
+    'executed_statements' => count($migrationResultForTimeline->executedStatements),
+    'warnings' => count($migrationResultForTimeline->warnings),
+]);
 
 $pdo = $connection->getPdo();
 
@@ -1998,7 +2008,9 @@ if (!$secretManager->isInitialized() || $allowSetup) {
     $frontController->setRbacBypassPrefix('/setup');
 }
 
+\Core\Debug\RequestTimeline::mark('services_ready');
 $response = $frontController->handle($request);
+\Core\Debug\RequestTimeline::mark('controller_dispatch_done');
 $response->setCspNonce($cspNonce);
 
 // Gallery photos served straight from S3-compatible storage need their
@@ -2021,7 +2033,9 @@ if (isset($galleryStorageLocationRepo)) {
     }
 }
 
+\Core\Debug\RequestTimeline::mark('response_send_begin');
 $response->send();
+\Core\Debug\RequestTimeline::mark('response_send_done');
 
 // session_start() holds an exclusive lock on the session file for the
 // whole script lifetime unless released early — without this, any other
@@ -2032,20 +2046,50 @@ $response->send();
 if (session_status() === PHP_SESSION_ACTIVE) {
     session_write_close();
 }
+\Core\Debug\RequestTimeline::mark('session_write_close_done');
 
 // Poor man's cron — run scheduler max once per minute, after response is sent
 $lastRun = (int) $settingService->get('scheduler_last_run');
 $now = time();
 if (($now - $lastRun) > 60) {
+    \Core\Debug\RequestTimeline::mark('poor_man_cron_triggered', ['seconds_since_last_run' => $now - $lastRun]);
     try {
         $settingRepo->updateValue(null, 'scheduler_last_run', (string) $now);
         if (function_exists('fastcgi_finish_request')) {
             fastcgi_finish_request();
         }
+        \Core\Debug\RequestTimeline::mark('scheduler_process_overdue_begin');
         $schedulerRunner->processOverdue();
+        \Core\Debug\RequestTimeline::mark('scheduler_process_overdue_done');
         $retentionDays = (int) ($settingService->get('journal_retention_days') ?: '730');
+        \Core\Debug\RequestTimeline::mark('journal_cleanup_begin');
         $journalService->cleanup($retentionDays);
+        \Core\Debug\RequestTimeline::mark('journal_cleanup_done');
     } catch (\Throwable $e) {
         // Silently ignore scheduler errors in poor man's cron
     }
+}
+
+// Debug timeline flush (?debug=1) — gated on an already-authenticated
+// admin session rather than a shared secret: the operator triggering this
+// is browsing the live site as themselves, and the alternative (a secret
+// URL param anyone could replay) would make this a standing, unauthenticated
+// way to force extra journal writes on every request. Written last, after
+// the poor-man's-cron tail above, so a slow scheduled task shows up in the
+// same timeline as the request that happened to trigger it.
+if (\Core\Debug\RequestTimeline::isActive() && \Core\Security\AuthSession::isAuthenticated()
+    && in_array(\Core\Security\AuthSession::getRole(), ['admin', 'superadmin'], true)
+) {
+    $journalService->log(
+        'core',
+        'debug_request_timeline',
+        'info',
+        'Chronologie détaillée de requête (?debug=1) : ' . $request->getMethod() . ' ' . $request->getPath(),
+        [
+            'method' => $request->getMethod(),
+            'path' => $request->getPath(),
+            'timeline' => \Core\Debug\RequestTimeline::getEntries(),
+        ],
+        \Core\Security\AuthSession::getUserAccountId()
+    );
 }

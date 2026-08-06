@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Core\Scheduler;
 
+use Core\Debug\RequestTimeline;
 use Core\Journal\JournalService;
 use Core\Module\ModuleManager;
 
@@ -44,12 +45,16 @@ class SchedulerRunner
      */
     public function processOverdue(): int
     {
+        RequestTimeline::mark('scheduler_claim_overdue_start');
         $tasks = $this->repository->claimOverdue();
+        RequestTimeline::mark('scheduler_claim_overdue_done', ['task_count' => count($tasks)]);
         $processed = 0;
 
         foreach ($tasks as $task) {
             $handlerKey = $task['module_id'] . '::' . $task['task_key'];
             $handler = $this->handlers[$handlerKey] ?? null;
+            $taskStart = microtime(true);
+            RequestTimeline::mark('scheduler_task_start:' . $handlerKey, ['task_id' => $task['id']]);
 
             // Try to resolve via ModuleManager if no directly registered handler
             if ($handler === null && $this->moduleManager !== null) {
@@ -91,22 +96,26 @@ class SchedulerRunner
                 $handler->handle($payload, $context);
                 $this->repository->markDone((int) $task['id']);
                 $processed++;
+                $durationMs = (int) round((microtime(true) - $taskStart) * 1000);
+                RequestTimeline::mark('scheduler_task_done:' . $handlerKey, ['task_id' => $task['id'], 'duration_ms' => $durationMs]);
 
                 $this->journal->log(
                     'core',
                     'scheduler_task_done',
                     'info',
                     "Tâche planifiée « {$task['task_key']} » terminée",
-                    ['task_id' => $task['id'], 'module_id' => $task['module_id']]
+                    ['task_id' => $task['id'], 'module_id' => $task['module_id'], 'duration_ms' => $durationMs]
                 );
             } catch (\Throwable $e) {
                 $this->repository->markFailed((int) $task['id'], $e->getMessage());
+                $durationMs = (int) round((microtime(true) - $taskStart) * 1000);
+                RequestTimeline::mark('scheduler_task_failed:' . $handlerKey, ['task_id' => $task['id'], 'duration_ms' => $durationMs]);
                 $this->journal->log(
                     'core',
                     'scheduler_task_failed',
                     'info',
                     "Tâche planifiée « {$task['task_key']} » échouée : " . $e->getMessage(),
-                    ['task_id' => $task['id'], 'module_id' => $task['module_id']]
+                    ['task_id' => $task['id'], 'module_id' => $task['module_id'], 'duration_ms' => $durationMs]
                 );
             }
         }
