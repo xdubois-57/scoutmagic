@@ -785,9 +785,10 @@ class MaintenanceControllerTest extends TestCase
         $this->assertSame('https://api.github.com/repos/owner/repo/zipball/a1b2c3d4e5f6', $payload['download_url']);
     }
 
-    public function testIndexShowsTheWebhookWarningWhenAutoUpdateEnabledButWebhookNotConfigured(): void
+    public function testIndexShowsTheWebhookWarningWhenDevLevelEnabledButWebhookNotConfigured(): void
     {
         $this->settingService->set('auto_update_enabled', '1');
+        $this->settingService->set('auto_update_level', 'dev');
         $this->settingService->clearCache();
 
         $response = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), []);
@@ -797,6 +798,20 @@ class MaintenanceControllerTest extends TestCase
 
     public function testIndexDoesNotShowTheWebhookWarningWhenAutoUpdateDisabled(): void
     {
+        $response = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), []);
+
+        $this->assertStringNotContainsString('webhook GitHub n\'est pas configuré', $response->getBody());
+    }
+
+    public function testIndexDoesNotShowTheWebhookWarningForTheStableChannelSinceItHasItsOwnDailyCheck(): void
+    {
+        // The webhook is entirely irrelevant to the stable channel now
+        // (patch/minor/major) — Task\CheckStableUpdateHandler polls daily
+        // instead — so the warning only makes sense when 'dev' is selected.
+        $this->settingService->set('auto_update_enabled', '1');
+        $this->settingService->set('auto_update_level', 'minor');
+        $this->settingService->clearCache();
+
         $response = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), []);
 
         $this->assertStringNotContainsString('webhook GitHub n\'est pas configuré', $response->getBody());

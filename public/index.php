@@ -968,6 +968,7 @@ $schedulerRunner->registerHandler('core', 'reset_settings', new \Core\Maintenanc
 $schedulerRunner->registerHandler('core', 'full_reset', new \Core\Maintenance\Task\FullResetHandler());
 $schedulerRunner->registerHandler('core', 'restore_backup', new \Core\Maintenance\Task\RestoreBackupHandler());
 $schedulerRunner->registerHandler('core', 'auto_backup', new \Core\Maintenance\Task\AutoBackupHandler());
+$schedulerRunner->registerHandler('core', 'check_stable_update', new \Core\Maintenance\Task\CheckStableUpdateHandler());
 $schedulerRunner->registerHandler('core', 'compress_section_document', new \Core\Member\Task\CompressSectionDocumentHandler());
 $schedulerRunner->registerHandler('core', 'send_notifications', new \Core\Notification\Task\SendNotificationsHandler());
 $schedulerRunner->registerHandler('core', 'purge_notifications', new \Core\Notification\Task\PurgeNotificationsHandler());
@@ -985,6 +986,14 @@ if ($schedulerService->find('core', 'auto_backup', 'auto') === null) {
 // Task\PurgeNotificationsHandler).
 if ($schedulerService->find('core', 'purge_notifications', \Core\Notification\Task\PurgeNotificationsHandler::REFERENCE) === null) {
     $schedulerService->schedule('core', 'purge_notifications', new DateTimeImmutable(), [], \Core\Notification\Task\PurgeNotificationsHandler::REFERENCE);
+}
+
+// Same bootstrap for the daily stable-channel update check
+// (Core\Maintenance\Task\CheckStableUpdateHandler) — the very first
+// occurrence runs immediately, then it self-reschedules for 01:00 +
+// jitter every day after that.
+if ($schedulerService->find('core', 'check_stable_update', 'daily') === null) {
+    $schedulerService->schedule('core', 'check_stable_update', new DateTimeImmutable(), [], 'daily');
 }
 
 // Add dynamic member entries to Espace des animés

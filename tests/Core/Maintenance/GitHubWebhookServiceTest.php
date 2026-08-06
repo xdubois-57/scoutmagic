@@ -51,16 +51,16 @@ class GitHubWebhookServiceTest extends TestCase
         file_put_contents($this->basePath . '/VERSION', "2.4.1\n");
     }
 
-    private function fakeClient(bool $composerLockChanged = false, ?\Throwable $throws = null): GitHubReleaseClientInterface
+    private function fakeClient(bool $composerLockChanged = false, ?\Throwable $throws = null, ?ReleaseInfo $latestRelease = null): GitHubReleaseClientInterface
     {
-        return new class ($composerLockChanged, $throws) implements GitHubReleaseClientInterface {
-            public function __construct(private bool $changed, private ?\Throwable $throws)
+        return new class ($composerLockChanged, $throws, $latestRelease) implements GitHubReleaseClientInterface {
+            public function __construct(private bool $changed, private ?\Throwable $throws, private ?ReleaseInfo $latestRelease)
             {
             }
 
             public function getLatestRelease(): ?ReleaseInfo
             {
-                return null;
+                return $this->latestRelease;
             }
 
             public function composerLockChanged(string $base, string $head): bool
@@ -319,6 +319,41 @@ class GitHubWebhookServiceTest extends TestCase
         $scheduled = $this->schedulerRepository->findByModuleAndKey('core', 'install_update', 'scheduled_install');
         $payload = json_decode((string) $scheduled['payload'], true);
         $this->assertSame('https://api.github.com/repos/x/y/zipball/v2.4.2', $payload['download_url']);
+    }
+
+    // --- checkForNewRelease() ---
+
+    public function testCheckForNewReleaseIgnoresWhenNoReleaseIsFound(): void
+    {
+        $result = $this->service($this->fakeClient())->checkForNewRelease();
+
+        $this->assertSame(['status' => 'ignored', 'reason' => 'no_release_found'], $result);
+    }
+
+    public function testCheckForNewReleaseSchedulesInstallWhenAllowedBumpIsFound(): void
+    {
+        $this->settings->set('auto_update_enabled', '1');
+        $this->settings->set('auto_update_level', 'minor');
+        $this->settings->clearCache();
+
+        $release = new ReleaseInfo('v2.5.0', 'Notes', 'https://github.com/x/y/releases/tag/v2.5.0', 'https://example.test/artifact.zip');
+        $result = $this->service($this->fakeClient(false, null, $release))->checkForNewRelease();
+
+        $this->assertSame('ok', $result['status']);
+        $scheduled = $this->schedulerRepository->findByModuleAndKey('core', 'install_update', 'scheduled_install');
+        $this->assertNotNull($scheduled);
+    }
+
+    public function testCheckForNewReleaseIgnoredWhenDevModeActive(): void
+    {
+        $this->settings->set('auto_update_enabled', '1');
+        $this->settings->set('auto_update_level', 'dev');
+        $this->settings->clearCache();
+
+        $release = new ReleaseInfo('v2.5.0', 'Notes', 'https://github.com/x/y/releases/tag/v2.5.0', 'https://example.test/artifact.zip');
+        $result = $this->service($this->fakeClient(false, null, $release))->checkForNewRelease();
+
+        $this->assertSame(['status' => 'ignored', 'reason' => 'dev_mode_active'], $result);
     }
 
     // --- handlePushEvent() ---

@@ -81,9 +81,41 @@ class GitHubWebhookService
             return ['status' => 'ignored', 'reason' => 'invalid_payload'];
         }
 
-        $tagName = (string) $release['tag_name'];
+        return $this->processRelease(
+            (string) $release['tag_name'],
+            (string) ($release['body'] ?? ''),
+            (string) ($release['html_url'] ?? ''),
+            $this->resolveReleaseDownloadUrl($release)
+        );
+    }
+
+    /**
+     * Daily fallback for the stable channel (Task\CheckStableUpdateHandler)
+     * — the webhook is the primary detection mechanism, but a missed or
+     * misconfigured delivery would otherwise leave patch/minor/major sites
+     * unaware of a new release until an admin manually checks. Shares
+     * processRelease() with handleReleaseEvent() so both paths schedule
+     * installs identically; the only difference is where the release comes
+     * from (a webhook payload vs. a live API call here).
+     *
+     * @return array{status: string, reason?: string}
+     */
+    public function checkForNewRelease(): array
+    {
+        $release = $this->releaseClient()->getLatestRelease();
+        if ($release === null) {
+            return ['status' => 'ignored', 'reason' => 'no_release_found'];
+        }
+
+        return $this->processRelease($release->tagName, $release->body, $release->htmlUrl, $release->downloadUrl);
+    }
+
+    /**
+     * @return array{status: string, reason?: string}
+     */
+    private function processRelease(string $tagName, string $body, string $htmlUrl, ?string $downloadUrl): array
+    {
         $latestVersion = ltrim($tagName, 'vV');
-        $downloadUrl = $this->resolveReleaseDownloadUrl($release);
 
         // Same cache Task\CheckUpdateHandler used to populate — kept in
         // sync regardless of whether this specific release ends up
@@ -91,9 +123,9 @@ class GitHubWebhookService
         // on the Maintenance page.
         $this->settings->setInternal('update_checked_at', (new \DateTimeImmutable())->format('Y-m-d H:i:s'));
         $this->settings->setInternal('update_latest_version', $latestVersion);
-        $this->settings->setInternal('update_release_notes', (string) ($release['body'] ?? ''));
-        $this->settings->setInternal('update_release_html_url', (string) ($release['html_url'] ?? ''));
-        $this->settings->setInternal('update_download_url', (string) ($downloadUrl ?? ''));
+        $this->settings->setInternal('update_release_notes', $body);
+        $this->settings->setInternal('update_release_html_url', $htmlUrl);
+        $this->settings->setInternal('update_download_url', (string) $downloadUrl);
 
         $installedVersion = VersionFile::read($this->basePath);
         if (!version_compare($latestVersion, $installedVersion, '>')) {
@@ -224,16 +256,24 @@ class GitHubWebhookService
 
     private function composerLockChanged(string $installedVersion, string $latestTag): bool
     {
-        $owner = (string) ($this->settings->get('update_github_owner') ?: '');
-        $repo = (string) ($this->settings->get('update_github_repo') ?: '');
-        $client = $this->releaseClient ?? new GitHubReleaseClient($owner, $repo);
-
         try {
-            return $client->composerLockChanged('v' . $installedVersion, $latestTag);
+            return $this->releaseClient()->composerLockChanged('v' . $installedVersion, $latestTag);
         } catch (\Throwable) {
             // Same "err on the side of caution" fallback Task\CheckUpdateHandler used.
             return true;
         }
+    }
+
+    private function releaseClient(): GitHubReleaseClientInterface
+    {
+        if ($this->releaseClient !== null) {
+            return $this->releaseClient;
+        }
+
+        $owner = (string) ($this->settings->get('update_github_owner') ?: '');
+        $repo = (string) ($this->settings->get('update_github_repo') ?: '');
+
+        return new GitHubReleaseClient($owner, $repo);
     }
 
     /**

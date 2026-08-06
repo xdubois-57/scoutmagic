@@ -90,6 +90,7 @@ class MaintenanceController extends AbstractController
         $updateAvailable = $latestVersion !== '' && version_compare($latestVersion, $installedVersion, '>');
 
         $autoUpdateEnabled = (bool) ((int) ($this->settingService->get('auto_update_enabled') ?: '0'));
+        $level = (string) ($this->settingService->get('auto_update_level') ?: 'minor');
         $webhookConfigured = $this->webhookSecret() !== '';
         [$installedVersionDisplay, $installedVersionCommit] = self::splitInstalledVersion($installedVersion);
 
@@ -109,11 +110,11 @@ class MaintenanceController extends AbstractController
             'backup_auto_frequency' => (string) ($this->settingService->get('backup_auto_frequency') ?: 'monthly'),
             'backup_auto_last_run' => (string) ($this->settingService->get('backup_auto_last_run') ?: ''),
             'auto_update_enabled' => $autoUpdateEnabled,
-            'auto_update_level' => (string) ($this->settingService->get('auto_update_level') ?: 'minor'),
+            'auto_update_level' => $level,
             'auto_update_day' => (string) ($this->settingService->get('auto_update_day') ?: 'monday'),
             'auto_update_time' => (string) ($this->settingService->get('auto_update_time') ?: '03:00'),
             'webhook_configured' => $webhookConfigured,
-            'webhook_warning' => $autoUpdateEnabled && !$webhookConfigured,
+            'webhook_warning' => $autoUpdateEnabled && $level === 'dev' && !$webhookConfigured,
             'webhook_url' => rtrim((string) ($this->settingService->get('base_url') ?: ''), '/') . '/api/webhook/github',
             'dev_update_branch' => (string) ($this->settingService->get('dev_update_branch') ?: 'main'),
         ]);
