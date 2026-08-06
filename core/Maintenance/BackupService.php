@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Core\Maintenance;
 
 use Core\Database\Connection;
+use Core\Database\DatabaseDumper;
+use Core\Database\SchemaIntrospector;
 use Core\System\ExecutableLocator;
 
 /**
@@ -29,11 +31,14 @@ class BackupService implements BackupServiceInterface
 
     /**
      * Some hosts silently drop the outbound TCP connection a shell-exec'd
-     * mysqldump/mysql process opens (observed hanging for minutes on shared
-     * hosting) even though PHP's own PDO connection to the same database is
-     * instant — this bounds that specific failure mode so a stuck dump/
-     * restore fails fast instead of hanging the request (and, via poor man's
-     * cron, every other request sharing its session).
+     * `mysql` restore process opens (observed hanging for minutes on
+     * shared hosting) even though PHP's own PDO connection to the same
+     * database is instant — this bounds that specific failure mode so a
+     * stuck restore fails fast instead of hanging the request (and, via
+     * poor man's cron, every other request sharing its session). Dumping
+     * no longer shells out at all (Core\Database\DatabaseDumper, backed by
+     * ifsnop/mysqldump-php), so this only guards restoreDatabase()'s
+     * `mysql` invocation now.
      */
     private const SHELL_TIMEOUT_SECONDS = 30;
 
@@ -62,7 +67,8 @@ class BackupService implements BackupServiceInterface
     }
 
     /**
-     * Full `mysqldump` of the database (every table, structure + data).
+     * Full dump of the database (every table, structure + data) via
+     * Core\Database\DatabaseDumper — no `mysqldump` binary involved.
      * Personal data columns are already encrypted BLOBs at the database
      * level, so the dump never contains plaintext personal data — but the
      * file is still sensitive (it's a complete copy of the site's data)
@@ -77,9 +83,9 @@ class BackupService implements BackupServiceInterface
     }
 
     /**
-     * Structure of every table (mysqldump --no-data) plus the actual rows
-     * of only the tables that are pure site configuration, never member or
-     * business data (module spec "full_config" scope: "settings, tables de
+     * Structure of every table plus the actual rows of only the tables
+     * that are pure site configuration, never member or business data
+     * (module spec "full_config" scope: "settings, tables de
      * configuration, structure — pas de données membres/métier"). Kept
      * deliberately to a hardcoded, reviewed whitelist rather than trying to
      * infer "which tables are config" from any module — module-declared
@@ -299,60 +305,31 @@ class BackupService implements BackupServiceInterface
      */
     private function dump(?array $onlyTables): string
     {
-        if (!ExecutableLocator::isExecAvailable()) {
-            throw new BackupException('Aucune fonction PHP d\'exécution de commande externe (exec, shell_exec, system, passthru) n\'est disponible sur ce serveur (disable_functions).');
-        }
-        $mysqldumpBin = ExecutableLocator::find('mysqldump');
-        if ($mysqldumpBin === null) {
-            throw new BackupException('mysqldump n\'est pas disponible sur ce serveur.');
-        }
-        $mysqldumpBin = escapeshellarg($mysqldumpBin);
-
         [$host, $port, $dbName, $user, $password] = $this->connectionCredentials();
         $path = $this->stagingPath($onlyTables === null ? 'database' : 'config', 'sql');
-        $authArgs = sprintf(
-            '-h %s -P %s -u %s %s %s',
-            escapeshellarg($host),
-            escapeshellarg((string) $port),
-            escapeshellarg($user),
-            $password !== '' ? '-p' . escapeshellarg($password) : '',
-            escapeshellarg($dbName)
-        );
 
-        // `2>&1 1>path` (not `>path 2>&1`) so stderr lands in exec()'s
-        // $output capture while stdout — the actual dump content — still
-        // goes to the file; order matters, since `2>&1` first duplicates
-        // stderr to wherever stdout *currently* points.
-        $timeoutPrefix = $this->timeoutPrefix();
-        $errorOutput = '';
-        $returnCode = 0;
-        if ($onlyTables === null) {
-            $command = sprintf('%s%s %s 2>&1 1>%s', $timeoutPrefix, $mysqldumpBin, $authArgs, escapeshellarg($path));
-            $result = \Core\System\ShellExecutor::run($command);
-            $returnCode = $result['returnCode'];
-            $errorOutput = $result['output'];
-        } else {
-            $tableArgs = implode(' ', array_map('escapeshellarg', $onlyTables));
-            $structureCommand = sprintf('%s%s --no-data %s 2>&1 1>%s', $timeoutPrefix, $mysqldumpBin, $authArgs, escapeshellarg($path));
-            $result = \Core\System\ShellExecutor::run($structureCommand);
-            $returnCode = $result['returnCode'];
-            $errorOutput = $result['output'];
-            if ($returnCode === 0) {
-                $dataCommand = sprintf('%s%s --no-create-info %s %s 2>&1 1>>%s', $timeoutPrefix, $mysqldumpBin, $authArgs, $tableArgs, escapeshellarg($path));
-                $result = \Core\System\ShellExecutor::run($dataCommand);
-                $returnCode = $result['returnCode'];
-                $errorOutput = $result['output'];
-            }
+        // DatabaseDumper's 'no-data' setting is "skip data for these
+        // tables", the inverse of $onlyTables ("keep data for only
+        // these") — every other table still needs its structure dumped
+        // (module spec: "full_config" scope keeps every table's schema,
+        // just not member/business rows), so it's every table except the
+        // whitelist, not the whitelist itself.
+        $skipDataForTables = null;
+        if ($onlyTables !== null) {
+            $allTables = (new SchemaIntrospector($this->connection->getPdo()))->getTables();
+            $skipDataForTables = array_values(array_diff($allTables, $onlyTables));
         }
 
-        if ($returnCode !== 0 || !is_file($path) || filesize($path) === 0) {
+        try {
+            DatabaseDumper::dump($host, $port, $dbName, $user, $password, $path, $skipDataForTables);
+        } catch (\Throwable $e) {
             @unlink($path);
-            throw new BackupException($this->shellFailureMessage(
-                $returnCode === 124
-                    ? 'La génération du dump de la base de données a expiré (délai réseau dépassé).'
-                    : 'La génération du dump de la base de données a échoué.',
-                $errorOutput
-            ));
+            throw new BackupException('La génération du dump de la base de données a échoué. (' . $e->getMessage() . ')');
+        }
+
+        if (!is_file($path) || filesize($path) === 0) {
+            @unlink($path);
+            throw new BackupException('La génération du dump de la base de données a échoué.');
         }
 
         return $path;

@@ -10,10 +10,13 @@ namespace Core\System;
  *
  * Shared hosts commonly disable a *subset* of the four shell-execution
  * functions via disable_functions, not all of them uniformly — a mechanism
- * hardcoded to exec() alone (as ExecutableLocator/BackupService/
- * MigrationRunner originally were) can be completely blocked on a host
- * where system() works fine. Confirmed in practice: a script on another
- * LWS-hosted account successfully runs mysqldump via system() alone.
+ * hardcoded to exec() alone (as ExecutableLocator/BackupService originally
+ * were) can be completely blocked on a host where system() works fine.
+ * Confirmed in practice: a script on another LWS-hosted account
+ * successfully ran a shelled-out command via system() alone. Database
+ * dumping no longer goes through here at all — only Core\Maintenance\
+ * BackupService::restoreDatabase() (the `mysql` client) and
+ * ExecutableLocator's own binary lookups still do.
  */
 final class ShellExecutor
 {

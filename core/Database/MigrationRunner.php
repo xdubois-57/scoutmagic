@@ -4,8 +4,6 @@ declare(strict_types=1);
 
 namespace Core\Database;
 
-use Core\System\ExecutableLocator;
-
 class MigrationRunner
 {
     public function __construct(
@@ -24,7 +22,7 @@ class MigrationRunner
      *    the entire live schema (several INFORMATION_SCHEMA queries per
      *    table) to conclude "nothing to do" is pure waste on every request
      *    that isn't immediately after a real schema change.
-     * 1. Backup the database (mysqldump via exec, skip if not available).
+     * 1. Backup the database (Core\Database\DatabaseDumper, skip if it fails).
      * 2. Parse all schema files.
      * 3. Introspect the current database.
      * 4. Compare and generate DDL.
@@ -248,22 +246,14 @@ class MigrationRunner
     }
 
     /**
-     * Attempt to create a database backup using mysqldump.
+     * Attempt to create a database backup via Core\Database\DatabaseDumper
+     * (ifsnop/mysqldump-php) — a pure-PHP dump over PDO, no `mysqldump`
+     * binary or shell-execution function required.
      *
      * @param array<string> $warnings
      */
     private function attemptBackup(array &$warnings): bool
     {
-        if (!ExecutableLocator::isExecAvailable()) {
-            $warnings[] = 'No PHP shell-execution function (exec, shell_exec, system, passthru) is available on this server (disable_functions) — skipping backup. Proceed with caution.';
-            return false;
-        }
-        $mysqldumpBin = ExecutableLocator::find('mysqldump');
-        if ($mysqldumpBin === null) {
-            $warnings[] = 'mysqldump not available — skipping backup. Proceed with caution.';
-            return false;
-        }
-
         $backupDir = dirname(__DIR__, 2) . '/storage/temp';
         if (!is_dir($backupDir)) {
             mkdir($backupDir, 0755, true);
@@ -278,38 +268,10 @@ class MigrationRunner
         $user = $this->getPrivateProperty('user');
         $password = $this->getPrivateProperty('password');
 
-        // Some hosts silently drop the outbound TCP connection a shell-exec'd
-        // mysqldump process opens even though PHP's own PDO connection to
-        // the same database is instant — bounded so a stuck backup attempt
-        // fails fast instead of making "Installer" hang for minutes. `timeout`
-        // is standard on Linux (the only place this runs in production) but
-        // missing on macOS/BSD dev machines, so it's only used when present.
-        $timeoutBin = ExecutableLocator::find('timeout');
-        $timeoutPrefix = $timeoutBin !== null ? escapeshellarg($timeoutBin) . ' 30 ' : '';
-
-        // `2>&1 1>path` (not `>path 2>&1`) keeps stderr in exec()'s $output
-        // capture while stdout — the actual dump content — still goes to
-        // the file.
-        $command = sprintf(
-            '%s%s -h %s -P %s -u %s %s %s 2>&1 1>%s',
-            $timeoutPrefix,
-            escapeshellarg($mysqldumpBin),
-            escapeshellarg($host),
-            escapeshellarg((string) $port),
-            escapeshellarg($user),
-            $password !== '' ? '-p' . escapeshellarg($password) : '',
-            escapeshellarg($dbName),
-            escapeshellarg($backupFile)
-        );
-
-        $result = \Core\System\ShellExecutor::run($command);
-        $returnCode = $result['returnCode'];
-
-        if ($returnCode !== 0) {
-            $detail = trim($result['output']);
-            $warnings[] = $returnCode === 124
-                ? 'Database backup timed out — proceeding without backup.'
-                : 'Database backup failed — proceeding without backup.' . ($detail !== '' ? ' (' . $detail . ')' : '');
+        try {
+            DatabaseDumper::dump($host, $port, $dbName, $user, $password, $backupFile);
+        } catch (\Throwable $e) {
+            $warnings[] = 'Database backup failed — proceeding without backup. (' . $e->getMessage() . ')';
             @unlink($backupFile);
             return false;
         }

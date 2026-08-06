@@ -13,7 +13,7 @@ class ExecutableLocatorTest extends TestCase
     {
         // `ls` is available in every environment this test suite runs in
         // (macOS dev machines and Linux CI/hosting alike) and reliably on
-        // PATH, unlike mysqldump — a good stand-in that doesn't depend on
+        // PATH, unlike `mysql` — a good stand-in that doesn't depend on
         // any of the shared-hosting quirks this class exists to work around.
         $path = ExecutableLocator::find('ls');
 
@@ -39,7 +39,7 @@ class ExecutableLocatorTest extends TestCase
      * `ls`: the probe itself runs `<candidate> --version`, which BSD/macOS
      * `ls` doesn't support (unlike GNU coreutils) — `git --version` is
      * portable across every environment this suite runs in, same as the
-     * real binaries this locator is used for (mysqldump, mysql, timeout).
+     * real binaries this locator is used for (mysql, timeout).
      */
     public function testFindStillLocatesABinaryViaTheFallbackDirsWhenPathLookupFails(): void
     {

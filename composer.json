@@ -12,7 +12,8 @@
         "endroid/qr-code": "^6.1",
         "phpoffice/phpspreadsheet": "^5.9",
         "aws/aws-sdk-php": "^3.0",
-        "minishlink/web-push": "^9.0"
+        "minishlink/web-push": "^9.0",
+        "ifsnop/mysqldump-php": "^2.13"
     },
     "require-dev": {
         "phpunit/phpunit": "^10.0",

@@ -8,11 +8,14 @@ namespace Core\System;
  * Finds an absolute path to a system binary for use in exec()/shell_exec()
  * calls. PHP-FPM/CGI workers often run with a much narrower $PATH than an
  * interactive SSH shell — sometimes none at all — so a binary that's
- * reachable by a logged-in admin (`which mysqldump` working over SSH) can
- * still be invisible to `exec('which mysqldump')` from PHP on the very same
+ * reachable by a logged-in admin (`which mysql` working over SSH) can
+ * still be invisible to `exec('which mysql')` from PHP on the very same
  * host. Probing common install directories directly sidesteps that PATH
  * mismatch without needing to know in advance what any given host's layout
- * looks like.
+ * looks like. Only Core\Maintenance\BackupService::restoreDatabase() (the
+ * `mysql` client) and the `timeout`/`gtimeout` wrapper around it still use
+ * this — database dumping no longer shells out at all (Core\Database\
+ * DatabaseDumper, backed by ifsnop/mysqldump-php).
  */
 final class ExecutableLocator
 {

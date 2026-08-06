@@ -186,8 +186,9 @@ class MigrationRunnerTest extends TestCase
         $schemaPath = dirname(__DIR__, 3) . '/schema/core.sql';
         $result = $runner->migrate([$schemaPath]);
 
-        // On CI without mysqldump, there should be a backup warning
-        // This test just verifies the result object structure is correct
+        // This test just verifies the result object structure is correct;
+        // whether the backup itself succeeds depends on the environment
+        // DatabaseDumper connects to, not on this test's setup.
         $this->assertIsBool($result->backupCreated);
         $this->assertIsArray($result->warnings);
     }

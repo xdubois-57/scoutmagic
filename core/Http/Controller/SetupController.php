@@ -262,37 +262,30 @@ class SetupController extends AbstractController
 
         $dumpPath = null;
         $backupError = null;
-        if (!\Core\System\ExecutableLocator::isExecAvailable()) {
-            $backupError = 'Aucune fonction PHP d\'exécution de commande externe (exec, shell_exec, system, passthru) n\'est disponible sur ce serveur (disable_functions) — mysqldump ne peut pas être lancé. Contactez votre hébergeur pour en activer au moins une, ou sauvegardez manuellement (par exemple via phpMyAdmin) avant de continuer.';
-        } elseif (\Core\System\ExecutableLocator::find('mysqldump') === null) {
-            $backupError = 'mysqldump est indisponible sur ce serveur.';
-        } else {
-            try {
-                $backupService = new \Core\Maintenance\BackupService($connection, $storagePath, $basePath);
-                $dumpPath = $backupService->createDatabaseDump();
+        try {
+            $backupService = new \Core\Maintenance\BackupService($connection, $storagePath, $basePath);
+            $dumpPath = $backupService->createDatabaseDump();
 
-                // Personal-data columns in the dump are still encrypted at
-                // rest (BackupService's own doc comment) — without the key
-                // that encrypted them, they're permanently unreadable the
-                // moment this reinstall's setup generates a fresh one.
-                // Bundle the two files needed to decrypt them later
-                // alongside the dump itself, so the backup is actually
-                // restorable rather than just a pile of ciphertext.
-                $masterKeyPath = $storagePath . '/keys/master.key';
-                $secretsPath = $storagePath . '/config/secrets.enc';
-                if (is_file($masterKeyPath) && is_file($secretsPath)) {
-                    $dumpPath = $this->bundleBackupWithEncryptionKey($dumpPath, $masterKeyPath, $secretsPath);
-                }
-            } catch (\Core\Maintenance\BackupException $e) {
-                $backupError = $e->getMessage();
+            // Personal-data columns in the dump are still encrypted at
+            // rest (BackupService's own doc comment) — without the key
+            // that encrypted them, they're permanently unreadable the
+            // moment this reinstall's setup generates a fresh one.
+            // Bundle the two files needed to decrypt them later
+            // alongside the dump itself, so the backup is actually
+            // restorable rather than just a pile of ciphertext.
+            $masterKeyPath = $storagePath . '/keys/master.key';
+            $secretsPath = $storagePath . '/config/secrets.enc';
+            if (is_file($masterKeyPath) && is_file($secretsPath)) {
+                $dumpPath = $this->bundleBackupWithEncryptionKey($dumpPath, $masterKeyPath, $secretsPath);
             }
+        } catch (\Core\Maintenance\BackupException $e) {
+            $backupError = $e->getMessage();
         }
 
         // The backup step failing must never leave the operator stuck with
-        // no way to proceed (e.g. mysqldump genuinely unavailable on this
-        // host) — but emptying without a safety net is a distinct, more
-        // dangerous action, so it's only ever taken when explicitly
-        // confirmed, never silently.
+        // no way to proceed — but emptying without a safety net is a
+        // distinct, more dangerous action, so it's only ever taken when
+        // explicitly confirmed, never silently.
         if ($backupError !== null && !$forceWithoutBackup) {
             return $this->json([
                 'success' => false,
