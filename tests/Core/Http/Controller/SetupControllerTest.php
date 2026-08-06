@@ -253,6 +253,185 @@ class SetupControllerTest extends TestCase
         $this->assertNotEmpty($json['message']);
     }
 
+    /**
+     * Regression: a database left over from a prior install (files
+     * replaced, database untouched) generates a brand-new encryption key
+     * against old encrypted rows — a guaranteed DecryptionException down
+     * the line. testDatabase() must flag this so the wizard can warn
+     * before install proceeds, rather than only failing much later.
+     *
+     * @group database
+     */
+    public function testTestDatabaseReportsExistingTablesOnAFreshSetup(): void
+    {
+        [$pdo, $params] = $this->connectToTestDatabase();
+        $pdo->exec('CREATE TABLE leftover_table (id INT PRIMARY KEY)');
+
+        $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath);
+        $_POST['_csrf_token'] = \Core\Security\CsrfGuard::generateToken();
+        $request = new Request('POST', '/setup/test-db', [], $params, [], []);
+
+        $json = json_decode($controller->testDatabase($request, [])->getBody(), true);
+
+        $this->assertTrue($json['success']);
+        $this->assertTrue($json['has_existing_tables']);
+        $this->assertSame(1, $json['table_count']);
+
+        $this->dropAllTables($pdo);
+    }
+
+    /**
+     * @group database
+     */
+    public function testTestDatabaseReportsNoExistingTablesOnAnEmptyDatabase(): void
+    {
+        [$pdo, $params] = $this->connectToTestDatabase();
+        $this->dropAllTables($pdo);
+
+        $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath);
+        $_POST['_csrf_token'] = \Core\Security\CsrfGuard::generateToken();
+        $request = new Request('POST', '/setup/test-db', [], $params, [], []);
+
+        $json = json_decode($controller->testDatabase($request, [])->getBody(), true);
+
+        $this->assertTrue($json['success']);
+        $this->assertFalse($json['has_existing_tables']);
+        $this->assertSame(0, $json['table_count']);
+    }
+
+    /**
+     * testDatabase() is also reused by the already-initialized "update
+     * settings" flow, where the site's own database is never empty by
+     * definition — has_existing_tables must not be reported there, or
+     * every settings save would show a spurious "empty the database"
+     * warning.
+     */
+    public function testTestDatabaseOmitsExistingTablesFlagWhenAlreadyInitialized(): void
+    {
+        $this->secretManager->generateMasterKey();
+        $this->secretManager->writeSecrets(['db_host' => 'x', 'db_port' => 3306, 'db_name' => 'x', 'db_user' => 'x', 'db_password' => 'x']);
+
+        $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath);
+        $request = new Request('POST', '/setup/test-db', [], [
+            'db_host' => 'invalid.invalid.host',
+            'db_port' => '9999',
+            'db_name' => 'nonexistent',
+            'db_user' => 'nobody',
+            'db_password' => 'wrong',
+        ], [], []);
+
+        $json = json_decode($controller->testDatabase($request, [])->getBody(), true);
+
+        $this->assertArrayNotHasKey('has_existing_tables', $json);
+    }
+
+    /**
+     * @group database
+     */
+    public function testBackupAndEmptyDatabaseDumpsThenDropsEveryTable(): void
+    {
+        [$pdo, $params] = $this->connectToTestDatabase();
+        $pdo->exec('CREATE TABLE leftover_table (id INT PRIMARY KEY)');
+        $pdo->exec('INSERT INTO leftover_table (id) VALUES (1)');
+
+        $publicDir = $this->tempDir . '/public';
+        mkdir($publicDir, 0755, true);
+        $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath, $publicDir);
+        $token = \Core\Security\CsrfGuard::generateToken();
+        $_POST['_csrf_token'] = $token;
+        $request = new Request('POST', '/setup/backup-and-empty-db', [], array_merge($params, ['_csrf_token' => $token]), [], []);
+
+        $json = json_decode($controller->backupAndEmptyDatabase($request, [])->getBody(), true);
+
+        $this->assertTrue($json['success'], $json['message'] ?? '');
+        $this->assertSame(1, $json['table_count']);
+        $this->assertSame('/setup/download-backup', $json['download_url']);
+        $this->assertEmpty($pdo->query('SHOW TABLES')->fetchAll());
+        $this->assertNotEmpty($_SESSION['setup_backup_download'] ?? null);
+
+        $dumpPath = $this->tempDir . '/storage/maintenance/' . $_SESSION['setup_backup_download'];
+        $this->assertFileExists($dumpPath);
+        $this->assertStringContainsString('leftover_table', (string) file_get_contents($dumpPath));
+    }
+
+    public function testBackupAndEmptyDatabaseRejectsWhenAlreadyInitialized(): void
+    {
+        $this->secretManager->generateMasterKey();
+        $this->secretManager->writeSecrets(['db_host' => 'x', 'db_port' => 3306, 'db_name' => 'x', 'db_user' => 'x', 'db_password' => 'x']);
+
+        $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath);
+        $token = \Core\Security\CsrfGuard::generateToken();
+        $request = new Request('POST', '/setup/backup-and-empty-db', [], ['_csrf_token' => $token], [], []);
+
+        $response = $controller->backupAndEmptyDatabase($request, []);
+
+        $this->assertSame(403, $response->getStatusCode());
+        $this->assertFalse(json_decode($response->getBody(), true)['success']);
+    }
+
+    /**
+     * @group database
+     */
+    public function testDownloadBackupServesTheDumpThenDeletesIt(): void
+    {
+        [$pdo, $params] = $this->connectToTestDatabase();
+        $pdo->exec('CREATE TABLE leftover_table (id INT PRIMARY KEY)');
+
+        $publicDir = $this->tempDir . '/public';
+        mkdir($publicDir, 0755, true);
+        $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath, $publicDir);
+        $token = \Core\Security\CsrfGuard::generateToken();
+        $_POST['_csrf_token'] = $token;
+        $backupRequest = new Request('POST', '/setup/backup-and-empty-db', [], array_merge($params, ['_csrf_token' => $token]), [], []);
+        $controller->backupAndEmptyDatabase($backupRequest, []);
+
+        $dumpPath = $this->tempDir . '/storage/maintenance/' . $_SESSION['setup_backup_download'];
+
+        $response = $controller->downloadBackup(new Request('GET', '/setup/download-backup', [], [], [], []), []);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertStringContainsString('leftover_table', $response->getBody());
+        $this->assertFileDoesNotExist($dumpPath);
+        $this->assertArrayNotHasKey('setup_backup_download', $_SESSION);
+    }
+
+    public function testDownloadBackupReturns404WithoutAPendingBackup(): void
+    {
+        $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath);
+
+        $response = $controller->downloadBackup(new Request('GET', '/setup/download-backup', [], [], [], []), []);
+
+        $this->assertSame(404, $response->getStatusCode());
+    }
+
+    /**
+     * @return array{0: \PDO, 1: array<string, string>}
+     */
+    private function connectToTestDatabase(): array
+    {
+        $host = getenv('TEST_DB_HOST') ?: '127.0.0.1';
+        $port = getenv('TEST_DB_PORT') ?: '3306';
+        $dbName = getenv('TEST_DB_NAME') ?: 'test_db';
+        $user = getenv('TEST_DB_USER') ?: 'root';
+        $password = getenv('TEST_DB_PASSWORD') ?: '';
+
+        try {
+            $dsn = sprintf('mysql:host=%s;port=%s;dbname=%s;charset=utf8mb4', $host, $port, $dbName);
+            $pdo = new \PDO($dsn, $user, $password);
+            $this->dropAllTables($pdo);
+        } catch (\PDOException $e) {
+            $this->markTestSkipped('Database not available: ' . $e->getMessage());
+        }
+
+        return [$pdo, [
+            'db_host' => $host,
+            'db_port' => $port,
+            'db_name' => $dbName,
+            'db_user' => $user,
+            'db_password' => $password,
+        ]];
+    }
+
     public function testSaveRejectsInvalidCsrfToken(): void
     {
         $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath);

@@ -10,6 +10,11 @@
     var btnCheckDns = document.getElementById('btn-check-dns');
     var dnsSpinner = document.getElementById('dns-spinner');
     var dnsRecords = document.getElementById('dns-records');
+    var dbNotEmptyWarning = document.getElementById('db-not-empty-warning');
+    var dbNotEmptyCount = document.getElementById('db-not-empty-count');
+    var btnBackupEmptyDb = document.getElementById('btn-backup-empty-db');
+    var backupEmptySpinner = document.getElementById('backup-empty-spinner');
+    var backupEmptyResult = document.getElementById('backup-empty-result');
 
     // Copy-to-clipboard for the DKIM key and DNS record values. Delegated
     // on document (not inline onclick="" attributes) because this app's
@@ -93,14 +98,33 @@
                 dbSpinner.classList.add('d-none');
                 if (json.success) {
                     dbResult.innerHTML = '<span class="text-success">\u2713 Connexion r\u00e9ussie</span>';
-                    dbTestPassed = true;
-                    btnSave.disabled = false;
-                    saveHint.style.display = 'none';
+
+                    if (json.has_existing_tables) {
+                        // Proceeding straight to install here would generate
+                        // a fresh encryption key against these old rows \u2014
+                        // guaranteed DecryptionException down the line.
+                        // Block Save until the operator explicitly backs up
+                        // and empties this database (or picks another one).
+                        dbTestPassed = false;
+                        btnSave.disabled = true;
+                        saveHint.style.display = 'block';
+                        if (dbNotEmptyWarning) {
+                            dbNotEmptyCount.textContent = json.table_count + (json.table_count > 1 ? ' tables' : ' table');
+                            dbNotEmptyWarning.classList.remove('d-none');
+                            backupEmptyResult.textContent = '';
+                        }
+                    } else {
+                        dbTestPassed = true;
+                        btnSave.disabled = false;
+                        saveHint.style.display = 'none';
+                        if (dbNotEmptyWarning) { dbNotEmptyWarning.classList.add('d-none'); }
+                    }
                 } else {
                     dbResult.innerHTML = '<span class="text-danger">\u2717 ' + json.message + '</span>';
                     dbTestPassed = false;
                     btnSave.disabled = true;
                     saveHint.style.display = 'block';
+                    if (dbNotEmptyWarning) { dbNotEmptyWarning.classList.add('d-none'); }
                 }
             })
             .catch(function() {
@@ -108,6 +132,48 @@
                 dbResult.innerHTML = '<span class="text-danger">\u2717 Erreur r\u00e9seau</span>';
             });
     });
+
+    if (btnBackupEmptyDb) {
+        btnBackupEmptyDb.addEventListener('click', function() {
+            btnBackupEmptyDb.disabled = true;
+            backupEmptySpinner.classList.remove('d-none');
+            backupEmptyResult.textContent = '';
+
+            var data = new FormData();
+            data.append('_csrf_token', form.elements['_csrf_token'].value);
+            data.append('db_host', document.getElementById('db_host').value);
+            data.append('db_port', document.getElementById('db_port').value);
+            data.append('db_name', document.getElementById('db_name').value);
+            data.append('db_user', document.getElementById('db_user').value);
+            data.append('db_password', document.getElementById('db_password').value);
+
+            fetch('/setup/backup-and-empty-db', { method: 'POST', body: data })
+                .then(function(r) { return r.json(); })
+                .then(function(json) {
+                    backupEmptySpinner.classList.add('d-none');
+                    if (!json.success) {
+                        backupEmptyResult.innerHTML = '<span class="text-danger">\u2717 ' + json.message + '</span>';
+                        btnBackupEmptyDb.disabled = false;
+                        return;
+                    }
+                    // Trigger the actual file download as a real navigation
+                    // (not part of this fetch) \u2014 the server already
+                    // deletes the dump on first read, so this must succeed
+                    // before the operator navigates away.
+                    window.location.href = json.download_url;
+                    backupEmptyResult.innerHTML = '<span class="text-success">\u2713 Sauvegarde t\u00e9l\u00e9charg\u00e9e, base vid\u00e9e (' + json.table_count + ' table' + (json.table_count > 1 ? 's' : '') + '). Vous pouvez poursuivre l\u2019installation.</span>';
+                    dbNotEmptyWarning.classList.add('d-none');
+                    dbTestPassed = true;
+                    btnSave.disabled = false;
+                    saveHint.style.display = 'none';
+                })
+                .catch(function() {
+                    backupEmptySpinner.classList.add('d-none');
+                    backupEmptyResult.innerHTML = '<span class="text-danger">\u2717 Erreur r\u00e9seau</span>';
+                    btnBackupEmptyDb.disabled = false;
+                });
+        });
+    }
 
     // Test email
     var btnTestEmail = document.getElementById('btn-test-email');

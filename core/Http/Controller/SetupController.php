@@ -132,11 +132,132 @@ class SetupController extends AbstractController
         $connection = new Connection($host, $port, $dbName, $user, $password);
         $result = $connection->testConnection();
 
-        if ($result === true) {
-            return $this->json(['success' => true, 'message' => 'Connexion réussie']);
+        if ($result !== true) {
+            return $this->json(['success' => false, 'message' => $result]);
         }
 
-        return $this->json(['success' => false, 'message' => $result]);
+        // A leftover database from a prior install (files replaced, DB
+        // untouched) generates a brand-new encryption key against old
+        // encrypted rows — a guaranteed DecryptionException down the line.
+        // Only relevant for a genuinely first-time setup; an already-
+        // initialized site's own database is never empty.
+        $hasExistingTables = false;
+        $tableCount = 0;
+        if (!$this->secretManager->isInitialized()) {
+            $tableCount = count((new SchemaIntrospector($connection->getPdo()))->getTables());
+            $hasExistingTables = $tableCount > 0;
+        }
+
+        return $this->json([
+            'success' => true,
+            'message' => 'Connexion réussie',
+            'has_existing_tables' => $hasExistingTables,
+            'table_count' => $tableCount,
+        ]);
+    }
+
+    /**
+     * POST /setup/backup-and-empty-db — AJAX: dump the existing database
+     * to a downloadable file, then drop every table so migration starts
+     * from a genuinely clean state. First-time setup only — never reachable
+     * once the site is initialized, so this can never touch a live
+     * install's data.
+     *
+     * @param array<string, string> $params
+     */
+    public function backupAndEmptyDatabase(Request $request, array $params): Response
+    {
+        if ($this->secretManager->isInitialized()) {
+            return $this->json(['success' => false, 'message' => 'Action indisponible : le site est déjà configuré.'], 403);
+        }
+        if (!CsrfGuard::validateRequest()) {
+            return $this->json(['success' => false, 'message' => 'Jeton CSRF invalide.'], 403);
+        }
+
+        $host = (string) $request->getBody('db_host', 'localhost');
+        $port = (int) $request->getBody('db_port', 3306);
+        $dbName = (string) $request->getBody('db_name', '');
+        $user = (string) $request->getBody('db_user', '');
+        $password = (string) $request->getBody('db_password', '');
+
+        $connection = new Connection($host, $port, $dbName, $user, $password);
+        if ($connection->testConnection() !== true) {
+            return $this->json(['success' => false, 'message' => 'La connexion à la base de données a échoué.']);
+        }
+
+        if (\Core\System\ExecutableLocator::find('mysqldump') === null) {
+            return $this->json([
+                'success' => false,
+                'message' => 'mysqldump est indisponible sur ce serveur — sauvegardez manuellement (par exemple via phpMyAdmin) puis videz la base avant de continuer.',
+            ]);
+        }
+
+        $basePath = rtrim(dirname(rtrim($this->publicDir, '/')), '/');
+        $storagePath = $basePath . '/storage';
+
+        try {
+            $backupService = new \Core\Maintenance\BackupService($connection, $storagePath, $basePath);
+            $dumpPath = $backupService->createDatabaseDump();
+        } catch (\Core\Maintenance\BackupException $e) {
+            return $this->json(['success' => false, 'message' => 'Échec de la sauvegarde : ' . $e->getMessage()]);
+        }
+
+        $pdo = $connection->getPdo();
+        $tables = (new SchemaIntrospector($pdo))->getTables();
+        $pdo->exec('SET FOREIGN_KEY_CHECKS = 0');
+        foreach ($tables as $table) {
+            $pdo->exec('DROP TABLE IF EXISTS `' . $table . '`');
+        }
+        $pdo->exec('SET FOREIGN_KEY_CHECKS = 1');
+
+        $_SESSION['setup_backup_download'] = basename($dumpPath);
+
+        $this->journalService?->log(
+            'core',
+            'setup_db_emptied',
+            'security',
+            'Base de données sauvegardée puis vidée avant réinstallation',
+            ['table_count' => count($tables)]
+        );
+
+        return $this->json([
+            'success' => true,
+            'table_count' => count($tables),
+            'download_url' => '/setup/download-backup',
+        ]);
+    }
+
+    /**
+     * GET /setup/download-backup — one-time download of the dump created
+     * by backupAndEmptyDatabase(), then deleted. Gated on a session-stored
+     * filename set only by that action, not on user-supplied input — safe
+     * against path traversal / downloading an arbitrary file.
+     *
+     * @param array<string, string> $params
+     */
+    public function downloadBackup(Request $request, array $params): Response
+    {
+        $filename = $_SESSION['setup_backup_download'] ?? null;
+        if (!is_string($filename) || $filename === '') {
+            return new Response('Not Found', 404);
+        }
+
+        $basePath = rtrim(dirname(rtrim($this->publicDir, '/')), '/');
+        $path = $basePath . '/storage/maintenance/' . $filename;
+
+        if (!is_file($path)) {
+            unset($_SESSION['setup_backup_download']);
+            return new Response('Not Found', 404);
+        }
+
+        $content = (string) file_get_contents($path);
+        @unlink($path);
+        unset($_SESSION['setup_backup_download']);
+
+        return (new Response($content))
+            ->setHeader('Content-Type', 'application/sql')
+            ->setHeader('Content-Disposition', 'attachment; filename="' . addslashes($filename) . '"')
+            ->setHeader('Content-Length', (string) strlen($content));
     }
 
     /**

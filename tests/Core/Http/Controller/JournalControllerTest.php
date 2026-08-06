@@ -21,10 +21,12 @@ class JournalControllerTest extends TestCase
     private JournalService $journalService;
     private JournalRepository $journalRepo;
     private UserAccountRepository $userRepo;
+    private \PDO $pdo;
 
     protected function setUp(): void
     {
         $pdo = DatabaseTestHelper::createTestDatabase();
+        $this->pdo = $pdo;
         $this->journalRepo = new JournalRepository($pdo);
         $this->journalService = new JournalService($this->journalRepo);
         $this->userRepo = new UserAccountRepository($pdo, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)));
@@ -124,6 +126,28 @@ class JournalControllerTest extends TestCase
 
         $this->assertStringContainsString('Action actor', $body);
         $this->assertStringNotContainsString('Action other', $body);
+    }
+
+    /**
+     * Regression: an account left over from a prior install/key (e.g. a
+     * reinstall that generated a fresh encryption key against a database
+     * that still had old rows) can have an email_encrypted blob that no
+     * longer decrypts with the current key. That must degrade to "—" for
+     * that one entry, not fatal the whole journal page — this is exactly
+     * the page an operator would reach for while diagnosing such an issue.
+     */
+    public function testIndexDoesNotCrashWhenAnAccountsEmailCannotBeDecrypted(): void
+    {
+        $actor = $this->userRepo->create('actor@test.be');
+        $this->pdo->prepare('UPDATE user_accounts SET email_encrypted = ? WHERE id = ?')
+            ->execute([random_bytes(40), $actor->id]);
+        $this->journalRepo->insert('core', 'login_success', 'security', 'Connexion', null, $actor->id, '203.0.113.9');
+
+        $request = new Request('GET', '/admin/journal', [], [], [], []);
+        $response = $this->controller->index($request, []);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertStringContainsString('Connexion', $response->getBody());
     }
 
     public function testIndexFiltersByIp(): void

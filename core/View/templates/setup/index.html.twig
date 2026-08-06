@@ -78,6 +78,17 @@
                 Tester la connexion
             </button>
             <span id="db-test-result" class="ms-2"></span>
+
+            {% if not is_initialized %}
+            <div id="db-not-empty-warning" class="alert alert-warning mt-3 d-none">
+                <p class="mb-2">Cette base de données contient déjà des tables (<span id="db-not-empty-count"></span>). Poursuivre l'installation dessus provoquera des erreurs (les données existantes ont été chiffrées avec une ancienne clé qui n'existe plus). Sauvegardez son contenu puis videz-la avant de continuer, ou choisissez une autre base de données.</p>
+                <button type="button" class="btn btn-warning btn-sm" id="btn-backup-empty-db">
+                    <span class="spinner-border spinner-border-sm d-none" id="backup-empty-spinner" role="status"></span>
+                    Sauvegarder puis vider la base
+                </button>
+                <span id="backup-empty-result" class="ms-2"></span>
+            </div>
+            {% endif %}
         </div>
     </div>
 

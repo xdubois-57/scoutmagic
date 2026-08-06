@@ -192,6 +192,10 @@ if (!$isInitialized) {
         $response = $setupController->verifyToken($request, []);
     } elseif ($request->getMethod() === 'POST' && $request->getPath() === '/setup/test-db') {
         $response = $setupController->testDatabase($request, []);
+    } elseif ($request->getMethod() === 'POST' && $request->getPath() === '/setup/backup-and-empty-db') {
+        $response = $setupController->backupAndEmptyDatabase($request, []);
+    } elseif ($request->getMethod() === 'GET' && $request->getPath() === '/setup/download-backup') {
+        $response = $setupController->downloadBackup($request, []);
     } elseif ($request->getMethod() === 'POST' && $request->getPath() === '/setup/save') {
         $response = $setupController->save($request, []);
     } elseif ($request->getMethod() === 'GET' && $request->getPath() === '/setup/dns') {
@@ -1061,6 +1065,8 @@ $router->addRoute('GET', '/offline', \Core\Http\Controller\PwaController::class,
 $router->addRoute('GET', '/setup', SetupController::class, 'index', 'superadmin');
 $router->addRoute('POST', '/setup/verify-token', SetupController::class, 'verifyToken', 'superadmin');
 $router->addRoute('POST', '/setup/test-db', SetupController::class, 'testDatabase', 'superadmin');
+$router->addRoute('POST', '/setup/backup-and-empty-db', SetupController::class, 'backupAndEmptyDatabase', 'superadmin');
+$router->addRoute('GET', '/setup/download-backup', SetupController::class, 'downloadBackup', 'superadmin');
 $router->addRoute('POST', '/setup/save', SetupController::class, 'save', 'superadmin');
 $router->addRoute('GET', '/setup/dns', SetupController::class, 'checkDns', 'superadmin');
 $router->addRoute('POST', '/setup/test-email', SetupController::class, 'testEmail', 'superadmin');

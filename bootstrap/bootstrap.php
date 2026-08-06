@@ -2152,14 +2152,10 @@ function bootstrap_render_ui(string $docRoot, string $stateFile): void
       continueBtn.addEventListener('click', function () { window.location.href = '/setup'; });
       summary.insertAdjacentElement('afterend', continueBtn);
     } else if (effectivePassed) {
-      // Navigating away wipes the browser console, so this is deliberately
-      // long rather than a quick auto-advance — enough time to open dev
-      // tools and copy anything logged during the steps above before it's
-      // gone for good.
-      summary.textContent = 'Installation terminée avec succès. token.php vous attend dans le même dossier FTP — la page suivante vous le demandera. Redirection automatique dans une minute (si la console de votre navigateur affiche des erreurs, copiez-les maintenant avant qu\'elles ne disparaissent).';
+      summary.textContent = 'Installation terminée avec succès. token.php vous attend dans le même dossier FTP — la page suivante vous le demandera. Redirection automatique dans quelques secondes.';
       summary.className = 'alert alert-ok';
       if (data.token_write_warning) { logLine(data.token_write_warning, true); }
-      setTimeout(function () { window.location.href = '/setup'; }, 60000);
+      setTimeout(function () { window.location.href = '/setup'; }, 5000);
     } else {
       // For a plain step failure (steps 1-8/10), there are no s_checks/
       // b_checks/f_checks rows at all — data.error is the ONLY place the

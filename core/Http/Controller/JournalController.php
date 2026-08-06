@@ -7,6 +7,7 @@ namespace Core\Http\Controller;
 use Core\Http\Request;
 use Core\Http\Response;
 use Core\Journal\JournalRepository;
+use Core\Security\DecryptionException;
 use Core\Security\UserAccountRepository;
 use Twig\Environment;
 
@@ -82,8 +83,16 @@ class JournalController extends AbstractController
         foreach ($entries as $entry) {
             $id = $entry['user_account_id'] ?? null;
             if ($id !== null && !array_key_exists((int) $id, $emails)) {
-                $account = $this->userAccountRepository->findById((int) $id);
-                $emails[(int) $id] = $account !== null ? $account->email : null;
+                // The journal is exactly the page reached for while
+                // diagnosing a data problem — an undecryptable email on one
+                // account (stale row from a prior install, wrong key, etc.)
+                // must not take down the whole page for every other entry.
+                try {
+                    $account = $this->userAccountRepository->findById((int) $id);
+                    $emails[(int) $id] = $account !== null ? $account->email : null;
+                } catch (DecryptionException) {
+                    $emails[(int) $id] = null;
+                }
             }
         }
 
