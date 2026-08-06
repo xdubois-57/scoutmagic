@@ -27,6 +27,9 @@ class WebAuthnService
         $challenge = random_bytes(32);
 
         // Store challenge in session for later verification
+        if (session_status() !== PHP_SESSION_ACTIVE) {
+            session_start();
+        }
         $_SESSION['webauthn_challenge'] = base64_encode($challenge);
         $_SESSION['webauthn_user_id'] = $userAccountId;
 
@@ -83,6 +86,9 @@ class WebAuthnService
         }
 
         // Clear used challenge
+        if (session_status() !== PHP_SESSION_ACTIVE) {
+            session_start();
+        }
         unset($_SESSION['webauthn_challenge'], $_SESSION['webauthn_user_id']);
 
         // Decode client response
@@ -141,6 +147,9 @@ class WebAuthnService
     {
         $challenge = random_bytes(32);
 
+        if (session_status() !== PHP_SESSION_ACTIVE) {
+            session_start();
+        }
         $_SESSION['webauthn_auth_challenge'] = base64_encode($challenge);
 
         return [
@@ -166,6 +175,9 @@ class WebAuthnService
             return null;
         }
 
+        if (session_status() !== PHP_SESSION_ACTIVE) {
+            session_start();
+        }
         unset($_SESSION['webauthn_auth_challenge']);
 
         // Find credential by ID

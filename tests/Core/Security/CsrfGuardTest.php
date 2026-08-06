@@ -110,4 +110,27 @@ class CsrfGuardTest extends TestCase
         unset($_POST['_csrf_token']);
         unset($_SERVER['HTTP_X_CSRF_TOKEN']);
     }
+
+    /**
+     * Regression: public/index.php calls session_write_close() early
+     * (before the DB connection/migration) to avoid holding the session
+     * file lock for the whole request — after that, session_status()
+     * reports PHP_SESSION_NONE for the rest of the request even though
+     * $_SESSION itself stays populated. validateToken() must not gate on
+     * session_status() === PHP_SESSION_ACTIVE, or every CSRF check on a
+     * real request (where dispatch always runs after the early close)
+     * would fail unconditionally.
+     */
+    public function testValidateTokenStillWorksAfterSessionWriteCloseLikeARealRequest(): void
+    {
+        $token = CsrfGuard::generateToken();
+        session_write_close();
+
+        $this->assertSame(PHP_SESSION_NONE, session_status());
+        $this->assertTrue(CsrfGuard::validateToken($token));
+
+        // Re-open so tearDown()'s session_destroy() has an active session
+        // to act on.
+        session_start();
+    }
 }

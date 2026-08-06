@@ -309,6 +309,9 @@ class SetupController extends AbstractController
         $pdo->exec('SET FOREIGN_KEY_CHECKS = 1');
 
         if ($dumpPath !== null) {
+            if (session_status() !== PHP_SESSION_ACTIVE) {
+                session_start();
+            }
             $_SESSION['setup_backup_download'] = basename($dumpPath);
         }
 
@@ -373,6 +376,10 @@ class SetupController extends AbstractController
 
         $basePath = rtrim(dirname(rtrim($this->publicDir, '/')), '/');
         $path = $basePath . '/storage/maintenance/' . $filename;
+
+        if (session_status() !== PHP_SESSION_ACTIVE) {
+            session_start();
+        }
 
         if (!is_file($path)) {
             unset($_SESSION['setup_backup_download']);
@@ -523,6 +530,10 @@ class SetupController extends AbstractController
         $submitted = trim((string) $request->getBody('token', ''));
 
         $valid = $tokenPath !== null && $expected !== '' && $submitted !== '' && hash_equals($expected, $submitted);
+
+        if (session_status() !== PHP_SESSION_ACTIVE) {
+            session_start();
+        }
 
         if ($valid) {
             unset($_SESSION['setup_token_attempts'], $_SESSION['setup_token_locked_until'], $_SESSION['setup_token_error']);
@@ -1054,6 +1065,9 @@ class SetupController extends AbstractController
         }
 
         $error = $_SESSION['setup_token_error'] ?? null;
+        if (session_status() !== PHP_SESSION_ACTIVE) {
+            session_start();
+        }
         unset($_SESSION['setup_token_error']);
 
         return $this->render('setup/token_gate.html.twig', [

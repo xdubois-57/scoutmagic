@@ -61,4 +61,34 @@ class FlashMessageTest extends TestCase
         $this->assertSame('warning', $flash['type']);
         $this->assertSame('A warning', $flash['message']);
     }
+
+    /**
+     * Regression: public/index.php calls session_write_close() early
+     * (before the DB connection/migration) to avoid holding the session
+     * file lock for the whole request — after that, session_status()
+     * reports PHP_SESSION_NONE for the rest of the request even though
+     * $_SESSION itself stays populated. get() must not gate its read on
+     * session_status() === PHP_SESSION_ACTIVE, or a flash message set on
+     * a previous request would never display on the request that follows
+     * it (dispatch always runs after the early close on a real request).
+     */
+    public function testGetStillWorksAfterSessionWriteCloseLikeARealRequest(): void
+    {
+        FlashMessage::set('success', 'Compte créé avec succès');
+        session_write_close();
+
+        $this->assertSame(PHP_SESSION_NONE, session_status());
+
+        $flash = FlashMessage::get();
+
+        $this->assertNotNull($flash);
+        $this->assertSame('success', $flash['type']);
+
+        // get() already reopened the session itself to persist the
+        // unset() — only reopen here if it somehow didn't, so
+        // tearDown()'s session_destroy() has an active session to act on.
+        if (session_status() !== PHP_SESSION_ACTIVE) {
+            session_start();
+        }
+    }
 }
