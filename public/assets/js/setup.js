@@ -127,6 +127,19 @@
             var data = new FormData();
             data.append('_csrf_token', form.elements['_csrf_token'].value);
             data.append('recipient', recipient);
+            // Needed for the not-yet-initialized case, where testEmail()
+            // reads mail settings straight from the request body instead
+            // of persisted secrets (harmless extra fields once
+            // initialized \u2014 that path reads from secrets.enc instead).
+            data.append('mail_mode', mailMode.value);
+            data.append('smtp_host', document.getElementById('smtp_host').value);
+            data.append('smtp_port', document.getElementById('smtp_port').value);
+            data.append('smtp_user', document.getElementById('smtp_user').value);
+            data.append('smtp_password', document.getElementById('smtp_password').value);
+            data.append('mail_from_address', document.getElementById('mail_from_address').value);
+            data.append('mail_from_name', document.getElementById('mail_from_name').value);
+            data.append('short_name', document.getElementById('short_name').value);
+            data.append('dkim_selector', document.getElementById('dkim_selector').value);
 
             fetch('/setup/test-email', { method: 'POST', body: data })
                 .then(function(r) { return r.json(); })
