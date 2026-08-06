@@ -183,8 +183,42 @@
                 {% if errors.dmarc_report_email is defined %}<div class="invalid-feedback">{{ errors.dmarc_report_email }}</div>{% endif %}
             </div>
 
-            {# SMTP test (only when initialized) #}
-            {% if is_initialized %}
+            {# DKIM key — generation can happen ahead of the rest of setup
+               via the button below, so the public key is available for
+               DNS configuration without waiting for the final save. #}
+            <div class="mb-3">
+                <h3 class="h6 mb-2">Clé DKIM</h3>
+                <div id="dkim-key-section">
+                    {% if has_dkim_key %}
+                        <p class="mb-2 small">Clé DKIM générée. Sélecteur : <strong>{{ values.dkim_selector ?? '—' }}</strong>.</p>
+                        <div class="mb-2">
+                            <small class="text-muted">Clé publique (pour l'enregistrement DNS) :</small>
+                            <div class="input-group input-group-sm mt-1">
+                                <input type="text" class="form-control font-monospace" value="{{ dkim_public_key }}" readonly id="dkim-pubkey-display">
+                                <button type="button" class="btn btn-outline-secondary btn-copy-value" data-copy-target="dkim-pubkey-display">Copier</button>
+                            </div>
+                        </div>
+                        {% if is_initialized %}
+                        <div class="form-check mt-2">
+                            <input class="form-check-input" type="checkbox" id="regenerate_dkim" name="regenerate_dkim" value="1">
+                            <label class="form-check-label" for="regenerate_dkim">Régénérer la clé DKIM</label>
+                            <div class="form-text text-warning">Attention : si vous régénérez la clé, vous devrez mettre à jour l'enregistrement DNS correspondant.</div>
+                        </div>
+                        {% endif %}
+                    {% else %}
+                        <p class="text-muted small">Aucune clé DKIM pour le moment — une clé sera générée automatiquement lors de l'enregistrement final, mais la propagation DNS peut prendre du temps : générez-la dès maintenant si vous voulez configurer l'enregistrement DNS DKIM sans attendre la fin de l'installation.</p>
+                        <div class="mb-2">
+                            <button type="button" class="btn btn-outline-secondary btn-sm" id="btn-generate-dkim">
+                                <span class="spinner-border spinner-border-sm d-none" id="dkim-gen-spinner" role="status"></span>
+                                Générer la clé maintenant
+                            </button>
+                            <span id="dkim-gen-result" class="small ms-2"></span>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+
+            {# SMTP test #}
             <div class="mt-3 mb-3">
                 <label for="test_email_recipient" class="form-label">Tester l'envoi d'email</label>
                 <div class="input-group">
@@ -194,15 +228,15 @@
                         Envoyer un test
                     </button>
                 </div>
+                <div class="form-text">Teste les paramètres SMTP actuellement saisis ci-dessus (pas encore besoin d'enregistrer).</div>
                 <span id="email-test-result" class="small"></span>
             </div>
-            {% endif %}
 
             {# DNS records panel #}
             <div class="card bg-light mt-3">
                 <div class="card-body">
                     <h3 class="h6 mb-2">Configuration DNS requise</h3>
-                    <p class="text-muted small mb-2">Un domaine ne peut avoir qu'un seul enregistrement TXT SPF et qu'un seul enregistrement <code>_dmarc</code> : si une valeur actuelle est déjà affichée ci-dessous, la valeur suggérée l'intègre automatiquement (elle ne supprime rien de votre configuration existante) — remplacez l'enregistrement existant par cette valeur suggérée plutôt que d'en ajouter un second. Le DKIM utilise en revanche un sous-domaine dédié au sélecteur choisi ci-dessus : il n'entre jamais en conflit avec un enregistrement existant sous un autre nom, et nécessite d'avoir généré la clé DKIM (section « Clé DKIM » ci-dessous) pour connaître sa valeur.</p>
+                    <p class="text-muted small mb-2">Un domaine ne peut avoir qu'un seul enregistrement TXT SPF et qu'un seul enregistrement <code>_dmarc</code> : si une valeur actuelle est déjà affichée ci-dessous, la valeur suggérée l'intègre automatiquement (elle ne supprime rien de votre configuration existante) — remplacez l'enregistrement existant par cette valeur suggérée plutôt que d'en ajouter un second. Le DKIM utilise en revanche un sous-domaine dédié au sélecteur choisi ci-dessus : il n'entre jamais en conflit avec un enregistrement existant sous un autre nom, et nécessite d'avoir généré la clé DKIM (section « Clé DKIM » ci-dessus) pour connaître sa valeur.</p>
                     <div id="dns-records">
                         <p class="text-muted small mb-2">Complétez les champs ci-dessus puis cliquez sur « Vérifier les DNS » pour afficher les enregistrements requis.</p>
                     </div>
@@ -215,38 +249,7 @@
         </div>
     </div>
 
-    {# Section 4: DKIM key #}
-    <div class="card mb-4">
-        <div class="card-body">
-            <h2 class="card-title h5 mb-3">Clé DKIM</h2>
-            {% if has_dkim_key %}
-                <p class="mb-2">Clé DKIM générée. Sélecteur : <strong>{{ values.dkim_selector ?? '—' }}</strong>.</p>
-                <div class="mb-2">
-                    <small class="text-muted">Clé publique (pour l'enregistrement DNS) :</small>
-                    <div class="input-group input-group-sm mt-1">
-                        <input type="text" class="form-control font-monospace" value="{{ dkim_public_key }}" readonly id="dkim-pubkey-display">
-                        <button type="button" class="btn btn-outline-secondary btn-copy-value" data-copy-target="dkim-pubkey-display">Copier</button>
-                    </div>
-                </div>
-                <div class="form-check mt-2">
-                    <input class="form-check-input" type="checkbox" id="regenerate_dkim" name="regenerate_dkim" value="1">
-                    <label class="form-check-label" for="regenerate_dkim">Régénérer la clé DKIM</label>
-                    <div class="form-text text-warning">Attention : si vous régénérez la clé, vous devrez mettre à jour l'enregistrement DNS correspondant.</div>
-                </div>
-            {% else %}
-                <p class="text-muted">Aucune clé DKIM pour le moment — une clé sera générée automatiquement lors de l'enregistrement final, mais la propagation DNS peut prendre du temps : générez-la dès maintenant si vous voulez configurer l'enregistrement DNS DKIM sans attendre la fin de l'installation.</p>
-                <div class="mb-2">
-                    <button type="button" class="btn btn-outline-secondary btn-sm" id="btn-generate-dkim">
-                        <span class="spinner-border spinner-border-sm d-none" id="dkim-gen-spinner" role="status"></span>
-                        Générer la clé maintenant
-                    </button>
-                    <span id="dkim-gen-result" class="small ms-2"></span>
-                </div>
-            {% endif %}
-        </div>
-    </div>
-
-    {# Section 5: Admin account #}
+    {# Section 4: Admin account #}
     <div class="card mb-4">
         <div class="card-body">
             <h2 class="card-title h5 mb-3">{% if not is_initialized %}Administrateur initial{% else %}Compte administrateur{% endif %}</h2>

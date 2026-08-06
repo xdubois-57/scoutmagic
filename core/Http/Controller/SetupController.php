@@ -96,6 +96,8 @@ class SetupController extends AbstractController
                 'admin_email' => $secrets['admin_email'] ?? '',
                 'admin_password' => '',
             ];
+        } else {
+            $currentValues = ['base_url' => $this->resolveDefaultBaseUrl($request)];
         }
 
         $csrfToken = CsrfGuard::generateToken();
@@ -313,28 +315,44 @@ class SetupController extends AbstractController
             return $this->json(['success' => false, 'message' => 'Jeton CSRF invalide.'], 403);
         }
 
-        if (!$this->secretManager->isInitialized()) {
-            return $this->json(['success' => false, 'message' => 'Le site n\'est pas encore initialisé.'], 400);
-        }
-
-        $secrets = $this->secretManager->readSecrets();
         $recipient = trim((string) $request->getBody('recipient', ''));
 
         if ($recipient === '' || !filter_var($recipient, FILTER_VALIDATE_EMAIL)) {
             return $this->json(['success' => false, 'message' => 'Adresse email invalide.']);
         }
 
-        // short_name, mail_from_address, mail_from_name and dkim_selector
-        // all live in the settings table (migrated out of secrets.enc by
-        // public/index.php's one-time migration) — without this merge,
-        // mail_from_address in particular comes out permanently empty on
-        // any install that already ran that migration, which makes
-        // PHPMailer reject the send outright ("Invalid address: (From): "),
-        // same root cause fixed in public/index.php and public/cron.php.
-        if ($this->settingService !== null) {
-            foreach (['short_name', 'mail_from_address', 'mail_from_name', 'dkim_selector'] as $mailSecretKey) {
-                $secrets[$mailSecretKey] = (string) ($this->settingService->get($mailSecretKey) ?: ($secrets[$mailSecretKey] ?? ''));
+        if ($this->secretManager->isInitialized()) {
+            $secrets = $this->secretManager->readSecrets();
+
+            // short_name, mail_from_address, mail_from_name and
+            // dkim_selector all live in the settings table (migrated out
+            // of secrets.enc by public/index.php's one-time migration) —
+            // without this merge, mail_from_address in particular comes
+            // out permanently empty on any install that already ran that
+            // migration, which makes PHPMailer reject the send outright
+            // ("Invalid address: (From): "), same root cause fixed in
+            // public/index.php and public/cron.php.
+            if ($this->settingService !== null) {
+                foreach (['short_name', 'mail_from_address', 'mail_from_name', 'dkim_selector'] as $mailSecretKey) {
+                    $secrets[$mailSecretKey] = (string) ($this->settingService->get($mailSecretKey) ?: ($secrets[$mailSecretKey] ?? ''));
+                }
             }
+        } else {
+            // First-time setup: nothing is persisted yet, so test the
+            // values currently sitting in the form instead — same
+            // "test the in-progress values, not what's saved" approach as
+            // testDatabase().
+            $secrets = [
+                'mail_mode' => (string) $request->getBody('mail_mode', 'local'),
+                'smtp_host' => (string) $request->getBody('smtp_host', ''),
+                'smtp_port' => (string) $request->getBody('smtp_port', '587'),
+                'smtp_user' => (string) $request->getBody('smtp_user', ''),
+                'smtp_password' => (string) $request->getBody('smtp_password', ''),
+                'mail_from_address' => (string) $request->getBody('mail_from_address', ''),
+                'mail_from_name' => (string) $request->getBody('mail_from_name', ''),
+                'short_name' => (string) $request->getBody('short_name', ''),
+                'dkim_selector' => (string) $request->getBody('dkim_selector', ''),
+            ];
         }
 
         try {
@@ -414,8 +432,14 @@ class SetupController extends AbstractController
                 return $this->redirect('/setup');
             }
 
-            // Generate DKIM key
-            $this->dkimManager->generateKey();
+            // Generate DKIM key — unless one was already generated ahead
+            // of time via the "Générer maintenant" button (generateKey()
+            // throws if a key already exists, since regenerating would
+            // silently invalidate whatever DNS record the operator may
+            // already have started configuring from that earlier key).
+            if (!$this->dkimManager->hasKey()) {
+                $this->dkimManager->generateKey();
+            }
 
             // Run migration
             $introspector = new SchemaIntrospector($connection->getPdo());
@@ -863,5 +887,27 @@ class SetupController extends AbstractController
             return implode('.', array_slice($parts, -2));
         }
         return $host;
+    }
+
+    /**
+     * First-time setup only: the site is almost always already reachable
+     * at the URL the operator is filling in this form from (the whole
+     * point of an FTP-uploaded installer is that DNS/hosting are already
+     * pointed here) — same HTTPS-detection convention as
+     * Core\Security\SessionManager's cookie_secure logic. Still an
+     * ordinary editable field, just pre-filled instead of blank.
+     */
+    private function resolveDefaultBaseUrl(Request $request): string
+    {
+        $host = (string) $request->getServer('HTTP_HOST', '');
+        if ($host === '') {
+            return '';
+        }
+
+        $https = $request->getServer('HTTPS');
+        $isHttps = (is_string($https) && $https !== '' && strtolower($https) !== 'off')
+            || (int) $request->getServer('SERVER_PORT', 0) === 443;
+
+        return ($isHttps ? 'https://' : 'http://') . $host;
     }
 }

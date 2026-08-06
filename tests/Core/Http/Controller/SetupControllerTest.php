@@ -70,6 +70,27 @@ class SetupControllerTest extends TestCase
         $this->assertStringContainsString('_csrf_token', $body);
     }
 
+    /**
+     * The FTP-uploaded installer only ever runs where DNS/hosting already
+     * point, so the base URL is knowable from the request itself — no
+     * reason to make the operator type it by hand. Still an ordinary
+     * editable field, just pre-filled.
+     */
+    public function testIndexPrefillsBaseUrlFromRequestHost(): void
+    {
+        $_SESSION['setup_token_verified'] = true;
+
+        $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath);
+        $request = new Request('GET', '/setup', [], [], [], [
+            'HTTP_HOST' => 'www.unite-exemple.be',
+            'HTTPS' => 'on',
+        ]);
+
+        $response = $controller->index($request, []);
+
+        $this->assertStringContainsString('value="https://www.unite-exemple.be"', $response->getBody());
+    }
+
     public function testIndexShowsTokenMissingScreenWhenNotInitializedAndNoTokenFile(): void
     {
         unset($_SESSION['setup_token_verified']);
@@ -341,6 +362,68 @@ class SetupControllerTest extends TestCase
     }
 
     /**
+     * Regression: a key generated ahead of time via the "Générer
+     * maintenant" button (POST /setup/generate-dkim-key) used to make the
+     * final save crash with "DKIM key already exists. Delete it first to
+     * regenerate." — handleFirstTimeSetup() called generateKey()
+     * unconditionally, not knowing a key might already be sitting there
+     * from the earlier on-demand generation.
+     *
+     * @group database
+     */
+    public function testSaveSucceedsWhenDkimKeyWasAlreadyGeneratedAheadOfTime(): void
+    {
+        $host = getenv('TEST_DB_HOST') ?: '127.0.0.1';
+        $port = getenv('TEST_DB_PORT') ?: '3306';
+        $dbName = getenv('TEST_DB_NAME') ?: 'test_db';
+        $user = getenv('TEST_DB_USER') ?: 'root';
+        $password = getenv('TEST_DB_PASSWORD') ?: '';
+
+        try {
+            $dsn = sprintf('mysql:host=%s;port=%s;dbname=%s;charset=utf8mb4', $host, $port, $dbName);
+            $pdo = new \PDO($dsn, $user, $password);
+            $this->dropAllTables($pdo);
+        } catch (\PDOException $e) {
+            $this->markTestSkipped('Database not available: ' . $e->getMessage());
+        }
+
+        $preGeneratedPublicKey = $this->dkimManager->generateKey();
+
+        $token = \Core\Security\CsrfGuard::generateToken();
+
+        $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath);
+        $request = new Request('POST', '/setup/save', [], [
+            '_csrf_token' => $token,
+            'db_host' => $host,
+            'db_port' => $port,
+            'db_name' => $dbName,
+            'db_user' => $user,
+            'db_password' => $password,
+            'site_name' => 'Test Unité',
+            'short_name' => '25SV',
+            'base_url' => 'https://test.example.com',
+            'mail_mode' => 'local',
+            'smtp_host' => '',
+            'smtp_port' => '587',
+            'smtp_user' => '',
+            'smtp_password' => '',
+            'mail_from_address' => 'unit@example.com',
+            'mail_from_name' => 'Test Unité',
+            'dkim_selector' => 'mail',
+            'dmarc_report_email' => 'dmarc@example.com',
+            'admin_email' => 'admin@example.com',
+            'admin_password' => 'securepassword123',
+        ], [], []);
+
+        $response = $controller->save($request, []);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame($preGeneratedPublicKey, $this->dkimManager->getPublicKey());
+
+        $this->dropAllTables($pdo);
+    }
+
+    /**
      * The full schema this test's migration creates has FK relationships
      * beyond user_accounts/members/scout_years (e.g. editable_contents →
      * user_accounts) — a curated DROP list drifts out of sync as core.sql
@@ -449,6 +532,44 @@ class SetupControllerTest extends TestCase
         $decoded = json_decode($response->getBody(), true);
         $this->assertFalse($decoded['success']);
         $this->assertStringContainsString('Invalid address', (string) $decoded['message']);
+    }
+
+    /**
+     * Before this fix, testEmail() only worked once the site was already
+     * initialized (it read persisted secrets, which don't exist yet
+     * during first-time setup) — there was no way to test SMTP settings
+     * from the setup wizard at all. It must now read straight from the
+     * request body, the same "test the in-progress values, not what's
+     * saved" approach as testDatabase().
+     */
+    public function testTestEmailUsesFormValuesDirectlyWhenNotYetInitialized(): void
+    {
+        $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath);
+        // Deliberately not initialized — no writeSecrets() call at all.
+
+        $token = $this->issueCsrfToken();
+        $request = new Request('POST', '/setup/test-email', [], [
+            '_csrf_token' => $token,
+            'recipient' => 'someone@example.com',
+            'mail_mode' => 'local',
+            'mail_from_address' => 'unit@example.com',
+            'mail_from_name' => 'Mon Unité',
+            'short_name' => '25SV',
+            'dkim_selector' => 's2026',
+        ], [], []);
+
+        $response = $controller->testEmail($request, []);
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertNotSame(
+            'Le site n\'est pas encore initialisé.',
+            $decoded['message'] ?? null,
+            'testEmail() must work before first-time setup is complete, using the values in the form'
+        );
+        // Same reasoning as testTestEmailMergesMailFromAddressFromSettingsWhenSecretsCopyIsEmpty:
+        // getting past PHPMailer's synchronous From-address validation
+        // proves mail_from_address was read from the request body.
+        $this->assertStringNotContainsString('Invalid address', (string) ($decoded['message'] ?? ''));
     }
 
     public function testGenerateDkimKeyRejectsInvalidCsrfToken(): void

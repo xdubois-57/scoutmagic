@@ -198,6 +198,8 @@ if (!$isInitialized) {
         $response = $setupController->checkDns($request, []);
     } elseif ($request->getMethod() === 'POST' && $request->getPath() === '/setup/generate-dkim-key') {
         $response = $setupController->generateDkimKey($request, []);
+    } elseif ($request->getMethod() === 'POST' && $request->getPath() === '/setup/test-email') {
+        $response = $setupController->testEmail($request, []);
     } else {
         (new Response('', 302))->setHeader('Location', '/setup')->send();
         exit;

@@ -161,12 +161,25 @@
             fetch('/setup/generate-dkim-key', { method: 'POST', body: data })
                 .then(function(r) { return r.json(); })
                 .then(function(json) {
-                    if (json.success) {
-                        location.reload();
+                    dkimGenSpinner.classList.add('d-none');
+                    if (!json.success) {
+                        dkimGenResult.innerHTML = '<span class="text-danger">\u2717 ' + json.message + '</span>';
                         return;
                     }
-                    dkimGenSpinner.classList.add('d-none');
-                    dkimGenResult.innerHTML = '<span class="text-danger">\u2717 ' + json.message + '</span>';
+                    // Rebuilt in place (no location.reload()) so the rest
+                    // of the \u2014 possibly already partly filled \u2014 form isn't
+                    // lost just because the DKIM key got generated early.
+                    var selector = document.getElementById('dkim_selector').value
+                        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                    var html = '<p class="mb-2 small">Cl\u00e9 DKIM g\u00e9n\u00e9r\u00e9e. S\u00e9lecteur : <strong>' + selector + '</strong>.</p>';
+                    html += '<div class="mb-2">';
+                    html += '<small class="text-muted">Cl\u00e9 publique (pour l\'enregistrement DNS) :</small>';
+                    html += '<div class="input-group input-group-sm mt-1">';
+                    html += '<input type="text" class="form-control font-monospace" value="' + json.public_key + '" readonly id="dkim-pubkey-display">';
+                    html += '<button type="button" class="btn btn-outline-secondary btn-copy-value" data-copy-target="dkim-pubkey-display">Copier</button>';
+                    html += '</div>';
+                    html += '</div>';
+                    document.getElementById('dkim-key-section').innerHTML = html;
                 })
                 .catch(function() {
                     dkimGenSpinner.classList.add('d-none');
@@ -184,7 +197,8 @@
         var selector = document.getElementById('dkim_selector').value;
         var mode = mailMode.value;
         var smtpHost = document.getElementById('smtp_host').value;
-        var dmarcEmail = document.getElementById('dmarc_report_email').value.trim() || fromAddress;
+        var dmarcFieldValue = document.getElementById('dmarc_report_email').value.trim();
+        var dmarcEmail = dmarcFieldValue || fromAddress;
 
         if (!domain || !selector) {
             dnsSpinner.classList.add('d-none');
@@ -214,7 +228,21 @@
 
                     if (data.key_missing) {
                         html += '<strong>' + rec.label + '</strong> <span class="badge bg-warning text-dark">Cl\u00e9 DKIM requise</span><br>';
-                        html += '<span class="text-warning">G\u00e9n\u00e9rez d\'abord la cl\u00e9 DKIM (section \u00ab\u00a0Cl\u00e9 DKIM\u00a0\u00bb ci-dessous), puis relancez cette v\u00e9rification.</span>';
+                        html += '<span class="text-warning">G\u00e9n\u00e9rez d\'abord la cl\u00e9 DKIM (section \u00ab\u00a0Cl\u00e9 DKIM\u00a0\u00bb ci-dessus), puis relancez cette v\u00e9rification.</span>';
+                        html += '</div>';
+                        return;
+                    }
+
+                    if (rec.key === 'dmarc' && !dmarcFieldValue) {
+                        // No report address was provided: this app doesn't
+                        // require an rua= tag for anything to work, so
+                        // there's nothing to suggest changing \u2014 don't push
+                        // an edit the operator didn't ask for.
+                        html += '<strong>' + rec.label + '</strong> <span class="badge bg-secondary">Optionnel</span><br>';
+                        html += '<span class="text-muted">Aucune adresse de rapport DMARC renseign\u00e9e \u2014 aucune modification de votre DNS n\'est n\u00e9cessaire pour cela. Renseignez une adresse dans le champ \u00ab\u00a0Email rapports DMARC\u00a0\u00bb ci-dessus si vous souhaitez recevoir des rapports.</span>';
+                        if (data.actual) {
+                            html += '<br><span class="text-muted">Enregistrement DMARC actuel :</span> <code class="text-break">' + data.actual + '</code>';
+                        }
                         html += '</div>';
                         return;
                     }
