@@ -119,6 +119,17 @@
                             dbNotEmptyCount.textContent = json.table_count + (json.table_count > 1 ? ' tables' : ' table');
                             dbNotEmptyWarning.classList.remove('d-none');
                             backupEmptyResult.textContent = '';
+                            // Reachable more than once (e.g. a retry after a
+                            // transient failure on the previous attempt) —
+                            // without resetting these, a button left
+                            // disabled by an earlier runBackupAndEmpty() call
+                            // would stay disabled forever with no way for
+                            // the operator to retry.
+                            btnBackupEmptyDb.disabled = false;
+                            if (btnEmptyWithoutBackup) {
+                                btnEmptyWithoutBackup.classList.add('d-none');
+                                btnEmptyWithoutBackup.disabled = false;
+                            }
                         }
                     } else if (json.migrated) {
                         dbResult.innerHTML = '<span class="text-success">\u2713 Base de donn\u00e9es install\u00e9e (' + json.statements_executed + ' instruction' + (json.statements_executed > 1 ? 's' : '') + ', ' + json.table_count + ' table' + (json.table_count > 1 ? 's' : '') + ').</span>';
@@ -186,11 +197,24 @@
                 if (json.backup_skipped) {
                     backupEmptyResult.innerHTML = '<span class="text-warning">\u26a0 Base vid\u00e9e SANS sauvegarde (' + json.table_count + ' table' + (json.table_count > 1 ? 's' : '') + ') \u2014 les donn\u00e9es existantes sont d\u00e9finitivement perdues. Vous pouvez poursuivre l\u2019installation.</span>';
                 } else {
-                    // Trigger the actual file download as a real navigation
-                    // (not part of this fetch) \u2014 the server already
-                    // deletes the dump on first read, so this must succeed
-                    // before the operator navigates away.
-                    window.location.href = json.download_url;
+                    // Trigger the actual file download without a real page
+                    // navigation \u2014 setting window.location.href here used
+                    // to race the chained runDbTestOrInstall() fetch() just
+                    // below: some browsers briefly treat that assignment as
+                    // top-level navigation intent (before the response's
+                    // Content-Disposition: attachment header arrives and
+                    // tells them otherwise) and abort in-flight requests as
+                    // a result, which surfaced as a spurious "Erreur r\u00e9seau"
+                    // even though the backup/empty step itself had already
+                    // succeeded. A programmatically-clicked, off-DOM <a>
+                    // triggers the same download without ever going through
+                    // window.location, so it can't race anything.
+                    var downloadLink = document.createElement('a');
+                    downloadLink.href = json.download_url;
+                    downloadLink.style.display = 'none';
+                    document.body.appendChild(downloadLink);
+                    downloadLink.click();
+                    document.body.removeChild(downloadLink);
                     backupEmptyResult.innerHTML = '<span class="text-success">\u2713 Sauvegarde t\u00e9l\u00e9charg\u00e9e, base vid\u00e9e (' + json.table_count + ' table' + (json.table_count > 1 ? 's' : '') + '). Vous pouvez poursuivre l\u2019installation.</span>';
                 }
                 if (btnEmptyWithoutBackup) { btnEmptyWithoutBackup.classList.add('d-none'); }
