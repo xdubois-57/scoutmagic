@@ -197,24 +197,28 @@
                 if (json.backup_skipped) {
                     backupEmptyResult.innerHTML = '<span class="text-warning">\u26a0 Base vid\u00e9e SANS sauvegarde (' + json.table_count + ' table' + (json.table_count > 1 ? 's' : '') + ') \u2014 les donn\u00e9es existantes sont d\u00e9finitivement perdues. Vous pouvez poursuivre l\u2019installation.</span>';
                 } else {
-                    // Trigger the actual file download without a real page
-                    // navigation \u2014 setting window.location.href here used
-                    // to race the chained runDbTestOrInstall() fetch() just
-                    // below: some browsers briefly treat that assignment as
-                    // top-level navigation intent (before the response's
-                    // Content-Disposition: attachment header arrives and
-                    // tells them otherwise) and abort in-flight requests as
-                    // a result, which surfaced as a spurious "Erreur r\u00e9seau"
-                    // even though the backup/empty step itself had already
-                    // succeeded. A programmatically-clicked, off-DOM <a>
-                    // triggers the same download without ever going through
-                    // window.location, so it can't race anything.
-                    var downloadLink = document.createElement('a');
-                    downloadLink.href = json.download_url;
-                    downloadLink.style.display = 'none';
-                    document.body.appendChild(downloadLink);
-                    downloadLink.click();
-                    document.body.removeChild(downloadLink);
+                    // Trigger the actual file download in a way that can
+                    // never race the chained runDbTestOrInstall() fetch()
+                    // just below. Both window.location.href AND a plain
+                    // <a>.click() go through the browser's normal
+                    // top-level-navigation machinery \u2014 a click is only
+                    // reclassified as "just a download, don't navigate"
+                    // once the response's Content-Disposition: attachment
+                    // header actually arrives, and until then it can still
+                    // interfere with (abort, or stall behind a connection-
+                    // limit queue) any other in-flight request from this
+                    // page, which is exactly what surfaced as a spurious
+                    // "Erreur r\u00e9seau" \u2014 or, worse, the chained request
+                    // simply hanging forever with no response at all \u2014 even
+                    // though the backup/empty step itself had already
+                    // succeeded. A hidden <iframe> is a genuinely separate
+                    // browsing context: navigating it can never affect the
+                    // top-level document's own outstanding requests.
+                    var downloadFrame = document.createElement('iframe');
+                    downloadFrame.style.display = 'none';
+                    downloadFrame.src = json.download_url;
+                    document.body.appendChild(downloadFrame);
+                    setTimeout(function() { document.body.removeChild(downloadFrame); }, 10000);
                     backupEmptyResult.innerHTML = '<span class="text-success">\u2713 Sauvegarde t\u00e9l\u00e9charg\u00e9e, base vid\u00e9e (' + json.table_count + ' table' + (json.table_count > 1 ? 's' : '') + '). Vous pouvez poursuivre l\u2019installation.</span>';
                 }
                 if (btnEmptyWithoutBackup) { btnEmptyWithoutBackup.classList.add('d-none'); }
