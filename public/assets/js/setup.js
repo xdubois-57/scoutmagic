@@ -80,7 +80,15 @@
         saveHint.style.display = 'none';
     }
 
-    btnTestDb.addEventListener('click', function() {
+    // For first-time setup, btn-test-db's data-action points at
+    // /setup/install-database instead of /setup/test-db \u2014 same button,
+    // same spinner/result elements, but the server-side action now also
+    // runs the actual schema migration once the connection/emptiness
+    // checks pass, rather than deferring that to the big final form
+    // submission. The already-initialized "update settings" flow keeps
+    // pointing at the lightweight test-only endpoint (see the Twig
+    // conditional on the button itself).
+    function runDbTestOrInstall() {
         dbSpinner.classList.remove('d-none');
         dbResult.textContent = '';
 
@@ -92,19 +100,18 @@
         data.append('db_user', document.getElementById('db_user').value);
         data.append('db_password', document.getElementById('db_password').value);
 
-        fetch('/setup/test-db', { method: 'POST', body: data })
+        fetch(btnTestDb.dataset.action || '/setup/test-db', { method: 'POST', body: data })
             .then(function(r) { return r.json(); })
             .then(function(json) {
                 dbSpinner.classList.add('d-none');
                 if (json.success) {
-                    dbResult.innerHTML = '<span class="text-success">\u2713 Connexion r\u00e9ussie</span>';
-
                     if (json.has_existing_tables) {
                         // Proceeding straight to install here would generate
                         // a fresh encryption key against these old rows \u2014
                         // guaranteed DecryptionException down the line.
                         // Block Save until the operator explicitly backs up
                         // and empties this database (or picks another one).
+                        dbResult.innerHTML = '<span class="text-success">\u2713 Connexion r\u00e9ussie</span>';
                         dbTestPassed = false;
                         btnSave.disabled = true;
                         saveHint.style.display = 'block';
@@ -113,7 +120,14 @@
                             dbNotEmptyWarning.classList.remove('d-none');
                             backupEmptyResult.textContent = '';
                         }
+                    } else if (json.migrated) {
+                        dbResult.innerHTML = '<span class="text-success">\u2713 Base de donn\u00e9es install\u00e9e (' + json.statements_executed + ' instruction' + (json.statements_executed > 1 ? 's' : '') + ', ' + json.table_count + ' table' + (json.table_count > 1 ? 's' : '') + ').</span>';
+                        dbTestPassed = true;
+                        btnSave.disabled = false;
+                        saveHint.style.display = 'none';
+                        if (dbNotEmptyWarning) { dbNotEmptyWarning.classList.add('d-none'); }
                     } else {
+                        dbResult.innerHTML = '<span class="text-success">\u2713 Connexion r\u00e9ussie</span>';
                         dbTestPassed = true;
                         btnSave.disabled = false;
                         saveHint.style.display = 'none';
@@ -131,7 +145,9 @@
                 dbSpinner.classList.add('d-none');
                 dbResult.innerHTML = '<span class="text-danger">\u2717 Erreur r\u00e9seau</span>';
             });
-    });
+    }
+
+    btnTestDb.addEventListener('click', runDbTestOrInstall);
 
     var btnEmptyWithoutBackup = document.getElementById('btn-empty-without-backup');
 
@@ -179,9 +195,10 @@
                 }
                 if (btnEmptyWithoutBackup) { btnEmptyWithoutBackup.classList.add('d-none'); }
                 dbNotEmptyWarning.classList.add('d-none');
-                dbTestPassed = true;
-                btnSave.disabled = false;
-                saveHint.style.display = 'none';
+                // The database is now confirmed empty — chain straight into
+                // the actual install rather than leaving that as a separate
+                // required click, since it's now guaranteed to succeed.
+                runDbTestOrInstall();
             })
             .catch(function() {
                 backupEmptySpinner.classList.add('d-none');

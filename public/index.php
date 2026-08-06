@@ -195,6 +195,8 @@ if (!$isInitialized) {
         $response = $setupController->verifyToken($request, []);
     } elseif ($request->getMethod() === 'POST' && $request->getPath() === '/setup/test-db') {
         $response = $setupController->testDatabase($request, []);
+    } elseif ($request->getMethod() === 'POST' && $request->getPath() === '/setup/install-database') {
+        $response = $setupController->installDatabase($request, []);
     } elseif ($request->getMethod() === 'POST' && $request->getPath() === '/setup/backup-and-empty-db') {
         $response = $setupController->backupAndEmptyDatabase($request, []);
     } elseif ($request->getMethod() === 'GET' && $request->getPath() === '/setup/download-backup') {
@@ -511,6 +513,28 @@ if ($settingService->get('settings_migrated') !== '1') {
 // Create Journal service
 $journalRepo = new JournalRepository($pdo);
 $journalService = new JournalService($journalRepo);
+
+// Debug timeline (?debug=1): a first, immediately-visible entry as soon as
+// journal logging becomes possible — this is the earliest point in the
+// request DB/session/settings/journal all exist, so it's also the
+// earliest point authorization (session-only, no DB needed) can gate a
+// write, well before routing/controller dispatch. Written eagerly, not
+// deferred to the end-of-request summary, specifically so a debug run
+// against /admin/journal itself shows up on the very page load that
+// triggered it, rather than only becoming visible on a second reload.
+if (\Core\Debug\RequestTimeline::isActive() && \Core\Security\AuthSession::isAuthenticated()
+    && in_array(\Core\Security\AuthSession::getRole(), ['admin', 'superadmin'], true)
+) {
+    \Core\Debug\RequestTimeline::mark('debug_active_confirmed');
+    $journalService->log(
+        'core',
+        'debug_request_hit',
+        'info',
+        'Requête en cours (?debug=1) : ' . $request->getMethod() . ' ' . $request->getPath(),
+        ['method' => $request->getMethod(), 'path' => $request->getPath()],
+        \Core\Security\AuthSession::getUserAccountId()
+    );
+}
 
 // Create Scheduler service
 $schedulerRepo = new SchedulerRepository($pdo);
@@ -1075,6 +1099,7 @@ $router->addRoute('GET', '/offline', \Core\Http\Controller\PwaController::class,
 $router->addRoute('GET', '/setup', SetupController::class, 'index', 'superadmin');
 $router->addRoute('POST', '/setup/verify-token', SetupController::class, 'verifyToken', 'superadmin');
 $router->addRoute('POST', '/setup/test-db', SetupController::class, 'testDatabase', 'superadmin');
+$router->addRoute('POST', '/setup/install-database', SetupController::class, 'installDatabase', 'superadmin');
 $router->addRoute('POST', '/setup/backup-and-empty-db', SetupController::class, 'backupAndEmptyDatabase', 'superadmin');
 $router->addRoute('GET', '/setup/download-backup', SetupController::class, 'downloadBackup', 'superadmin');
 $router->addRoute('POST', '/setup/save', SetupController::class, 'save', 'superadmin');

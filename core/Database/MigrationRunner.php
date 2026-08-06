@@ -18,6 +18,12 @@ class MigrationRunner
 
     /**
      * Run the full migration:
+     * 0. Skip everything if schema.sql/drops.sql haven't changed since the
+     *    last clean run (see computeSchemaHash()/getStoredHash()) — this
+     *    runs on every single page load in production, and re-introspecting
+     *    the entire live schema (several INFORMATION_SCHEMA queries per
+     *    table) to conclude "nothing to do" is pure waste on every request
+     *    that isn't immediately after a real schema change.
      * 1. Backup the database (mysqldump via exec, skip if not available).
      * 2. Parse all schema files.
      * 3. Introspect the current database.
@@ -30,10 +36,18 @@ class MigrationRunner
      */
     public function migrate(array $schemaFiles): MigrationResult
     {
+        $hashKey = $this->schemaHashSettingKey($schemaFiles);
+        $currentHash = $this->computeSchemaHash($schemaFiles);
+
+        if ($this->getStoredHash($hashKey) === $currentHash) {
+            return new MigrationResult(executedStatements: [], warnings: [], backupCreated: false);
+        }
+
         $warnings = [];
 
         // Step 1: Attempt backup
         $backupCreated = $this->attemptBackup($warnings);
+        $backupWarningCount = count($warnings);
 
         // Step 2: Parse all schema files
         $declaredTables = [];
@@ -68,11 +82,92 @@ class MigrationRunner
         array_push($executedStatements, ...$dropStatements);
 
         // Step 7: Return result
-        return new MigrationResult(
+        $result = new MigrationResult(
             executedStatements: $executedStatements,
             warnings: $warnings,
             backupCreated: $backupCreated
         );
+
+        // Only schema-related warnings (comparator + failed statements/
+        // drops) should block caching "nothing left to do" — a backup
+        // hiccup doesn't mean the schema itself is inconsistent, and
+        // blocking the cache on it would defeat the optimization on
+        // exactly the hosts where mysqldump is flaky. A crash between here
+        // and the next request just leaves the old hash in place, so the
+        // next request re-checks in full — self-healing, never masked.
+        $schemaWarningCount = count($warnings) - $backupWarningCount;
+        if (!$result->hasChanges() && $schemaWarningCount === 0) {
+            $this->saveHash($hashKey, $currentHash);
+        }
+
+        return $result;
+    }
+
+    /**
+     * @param array<string> $schemaFiles
+     */
+    private function computeSchemaHash(array $schemaFiles): string
+    {
+        $content = '';
+        foreach ($schemaFiles as $file) {
+            $content .= (is_file($file) ? file_get_contents($file) : '') . "\x00";
+            $dropsFile = dirname($file) . '/drops.sql';
+            $content .= (is_file($dropsFile) ? file_get_contents($dropsFile) : '') . "\x00";
+        }
+
+        return hash('sha256', $content);
+    }
+
+    /**
+     * @param array<string> $schemaFiles
+     */
+    private function schemaHashSettingKey(array $schemaFiles): string
+    {
+        return 'schema_hash_' . substr(hash('sha256', implode(',', $schemaFiles)), 0, 16);
+    }
+
+    /**
+     * Raw PDO, not SettingRepository/SettingService: this runs before the
+     * `settings` table necessarily exists (a genuinely fresh install has
+     * no tables at all yet, including this one), and SettingService's own
+     * setInternal() requires the setting to already be register()'d, which
+     * nothing here has occasion to do. Same "raw PDO before the usual
+     * abstractions exist" precedent public/index.php already uses for its
+     * one-time notifications_v2_migrated check.
+     */
+    private function getStoredHash(string $key): ?string
+    {
+        try {
+            $stmt = $this->connection->getPdo()->prepare(
+                'SELECT setting_value FROM settings WHERE module_id IS NULL AND setting_key = ?'
+            );
+            $stmt->execute([$key]);
+            $value = $stmt->fetchColumn();
+            return $value === false ? null : (string) $value;
+        } catch (\PDOException) {
+            return null;
+        }
+    }
+
+    private function saveHash(string $key, string $hash): void
+    {
+        try {
+            $stmt = $this->connection->getPdo()->prepare(
+                'INSERT INTO settings (module_id, setting_key, setting_value, default_value, setting_type, label, description, editable, sort_order)
+                 VALUES (NULL, ?, ?, ?, \'text\', ?, ?, 0, 999)
+                 ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)'
+            );
+            $stmt->execute([
+                $key,
+                $hash,
+                $hash,
+                'Empreinte du schéma migré (interne)',
+                'Utilisée pour éviter de revérifier le schéma de la base de données à chaque page tant que schema.sql/drops.sql n\'ont pas changé depuis la dernière migration réussie.',
+            ]);
+        } catch (\PDOException) {
+            // Best-effort: worst case the next request re-checks in full,
+            // never worth failing an otherwise-successful migration over.
+        }
     }
 
     /**

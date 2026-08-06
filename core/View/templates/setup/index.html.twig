@@ -73,9 +73,9 @@
                 {% if errors.db_password is defined %}<div class="invalid-feedback">{{ errors.db_password }}</div>{% endif %}
             </div>
 
-            <button type="button" class="btn btn-outline-secondary" id="btn-test-db">
+            <button type="button" class="btn btn-outline-secondary" id="btn-test-db" data-action="{{ not is_initialized ? '/setup/install-database' : '/setup/test-db' }}">
                 <span class="spinner-border spinner-border-sm d-none" id="db-spinner" role="status"></span>
-                Tester la connexion
+                {{ not is_initialized ? 'Installer la base de données' : 'Tester la connexion' }}
             </button>
             <span id="db-test-result" class="ms-2"></span>
 
@@ -309,7 +309,7 @@
         <button type="submit" class="btn btn-primary btn-lg" id="btn-save" disabled>
             {% if not is_initialized %}Installer{% else %}Enregistrer{% endif %}
         </button>
-        <div class="form-text text-center mt-1" id="save-hint">Testez la connexion à la base de données avant de pouvoir enregistrer.</div>
+        <div class="form-text text-center mt-1" id="save-hint">{% if not is_initialized %}Installez la base de données avant de pouvoir continuer.{% else %}Testez la connexion à la base de données avant de pouvoir enregistrer.{% endif %}</div>
     </div>
 </form>
 

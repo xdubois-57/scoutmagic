@@ -328,6 +328,74 @@ class SetupControllerTest extends TestCase
     /**
      * @group database
      */
+    public function testInstallDatabaseMigratesAGenuinelyEmptyDatabase(): void
+    {
+        [$pdo, $params] = $this->connectToTestDatabase();
+
+        $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath);
+        $token = \Core\Security\CsrfGuard::generateToken();
+        $_POST['_csrf_token'] = $token;
+        $request = new Request('POST', '/setup/install-database', [], array_merge($params, ['_csrf_token' => $token]), [], []);
+
+        $json = json_decode($controller->installDatabase($request, [])->getBody(), true);
+
+        $this->assertTrue($json['success'], $json['message'] ?? '');
+        $this->assertFalse($json['has_existing_tables']);
+        $this->assertTrue($json['migrated']);
+        $this->assertGreaterThan(0, $json['statements_executed']);
+        $this->assertGreaterThan(0, $json['table_count']);
+        $this->assertContains('scout_years', $pdo->query('SHOW TABLES')->fetchAll(\PDO::FETCH_COLUMN));
+
+        $this->dropAllTables($pdo);
+    }
+
+    /**
+     * The whole point of checking emptiness first: installing straight
+     * over a database with leftover data from a previous install would
+     * generate a fresh encryption key against old encrypted rows.
+     *
+     * @group database
+     */
+    public function testInstallDatabaseReportsExistingTablesWithoutMigrating(): void
+    {
+        [$pdo, $params] = $this->connectToTestDatabase();
+        $pdo->exec('CREATE TABLE leftover_table (id INT PRIMARY KEY)');
+
+        $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath);
+        $token = \Core\Security\CsrfGuard::generateToken();
+        $_POST['_csrf_token'] = $token;
+        $request = new Request('POST', '/setup/install-database', [], array_merge($params, ['_csrf_token' => $token]), [], []);
+
+        $json = json_decode($controller->installDatabase($request, [])->getBody(), true);
+
+        $this->assertTrue($json['success'], $json['message'] ?? '');
+        $this->assertTrue($json['has_existing_tables']);
+        $this->assertSame(1, $json['table_count']);
+        $this->assertArrayNotHasKey('migrated', $json);
+        $tables = $pdo->query('SHOW TABLES')->fetchAll(\PDO::FETCH_COLUMN);
+        $this->assertSame(['leftover_table'], $tables);
+
+        $this->dropAllTables($pdo);
+    }
+
+    public function testInstallDatabaseRejectsWhenAlreadyInitialized(): void
+    {
+        $this->secretManager->generateMasterKey();
+        $this->secretManager->writeSecrets(['db_host' => 'x', 'db_port' => 3306, 'db_name' => 'x', 'db_user' => 'x', 'db_password' => 'x']);
+
+        $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath);
+        $token = \Core\Security\CsrfGuard::generateToken();
+        $request = new Request('POST', '/setup/install-database', [], ['_csrf_token' => $token], [], []);
+
+        $response = $controller->installDatabase($request, []);
+
+        $this->assertSame(403, $response->getStatusCode());
+        $this->assertFalse(json_decode($response->getBody(), true)['success']);
+    }
+
+    /**
+     * @group database
+     */
     public function testBackupAndEmptyDatabaseDumpsThenDropsEveryTable(): void
     {
         [$pdo, $params] = $this->connectToTestDatabase();
@@ -352,6 +420,47 @@ class SetupControllerTest extends TestCase
         $dumpPath = $this->tempDir . '/storage/maintenance/' . $_SESSION['setup_backup_download'];
         $this->assertFileExists($dumpPath);
         $this->assertStringContainsString('leftover_table', (string) file_get_contents($dumpPath));
+    }
+
+    /**
+     * Regression: a plain .sql dump is not restorable on its own — every
+     * personal-data column in it is still an encrypted BLOB, and the key
+     * that produced it is about to be replaced by a fresh one later in
+     * this same setup flow. If master.key/secrets.enc exist alongside the
+     * database being emptied, the download must be a zip bundling all
+     * three, not just the bare dump.
+     *
+     * @group database
+     */
+    public function testBackupAndEmptyDatabaseBundlesTheEncryptionKeyWhenPresent(): void
+    {
+        [$pdo, $params] = $this->connectToTestDatabase();
+        $pdo->exec('CREATE TABLE leftover_table (id INT PRIMARY KEY)');
+
+        $publicDir = $this->tempDir . '/public';
+        mkdir($publicDir, 0755, true);
+        mkdir($this->tempDir . '/storage/keys', 0755, true);
+        mkdir($this->tempDir . '/storage/config', 0755, true);
+        file_put_contents($this->tempDir . '/storage/keys/master.key', random_bytes(32));
+        file_put_contents($this->tempDir . '/storage/config/secrets.enc', 'fake-encrypted-secrets');
+
+        $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath, $publicDir);
+        $token = \Core\Security\CsrfGuard::generateToken();
+        $_POST['_csrf_token'] = $token;
+        $request = new Request('POST', '/setup/backup-and-empty-db', [], array_merge($params, ['_csrf_token' => $token]), [], []);
+
+        $json = json_decode($controller->backupAndEmptyDatabase($request, [])->getBody(), true);
+
+        $this->assertTrue($json['success'], $json['message'] ?? '');
+        $filename = $_SESSION['setup_backup_download'];
+        $this->assertStringEndsWith('.zip', $filename);
+
+        $zip = new \ZipArchive();
+        $zip->open($this->tempDir . '/storage/maintenance/' . $filename);
+        $this->assertSame('fake-encrypted-secrets', $zip->getFromName('secrets.enc'));
+        $this->assertNotFalse($zip->getFromName('master.key'));
+        $this->assertStringContainsString('leftover_table', (string) $zip->getFromName('database.sql'));
+        $zip->close();
     }
 
     /**

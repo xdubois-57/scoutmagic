@@ -157,6 +157,76 @@ class SetupController extends AbstractController
     }
 
     /**
+     * POST /setup/install-database — AJAX: test the connection, refuse (same
+     * warning as testDatabase()) if the database already has tables, and
+     * otherwise run the actual schema migration right here — separating
+     * the potentially slow first schema creation (35+ CREATE TABLE
+     * statements from scratch) from the much lighter final "Installer"
+     * form submission, which used to bundle it together with secret
+     * generation and admin-account creation in one opaque request. First-
+     * time setup only; the already-initialized "update settings" flow
+     * keeps using the lightweight testDatabase() above, which never
+     * migrates just because a DB password was re-verified.
+     *
+     * @param array<string, string> $params
+     */
+    public function installDatabase(Request $request, array $params): Response
+    {
+        if ($this->secretManager->isInitialized()) {
+            return $this->json(['success' => false, 'message' => 'Action indisponible : le site est déjà configuré.'], 403);
+        }
+        if (!CsrfGuard::validateRequest()) {
+            return $this->json(['success' => false, 'message' => 'Jeton CSRF invalide.'], 403);
+        }
+
+        $host = (string) $request->getBody('db_host', 'localhost');
+        $port = (int) $request->getBody('db_port', 3306);
+        $dbName = (string) $request->getBody('db_name', '');
+        $user = (string) $request->getBody('db_user', '');
+        $password = (string) $request->getBody('db_password', '');
+
+        $connection = new Connection($host, $port, $dbName, $user, $password);
+        $result = $connection->testConnection();
+        if ($result !== true) {
+            return $this->json(['success' => false, 'message' => $result]);
+        }
+
+        $tableCount = count((new SchemaIntrospector($connection->getPdo()))->getTables());
+        if ($tableCount > 0) {
+            return $this->json([
+                'success' => true,
+                'has_existing_tables' => true,
+                'table_count' => $tableCount,
+            ]);
+        }
+
+        $runner = new MigrationRunner(
+            $connection,
+            new SchemaIntrospector($connection->getPdo()),
+            new SchemaComparator(),
+            new SqlParser()
+        );
+        $migrationResult = $runner->migrate([$this->schemaPath]);
+
+        $this->journalService?->log(
+            'core',
+            'setup_database_installed',
+            'security',
+            'Base de données installée depuis l\'assistant de configuration',
+            ['statements_executed' => count($migrationResult->executedStatements), 'warnings' => count($migrationResult->warnings)]
+        );
+
+        return $this->json([
+            'success' => true,
+            'has_existing_tables' => false,
+            'migrated' => true,
+            'table_count' => count((new SchemaIntrospector($connection->getPdo()))->getTables()),
+            'statements_executed' => count($migrationResult->executedStatements),
+            'warnings' => $migrationResult->warnings,
+        ]);
+    }
+
+    /**
      * POST /setup/backup-and-empty-db — AJAX: dump the existing database
      * to a downloadable file, then drop every table so migration starts
      * from a genuinely clean state. First-time setup only — never reachable
@@ -197,6 +267,19 @@ class SetupController extends AbstractController
             try {
                 $backupService = new \Core\Maintenance\BackupService($connection, $storagePath, $basePath);
                 $dumpPath = $backupService->createDatabaseDump();
+
+                // Personal-data columns in the dump are still encrypted at
+                // rest (BackupService's own doc comment) — without the key
+                // that encrypted them, they're permanently unreadable the
+                // moment this reinstall's setup generates a fresh one.
+                // Bundle the two files needed to decrypt them later
+                // alongside the dump itself, so the backup is actually
+                // restorable rather than just a pile of ciphertext.
+                $masterKeyPath = $storagePath . '/keys/master.key';
+                $secretsPath = $storagePath . '/config/secrets.enc';
+                if (is_file($masterKeyPath) && is_file($secretsPath)) {
+                    $dumpPath = $this->bundleBackupWithEncryptionKey($dumpPath, $masterKeyPath, $secretsPath);
+                }
             } catch (\Core\Maintenance\BackupException $e) {
                 $backupError = $e->getMessage();
             }
@@ -246,6 +329,32 @@ class SetupController extends AbstractController
     }
 
     /**
+     * Wraps the plain .sql dump, master.key, and secrets.enc into a single
+     * zip — the SQL alone is not restorable, since every personal-data
+     * column in it is still an encrypted BLOB and the key that produced it
+     * is about to be replaced by a fresh one generated later in this same
+     * setup flow. Falls back to the plain .sql path if zipping fails for
+     * any reason (e.g. no ZipArchive support) rather than losing the dump
+     * that did succeed.
+     */
+    private function bundleBackupWithEncryptionKey(string $dumpPath, string $masterKeyPath, string $secretsPath): string
+    {
+        $zipPath = dirname($dumpPath) . '/' . pathinfo($dumpPath, PATHINFO_FILENAME) . '.zip';
+        $zip = new \ZipArchive();
+        if ($zip->open($zipPath, \ZipArchive::CREATE | \ZipArchive::OVERWRITE) !== true) {
+            return $dumpPath;
+        }
+
+        $zip->addFile($dumpPath, 'database.sql');
+        $zip->addFile($masterKeyPath, 'master.key');
+        $zip->addFile($secretsPath, 'secrets.enc');
+        $zip->close();
+        @unlink($dumpPath);
+
+        return $zipPath;
+    }
+
+    /**
      * GET /setup/download-backup — one-time download of the dump created
      * by backupAndEmptyDatabase(), then deleted. Gated on a session-stored
      * filename set only by that action, not on user-supplied input — safe
@@ -272,8 +381,12 @@ class SetupController extends AbstractController
         @unlink($path);
         unset($_SESSION['setup_backup_download']);
 
+        // .zip when bundleBackupWithEncryptionKey() ran (dump + master.key
+        // + secrets.enc together), plain .sql otherwise.
+        $contentType = str_ends_with($filename, '.zip') ? 'application/zip' : 'application/sql';
+
         return (new Response($content))
-            ->setHeader('Content-Type', 'application/sql')
+            ->setHeader('Content-Type', $contentType)
             ->setHeader('Content-Disposition', 'attachment; filename="' . addslashes($filename) . '"')
             ->setHeader('Content-Length', (string) strlen($content));
     }

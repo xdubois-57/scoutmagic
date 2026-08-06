@@ -24,7 +24,23 @@ class JournalRepository
             'INSERT INTO event_log (logged_at, user_account_id, ip_address, category, event_type, level, description, context)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
         );
-        $stmt->execute([$now, $userId, $ipAddress, $category, $type, $level, $description, $contextJson]);
+
+        try {
+            $stmt->execute([$now, $userId, $ipAddress, $category, $type, $level, $description, $contextJson]);
+        } catch (\PDOException $e) {
+            // A session can outlive the account it points to — e.g. a
+            // database wipe-and-reinstall (Core\Http\Controller\
+            // SetupController::backupAndEmptyDatabase()) leaves old
+            // browser sessions holding a user_account_id that no longer
+            // exists once the schema is recreated. Journal logging must
+            // never be the reason a page fatals — retry once without the
+            // (evidently stale) user reference rather than losing the
+            // event entirely.
+            if ($e->getCode() !== '23000' || $userId === null) {
+                throw $e;
+            }
+            $stmt->execute([$now, null, $ipAddress, $category, $type, $level, $description, $contextJson]);
+        }
     }
 
     /**

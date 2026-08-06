@@ -56,7 +56,16 @@ final class ExecutableLocator
 
         foreach (self::COMMON_BIN_DIRS as $dir) {
             $candidate = $dir . '/' . $name;
-            if (is_file($candidate) && is_executable($candidate)) {
+            // Deliberately not is_file()/is_executable(): shared hosting
+            // commonly restricts PHP's own filesystem functions to the
+            // user's home directory via open_basedir, which makes both
+            // return false for anything under /usr — even though that
+            // restriction never applies to what a spawned subprocess can
+            // run. Invoking the candidate directly is the only check that
+            // reflects what exec() will actually be able to do.
+            $unused = [];
+            @exec(escapeshellarg($candidate) . ' --version 2>/dev/null', $unused, $candidateReturnCode);
+            if ($candidateReturnCode === 0) {
                 return $candidate;
             }
         }

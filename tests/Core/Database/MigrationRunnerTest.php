@@ -108,6 +108,72 @@ class MigrationRunnerTest extends TestCase
         $this->assertEmpty($result->executedStatements);
     }
 
+    /**
+     * Regression/feature test: migrate() re-introspects the entire live
+     * schema on every call, which is wasted work on every page load once
+     * schema.sql hasn't changed since the last clean run — a third call
+     * (the second already having found nothing to do) must be answered
+     * from the cached schema hash without touching the database at all.
+     * Proven here by manually dropping a declared table between the
+     * second and third calls: if the third call actually re-introspected,
+     * it would recreate the table; a genuinely cache-skipped call won't.
+     */
+    public function testMigrateSkipsTheFullCheckOnceTheSchemaHashIsCached(): void
+    {
+        $runner = new MigrationRunner(
+            $this->connection,
+            $this->introspector,
+            new SchemaComparator(),
+            new SqlParser()
+        );
+
+        $schemaPath = dirname(__DIR__, 3) . '/schema/core.sql';
+
+        $runner->migrate([$schemaPath]); // creates everything — has changes, hash not saved
+        $runner->migrate([$schemaPath]); // nothing left to do — clean, hash saved
+
+        $pdo = $this->connection->getPdo();
+        $pdo->exec('SET FOREIGN_KEY_CHECKS = 0');
+        $pdo->exec('DROP TABLE scout_years');
+        $pdo->exec('SET FOREIGN_KEY_CHECKS = 1');
+
+        $thirdResult = $runner->migrate([$schemaPath]);
+
+        $this->assertFalse($thirdResult->hasChanges());
+        $this->assertEmpty($thirdResult->executedStatements);
+        $this->assertNotContains('scout_years', $this->introspector->getTables());
+    }
+
+    /**
+     * The cache above must never mask a real schema change — the whole
+     * point is skipping redundant work, not skipping real migrations.
+     */
+    public function testMigrateRerunsTheFullCheckWhenTheSchemaFileContentChanges(): void
+    {
+        $tmpDir = sys_get_temp_dir() . '/migration_hash_test_' . uniqid();
+        mkdir($tmpDir);
+        file_put_contents($tmpDir . '/schema.sql', 'CREATE TABLE hash_test (id INT PRIMARY KEY);');
+
+        try {
+            $runner = new MigrationRunner($this->connection, $this->introspector, new SchemaComparator(), new SqlParser());
+
+            $runner->migrate([$tmpDir . '/schema.sql']); // creates the table — hash not saved
+            $runner->migrate([$tmpDir . '/schema.sql']); // nothing left to do — hash saved
+
+            file_put_contents($tmpDir . '/schema.sql', 'CREATE TABLE hash_test (id INT PRIMARY KEY, extra VARCHAR(10));');
+
+            $result = $runner->migrate([$tmpDir . '/schema.sql']);
+
+            $this->assertTrue($result->hasChanges());
+            $columns = array_map(fn($c) => $c->name, $this->introspector->getColumns('hash_test'));
+            $this->assertContains('extra', $columns);
+        } finally {
+            $this->connection->getPdo()->exec('DROP TABLE IF EXISTS hash_test');
+            @unlink($tmpDir . '/schema.sql');
+            @rmdir($tmpDir);
+        }
+    }
+
     public function testMigrationResultContainsWarningsWhenBackupUnavailable(): void
     {
         $runner = new MigrationRunner(
