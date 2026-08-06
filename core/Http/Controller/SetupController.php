@@ -179,27 +179,40 @@ class SetupController extends AbstractController
         $dbName = (string) $request->getBody('db_name', '');
         $user = (string) $request->getBody('db_user', '');
         $password = (string) $request->getBody('db_password', '');
+        $forceWithoutBackup = (string) $request->getBody('force_without_backup', '') === '1';
 
         $connection = new Connection($host, $port, $dbName, $user, $password);
         if ($connection->testConnection() !== true) {
             return $this->json(['success' => false, 'message' => 'La connexion à la base de données a échoué.']);
         }
 
-        if (\Core\System\ExecutableLocator::find('mysqldump') === null) {
-            return $this->json([
-                'success' => false,
-                'message' => 'mysqldump est indisponible sur ce serveur — sauvegardez manuellement (par exemple via phpMyAdmin) puis videz la base avant de continuer.',
-            ]);
-        }
-
         $basePath = rtrim(dirname(rtrim($this->publicDir, '/')), '/');
         $storagePath = $basePath . '/storage';
 
-        try {
-            $backupService = new \Core\Maintenance\BackupService($connection, $storagePath, $basePath);
-            $dumpPath = $backupService->createDatabaseDump();
-        } catch (\Core\Maintenance\BackupException $e) {
-            return $this->json(['success' => false, 'message' => 'Échec de la sauvegarde : ' . $e->getMessage()]);
+        $dumpPath = null;
+        $backupError = null;
+        if (\Core\System\ExecutableLocator::find('mysqldump') === null) {
+            $backupError = 'mysqldump est indisponible sur ce serveur.';
+        } else {
+            try {
+                $backupService = new \Core\Maintenance\BackupService($connection, $storagePath, $basePath);
+                $dumpPath = $backupService->createDatabaseDump();
+            } catch (\Core\Maintenance\BackupException $e) {
+                $backupError = $e->getMessage();
+            }
+        }
+
+        // The backup step failing must never leave the operator stuck with
+        // no way to proceed (e.g. mysqldump genuinely unavailable on this
+        // host) — but emptying without a safety net is a distinct, more
+        // dangerous action, so it's only ever taken when explicitly
+        // confirmed, never silently.
+        if ($backupError !== null && !$forceWithoutBackup) {
+            return $this->json([
+                'success' => false,
+                'backup_failed' => true,
+                'message' => 'Échec de la sauvegarde : ' . $backupError,
+            ]);
         }
 
         $pdo = $connection->getPdo();
@@ -210,20 +223,25 @@ class SetupController extends AbstractController
         }
         $pdo->exec('SET FOREIGN_KEY_CHECKS = 1');
 
-        $_SESSION['setup_backup_download'] = basename($dumpPath);
+        if ($dumpPath !== null) {
+            $_SESSION['setup_backup_download'] = basename($dumpPath);
+        }
 
         $this->journalService?->log(
             'core',
             'setup_db_emptied',
             'security',
-            'Base de données sauvegardée puis vidée avant réinstallation',
+            $dumpPath !== null
+                ? 'Base de données sauvegardée puis vidée avant réinstallation'
+                : 'Base de données vidée avant réinstallation SANS sauvegarde (échec : ' . $backupError . ')',
             ['table_count' => count($tables)]
         );
 
         return $this->json([
             'success' => true,
             'table_count' => count($tables),
-            'download_url' => '/setup/download-backup',
+            'download_url' => $dumpPath !== null ? '/setup/download-backup' : null,
+            'backup_skipped' => $dumpPath === null,
         ]);
     }
 

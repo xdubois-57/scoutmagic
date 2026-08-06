@@ -133,45 +133,77 @@
             });
     });
 
-    if (btnBackupEmptyDb) {
-        btnBackupEmptyDb.addEventListener('click', function() {
-            btnBackupEmptyDb.disabled = true;
-            backupEmptySpinner.classList.remove('d-none');
-            backupEmptyResult.textContent = '';
+    var btnEmptyWithoutBackup = document.getElementById('btn-empty-without-backup');
 
-            var data = new FormData();
-            data.append('_csrf_token', form.elements['_csrf_token'].value);
-            data.append('db_host', document.getElementById('db_host').value);
-            data.append('db_port', document.getElementById('db_port').value);
-            data.append('db_name', document.getElementById('db_name').value);
-            data.append('db_user', document.getElementById('db_user').value);
-            data.append('db_password', document.getElementById('db_password').value);
+    function runBackupAndEmpty(forceWithoutBackup) {
+        btnBackupEmptyDb.disabled = true;
+        if (btnEmptyWithoutBackup) { btnEmptyWithoutBackup.disabled = true; }
+        backupEmptySpinner.classList.remove('d-none');
+        backupEmptyResult.textContent = '';
 
-            fetch('/setup/backup-and-empty-db', { method: 'POST', body: data })
-                .then(function(r) { return r.json(); })
-                .then(function(json) {
-                    backupEmptySpinner.classList.add('d-none');
-                    if (!json.success) {
-                        backupEmptyResult.innerHTML = '<span class="text-danger">\u2717 ' + json.message + '</span>';
-                        btnBackupEmptyDb.disabled = false;
-                        return;
+        var data = new FormData();
+        data.append('_csrf_token', form.elements['_csrf_token'].value);
+        data.append('db_host', document.getElementById('db_host').value);
+        data.append('db_port', document.getElementById('db_port').value);
+        data.append('db_name', document.getElementById('db_name').value);
+        data.append('db_user', document.getElementById('db_user').value);
+        data.append('db_password', document.getElementById('db_password').value);
+        if (forceWithoutBackup) { data.append('force_without_backup', '1'); }
+
+        fetch('/setup/backup-and-empty-db', { method: 'POST', body: data })
+            .then(function(r) { return r.json(); })
+            .then(function(json) {
+                backupEmptySpinner.classList.add('d-none');
+                if (!json.success) {
+                    backupEmptyResult.innerHTML = '<span class="text-danger">\u2717 ' + json.message + '</span>';
+                    btnBackupEmptyDb.disabled = false;
+                    // Only offer "empty anyway" once the backup step itself
+                    // is confirmed to be what failed (not e.g. a wrong
+                    // password) \u2014 otherwise this button would appear for
+                    // errors it can't actually fix.
+                    if (json.backup_failed && btnEmptyWithoutBackup) {
+                        btnEmptyWithoutBackup.classList.remove('d-none');
+                        btnEmptyWithoutBackup.disabled = false;
                     }
+                    return;
+                }
+                if (json.backup_skipped) {
+                    backupEmptyResult.innerHTML = '<span class="text-warning">\u26a0 Base vid\u00e9e SANS sauvegarde (' + json.table_count + ' table' + (json.table_count > 1 ? 's' : '') + ') \u2014 les donn\u00e9es existantes sont d\u00e9finitivement perdues. Vous pouvez poursuivre l\u2019installation.</span>';
+                } else {
                     // Trigger the actual file download as a real navigation
                     // (not part of this fetch) \u2014 the server already
                     // deletes the dump on first read, so this must succeed
                     // before the operator navigates away.
                     window.location.href = json.download_url;
                     backupEmptyResult.innerHTML = '<span class="text-success">\u2713 Sauvegarde t\u00e9l\u00e9charg\u00e9e, base vid\u00e9e (' + json.table_count + ' table' + (json.table_count > 1 ? 's' : '') + '). Vous pouvez poursuivre l\u2019installation.</span>';
-                    dbNotEmptyWarning.classList.add('d-none');
-                    dbTestPassed = true;
-                    btnSave.disabled = false;
-                    saveHint.style.display = 'none';
-                })
-                .catch(function() {
-                    backupEmptySpinner.classList.add('d-none');
-                    backupEmptyResult.innerHTML = '<span class="text-danger">\u2717 Erreur r\u00e9seau</span>';
-                    btnBackupEmptyDb.disabled = false;
-                });
+                }
+                if (btnEmptyWithoutBackup) { btnEmptyWithoutBackup.classList.add('d-none'); }
+                dbNotEmptyWarning.classList.add('d-none');
+                dbTestPassed = true;
+                btnSave.disabled = false;
+                saveHint.style.display = 'none';
+            })
+            .catch(function() {
+                backupEmptySpinner.classList.add('d-none');
+                backupEmptyResult.innerHTML = '<span class="text-danger">\u2717 Erreur r\u00e9seau</span>';
+                btnBackupEmptyDb.disabled = false;
+                if (btnEmptyWithoutBackup) { btnEmptyWithoutBackup.disabled = false; }
+            });
+    }
+
+    if (btnBackupEmptyDb) {
+        btnBackupEmptyDb.addEventListener('click', function() {
+            if (btnEmptyWithoutBackup) { btnEmptyWithoutBackup.classList.add('d-none'); }
+            runBackupAndEmpty(false);
+        });
+    }
+
+    if (btnEmptyWithoutBackup) {
+        btnEmptyWithoutBackup.addEventListener('click', function() {
+            if (!window.confirm('Vider la base de données SANS sauvegarde ? Les données actuellement en base seront définitivement perdues.')) {
+                return;
+            }
+            runBackupAndEmpty(true);
         });
     }
 

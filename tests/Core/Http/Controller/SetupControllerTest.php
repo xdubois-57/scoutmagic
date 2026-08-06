@@ -354,6 +354,36 @@ class SetupControllerTest extends TestCase
         $this->assertStringContainsString('leftover_table', (string) file_get_contents($dumpPath));
     }
 
+    /**
+     * Regression: if the backup step fails (mysqldump unavailable, wrong
+     * plugin, whatever) the operator must not be stuck unable to install
+     * at all — force_without_backup=1 must always empty the database and
+     * let install proceed, whether or not the backup itself succeeded.
+     *
+     * @group database
+     */
+    public function testBackupAndEmptyDatabaseWithForceAlwaysEmptiesRegardlessOfBackupOutcome(): void
+    {
+        [$pdo, $params] = $this->connectToTestDatabase();
+        $pdo->exec('CREATE TABLE leftover_table (id INT PRIMARY KEY)');
+
+        $publicDir = $this->tempDir . '/public';
+        mkdir($publicDir, 0755, true);
+        $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath, $publicDir);
+        $token = \Core\Security\CsrfGuard::generateToken();
+        $_POST['_csrf_token'] = $token;
+        $request = new Request('POST', '/setup/backup-and-empty-db', [], array_merge($params, [
+            '_csrf_token' => $token,
+            'force_without_backup' => '1',
+        ]), [], []);
+
+        $json = json_decode($controller->backupAndEmptyDatabase($request, [])->getBody(), true);
+
+        $this->assertTrue($json['success'], $json['message'] ?? '');
+        $this->assertSame(1, $json['table_count']);
+        $this->assertEmpty($pdo->query('SHOW TABLES')->fetchAll());
+    }
+
     public function testBackupAndEmptyDatabaseRejectsWhenAlreadyInitialized(): void
     {
         $this->secretManager->generateMasterKey();
