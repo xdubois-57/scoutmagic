@@ -199,26 +199,36 @@
                 } else {
                     // Trigger the actual file download in a way that can
                     // never race the chained runDbTestOrInstall() fetch()
-                    // just below. Both window.location.href AND a plain
-                    // <a>.click() go through the browser's normal
-                    // top-level-navigation machinery \u2014 a click is only
-                    // reclassified as "just a download, don't navigate"
-                    // once the response's Content-Disposition: attachment
-                    // header actually arrives, and until then it can still
-                    // interfere with (abort, or stall behind a connection-
-                    // limit queue) any other in-flight request from this
-                    // page, which is exactly what surfaced as a spurious
-                    // "Erreur r\u00e9seau" \u2014 or, worse, the chained request
-                    // simply hanging forever with no response at all \u2014 even
-                    // though the backup/empty step itself had already
-                    // succeeded. A hidden <iframe> is a genuinely separate
-                    // browsing context: navigating it can never affect the
-                    // top-level document's own outstanding requests.
-                    var downloadFrame = document.createElement('iframe');
-                    downloadFrame.style.display = 'none';
-                    downloadFrame.src = json.download_url;
-                    document.body.appendChild(downloadFrame);
-                    setTimeout(function() { document.body.removeChild(downloadFrame); }, 10000);
+                    // just below, and without needing to load the response
+                    // into any browsing context. window.location.href and a
+                    // plain <a>.click() both go through the browser's
+                    // normal top-level-navigation machinery \u2014 a click is
+                    // only reclassified as "just a download, don't
+                    // navigate" once the response's Content-Disposition:
+                    // attachment header actually arrives, and until then it
+                    // can interfere with the chained fetch() (abort it, or
+                    // stall it behind a connection-limit queue with no
+                    // response at all). A hidden <iframe> avoids that race
+                    // but hits a different wall: every response here
+                    // carries X-Frame-Options: DENY / frame-ancestors
+                    // 'none' (Core\Http\Response::getSecurityHeaders(),
+                    // deliberately unconditional clickjacking protection \u2014
+                    // not something to weaken just for this), so the
+                    // browser correctly refuses to load the download
+                    // response into any frame, same-origin or not. The
+                    // `download` attribute sidesteps both problems: it
+                    // tells the browser before the request is even made
+                    // that this is a forced save, so it never enters
+                    // navigation/rendering semantics at all \u2014 no race with
+                    // the fetch, and no browsing context for the
+                    // frame-related headers to apply to.
+                    var downloadLink = document.createElement('a');
+                    downloadLink.href = json.download_url;
+                    downloadLink.setAttribute('download', '');
+                    downloadLink.style.display = 'none';
+                    document.body.appendChild(downloadLink);
+                    downloadLink.click();
+                    document.body.removeChild(downloadLink);
                     backupEmptyResult.innerHTML = '<span class="text-success">\u2713 Sauvegarde t\u00e9l\u00e9charg\u00e9e, base vid\u00e9e (' + json.table_count + ' table' + (json.table_count > 1 ? 's' : '') + '). Vous pouvez poursuivre l\u2019installation.</span>';
                 }
                 if (btnEmptyWithoutBackup) { btnEmptyWithoutBackup.classList.add('d-none'); }
