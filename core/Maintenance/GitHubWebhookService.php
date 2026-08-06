@@ -104,15 +104,16 @@ class GitHubWebhookService
         $dependenciesChanged = $this->composerLockChanged($installedVersion, $tagName);
         $this->settings->setInternal('update_dependencies_changed', $dependenciesChanged ? '1' : '0');
 
-        if ((bool) ((int) ($this->settings->get('dev_update_enabled') ?: '0'))) {
+        if (!(bool) ((int) ($this->settings->get('auto_update_enabled') ?: '0'))) {
+            return ['status' => 'ignored', 'reason' => 'auto_update_disabled'];
+        }
+
+        $level = (string) ($this->settings->get('auto_update_level') ?: 'minor');
+        if ($level === 'dev') {
             // Development mode takes over the install path entirely — a
             // stable release arriving while it's active is deliberately
             // never auto-installed (module spec).
             return ['status' => 'ignored', 'reason' => 'dev_mode_active'];
-        }
-
-        if (!(bool) ((int) ($this->settings->get('auto_update_enabled') ?: '0'))) {
-            return ['status' => 'ignored', 'reason' => 'auto_update_disabled'];
         }
 
         if ($downloadUrl === null) {
@@ -120,7 +121,6 @@ class GitHubWebhookService
         }
 
         $bumpType = $this->classifyVersionBump($installedVersion, $latestVersion);
-        $level = (string) ($this->settings->get('auto_update_level') ?: 'patch');
         $allowed = self::LEVEL_ALLOWS[$level] ?? self::LEVEL_ALLOWS['patch'];
         if (!in_array($bumpType, $allowed, true)) {
             return ['status' => 'ignored', 'reason' => 'version_type_not_allowed'];
@@ -161,7 +161,9 @@ class GitHubWebhookService
      */
     public function handlePushEvent(array $payload): array
     {
-        if (!(bool) ((int) ($this->settings->get('dev_update_enabled') ?: '0'))) {
+        $enabled = (bool) ((int) ($this->settings->get('auto_update_enabled') ?: '0'));
+        $level = (string) ($this->settings->get('auto_update_level') ?: 'minor');
+        if (!$enabled || $level !== 'dev') {
             return ['status' => 'ignored', 'reason' => 'dev_mode_disabled'];
         }
 

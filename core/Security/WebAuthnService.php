@@ -27,11 +27,8 @@ class WebAuthnService
         $challenge = random_bytes(32);
 
         // Store challenge in session for later verification
-        if (session_status() !== PHP_SESSION_ACTIVE) {
-            session_start();
-        }
-        $_SESSION['webauthn_challenge'] = base64_encode($challenge);
-        $_SESSION['webauthn_user_id'] = $userAccountId;
+        SessionStore::set('webauthn_challenge', base64_encode($challenge));
+        SessionStore::set('webauthn_user_id', $userAccountId);
 
         // Get existing credentials to exclude
         $existingCredentials = $this->credentialRepo->findByUserAccountId($userAccountId);
@@ -78,18 +75,15 @@ class WebAuthnService
     public function verifyRegistration(int $userAccountId, array $clientResponse, string $deviceLabel): int
     {
         // Retrieve stored challenge
-        $storedChallenge = $_SESSION['webauthn_challenge'] ?? null;
-        $storedUserId = $_SESSION['webauthn_user_id'] ?? null;
+        $storedChallenge = SessionStore::get('webauthn_challenge');
+        $storedUserId = SessionStore::get('webauthn_user_id');
 
         if ($storedChallenge === null || $storedUserId !== $userAccountId) {
             throw new \RuntimeException('No pending registration challenge.');
         }
 
         // Clear used challenge
-        if (session_status() !== PHP_SESSION_ACTIVE) {
-            session_start();
-        }
-        unset($_SESSION['webauthn_challenge'], $_SESSION['webauthn_user_id']);
+        SessionStore::remove('webauthn_challenge', 'webauthn_user_id');
 
         // Decode client response
         $clientDataJSON = $this->base64UrlDecode($clientResponse['response']['clientDataJSON']);
@@ -147,10 +141,7 @@ class WebAuthnService
     {
         $challenge = random_bytes(32);
 
-        if (session_status() !== PHP_SESSION_ACTIVE) {
-            session_start();
-        }
-        $_SESSION['webauthn_auth_challenge'] = base64_encode($challenge);
+        SessionStore::set('webauthn_auth_challenge', base64_encode($challenge));
 
         return [
             'challenge' => $this->base64UrlEncode($challenge),
@@ -169,16 +160,13 @@ class WebAuthnService
      */
     public function verifyAuthentication(array $clientResponse): ?UserAccount
     {
-        $storedChallenge = $_SESSION['webauthn_auth_challenge'] ?? null;
+        $storedChallenge = SessionStore::get('webauthn_auth_challenge');
 
         if ($storedChallenge === null) {
             return null;
         }
 
-        if (session_status() !== PHP_SESSION_ACTIVE) {
-            session_start();
-        }
-        unset($_SESSION['webauthn_auth_challenge']);
+        SessionStore::remove('webauthn_auth_challenge');
 
         // Find credential by ID
         $credentialIdRaw = $this->base64UrlDecode($clientResponse['rawId'] ?? '');

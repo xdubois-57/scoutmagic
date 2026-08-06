@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Core\Http;
 
+use Core\Security\SessionStore;
+
 class FlashMessage
 {
     private const SESSION_KEY = '_flash_message';
@@ -16,14 +18,10 @@ class FlashMessage
      */
     public static function set(string $type, string $message): void
     {
-        if (session_status() !== PHP_SESSION_ACTIVE) {
-            session_start();
-        }
-
-        $_SESSION[self::SESSION_KEY] = [
+        SessionStore::set(self::SESSION_KEY, [
             'type' => $type,
             'message' => $message,
-        ];
+        ]);
     }
 
     /**
@@ -33,20 +31,10 @@ class FlashMessage
      */
     public static function get(): ?array
     {
-        // Not gated on session_status() === PHP_SESSION_ACTIVE: public/
-        // index.php calls session_write_close() early, which leaves
-        // session_status() as PHP_SESSION_NONE for the rest of the
-        // request even though $_SESSION itself stays populated and
-        // readable in memory — gating the read on ACTIVE would make every
-        // flash message silently vanish. The removal below does need an
-        // active session to actually persist, though, since it's a write.
-        $flash = $_SESSION[self::SESSION_KEY] ?? null;
+        $flash = SessionStore::get(self::SESSION_KEY);
 
         if ($flash !== null) {
-            if (session_status() !== PHP_SESSION_ACTIVE) {
-                session_start();
-            }
-            unset($_SESSION[self::SESSION_KEY]);
+            SessionStore::remove(self::SESSION_KEY);
         }
 
         return $flash;

@@ -13,6 +13,9 @@ use Core\Journal\JournalService;
 use Core\Maintenance\BackupException;
 use Core\Maintenance\BackupRepository;
 use Core\Maintenance\BackupService;
+use Core\Maintenance\GitHubReleaseClient;
+use Core\Maintenance\GitHubReleaseClientInterface;
+use Core\Maintenance\UpdateException;
 use Core\Maintenance\UpdateHistoryRepository;
 use Core\Maintenance\VersionFile;
 use Core\Module\ModuleManager;
@@ -43,17 +46,19 @@ class MaintenanceController extends AbstractController
     private const KEYWORD_FULL_RESET = 'EFFACER';
     private const KEYWORD_RESTORE = 'RESTAURER';
 
-    // Same server-side-verified-keyword pattern, for the "Mode
-    // développement" danger zone (module spec).
-    private const KEYWORD_DEV_MODE = 'DÉVELOPPEMENT';
-
     private const RESTORE_UPLOAD_MAX_BYTES = 500 * 1024 * 1024;
 
     /** @var string[] */
     private const AUTO_BACKUP_FREQUENCIES = ['none', 'daily', 'weekly', 'biweekly', 'monthly'];
 
+    // 'dev' folds what used to be a separate "Mode développement" danger
+    // zone into this same radio group — one mutually-exclusive choice
+    // instead of two independently-toggleable mechanisms (module spec:
+    // the extra confirm-keyword friction that zone had wasn't adding real
+    // protection, since configuring the GitHub webhook at all already
+    // requires repo admin rights).
     /** @var string[] */
-    private const AUTO_UPDATE_LEVELS = ['patch', 'minor', 'major'];
+    private const AUTO_UPDATE_LEVELS = ['patch', 'minor', 'major', 'dev'];
 
     /** @var string[] */
     private const WEEK_DAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
@@ -70,7 +75,8 @@ class MaintenanceController extends AbstractController
         private JournalService $journalService,
         private SettingService $settingService,
         private string $storagePath,
-        private SecretManager $secretManager
+        private SecretManager $secretManager,
+        private ?GitHubReleaseClientInterface $releaseClient = null
     ) {
     }
 
@@ -85,9 +91,11 @@ class MaintenanceController extends AbstractController
 
         $autoUpdateEnabled = (bool) ((int) ($this->settingService->get('auto_update_enabled') ?: '0'));
         $webhookConfigured = $this->webhookSecret() !== '';
+        [$installedVersionDisplay, $installedVersionCommit] = self::splitInstalledVersion($installedVersion);
 
         return $this->render('config/maintenance.html.twig', [
-            'installed_version' => $installedVersion,
+            'installed_version' => $installedVersionDisplay,
+            'installed_version_commit' => $installedVersionCommit,
             'update_checked_at' => (string) ($this->settingService->get('update_checked_at') ?: ''),
             'update_available' => $updateAvailable,
             'update_latest_version' => $latestVersion,
@@ -101,13 +109,12 @@ class MaintenanceController extends AbstractController
             'backup_auto_frequency' => (string) ($this->settingService->get('backup_auto_frequency') ?: 'monthly'),
             'backup_auto_last_run' => (string) ($this->settingService->get('backup_auto_last_run') ?: ''),
             'auto_update_enabled' => $autoUpdateEnabled,
-            'auto_update_level' => (string) ($this->settingService->get('auto_update_level') ?: 'patch'),
+            'auto_update_level' => (string) ($this->settingService->get('auto_update_level') ?: 'minor'),
             'auto_update_day' => (string) ($this->settingService->get('auto_update_day') ?: 'monday'),
             'auto_update_time' => (string) ($this->settingService->get('auto_update_time') ?: '03:00'),
             'webhook_configured' => $webhookConfigured,
             'webhook_warning' => $autoUpdateEnabled && !$webhookConfigured,
             'webhook_url' => rtrim((string) ($this->settingService->get('base_url') ?: ''), '/') . '/api/webhook/github',
-            'dev_update_enabled' => (bool) ((int) ($this->settingService->get('dev_update_enabled') ?: '0')),
             'dev_update_branch' => (string) ($this->settingService->get('dev_update_branch') ?: 'main'),
         ]);
     }
@@ -116,9 +123,10 @@ class MaintenanceController extends AbstractController
      * POST /config/maintenance/update/install (AJAX, JSON) — schedules the
      * background installation (Task\InstallUpdateHandler) and returns
      * immediately; the page polls updateStatus() for progress. Re-validates
-     * server-side that a newer version is actually available from the
-     * cached check result — never trusts the client's own idea of the
-     * target version.
+     * server-side that a newer version is actually available — never
+     * trusts the client's own idea of the target version — from the cached
+     * check result (stable channel) or a fresh GitHub lookup (development
+     * channel, since there's no equivalent settings cache for a commit).
      *
      * @param array<string, string> $params
      */
@@ -129,16 +137,22 @@ class MaintenanceController extends AbstractController
             return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
         }
 
+        $installedVersion = VersionFile::read(dirname($this->storagePath));
+        $level = (string) ($this->settingService->get('auto_update_level') ?: 'minor');
+        $userId = AuthSession::getUserAccountId();
+
+        if ($level === 'dev') {
+            return $this->installDevBranchUpdate($installedVersion, $userId);
+        }
+
         $latestVersion = (string) ($this->settingService->get('update_latest_version') ?: '');
         $downloadUrl = (string) ($this->settingService->get('update_download_url') ?: '');
-        $installedVersion = VersionFile::read(dirname($this->storagePath));
 
         if ($latestVersion === '' || $downloadUrl === '' || !version_compare($latestVersion, $installedVersion, '>')) {
             return $this->json(['success' => false, 'error' => 'Aucune mise à jour disponible.'], 400);
         }
 
         $dependenciesChanged = (bool) ((int) ($this->settingService->get('update_dependencies_changed') ?: '0'));
-        $userId = AuthSession::getUserAccountId();
 
         $historyId = $this->updateHistoryRepository->create($installedVersion, $latestVersion, $dependenciesChanged, $userId);
 
@@ -157,6 +171,137 @@ class MaintenanceController extends AbstractController
         );
 
         return $this->json(['success' => true, 'history_id' => $historyId]);
+    }
+
+    /**
+     * Development-channel path for installUpdate() — re-fetches the
+     * branch's current head rather than trusting anything cached client-
+     * side, then schedules exactly the same immediate/no-slot install
+     * GitHubWebhookService::handlePushEvent() would for the same commit.
+     */
+    private function installDevBranchUpdate(string $installedVersion, ?int $userId): Response
+    {
+        $branch = (string) ($this->settingService->get('dev_update_branch') ?: 'main');
+        $owner = (string) ($this->settingService->get('update_github_owner') ?: '');
+        $repo = (string) ($this->settingService->get('update_github_repo') ?: '');
+
+        try {
+            $commit = $this->releaseClient()->getLatestCommit($branch);
+        } catch (UpdateException $e) {
+            return $this->json(['success' => false, 'error' => $e->getMessage()], 502);
+        }
+
+        if ($commit === null) {
+            return $this->json(['success' => false, 'error' => "Branche « {$branch} » introuvable sur le dépôt GitHub."], 404);
+        }
+
+        $versionTo = $commit->shortVersion();
+        if ($versionTo === $installedVersion) {
+            return $this->json(['success' => false, 'error' => 'Aucune mise à jour disponible.'], 400);
+        }
+
+        $downloadUrl = "https://api.github.com/repos/{$owner}/{$repo}/zipball/{$commit->sha}";
+        $historyId = $this->updateHistoryRepository->create($installedVersion, $versionTo, false, $userId);
+
+        $this->schedulerService->scheduleAfter(
+            'core',
+            'install_update',
+            0,
+            ['history_id' => $historyId, 'download_url' => $downloadUrl, 'source_type' => 'branch'],
+            null,
+            $userId
+        );
+
+        $this->journalService->log(
+            'core', 'update_requested', 'info', 'Installation de mise à jour demandée (mode développement)',
+            ['history_id' => $historyId, 'version_from' => $installedVersion, 'version_to' => $versionTo], $userId
+        );
+
+        return $this->json(['success' => true, 'history_id' => $historyId]);
+    }
+
+    /**
+     * POST /config/maintenance/update/check-now (AJAX, JSON) — on-demand
+     * check for the "Vérifier maintenant" button, since detection is
+     * otherwise purely webhook-driven with no polling in between. Checks
+     * the stable channel (GET .../releases/latest) unless development mode
+     * (auto_update_level === 'dev') is configured, in which case it checks
+     * the latest commit on the configured branch instead — never both,
+     * mirroring GitHubWebhookService's release/push mutual exclusivity.
+     * Does not itself schedule an install — the client shows a confirm
+     * dialog and, if accepted, calls installUpdate() (stable channel) or
+     * relies on the result already caching update_download_url the same
+     * way a webhook-triggered check would.
+     *
+     * @param array<string, string> $params
+     */
+    public function checkForUpdatesNow(Request $request, array $params): Response
+    {
+        $data = json_decode($request->getRawBody(), true);
+        if (!is_array($data) || !CsrfGuard::validateToken((string) ($data['_csrf_token'] ?? ''))) {
+            return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
+        }
+
+        $installedVersion = VersionFile::read(dirname($this->storagePath));
+        $level = (string) ($this->settingService->get('auto_update_level') ?: 'minor');
+        $client = $this->releaseClient();
+
+        try {
+            if ($level === 'dev') {
+                $branch = (string) ($this->settingService->get('dev_update_branch') ?: 'main');
+                $commit = $client->getLatestCommit($branch);
+
+                if ($commit === null) {
+                    return $this->json(['success' => false, 'error' => "Branche « {$branch} » introuvable sur le dépôt GitHub."], 404);
+                }
+
+                return $this->json([
+                    'success' => true,
+                    'channel' => 'dev',
+                    'update_available' => $installedVersion !== $commit->shortVersion(),
+                    'version' => $commit->shortVersion(),
+                    'notes' => trim(explode("\n", $commit->message)[0]),
+                    'url' => $commit->htmlUrl,
+                ]);
+            }
+
+            $release = $client->getLatestRelease();
+            if ($release === null) {
+                return $this->json(['success' => true, 'channel' => 'release', 'update_available' => false]);
+            }
+
+            // Same settings cache the webhook path refreshes, so a manual
+            // check's result is immediately consistent with the rest of
+            // the page (and installUpdate() below can act on it).
+            $this->settingService->setInternal('update_checked_at', (new \DateTimeImmutable())->format('Y-m-d H:i:s'));
+            $this->settingService->setInternal('update_latest_version', $release->version());
+            $this->settingService->setInternal('update_release_notes', $release->body);
+            $this->settingService->setInternal('update_release_html_url', $release->htmlUrl);
+            $this->settingService->setInternal('update_download_url', (string) $release->downloadUrl);
+
+            return $this->json([
+                'success' => true,
+                'channel' => 'release',
+                'update_available' => version_compare($release->version(), $installedVersion, '>'),
+                'version' => $release->version(),
+                'notes' => $release->body,
+                'url' => $release->htmlUrl,
+            ]);
+        } catch (UpdateException $e) {
+            return $this->json(['success' => false, 'error' => $e->getMessage()], 502);
+        }
+    }
+
+    private function releaseClient(): GitHubReleaseClientInterface
+    {
+        if ($this->releaseClient !== null) {
+            return $this->releaseClient;
+        }
+
+        $owner = (string) ($this->settingService->get('update_github_owner') ?: '');
+        $repo = (string) ($this->settingService->get('update_github_repo') ?: '');
+
+        return new GitHubReleaseClient($owner, $repo);
     }
 
     /**
@@ -501,20 +646,44 @@ class MaintenanceController extends AbstractController
 
         $enabled = (bool) ($data['enabled'] ?? false);
         $level = (string) ($data['level'] ?? '');
-        $day = (string) ($data['day'] ?? '');
-        $time = (string) ($data['time'] ?? '');
 
         if (!in_array($level, self::AUTO_UPDATE_LEVELS, true)) {
             return $this->json(['success' => false, 'error' => 'Niveau de version invalide.'], 400);
         }
+
+        $userId = AuthSession::getUserAccountId();
+
+        // 'dev' tracks a branch installed immediately on every push, with
+        // no weekly slot — mutually exclusive with the semver levels below
+        // by construction of the radio group itself (module spec).
+        if ($level === 'dev') {
+            $branch = trim((string) ($data['branch'] ?? ''));
+            if ($branch === '' || strlen($branch) > 100) {
+                return $this->json(['success' => false, 'error' => 'Nom de branche invalide.'], 400);
+            }
+
+            $this->settingService->set('auto_update_enabled', $enabled ? '1' : '0');
+            $this->settingService->set('auto_update_level', $level);
+            $this->settingService->set('dev_update_branch', $branch);
+
+            $this->journalService->log(
+                'core', 'auto_update_settings_changed', 'security',
+                'Préférences de mise à jour automatique modifiées (mode développement)',
+                ['enabled' => $enabled, 'level' => $level, 'branch' => $branch], $userId
+            );
+
+            return $this->json(['success' => true]);
+        }
+
+        $day = (string) ($data['day'] ?? '');
+        $time = (string) ($data['time'] ?? '');
+
         if (!in_array($day, self::WEEK_DAYS, true)) {
             return $this->json(['success' => false, 'error' => 'Jour invalide.'], 400);
         }
         if (!preg_match('/^([01]\d|2[0-3]):[0-5]\d$/', $time)) {
             return $this->json(['success' => false, 'error' => 'Heure invalide (format HH:MM attendu).'], 400);
         }
-
-        $userId = AuthSession::getUserAccountId();
 
         $this->settingService->set('auto_update_enabled', $enabled ? '1' : '0');
         $this->settingService->set('auto_update_level', $level);
@@ -567,59 +736,23 @@ class MaintenanceController extends AbstractController
     }
 
     /**
-     * POST /config/maintenance/dev-mode/enable (AJAX, JSON) — the danger
-     * zone. Requires typing KEYWORD_DEV_MODE, verified server-side (same
-     * pattern as every "Réinitialisation" action).
+     * A dev/branch install's VersionFile content is literally
+     * "dev-{7-char-sha}" (Task\InstallUpdateHandler writes
+     * update_history.version_to as-is — see GitHubWebhookService::
+     * handlePushEvent()/installDevBranchUpdate()'s shared "dev-{sha}"
+     * convention) — the commit is already tracked, just not split out for
+     * display. Splits it into a clean "dev" label plus the commit shown
+     * separately, rather than the raw concatenated string.
      *
-     * @param array<string, string> $params
+     * @return array{0: string, 1: ?string} [display, commit]
      */
-    public function enableDevMode(Request $request, array $params): Response
+    private static function splitInstalledVersion(string $raw): array
     {
-        $data = json_decode($request->getRawBody(), true);
-        if (!is_array($data) || !CsrfGuard::validateToken((string) ($data['_csrf_token'] ?? ''))) {
-            return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
-        }
-        if ((string) ($data['confirm_keyword'] ?? '') !== self::KEYWORD_DEV_MODE) {
-            return $this->json(['success' => false, 'error' => 'Mot de confirmation incorrect.'], 400);
+        if (preg_match('/^dev-([0-9a-f]{7,40})$/', $raw, $matches)) {
+            return ['dev', $matches[1]];
         }
 
-        $branch = trim((string) ($data['branch'] ?? ''));
-        if ($branch === '' || strlen($branch) > 100) {
-            return $this->json(['success' => false, 'error' => 'Nom de branche invalide.'], 400);
-        }
-
-        $userId = AuthSession::getUserAccountId();
-        $this->settingService->set('dev_update_branch', $branch);
-        $this->settingService->set('dev_update_enabled', '1');
-
-        $this->journalService->log(
-            'core', 'dev_mode_enabled', 'security',
-            'Mode développement activé (installation automatique depuis une branche)',
-            ['branch' => $branch], $userId
-        );
-
-        return $this->json(['success' => true]);
-    }
-
-    /**
-     * POST /config/maintenance/dev-mode/disable (AJAX, JSON) — no keyword
-     * required, disabling is always the safe direction (module spec).
-     *
-     * @param array<string, string> $params
-     */
-    public function disableDevMode(Request $request, array $params): Response
-    {
-        $data = json_decode($request->getRawBody(), true);
-        if (!is_array($data) || !CsrfGuard::validateToken((string) ($data['_csrf_token'] ?? ''))) {
-            return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
-        }
-
-        $userId = AuthSession::getUserAccountId();
-        $this->settingService->set('dev_update_enabled', '0');
-
-        $this->journalService->log('core', 'dev_mode_disabled', 'info', 'Mode développement désactivé', [], $userId);
-
-        return $this->json(['success' => true]);
+        return [$raw, null];
     }
 
     private function webhookSecret(): string

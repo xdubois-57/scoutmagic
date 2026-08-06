@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Core\ScoutYear;
 
+use Core\Security\SessionStore;
+
 /**
  * Owns the per-session scout-year preview override.
  *
@@ -21,10 +23,7 @@ class ScoutYearSession
      */
     public static function setPreview(int $yearId): void
     {
-        if (session_status() !== PHP_SESSION_ACTIVE) {
-            session_start();
-        }
-        $_SESSION[self::SESSION_KEY] = $yearId;
+        SessionStore::set(self::SESSION_KEY, $yearId);
     }
 
     /**
@@ -32,7 +31,7 @@ class ScoutYearSession
      */
     public static function getPreviewId(): ?int
     {
-        $value = $_SESSION[self::SESSION_KEY] ?? null;
+        $value = SessionStore::get(self::SESSION_KEY);
 
         return $value !== null ? (int) $value : null;
     }
@@ -42,9 +41,6 @@ class ScoutYearSession
      */
     public static function clear(): void
     {
-        if (session_status() !== PHP_SESSION_ACTIVE) {
-            session_start();
-        }
-        unset($_SESSION[self::SESSION_KEY]);
+        SessionStore::remove(self::SESSION_KEY);
     }
 }

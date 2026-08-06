@@ -107,75 +107,154 @@
     });
 })();
 
-// "Mise à jour" section — install button: submits, then polls
+// "Mise à jour" section — install form(s): submit, then poll
 // GET /api/maintenance/update-status/{id} (same pattern as the full-backup
 // polling above) until installation completes, fails, or is rolled back.
+// Wires every matching form found (the always-rendered "Une nouvelle
+// version est disponible" form when the webhook's last cached check found
+// one, and/or the "Vérifier maintenant" dialog's own form below) since
+// both POST to the same endpoint and need identical polling.
 (function () {
-    var form = document.getElementById('update-install-form');
-    if (!form) return;
+    function wireInstallForm(form) {
+        if (!form) return;
 
-    var submitBtn = document.getElementById('update-install-submit');
-    var progressEl = document.getElementById('update-install-progress');
-    var errorEl = document.getElementById('update-install-error');
-    var pollTimer = null;
+        var submitBtn = form.querySelector('button[type="submit"]');
+        var progressEl = form.querySelector('[id$="-progress"]') || document.getElementById('update-install-progress');
+        var errorEl = form.querySelector('[id$="-error"]') || document.getElementById('update-install-error');
+        var pollTimer = null;
 
-    function stopPolling() {
-        if (pollTimer) {
-            clearInterval(pollTimer);
-            pollTimer = null;
+        function stopPolling() {
+            if (pollTimer) {
+                clearInterval(pollTimer);
+                pollTimer = null;
+            }
         }
-    }
 
-    function showError(message) {
-        stopPolling();
-        submitBtn.disabled = false;
-        progressEl.classList.add('d-none');
-        errorEl.textContent = message;
-        errorEl.classList.remove('d-none');
-    }
+        function showError(message) {
+            stopPolling();
+            if (submitBtn) submitBtn.disabled = false;
+            if (progressEl) progressEl.classList.add('d-none');
+            if (errorEl) {
+                errorEl.textContent = message;
+                errorEl.classList.remove('d-none');
+            }
+        }
 
-    function pollStatus(historyId) {
-        pollTimer = setInterval(function () {
-            fetch('/api/maintenance/update-status/' + historyId)
+        function pollStatus(historyId) {
+            pollTimer = setInterval(function () {
+                fetch('/api/maintenance/update-status/' + historyId)
+                    .then(function (res) { return res.json(); })
+                    .then(function (data) {
+                        if (data.status === 'completed') {
+                            stopPolling();
+                            window.location.reload();
+                        } else if (data.status === 'failed' || data.status === 'rolled_back') {
+                            showError(data.error_message || 'L\'installation de la mise à jour a échoué.');
+                        }
+                        // pending / backing_up / downloading / installing / migrating: keep polling.
+                    })
+                    .catch(function () {
+                        // Transient network hiccup — keep polling.
+                    });
+            }, 3000);
+        }
+
+        form.addEventListener('submit', function (e) {
+            e.preventDefault();
+            if (errorEl) errorEl.classList.add('d-none');
+            if (submitBtn) submitBtn.disabled = true;
+            if (progressEl) progressEl.classList.remove('d-none');
+
+            var csrfInput = form.querySelector('input[name="_csrf_token"]');
+
+            fetch('/config/maintenance/update/install', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ _csrf_token: csrfInput ? csrfInput.value : '' })
+            })
                 .then(function (res) { return res.json(); })
                 .then(function (data) {
-                    if (data.status === 'completed') {
-                        stopPolling();
-                        window.location.reload();
-                    } else if (data.status === 'failed' || data.status === 'rolled_back') {
-                        showError(data.error_message || 'L\'installation de la mise à jour a échoué.');
+                    if (!data.success) {
+                        showError(data.error || 'Erreur lors du lancement de la mise à jour.');
+                        return;
                     }
-                    // pending / backing_up / downloading / installing / migrating: keep polling.
+                    pollStatus(data.history_id);
                 })
                 .catch(function () {
-                    // Transient network hiccup — keep polling.
+                    showError('Erreur réseau.');
                 });
-        }, 3000);
+        });
     }
 
-    form.addEventListener('submit', function (e) {
-        e.preventDefault();
+    wireInstallForm(document.getElementById('update-install-form'));
+    wireInstallForm(document.getElementById('update-check-now-install-form'));
+})();
+
+// "Mise à jour" section — "Vérifier maintenant" button: on-demand check
+// (POST /config/maintenance/update/check-now), since detection is
+// otherwise purely webhook-driven with no polling in between. Populates
+// #update-check-now-dialog with the result; its own install form is wired
+// above alongside the always-rendered one.
+(function () {
+    var btn = document.getElementById('update-check-now');
+    if (!btn) return;
+
+    var progressEl = document.getElementById('update-check-now-progress');
+    var errorEl = document.getElementById('update-check-now-error');
+    var dialog = document.getElementById('update-check-now-dialog');
+    var messageEl = document.getElementById('update-check-now-message');
+    var notesEl = document.getElementById('update-check-now-notes');
+    var dismissBtn = document.getElementById('update-check-now-dismiss');
+
+    function csrf() {
+        var meta = document.querySelector('meta[name="csrf-token"]');
+        return meta ? meta.content : '';
+    }
+
+    if (dismissBtn) {
+        dismissBtn.addEventListener('click', function () {
+            dialog.classList.add('d-none');
+        });
+    }
+
+    btn.addEventListener('click', function () {
+        btn.disabled = true;
         errorEl.classList.add('d-none');
-        submitBtn.disabled = true;
+        dialog.classList.add('d-none');
         progressEl.classList.remove('d-none');
 
-        var csrfInput = form.querySelector('input[name="_csrf_token"]');
-
-        fetch('/config/maintenance/update/install', {
+        fetch('/config/maintenance/update/check-now', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ _csrf_token: csrfInput ? csrfInput.value : '' })
+            body: JSON.stringify({ _csrf_token: csrf() })
         })
             .then(function (res) { return res.json(); })
             .then(function (data) {
+                btn.disabled = false;
+                progressEl.classList.add('d-none');
+
                 if (!data.success) {
-                    showError(data.error || 'Erreur lors du lancement de la mise à jour.');
+                    errorEl.textContent = data.error || 'Erreur lors de la vérification.';
+                    errorEl.classList.remove('d-none');
                     return;
                 }
-                pollStatus(data.history_id);
+
+                if (!data.update_available) {
+                    errorEl.classList.add('d-none');
+                    dialog.classList.add('d-none');
+                    window.alert('Le site est déjà à jour.');
+                    return;
+                }
+
+                messageEl.textContent = 'Nouvelle version disponible : ' + data.version;
+                notesEl.textContent = (data.notes || '').slice(0, 500);
+                dialog.classList.remove('d-none');
             })
             .catch(function () {
-                showError('Erreur réseau.');
+                btn.disabled = false;
+                progressEl.classList.add('d-none');
+                errorEl.textContent = 'Erreur réseau.';
+                errorEl.classList.remove('d-none');
             });
     });
 })();
@@ -200,9 +279,18 @@
     });
 
     var majorWarning = document.getElementById('auto-update-major-warning');
+    var devWarning = document.getElementById('auto-update-dev-warning');
+    var scheduleSection = document.getElementById('auto-update-schedule-section');
+    var branchSection = document.getElementById('auto-update-branch-section');
+    var webhookSection = document.getElementById('auto-update-webhook-section');
     document.querySelectorAll('input[name="auto-update-level"]').forEach(function (radio) {
         radio.addEventListener('change', function () {
-            majorWarning.classList.toggle('d-none', radio.value !== 'major' || !radio.checked);
+            if (!radio.checked) return;
+            majorWarning.classList.toggle('d-none', radio.value !== 'major');
+            devWarning.classList.toggle('d-none', radio.value !== 'dev');
+            scheduleSection.classList.toggle('d-none', radio.value === 'dev');
+            branchSection.classList.toggle('d-none', radio.value !== 'dev');
+            webhookSection.classList.toggle('d-none', radio.value !== 'dev');
         });
     });
 
@@ -231,6 +319,7 @@
                     level: levelRadio ? levelRadio.value : 'patch',
                     day: document.getElementById('auto-update-day').value,
                     time: document.getElementById('auto-update-time').value,
+                    branch: document.getElementById('auto-update-branch').value,
                     _csrf_token: csrf()
                 })
             })
@@ -480,78 +569,6 @@
             // ?restore_id={id}, picked up by the polling block below.
             var submitBtn = document.getElementById('restore-backup-submit');
             submitBtn.disabled = true;
-        });
-    }
-
-    // --- Mode développement (danger zone) ---
-    var devModeUpdate = wireKeywordGate('dev-mode-keyword', 'DÉVELOPPEMENT');
-    var devEnableForm = document.getElementById('dev-mode-enable-form');
-    if (devEnableForm) {
-        devEnableForm.addEventListener('submit', function (e) {
-            e.preventDefault();
-            var submitBtn = document.getElementById('dev-mode-enable-submit');
-            var errorEl = document.getElementById('dev-mode-enable-error');
-            var csrfInput = devEnableForm.querySelector('input[name="_csrf_token"]');
-            errorEl.classList.add('d-none');
-            submitBtn.disabled = true;
-
-            fetch('/config/maintenance/dev-mode/enable', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    branch: document.getElementById('dev-mode-branch').value,
-                    confirm_keyword: document.getElementById('dev-mode-keyword').value,
-                    _csrf_token: csrfInput ? csrfInput.value : ''
-                })
-            })
-                .then(function (res) { return res.json(); })
-                .then(function (data) {
-                    if (!data.success) {
-                        errorEl.textContent = data.error || 'Erreur lors de l\'activation.';
-                        errorEl.classList.remove('d-none');
-                        if (devModeUpdate) devModeUpdate();
-                        return;
-                    }
-                    window.location.reload();
-                })
-                .catch(function () {
-                    errorEl.textContent = 'Erreur réseau.';
-                    errorEl.classList.remove('d-none');
-                    if (devModeUpdate) devModeUpdate();
-                });
-        });
-    }
-
-    var devDisableForm = document.getElementById('dev-mode-disable-form');
-    if (devDisableForm) {
-        devDisableForm.addEventListener('submit', function (e) {
-            e.preventDefault();
-            var submitBtn = document.getElementById('dev-mode-disable-submit');
-            var errorEl = document.getElementById('dev-mode-disable-error');
-            var csrfInput = devDisableForm.querySelector('input[name="_csrf_token"]');
-            errorEl.classList.add('d-none');
-            submitBtn.disabled = true;
-
-            fetch('/config/maintenance/dev-mode/disable', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ _csrf_token: csrfInput ? csrfInput.value : '' })
-            })
-                .then(function (res) { return res.json(); })
-                .then(function (data) {
-                    if (!data.success) {
-                        submitBtn.disabled = false;
-                        errorEl.textContent = data.error || 'Erreur lors de la désactivation.';
-                        errorEl.classList.remove('d-none');
-                        return;
-                    }
-                    window.location.reload();
-                })
-                .catch(function () {
-                    submitBtn.disabled = false;
-                    errorEl.textContent = 'Erreur réseau.';
-                    errorEl.classList.remove('d-none');
-                });
         });
     }
 

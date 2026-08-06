@@ -21,6 +21,7 @@ use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\Security\EncryptionService;
 use Core\Security\SecretManager;
+use Core\Security\SessionStore;
 use Twig\Environment;
 
 class SetupController extends AbstractController
@@ -309,10 +310,7 @@ class SetupController extends AbstractController
         $pdo->exec('SET FOREIGN_KEY_CHECKS = 1');
 
         if ($dumpPath !== null) {
-            if (session_status() !== PHP_SESSION_ACTIVE) {
-                session_start();
-            }
-            $_SESSION['setup_backup_download'] = basename($dumpPath);
+            SessionStore::set('setup_backup_download', basename($dumpPath));
         }
 
         $this->journalService?->log(
@@ -369,7 +367,7 @@ class SetupController extends AbstractController
      */
     public function downloadBackup(Request $request, array $params): Response
     {
-        $filename = $_SESSION['setup_backup_download'] ?? null;
+        $filename = SessionStore::get('setup_backup_download');
         if (!is_string($filename) || $filename === '') {
             return new Response('Not Found', 404);
         }
@@ -377,18 +375,14 @@ class SetupController extends AbstractController
         $basePath = rtrim(dirname(rtrim($this->publicDir, '/')), '/');
         $path = $basePath . '/storage/maintenance/' . $filename;
 
-        if (session_status() !== PHP_SESSION_ACTIVE) {
-            session_start();
-        }
-
         if (!is_file($path)) {
-            unset($_SESSION['setup_backup_download']);
+            SessionStore::remove('setup_backup_download');
             return new Response('Not Found', 404);
         }
 
         $content = (string) file_get_contents($path);
         @unlink($path);
-        unset($_SESSION['setup_backup_download']);
+        SessionStore::remove('setup_backup_download');
 
         // .zip when bundleBackupWithEncryptionKey() ran (dump + master.key
         // + secrets.enc together), plain .sql otherwise.
@@ -520,7 +514,7 @@ class SetupController extends AbstractController
             return $this->redirect('/setup');
         }
 
-        $lockedUntil = (int) ($_SESSION['setup_token_locked_until'] ?? 0);
+        $lockedUntil = (int) SessionStore::get('setup_token_locked_until', 0);
         if ($lockedUntil > time()) {
             return $this->redirect('/setup');
         }
@@ -531,13 +525,9 @@ class SetupController extends AbstractController
 
         $valid = $tokenPath !== null && $expected !== '' && $submitted !== '' && hash_equals($expected, $submitted);
 
-        if (session_status() !== PHP_SESSION_ACTIVE) {
-            session_start();
-        }
-
         if ($valid) {
-            unset($_SESSION['setup_token_attempts'], $_SESSION['setup_token_locked_until'], $_SESSION['setup_token_error']);
-            $_SESSION['setup_token_verified'] = true;
+            SessionStore::remove('setup_token_attempts', 'setup_token_locked_until', 'setup_token_error');
+            SessionStore::set('setup_token_verified', true);
             $this->journalService?->log(
                 'core', 'setup_token_verified', 'security', 'Jeton d\'installation vérifié avec succès',
                 ['ip' => $_SERVER['REMOTE_ADDR'] ?? '']
@@ -545,19 +535,19 @@ class SetupController extends AbstractController
             return $this->redirect('/setup');
         }
 
-        $attempts = (int) ($_SESSION['setup_token_attempts'] ?? 0) + 1;
-        $_SESSION['setup_token_attempts'] = $attempts;
-        $_SESSION['setup_token_error'] = 'Jeton invalide.';
+        $attempts = (int) SessionStore::get('setup_token_attempts', 0) + 1;
+        SessionStore::set('setup_token_attempts', $attempts);
+        SessionStore::set('setup_token_error', 'Jeton invalide.');
 
         if ($attempts >= 10) {
-            $_SESSION['setup_token_locked_until'] = time() + 86400;
-            $_SESSION['setup_token_error'] = 'Trop de tentatives — nouvel essai possible dans 24 heures.';
+            SessionStore::set('setup_token_locked_until', time() + 86400);
+            SessionStore::set('setup_token_error', 'Trop de tentatives — nouvel essai possible dans 24 heures.');
         } elseif ($attempts >= 8) {
-            $_SESSION['setup_token_locked_until'] = time() + 1800;
+            SessionStore::set('setup_token_locked_until', time() + 1800);
         } elseif ($attempts >= 6) {
-            $_SESSION['setup_token_locked_until'] = time() + 300;
+            SessionStore::set('setup_token_locked_until', time() + 300);
         } elseif ($attempts >= 4) {
-            $_SESSION['setup_token_locked_until'] = time() + 60;
+            SessionStore::set('setup_token_locked_until', time() + 60);
         }
 
         $this->journalService?->log(
@@ -1042,7 +1032,7 @@ class SetupController extends AbstractController
      */
     private function checkTokenGate(): ?Response
     {
-        if (($_SESSION['setup_token_verified'] ?? false) === true) {
+        if (SessionStore::get('setup_token_verified', false) === true) {
             return null;
         }
 
@@ -1056,7 +1046,7 @@ class SetupController extends AbstractController
             ]);
         }
 
-        $lockedUntil = (int) ($_SESSION['setup_token_locked_until'] ?? 0);
+        $lockedUntil = (int) SessionStore::get('setup_token_locked_until', 0);
         if ($lockedUntil > time()) {
             return $this->render('setup/token_gate.html.twig', [
                 'state' => 'locked',
@@ -1064,11 +1054,8 @@ class SetupController extends AbstractController
             ]);
         }
 
-        $error = $_SESSION['setup_token_error'] ?? null;
-        if (session_status() !== PHP_SESSION_ACTIVE) {
-            session_start();
-        }
-        unset($_SESSION['setup_token_error']);
+        $error = SessionStore::get('setup_token_error');
+        SessionStore::remove('setup_token_error');
 
         return $this->render('setup/token_gate.html.twig', [
             'state' => 'form',

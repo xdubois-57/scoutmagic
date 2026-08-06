@@ -6,6 +6,7 @@ namespace Core\View;
 
 use Core\Security\AuthSession;
 use Core\Security\Role;
+use Core\Security\SessionStore;
 
 class ConfigurationMode
 {
@@ -21,10 +22,7 @@ class ConfigurationMode
             return false;
         }
 
-        if (session_status() !== PHP_SESSION_ACTIVE) {
-            session_start();
-        }
-        $_SESSION[self::SESSION_KEY] = true;
+        SessionStore::set(self::SESSION_KEY, true);
 
         return true;
     }
@@ -34,10 +32,7 @@ class ConfigurationMode
      */
     public static function deactivate(): void
     {
-        if (session_status() !== PHP_SESSION_ACTIVE) {
-            session_start();
-        }
-        unset($_SESSION[self::SESSION_KEY]);
+        SessionStore::remove(self::SESSION_KEY);
     }
 
     /**
@@ -46,7 +41,7 @@ class ConfigurationMode
      */
     public static function isActive(): bool
     {
-        if (empty($_SESSION[self::SESSION_KEY])) {
+        if (empty(SessionStore::get(self::SESSION_KEY))) {
             return false;
         }
 

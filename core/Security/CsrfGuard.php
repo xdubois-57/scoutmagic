@@ -13,16 +13,13 @@ class CsrfGuard
      */
     public static function generateToken(): string
     {
-        if (session_status() !== PHP_SESSION_ACTIVE) {
-            session_start();
-        }
-
-        if (!empty($_SESSION[self::TOKEN_KEY])) {
-            return $_SESSION[self::TOKEN_KEY];
+        $existing = SessionStore::get(self::TOKEN_KEY);
+        if (!empty($existing)) {
+            return $existing;
         }
 
         $token = bin2hex(random_bytes(32));
-        $_SESSION[self::TOKEN_KEY] = $token;
+        SessionStore::set(self::TOKEN_KEY, $token);
 
         return $token;
     }
@@ -37,15 +34,7 @@ class CsrfGuard
             return false;
         }
 
-        // Not gated on session_status() === PHP_SESSION_ACTIVE: public/
-        // index.php calls session_write_close() early (before the
-        // migration/DB work) to avoid holding the session file lock for
-        // the whole request, which leaves session_status() as
-        // PHP_SESSION_NONE for the rest of the request even though
-        // $_SESSION itself stays populated and readable in memory. Gating
-        // on ACTIVE here would make every CSRF check fail unconditionally
-        // once dispatch reaches this point.
-        $sessionToken = $_SESSION[self::TOKEN_KEY] ?? null;
+        $sessionToken = SessionStore::get(self::TOKEN_KEY);
 
         if ($sessionToken === null) {
             return false;

@@ -22,4 +22,13 @@ interface GitHubReleaseClientInterface
      * @throws UpdateException on a network/API error
      */
     public function composerLockChanged(string $base, string $head): bool;
+
+    /**
+     * The latest commit on a branch (GET /repos/{owner}/{repo}/commits/
+     * {branch}) — the development-channel equivalent of getLatestRelease().
+     * Null when the branch doesn't exist.
+     *
+     * @throws UpdateException on a network/API error
+     */
+    public function getLatestCommit(string $branch): ?CommitInfo;
 }

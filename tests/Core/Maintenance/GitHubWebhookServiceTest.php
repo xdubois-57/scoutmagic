@@ -38,10 +38,9 @@ class GitHubWebhookServiceTest extends TestCase
         }
         $this->settings->register('update_dependencies_changed', '0', 'boolean', 'D', 'D');
         $this->settings->register('auto_update_enabled', '0', 'boolean', 'D', 'D');
-        $this->settings->register('auto_update_level', 'patch', 'select', 'D', 'D', null, null, ['patch', 'minor', 'major']);
+        $this->settings->register('auto_update_level', 'patch', 'select', 'D', 'D', null, null, ['patch', 'minor', 'major', 'dev']);
         $this->settings->register('auto_update_day', 'monday', 'select', 'D', 'D', null, null, ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']);
         $this->settings->register('auto_update_time', '03:00', 'text', 'D', 'D');
-        $this->settings->register('dev_update_enabled', '0', 'boolean', 'D', 'D');
         $this->settings->register('dev_update_branch', 'main', 'text', 'D', 'D');
 
         $this->schedulerRepository = new SchedulerRepository($this->pdo);
@@ -70,6 +69,11 @@ class GitHubWebhookServiceTest extends TestCase
                     throw $this->throws;
                 }
                 return $this->changed;
+            }
+
+            public function getLatestCommit(string $branch): ?\Core\Maintenance\CommitInfo
+            {
+                return null;
             }
         };
     }
@@ -173,7 +177,7 @@ class GitHubWebhookServiceTest extends TestCase
     public function testHandleReleaseEventIgnoredWhenDevModeActive(): void
     {
         $this->settings->set('auto_update_enabled', '1');
-        $this->settings->set('dev_update_enabled', '1');
+        $this->settings->set('auto_update_level', 'dev');
         $this->settings->clearCache();
 
         $result = $this->service()->handleReleaseEvent($this->releasePayload('v2.4.2'));
@@ -339,7 +343,8 @@ class GitHubWebhookServiceTest extends TestCase
 
     public function testHandlePushEventIgnoredWhenBranchDoesNotMatch(): void
     {
-        $this->settings->set('dev_update_enabled', '1');
+        $this->settings->set('auto_update_enabled', '1');
+        $this->settings->set('auto_update_level', 'dev');
         $this->settings->set('dev_update_branch', 'main');
         $this->settings->clearCache();
 
@@ -350,7 +355,8 @@ class GitHubWebhookServiceTest extends TestCase
 
     public function testHandlePushEventSchedulesImmediateInstallWhenBranchMatches(): void
     {
-        $this->settings->set('dev_update_enabled', '1');
+        $this->settings->set('auto_update_enabled', '1');
+        $this->settings->set('auto_update_level', 'dev');
         $this->settings->set('dev_update_branch', 'main');
         $this->settings->clearCache();
 
@@ -372,7 +378,8 @@ class GitHubWebhookServiceTest extends TestCase
 
     public function testHandlePushEventIgnoresAPushWithNoCommitSha(): void
     {
-        $this->settings->set('dev_update_enabled', '1');
+        $this->settings->set('auto_update_enabled', '1');
+        $this->settings->set('auto_update_level', 'dev');
         $this->settings->set('dev_update_branch', 'main');
         $this->settings->clearCache();
 

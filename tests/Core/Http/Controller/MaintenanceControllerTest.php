@@ -17,6 +17,9 @@ use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Maintenance\BackupRepository;
 use Core\Maintenance\BackupService;
+use Core\Maintenance\CommitInfo;
+use Core\Maintenance\GitHubReleaseClientInterface;
+use Core\Maintenance\ReleaseInfo;
 use Core\Maintenance\UpdateHistoryRepository;
 use Core\Module\ModuleManager;
 use Core\Scheduler\SchedulerRepository;
@@ -43,6 +46,14 @@ class MaintenanceControllerTest extends TestCase
     private SecretManager $secretManager;
     private Environment $twig;
 
+    /**
+     * Configurable per-test — the "Vérifier maintenant" / dev-branch
+     * install tests set ->release or ->commit before calling the
+     * controller; every other test leaves both null (no release/commit
+     * found), which is a safe, network-free default.
+     */
+    private GitHubReleaseClientInterface $fakeReleaseClient;
+
     protected function setUp(): void
     {
         $this->pdo = DatabaseTestHelper::createTestDatabase();
@@ -62,11 +73,12 @@ class MaintenanceControllerTest extends TestCase
         $this->settingService->register('backup_auto_frequency', 'monthly', 'select', 'L', 'D', null, null, ['none', 'daily', 'weekly', 'biweekly', 'monthly']);
         $this->settingService->register('backup_auto_last_run', '', 'text', 'L', 'D');
         $this->settingService->register('auto_update_enabled', '0', 'boolean', 'L', 'D');
-        $this->settingService->register('auto_update_level', 'patch', 'select', 'L', 'D', null, null, ['patch', 'minor', 'major']);
+        $this->settingService->register('auto_update_level', 'patch', 'select', 'L', 'D', null, null, ['patch', 'minor', 'major', 'dev']);
         $this->settingService->register('auto_update_day', 'monday', 'select', 'L', 'D', null, null, ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']);
         $this->settingService->register('auto_update_time', '03:00', 'text', 'L', 'D');
-        $this->settingService->register('dev_update_enabled', '0', 'boolean', 'L', 'D');
         $this->settingService->register('dev_update_branch', 'main', 'text', 'L', 'D');
+        $this->settingService->register('update_github_owner', 'owner', 'text', 'L', 'D');
+        $this->settingService->register('update_github_repo', 'repo', 'text', 'L', 'D');
         $this->settingService->register('base_url', 'https://example.test', 'url', 'L', 'D');
 
         $connection = new Connection('127.0.0.1', 3306, 'nonexistent_db', 'nobody', '');
@@ -95,9 +107,29 @@ class MaintenanceControllerTest extends TestCase
         $this->twig->addFunction(new \Twig\TwigFunction('csrf_token', fn() => 'test'));
         $this->twig->addFunction(new \Twig\TwigFunction('param', fn(...$a) => ''));
 
+        $this->fakeReleaseClient = new class implements GitHubReleaseClientInterface {
+            public ?ReleaseInfo $release = null;
+            public ?CommitInfo $commit = null;
+
+            public function getLatestRelease(): ?ReleaseInfo
+            {
+                return $this->release;
+            }
+
+            public function composerLockChanged(string $base, string $head): bool
+            {
+                return false;
+            }
+
+            public function getLatestCommit(string $branch): ?CommitInfo
+            {
+                return $this->commit;
+            }
+        };
+
         $this->controller = new MaintenanceController(
             $this->twig, $backupService, $this->backupRepository, $fileRepository, $this->updateHistoryRepository, $schedulerService,
-            $moduleManager, $encryption, $journalService, $this->settingService, $storagePath, $this->secretManager
+            $moduleManager, $encryption, $journalService, $this->settingService, $storagePath, $this->secretManager, $this->fakeReleaseClient
         );
 
         if (session_status() === PHP_SESSION_NONE) {
@@ -286,6 +318,40 @@ class MaintenanceControllerTest extends TestCase
         $response = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), []);
 
         $this->assertStringContainsString('Le site est à jour', $response->getBody());
+    }
+
+    /**
+     * A dev/branch install's VersionFile content is literally
+     * "dev-{7-char-sha}" — split for display into a clean "dev" label with
+     * the commit shown separately in parentheses, rather than the raw
+     * concatenated string.
+     */
+    public function testIndexShowsTheInstalledCommitInParenthesesForADevBuild(): void
+    {
+        $versionFile = sys_get_temp_dir() . '/VERSION';
+        $original = is_file($versionFile) ? file_get_contents($versionFile) : null;
+        file_put_contents($versionFile, "dev-a1b2c3d\n");
+
+        try {
+            $response = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), []);
+            $body = $response->getBody();
+
+            $this->assertStringContainsString('Version installée : <strong>dev</strong>', $body);
+            $this->assertStringContainsString('(a1b2c3d)', $body);
+        } finally {
+            if ($original !== null) {
+                file_put_contents($versionFile, $original);
+            } else {
+                @unlink($versionFile);
+            }
+        }
+    }
+
+    public function testIndexShowsNoParenthesesForANormalReleaseVersion(): void
+    {
+        $response = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), []);
+
+        $this->assertStringNotContainsString('<span class="text-body-secondary">(', $response->getBody());
     }
 
     public function testInstallUpdateValidatesCsrf(): void
@@ -594,61 +660,129 @@ class MaintenanceControllerTest extends TestCase
         $this->assertSame($second['secret'], $secrets['github_webhook_secret']);
     }
 
-    // --- Mode développement (danger zone) ---
+    // --- Mode développement (folded into "Mises à jour automatiques" as
+    // the 'dev' auto_update_level, no separate danger-zone flow anymore) ---
 
-    public function testEnableDevModeRequiresTheExactKeyword(): void
+    public function testSaveAutoUpdatePreferencesPersistsDevLevelAndBranch(): void
     {
         $token = $this->csrfToken();
-        $request = $this->jsonRequest(['branch' => 'develop', 'confirm_keyword' => 'wrong', '_csrf_token' => $token]);
+        $request = $this->jsonRequest([
+            'enabled' => true, 'level' => 'dev', 'branch' => 'develop', '_csrf_token' => $token,
+        ]);
 
-        $response = $this->controller->enableDevMode($request, []);
-
-        $decoded = json_decode($response->getBody(), true);
-        $this->assertFalse($decoded['success']);
-        $this->settingService->clearCache();
-        $this->assertSame('0', $this->settingService->get('dev_update_enabled'));
-    }
-
-    public function testEnableDevModeSucceedsWithTheCorrectKeyword(): void
-    {
-        $token = $this->csrfToken();
-        $request = $this->jsonRequest(['branch' => 'develop', 'confirm_keyword' => 'DÉVELOPPEMENT', '_csrf_token' => $token]);
-
-        $response = $this->controller->enableDevMode($request, []);
+        $response = $this->controller->saveAutoUpdatePreferences($request, []);
 
         $decoded = json_decode($response->getBody(), true);
         $this->assertTrue($decoded['success']);
+
         $this->settingService->clearCache();
-        $this->assertSame('1', $this->settingService->get('dev_update_enabled'));
+        $this->assertSame('1', $this->settingService->get('auto_update_enabled'));
+        $this->assertSame('dev', $this->settingService->get('auto_update_level'));
         $this->assertSame('develop', $this->settingService->get('dev_update_branch'));
-
-        $count = (int) $this->pdo->query("SELECT COUNT(*) FROM event_log WHERE event_type = 'dev_mode_enabled'")->fetchColumn();
-        $this->assertSame(1, $count);
     }
 
-    public function testEnableDevModeRejectsAnEmptyBranch(): void
+    public function testSaveAutoUpdatePreferencesRejectsAnEmptyBranchForDevLevel(): void
     {
         $token = $this->csrfToken();
-        $request = $this->jsonRequest(['branch' => '  ', 'confirm_keyword' => 'DÉVELOPPEMENT', '_csrf_token' => $token]);
+        $request = $this->jsonRequest(['enabled' => true, 'level' => 'dev', 'branch' => '  ', '_csrf_token' => $token]);
 
-        $response = $this->controller->enableDevMode($request, []);
+        $response = $this->controller->saveAutoUpdatePreferences($request, []);
 
         $decoded = json_decode($response->getBody(), true);
         $this->assertFalse($decoded['success']);
     }
 
-    public function testDisableDevModeRequiresNoKeyword(): void
-    {
-        $this->settingService->set('dev_update_enabled', '1');
-        $this->settingService->clearCache();
+    // --- "Vérifier maintenant" (POST /config/maintenance/update/check-now) ---
 
+    public function testCheckForUpdatesNowValidatesCsrf(): void
+    {
+        $response = $this->controller->checkForUpdatesNow($this->jsonRequest(['_csrf_token' => 'bad']), []);
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertFalse($decoded['success']);
+        $this->assertSame(400, $response->getStatusCode());
+    }
+
+    public function testCheckForUpdatesNowReturnsUpdateAvailableForANewRelease(): void
+    {
+        $this->fakeReleaseClient->release = new ReleaseInfo('v99.0.0', 'Notes', 'https://github.com/x/y/releases/tag/v99.0.0', 'https://example.test/artifact.zip');
         $token = $this->csrfToken();
-        $response = $this->controller->disableDevMode($this->jsonRequest(['_csrf_token' => $token]), []);
+
+        $response = $this->controller->checkForUpdatesNow($this->jsonRequest(['_csrf_token' => $token]), []);
 
         $decoded = json_decode($response->getBody(), true);
         $this->assertTrue($decoded['success']);
+        $this->assertSame('release', $decoded['channel']);
+        $this->assertTrue($decoded['update_available']);
+        $this->assertSame('99.0.0', $decoded['version']);
+
         $this->settingService->clearCache();
-        $this->assertSame('0', $this->settingService->get('dev_update_enabled'));
+        $this->assertSame('99.0.0', $this->settingService->get('update_latest_version'));
+    }
+
+    public function testCheckForUpdatesNowReturnsNoUpdateWhenNoReleaseIsPublished(): void
+    {
+        $token = $this->csrfToken();
+
+        $response = $this->controller->checkForUpdatesNow($this->jsonRequest(['_csrf_token' => $token]), []);
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertTrue($decoded['success']);
+        $this->assertFalse($decoded['update_available']);
+    }
+
+    public function testCheckForUpdatesNowChecksTheConfiguredBranchWhenDevLevelSelected(): void
+    {
+        $this->settingService->set('auto_update_level', 'dev');
+        $this->settingService->set('dev_update_branch', 'develop');
+        $this->settingService->clearCache();
+        $this->fakeReleaseClient->commit = new CommitInfo('a1b2c3d4e5f6', 'Fix something', 'https://github.com/x/y/commit/a1b2c3d4e5f6');
+        $token = $this->csrfToken();
+
+        $response = $this->controller->checkForUpdatesNow($this->jsonRequest(['_csrf_token' => $token]), []);
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertTrue($decoded['success']);
+        $this->assertSame('dev', $decoded['channel']);
+        $this->assertTrue($decoded['update_available']);
+        $this->assertSame('dev-a1b2c3d', $decoded['version']);
+    }
+
+    public function testCheckForUpdatesNowReturns404WhenTheConfiguredBranchDoesNotExist(): void
+    {
+        $this->settingService->set('auto_update_level', 'dev');
+        $this->settingService->clearCache();
+        $token = $this->csrfToken();
+
+        $response = $this->controller->checkForUpdatesNow($this->jsonRequest(['_csrf_token' => $token]), []);
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertFalse($decoded['success']);
+        $this->assertSame(404, $response->getStatusCode());
+    }
+
+    public function testInstallUpdateSchedulesABranchInstallWhenDevLevelSelected(): void
+    {
+        $this->settingService->set('auto_update_level', 'dev');
+        $this->settingService->set('dev_update_branch', 'develop');
+        $this->settingService->clearCache();
+        $this->fakeReleaseClient->commit = new CommitInfo('a1b2c3d4e5f6', 'Fix something', 'https://github.com/x/y/commit/a1b2c3d4e5f6');
+        $token = $this->csrfToken();
+
+        $response = $this->controller->installUpdate($this->jsonRequest(['_csrf_token' => $token]), []);
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertTrue($decoded['success']);
+
+        $history = $this->updateHistoryRepository->findById($decoded['history_id']);
+        $this->assertNotNull($history);
+        $this->assertSame('dev-a1b2c3d', $history->versionTo);
+
+        $scheduled = $this->schedulerRepository->findByModuleAndTaskKey('core', 'install_update');
+        $this->assertCount(1, $scheduled);
+        $payload = json_decode((string) $scheduled[0]['payload'], true);
+        $this->assertSame('branch', $payload['source_type']);
+        $this->assertSame('https://api.github.com/repos/owner/repo/zipball/a1b2c3d4e5f6', $payload['download_url']);
     }
 
     public function testIndexShowsTheWebhookWarningWhenAutoUpdateEnabledButWebhookNotConfigured(): void

@@ -13,16 +13,14 @@ class AuthSession
      */
     public static function login(int $userAccountId, string $email, string $role): void
     {
-        if (session_status() !== PHP_SESSION_ACTIVE) {
-            session_start();
-        }
+        SessionStore::ensureWritable();
         session_regenerate_id(true);
 
-        $_SESSION[self::SESSION_KEY] = [
+        SessionStore::set(self::SESSION_KEY, [
             'user_account_id' => $userAccountId,
             'email' => $email,
             'role' => $role,
-        ];
+        ]);
     }
 
     /**
@@ -30,11 +28,9 @@ class AuthSession
      */
     public static function logout(): void
     {
-        if (session_status() !== PHP_SESSION_ACTIVE) {
-            session_start();
-        }
+        SessionStore::ensureWritable();
 
-        unset($_SESSION[self::SESSION_KEY]);
+        SessionStore::remove(self::SESSION_KEY);
         session_regenerate_id(true);
     }
 
@@ -43,7 +39,8 @@ class AuthSession
      */
     public static function isAuthenticated(): bool
     {
-        return isset($_SESSION[self::SESSION_KEY]['user_account_id']);
+        $auth = SessionStore::get(self::SESSION_KEY, []);
+        return isset($auth['user_account_id']);
     }
 
     /**
@@ -51,7 +48,8 @@ class AuthSession
      */
     public static function getUserAccountId(): ?int
     {
-        return $_SESSION[self::SESSION_KEY]['user_account_id'] ?? null;
+        $auth = SessionStore::get(self::SESSION_KEY, []);
+        return $auth['user_account_id'] ?? null;
     }
 
     /**
@@ -59,7 +57,8 @@ class AuthSession
      */
     public static function getEmail(): ?string
     {
-        return $_SESSION[self::SESSION_KEY]['email'] ?? null;
+        $auth = SessionStore::get(self::SESSION_KEY, []);
+        return $auth['email'] ?? null;
     }
 
     /**
@@ -67,7 +66,8 @@ class AuthSession
      */
     public static function getRole(): string
     {
-        return $_SESSION[self::SESSION_KEY]['role'] ?? 'public';
+        $auth = SessionStore::get(self::SESSION_KEY, []);
+        return $auth['role'] ?? 'public';
     }
 
     /**
@@ -77,10 +77,9 @@ class AuthSession
      */
     public static function setLinkedMembers(array $memberYearIds): void
     {
-        if (session_status() !== PHP_SESSION_ACTIVE) {
-            session_start();
-        }
-        $_SESSION[self::SESSION_KEY]['linked_members'] = $memberYearIds;
+        $auth = SessionStore::get(self::SESSION_KEY, []);
+        $auth['linked_members'] = $memberYearIds;
+        SessionStore::set(self::SESSION_KEY, $auth);
     }
 
     /**
@@ -90,6 +89,7 @@ class AuthSession
      */
     public static function getLinkedMembers(): array
     {
-        return $_SESSION[self::SESSION_KEY]['linked_members'] ?? [];
+        $auth = SessionStore::get(self::SESSION_KEY, []);
+        return $auth['linked_members'] ?? [];
     }
 }

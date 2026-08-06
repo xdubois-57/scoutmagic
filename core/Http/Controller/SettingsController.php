@@ -23,7 +23,7 @@ class SettingsController extends AbstractController
     /** @var string[] */
     private const EXCLUDED_FROM_GENERIC_PAGE = [
         'auto_update_enabled', 'auto_update_level', 'auto_update_day', 'auto_update_time',
-        'dev_update_enabled', 'dev_update_branch',
+        'dev_update_branch',
     ];
 
     public function __construct(

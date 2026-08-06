@@ -399,28 +399,27 @@ $settingService->register('backup_auto_frequency', 'monthly', 'select', 'Fréque
 $settingService->register('backup_auto_last_run', '', 'text', 'Dernière sauvegarde automatique',
     'Horodatage de la dernière sauvegarde automatique effectuée avec succès. Géré automatiquement.',
     null, null, null, false, 119);
-// The following 6 settings are managed exclusively from the "Mises à jour
+// The following 5 settings are managed exclusively from the "Mises à jour
 // automatiques" section of Configuration > Maintenance (Core\Http\
 // Controller\MaintenanceController) — deliberately excluded from the
 // generic Configuration > Paramètres page's grouped rendering
 // (Core\Http\Controller\SettingsController::EXCLUDED_FROM_GENERIC_PAGE),
 // since that page's plain editable-row UI has no room for the semver
-// explainer / danger-zone confirm-keyword flow this feature needs.
-$settingService->register('auto_update_enabled', '0', 'boolean', 'Mises à jour automatiques activées',
+// explainer / webhook status block this feature needs. auto_update_level's
+// 'dev' option folds what used to be a separate danger-zone "Mode
+// développement" toggle into this same radio group.
+$settingService->register('auto_update_enabled', '1', 'boolean', 'Mises à jour automatiques activées',
     'Active l\'installation automatique des mises à jour selon les préférences ci-dessous.',
     null, null, null, true, 120);
-$settingService->register('auto_update_level', 'patch', 'select', 'Niveau de version autorisé',
-    'Types de versions installés automatiquement (patch, mineure, majeure).',
-    null, null, ['patch', 'minor', 'major'], true, 121);
+$settingService->register('auto_update_level', 'minor', 'select', 'Niveau de version autorisé',
+    'Types de versions installés automatiquement (patch, mineure, majeure, développement).',
+    null, null, ['patch', 'minor', 'major', 'dev'], true, 121);
 $settingService->register('auto_update_day', 'monday', 'select', 'Jour d\'installation automatique',
     'Jour de la semaine auquel une mise à jour disponible est installée automatiquement.',
     null, null, ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'], true, 122);
 $settingService->register('auto_update_time', '03:00', 'text', 'Heure d\'installation automatique',
     'Heure (HH:MM) à laquelle une mise à jour disponible est installée automatiquement.',
     null, '^([01]\d|2[0-3]):[0-5]\d$', null, true, 123);
-$settingService->register('dev_update_enabled', '0', 'boolean', 'Mode développement activé',
-    'Installe automatiquement, sans délai, chaque nouveau commit poussé sur la branche de développement configurée. Réservé aux environnements de test.',
-    null, null, null, true, 124);
 $settingService->register('dev_update_branch', 'main', 'text', 'Branche de développement',
     'Branche GitHub surveillée pour l\'installation immédiate en mode développement.',
     null, null, null, true, 125);
@@ -1167,6 +1166,7 @@ $router->addRoute('POST', '/config/maintenance/backup/full', MaintenanceControll
 $router->addRoute('POST', '/config/maintenance/backup/auto-frequency', MaintenanceController::class, 'updateAutoBackupFrequency', 'admin');
 $router->addRoute('GET', '/api/maintenance/backup-status/{id}', MaintenanceController::class, 'backupStatus', 'admin');
 $router->addRoute('POST', '/config/maintenance/update/install', MaintenanceController::class, 'installUpdate', 'admin');
+$router->addRoute('POST', '/config/maintenance/update/check-now', MaintenanceController::class, 'checkForUpdatesNow', 'admin');
 $router->addRoute('GET', '/api/maintenance/update-status/{id}', MaintenanceController::class, 'updateStatus', 'admin');
 $router->addRoute('POST', '/config/maintenance/reset/settings', MaintenanceController::class, 'resetSettings', 'admin');
 $router->addRoute('POST', '/config/maintenance/reset/full', MaintenanceController::class, 'fullReset', 'admin');
@@ -1174,8 +1174,6 @@ $router->addRoute('POST', '/config/maintenance/reset/restore', MaintenanceContro
 $router->addRoute('GET', '/api/maintenance/reset-status/{id}', MaintenanceController::class, 'resetStatus', 'admin');
 $router->addRoute('POST', '/config/maintenance/auto-update/save', MaintenanceController::class, 'saveAutoUpdatePreferences', 'admin');
 $router->addRoute('POST', '/api/maintenance/webhook-secret', MaintenanceController::class, 'generateWebhookSecret', 'admin');
-$router->addRoute('POST', '/config/maintenance/dev-mode/enable', MaintenanceController::class, 'enableDevMode', 'admin');
-$router->addRoute('POST', '/config/maintenance/dev-mode/disable', MaintenanceController::class, 'disableDevMode', 'admin');
 // The only public, CSRF-free route in the codebase — GitHub is a machine
 // caller with no session; the HMAC-SHA256 signature (Core\Maintenance\
 // GitHubWebhookService::verifySignature()) is what authenticates it

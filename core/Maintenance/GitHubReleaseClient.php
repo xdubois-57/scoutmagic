@@ -82,6 +82,31 @@ final class GitHubReleaseClient implements GitHubReleaseClientInterface
         return null;
     }
 
+    public function getLatestCommit(string $branch): ?CommitInfo
+    {
+        [$status, $body] = $this->httpGet(
+            "https://api.github.com/repos/{$this->owner}/{$this->repo}/commits/" . rawurlencode($branch)
+        );
+
+        if ($status === 404) {
+            return null;
+        }
+        if ($status < 200 || $status >= 300) {
+            throw new UpdateException("L'API GitHub a répondu avec le statut {$status} (commits).");
+        }
+
+        $decoded = json_decode($body, true);
+        if (!is_array($decoded) || !isset($decoded['sha'])) {
+            throw new UpdateException('Réponse GitHub invalide (commits).');
+        }
+
+        return new CommitInfo(
+            sha: (string) $decoded['sha'],
+            message: (string) ($decoded['commit']['message'] ?? ''),
+            htmlUrl: (string) ($decoded['html_url'] ?? '')
+        );
+    }
+
     public function composerLockChanged(string $base, string $head): bool
     {
         [$status, $body] = $this->httpGet(
