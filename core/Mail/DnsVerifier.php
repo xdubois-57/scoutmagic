@@ -11,7 +11,7 @@ class DnsVerifier
      *
      * @return array{exists: bool, expected: string, actual: ?string}
      */
-    public function checkSpf(string $domain, string $mode, ?string $smtpDomain = null): array
+    public function checkSpf(string $domain, string $mode, ?string $smtpHost = null): array
     {
         $records = $this->getTxtRecords($domain);
         $actual = null;
@@ -25,15 +25,14 @@ class DnsVerifier
 
         $exists = false;
         if ($actual !== null) {
-            if ($mode === 'smtp' && $smtpDomain !== null) {
-                $exists = str_contains($actual, "include:_spf.{$smtpDomain}")
-                    || str_contains($actual, "include:{$smtpDomain}");
+            if ($mode === 'smtp' && $smtpHost !== null) {
+                $exists = str_contains($actual, "a:{$smtpHost}");
             } else {
                 $exists = str_contains($actual, 'v=spf1');
             }
         }
 
-        $expected = $this->buildSpfExpected($actual, $mode, $smtpDomain);
+        $expected = $this->buildSpfExpected($actual, $mode, $smtpHost);
 
         return ['exists' => $exists, 'expected' => $expected, 'actual' => $actual];
     }
@@ -46,10 +45,22 @@ class DnsVerifier
      * the existing record (right before the trailing "all" qualifier),
      * preserving every mechanism and the qualifier strictness the
      * operator already chose rather than silently downgrading it.
+     *
+     * The inserted mechanism is "a:{smtpHost}" — the exact host given,
+     * authorizing whatever IP that hostname's own A/AAAA record resolves
+     * to — never a guessed "include:_spf.<domain>". That convention only
+     * works for third-party providers that publish their own dedicated
+     * _spf.<their-domain> record for customers to reference (Google,
+     * Mailgun, etc.) — fabricating one for an arbitrary SMTP host almost
+     * always points at a TXT record that doesn't exist, which causes SPF
+     * evaluation to fail with a PermError, worse than no suggestion at
+     * all. "a:" is always syntactically safe: the host is one the
+     * operator is actively connecting to for SMTP submission, so it
+     * necessarily resolves to something.
      */
-    private function buildSpfExpected(?string $actual, string $mode, ?string $smtpDomain): string
+    private function buildSpfExpected(?string $actual, string $mode, ?string $smtpHost): string
     {
-        $mechanism = ($mode === 'smtp' && $smtpDomain !== null) ? "include:_spf.{$smtpDomain}" : null;
+        $mechanism = ($mode === 'smtp' && $smtpHost !== null) ? "a:{$smtpHost}" : null;
 
         if ($actual === null) {
             return $mechanism !== null ? "v=spf1 {$mechanism} ~all" : 'v=spf1 a mx ~all';

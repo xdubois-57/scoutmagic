@@ -237,6 +237,7 @@
                 <div class="card-body">
                     <h3 class="h6 mb-2">Configuration DNS requise</h3>
                     <p class="text-muted small mb-2">Un domaine ne peut avoir qu'un seul enregistrement TXT SPF et qu'un seul enregistrement <code>_dmarc</code> : si une valeur actuelle est déjà affichée ci-dessous, la valeur suggérée l'intègre automatiquement (elle ne supprime rien de votre configuration existante) — remplacez l'enregistrement existant par cette valeur suggérée plutôt que d'en ajouter un second. Le DKIM utilise en revanche un sous-domaine dédié au sélecteur choisi ci-dessus : il n'entre jamais en conflit avec un enregistrement existant sous un autre nom, et nécessite d'avoir généré la clé DKIM (section « Clé DKIM » ci-dessus) pour connaître sa valeur.</p>
+                    <p class="text-muted small mb-2">Pour le SPF en mode SMTP, la valeur suggérée autorise directement l'adresse IP de votre serveur SMTP (<code>a:{hôte}</code>) — cela convient à la plupart des hébergeurs mutualisés. Si votre fournisseur SMTP est un grand service tiers (Google, SendGrid, Mailgun, Office 365…), il publie généralement sa propre valeur <code>include:</code> à ajouter à la place : consultez sa documentation SPF, la valeur suggérée ici ne peut pas la deviner automatiquement.</p>
                     <div id="dns-records">
                         <p class="text-muted small mb-2">Complétez les champs ci-dessus puis cliquez sur « Vérifier les DNS » pour afficher les enregistrements requis.</p>
                     </div>
@@ -246,6 +247,21 @@
                     </button>
                 </div>
             </div>
+        </div>
+    </div>
+
+    {# Tâche planifiée (cron) — informational only, no form fields, so it
+       stays outside the numbered sections above. #}
+    <div class="card mb-4">
+        <div class="card-body">
+            <h2 class="card-title h5 mb-3">Tâche planifiée (cron)</h2>
+            <p class="text-muted small">Le site exécute déjà les tâches planifiées (sauvegardes automatiques, rappels, relances d'envoi…) de façon opportuniste après chaque visite d'une page — pratique, mais peu fiable si le site reçoit peu de trafic : rien ne s'exécute tant que personne ne le consulte. Configurez une véritable tâche cron chez votre hébergeur pour que ces tâches s'exécutent à l'heure prévue, même sans visiteur.</p>
+            <p class="small mb-1">Ajoutez cette ligne dans votre crontab (ou dans la section « Tâches planifiées »/« Cron » du panneau de contrôle de votre hébergeur, si disponible) :</p>
+            <div class="input-group input-group-sm mt-1 mb-2">
+                <input type="text" class="form-control font-monospace" value="* * * * * php {{ cron_script_path ?? '/chemin/vers/le/site/public/cron.php' }}" readonly id="cron-line-display">
+                <button type="button" class="btn btn-outline-secondary btn-copy-value" data-copy-target="cron-line-display">Copier</button>
+            </div>
+            <p class="text-muted small mb-0">Le script se protège lui-même contre les exécutions simultanées et n'a besoin d'être lancé qu'une fois par minute. Remplacez <code>php</code> par le chemin complet de l'exécutable en ligne de commande si votre hébergeur en exige un précis (souvent indiqué dans son panneau de contrôle, par exemple <code>/usr/bin/php8.3</code>).</p>
         </div>
     </div>
 

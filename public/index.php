@@ -108,7 +108,7 @@ use Core\Security\SessionManager;
 use Core\Security\UserAccountRepository;
 use Core\Security\WebAuthnCredentialRepository;
 use Core\Security\WebAuthnService;
-use Minishlink\WebPush\VAPID;
+use Core\Notification\VapidKeyPairFactory;
 use Minishlink\WebPush\WebPush;
 use Twig\TwigFunction;
 use Core\View\ConfigurationMode;
@@ -216,8 +216,17 @@ $secrets = $secretManager->readSecrets();
 // Self-heal VAPID keys (Web Push, Core\Notification) for installs that
 // completed setup before this feature existed — SetupController also
 // generates these for brand-new installs, making this a no-op there.
-if (empty($secrets['vapid_public_key']) || empty($secrets['vapid_private_key'])) {
-    $vapidKeys = VAPID::createVapidKeys();
+// Also self-heals a key pair that was persisted but never actually valid
+// (observed in the wild: VAPID::createVapidKeys() intermittently produced
+// a key VAPID::validate() itself rejects, taking down every page load via
+// WebPush's constructor) — every future request repairs it automatically
+// once this check ships, no manual intervention needed on an already-
+// broken install.
+if (!VapidKeyPairFactory::isValid(
+    (string) ($secrets['vapid_public_key'] ?? ''),
+    (string) ($secrets['vapid_private_key'] ?? '')
+)) {
+    $vapidKeys = VapidKeyPairFactory::createValid();
     $secrets['vapid_public_key'] = $vapidKeys['publicKey'];
     $secrets['vapid_private_key'] = $vapidKeys['privateKey'];
     $secretManager->writeSecrets($secrets);
@@ -529,11 +538,24 @@ $mailService = MailServiceFactory::create($secrets, $dkimManager);
 // down to a hardcoded URL for a freshly-setup site with no contact email yet.
 $vapidSubjectEmail = (string) ($settingService->get('contact_email') ?: $settingService->get('mail_from_address') ?: '');
 $vapidSubject = $vapidSubjectEmail !== '' ? 'mailto:' . $vapidSubjectEmail : (string) ($settingService->get('base_url') ?: 'https://localhost');
-$webPush = new WebPush(['VAPID' => [
-    'subject' => $vapidSubject,
-    'publicKey' => (string) ($secrets['vapid_public_key'] ?? ''),
-    'privateKey' => (string) ($secrets['vapid_private_key'] ?? ''),
-]]);
+// The self-heal above keeps this from ever failing in practice, but
+// WebPush's constructor validates VAPID eagerly and throws on any
+// invalid config — belt-and-braces so push notifications being broken
+// can never take the entire site down again, whatever the cause.
+try {
+    $webPush = new WebPush(['VAPID' => [
+        'subject' => $vapidSubject,
+        'publicKey' => (string) ($secrets['vapid_public_key'] ?? ''),
+        'privateKey' => (string) ($secrets['vapid_private_key'] ?? ''),
+    ]]);
+} catch (\Throwable $e) {
+    $webPush = null;
+    $journalService->log(
+        'core', 'vapid_construction_failed', 'error',
+        'Configuration VAPID invalide : notifications push désactivées pour cette requête',
+        ['message' => $e->getMessage()]
+    );
+}
 $pushSubscriptionRepo = new PushSubscriptionRepository($pdo, $encryptionService);
 $notificationRepo = new NotificationRepository($pdo, $encryptionService);
 $notificationPreferenceRepo = new NotificationPreferenceRepository($pdo);

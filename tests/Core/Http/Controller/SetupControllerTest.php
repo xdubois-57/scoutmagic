@@ -91,6 +91,25 @@ class SetupControllerTest extends TestCase
         $this->assertStringContainsString('value="https://www.unite-exemple.be"', $response->getBody());
     }
 
+    /**
+     * The cron guidance card must show the real, absolute path to
+     * public/cron.php — not a placeholder — whenever the controller knows
+     * where it's running from, so the operator can copy-paste the
+     * crontab line directly instead of having to work out the path
+     * themselves.
+     */
+    public function testIndexShowsCronScriptPathWhenPublicDirIsKnown(): void
+    {
+        $_SESSION['setup_token_verified'] = true;
+
+        $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath, '/home/user/htdocs/public');
+        $request = new Request('GET', '/setup', [], [], [], []);
+
+        $response = $controller->index($request, []);
+
+        $this->assertStringContainsString('/home/user/htdocs/public/cron.php', $response->getBody());
+    }
+
     public function testIndexShowsTokenMissingScreenWhenNotInitializedAndNoTokenFile(): void
     {
         unset($_SESSION['setup_token_verified']);

@@ -10,10 +10,10 @@ use Core\Http\Request;
 use Core\Http\Response;
 use Core\Journal\JournalService;
 use Core\Notification\NotificationService;
+use Core\Notification\VapidKeyPairFactory;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\Security\SecretManager;
-use Minishlink\WebPush\VAPID;
 use Twig\Environment;
 
 /**
@@ -77,7 +77,7 @@ class NotificationConfigController extends AbstractController
         $stmt = $this->pdo->query('SELECT COUNT(*) FROM push_subscriptions');
         $deviceCount = (int) $stmt->fetchColumn();
 
-        $vapidKeys = VAPID::createVapidKeys();
+        $vapidKeys = VapidKeyPairFactory::createValid();
         $secrets = $this->secretManager->readSecrets();
         $secrets['vapid_public_key'] = $vapidKeys['publicKey'];
         $secrets['vapid_private_key'] = $vapidKeys['privateKey'];

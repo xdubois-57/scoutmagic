@@ -32,6 +32,11 @@ use Minishlink\WebPush\WebPush;
  * documented, deliberate degradation (§7.5 pattern) for callers that
  * construct this service without the full Core\Member/Security stack
  * (e.g. a narrow unit test), never the real composition root.
+ *
+ * $webPush is nullable for the same reason WebPush's own construction at
+ * the composition root is wrapped in try/catch: an invalid VAPID config
+ * must never take the rest of the site down. With it null, push delivery
+ * is silently skipped (in-app/email notifications are unaffected).
  */
 class NotificationService
 {
@@ -49,7 +54,7 @@ class NotificationService
         private NotificationRepository $notificationRepository,
         private PushSubscriptionRepository $pushSubscriptionRepository,
         private NotificationPreferenceRepository $preferenceRepository,
-        private WebPush $webPush,
+        private ?WebPush $webPush,
         private SettingService $settingService,
         private JournalService $journalService,
         private SchedulerService $schedulerService,
@@ -409,6 +414,10 @@ class NotificationService
      */
     private function queuePushForAccount(NotificationRecord $record, array &$endpointMap): void
     {
+        if ($this->webPush === null) {
+            return;
+        }
+
         $subscriptions = $this->pushSubscriptionRepository->findByUserAccountId($record->userAccountId);
         if ($subscriptions === []) {
             return;
@@ -454,6 +463,10 @@ class NotificationService
      */
     private function flushQueuedPush(array $endpointMap): void
     {
+        if ($this->webPush === null) {
+            return;
+        }
+
         foreach ($this->webPush->flush(self::PUSH_BATCH_SIZE) as $report) {
             $subscriptionId = $endpointMap[$report->getEndpoint()] ?? null;
             if ($subscriptionId === null) {

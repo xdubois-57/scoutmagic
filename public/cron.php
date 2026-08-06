@@ -35,6 +35,7 @@ use Core\Notification\NotificationPreferenceRepository;
 use Core\Notification\NotificationRepository;
 use Core\Notification\NotificationService;
 use Core\Notification\PushSubscriptionRepository;
+use Core\Notification\VapidKeyPairFactory;
 use Core\Scheduler\SchedulerRepository;
 use Core\Scheduler\SchedulerRunner;
 use Core\Scheduler\SchedulerService;
@@ -149,11 +150,17 @@ $runner->registerHandler('core', 'purge_notifications', new \Core\Notification\T
 // Web Push (Core\Notification) — same construction as public/index.php.
 // Null when VAPID keys aren't provisioned yet (e.g. this script running
 // before the site has ever been reached over HTTP, where the keys are
-// self-healed) — TaskContext::$notifications is nullable and every handler
-// calls it via ?->, so this degrades to "no push, everything else still
-// runs" rather than crashing the whole cron pass.
+// self-healed) or aren't actually valid (VAPID::createVapidKeys() has been
+// observed to intermittently produce a key WebPush's own constructor
+// rejects — see VapidKeyPairFactory) — TaskContext::$notifications is
+// nullable and every handler calls it via ?->, so either case degrades to
+// "no push, everything else still runs" rather than crashing the whole
+// cron pass silently and invisibly.
 $notificationService = null;
-if (!empty($secrets['vapid_public_key']) && !empty($secrets['vapid_private_key'])) {
+if (VapidKeyPairFactory::isValid(
+    (string) ($secrets['vapid_public_key'] ?? ''),
+    (string) ($secrets['vapid_private_key'] ?? '')
+)) {
     $vapidSubjectEmail = (string) ($settingService->get('contact_email') ?: $settingService->get('mail_from_address') ?: '');
     $vapidSubject = $vapidSubjectEmail !== '' ? 'mailto:' . $vapidSubjectEmail : (string) ($settingService->get('base_url') ?: 'https://localhost');
     $webPush = new WebPush(['VAPID' => [

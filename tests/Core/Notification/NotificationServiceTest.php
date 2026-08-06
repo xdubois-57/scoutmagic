@@ -114,6 +114,35 @@ class NotificationServiceTest extends TestCase
         $this->service->notify($userId, 'Titre', 'Corps');
     }
 
+    /**
+     * Regression: an invalid VAPID config used to be an uncaught exception
+     * straight out of WebPush's own constructor at the composition root,
+     * taking down every single page load. $webPush is now nullable there
+     * specifically so push delivery can degrade silently instead — this
+     * proves that degradation actually holds for a subscribed device.
+     */
+    public function testNotifyNeverCrashesWithSubscribedDevicesWhenWebPushIsNull(): void
+    {
+        $service = new NotificationService(
+            $this->notificationRepository,
+            $this->subscriptionRepository,
+            $this->preferenceRepository,
+            null,
+            $this->settingService,
+            new JournalService(new JournalRepository($this->pdo)),
+            new SchedulerService($this->schedulerRepository),
+            $this->userAccountRepository
+        );
+
+        $userId = $this->createUserAccount();
+        $service->subscribe($userId, 'https://push.example/device-1', 'auth1', 'p256dh1');
+
+        $service->notify($userId, 'Titre', 'Corps');
+
+        $records = $this->notificationRepository->findByUserAccountId($userId);
+        $this->assertCount(1, $records);
+    }
+
     // --- registerModuleTypes()/getAllDeclaredTypes()/findType() ---
 
     public function testGetAllDeclaredTypesIncludesCoreAndModuleTypes(): void

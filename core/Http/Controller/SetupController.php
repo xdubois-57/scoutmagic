@@ -21,7 +21,6 @@ use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\Security\EncryptionService;
 use Core\Security\SecretManager;
-use Minishlink\WebPush\VAPID;
 use Twig\Environment;
 
 class SetupController extends AbstractController
@@ -109,6 +108,7 @@ class SetupController extends AbstractController
             'csrf_token' => $csrfToken,
             'has_dkim_key' => $this->dkimManager->hasKey(),
             'dkim_public_key' => $this->dkimManager->hasKey() ? $this->dkimManager->getPublicKey() : null,
+            'cron_script_path' => $this->publicDir !== '' ? rtrim($this->publicDir, '/') . '/cron.php' : null,
         ]);
     }
 
@@ -194,11 +194,10 @@ class SetupController extends AbstractController
         }
 
         $hasDkimKey = $this->dkimManager->hasKey();
-        $smtpDomain = $smtpHost !== '' ? $this->extractDomain($smtpHost) : null;
 
         $verifier = new DnsVerifier();
         $results = [
-            'spf' => $verifier->checkSpf($domain, $mode, $smtpDomain),
+            'spf' => $verifier->checkSpf($domain, $mode, $smtpHost !== '' ? $smtpHost : null),
             // The DKIM DNS value can't be computed before a key pair
             // exists — there's nothing to publish yet, not even a
             // placeholder. key_missing lets the client show "generate the
@@ -385,8 +384,9 @@ class SetupController extends AbstractController
 
             // Generate VAPID keys (Web Push, Core\Notification) — same
             // "generated once at setup, lives in secrets.enc" treatment as
-            // the encryption keys above.
-            $vapidKeys = VAPID::createVapidKeys();
+            // the encryption keys above. Validated (with retry) rather
+            // than a bare createVapidKeys() call — see VapidKeyPairFactory.
+            $vapidKeys = \Core\Notification\VapidKeyPairFactory::createValid();
 
             // Build secrets array
             $secrets = [
@@ -877,16 +877,6 @@ class SetupController extends AbstractController
         );
 
         return false;
-    }
-
-    private function extractDomain(string $host): string
-    {
-        // Extract the root domain from an SMTP host (e.g., smtp.gmail.com -> gmail.com)
-        $parts = explode('.', $host);
-        if (count($parts) >= 2) {
-            return implode('.', array_slice($parts, -2));
-        }
-        return $host;
     }
 
     /**

@@ -1066,6 +1066,24 @@ PHP;
         $this->assertStringContainsString("require __DIR__ . '/public/index.php';", $content);
     }
 
+    /**
+     * Regression: the post-install "continue" step used to redirect to
+     * "/" and rely on the app's own not-initialized handler to bounce that
+     * to /setup — an extra hop through the exact bare-root request this
+     * file's own .htaccess hardening (see the DirectoryIndex tests above)
+     * exists because some hosts can intercept before a PHP request is
+     * ever made. Going straight to /setup avoids that hop entirely.
+     */
+    public function testPostInstallRedirectsExplicitlyToSetupNotBareRoot(): void
+    {
+        ob_start();
+        \bootstrap_render_ui($this->tempDir, $this->tempDir . '/.bootstrap-state.php');
+        $html = ob_get_clean();
+
+        $this->assertStringContainsString("window.location.href = '/setup'", $html);
+        $this->assertStringNotContainsString("window.location.href = '/';", $html);
+    }
+
     // -------------------------------------------------------------------
     // Error sanitization — no absolute paths leak to the client
     // -------------------------------------------------------------------
