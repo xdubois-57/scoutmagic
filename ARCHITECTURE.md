@@ -424,6 +424,32 @@ Extends Lot 1's app-shell-only service worker to a whitelisted set of content pa
 
 **Staff photos**: the trombinoscope's offline pre-download needs faces, not initials, for every section (not just the viewer's own) — but `/files/{id}` is never cacheable (SECURITY §6). `Core\Photo\StaffThumbnailProcessor` (mirrors `SectionPhotoProcessor`'s GD crop/orientation logic, §8.10) derives a square ~160px WebP on demand from a member's already-stored photo — never persisted server-side, same "cheap enough on demand, long `Cache-Control`" precedent as `FileController::thumbnail()`. `GET /api/offline/photo-manifest` and `GET /api/offline/photo/{member_id}` (`Core\Http\Controller\OfflineController`, both `role_min: identified`) are deliberately distinct routes from `/files/{id}` — the one, narrow, explicitly-documented exception to "every download goes through `FileAccessGuard` via `/files/{id}`," confined to one identified, low-sensitivity resource (staff faces already visible to any identified member via `/trombinoscope`) and not a precedent for bypassing the guard elsewhere. Both routes still gate on `Core\Module\StaffDirectoryProvider` (new core-hook interface, same §7.4 pattern as `SectionResponsableProvider` — implemented by the trombinoscope module, wired nullable so a disabled module degrades to an empty manifest) *and* re-run `FileAccessGuard::check()` on the underlying photo file — a member id that isn't currently eligible staff can never be used to fetch an arbitrary member's photo through this narrower route. Pre-download timing: first launch of the installed app, or (if no one is logged in yet) deferred to first login — never fired anonymously.
 
+### 8.26 Scout year transition (`Core\ScoutYear`, Espace admin)
+
+Annual transition from one scout year to the next through a guided 4-step workflow (`Core\Http\Controller\ScoutYearController`, `/admin/scout-year`, `role_min: admin`). Three year types exist simultaneously: **public year** (the year visible to identified members and public visitors), **staff year** (optional override for chiefs/intendants, letting staff prepare the next year while members see the current year), and **preview year** (session-only override for admins to view any year).
+
+`Core\ScoutYear\ScoutYearResolver::getEffectiveYear()` determines which year a request sees, in precedence order: preview year (if set in session via `ScoutYearSession::setPreview()`) → staff year (if role is chief/intendant and `ScoutYearAdminService::getStaffYearId()` returns non-null) → public year (fallback). The public year is stored in `SettingService` (`current_scout_year_id`), the staff year likewise (`staff_scout_year_id`), and preview is purely session state — never persisted.
+
+**Transition workflow** (Espace admin > Année scoute page): admin selects the next year, previews it session-only (step 1 — other users unaffected), imports Desk CSV for that year (step 2 — verified by member count > 0), activates it for chiefs/intendants only via `ScoutYearAdminService::activateStaffYear()` (step 3 — identified members and public still see current year), then transitions the entire site via `activatePublicYear()` (step 4 — staff year automatically cleared). Step 4 is only allowed during the **switch window** (August 1 – September 29, `ScoutYearService::isSwitchWindow()`); outside that window the transition happens automatically on September 30 via date arithmetic (`ScoutYearService::calculatePublicYearId()`), preventing accidental early transitions. Each step is journaled (`scout_year_staff_activated`, `scout_year_public_activated`, etc., level `security`).
+
+**Member search** (`Core\Member\Controller\MemberSearchController`, `/admin/members`, same Espace admin menu) searches members of the effective scout year only — name/email/phone via `MemberSearchService::search()`, with optional detail view showing full personal data and effective age (birth year + scout year offset). The offset adjustment (`POST /members/{id}/scout-year-offset`, `role_min: chief`) is the one chief-level override for age-vs-section mismatch (`member_years.scout_year_offset`, −1/0/+1) — journaled as `scout_year_offset_updated`.
+
+### 8.27 Member email management (`Core\Member`, self-service only)
+
+Members manage their own secondary email addresses (`Core\Http\Controller\MemberEmailAddressController`, routes under `/members/{id}/emails/*`, `role_min: identified` but further gated by `MemberEmailService::isOwnMember()` on every action — no chief/admin bypass). `Core\Member\MemberEmailRepository` stores addresses in `member_emails` (`BLOB`-encrypted via `EncryptionService`, blind-indexed for lookup), with three states: **pending** (added but not yet confirmed — verification email sent), **active** (confirmed and usable for login), **deactivated** (previously active but deactivated by the member — can be reactivated without re-verification).
+
+**Adding an email**: `POST /members/{id}/emails` sends a verification email via `MailService` with a unique single-use link (15-minute expiry, `MemberEmailToken` table, token hashed). `GET /members/emails/confirm/{id}` (`role_min: public`, unauthenticated — same pattern as password reset) validates the token and activates the address. **Resend**: re-sends verification for pending addresses. **Reactivate**: restores a deactivated email to active without re-verification. **Delete**: removes pending or deactivated emails (active emails must be deactivated first to prevent accidental deletion). All mutations journaled (`member_email_added`, `member_email_confirmed`, `member_email_deactivated`, level `info`, never the email text itself — only the member id).
+
+`Core\Security\RoleResolver::resolveForEmail()` already checked all active `member_emails` rows alongside `member_years.email` for role calculation — this feature simply exposed the self-service UI for a table that was already consulted at login.
+
+### 8.28 Section documents (`Core\Member\SectionDocumentService`, Staffs page)
+
+Chiefs attach PDF documents to sections per scout year (`Core\Http\Controller\SectionDocumentController`, routes under `/chefs/staffs/documents/*`, `role_min: chief`) — displayed on the Staffs page and each member's own page (filtered by the member's scout year and section). `Core\Member\SectionDocumentRepository` stores metadata (`section_documents`: section_id, scout_year_id, title, file_id, sort_order); the actual PDF is a `files` row with `role_min: 'identified'` uploaded via `UploadHandler` (MIME validation, only `application/pdf` allowed).
+
+**Operations**: `POST /chefs/staffs/documents` (add — upload + title + section/year selection, optional Ghostscript compression if available on server, warning displayed for large files when compression unavailable), `POST /chefs/staffs/documents/reorder` (drag-and-drop or move up/down to change `sort_order`), `POST /chefs/staffs/documents/{id}` (update — change title or replace PDF file), `POST /chefs/staffs/documents/delete` (delete — removes both the `section_documents` row and the underlying file). All mutations journaled (`section_document_added`/`updated`/`deleted`, level `info`).
+
+Documents are scoped by section and scout year — each year has its own set. `Core\Pdf\PdfCompressor` (wraps Ghostscript `gs` if present, fallback no-op when absent) reduces file size via `PdfCompressor::compress($sourcePath, $targetPath)` before storage; `PdfCompressor::isAvailable()` self-tests the binary once per request and caches the result. The Staffs page lists documents per section with download links (`/files/{id}`), and `Core\Member\MemberPageService::buildPageData()` includes them in the member page's section card (via `SectionDocumentService::findBySection AndYear()`).
+
 ## 9. Installation / bootstrap
 
 ### 9.1 First install: bootstrap.php
@@ -469,14 +495,16 @@ core/
   Journal/       JournalService
   File/          FileAccessGuard, UploadHandler, EncryptedFileStorageService
   Cookie/        CookieConsentService, CookieRegistry
-  Member/        SectionService, MemberYearService, UnitStaffSectionService, MemberProfile
+  Member/        SectionService, MemberYearService, UnitStaffSectionService, MemberProfile, MemberEmailService, SectionDocumentService
   Badge/         BadgeService, MemberBadgeRepository
   Photo/         MemberPhotoService, SectionPhotoService, SectionPhotoProcessor (§8.10)
+  ScoutYear/     ScoutYearResolver, ScoutYearAdminService, ScoutYearSession (§8.26)
   Notification/  NotificationService, NotificationRegistry, notification centre + Web Push (§8.24)
   Maintenance/   BackupService, VersionFile, GitHubReleaseClient, GitHubWebhookService (§8.15–§8.18)
   Import/        Desk CSV import pipeline (§8.1)
-  Pdf/           PosterPdfService (A4 poster generation)
+  Pdf/           PosterPdfService, PdfCompressor (A4 poster generation, Ghostscript compression)
   Url/           Generic short-URL service
+  Offline/       OfflineWhitelist (§8.25)
   Service/       Cross-cutting helpers (e.g. TextNormalizerService)
 
 modules/
