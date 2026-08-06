@@ -532,12 +532,23 @@ if (\Core\Debug\RequestTimeline::isActive() && \Core\Security\AuthSession::isAut
     && in_array(\Core\Security\AuthSession::getRole(), ['admin', 'superadmin'], true)
 ) {
     \Core\Debug\RequestTimeline::mark('debug_active_confirmed');
+    // Carries the timeline-so-far (through migration, the single most
+    // expensive step) rather than just method/path — if the rest of the
+    // request (controller dispatch, poor-man's-cron tail) never finishes
+    // because PHP's execution-time limit kills the script first, this is
+    // the only record of what happened. The end-of-request "Chronologie"
+    // entry below still fires normally and carries the complete picture
+    // when the request does finish.
     $journalService->log(
         'core',
         'debug_request_hit',
         'info',
         'Requête en cours (?debug=1) : ' . $request->getMethod() . ' ' . $request->getPath(),
-        ['method' => $request->getMethod(), 'path' => $request->getPath()],
+        [
+            'method' => $request->getMethod(),
+            'path' => $request->getPath(),
+            'timeline_so_far' => \Core\Debug\RequestTimeline::getEntries(),
+        ],
         \Core\Security\AuthSession::getUserAccountId()
     );
 }

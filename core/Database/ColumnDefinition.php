@@ -40,6 +40,25 @@ class ColumnDefinition
             return str_replace(', ', ',', $type);
         }
 
+        // MariaDB always reports a display width for integer types (e.g.
+        // "int(11)", "tinyint(4)") even when the DDL declares none, while
+        // MySQL 8.0.19+ omits it — cosmetic in both engines for non-
+        // ZEROFILL columns, but without normalizing it away, every bare
+        // INT/TINYINT/etc. column declared without an explicit width
+        // (the overwhelming majority of this codebase's schema files)
+        // looks perpetually different depending on which engine
+        // introspection runs against, and MigrationRunner's hash-cache
+        // never settles. tinyint(1) is deliberately left alone: it's how
+        // both engines (and the boolean branch above) represent a
+        // BOOLEAN column, and stripping that width would make a real
+        // boolean column indistinguishable from a bare `TINYINT` one.
+        if (preg_match('/^(tinyint|smallint|mediumint|int|bigint)\((\d+)\)(.*)$/', $type, $m)) {
+            if ($m[1] === 'tinyint' && $m[2] === '1') {
+                return $type;
+            }
+            return $m[1] . $m[3];
+        }
+
         return $type;
     }
 }

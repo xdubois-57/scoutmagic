@@ -280,6 +280,20 @@ class SchemaComparator
             }
         }
 
+        // MariaDB reports a CURRENT_TIMESTAMP-family default back through
+        // INFORMATION_SCHEMA with trailing parentheses (e.g.
+        // "current_timestamp()", or "current_timestamp(3)" for a
+        // fractional-seconds column) where MySQL reports the bare
+        // function name declared in the DDL — without this, every
+        // `DEFAULT CURRENT_TIMESTAMP` column looks perpetually different
+        // on MariaDB, and MigrationRunner's hash-cache never settles
+        // (schema/core.sql alone declares this on ~30 columns), making
+        // every request pay the full migration cost forever instead of
+        // just once.
+        if (str_starts_with($upper, 'CURRENT_TIMESTAMP')) {
+            return (string) preg_replace('/\(\d*\)$/', '', $upper);
+        }
+
         return $upper;
     }
 }

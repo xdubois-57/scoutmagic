@@ -227,7 +227,7 @@ class BackupService implements BackupServiceInterface
         }
 
         if (!ExecutableLocator::isExecAvailable()) {
-            throw new BackupException('La fonction PHP exec() est désactivée sur ce serveur (disable_functions) — aucune commande externe ne peut être lancée.');
+            throw new BackupException('Aucune fonction PHP d\'exécution de commande externe (exec, shell_exec, system, passthru) n\'est disponible sur ce serveur (disable_functions).');
         }
         $mysqlBin = ExecutableLocator::find('mysql');
         if ($mysqlBin === null) {
@@ -248,14 +248,15 @@ class BackupService implements BackupServiceInterface
             escapeshellarg($dumpPath)
         );
 
-        exec($command, $output, $returnCode);
+        $result = \Core\System\ShellExecutor::run($command);
+        $returnCode = $result['returnCode'];
 
         if ($returnCode !== 0) {
             throw new BackupException($this->shellFailureMessage(
                 $returnCode === 124
                     ? 'La restauration de la base de données a expiré (délai réseau dépassé).'
                     : 'La restauration de la base de données a échoué.',
-                $output
+                $result['output']
             ));
         }
     }
@@ -299,7 +300,7 @@ class BackupService implements BackupServiceInterface
     private function dump(?array $onlyTables): string
     {
         if (!ExecutableLocator::isExecAvailable()) {
-            throw new BackupException('La fonction PHP exec() est désactivée sur ce serveur (disable_functions) — aucune commande externe ne peut être lancée.');
+            throw new BackupException('Aucune fonction PHP d\'exécution de commande externe (exec, shell_exec, system, passthru) n\'est disponible sur ce serveur (disable_functions).');
         }
         $mysqldumpBin = ExecutableLocator::find('mysqldump');
         if ($mysqldumpBin === null) {
@@ -323,18 +324,24 @@ class BackupService implements BackupServiceInterface
         // goes to the file; order matters, since `2>&1` first duplicates
         // stderr to wherever stdout *currently* points.
         $timeoutPrefix = $this->timeoutPrefix();
-        $errorOutput = [];
+        $errorOutput = '';
         $returnCode = 0;
         if ($onlyTables === null) {
             $command = sprintf('%s%s %s 2>&1 1>%s', $timeoutPrefix, $mysqldumpBin, $authArgs, escapeshellarg($path));
-            exec($command, $errorOutput, $returnCode);
+            $result = \Core\System\ShellExecutor::run($command);
+            $returnCode = $result['returnCode'];
+            $errorOutput = $result['output'];
         } else {
             $tableArgs = implode(' ', array_map('escapeshellarg', $onlyTables));
             $structureCommand = sprintf('%s%s --no-data %s 2>&1 1>%s', $timeoutPrefix, $mysqldumpBin, $authArgs, escapeshellarg($path));
-            exec($structureCommand, $errorOutput, $returnCode);
+            $result = \Core\System\ShellExecutor::run($structureCommand);
+            $returnCode = $result['returnCode'];
+            $errorOutput = $result['output'];
             if ($returnCode === 0) {
                 $dataCommand = sprintf('%s%s --no-create-info %s %s 2>&1 1>>%s', $timeoutPrefix, $mysqldumpBin, $authArgs, $tableArgs, escapeshellarg($path));
-                exec($dataCommand, $errorOutput, $returnCode);
+                $result = \Core\System\ShellExecutor::run($dataCommand);
+                $returnCode = $result['returnCode'];
+                $errorOutput = $result['output'];
             }
         }
 
@@ -351,12 +358,9 @@ class BackupService implements BackupServiceInterface
         return $path;
     }
 
-    /**
-     * @param string[] $shellOutput
-     */
-    private function shellFailureMessage(string $baseMessage, array $shellOutput): string
+    private function shellFailureMessage(string $baseMessage, string $shellOutput): string
     {
-        $detail = trim(implode("\n", $shellOutput));
+        $detail = trim($shellOutput);
         return $detail === '' ? $baseMessage : $baseMessage . ' (' . $detail . ')';
     }
 

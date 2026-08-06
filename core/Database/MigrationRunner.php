@@ -239,7 +239,7 @@ class MigrationRunner
     private function attemptBackup(array &$warnings): bool
     {
         if (!ExecutableLocator::isExecAvailable()) {
-            $warnings[] = 'PHP exec() is disabled on this server (disable_functions) — skipping backup. Proceed with caution.';
+            $warnings[] = 'No PHP shell-execution function (exec, shell_exec, system, passthru) is available on this server (disable_functions) — skipping backup. Proceed with caution.';
             return false;
         }
         $mysqldumpBin = ExecutableLocator::find('mysqldump');
@@ -286,11 +286,11 @@ class MigrationRunner
             escapeshellarg($backupFile)
         );
 
-        $dumpOutput = [];
-        @exec($command, $dumpOutput, $returnCode);
+        $result = \Core\System\ShellExecutor::run($command);
+        $returnCode = $result['returnCode'];
 
         if ($returnCode !== 0) {
-            $detail = trim(implode("\n", $dumpOutput));
+            $detail = trim($result['output']);
             $warnings[] = $returnCode === 124
                 ? 'Database backup timed out — proceeding without backup.'
                 : 'Database backup failed — proceeding without backup.' . ($detail !== '' ? ' (' . $detail . ')' : '');

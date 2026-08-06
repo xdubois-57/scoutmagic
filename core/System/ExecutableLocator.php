@@ -49,33 +49,32 @@ final class ExecutableLocator
 
     /**
      * find() returning null is ambiguous on its own: it means either "this
-     * binary genuinely isn't installed anywhere probed" or "exec() itself
-     * can't run at all", which look identical from the outside but need
-     * completely different fixes (an operator can't install a missing
-     * binary on shared hosting, but disable_functions is at least
-     * something their host's support can act on). Checked here rather
-     * than folded into find()'s own null, so callers can give a
+     * binary genuinely isn't installed anywhere probed" or "no shell-
+     * execution function can run at all", which look identical from the
+     * outside but need completely different fixes (an operator can't
+     * install a missing binary on shared hosting, but disable_functions is
+     * at least something their host's support can act on). Checked here
+     * rather than folded into find()'s own null, so callers can give a
      * specific, actionable message instead of a generic "not found".
      *
-     * function_exists('exec') is not enough on its own: disable_functions
-     * removes the ability to *call* a function without undefining it, so
-     * function_exists() still reports true for a disabled function.
+     * Delegates to ShellExecutor::isAvailable() rather than checking
+     * exec() specifically: shared hosts commonly disable only a subset of
+     * exec()/shell_exec()/system()/passthru(), and locate() below now runs
+     * through whichever of them ShellExecutor picks — so this must ask the
+     * same question, or it would report "unavailable" on a host where
+     * locate() is actually working fine via system().
      */
     public static function isExecAvailable(): bool
     {
-        if (!function_exists('exec')) {
-            return false;
-        }
-
-        $disabled = array_map('trim', explode(',', (string) ini_get('disable_functions')));
-        return !in_array('exec', $disabled, true);
+        return ShellExecutor::isAvailable();
     }
 
     private static function locate(string $name): string|false
     {
-        @exec('command -v ' . escapeshellarg($name) . ' 2>/dev/null', $output, $returnCode);
-        if ($returnCode === 0 && isset($output[0]) && $output[0] !== '') {
-            return $output[0];
+        $result = ShellExecutor::run('command -v ' . escapeshellarg($name) . ' 2>/dev/null');
+        $firstLine = strtok($result['output'], "\n");
+        if ($result['returnCode'] === 0 && $firstLine !== false && $firstLine !== '') {
+            return $firstLine;
         }
 
         foreach (self::COMMON_BIN_DIRS as $dir) {
@@ -86,10 +85,9 @@ final class ExecutableLocator
             // return false for anything under /usr — even though that
             // restriction never applies to what a spawned subprocess can
             // run. Invoking the candidate directly is the only check that
-            // reflects what exec() will actually be able to do.
-            $unused = [];
-            @exec(escapeshellarg($candidate) . ' --version 2>/dev/null', $unused, $candidateReturnCode);
-            if ($candidateReturnCode === 0) {
+            // reflects what actually running it will do.
+            $candidateResult = ShellExecutor::run(escapeshellarg($candidate) . ' --version 2>/dev/null');
+            if ($candidateResult['returnCode'] === 0) {
                 return $candidate;
             }
         }

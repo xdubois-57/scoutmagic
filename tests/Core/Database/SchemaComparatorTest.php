@@ -240,6 +240,120 @@ class SchemaComparatorTest extends TestCase
         $this->assertEmpty($statements);
     }
 
+    public function testDeclaredBareIntMatchesMariaDbIntrospectedDisplayWidthWithNoStatement(): void
+    {
+        // schema.sql declares bare "INT"/"INT UNSIGNED" (no display width),
+        // which MySQL 8.0.19+ introspects back the same way — but MariaDB
+        // always reports a width ("int(11)", "int(10) unsigned") even
+        // though none was declared. Without normalizing this away, every
+        // bare integer column (the vast majority of every schema.sql in
+        // this codebase) compares as different on every single migration
+        // run, forever, on any MariaDB-backed host.
+        $declared = [
+            new TableDefinition(
+                name: 'members',
+                columns: [
+                    new ColumnDefinition('id', 'int unsigned', false, null, true, 'auto_increment'),
+                    new ColumnDefinition('scout_year_offset', 'tinyint', false, '0', false, null),
+                    new ColumnDefinition('sort_order', 'int', false, '0', false, null),
+                ],
+                indexes: [new IndexDefinition('PRIMARY', ['id'], true, true)],
+                foreignKeys: []
+            ),
+        ];
+
+        $actual = [
+            new TableDefinition(
+                name: 'members',
+                columns: [
+                    new ColumnDefinition('id', 'int(10) unsigned', false, null, true, 'auto_increment'),
+                    new ColumnDefinition('scout_year_offset', 'tinyint(4)', false, '0', false, null),
+                    new ColumnDefinition('sort_order', 'int(11)', false, '0', false, null),
+                ],
+                indexes: [new IndexDefinition('PRIMARY', ['id'], true, true)],
+                foreignKeys: []
+            ),
+        ];
+
+        $statements = $this->comparator->compare($declared, $actual);
+
+        $this->assertEmpty($statements);
+    }
+
+    public function testMariaDbTinyint1DisplayWidthStillDistinguishesBooleanFromPlainTinyint(): void
+    {
+        // The display-width stripping above must not swallow tinyint(1) —
+        // that's specifically how a BOOLEAN column round-trips on both
+        // engines, and a genuinely different tinyint(1)-vs-tinyint(4)
+        // situation shouldn't be silently normalized away.
+        $declared = [
+            new TableDefinition(
+                name: 'boards',
+                columns: [
+                    new ColumnDefinition('id', 'int unsigned', false, null, true, 'auto_increment'),
+                    new ColumnDefinition('flag', 'tinyint', false, '0', false, null),
+                ],
+                indexes: [new IndexDefinition('PRIMARY', ['id'], true, true)],
+                foreignKeys: []
+            ),
+        ];
+
+        $actual = [
+            new TableDefinition(
+                name: 'boards',
+                columns: [
+                    new ColumnDefinition('id', 'int unsigned', false, null, true, 'auto_increment'),
+                    new ColumnDefinition('flag', 'tinyint(1)', false, '0', false, null),
+                ],
+                indexes: [new IndexDefinition('PRIMARY', ['id'], true, true)],
+                foreignKeys: []
+            ),
+        ];
+
+        $statements = $this->comparator->compare($declared, $actual);
+
+        $this->assertCount(1, $statements);
+        $this->assertStringContainsString('MODIFY COLUMN `flag`', $statements[0]);
+    }
+
+    public function testDeclaredCurrentTimestampMatchesMariaDbIntrospectedFunctionSyntaxWithNoStatement(): void
+    {
+        // schema.sql declares bare "CURRENT_TIMESTAMP", which MySQL 8
+        // introspects back the same way — but MariaDB reports it as
+        // "current_timestamp()" (function-call syntax, with parentheses).
+        // Without normalizing this away, every DATETIME ... DEFAULT
+        // CURRENT_TIMESTAMP column (created_at columns exist on nearly
+        // every table in this codebase) compares as different on every
+        // single migration run, forever, on any MariaDB-backed host.
+        $declared = [
+            new TableDefinition(
+                name: 'members',
+                columns: [
+                    new ColumnDefinition('id', 'int unsigned', false, null, true, 'auto_increment'),
+                    new ColumnDefinition('created_at', 'datetime', false, 'CURRENT_TIMESTAMP', false, null),
+                ],
+                indexes: [new IndexDefinition('PRIMARY', ['id'], true, true)],
+                foreignKeys: []
+            ),
+        ];
+
+        $actual = [
+            new TableDefinition(
+                name: 'members',
+                columns: [
+                    new ColumnDefinition('id', 'int unsigned', false, null, true, 'auto_increment'),
+                    new ColumnDefinition('created_at', 'datetime', false, 'current_timestamp()', false, null),
+                ],
+                indexes: [new IndexDefinition('PRIMARY', ['id'], true, true)],
+                foreignKeys: []
+            ),
+        ];
+
+        $statements = $this->comparator->compare($declared, $actual);
+
+        $this->assertEmpty($statements);
+    }
+
     public function testGenuinelyDifferentBooleanDefaultStillGeneratesAStatement(): void
     {
         // The boolean-default normalization must not swallow real
