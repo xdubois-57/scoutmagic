@@ -993,6 +993,31 @@ PHP;
     }
 
     /**
+     * Regression: "config" is both a protected internal directory
+     * (config/app.php holds the encryption key) AND the app's own admin
+     * route namespace (/config/maintenance, /config/notifications, etc. —
+     * see MenuBuilder::MENU_CONFIGURATION page registrations). An earlier
+     * version of this rule was an ungated string-prefix match, which 403'd
+     * every one of those legitimate admin routes outright, since they
+     * never correspond to a real file/directory on disk — only
+     * config/app.php itself does. Observed in production: every
+     * "Configuration" admin page returning the host's raw Apache 403 page
+     * on a Layout B (single-tree) install.
+     */
+    public function testHtaccessContentOnlyDeniesInternalDirectoriesThatActuallyExistOnDisk(): void
+    {
+        $content = \bootstrap_htaccess_content();
+        $denyRulePos = strpos($content, 'RewriteRule ^(storage|core|modules|config|schema|vendor|tests|scripts)(/|$) - [F,L]');
+        $this->assertIsInt($denyRulePos, 'the internal-directory deny rule must exist verbatim');
+
+        $precedingLines = substr($content, 0, $denyRulePos);
+        $lastTwoConditions = array_values(array_slice(array_filter(explode("\n", trim($precedingLines))), -2));
+
+        $this->assertStringContainsString('RewriteCond %{REQUEST_FILENAME} -f', $lastTwoConditions[0] ?? '');
+        $this->assertStringContainsString('RewriteCond %{REQUEST_FILENAME} -d', $lastTwoConditions[1] ?? '');
+    }
+
+    /**
      * Regression: observed in the wild on OVH-style mutualized hosting,
      * which ships a placeholder page (e.g. default_index.html) and lists
      * it ahead of index.php in its own vhost-level DirectoryIndex. Without
@@ -1055,7 +1080,19 @@ PHP;
     {
         $content = \bootstrap_htaccess_content();
 
-        $this->assertStringNotContainsString('%{REQUEST_FILENAME} -d', $content);
+        // Scoped to the "serve a real docroot file as-is" rule specifically
+        // (the block ending in `RewriteRule ^ - [L]`) — the internal-
+        // directory deny rule earlier in the file legitimately uses -d too
+        // (see testHtaccessContentOnlyDeniesInternalDirectoriesThatActually
+        // ExistOnDisk), just for a different purpose: matching a real
+        // protected directory, not the docroot itself.
+        $realFileRuleEnd = strpos($content, "RewriteRule ^ - [L]\n");
+        $this->assertIsInt($realFileRuleEnd, 'the real-file rule must exist verbatim');
+        $realFileRuleBlock = substr($content, 0, $realFileRuleEnd);
+        $realFileConditionStart = strrpos($realFileRuleBlock, 'RewriteCond');
+        $this->assertIsInt($realFileConditionStart);
+
+        $this->assertStringNotContainsString('%{REQUEST_FILENAME} -d', substr($content, $realFileConditionStart, $realFileRuleEnd - $realFileConditionStart));
     }
 
     public function testIndexStubRequiresThePublicFrontControllerFromItsOwnDirectory(): void

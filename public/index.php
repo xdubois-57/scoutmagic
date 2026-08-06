@@ -2017,6 +2017,16 @@ if (isset($galleryStorageLocationRepo)) {
 
 $response->send();
 
+// session_start() holds an exclusive lock on the session file for the
+// whole script lifetime unless released early — without this, any other
+// request carrying the same session cookie (another tab, a background
+// fetch, the next click) would queue up and block for as long as the
+// scheduler/cleanup work below takes, making a single slow task look like
+// every page load is stuck.
+if (session_status() === PHP_SESSION_ACTIVE) {
+    session_write_close();
+}
+
 // Poor man's cron — run scheduler max once per minute, after response is sent
 $lastRun = (int) $settingService->get('scheduler_last_run');
 $now = time();

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Core\Maintenance;
 
 use Core\Database\Connection;
+use Core\System\ExecutableLocator;
 
 /**
  * Mechanical backup/restore operations (Configuration > Maintenance,
@@ -26,11 +27,38 @@ class BackupService implements BackupServiceInterface
     /** @var string[] */
     private const CONFIG_ONLY_TABLES = ['settings', 'module_registry'];
 
+    /**
+     * Some hosts silently drop the outbound TCP connection a shell-exec'd
+     * mysqldump/mysql process opens (observed hanging for minutes on shared
+     * hosting) even though PHP's own PDO connection to the same database is
+     * instant — this bounds that specific failure mode so a stuck dump/
+     * restore fails fast instead of hanging the request (and, via poor man's
+     * cron, every other request sharing its session).
+     */
+    private const SHELL_TIMEOUT_SECONDS = 30;
+
     public function __construct(
         private Connection $connection,
         private string $storagePath,
         private string $basePath
     ) {
+    }
+
+    /**
+     * `timeout` is standard GNU coreutils on Linux (the only place this
+     * runs in production) but doesn't exist on macOS/BSD dev machines —
+     * degrades to no timeout there rather than failing every dump/restore
+     * outright.
+     */
+    private function timeoutPrefix(): string
+    {
+        foreach (['timeout', 'gtimeout'] as $bin) {
+            $path = ExecutableLocator::find($bin);
+            if ($path !== null) {
+                return escapeshellarg($path) . ' ' . self::SHELL_TIMEOUT_SECONDS . ' ';
+            }
+        }
+        return '';
     }
 
     /**
@@ -198,10 +226,17 @@ class BackupService implements BackupServiceInterface
             throw new BackupException('Fichier de sauvegarde introuvable.');
         }
 
+        $mysqlBin = ExecutableLocator::find('mysql');
+        if ($mysqlBin === null) {
+            throw new BackupException('mysql n\'est pas disponible sur ce serveur.');
+        }
+
         [$host, $port, $dbName, $user, $password] = $this->connectionCredentials();
 
         $command = sprintf(
-            'mysql -h %s -P %s -u %s %s %s < %s 2>/dev/null',
+            '%s%s -h %s -P %s -u %s %s %s < %s 2>&1',
+            $this->timeoutPrefix(),
+            escapeshellarg($mysqlBin),
             escapeshellarg($host),
             escapeshellarg((string) $port),
             escapeshellarg($user),
@@ -213,7 +248,12 @@ class BackupService implements BackupServiceInterface
         exec($command, $output, $returnCode);
 
         if ($returnCode !== 0) {
-            throw new BackupException('La restauration de la base de données a échoué.');
+            throw new BackupException($this->shellFailureMessage(
+                $returnCode === 124
+                    ? 'La restauration de la base de données a expiré (délai réseau dépassé).'
+                    : 'La restauration de la base de données a échoué.',
+                $output
+            ));
         }
     }
 
@@ -255,12 +295,11 @@ class BackupService implements BackupServiceInterface
      */
     private function dump(?array $onlyTables): string
     {
-        $output = [];
-        $returnCode = 0;
-        @exec('which mysqldump 2>/dev/null', $output, $returnCode);
-        if ($returnCode !== 0) {
+        $mysqldumpBin = ExecutableLocator::find('mysqldump');
+        if ($mysqldumpBin === null) {
             throw new BackupException('mysqldump n\'est pas disponible sur ce serveur.');
         }
+        $mysqldumpBin = escapeshellarg($mysqldumpBin);
 
         [$host, $port, $dbName, $user, $password] = $this->connectionCredentials();
         $path = $this->stagingPath($onlyTables === null ? 'database' : 'config', 'sql');
@@ -273,25 +312,46 @@ class BackupService implements BackupServiceInterface
             escapeshellarg($dbName)
         );
 
+        // `2>&1 1>path` (not `>path 2>&1`) so stderr lands in exec()'s
+        // $output capture while stdout — the actual dump content — still
+        // goes to the file; order matters, since `2>&1` first duplicates
+        // stderr to wherever stdout *currently* points.
+        $timeoutPrefix = $this->timeoutPrefix();
+        $errorOutput = [];
+        $returnCode = 0;
         if ($onlyTables === null) {
-            $command = sprintf('mysqldump %s > %s 2>/dev/null', $authArgs, escapeshellarg($path));
-            exec($command, $unused, $returnCode);
+            $command = sprintf('%s%s %s 2>&1 1>%s', $timeoutPrefix, $mysqldumpBin, $authArgs, escapeshellarg($path));
+            exec($command, $errorOutput, $returnCode);
         } else {
             $tableArgs = implode(' ', array_map('escapeshellarg', $onlyTables));
-            $structureCommand = sprintf('mysqldump --no-data %s > %s 2>/dev/null', $authArgs, escapeshellarg($path));
-            $dataCommand = sprintf('mysqldump --no-create-info %s %s >> %s 2>/dev/null', $authArgs, $tableArgs, escapeshellarg($path));
-            exec($structureCommand, $unused, $returnCode);
+            $structureCommand = sprintf('%s%s --no-data %s 2>&1 1>%s', $timeoutPrefix, $mysqldumpBin, $authArgs, escapeshellarg($path));
+            exec($structureCommand, $errorOutput, $returnCode);
             if ($returnCode === 0) {
-                exec($dataCommand, $unused, $returnCode);
+                $dataCommand = sprintf('%s%s --no-create-info %s %s 2>&1 1>>%s', $timeoutPrefix, $mysqldumpBin, $authArgs, $tableArgs, escapeshellarg($path));
+                exec($dataCommand, $errorOutput, $returnCode);
             }
         }
 
         if ($returnCode !== 0 || !is_file($path) || filesize($path) === 0) {
             @unlink($path);
-            throw new BackupException('La génération du dump de la base de données a échoué.');
+            throw new BackupException($this->shellFailureMessage(
+                $returnCode === 124
+                    ? 'La génération du dump de la base de données a expiré (délai réseau dépassé).'
+                    : 'La génération du dump de la base de données a échoué.',
+                $errorOutput
+            ));
         }
 
         return $path;
+    }
+
+    /**
+     * @param string[] $shellOutput
+     */
+    private function shellFailureMessage(string $baseMessage, array $shellOutput): string
+    {
+        $detail = trim(implode("\n", $shellOutput));
+        return $detail === '' ? $baseMessage : $baseMessage . ' (' . $detail . ')';
     }
 
     private function addEncryptedFile(\ZipArchive $zip, string $sourcePath, string $entryName, string $password): void

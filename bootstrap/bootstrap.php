@@ -612,7 +612,14 @@ DirectoryIndex index.php
 
 # Deny internal directories at any depth — a prefix rule catches
 # runtime-created subdirectories (e.g. module storage/<name>/ folders) that
-# don't exist yet at install time, unlike a per-directory deny file.
+# don't exist yet at install time, unlike a per-directory deny file. Gated
+# on the request actually resolving to a real file or directory: "config"
+# collides with the app's own admin route namespace (/config/maintenance,
+# /config/notifications, etc.) — an ungated string-prefix match would deny
+# every one of those legitimate routes outright, since they never
+# correspond to a real path on disk (only config/app.php itself does).
+RewriteCond %{REQUEST_FILENAME} -f [OR]
+RewriteCond %{REQUEST_FILENAME} -d
 RewriteRule ^(storage|core|modules|config|schema|vendor|tests|scripts)(/|$) - [F,L]
 
 # Deny dotfiles anywhere in the tree.
@@ -2038,7 +2045,17 @@ function bootstrap_render_ui(string $docRoot, string $stateFile): void
     logLine('Vérification des protections depuis le navigateur…');
     var probes = data.probes || [];
     Promise.all(probes.map(runProbe)).then(function (results) {
-      return postJson('?action=gate-report', { results: results });
+      // These probes deliberately fetch paths that must be denied
+      // (storage/, dotfiles, etc.) to confirm .htaccess actually blocks
+      // them — the browser logs each failed fetch to the console as an
+      // "error" on its own, outside this code's control, even though
+      // runProbe() itself handles the failure normally. Expected, not a
+      // bug — this pause just holds the screen here for a moment so
+      // there's time to see/copy them before moving on, if needed.
+      logLine('Contrôles envoyés — pause de quelques secondes avant de continuer (si la console du navigateur affiche des erreurs ici, c\\'est normal : elles viennent des vérifications ci-dessus).');
+      return new Promise(function (resolve) { setTimeout(resolve, 8000); }).then(function () {
+        return postJson('?action=gate-report', { results: results });
+      });
     }).then(function (gateData) {
       if (gateData.gate_passed) {
         logLine('Contrôles réussis.');
@@ -2135,10 +2152,14 @@ function bootstrap_render_ui(string $docRoot, string $stateFile): void
       continueBtn.addEventListener('click', function () { window.location.href = '/setup'; });
       summary.insertAdjacentElement('afterend', continueBtn);
     } else if (effectivePassed) {
-      summary.textContent = 'Installation terminée avec succès. token.php vous attend dans le même dossier FTP — la page suivante vous le demandera. Redirection dans quelques secondes…';
+      // Navigating away wipes the browser console, so this is deliberately
+      // long rather than a quick auto-advance — enough time to open dev
+      // tools and copy anything logged during the steps above before it's
+      // gone for good.
+      summary.textContent = 'Installation terminée avec succès. token.php vous attend dans le même dossier FTP — la page suivante vous le demandera. Redirection automatique dans une minute (si la console de votre navigateur affiche des erreurs, copiez-les maintenant avant qu\'elles ne disparaissent).';
       summary.className = 'alert alert-ok';
       if (data.token_write_warning) { logLine(data.token_write_warning, true); }
-      setTimeout(function () { window.location.href = '/setup'; }, 5000);
+      setTimeout(function () { window.location.href = '/setup'; }, 60000);
     } else {
       // For a plain step failure (steps 1-8/10), there are no s_checks/
       // b_checks/f_checks rows at all — data.error is the ONLY place the

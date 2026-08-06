@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Core\Database;
 
+use Core\System\ExecutableLocator;
+
 class MigrationRunner
 {
     public function __construct(
@@ -141,12 +143,8 @@ class MigrationRunner
      */
     private function attemptBackup(array &$warnings): bool
     {
-        // Check if mysqldump is available
-        $output = [];
-        $returnCode = 0;
-        @exec('which mysqldump 2>/dev/null', $output, $returnCode);
-
-        if ($returnCode !== 0) {
+        $mysqldumpBin = ExecutableLocator::find('mysqldump');
+        if ($mysqldumpBin === null) {
             $warnings[] = 'mysqldump not available — skipping backup. Proceed with caution.';
             return false;
         }
@@ -165,8 +163,22 @@ class MigrationRunner
         $user = $this->getPrivateProperty('user');
         $password = $this->getPrivateProperty('password');
 
+        // Some hosts silently drop the outbound TCP connection a shell-exec'd
+        // mysqldump process opens even though PHP's own PDO connection to
+        // the same database is instant — bounded so a stuck backup attempt
+        // fails fast instead of making "Installer" hang for minutes. `timeout`
+        // is standard on Linux (the only place this runs in production) but
+        // missing on macOS/BSD dev machines, so it's only used when present.
+        $timeoutBin = ExecutableLocator::find('timeout');
+        $timeoutPrefix = $timeoutBin !== null ? escapeshellarg($timeoutBin) . ' 30 ' : '';
+
+        // `2>&1 1>path` (not `>path 2>&1`) keeps stderr in exec()'s $output
+        // capture while stdout — the actual dump content — still goes to
+        // the file.
         $command = sprintf(
-            'mysqldump -h %s -P %s -u %s %s %s > %s 2>/dev/null',
+            '%s%s -h %s -P %s -u %s %s %s 2>&1 1>%s',
+            $timeoutPrefix,
+            escapeshellarg($mysqldumpBin),
             escapeshellarg($host),
             escapeshellarg((string) $port),
             escapeshellarg($user),
@@ -175,10 +187,14 @@ class MigrationRunner
             escapeshellarg($backupFile)
         );
 
-        @exec($command, $output, $returnCode);
+        $dumpOutput = [];
+        @exec($command, $dumpOutput, $returnCode);
 
         if ($returnCode !== 0) {
-            $warnings[] = 'Database backup failed — proceeding without backup.';
+            $detail = trim(implode("\n", $dumpOutput));
+            $warnings[] = $returnCode === 124
+                ? 'Database backup timed out — proceeding without backup.'
+                : 'Database backup failed — proceeding without backup.' . ($detail !== '' ? ' (' . $detail . ')' : '');
             @unlink($backupFile);
             return false;
         }
