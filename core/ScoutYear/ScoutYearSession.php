@@ -21,6 +21,9 @@ class ScoutYearSession
      */
     public static function setPreview(int $yearId): void
     {
+        if (session_status() !== PHP_SESSION_ACTIVE) {
+            session_start();
+        }
         $_SESSION[self::SESSION_KEY] = $yearId;
     }
 
@@ -39,6 +42,9 @@ class ScoutYearSession
      */
     public static function clear(): void
     {
+        if (session_status() !== PHP_SESSION_ACTIVE) {
+            session_start();
+        }
         unset($_SESSION[self::SESSION_KEY]);
     }
 }

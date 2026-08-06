@@ -21,6 +21,9 @@ class ConfigurationMode
             return false;
         }
 
+        if (session_status() !== PHP_SESSION_ACTIVE) {
+            session_start();
+        }
         $_SESSION[self::SESSION_KEY] = true;
 
         return true;
@@ -31,6 +34,9 @@ class ConfigurationMode
      */
     public static function deactivate(): void
     {
+        if (session_status() !== PHP_SESSION_ACTIVE) {
+            session_start();
+        }
         unset($_SESSION[self::SESSION_KEY]);
     }
 

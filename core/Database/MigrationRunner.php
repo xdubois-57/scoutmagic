@@ -66,6 +66,7 @@ class MigrationRunner
 
         // Step 5: Execute DDL statements
         $executedStatements = [];
+        $failedStatements = 0;
         $pdo = $this->connection->getPdo();
 
         foreach ($statements as $statement) {
@@ -73,6 +74,7 @@ class MigrationRunner
                 $pdo->exec($statement);
                 $executedStatements[] = $statement;
             } catch (\PDOException $e) {
+                $failedStatements++;
                 $warnings[] = "Failed to execute: {$statement} — Error: {$e->getMessage()}";
             }
         }
@@ -88,15 +90,29 @@ class MigrationRunner
             backupCreated: $backupCreated
         );
 
-        // Only schema-related warnings (comparator + failed statements/
-        // drops) should block caching "nothing left to do" — a backup
-        // hiccup doesn't mean the schema itself is inconsistent, and
-        // blocking the cache on it would defeat the optimization on
-        // exactly the hosts where mysqldump is flaky. A crash between here
-        // and the next request just leaves the old hash in place, so the
-        // next request re-checks in full — self-healing, never masked.
-        $schemaWarningCount = count($warnings) - $backupWarningCount;
-        if (!$result->hasChanges() && $schemaWarningCount === 0) {
+        // Hash caching: save the hash so the next request skips migration
+        // entirely. The hash is saved when:
+        // (a) No changes at all AND no schema warnings (pristine) — or —
+        // (b) All generated DDL executed without error (no PDOException).
+        //
+        // Case (b) is critical for MariaDB hosts where type-reporting
+        // differences (e.g. INT(11) vs INT, CURRENT_TIMESTAMP() vs
+        // CURRENT_TIMESTAMP) cause SchemaComparator to generate the same
+        // cosmetic MODIFY COLUMN statements on every single request. Those
+        // ALTERs succeed (no PDOException) but introspection still reports
+        // the same "different" type back, creating an infinite loop of
+        // 200+ DDL statements on every page load. By caching the hash
+        // after a successful run regardless of whether changes were
+        // applied, the next request short-circuits at the hash check.
+        //
+        // Informational warnings ("column exists in DB but not in schema")
+        // never block caching — they're expected when modules add columns
+        // not declared in core.sql. Only actual execution failures should
+        // prevent caching, since those mean the schema didn't converge.
+        //
+        // A backup hiccup ($backupWarningCount) never blocks caching
+        // either — see the comment on that variable above.
+        if ($failedStatements === 0) {
             $this->saveHash($hashKey, $currentHash);
         }
 

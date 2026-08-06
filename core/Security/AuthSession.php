@@ -13,9 +13,10 @@ class AuthSession
      */
     public static function login(int $userAccountId, string $email, string $role): void
     {
-        if (session_status() === PHP_SESSION_ACTIVE) {
-            session_regenerate_id(true);
+        if (session_status() !== PHP_SESSION_ACTIVE) {
+            session_start();
         }
+        session_regenerate_id(true);
 
         $_SESSION[self::SESSION_KEY] = [
             'user_account_id' => $userAccountId,
@@ -29,11 +30,12 @@ class AuthSession
      */
     public static function logout(): void
     {
-        unset($_SESSION[self::SESSION_KEY]);
-
-        if (session_status() === PHP_SESSION_ACTIVE) {
-            session_regenerate_id(true);
+        if (session_status() !== PHP_SESSION_ACTIVE) {
+            session_start();
         }
+
+        unset($_SESSION[self::SESSION_KEY]);
+        session_regenerate_id(true);
     }
 
     /**
@@ -75,6 +77,9 @@ class AuthSession
      */
     public static function setLinkedMembers(array $memberYearIds): void
     {
+        if (session_status() !== PHP_SESSION_ACTIVE) {
+            session_start();
+        }
         $_SESSION[self::SESSION_KEY]['linked_members'] = $memberYearIds;
     }
 

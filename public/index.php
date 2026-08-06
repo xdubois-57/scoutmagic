@@ -257,6 +257,21 @@ $encryptionService = new EncryptionService(
     $secrets['blind_index_key'] ?? ''
 );
 
+// Release the session file lock before the heavy work (database
+// connection, schema migration, service initialization). PHP's file-based
+// sessions hold an exclusive lock for the entire script lifetime;
+// migration alone can take 20+ seconds on a first run, and every other
+// request from the same user (another tab, a background fetch, the next
+// click) would block at session_start() for that entire duration.
+// session_write_close() flushes $_SESSION to disk and releases the lock,
+// but $_SESSION stays readable in memory — reads (AuthSession::getRole(),
+// etc.) still work for the rest of this request. The handful of actions
+// that WRITE to the session (login, logout, preview-year) call
+// session_start() again inside their own controller before writing.
+if (session_status() === PHP_SESSION_ACTIVE) {
+    session_write_close();
+}
+
 // One-time cleanup ahead of the notification-centre schema upgrade (Lot
 // 2): notifications/push_subscriptions gain new NOT NULL columns
 // (type_id, endpoint_blind_index) and their title/body/endpoint move from
