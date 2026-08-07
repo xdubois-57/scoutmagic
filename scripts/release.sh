@@ -25,6 +25,56 @@ TAG="v${NEW_VERSION}"
 
 echo "Bumping version: ${CURRENT} → ${NEW_VERSION}"
 
+# ---------------------------------------------------------------
+# Security gate — runs BEFORE any git commit/tag so a blocked release
+# leaves no partial state behind.
+#
+# A release is refused while any GitHub CodeQL scanning finding or any
+# Dependabot alert is still open (state != fixed/dismissed). The version
+# bump commit and tag below must only ever be created once this gate is
+# green. gh api expands {owner}/{repo} from the current repo's default
+# remote. Fail-closed: any query error (auth, rate limit, endpoint
+# disabled) also aborts the release.
+# ---------------------------------------------------------------
+check_security_gate() {
+    command -v gh &> /dev/null || { echo "ERROR: GitHub CLI (gh) is required for the security gate — install it and run gh auth login." >&2; exit 1; }
+
+    local err codeql_lines dependabot_lines codeql_count dependabot_count
+
+    # One line per OPEN CodeQL finding: "<number> <rule description>".
+    err="$(mktemp)"
+    codeql_lines="$(gh api "repos/{owner}/{repo}/code-scanning/alerts" --paginate \
+        --jq '.[] | select(.state == "open") | "\(.number)\t\(.rule.description)"' 2>"${err}")" \
+        || { echo "ERROR: cannot query CodeQL findings:" >&2; cat "${err}" >&2; rm -f "${err}"; exit 1; }
+    rm -f "${err}"
+
+    err="$(mktemp)"
+    dependabot_lines="$(gh api "repos/{owner}/{repo}/dependabot/alerts" --paginate \
+        --jq '.[] | select(.state == "open") | "\(.number)\t\(.security_advisory.summary)"' 2>"${err}")" \
+        || { echo "ERROR: cannot query Dependabot alerts:" >&2; cat "${err}" >&2; rm -f "${err}"; exit 1; }
+    rm -f "${err}"
+
+        codeql_count="$(grep -c . <<< "${codeql_lines}" || true)"
+    dependabot_count="$(grep -c . <<< "${dependabot_lines}" || true)"
+    # grep -c . counts non-empty lines; here-string adds a newline so an
+    # empty capture yields 0, and command substitution stripping the final
+    # newline can't undercount (unlike wc -l).
+
+    if [[ "${codeql_count}" -gt 0 || "${dependabot_count}" -gt 0 ]]; then
+        echo "ERROR: release blocked by the security gate." >&2
+        echo "  Open CodeQL findings: ${codeql_count}" >&2
+        if [[ "${codeql_count}" -gt 0 ]]; then printf '%s\n' "${codeql_lines}" >&2; fi
+        echo "  Open Dependabot alerts: ${dependabot_count}" >&2
+        if [[ "${dependabot_count}" -gt 0 ]]; then printf '%s\n' "${dependabot_lines}" >&2; fi
+        echo "Fix or dismiss them first (opencode should do this before asking for a release), then re-run." >&2
+        exit 1
+    fi
+
+    echo "Security gate OK: no open CodeQL findings, no open Dependabot alerts."
+}
+
+check_security_gate
+
 # The VERSION file is the running site's source of truth for its installed
 # version (Core\Maintenance\VersionFile, read by the Configuration >
 # Maintenance "Mise à jour" section) — it must be committed as part of the

@@ -114,3 +114,14 @@ All email sent via `MailService::send()`. Never send email directly. The service
 ## Scheduler
 
 Use `SchedulerService` for any delayed or timed action. Never use `sleep()`, cron-specific code, or ad-hoc timing logic. Declare task handlers in `module.json`.
+
+## Releases
+
+When the user asks to release a new version (`scripts/release.sh`), do this **in this order**:
+
+1. **Fix first, release later.** Before running the script, query, fix (or dismiss, only when truly not applicable) every open GitHub security item in the `xdubois-57/scoutmagic` repository:
+   - open CodeQL scanning findings (`gh api "repos/{owner}/{repo}/code-scanning/alerts" --paginate --jq '.[] | select(.state == "open")'`)
+   - open Dependabot alerts (`gh api "repos/{owner}/{repo}/dependabot/alerts" --paginate --jq '.[] | select(.state == "open")'`)
+2. Only after all of them are resolved, run the release script. The script's **security gate** is the final check, not the fix: if it still finds any open finding or alert, it aborts before creating any commit or tag. Do not bypass or disable the gate.
+
+Fix upgrades/dependency alerts as code changes in the normal flow (with tests), not by blindly dismissing them — but for alerts with demonstrably no fix or clear false positives, dismissing with a justification is acceptable so the gate can pass.

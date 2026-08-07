@@ -58,6 +58,8 @@ vendor/bin/phpstan analyse core/   # static analysis
 
 Publishes a GitHub release with the install artifact and `bootstrap.php` as assets. Requires the GitHub CLI (`gh`).
 
+The script runs a **security gate first**: it refuses to create any commit, tag, or release while any CodeQL scanning finding or Dependabot alert is open in the repository (`gh api repos/{owner}/{repo}/code-scanning/alerts` and `.../dependabot/alerts`, filtered on `state == "open"`). Fix (or justify-dismiss) them before releasing — see `AGENTS.md` § Releases.
+
 ### Installation sur hébergement mutualisé (unit administrators)
 
 No SSH, Git, or Composer needed on the server — only FTP, and only once.
