@@ -354,6 +354,51 @@ class MaintenanceControllerTest extends TestCase
         $this->assertStringNotContainsString('<span class="text-body-secondary">(', $response->getBody());
     }
 
+    /**
+     * A dev build tracks the branch's latest commit, so it is always newer
+     * than any stable release — the "Une nouvelle version est disponible"
+     * banner must not appear for a cached release while a dev build is
+     * installed (version_compare would wrongly rank "dev" below it).
+     */
+    public function testIndexDoesNotShowUpdateAvailableWhenADevBuildIsInstalled(): void
+    {
+        $versionFile = sys_get_temp_dir() . '/VERSION';
+        $original = is_file($versionFile) ? file_get_contents($versionFile) : null;
+        file_put_contents($versionFile, "dev-a1b2c3d\n");
+        $this->settingService->setInternal('update_latest_version', '1.0.22');
+
+        try {
+            $response = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), []);
+            $body = $response->getBody();
+
+            $this->assertStringNotContainsString('Une nouvelle version est disponible', $body);
+            $this->assertStringNotContainsString('Installer la mise à jour', $body);
+            $this->assertStringContainsString('Le site est à jour', $body);
+        } finally {
+            if ($original !== null) {
+                file_put_contents($versionFile, $original);
+            } else {
+                @unlink($versionFile);
+            }
+        }
+    }
+
+    /**
+     * The dev-mode warning keeps its test-environment warnings but no
+     * longer claims stable releases are ignored while the mode is active.
+     */
+    public function testIndexDevModeWarningNoLongerMentionsIgnoredStableReleases(): void
+    {
+        $this->settingService->set('auto_update_level', 'dev');
+        $this->settingService->clearCache();
+
+        $response = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), []);
+        $body = $response->getBody();
+
+        $this->assertStringContainsString('Réservé aux environnements de test', $body);
+        $this->assertStringNotContainsString('les mises à jour de versions stables sont ignorées', $body);
+    }
+
     public function testInstallUpdateValidatesCsrf(): void
     {
         $response = $this->controller->installUpdate($this->jsonRequest([
@@ -729,6 +774,30 @@ class MaintenanceControllerTest extends TestCase
         $decoded = json_decode($response->getBody(), true);
         $this->assertTrue($decoded['success']);
         $this->assertFalse($decoded['update_available']);
+    }
+
+    public function testCheckForUpdatesNowDoesNotReportAReleaseAsNewerThanAnInstalledDevBuild(): void
+    {
+        $versionFile = sys_get_temp_dir() . '/VERSION';
+        $original = is_file($versionFile) ? file_get_contents($versionFile) : null;
+        file_put_contents($versionFile, "dev-a1b2c3d\n");
+        $this->fakeReleaseClient->release = new ReleaseInfo('v1.0.22', 'Notes', 'https://github.com/x/y/releases/tag/v1.0.22', 'https://example.test/artifact.zip');
+        $token = $this->csrfToken();
+
+        try {
+            $response = $this->controller->checkForUpdatesNow($this->jsonRequest(['_csrf_token' => $token]), []);
+
+            $decoded = json_decode($response->getBody(), true);
+            $this->assertTrue($decoded['success']);
+            $this->assertSame('release', $decoded['channel']);
+            $this->assertFalse($decoded['update_available']);
+        } finally {
+            if ($original !== null) {
+                file_put_contents($versionFile, $original);
+            } else {
+                @unlink($versionFile);
+            }
+        }
     }
 
     public function testCheckForUpdatesNowChecksTheConfiguredBranchWhenDevLevelSelected(): void

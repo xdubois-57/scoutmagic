@@ -128,7 +128,7 @@ class GitHubWebhookService
         $this->settings->setInternal('update_download_url', (string) $downloadUrl);
 
         $installedVersion = VersionFile::read($this->basePath);
-        if (!version_compare($latestVersion, $installedVersion, '>')) {
+        if (!VersionFile::isNewerThan($latestVersion, $installedVersion)) {
             $this->settings->setInternal('update_dependencies_changed', '0');
             return ['status' => 'ignored', 'reason' => 'not_newer'];
         }

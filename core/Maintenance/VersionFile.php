@@ -33,4 +33,34 @@ final class VersionFile
     {
         file_put_contents($basePath . '/' . self::FILENAME, $version . "\n");
     }
+
+    /**
+     * Whether $candidate is a genuinely newer version than the installed
+     * one. A dev/branch build (VERSION content "dev-{sha}", see
+     * CommitInfo::shortVersion()) tracks the branch's latest commit and is
+     * therefore always more recent than any stable release tag — but
+     * PHP's version_compare() ranks "dev" as its lowest special version
+     * form, so it would wrongly report a stable release as an upgrade
+     * over an installed dev build. All "is there a newer release"
+     * comparisons go through this instead of calling version_compare()
+     * directly.
+     */
+    public static function isNewerThan(string $candidate, string $installed): bool
+    {
+        if (self::isDevBuild($installed)) {
+            return false;
+        }
+
+        return version_compare($candidate, $installed, '>');
+    }
+
+    /**
+     * True for the "dev-{sha}" format Task\InstallUpdateHandler writes for
+     * development-mode installs (GitHubWebhookService::handlePushEvent()'s
+     * version_to convention).
+     */
+    public static function isDevBuild(string $version): bool
+    {
+        return preg_match('/^dev-[0-9a-f]{7,40}$/', $version) === 1;
+    }
 }

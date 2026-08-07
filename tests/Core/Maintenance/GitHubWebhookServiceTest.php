@@ -165,6 +165,27 @@ class GitHubWebhookServiceTest extends TestCase
         $this->assertSame('2.4.1', $this->settings->get('update_latest_version'));
     }
 
+    /**
+     * A dev build installed from the branch is always ahead of any stable
+     * release, so a release event must be treated as "not newer" (never a
+     * downgrade) even though PHP's version_compare would call it newer.
+     */
+    public function testHandleReleaseEventDoesNotScheduleAStableReleaseOverAnInstalledDevBuild(): void
+    {
+        file_put_contents($this->basePath . '/VERSION', "dev-a1b2c3d\n");
+        $this->settings->set('auto_update_enabled', '1');
+        $this->settings->set('auto_update_level', 'major');
+        $this->settings->clearCache();
+
+        $result = $this->service()->handleReleaseEvent($this->releasePayload('v3.0.0'));
+
+        $this->assertSame(['status' => 'ignored', 'reason' => 'not_newer'], $result);
+        $count = (int) $this->pdo->query("SELECT COUNT(*) FROM scheduled_actions WHERE task_key = 'install_update'")->fetchColumn();
+        $this->assertSame(0, $count);
+        $historyCount = (int) $this->pdo->query("SELECT COUNT(*) FROM update_history")->fetchColumn();
+        $this->assertSame(0, $historyCount);
+    }
+
     public function testHandleReleaseEventIgnoredWhenAutoUpdateDisabled(): void
     {
         $result = $this->service()->handleReleaseEvent($this->releasePayload('v2.4.2'));

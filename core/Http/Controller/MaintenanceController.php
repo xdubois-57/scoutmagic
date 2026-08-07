@@ -87,7 +87,7 @@ class MaintenanceController extends AbstractController
     {
         $latestVersion = (string) ($this->settingService->get('update_latest_version') ?: '');
         $installedVersion = VersionFile::read(dirname($this->storagePath));
-        $updateAvailable = $latestVersion !== '' && version_compare($latestVersion, $installedVersion, '>');
+        $updateAvailable = $latestVersion !== '' && VersionFile::isNewerThan($latestVersion, $installedVersion);
 
         $autoUpdateEnabled = (bool) ((int) ($this->settingService->get('auto_update_enabled') ?: '0'));
         $level = (string) ($this->settingService->get('auto_update_level') ?: 'minor');
@@ -149,7 +149,7 @@ class MaintenanceController extends AbstractController
         $latestVersion = (string) ($this->settingService->get('update_latest_version') ?: '');
         $downloadUrl = (string) ($this->settingService->get('update_download_url') ?: '');
 
-        if ($latestVersion === '' || $downloadUrl === '' || !version_compare($latestVersion, $installedVersion, '>')) {
+        if ($latestVersion === '' || $downloadUrl === '' || !VersionFile::isNewerThan($latestVersion, $installedVersion)) {
             return $this->json(['success' => false, 'error' => 'Aucune mise à jour disponible.'], 400);
         }
 
@@ -283,7 +283,7 @@ class MaintenanceController extends AbstractController
             return $this->json([
                 'success' => true,
                 'channel' => 'release',
-                'update_available' => version_compare($release->version(), $installedVersion, '>'),
+                'update_available' => VersionFile::isNewerThan($release->version(), $installedVersion),
                 'version' => $release->version(),
                 'notes' => $release->body,
                 'url' => $release->htmlUrl,
