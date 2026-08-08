@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Core\View;
 
 use Core\Http\FlashMessage;
+use Core\Maintenance\VersionFile;
 use Core\Security\CsrfGuard;
 use Twig\Environment;
 use Twig\Loader\FilesystemLoader;
@@ -27,7 +28,7 @@ class TwigFactory
             }
         }
 
-        $cacheDir = dirname(__DIR__, 2) . '/storage/temp/twig_cache';
+        $cacheDir = self::cacheDirectory(dirname(__DIR__, 2));
 
         if (!is_dir($cacheDir)) {
             mkdir($cacheDir, 0755, true);
@@ -284,5 +285,44 @@ class TwigFactory
         }));
 
         return $environment;
+    }
+
+    /**
+     * Compiled-template cache directory, namespaced by the installed
+     * version (`storage/temp/twig_cache/{version}`).
+     *
+     * Outside debug mode `auto_reload` is off, so Twig never re-checks a
+     * compiled template against its `.twig` source — and Twig's cache key
+     * derives from the template *name*, not its contents, so an updated
+     * template maps to the exact same cache entry as the old one. With a
+     * single flat directory that meant a deployment could change a
+     * template on disk and the site would keep serving the previous
+     * version's compiled class indefinitely, silently — a real production
+     * incident (a nav/layout change that installed correctly and never
+     * appeared).
+     *
+     * Scoping the directory by `Core\Maintenance\VersionFile` makes that
+     * self-healing: every deployment path that matters writes VERSION
+     * (`scripts/release.sh` commits it; `Task\InstallUpdateHandler` writes
+     * it as its last step, for stable releases and `dev-{sha}` builds
+     * alike), so the first request after an update simply looks in a
+     * directory that doesn't exist yet and compiles fresh. Crucially this
+     * needs no cooperation from whatever *installer* performed the
+     * update — unlike clearing the cache from `InstallUpdateHandler`,
+     * which only helps once the new installer is itself the one running.
+     *
+     * The one case this deliberately does not cover: editing a `.twig`
+     * file in place without changing VERSION (a hand-edit over FTP). That
+     * is what `debug` mode is for.
+     */
+    private static function cacheDirectory(string $basePath): string
+    {
+        // VERSION is developer-controlled, never user input, but it ends up
+        // in a filesystem path — keep it to characters that cannot escape
+        // the cache root regardless of what a future release writes there.
+        $namespace = preg_replace('/[^A-Za-z0-9._-]/', '_', VersionFile::read($basePath)) ?? '';
+        $namespace = trim($namespace, '.');
+
+        return $basePath . '/storage/temp/twig_cache/' . ($namespace !== '' ? $namespace : 'unknown');
     }
 }
