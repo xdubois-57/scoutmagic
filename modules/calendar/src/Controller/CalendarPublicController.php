@@ -101,7 +101,18 @@ class CalendarPublicController extends AbstractController
         $nextMonth = $month === 12 ? 1 : $month + 1;
         $nextYear = $month === 12 ? $year + 1 : $year;
 
-        return $this->render('@calendar/public.html.twig', [
+        // The calendar picker changes what this page shows without changing
+        // its URL structure (?calendar={id}) — the breadcrumb's own segment
+        // must reflect the current selection, same as the chief calendar.
+        $selectedCalendarLabel = null;
+        foreach ($calendarOptions as $option) {
+            if ($option['id'] === $selectedCalendarId) {
+                $selectedCalendarLabel = $option['label'];
+                break;
+            }
+        }
+
+        $context = [
             'calendar_options' => $calendarOptions,
             'selected_calendar_id' => $selectedCalendarId,
             'year' => $year,
@@ -115,7 +126,12 @@ class CalendarPublicController extends AbstractController
             'is_authenticated' => $isAuthenticated,
             'personal_token' => $personalToken,
             'effective_scout_year_id' => $effectiveYear->id,
-        ]);
+        ];
+        if ($selectedCalendarLabel !== null) {
+            $context['breadcrumb_current'] = 'Calendrier · ' . $selectedCalendarLabel;
+        }
+
+        return $this->render('@calendar/public.html.twig', $context);
     }
 
     /**

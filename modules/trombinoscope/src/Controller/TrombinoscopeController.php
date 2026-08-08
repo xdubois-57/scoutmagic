@@ -71,10 +71,26 @@ class TrombinoscopeController extends AbstractController
             ];
         }
 
-        return $this->render('@trombinoscope/index.html.twig', [
+        // The section picker changes what this page shows without changing
+        // its URL structure (?section={id}) — the breadcrumb's own segment
+        // must reflect the current selection, same as Staffs.
+        $selectedLabel = null;
+        foreach ($pickerSections as $section) {
+            if ($section['id'] === $selectedId) {
+                $selectedLabel = $section['name'];
+                break;
+            }
+        }
+
+        $context = [
             'picker_sections' => $pickerSections,
             'selected_id' => $selectedId,
             'section_blocks' => $sectionBlocks,
-        ]);
+        ];
+        if ($selectedLabel !== null) {
+            $context['breadcrumb_current'] = 'Trombinoscope · ' . $selectedLabel;
+        }
+
+        return $this->render('@trombinoscope/index.html.twig', $context);
     }
 }

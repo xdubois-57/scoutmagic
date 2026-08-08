@@ -1035,9 +1035,9 @@ if (AuthSession::isAuthenticated()) {
 // Register core routes
 // Public pages
 $router->addRoute('GET', '/', PageController::class, 'home', 'public');
-$router->addRoute('GET', '/contact', PageController::class, 'contact', 'public');
-$router->addRoute('GET', '/sections', PageController::class, 'sections', 'public');
-$router->addRoute('GET', '/rgpd', PageController::class, 'rgpd', 'public');
+$router->addRoute('GET', '/contact', PageController::class, 'contact', 'public', ['label' => 'Contact', 'parents' => ['Notre unité']]);
+$router->addRoute('GET', '/sections', PageController::class, 'sections', 'public', ['label' => 'Sections', 'parents' => ['Notre unité']]);
+$router->addRoute('GET', '/rgpd', PageController::class, 'rgpd', 'public', ['label' => 'Protection des données', 'parents' => ['Notre unité']]);
 
 // Auth routes
 $router->addRoute('GET', '/login', AuthController::class, 'login', 'public');

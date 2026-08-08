@@ -113,7 +113,18 @@ class CalendarChiefController extends AbstractController
         $nextMonth = $month === 12 ? 1 : $month + 1;
         $nextYear = $month === 12 ? $year + 1 : $year;
 
-        return $this->render('@calendar/chief.html.twig', [
+        // The calendar picker changes what this page shows without changing
+        // its URL structure (?calendar={id}) — the breadcrumb's own segment
+        // must reflect the current selection, same as Staffs/Trombinoscope.
+        $selectedCalendarLabel = null;
+        foreach ($calendarOptions as $option) {
+            if ($option['id'] === $selectedCalendarId) {
+                $selectedCalendarLabel = $option['label'];
+                break;
+            }
+        }
+
+        $context = [
             'calendar_options' => $calendarOptions,
             'selected_calendar_id' => $selectedCalendarId,
             'default_calendar_id' => $defaultCalendarId,
@@ -129,7 +140,12 @@ class CalendarChiefController extends AbstractController
             'default_end_time' => (string) $this->settingService->get('event_default_end_time', 'calendar', '16:00'),
             'default_location' => (string) $this->settingService->get('event_default_location', 'calendar', ''),
             'retro_module_active' => in_array('retro', $this->moduleManager->getEnabledModuleIds(), true),
-        ]);
+        ];
+        if ($selectedCalendarLabel !== null) {
+            $context['breadcrumb_current'] = 'Calendrier · ' . $selectedCalendarLabel;
+        }
+
+        return $this->render('@calendar/chief.html.twig', $context);
     }
 
     /**

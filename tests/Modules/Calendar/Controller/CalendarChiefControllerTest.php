@@ -118,6 +118,8 @@ class CalendarChiefControllerTest extends TestCase
         $twig->addGlobal('config_mode', false);
         $twig->addGlobal('cookie_consent_given', true);
         $twig->addGlobal('menus', null);
+        $twig->addGlobal('current_path', '/chefs/calendar');
+        $twig->addGlobal('route_breadcrumb', ['label' => 'Calendrier', 'parents' => ['Espace des chefs']]);
         $twig->addGlobal('csp_nonce', 'test-nonce');
         $twig->addFunction(new TwigFunction('csrf_field', fn() => '<input type="hidden" name="_csrf_token" value="test">', ['is_safe' => ['html']]));
         $twig->addFunction(new TwigFunction('get_flash', fn() => null));
@@ -208,6 +210,38 @@ class CalendarChiefControllerTest extends TestCase
         $this->assertStringContainsString('Réunion renards', $response->getBody());
         $this->assertStringNotContainsString('Réunion louveteaux', $response->getBody());
         $this->assertStringContainsString('calendar-event-bar--clickable', $response->getBody());
+    }
+
+    public function testIndexBreadcrumbReflectsTheSelectedCalendar(): void
+    {
+        // The calendar picker changes what this page shows without changing
+        // its URL — the breadcrumb's own active segment must reflect the
+        // currently selected calendar, not just the static "Calendrier"
+        // label.
+        $sectionA = $this->createSection('BAL01', 'Renards');
+        $this->calendarService->ensureSectionCalendars();
+        $calendarA = $this->calendarRepository->findBySectionId($sectionA);
+
+        $request = new Request('GET', '/chefs/calendar', ['calendar' => (string) $calendarA->id], [], [], []);
+        $response = $this->controller->index($request, []);
+
+        $this->assertMatchesRegularExpression(
+            '/aria-current="page">\s*Calendrier · Renards\s*</',
+            $response->getBody()
+        );
+    }
+
+    public function testIndexBreadcrumbFallsBackToTheStaticLabelForMesEvenements(): void
+    {
+        // No calendar selected ("Mes évènements", the sentinel default) —
+        // still a real, matched picker option, so it still shows.
+        $request = new Request('GET', '/chefs/calendar', [], [], [], []);
+        $response = $this->controller->index($request, []);
+
+        $this->assertMatchesRegularExpression(
+            '/aria-current="page">\s*Calendrier · Mes évènements\s*</',
+            $response->getBody()
+        );
     }
 
     public function testIndexAddModalDefaultsToTheSelectedPickerCalendar(): void

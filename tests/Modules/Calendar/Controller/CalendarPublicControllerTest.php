@@ -102,6 +102,8 @@ class CalendarPublicControllerTest extends TestCase
         $twig->addGlobal('config_mode', false);
         $twig->addGlobal('cookie_consent_given', true);
         $twig->addGlobal('menus', null);
+        $twig->addGlobal('current_path', '/calendar');
+        $twig->addGlobal('route_breadcrumb', ['label' => 'Calendrier', 'parents' => ['Notre unité']]);
         $twig->addGlobal('csp_nonce', 'test-nonce');
         $twig->addGlobal('_editable_content_service', null);
         $twig->addFunction(new TwigFunction('csrf_field', fn() => '<input type="hidden" name="_csrf_token" value="test">', ['is_safe' => ['html']]));
@@ -266,6 +268,29 @@ class CalendarPublicControllerTest extends TestCase
 
         $this->assertMatchesRegularExpression(
             '/href="\/calendar\?calendar=' . $sectionCalendar->id . '[^"]*"\s+class="btn btn-sm btn-primary/',
+            $response->getBody()
+        );
+    }
+
+    public function testIndexBreadcrumbReflectsTheSelectedCalendar(): void
+    {
+        // The calendar picker changes what this page shows without changing
+        // its URL — the breadcrumb's own active segment must reflect the
+        // currently selected calendar, not just the static "Calendrier"
+        // label.
+        $stmt = $this->pdo->prepare('INSERT INTO age_branches (desk_code, label, sort_order) VALUES (?, ?, ?)');
+        $stmt->execute(['BAL', 'Baladins', 10]);
+        $branchId = (int) $this->pdo->lastInsertId();
+        $stmt = $this->pdo->prepare('INSERT INTO sections (desk_code, age_branch_id, name) VALUES (?, ?, ?)');
+        $stmt->execute(['BAL01', $branchId, 'Renards']);
+        $this->calendarService->ensureSectionCalendars();
+        $sectionCalendar = $this->calendarRepository->findAll()[0];
+
+        $request = new Request('GET', '/calendar', ['calendar' => (string) $sectionCalendar->id], [], [], []);
+        $response = $this->controller->index($request, []);
+
+        $this->assertMatchesRegularExpression(
+            '/aria-current="page">\s*Calendrier · Renards\s*</',
             $response->getBody()
         );
     }

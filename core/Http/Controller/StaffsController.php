@@ -121,7 +121,7 @@ class StaffsController extends AbstractController
         }
         $compressionBackend = $this->sectionDocumentService->refreshDetectedBackend();
 
-        return $this->render('chefs/staffs.html.twig', [
+        $context = [
             'sections' => $sections,
             'current_section' => $currentSection,
             'staff' => $staff,
@@ -131,7 +131,16 @@ class StaffsController extends AbstractController
             'section_document_compression_backend_none' => $compressionBackend === PdfCompressor::BACKEND_NONE,
             'section_document_oversize_warning_mb' => (int) ($this->settingService->get('section_document_oversize_warning_mb') ?: 5),
             'available_badges' => $availableBadges,
-        ]);
+        ];
+        // The section picker changes what this page shows without changing
+        // its URL structure (?section={id}) — the breadcrumb's own segment
+        // must reflect the current selection the same way the page title
+        // does (chefs/staffs.html.twig's "current_section.name ?? desk_code").
+        if ($currentSection !== null) {
+            $context['breadcrumb_current'] = 'Staffs · ' . ($currentSection['name'] ?? $currentSection['desk_code']);
+        }
+
+        return $this->render('chefs/staffs.html.twig', $context);
     }
 
     /**
