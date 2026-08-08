@@ -55,6 +55,7 @@ class TrombinoscopeControllerTest extends TestCase
         $this->twig->addGlobal('config_mode', false);
         $this->twig->addGlobal('cookie_consent_given', true);
         $this->twig->addGlobal('menus', null);
+        $this->twig->addGlobal('current_path', '/trombinoscope');
         $this->twig->addGlobal('csp_nonce', 'n');
         $this->twig->addGlobal('effective_scout_year_id', 1);
         $this->twig->addGlobal('_member_photo_service', null);
@@ -85,7 +86,10 @@ class TrombinoscopeControllerTest extends TestCase
     private function buildFrontController(): FrontController
     {
         $router = new Router();
-        $router->addRoute('GET', '/trombinoscope', TrombinoscopeController::class, 'index', 'identified');
+        $router->addRoute('GET', '/trombinoscope', TrombinoscopeController::class, 'index', 'identified', [
+            'label' => 'Trombinoscope',
+            'parents' => ['Espace des animés'],
+        ]);
 
         $sections = $this->sections;
         $sectionService = new class($sections) extends SectionService {
@@ -149,6 +153,25 @@ class TrombinoscopeControllerTest extends TestCase
         $this->assertSame(200, $response->getStatusCode());
         $this->assertStringContainsString('Trombinoscope', $response->getBody());
         $this->assertStringContainsString('Éclaireurs 1', $response->getBody());
+    }
+
+    public function testBreadcrumbReflectsTheSelectedSection(): void
+    {
+        // The section picker changes what this page shows without changing
+        // its URL — the breadcrumb's own active segment must reflect the
+        // currently selected section, not just the static "Trombinoscope"
+        // label.
+        $this->startTestSession();
+        AuthSession::login(1, 'member@test.be', 'identified');
+
+        $response = $this->buildFrontController()->handle(
+            new Request('GET', '/trombinoscope', ['section' => '1'], [], [], [])
+        );
+
+        $this->assertMatchesRegularExpression(
+            '/aria-current="page">\s*Trombinoscope · Éclaireurs 1\s*</',
+            $response->getBody()
+        );
     }
 
     public function testPublicIsDenied(): void

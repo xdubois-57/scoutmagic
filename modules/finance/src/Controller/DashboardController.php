@@ -159,6 +159,11 @@ class DashboardController extends AbstractController
             'uncategorized_count' => $uncategorizedCount,
             'pending_receipts' => $pendingReceipts,
             'pending_receipts_count' => count($allPendingReceipts),
+            // The account picker (_nav.html.twig) changes what this page
+            // shows without changing its URL structure (?account_id={id})
+            // — the breadcrumb's own segment must reflect the current
+            // selection, same as the section/calendar pickers elsewhere.
+            'breadcrumb_current' => 'Finances · ' . $account->name,
         ]);
     }
 

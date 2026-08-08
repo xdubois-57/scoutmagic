@@ -91,6 +91,7 @@ class DashboardControllerTest extends TestCase
         $twig->addGlobal('cookie_consent_given', true);
         $twig->addGlobal('menus', null);
         $twig->addGlobal('current_path', '/finance');
+        $twig->addGlobal('route_breadcrumb', ['label' => 'Finances', 'parents' => ['Espace des chefs']]);
         $twig->addGlobal('csp_nonce', 'test-nonce');
         $twig->addFunction(new TwigFunction('csrf_field', fn() => '<input type="hidden" name="_csrf_token" value="test">', ['is_safe' => ['html']]));
         $twig->addFunction(new TwigFunction('get_flash', fn() => null));
@@ -145,6 +146,22 @@ class DashboardControllerTest extends TestCase
 
         $this->assertStringContainsString('Compte', $response->getBody());
         $this->assertStringContainsString($currentLabel, $response->getBody());
+    }
+
+    public function testBreadcrumbReflectsTheSelectedAccount(): void
+    {
+        // The account picker (_nav.html.twig) changes what this page shows
+        // without changing its URL — the breadcrumb's own active segment
+        // must reflect the currently selected account, not just the
+        // static "Finances" label.
+        $this->createAccount();
+
+        $response = $this->controller->index(new Request('GET', '/finance', [], [], [], []), []);
+
+        $this->assertMatchesRegularExpression(
+            '/aria-current="page">\s*Finances · Compte\s*</',
+            $response->getBody()
+        );
     }
 
     public function testDefaultsToCurrentFiscalYear(): void

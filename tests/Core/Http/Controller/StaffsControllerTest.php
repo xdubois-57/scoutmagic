@@ -95,6 +95,8 @@ class StaffsControllerTest extends TestCase
         $twig->addGlobal('config_mode', false);
         $twig->addGlobal('cookie_consent_given', true);
         $twig->addGlobal('menus', null);
+        $twig->addGlobal('current_path', '/chefs/staffs');
+        $twig->addGlobal('route_breadcrumb', ['label' => 'Staffs', 'parents' => ['Espace des chefs']]);
         $twig->addFunction(new TwigFunction('csrf_field', fn() => '<input type="hidden" name="_csrf_token" value="test">', ['is_safe' => ['html']]));
         $twig->addFunction(new TwigFunction('get_flash', fn() => null));
         $twig->addFunction(new TwigFunction('csrf_token', fn() => 'test'));
@@ -209,6 +211,24 @@ class StaffsControllerTest extends TestCase
         // (Core\Member\SectionService::colorForSection()) as every other
         // section picker/list across the site.
         $this->assertStringContainsString('background-color:', $body);
+    }
+
+    public function testIndexBreadcrumbReflectsTheSelectedSection(): void
+    {
+        // The section picker changes what this page shows without changing
+        // its URL — the breadcrumb's own active segment must reflect the
+        // currently selected section, not just the static "Staffs" label.
+        $branchId = $this->createBranch('BAL', 'Baladins', 1);
+        $sectionId = $this->createSection('BAL01', $branchId, 'Ma section');
+
+        $request = new Request('GET', '/chefs/staffs', ['section' => (string) $sectionId], [], [], []);
+        $response = $this->controller->index($request, []);
+
+        $body = $response->getBody();
+        $this->assertMatchesRegularExpression(
+            '/aria-current="page">\s*Staffs · Ma section\s*</',
+            $body
+        );
     }
 
     public function testIndexRendersSectionDocumentsAccordionWithACompressedDocument(): void
