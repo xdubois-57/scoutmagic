@@ -222,4 +222,36 @@ class InstallUpdateHandlerTest extends TestCase
 
         $this->assertSame($extractedDir, $root);
     }
+
+    /**
+     * Same "pure filesystem logic, tested directly via reflection" pattern
+     * as resolveBranchArchiveRoot() above — the full pipeline can't reach
+     * this step either (fake DB creds fail the safety-backup step first).
+     */
+    private function invokeClearCompiledTemplateCache(string $storagePath): void
+    {
+        $method = new \ReflectionMethod(InstallUpdateHandler::class, 'clearCompiledTemplateCache');
+        $method->setAccessible(true);
+
+        $method->invoke($this->handler, $storagePath);
+    }
+
+    public function testClearCompiledTemplateCacheRemovesTheTwigCacheDirectory(): void
+    {
+        $cacheDir = $this->storagePath . '/temp/twig_cache';
+        mkdir($cacheDir, 0755, true);
+        file_put_contents($cacheDir . '/abcdef1234.php', '<?php // pre-update compiled template');
+
+        $this->invokeClearCompiledTemplateCache($this->storagePath);
+
+        $this->assertDirectoryDoesNotExist($cacheDir);
+    }
+
+    public function testClearCompiledTemplateCacheIsANoOpWhenTheCacheDirDoesNotExistYet(): void
+    {
+        // A fresh install (or a storage/temp already cleared) has no
+        // twig_cache directory at all — must not throw.
+        $this->invokeClearCompiledTemplateCache($this->storagePath);
+        $this->addToAssertionCount(1);
+    }
 }
