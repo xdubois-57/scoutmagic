@@ -44,7 +44,19 @@
                     <h5 class="modal-title" id="event-modal-title">Ajouter un évènement</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
-                <form id="event-form">
+                {# .modal-dialog-scrollable relies on .modal-header/.modal-body/
+                   .modal-footer being direct flex children of .modal-content so
+                   .modal-body's own overflow-y:auto has a bounded height to
+                   scroll within. Wrapping .modal-body + .modal-footer in a
+                   <form> (needed since the submit button lives in the footer)
+                   breaks that unless the form itself is also a flex column —
+                   without d-flex flex-column plus min-height:0 (a plain <form>
+                   has no `overflow` of its own, so per the flexbox spec its
+                   automatic minimum size is its content size, not 0 — it never
+                   shrinks to fit, .modal-body's internal scroll never engages,
+                   and the footer/save button end up pushed below the visible
+                   viewport on mobile). #}
+                <form id="event-form" class="d-flex flex-column flex-grow-1" style="min-height:0;">
                     <div class="modal-body">
                         <input type="hidden" id="event-id" value="">
                         <div class="row g-2 mb-2">
