@@ -104,4 +104,61 @@ class RouterModuleTest extends TestCase
         $this->assertSame('calendar', $this->router->getModuleForPath('/calendar'));
         $this->assertNull($this->router->getModuleForPath('/nonexistent'));
     }
+
+    public function testRegisterModuleRoutesCarriesBreadcrumbThrough(): void
+    {
+        $manifest = ModuleManifest::fromArray([
+            'id' => 'calendar',
+            'name' => 'Calendrier',
+            'version' => '1.0.0',
+            'routes' => [
+                [
+                    'path' => '/calendar',
+                    'method' => 'GET',
+                    'controller' => 'Modules\\Calendar\\Controller\\CalendarController',
+                    'action' => 'index',
+                    'menu' => 'espace_animes',
+                    'role_min' => 'identified',
+                    'label' => 'Calendrier',
+                    'breadcrumb' => ['label' => 'Calendrier', 'parents' => ['Espace des animés']],
+                ],
+            ],
+        ]);
+
+        $this->router->registerModuleRoutes($manifest);
+
+        $request = new Request('GET', '/calendar', [], [], [], []);
+        $resolved = $this->router->resolve($request);
+
+        $this->assertNotNull($resolved);
+        $this->assertSame(['label' => 'Calendrier', 'parents' => ['Espace des animés']], $resolved->breadcrumb);
+    }
+
+    public function testRegisterModuleRoutesWithoutBreadcrumbResolvesToNull(): void
+    {
+        $manifest = ModuleManifest::fromArray([
+            'id' => 'calendar',
+            'name' => 'Calendrier',
+            'version' => '1.0.0',
+            'routes' => [
+                [
+                    'path' => '/calendar',
+                    'method' => 'GET',
+                    'controller' => 'Modules\\Calendar\\Controller\\CalendarController',
+                    'action' => 'index',
+                    'menu' => 'espace_animes',
+                    'role_min' => 'identified',
+                    'label' => 'Calendrier',
+                ],
+            ],
+        ]);
+
+        $this->router->registerModuleRoutes($manifest);
+
+        $request = new Request('GET', '/calendar', [], [], [], []);
+        $resolved = $this->router->resolve($request);
+
+        $this->assertNotNull($resolved);
+        $this->assertNull($resolved->breadcrumb);
+    }
 }

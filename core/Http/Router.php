@@ -6,13 +6,18 @@ namespace Core\Http;
 
 class Router
 {
-    /** @var array<array{method: string, path: string, controllerClass: string, action: string, roleMin: string}> */
+    /** @var array<array{method: string, path: string, controllerClass: string, action: string, roleMin: string, breadcrumb: ?array{label: string, parents: array<string>}}> */
     private array $routes = [];
 
     /** @var string[] Module IDs for routes that belong to modules */
     private array $moduleRoutes = [];
 
-    public function addRoute(string $method, string $path, string $controllerClass, string $action, string $roleMin = 'public'): void
+    /**
+     * @param ?array{label: string, parents: array<string>} $breadcrumb Optional breadcrumb declaration for this
+     *   route (see partials/breadcrumb_bar.html.twig) — null when the route doesn't declare one, which is valid:
+     *   the breadcrumb simply stops at the home icon for that page.
+     */
+    public function addRoute(string $method, string $path, string $controllerClass, string $action, string $roleMin = 'public', ?array $breadcrumb = null): void
     {
         $this->routes[] = [
             'method' => strtoupper($method),
@@ -20,6 +25,7 @@ class Router
             'controllerClass' => $controllerClass,
             'action' => $action,
             'roleMin' => $roleMin,
+            'breadcrumb' => $breadcrumb,
         ];
     }
 
@@ -44,7 +50,8 @@ class Router
                 $route['path'],
                 $route['controller'],
                 $route['action'],
-                $route['role_min']
+                $route['role_min'],
+                $route['breadcrumb'] ?? null
             );
             $this->moduleRoutes[$route['path']] = $manifest->id;
         }
@@ -67,7 +74,8 @@ class Router
                     controllerClass: $route['controllerClass'],
                     action: $route['action'],
                     roleMin: $route['roleMin'],
-                    params: $params
+                    params: $params,
+                    breadcrumb: $route['breadcrumb']
                 );
             }
         }

@@ -228,3 +228,15 @@ td code,
     pointer-events: none;
     cursor: not-allowed;
 }
+
+/* Breadcrumb bar (partials/breadcrumb_bar.html.twig) — visible only when
+   the site is running as an installed PWA. Pure CSS: no server-side flag,
+   no JS "is this installed?" detection. Hidden by default (browser tab). */
+.breadcrumb-bar {
+    display: none;
+}
+@media (display-mode: standalone) {
+    .breadcrumb-bar {
+        display: flex;
+    }
+}

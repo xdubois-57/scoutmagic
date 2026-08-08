@@ -8,12 +8,14 @@ class ResolvedRoute
 {
     /**
      * @param array<string, string> $params
+     * @param ?array{label: string, parents: array<string>} $breadcrumb
      */
     public function __construct(
         public readonly string $controllerClass,
         public readonly string $action,
         public readonly string $roleMin,
-        public readonly array $params
+        public readonly array $params,
+        public readonly ?array $breadcrumb = null
     ) {
     }
 }

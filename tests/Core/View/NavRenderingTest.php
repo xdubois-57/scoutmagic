@@ -182,4 +182,51 @@ class NavRenderingTest extends TestCase
         $this->assertStringContainsString('test@example.com', $html); // Display name falls back to email when no members
         $this->assertStringContainsString('Admin', $html);
     }
+
+    public function testHeaderAvatarShownForIdentifiedSession(): void
+    {
+        $html = $this->renderNav(Role::ADMIN, true);
+        $this->assertMatchesRegularExpression(
+            '/<header[^>]*>.*?<a href="\/account"[^>]*aria-label="Mon compte"[^>]*>/s',
+            $html
+        );
+    }
+
+    public function testHeaderAvatarAbsentForPublicVisitor(): void
+    {
+        $html = $this->renderNav(Role::PUBLIC, false);
+        [$header] = explode('</header>', $html, 2);
+        $this->assertStringNotContainsString('aria-label="Mon compte"', $header);
+        $this->assertStringNotContainsString('/account', $header);
+    }
+
+    public function testHeaderAvatarLinksToAccountNotOffcanvas(): void
+    {
+        $html = $this->renderNav(Role::ADMIN, true);
+        [$header] = explode('</header>', $html, 2);
+        // Only the hamburger button toggles the offcanvas — the avatar link
+        // must not also carry that trigger.
+        $this->assertStringContainsString('data-bs-toggle="offcanvas"', $header);
+        $accountLinkPos = strpos($header, 'href="/account"');
+        $this->assertNotFalse($accountLinkPos);
+        $accountAnchorTag = substr($header, $accountLinkPos - 80, 160);
+        $this->assertStringNotContainsString('data-bs-toggle', $accountAnchorTag);
+    }
+
+    public function testNotificationBadgeRenderedInBothHeaderAndOffcanvasWhenAuthenticated(): void
+    {
+        // 3 badges: the new mobile header avatar, the mobile offcanvas
+        // user card (both via the shared partials/account_avatar.html.twig
+        // include), plus desktop nav's own separate, untouched badge
+        // (out of scope for this change, see nav.html.twig's #desktopNav).
+        // notification-badge.js updates all of them via querySelectorAll.
+        $html = $this->renderNav(Role::ADMIN, true);
+        $this->assertSame(3, substr_count($html, 'notification-badge'));
+    }
+
+    public function testNotificationBadgeAbsentWhenNotAuthenticated(): void
+    {
+        $html = $this->renderNav(Role::PUBLIC, false);
+        $this->assertSame(0, substr_count($html, 'notification-badge'));
+    }
 }

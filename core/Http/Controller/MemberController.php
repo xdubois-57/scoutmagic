@@ -65,6 +65,9 @@ class MemberController extends AbstractController
             'is_self' => $isSelf,
             'show_contact' => $isSelf || $isChiefOrAbove,
             'show_addresses' => $isSelf || $isChiefOrAbove,
+            // Replaces the route's static breadcrumb label ("Membre") with
+            // this member's own display name (partials/breadcrumb_bar.html.twig).
+            'breadcrumb_current' => $profile->getDisplayName(),
         ]));
     }
 

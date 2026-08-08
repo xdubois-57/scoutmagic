@@ -41,6 +41,8 @@
     {% endif %}
     {% endblock %}
 
+    {% include 'partials/breadcrumb_bar.html.twig' %}
+
     {% if config_mode is defined and config_mode %}
     <div class="alert alert-warning d-flex align-items-center gap-2 rounded-0 mb-0 border-start-0 border-end-0" role="alert">
         <i class="bi bi-exclamation-triangle"></i>

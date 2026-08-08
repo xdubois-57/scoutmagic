@@ -96,4 +96,35 @@ class RouterTest extends TestCase
         $this->assertInstanceOf(ResolvedRoute::class, $resolved);
         $this->assertSame('public', $resolved->roleMin);
     }
+
+    public function testBreadcrumbDefaultsToNull(): void
+    {
+        $router = new Router();
+        $router->addRoute('GET', '/page', 'App\\Controller\\PageController', 'index');
+
+        $request = new Request('GET', '/page', [], [], [], []);
+        $resolved = $router->resolve($request);
+
+        $this->assertInstanceOf(ResolvedRoute::class, $resolved);
+        $this->assertNull($resolved->breadcrumb);
+    }
+
+    public function testBreadcrumbIsPreservedInResolvedRoute(): void
+    {
+        $router = new Router();
+        $router->addRoute(
+            'GET',
+            '/chefs/staffs',
+            'App\\Controller\\StaffsController',
+            'index',
+            'intendant',
+            ['label' => 'Staffs', 'parents' => ['Espace des chefs']]
+        );
+
+        $request = new Request('GET', '/chefs/staffs', [], [], [], []);
+        $resolved = $router->resolve($request);
+
+        $this->assertInstanceOf(ResolvedRoute::class, $resolved);
+        $this->assertSame(['label' => 'Staffs', 'parents' => ['Espace des chefs']], $resolved->breadcrumb);
+    }
 }
