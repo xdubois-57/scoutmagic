@@ -4,25 +4,34 @@
   pages only differ in which calendars are eligible to appear, not in how
   the picker itself is built or rendered).
 
-  Usage:
+  Usage — UNCHANGED, do not modify either call site:
   {% include '@calendar/partials/calendar_picker.html.twig' with {
       options: calendar_options,
       selected_id: selected_calendar_id,
       base_url: '/calendar?calendar=',
       extra_query: '&month=' ~ month_param
   } %}
+
+  Thin mapping layer over the generic partials/chip_picker.html.twig
+  (mode: single) — see docs/module-development.md for that contract.
 #}
-<div class="d-flex flex-nowrap flex-lg-wrap gap-2 pb-2 mb-3 overflow-x-auto calendar-picker" style="-webkit-overflow-scrolling:touch;">
-    {% for option in options %}
-        {% set is_active = option.id == selected_id %}
-        <a href="{{ base_url }}{{ option.id }}{{ extra_query|default('') }}"
-           class="btn btn-sm {{ is_active ? 'btn-primary' : 'btn-outline-secondary' }} text-nowrap d-flex align-items-center gap-1 text-decoration-none"
-           style="min-height:44px;"
-           {{ is_active ? 'aria-current="true"' : '' }}>
-            {% if option.color %}
-                <span class="d-inline-block rounded-circle" style="width:0.55rem;height:0.55rem;background-color:{{ option.color }};"></span>
-            {% endif %}
-            {{ option.label }}
-        </a>
-    {% endfor %}
+{% set chip_items = [] %}
+{% for option in options %}
+    {% set chip_items = chip_items|merge([{
+        id: option.id,
+        label: option.label,
+        color: option.color is defined ? option.color : null,
+        selected: option.id == selected_id,
+    }]) %}
+{% endfor %}
+<div class="calendar-picker">
+    {% include 'partials/chip_picker.html.twig' with {
+        picker_id: 'calendar-picker',
+        items: chip_items,
+        mode: 'single',
+        base_url: base_url,
+        extra_query: extra_query|default(''),
+        sheet_title: 'Choisir un calendrier',
+        empty_text: 'Aucun calendrier disponible.',
+    } %}
 </div>

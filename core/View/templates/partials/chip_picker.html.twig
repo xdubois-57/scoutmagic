@@ -1,0 +1,142 @@
+{#
+  Generic, content-agnostic chip picker — core component, same precedent as
+  partials/list_editor.html.twig (§8.13): it knows nothing about what an
+  "item" is. Any future selection need (scout year filter, branches,
+  finance categories, gallery albums, mailing recipients, statistics
+  filters...) reuses this unchanged — see docs/module-development.md for
+  the full contract. Do not add a use-case-specific parameter here (no
+  `is_section`, no `for_calendar`); only generic presentation parameters
+  belong on this partial.
+
+  Usage:
+  {% include 'partials/chip_picker.html.twig' with {
+      picker_id: 'my-picker',
+      items: [
+          { id: 1, label: 'Louveteaux', sublabel: 'Meute', color: '#f5a623', badge: null, selected: true },
+          { id: 2, label: 'Éclaireurs', sublabel: 'Troupe', color: '#4a90d9', selected: false }
+      ],
+      mode: 'single',
+      base_url: '/chefs/staffs?section=',
+      sheet_title: 'Choisir une section',
+      empty_text: 'Aucun élément disponible.'
+  } %}
+
+  Item fields: `id` and `label` required; `sublabel`, `color`, `badge` all
+  optional. `sublabel` and `badge` never appear on the chip itself (no
+  room) — bottom-sheet only. `selected` (bool) marks the current
+  selection(s).
+
+  mode: 'single' (chips/rows are <a href="{{ base_url }}{{ item.id }}">
+  {{ extra_query|default('') }}"> — the exact same link both places, so
+  there is only one selection path, and no JS is needed for selection
+  itself, only for truncation/the sheet toggle) or 'multi' (chips/rows are
+  <button> elements toggled by public/assets/js/chip-picker.js, which
+  dispatches a `chip-picker:change` CustomEvent — detail: { selectedIds }
+  — on the picker container after every toggle; the caller listens for
+  that to persist the choice however it needs to, this partial and its JS
+  never persist anything themselves).
+
+  Truncation to 2 lines (client-side only, measured against real
+  offsetTop after render — never a hardcoded chip count) and the "+N"
+  overflow chip opening the bottom sheet are entirely
+  public/assets/js/chip-picker.js's job; this partial always renders
+  every chip, unconditionally, so a page with JS disabled (or before it
+  runs) shows and can operate every item exactly as if none of this
+  existed. Truncation only ever activates below the `lg` breakpoint — at
+  `lg` and up chips already wrap fully with no cap, matching this site's
+  existing desktop picker behavior.
+#}
+{% macro row_content(item, selected) %}
+    <span class="d-inline-flex align-items-center justify-content-center flex-shrink-0" style="width:1.1rem;">
+        <i class="bi bi-check-lg text-primary{{ selected ? '' : ' invisible' }}" aria-hidden="true"></i>
+    </span>
+    {% if item.color is defined and item.color %}
+        <span class="d-inline-block rounded-circle flex-shrink-0" style="width:0.6rem;height:0.6rem;background-color:{{ item.color }};"></span>
+    {% endif %}
+    <span class="flex-grow-1 text-start">
+        <span class="d-block">{{ item.label }}</span>
+        {% if item.sublabel is defined and item.sublabel %}
+            <span class="d-block text-body-secondary" style="font-size:0.75rem;">{{ item.sublabel }}</span>
+        {% endif %}
+    </span>
+    {% if item.badge is defined and item.badge %}
+        <span class="badge bg-warning-subtle text-warning-emphasis flex-shrink-0">{{ item.badge }}</span>
+    {% endif %}
+{% endmacro %}
+<div class="chip-picker" id="{{ picker_id }}" data-mode="{{ mode }}" data-sheet-target="#{{ picker_id }}-sheet">
+    <div class="chip-picker-chips d-flex flex-wrap gap-2 mb-2">
+        {% for item in items %}
+            {% set selected = item.selected is defined and item.selected %}
+            {% if mode == 'multi' %}
+                <button type="button"
+                        class="btn btn-sm {{ selected ? 'btn-primary' : 'btn-outline-secondary' }} chip-picker-item chip-picker-chip text-nowrap d-inline-flex align-items-center gap-1"
+                        style="min-height:44px;"
+                        data-id="{{ item.id }}"
+                        data-selected="{{ selected ? 'true' : 'false' }}"
+                        aria-pressed="{{ selected ? 'true' : 'false' }}">
+                    {% if item.color is defined and item.color %}
+                        <span class="d-inline-block rounded-circle flex-shrink-0" style="width:0.55rem;height:0.55rem;background-color:{{ item.color }};"></span>
+                    {% endif %}
+                    <span>{{ item.label }}</span>
+                </button>
+            {% else %}
+                <a href="{{ base_url }}{{ item.id }}{{ extra_query|default('') }}"
+                   class="btn btn-sm {{ selected ? 'btn-primary' : 'btn-outline-secondary' }} chip-picker-item chip-picker-chip text-nowrap d-inline-flex align-items-center gap-1 text-decoration-none"
+                   style="min-height:44px;"
+                   data-id="{{ item.id }}"
+                   data-selected="{{ selected ? 'true' : 'false' }}"
+                   {{ selected ? 'aria-current="true"' : '' }}>
+                    {% if item.color is defined and item.color %}
+                        <span class="d-inline-block rounded-circle flex-shrink-0" style="width:0.55rem;height:0.55rem;background-color:{{ item.color }};"></span>
+                    {% endif %}
+                    <span>{{ item.label }}</span>
+                </a>
+            {% endif %}
+        {% else %}
+            <p class="text-body-secondary fst-italic mb-0">{{ empty_text|default('Aucun élément.') }}</p>
+        {% endfor %}
+    </div>
+</div>
+{% if items|length > 0 %}
+    <div class="offcanvas offcanvas-bottom chip-picker-sheet" tabindex="-1" id="{{ picker_id }}-sheet"
+         data-picker-target="#{{ picker_id }}" style="height:70vh;" aria-labelledby="{{ picker_id }}-sheet-label">
+        <div class="offcanvas-header border-bottom">
+            <h5 class="offcanvas-title" id="{{ picker_id }}-sheet-label">{{ sheet_title|default('Choisir') }}</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Fermer"></button>
+        </div>
+        <div class="offcanvas-body p-0">
+            <ul class="list-group list-group-flush">
+                {% for item in items %}
+                    {% set selected = item.selected is defined and item.selected %}
+                    <li class="list-group-item p-0">
+                        {% if mode == 'multi' %}
+                            <button type="button"
+                                    class="chip-picker-item chip-picker-sheet-row d-flex align-items-center gap-2 px-3 py-2 w-100 text-start border-0 bg-transparent"
+                                    style="min-height:44px;"
+                                    data-id="{{ item.id }}"
+                                    data-selected="{{ selected ? 'true' : 'false' }}"
+                                    aria-pressed="{{ selected ? 'true' : 'false' }}">
+                                {{ _self.row_content(item, selected) }}
+                            </button>
+                        {% else %}
+                            <a href="{{ base_url }}{{ item.id }}{{ extra_query|default('') }}"
+                               class="chip-picker-item chip-picker-sheet-row d-flex align-items-center gap-2 px-3 py-2 text-decoration-none text-body"
+                               style="min-height:44px;"
+                               data-id="{{ item.id }}"
+                               data-selected="{{ selected ? 'true' : 'false' }}">
+                                {{ _self.row_content(item, selected) }}
+                            </a>
+                        {% endif %}
+                    </li>
+                {% endfor %}
+            </ul>
+        </div>
+        {% if mode == 'multi' %}
+            <div class="p-3 border-top">
+                <button type="button" class="btn btn-primary w-100 chip-picker-sheet-close" data-bs-dismiss="offcanvas" style="min-height:44px;">
+                    Fermer
+                </button>
+            </div>
+        {% endif %}
+    </div>
+{% endif %}

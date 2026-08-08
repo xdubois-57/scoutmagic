@@ -1,5 +1,5 @@
 {#
-  Usage:
+  Usage — UNCHANGED, do not modify any existing call site:
   {% include 'partials/section_picker.html.twig' with {
       sections: sections,
       selected_id: current_section_id,
@@ -7,26 +7,34 @@
   } %}
 
   Each section entry may optionally carry a `color` key (e.g. from
-  Core\Member\MemberYearService::colorForBranchSortOrder()) to show a small
-  branch-colored dot on its button. Callers that don't set it get the plain
-  (uncolored) button, unchanged.
+  Core\Member\SectionService::colorForSection()) to show a small
+  branch-colored dot. Callers that don't set it get a plain chip.
+
+  Thin mapping layer over the generic partials/chip_picker.html.twig
+  (mode: single) — see docs/module-development.md for that contract.
+  This partial owns nothing about *how* selection is presented; it only
+  knows how a section row maps to a chip_picker item. Sections are never
+  refiltered here — Core\Member\SectionService::getAllWithBranches()
+  already excludes hidden/inactive ones, ARCHITECTURE.md §8.8.
 #}
-<div class="d-flex flex-nowrap flex-lg-wrap gap-2 pb-2 mb-3 overflow-x-auto section-picker" style="-webkit-overflow-scrolling:touch;">
-    {% for section in sections %}
-        {% set is_active = section.id == selected_id %}
-        <a href="{{ base_url }}{{ section.id }}"
-           class="btn btn-sm {{ is_active ? 'btn-primary' : 'btn-outline-secondary' }} text-nowrap d-flex flex-column align-items-center px-3 py-2 text-decoration-none"
-           style="min-width:0;min-height:44px;"
-           {{ is_active ? 'aria-current="true"' : '' }}>
-            <span class="small fw-semibold">
-                {% if section.color is defined and section.color %}
-                    <span class="d-inline-block rounded-circle" style="width:0.55rem;height:0.55rem;background-color:{{ section.color }};"></span>
-                {% endif %}
-                {{ section.name ?? section.desk_code }}
-            </span>
-            <span style="font-size:0.7rem;" class="{{ is_active ? 'text-white-50' : 'text-body-secondary' }}">
-                {{ section.branch_name }}
-            </span>
-        </a>
-    {% endfor %}
+{% set chip_items = [] %}
+{% for section in sections %}
+    {% set chip_items = chip_items|merge([{
+        id: section.id,
+        label: section.name ?? section.desk_code,
+        sublabel: section.branch_name is defined ? section.branch_name : null,
+        color: section.color is defined ? section.color : null,
+        badge: (section.name is not defined or section.name is null) ? 'Non configurée' : null,
+        selected: section.id == selected_id,
+    }]) %}
+{% endfor %}
+<div class="section-picker">
+    {% include 'partials/chip_picker.html.twig' with {
+        picker_id: 'section-picker',
+        items: chip_items,
+        mode: 'single',
+        base_url: base_url,
+        sheet_title: 'Choisir une section',
+        empty_text: 'Aucune section disponible.',
+    } %}
 </div>

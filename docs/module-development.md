@@ -172,6 +172,72 @@ class CalendarController extends AbstractController
 }
 ```
 
+## Chip picker (`partials/chip_picker.html.twig`)
+
+The site's one selection component — mobile-friendly wrapping chips with a
+"+N" overflow chip opening a bottom sheet for the full list. Core,
+content-agnostic (same precedent as `partials/list_editor.html.twig`): it
+knows nothing about what an item *is*. Any module that needs a picker
+(a filter, a multi-select toggle, anything selecting from a list of
+labeled things) maps its data to the item format below and includes this
+partial — no new CSS, no new JS, same appearance and behavior everywhere.
+If your case forces you to override its style or duplicate its JS, you're
+using it wrong — ask whether the component needs a new *generic*
+parameter instead (never a use-case-specific one — no `is_section`, no
+`for_calendar`).
+
+```twig
+{% include 'partials/chip_picker.html.twig' with {
+    picker_id: 'my-picker',
+    items: [
+        { id: 1, label: 'Louveteaux', sublabel: 'Meute', color: '#f5a623', badge: null, selected: true },
+        { id: 2, label: 'Éclaireurs', sublabel: 'Troupe', color: '#4a90d9', selected: false }
+    ],
+    mode: 'single',
+    base_url: '/my-page?item=',
+    sheet_title: 'Choisir un élément',
+    empty_text: 'Aucun élément disponible.'
+} %}
+```
+
+**Item fields**: `id` and `label` required. `sublabel` and `badge` are
+optional and only ever appear in the bottom sheet — a chip has no room
+for them. `color` (optional hex string) draws a small dot on both the
+chip and the sheet row; always source it from whatever this app's single
+color source of truth is for your data (e.g.
+`Core\Member\SectionService::colorForSection()` for anything
+section-derived) — never recompute or hardcode a color here. `selected`
+(bool) marks the current selection(s).
+
+**Modes**:
+- `single` — chips and sheet rows are `<a href="{{ base_url }}{{ item.id }}{{ extra_query|default('') }}">`, the exact same link both places. Selection needs no JS at all (a plain click, or a screen reader, already works) — `public/assets/js/chip-picker.js` only handles truncation and opening the sheet.
+- `multi` — chips and sheet rows are `<button>` elements toggled by `chip-picker.js`, which dispatches a `chip-picker:change` `CustomEvent` (`detail: { selectedIds }`) on the picker container after every toggle. The partial and its JS never persist a selection themselves — listen for that event and do whatever your case needs (a cookie, a form submit, a fetch call). The bottom sheet stays open across toggles in this mode; a dedicated "Fermer" button closes it.
+
+**`picker_id`** must be unique per instance on a page — it becomes both
+the picker's DOM id and its offcanvas sheet's id
+(`{picker_id}-sheet`), so two picker instances on the same page need two
+different values.
+
+**Truncation** (2 lines, "+N" overflow chip opening the sheet) is entirely
+client-side, measured from each chip's real `offsetTop` after render —
+never a hardcoded chip count — and only activates below the `lg`
+breakpoint (992px); at `lg` and up chips wrap fully with no cap, matching
+this site's existing desktop picker behavior. Selected chips are always
+moved to the front before measuring, so truncation can never hide the
+current selection; if the selection itself spans more than 2 lines, the
+cutoff extends rather than hiding part of it. The partial always renders
+every item unconditionally (no chip is ever hidden server-side) — a
+visitor with JS disabled, or before it has run, sees and can operate
+every item exactly as if truncation didn't exist.
+
+**Existing callers, as reference implementations of the "thin mapping
+layer" pattern**: `core/View/templates/partials/section_picker.html.twig`
+(mode `single`, sections → items) and
+`modules/calendar/views/partials/calendar_picker.html.twig` (mode
+`single`, calendar options → items). Neither owns any chip/sheet/
+truncation logic itself — each only maps its own domain data into the
+generic item format and includes `chip_picker.html.twig`.
+
 ## Accessing core services
 
 Module controllers receive whatever services they need via constructor injection — there is no fixed list. The composition root (`public/index.php`) is where every controller is actually built and registered: inside the module's `if (in_array('my_module', $moduleManager->getEnabledModuleIds(), true)) { ... }` block, construct the module's repositories/services (passing `$pdo`/`$connection`, `$encryptionService`, `$mailService`, `$schedulerService`, `$sectionService`, or any other already-built core service the module needs), then `$frontController->registerController(MyModuleController::class, new MyModuleController($twig, ...))`. See any existing module block in `public/index.php` for the pattern.
