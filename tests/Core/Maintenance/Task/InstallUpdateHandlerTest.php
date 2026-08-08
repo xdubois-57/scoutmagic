@@ -247,6 +247,39 @@ class InstallUpdateHandlerTest extends TestCase
         $this->assertDirectoryDoesNotExist($cacheDir);
     }
 
+    public function testClearCompiledTemplateCacheWipesEveryVersionSubdirectoryUnconditionally(): void
+    {
+        // Core\View\TwigFactory namespaces its cache by installed version
+        // (storage/temp/twig_cache/{version}) — a stable release directory
+        // and a development-mode "dev-{sha}" one can legitimately coexist
+        // (e.g. someone switched auto_update_level back and forth). The
+        // clear must not be scoped to "whichever version we're installing
+        // right now": it sweeps the whole tree, so nothing accumulates and
+        // a re-install of the exact same version is never served leftover
+        // compiled output from a previous, possibly-interrupted attempt.
+        $cacheRoot = $this->storagePath . '/temp/twig_cache';
+        mkdir($cacheRoot . '/1.0.22', 0755, true);
+        mkdir($cacheRoot . '/dev-a1b2c3d', 0755, true);
+        file_put_contents($cacheRoot . '/1.0.22/abcdef1234.php', '<?php // stable release, compiled');
+        file_put_contents($cacheRoot . '/dev-a1b2c3d/1234abcdef.php', '<?php // dev build, compiled');
+
+        $this->invokeClearCompiledTemplateCache($this->storagePath);
+
+        $this->assertDirectoryDoesNotExist($cacheRoot);
+    }
+
+    public function testClearCompiledTemplateCacheHasNoSourceTypeOrVersionParameter(): void
+    {
+        // Structural guarantee behind "even for a development commit
+        // install": the method has no way to special-case source_type
+        // ('release' vs 'branch') or compare versions, because it isn't
+        // given either — handle() calls it identically on both paths.
+        $method = new \ReflectionMethod(InstallUpdateHandler::class, 'clearCompiledTemplateCache');
+
+        $this->assertCount(1, $method->getParameters());
+        $this->assertSame('storagePath', $method->getParameters()[0]->getName());
+    }
+
     public function testClearCompiledTemplateCacheIsANoOpWhenTheCacheDirDoesNotExistYet(): void
     {
         // A fresh install (or a storage/temp already cleared) has no
