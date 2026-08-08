@@ -282,6 +282,30 @@ class InstallUpdateHandler implements TaskHandlerInterface
     }
 
     /**
+     * Unconditional, version-agnostic: wipes the entire storage/temp/
+     * twig_cache tree (every Core\View\TwigFactory version subdirectory,
+     * not just the one matching $history->versionTo) on every single
+     * install this handler completes — a stable release exactly like a
+     * development-mode branch/commit install, never gated on whether the
+     * version string actually changed. TwigFactory's per-version cache
+     * directory (storage/temp/twig_cache/{version}) already makes a
+     * genuinely new VERSION self-healing on its own, but this explicit
+     * sweep is the belt to that belt-and-suspenders: it doesn't depend on
+     * VERSION having changed at all, so it also covers re-installing the
+     * exact same version/commit (nothing left over from a half-applied
+     * previous attempt) and any future deploy path that might not bump
+     * VERSION for some reason. Runs right after installFiles() (which
+     * deliberately never touches storage/) and before VersionFile::write(),
+     * so it always targets whatever was compiled under the *previous*
+     * version — never the one about to be written. TwigFactory recreates
+     * whichever subdirectory a request actually needs, lazily, on demand.
+     */
+    private function clearCompiledTemplateCache(string $storagePath): void
+    {
+        $this->removeDirectory($storagePath . '/temp/twig_cache');
+    }
+
+    /**
      * GitHub's branch/commit zipball always wraps its contents in a single
      * top-level "{owner}-{repo}-{sha}/" directory — unlike scripts/
      * release.sh's artifact, which zips the repo contents directly at the
@@ -290,24 +314,6 @@ class InstallUpdateHandler implements TaskHandlerInterface
      * never have this stripping applied even if it coincidentally had a
      * single top-level entry).
      */
-    /**
-     * Core\View\TwigFactory compiles templates to storage/temp/twig_cache
-     * with auto_reload off in production, so it never re-checks a compiled
-     * template's freshness against its .twig source on disk. installFiles()
-     * deliberately never touches storage/ (live uploads/keys/config), so
-     * without this the server keeps executing every pre-update .twig file
-     * exactly as compiled before the update, indefinitely — a real
-     * production incident: a template-only change (e.g. a nav/layout
-     * partial) installs successfully but never visibly takes effect until
-     * someone clears this directory by hand. TwigFactory recreates it
-     * lazily (`is_dir()` check) on the next request, so removing it here is
-     * enough — nothing needs to pre-create it.
-     */
-    private function clearCompiledTemplateCache(string $storagePath): void
-    {
-        $this->removeDirectory($storagePath . '/temp/twig_cache');
-    }
-
     private function resolveBranchArchiveRoot(string $extractedDir): string
     {
         $entries = array_values(array_diff(scandir($extractedDir) ?: [], ['.', '..']));
