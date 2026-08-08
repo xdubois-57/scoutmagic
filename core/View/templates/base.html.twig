@@ -96,6 +96,11 @@
 
     <script src="/assets/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
     <script src="/assets/js/nav.js"></script>
+    {# partials/chip_picker.html.twig's JS — truncation + mode:multi
+       toggling. Loads unconditionally: the public calendar page
+       (role_min: public) uses a chip picker too, not just
+       identified-only pages. #}
+    <script src="/assets/js/chip-picker.js" defer></script>
     {% if config_mode is defined and config_mode %}
     {% include 'partials/rich_text_editor.html.twig' %}
     {% endif %}
