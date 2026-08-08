@@ -111,6 +111,28 @@ class ConfigCategoryControllerTest extends TestCase
         $this->suggestionRepository = new AiCategorySuggestionRepository($this->pdo);
     }
 
+    public function testCategoryAndRuleFormsAreFlexColumnsSoTheScrollableModalsLayoutCorrectly(): void
+    {
+        // Same real bug as modules/calendar's event dialog: a <form>
+        // wrapping .modal-body + .modal-footer inside a
+        // .modal-dialog-scrollable modal must itself be a flex column with
+        // min-height:0, or .modal-body's internal scroll never engages and
+        // the footer/save button end up pushed below the mobile viewport.
+        $controller = $this->buildController(false);
+
+        $response = $controller->index(new Request('GET', '/config/finance/categories', [], [], [], []), []);
+
+        $body = $response->getBody();
+        $this->assertMatchesRegularExpression(
+            '/<form id="category-form" class="d-flex flex-column flex-grow-1" style="min-height:0;">/',
+            $body
+        );
+        $this->assertMatchesRegularExpression(
+            '/<form id="rule-form" class="d-flex flex-column flex-grow-1" style="min-height:0;">/',
+            $body
+        );
+    }
+
     public function testIndexRendersRecentAiSuggestionsAsClickableChips(): void
     {
         $this->suggestionRepository->create('Sapins de Noël');

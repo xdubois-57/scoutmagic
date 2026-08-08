@@ -61,7 +61,16 @@
                     <h5 class="modal-title" id="category-form-title">Nouvelle catégorie</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
-                <form id="category-form">
+                {# Real bug, found and fixed while building modules/calendar's
+                   event dialog: .modal-dialog-scrollable needs .modal-body/
+                   .modal-footer as direct flex children of .modal-content for
+                   .modal-body's own overflow-y:auto to have a bounded height
+                   — wrapping both in a <form> without d-flex flex-column +
+                   min-height:0 breaks that (a plain <form> has no `overflow`
+                   of its own, so its automatic flex minimum is its content
+                   size, not 0 — it never shrinks, and the footer/save button
+                   end up pushed below the viewport on mobile). #}
+                <form id="category-form" class="d-flex flex-column flex-grow-1" style="min-height:0;">
                     <div class="modal-body">
                         <input type="hidden" id="category-id" value="">
                         <label class="form-label small" for="category-name">Nom</label>
@@ -207,7 +216,7 @@
                     <h5 class="modal-title" id="rule-form-title">Nouvelle règle</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
-                <form id="rule-form">
+                <form id="rule-form" class="d-flex flex-column flex-grow-1" style="min-height:0;">
                     <div class="modal-body">
                         <input type="hidden" id="rule-id" value="">
                         <div class="row g-2">

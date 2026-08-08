@@ -175,6 +175,27 @@ class CalendarChiefControllerTest extends TestCase
         $this->assertStringContainsString('Calendrier', $response->getBody());
     }
 
+    public function testEventFormIsAFlexColumnSoTheScrollableModalBodyAndFooterLayoutCorrectly(): void
+    {
+        // Real bug, found and fixed: .modal-dialog-scrollable relies on
+        // .modal-body/.modal-footer being direct flex children of
+        // .modal-content so .modal-body's own overflow-y:auto has a
+        // bounded height to scroll within. #event-form wraps both (the
+        // submit button lives in the footer) — without the form itself
+        // being a flex column with min-height:0, a plain <form> has no
+        // `overflow` of its own, so its automatic flex minimum size is its
+        // content size rather than 0: it never shrinks, .modal-body's
+        // internal scroll never engages, and the footer (the save button)
+        // ends up pushed below the visible viewport on mobile.
+        $request = new Request('GET', '/chefs/calendar', [], [], [], []);
+        $response = $this->controller->index($request, []);
+
+        $this->assertMatchesRegularExpression(
+            '/<form id="event-form" class="d-flex flex-column flex-grow-1" style="min-height:0;">/',
+            $response->getBody()
+        );
+    }
+
     public function testIndexPrefillsFormWithConfiguredDefaults(): void
     {
         $request = new Request('GET', '/chefs/calendar', [], [], [], []);
