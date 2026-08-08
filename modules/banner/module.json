@@ -12,7 +12,8 @@
       "action": "index",
       "menu": "espace_admin",
       "role_min": "admin",
-      "label": "Bannière"
+      "label": "Bannière",
+      "breadcrumb": { "label": "Bannière", "parents": ["Espace admin"] }
     },
     {
       "path": "/config/banner/add",

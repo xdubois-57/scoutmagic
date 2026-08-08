@@ -12,7 +12,8 @@
       "action": "index",
       "menu": "notre_unite",
       "role_min": "public",
-      "label": "Actualités"
+      "label": "Actualités",
+      "breadcrumb": { "label": "Actualités", "parents": ["Notre unité"] }
     },
     {
       "path": "/news/manage",
@@ -21,7 +22,8 @@
       "action": "manage",
       "menu": "espace_chefs",
       "role_min": "chief",
-      "label": "Actualités"
+      "label": "Actualités",
+      "breadcrumb": { "label": "Actualités", "parents": ["Espace des chefs"] }
     },
     {
       "path": "/news/create",

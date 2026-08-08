@@ -13,7 +13,8 @@
       "menu": "espace_admin",
       "role_min": "admin",
       "label": "SOS Staff d'U",
-      "menu_order": 50
+      "menu_order": 50,
+      "breadcrumb": { "label": "SOS Staff d'U", "parents": ["Espace admin"] }
     },
     {
       "path": "/admin/sos/default-number",
@@ -58,7 +59,8 @@
       "action": "index",
       "menu": "configuration",
       "role_min": "superadmin",
-      "label": "SOS Staff d'U"
+      "label": "SOS Staff d'U",
+      "breadcrumb": { "label": "SOS Staff d'U", "parents": ["Configuration"] }
     },
     {
       "path": "/config/sos/ovh/credentials",

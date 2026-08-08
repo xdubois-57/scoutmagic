@@ -54,7 +54,12 @@
                                 {% if page.isSeparator %}
                                     <li class="list-group-item p-0"><hr class="my-1"></li>
                                 {% elseif page.isDynamic %}
-                                    <li class="list-group-item list-group-item-action border-0 ps-4{% if current_path == page.url %} active{% endif %}" style="min-height:44px;">
+                                    {# No Bootstrap `active` class here: `.list-group-item.active` paints a
+                                       solid --bs-primary background (not !important), while the `text-primary`
+                                       below is a color utility and IS !important — together that's blue text
+                                       on a blue background, invisible. Bold blue text on the plain list
+                                       background is the highlight instead. #}
+                                    <li class="list-group-item list-group-item-action border-0 ps-4" style="min-height:44px;">
                                         <a href="{{ page.url }}" class="d-flex align-items-center gap-2 text-decoration-none{% if current_path == page.url %} fw-semibold text-primary{% else %} text-dark{% endif %}"{{ current_path == page.url ? ' aria-current="page"' : '' }}>
                                             <div class="rounded-circle bg-primary-subtle d-flex align-items-center justify-content-center"
                                                  style="width:32px;height:32px;min-width:32px;">
@@ -69,7 +74,10 @@
                                         </a>
                                     </li>
                                 {% else %}
-                                    <li class="list-group-item list-group-item-action border-0 ps-4 d-flex align-items-center{% if active_page_url|default('') == page.url %} active{% endif %}" style="min-height:44px;">
+                                    {# Same reasoning as the dynamic-entry branch above: no Bootstrap
+                                       `active` class, since it would paint the same blue background that
+                                       the (!important) text-primary color below turns invisible against. #}
+                                    <li class="list-group-item list-group-item-action border-0 ps-4 d-flex align-items-center" style="min-height:44px;">
                                         <a href="{{ page.url }}" class="text-decoration-none d-block{% if active_page_url|default('') == page.url %} fw-semibold text-primary{% else %} text-dark{% endif %}"{{ active_page_url|default('') == page.url ? ' aria-current="page"' : '' }}>{{ page.label }}</a>
                                     </li>
                                 {% endif %}

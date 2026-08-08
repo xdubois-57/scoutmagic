@@ -39,7 +39,8 @@
       "action": "index",
       "menu": "espace_chefs",
       "role_min": "chief",
-      "label": "Envoi de mails"
+      "label": "Envoi de mails",
+      "breadcrumb": { "label": "Envoi de mails", "parents": ["Espace des chefs"] }
     },
     {
       "path": "/mass-mail",
@@ -129,7 +130,8 @@
       "action": "index",
       "menu": "configuration",
       "role_min": "superadmin",
-      "label": "Envoi de mails"
+      "label": "Envoi de mails",
+      "breadcrumb": { "label": "Envoi de mails", "parents": ["Configuration"] }
     },
     {
       "path": "/config/mass-mail/lists",

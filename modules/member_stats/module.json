@@ -11,7 +11,8 @@
       "action": "index",
       "menu": "espace_chefs",
       "label": "Statistiques",
-      "role_min": "chief"
+      "role_min": "chief",
+      "breadcrumb": { "label": "Statistiques", "parents": ["Espace des chefs"] }
     }
   ],
   "settings": [],
