@@ -11,7 +11,8 @@
       "action": "index",
       "menu": "configuration",
       "role_min": "superadmin",
-      "label": "Intelligence artificielle"
+      "label": "Intelligence artificielle",
+      "breadcrumb": { "label": "Intelligence artificielle", "parents": ["Configuration"] }
     },
     {
       "path": "/config/llm/providers",

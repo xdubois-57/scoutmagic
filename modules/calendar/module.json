@@ -12,7 +12,8 @@
       "action": "index",
       "menu": "notre_unite",
       "role_min": "public",
-      "label": "Calendrier"
+      "label": "Calendrier",
+      "breadcrumb": { "label": "Calendrier", "parents": ["Notre unité"] }
     },
     {
       "path": "/calendar/feed/{token}.ics",
@@ -57,7 +58,8 @@
       "action": "index",
       "menu": "espace_chefs",
       "role_min": "chief",
-      "label": "Calendrier"
+      "label": "Calendrier",
+      "breadcrumb": { "label": "Calendrier", "parents": ["Espace des chefs"] }
     },
     {
       "path": "/chefs/calendar/event-create",
@@ -93,7 +95,8 @@
       "action": "index",
       "menu": "configuration",
       "role_min": "superadmin",
-      "label": "Calendrier"
+      "label": "Calendrier",
+      "breadcrumb": { "label": "Calendrier", "parents": ["Configuration"] }
     },
     {
       "path": "/config/calendar/defaults",

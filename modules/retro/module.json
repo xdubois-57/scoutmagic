@@ -12,7 +12,8 @@
       "action": "index",
       "menu": "espace_admin",
       "role_min": "admin",
-      "label": "Rétrospectives — Config"
+      "label": "Rétrospectives — Config",
+      "breadcrumb": { "label": "Rétrospectives — Config", "parents": ["Espace admin"] }
     },
     {
       "path": "/config/retro",
@@ -30,7 +31,8 @@
       "action": "index",
       "menu": "espace_chefs",
       "role_min": "intendant",
-      "label": "Rétrospectives"
+      "label": "Rétrospectives",
+      "breadcrumb": { "label": "Rétrospectives", "parents": ["Espace des chefs"] }
     },
     {
       "path": "/retro/create",

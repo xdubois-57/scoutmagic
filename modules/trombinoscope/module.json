@@ -13,7 +13,8 @@
       "menu": "espace_animes",
       "role_min": "identified",
       "label": "Trombinoscope",
-      "menu_order": 5
+      "menu_order": 5,
+      "breadcrumb": { "label": "Trombinoscope", "parents": ["Espace des animés"] }
     }
   ],
   "settings": [],

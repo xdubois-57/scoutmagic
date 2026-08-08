@@ -12,7 +12,8 @@
       "action": "index",
       "menu": "espace_chefs",
       "role_min": "intendant",
-      "label": "Finances"
+      "label": "Finances",
+      "breadcrumb": { "label": "Finances", "parents": ["Espace des chefs"] }
     },
     {
       "path": "/finance/receivables",
@@ -192,7 +193,8 @@
       "action": "index",
       "menu": "configuration",
       "role_min": "superadmin",
-      "label": "Finances"
+      "label": "Finances",
+      "breadcrumb": { "label": "Finances", "parents": ["Configuration"] }
     },
     {
       "path": "/config/finance/accounts",

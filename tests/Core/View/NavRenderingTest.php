@@ -176,6 +176,54 @@ class NavRenderingTest extends TestCase
         );
     }
 
+    public function testActiveStaticEntryTextIsVisibleNotBlueOnBlue(): void
+    {
+        // Bootstrap's .list-group-item.active paints a solid --bs-primary
+        // background WITHOUT !important, while the "active" state below
+        // also applies text-primary — a color utility that IS !important
+        // (Bootstrap 5) — to the label text. Combining both (as the mobile
+        // offcanvas used to) makes the label blue-on-blue: present in the
+        // markup, invisible on screen. The fix drops the Bootstrap `active`
+        // class from the <li> and relies on the bold blue text alone.
+        $html = $this->renderNav(Role::INTENDANT, true, '/chefs/staffs');
+
+        $this->assertMatchesRegularExpression(
+            '/<li class="list-group-item list-group-item-action border-0 ps-4 d-flex align-items-center" style="min-height:44px;">\s*<a href="\/chefs\/staffs" class="text-decoration-none d-block fw-semibold text-primary"/',
+            $html
+        );
+        $this->assertStringNotContainsString(
+            'list-group-item list-group-item-action border-0 ps-4 d-flex align-items-center active',
+            $html
+        );
+    }
+
+    public function testDynamicActiveEntryTextIsVisibleNotBlueOnBlue(): void
+    {
+        $builder = new MenuBuilder(Role::IDENTIFIED);
+        $builder->addPage(MenuBuilder::MENU_ESPACE_ANIMES, 'Baloo', '/members/1', 'identified', 10, true, 'Meute Akela');
+        $menus = $builder->build();
+
+        $html = $this->twig->render('partials/nav.html.twig', [
+            'menus' => $menus,
+            'current_path' => '/members/1',
+            'is_authenticated' => true,
+            'current_user_display_name' => 'test@example.com',
+            'current_user_role_label' => 'Identifié',
+            'site_name' => 'Test Scout',
+            'active_menu_id' => MenuBuilder::MENU_ESPACE_ANIMES,
+            'active_page_url' => '',
+        ]);
+
+        $this->assertStringContainsString(
+            'class="d-flex align-items-center gap-2 text-decoration-none fw-semibold text-primary"',
+            $html
+        );
+        $this->assertStringNotContainsString(
+            'list-group-item list-group-item-action border-0 ps-4 active',
+            $html
+        );
+    }
+
     public function testUserCardShownWhenAuthenticated(): void
     {
         $html = $this->renderNav(Role::ADMIN, true);

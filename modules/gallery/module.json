@@ -13,7 +13,8 @@
       "menu": "espace_animes",
       "role_min": "identified",
       "label": "Galerie",
-      "menu_order": 6
+      "menu_order": 6,
+      "breadcrumb": { "label": "Galerie", "parents": ["Espace des animés"] }
     },
     {
       "path": "/gallery/manage",
@@ -22,7 +23,8 @@
       "action": "manage",
       "menu": "espace_chefs",
       "role_min": "chief",
-      "label": "Galerie"
+      "label": "Galerie",
+      "breadcrumb": { "label": "Galerie", "parents": ["Espace des chefs"] }
     },
     {
       "path": "/gallery/create",
@@ -148,7 +150,8 @@
       "action": "index",
       "menu": "configuration",
       "role_min": "superadmin",
-      "label": "Galerie"
+      "label": "Galerie",
+      "breadcrumb": { "label": "Galerie", "parents": ["Configuration"] }
     },
     {
       "path": "/config/gallery",
