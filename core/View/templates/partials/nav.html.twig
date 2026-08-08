@@ -4,6 +4,15 @@
         <i class="bi bi-list fs-3"></i>
     </button>
     <span class="fw-semibold">{{ site_name }}</span>
+    {% if is_authenticated %}
+    {# Direct link to "Mon compte" — deliberately not the offcanvas, which
+       is already reachable via the hamburger button. Public visitors keep
+       this header exactly as before (no "Se connecter" added here — it
+       stays in the offcanvas footer, unchanged). #}
+    <a href="/account" class="position-relative text-decoration-none ms-2" aria-label="Mon compte" title="Mon compte">
+        {% include 'partials/account_avatar.html.twig' with {size: 36, font_size: '.8rem'} %}
+    </a>
+    {% endif %}
 </header>
 
 {# Mobile offcanvas — slides from left #}
@@ -16,10 +25,7 @@
         {% if is_authenticated %}
         <div class="d-flex align-items-center gap-2 p-3 border-bottom bg-light">
             <a href="/notifications" class="position-relative text-decoration-none" aria-label="Notifications" title="Notifications">
-                <span class="d-inline-flex align-items-center justify-content-center rounded-circle bg-primary text-white fw-bold" style="width:40px;height:40px;font-size:.9rem;">
-                    {{ current_user_display_name[:2]|upper }}
-                </span>
-                <span class="notification-badge position-absolute badge rounded-pill bg-danger{% if unread_notifications_count is not defined or unread_notifications_count == 0 %} d-none{% endif %}" style="top:-4px;right:-6px;font-size:.6rem;">{{ unread_notifications_count|default(0) }}</span>
+                {% include 'partials/account_avatar.html.twig' with {size: 40, font_size: '.9rem'} %}
             </a>
             <a href="/account" class="text-decoration-none text-body flex-grow-1">
                 <div class="fw-semibold small text-truncate" style="max-width:180px;">{{ current_user_display_name }}</div>

@@ -168,6 +168,70 @@ class FrontControllerTest extends TestCase
         $this->assertSame(404, $response->getStatusCode());
     }
 
+    public function testBreadcrumbGlobalSetForAllowedRouteWithBreadcrumb(): void
+    {
+        $this->startTestSession();
+
+        $router = new Router();
+        $router->addRoute('GET', '/public-page', StubController::class, 'index', 'public', [
+            'label' => 'Staffs',
+            'parents' => ['Espace des chefs'],
+        ]);
+
+        $fc = new FrontController($router, $this->twig, $this->config);
+        $fc->registerController(StubController::class, new StubController($this->twig));
+
+        $request = new Request('GET', '/public-page', [], [], [], []);
+        $response = $fc->handle($request);
+        $this->assertSame(200, $response->getStatusCode());
+
+        $html = $this->twig->createTemplate(
+            '{{ route_breadcrumb.label }}|{{ route_breadcrumb.parents|join(",") }}'
+        )->render();
+        $this->assertSame('Staffs|Espace des chefs', $html);
+    }
+
+    public function testBreadcrumbGlobalIsNullForRouteWithoutBreadcrumb(): void
+    {
+        $this->startTestSession();
+
+        $router = new Router();
+        $router->addRoute('GET', '/public-page', StubController::class, 'index', 'public');
+
+        $fc = new FrontController($router, $this->twig, $this->config);
+        $fc->registerController(StubController::class, new StubController($this->twig));
+
+        $request = new Request('GET', '/public-page', [], [], [], []);
+        $fc->handle($request);
+
+        $html = $this->twig->createTemplate('{{ route_breadcrumb is null ? "null" : "set" }}')->render();
+        $this->assertSame('null', $html);
+    }
+
+    public function testBreadcrumbGlobalNeverSetWhenRbacDenies(): void
+    {
+        $this->startTestSession();
+        // Not logged in, admin route with a breadcrumb declared
+
+        $router = new Router();
+        $router->addRoute('GET', '/admin/test', StubController::class, 'index', 'admin', [
+            'label' => 'Admin secret',
+            'parents' => [],
+        ]);
+
+        $fc = new FrontController($router, $this->twig, $this->config);
+        $fc->registerController(StubController::class, new StubController($this->twig));
+
+        $request = new Request('GET', '/admin/test', [], [], [], []);
+        $response = $fc->handle($request);
+        $this->assertSame(302, $response->getStatusCode());
+
+        // A 403/redirect must never leak the breadcrumb of a page the
+        // visitor couldn't reach.
+        $html = $this->twig->createTemplate('{{ route_breadcrumb is null ? "null" : "set" }}')->render();
+        $this->assertSame('null', $html);
+    }
+
     private function startTestSession(): void
     {
         if (session_status() !== PHP_SESSION_ACTIVE) {

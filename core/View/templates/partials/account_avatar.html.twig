@@ -1,0 +1,10 @@
+{# Shared avatar (initials) + unread-notifications badge. Renders only the
+   visual circle and badge — wrap it in an <a class="position-relative">
+   at the call site, since where it links differs (offcanvas → /notifications,
+   mobile header → /account directly). The `.notification-badge` class is
+   what lets notification-badge.js update every instance on the page in
+   one pass (poll + service worker postMessage) — never remove it. #}
+<span class="d-inline-flex align-items-center justify-content-center rounded-circle bg-primary text-white fw-bold" style="width:{{ size|default(40) }}px;height:{{ size|default(40) }}px;font-size:{{ font_size|default('.9rem') }};">
+    {{ current_user_display_name[:2]|upper }}
+</span>
+<span class="notification-badge position-absolute badge rounded-pill bg-danger{% if unread_notifications_count is not defined or unread_notifications_count == 0 %} d-none{% endif %}" style="top:-4px;right:-6px;font-size:.6rem;">{{ unread_notifications_count|default(0) }}</span>

@@ -265,6 +265,124 @@ class ModuleManifestTest extends TestCase
         $this->assertSame('Un module de test.', $manifest->description);
     }
 
+    public function testRouteBreadcrumbDefaultsToNullWhenAbsent(): void
+    {
+        $manifest = ModuleManifest::fromFile($this->fixturesDir . '/valid_module/module.json');
+
+        $this->assertNull($manifest->routes[0]['breadcrumb']);
+    }
+
+    public function testRouteBreadcrumbIsParsedWithLabelAndParents(): void
+    {
+        $manifest = ModuleManifest::fromArray([
+            'id' => 'test',
+            'name' => 'Test',
+            'version' => '1.0.0',
+            'routes' => [
+                [
+                    'path' => '/test',
+                    'controller' => 'C',
+                    'action' => 'a',
+                    'menu' => 'espace_chefs',
+                    'role_min' => 'intendant',
+                    'breadcrumb' => ['label' => 'Staffs', 'parents' => ['Espace des chefs']],
+                ],
+            ],
+        ]);
+
+        $this->assertSame(
+            ['label' => 'Staffs', 'parents' => ['Espace des chefs']],
+            $manifest->routes[0]['breadcrumb']
+        );
+    }
+
+    public function testRouteBreadcrumbParentsDefaultsToEmptyArray(): void
+    {
+        $manifest = ModuleManifest::fromArray([
+            'id' => 'test',
+            'name' => 'Test',
+            'version' => '1.0.0',
+            'routes' => [
+                [
+                    'path' => '/test',
+                    'controller' => 'C',
+                    'action' => 'a',
+                    'menu' => 'espace_chefs',
+                    'role_min' => 'intendant',
+                    'breadcrumb' => ['label' => 'Staffs'],
+                ],
+            ],
+        ]);
+
+        $this->assertSame(['label' => 'Staffs', 'parents' => []], $manifest->routes[0]['breadcrumb']);
+    }
+
+    public function testRouteBreadcrumbRejectsMissingLabel(): void
+    {
+        $this->expectException(ModuleException::class);
+        $this->expectExceptionMessage("breadcrumb missing or invalid 'label'");
+
+        ModuleManifest::fromArray([
+            'id' => 'test',
+            'name' => 'Test',
+            'version' => '1.0.0',
+            'routes' => [
+                [
+                    'path' => '/test',
+                    'controller' => 'C',
+                    'action' => 'a',
+                    'menu' => 'espace_chefs',
+                    'role_min' => 'intendant',
+                    'breadcrumb' => ['parents' => ['Espace des chefs']],
+                ],
+            ],
+        ]);
+    }
+
+    public function testRouteBreadcrumbRejectsNonArrayParents(): void
+    {
+        $this->expectException(ModuleException::class);
+        $this->expectExceptionMessage("breadcrumb 'parents' must be an array");
+
+        ModuleManifest::fromArray([
+            'id' => 'test',
+            'name' => 'Test',
+            'version' => '1.0.0',
+            'routes' => [
+                [
+                    'path' => '/test',
+                    'controller' => 'C',
+                    'action' => 'a',
+                    'menu' => 'espace_chefs',
+                    'role_min' => 'intendant',
+                    'breadcrumb' => ['label' => 'Staffs', 'parents' => 'Espace des chefs'],
+                ],
+            ],
+        ]);
+    }
+
+    public function testRouteBreadcrumbRejectsNonStringBreadcrumbValue(): void
+    {
+        $this->expectException(ModuleException::class);
+        $this->expectExceptionMessage("'breadcrumb' must be an object");
+
+        ModuleManifest::fromArray([
+            'id' => 'test',
+            'name' => 'Test',
+            'version' => '1.0.0',
+            'routes' => [
+                [
+                    'path' => '/test',
+                    'controller' => 'C',
+                    'action' => 'a',
+                    'menu' => 'espace_chefs',
+                    'role_min' => 'intendant',
+                    'breadcrumb' => 'Staffs',
+                ],
+            ],
+        ]);
+    }
+
     public function testFromFileThrowsForMissingFile(): void
     {
         $this->expectException(ModuleException::class);

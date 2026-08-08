@@ -1055,7 +1055,7 @@ $router->addRoute('GET', '/password-reset/{id}', PasswordResetController::class,
 $router->addRoute('POST', '/password-reset/{id}', PasswordResetController::class, 'submit', 'public');
 
 // Account routes
-$router->addRoute('GET', '/account', AccountController::class, 'index', 'identified');
+$router->addRoute('GET', '/account', AccountController::class, 'index', 'identified', ['label' => 'Mon compte', 'parents' => []]);
 $router->addRoute('POST', '/account/profile', AccountController::class, 'updateProfile', 'identified');
 $router->addRoute('POST', '/account/password', AccountController::class, 'updatePassword', 'identified');
 $router->addRoute('GET', '/account/passkey/register-options', AccountController::class, 'passkeyRegisterOptions', 'identified');
@@ -1065,7 +1065,7 @@ $router->addRoute('POST', '/api/push-subscription', PushSubscriptionController::
 $router->addRoute('DELETE', '/api/push-subscription', PushSubscriptionController::class, 'unsubscribe', 'identified');
 
 // Notification centre (Core\Notification, Lot 2)
-$router->addRoute('GET', '/notifications', \Core\Http\Controller\NotificationController::class, 'index', 'identified');
+$router->addRoute('GET', '/notifications', \Core\Http\Controller\NotificationController::class, 'index', 'identified', ['label' => 'Notifications', 'parents' => ['Espace des animés']]);
 $router->addRoute('POST', '/notifications/{id}/read', \Core\Http\Controller\NotificationController::class, 'markRead', 'identified');
 $router->addRoute('POST', '/notifications/mark-all-read', \Core\Http\Controller\NotificationController::class, 'markAllRead', 'identified');
 $router->addRoute('GET', '/api/notifications/unread-count', \Core\Http\Controller\NotificationController::class, 'unreadCount', 'identified');
@@ -1077,7 +1077,7 @@ $router->addRoute('POST', '/config/notifications/rotate-vapid', \Core\Http\Contr
 $router->addRoute('POST', '/config/notifications/test', \Core\Http\Controller\NotificationConfigController::class, 'sendTest', 'superadmin');
 
 // Member pages
-$router->addRoute('GET', '/members/{id}', MemberController::class, 'show', 'identified');
+$router->addRoute('GET', '/members/{id}', MemberController::class, 'show', 'identified', ['label' => 'Membre', 'parents' => ['Espace des animés']]);
 $router->addRoute('POST', '/members/{id}/scout-year-offset', MemberController::class, 'updateScoutYearOffset', 'chief');
 // Member page "Adresses email" — self-service only, no chief/admin route
 // exists for this (Core\Http\Controller\MemberEmailAddressController
@@ -1148,15 +1148,15 @@ $router->addRoute('POST', '/setup/test-email', SetupController::class, 'testEmai
 $router->addRoute('POST', '/setup/generate-dkim-key', SetupController::class, 'generateDkimKey', 'superadmin');
 
 // Import
-$router->addRoute('GET', '/admin/import', ImportController::class, 'index', 'admin');
+$router->addRoute('GET', '/admin/import', ImportController::class, 'index', 'admin', ['label' => 'Import Desk', 'parents' => ['Espace admin']]);
 $router->addRoute('POST', '/admin/import', ImportController::class, 'import', 'admin');
 
 // Journal
-$router->addRoute('GET', '/admin/journal', JournalController::class, 'index', 'admin');
+$router->addRoute('GET', '/admin/journal', JournalController::class, 'index', 'admin', ['label' => 'Journal', 'parents' => ['Espace admin']]);
 
 // Scout year navigation and transition
-$router->addRoute('GET', '/admin/members', MemberSearchController::class, 'index', 'admin');
-$router->addRoute('GET', '/admin/scout-year', ScoutYearController::class, 'index', 'admin');
+$router->addRoute('GET', '/admin/members', MemberSearchController::class, 'index', 'admin', ['label' => 'Membres', 'parents' => ['Espace admin']]);
+$router->addRoute('GET', '/admin/scout-year', ScoutYearController::class, 'index', 'admin', ['label' => 'Année scoute', 'parents' => ['Espace admin']]);
 $router->addRoute('POST', '/admin/scout-year/preview', ScoutYearController::class, 'preview', 'admin');
 $router->addRoute('POST', '/admin/scout-year/clear-preview', ScoutYearController::class, 'clearPreview', 'admin');
 $router->addRoute('POST', '/admin/scout-year/activate-staff', ScoutYearController::class, 'activateStaff', 'admin');
@@ -1205,7 +1205,7 @@ $router->addRoute('POST', '/config/rgpd/generate', RgpdConfigController::class, 
 $router->addRoute('POST', '/config/rgpd/reset', RgpdConfigController::class, 'reset', 'superadmin');
 
 // Staffs
-$router->addRoute('GET', '/chefs/staffs', StaffsController::class, 'index', 'intendant');
+$router->addRoute('GET', '/chefs/staffs', StaffsController::class, 'index', 'intendant', ['label' => 'Staffs', 'parents' => ['Espace des chefs']]);
 $router->addRoute('POST', '/chefs/staffs/badge-toggle', StaffsController::class, 'toggleBadge', 'chief');
 $router->addRoute('POST', '/chefs/staffs/documents', \Core\Http\Controller\SectionDocumentController::class, 'add', 'chief');
 $router->addRoute('POST', '/chefs/staffs/documents/reorder', \Core\Http\Controller\SectionDocumentController::class, 'reorder', 'chief');

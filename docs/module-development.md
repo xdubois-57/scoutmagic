@@ -47,7 +47,11 @@ The directory name **must** match the `id` field in `module.json`.
       "action": "show",
       "menu": "espace_animes",
       "role_min": "identified",
-      "label": ""
+      "label": "",
+      "breadcrumb": {
+        "label": "Activité",
+        "parents": ["Espace des animés", "Calendrier"]
+      }
     },
     {
       "path": "/config/calendar",
@@ -120,6 +124,7 @@ The directory name **must** match the `id` field in `module.json`.
   - `label`: if non-empty, the route is added to the menu with this label.
   - `menu_order`: optional integer, defaults to `100`. Controls where the menu entry sorts relative to other pages in the same menu (lower = earlier). Core pages typically use 10–40; in `espace_animes` specifically, dynamic per-member entries use order 10+index and the separator before static pages sits at order 50 — a module page with the default 100 always appears after them. Set a lower value (e.g. `5`) to appear before the dynamic member entries instead. **This explicit value is absolute and untouched by the module reordering described below** — only routes left at the plain default are affected.
   - Module-to-module ordering (for routes at the default `menu_order`): a superadmin can drag-and-drop reorder modules on the general configuration page (`/config/general`, `module_registry.sort_order`). Each enabled module's position in that order becomes a base offset (`1000 * position`) added to its default-order routes' `menu_order` — so those pages sort by module order, always after core's own hardcoded (≤ ~50) values. See `Core\Module\ModuleManager::loadModule()`.
+  - `breadcrumb`: optional. When present, `label` is required (the page's own default breadcrumb label — a Controller can still override it per-request with a `breadcrumb_current` context variable, e.g. for a dynamic member/article title) and `parents` is an optional array of plain-text ancestor labels — **not links**: most menu categories (e.g. "Espace des animés") have no single landing page, so never invent one. A route with no `breadcrumb` key is not an error — the breadcrumb bar simply stops at the home icon for that page. Rendered by `partials/breadcrumb_bar.html.twig`, included from `base.html.twig`, visible only when the site runs as an installed PWA (pure CSS `@media (display-mode: standalone)`, see `public/assets/css/app.css` — never a security boundary, same principle as menu visibility, SECURITY §3). Core routes declare the exact same shape as this route's 6th `Core\Http\Router::addRoute()` argument — see the core route table in `public/index.php`.
 - **settings**: optional, each entry must have `key`, `type`, `label`, `description`.
 - **cookies**: optional, each entry must have `name`, `category`, `purpose`, `duration`.
   - `category`: one of `necessary`, `functional`, `analytics`.

@@ -38,7 +38,7 @@ class ModuleManifest
     private const VALID_CHANNEL_VALUES = ['on', 'off', 'default_on', 'default_off'];
 
     /**
-     * @param array<int, array{path: string, method: string, controller: string, action: string, menu: string, role_min: string, label: string, menu_order: int, menu_order_explicit: bool}> $routes
+     * @param array<int, array{path: string, method: string, controller: string, action: string, menu: string, role_min: string, label: string, menu_order: int, menu_order_explicit: bool, breadcrumb: ?array{label: string, parents: array<string>}}> $routes
      * @param array<int, array{key: string, default_value: string, type: string, label: string, description: string}> $settings
      * @param array<int, array{name: string, category: string, purpose: string, duration: string}> $cookies
      * @param array<int, array{key: string, handler: string}> $scheduledTasks
@@ -191,7 +191,7 @@ class ModuleManifest
 
     /**
      * @param array<string, mixed>|mixed $route
-     * @return array{path: string, method: string, controller: string, action: string, menu: string, role_min: string, label: string, menu_order: int, menu_order_explicit: bool}
+     * @return array{path: string, method: string, controller: string, action: string, menu: string, role_min: string, label: string, menu_order: int, menu_order_explicit: bool, breadcrumb: ?array{label: string, parents: array<string>}}
      */
     private static function validateRoute(string $moduleId, mixed $route, int $index): array
     {
@@ -242,6 +242,8 @@ class ModuleManifest
             $menuOrder = $route['menu_order'];
         }
 
+        $breadcrumb = self::validateBreadcrumb($moduleId, $route['breadcrumb'] ?? null, $index);
+
         return [
             'path' => $route['path'],
             'method' => $method,
@@ -260,6 +262,48 @@ class ModuleManifest
             // position on the general configuration page (see
             // ModuleManager::loadModule()).
             'menu_order_explicit' => $menuOrderExplicit,
+            'breadcrumb' => $breadcrumb,
+        ];
+    }
+
+    /**
+     * Optional per-route breadcrumb declaration (partials/breadcrumb_bar.html.twig).
+     * Absent entirely → the breadcrumb simply stops at the home icon for this page,
+     * which is not an error.
+     *
+     * @param mixed $breadcrumb
+     * @return ?array{label: string, parents: array<string>}
+     */
+    private static function validateBreadcrumb(string $moduleId, mixed $breadcrumb, int $index): ?array
+    {
+        if ($breadcrumb === null) {
+            return null;
+        }
+
+        if (!is_array($breadcrumb)) {
+            throw new ModuleException("Module '{$moduleId}' route[{$index}] 'breadcrumb' must be an object");
+        }
+
+        if (empty($breadcrumb['label']) || !is_string($breadcrumb['label'])) {
+            throw new ModuleException("Module '{$moduleId}' route[{$index}] breadcrumb missing or invalid 'label'");
+        }
+
+        $parents = [];
+        if (isset($breadcrumb['parents'])) {
+            if (!is_array($breadcrumb['parents'])) {
+                throw new ModuleException("Module '{$moduleId}' route[{$index}] breadcrumb 'parents' must be an array");
+            }
+            foreach ($breadcrumb['parents'] as $parent) {
+                if (!is_string($parent) || $parent === '') {
+                    throw new ModuleException("Module '{$moduleId}' route[{$index}] breadcrumb 'parents' must be an array of non-empty strings");
+                }
+                $parents[] = $parent;
+            }
+        }
+
+        return [
+            'label' => $breadcrumb['label'],
+            'parents' => $parents,
         ];
     }
 

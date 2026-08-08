@@ -72,6 +72,12 @@ class FrontController
             }
         }
 
+        // Fil d'Ariane (breadcrumb_bar.html.twig) — set only once the visitor
+        // is actually allowed to reach this route, so a 403 page never leaks
+        // the trail of a page the visitor can't access. Purely a navigation
+        // convenience (SECURITY §3), never a security boundary.
+        $this->twig->addGlobal('route_breadcrumb', $resolvedRoute->breadcrumb);
+
         $controllerClass = $resolvedRoute->controllerClass;
         $action = $resolvedRoute->action;
 

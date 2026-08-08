@@ -289,7 +289,8 @@ class ModuleManager
                 $route['path'],
                 $route['controller'],
                 $route['action'],
-                $route['role_min']
+                $route['role_min'],
+                $route['breadcrumb']
             );
 
             // Register menu page if route has a label

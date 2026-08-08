@@ -303,6 +303,60 @@ class MemberControllerTest extends TestCase
         $this->assertSame(200, $response->getStatusCode());
     }
 
+    public function testBreadcrumbCurrentIsMemberDisplayNameWithTotem(): void
+    {
+        $profile = $this->makeProfile(['totem' => 'Baloo']);
+
+        $memberService = $this->createMock(MemberService::class);
+        $memberService->method('canAccess')->willReturn(true);
+        $memberService->method('getMemberProfile')->willReturn($profile);
+
+        $twig = $this->createMock(Environment::class);
+        $twig->expects($this->once())
+            ->method('render')
+            ->with(
+                'members/show.html.twig',
+                $this->callback(function (array $context) {
+                    return $context['breadcrumb_current'] === 'Baloo';
+                })
+            )
+            ->willReturn('<html></html>');
+
+        $controller = $this->newController($twig, $memberService);
+
+        $request = new Request('GET', '/members/1', [], [], [], []);
+        $response = $controller->show($request, ['id' => '1']);
+
+        $this->assertSame(200, $response->getStatusCode());
+    }
+
+    public function testBreadcrumbCurrentFallsBackToFirstNameWithoutTotem(): void
+    {
+        $profile = $this->makeProfile(['firstName' => 'Jean', 'totem' => null]);
+
+        $memberService = $this->createMock(MemberService::class);
+        $memberService->method('canAccess')->willReturn(true);
+        $memberService->method('getMemberProfile')->willReturn($profile);
+
+        $twig = $this->createMock(Environment::class);
+        $twig->expects($this->once())
+            ->method('render')
+            ->with(
+                'members/show.html.twig',
+                $this->callback(function (array $context) {
+                    return $context['breadcrumb_current'] === 'Jean';
+                })
+            )
+            ->willReturn('<html></html>');
+
+        $controller = $this->newController($twig, $memberService);
+
+        $request = new Request('GET', '/members/1', [], [], [], []);
+        $response = $controller->show($request, ['id' => '1']);
+
+        $this->assertSame(200, $response->getStatusCode());
+    }
+
     public function testPageHandlesMembersWithMinimalDataGracefully(): void
     {
         $profile = $this->makeProfile(['firstName' => 'John']);
