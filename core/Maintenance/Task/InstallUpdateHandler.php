@@ -30,7 +30,9 @@ use Core\Scheduler\TaskHandlerInterface;
  * Steps, each recorded in update_history.status: backing_up (a real,
  * restorable Core\Maintenance\BackupService backup — not shortcut, since
  * it's the only thing rollback can restore from) → downloading → installing
- * (copy over the live install, excluding storage/ and VERSION) → migrating
+ * (copy over the live install, excluding storage/ and VERSION, then clear
+ * storage/temp/twig_cache so no pre-update compiled template lingers,
+ * see clearCompiledTemplateCache()) → migrating
  * (reuses Core\Database\MigrationRunner, same DDL-diff engine as every
  * normal request) → VERSION file written → completed. Any throwable from
  * downloading through the VERSION write triggers an automatic rollback via
@@ -121,6 +123,7 @@ class InstallUpdateHandler implements TaskHandlerInterface
                     ? $this->resolveBranchArchiveRoot($extractedDir)
                     : $extractedDir;
                 $this->installFiles($sourceRoot, $basePath);
+                $this->clearCompiledTemplateCache($context->storagePath);
 
                 $updateHistoryRepository->setStatus($historyId, 'migrating');
                 $migrationRunner = new MigrationRunner(
@@ -287,6 +290,24 @@ class InstallUpdateHandler implements TaskHandlerInterface
      * never have this stripping applied even if it coincidentally had a
      * single top-level entry).
      */
+    /**
+     * Core\View\TwigFactory compiles templates to storage/temp/twig_cache
+     * with auto_reload off in production, so it never re-checks a compiled
+     * template's freshness against its .twig source on disk. installFiles()
+     * deliberately never touches storage/ (live uploads/keys/config), so
+     * without this the server keeps executing every pre-update .twig file
+     * exactly as compiled before the update, indefinitely — a real
+     * production incident: a template-only change (e.g. a nav/layout
+     * partial) installs successfully but never visibly takes effect until
+     * someone clears this directory by hand. TwigFactory recreates it
+     * lazily (`is_dir()` check) on the next request, so removing it here is
+     * enough — nothing needs to pre-create it.
+     */
+    private function clearCompiledTemplateCache(string $storagePath): void
+    {
+        $this->removeDirectory($storagePath . '/temp/twig_cache');
+    }
+
     private function resolveBranchArchiveRoot(string $extractedDir): string
     {
         $entries = array_values(array_diff(scandir($extractedDir) ?: [], ['.', '..']));
