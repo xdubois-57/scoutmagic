@@ -365,7 +365,15 @@ class CalendarNotificationServiceTest extends TestCase
 
     public function testSyncActivityReminderSkipsWhenReminderInstantAlreadyPassed(): void
     {
-        $start = (new \DateTimeImmutable('+12 hours'))->format('Y-m-d');
+        // An event starting today reminds "the day before, at the
+        // configured hour" — i.e. yesterday, which is always already
+        // passed relative to "now" regardless of what time of day this
+        // test itself runs (a previous "+12 hours" formulation was
+        // time-of-day-dependent: whether it landed on today's or
+        // tomorrow's calendar date, and therefore whether the reminder
+        // instant had actually passed yet, depended on the wall-clock
+        // hour the test happened to run at).
+        $start = (new \DateTimeImmutable('today'))->format('Y-m-d');
         $eventId = $this->createEvent($this->sectionCalendarId, $start, null);
         $event = $this->eventRepository->findById($eventId);
 
