@@ -208,6 +208,98 @@ class CalendarPublicControllerTest extends TestCase
         $this->assertMatchesRegularExpression('/grid-column:\s*3\s*\/\s*span\s*3/', $response->getBody());
     }
 
+    public function testMonthGridRowHeightUsesTheSharedCssVariableNotAHardcodedValue(): void
+    {
+        // Real bug: month_grid.html.twig hardcoded 1.35rem for the grid row
+        // height while components.css grew the bar to 44px on touch devices
+        // — the two drifted apart and bars overflowed their track. Both now
+        // read the same --calendar-bar-height custom property.
+        $calendar = $this->calendarService->addCalendar('Test', 'public');
+        $this->eventRepository->create($calendar->id, 'Réunion', '2026-03-11', null, null, null, null, null, null);
+
+        $request = new Request('GET', '/calendar', ['month' => '2026-03'], [], [], []);
+        $response = $this->controller->index($request, []);
+
+        $body = $response->getBody();
+        $this->assertMatchesRegularExpression(
+            '/grid-template-rows:\s*auto repeat\(\d+,\s*var\(--calendar-bar-height\)\);/',
+            $body
+        );
+        $this->assertStringNotContainsString('1.35rem', $body);
+    }
+
+    public function testMonthGridShowsOverflowBadgeWhenADayExceedsTheRowCap(): void
+    {
+        // MonthGridBuilder caps visible rows at 3 (DEFAULT_MAX_VISIBLE_ROWS)
+        // regardless of any CSS/viewport value — 5 same-day events means 2
+        // hidden behind the "+2" overflow badge.
+        $calendar = $this->calendarService->addCalendar('Test', 'public');
+        for ($i = 1; $i <= 5; $i++) {
+            $this->eventRepository->create($calendar->id, "Event {$i}", '2026-03-11', null, null, null, null, null, null);
+        }
+
+        $request = new Request('GET', '/calendar', ['month' => '2026-03'], [], [], []);
+        $response = $this->controller->index($request, []);
+
+        $body = $response->getBody();
+        $this->assertStringContainsString('calendar-day-overflow', $body);
+        $this->assertStringContainsString('+2', $body);
+    }
+
+    public function testUpcomingEventListItemsCarryTheSameDataAttributesAsGridBars(): void
+    {
+        // Real bug: the "Prochains évènements" <li> items had no data-*
+        // attributes and no click handler at all, so clicking one did
+        // nothing — the modal only ever opened from a grid bar. Both now
+        // emit the identical data-* bag (color included, since a <li> has
+        // no colored background to read it back off of like a bar does).
+        $calendar = $this->calendarService->addCalendar('Anniversaires', 'public');
+        $this->eventRepository->create($calendar->id, 'Grand jeu', '2099-01-01', null, '14:00:00', '16:00:00', 'Local scout', 'Une belle description', null);
+
+        $request = new Request('GET', '/calendar', [], [], [], []);
+        $response = $this->controller->index($request, []);
+
+        $body = $response->getBody();
+        $this->assertStringContainsString('calendar-upcoming-event-item', $body);
+        $this->assertMatchesRegularExpression('/class="[^"]*calendar-upcoming-event-item[^"]*"\s+tabindex="0" role="button"/', $body);
+        $this->assertStringContainsString('data-title="Grand jeu"', $body);
+        $this->assertStringContainsString('data-calendar-label="Anniversaires"', $body);
+        $this->assertStringContainsString('data-start-time="14:00"', $body);
+        $this->assertStringContainsString('data-end-time="16:00"', $body);
+        $this->assertStringContainsString('data-location="Local scout"', $body);
+        $this->assertStringContainsString('data-description="Une belle description"', $body);
+        $this->assertMatchesRegularExpression('/data-color="#?[0-9a-fA-F]{3,6}"/', $body);
+    }
+
+    public function testUpcomingEventListItemLeavesTimeAndLocationDataAttributesEmptyWhenAbsent(): void
+    {
+        $calendar = $this->calendarService->addCalendar('Anniversaires', 'public');
+        $this->eventRepository->create($calendar->id, 'Réunion silencieuse', '2099-01-01', null, null, null, null, null, null);
+
+        $request = new Request('GET', '/calendar', [], [], [], []);
+        $response = $this->controller->index($request, []);
+
+        $body = $response->getBody();
+        $this->assertStringContainsString('data-start-time=""', $body);
+        $this->assertStringContainsString('data-location=""', $body);
+    }
+
+    public function testEventDetailsModalJsIsSharedByGridBarsAndUpcomingEventItems(): void
+    {
+        $request = new Request('GET', '/calendar', [], [], [], []);
+        $response = $this->controller->index($request, []);
+
+        $body = $response->getBody();
+        // One fill function, one query selecting both trigger sources — not
+        // two copies of the modal-filling logic.
+        $this->assertSame(1, substr_count($body, 'function showEventDetails('));
+        $this->assertStringContainsString(
+            "document.querySelectorAll('.calendar-event-bar--clickable, .calendar-upcoming-event-item')",
+            $body
+        );
+        $this->assertStringContainsString("data.color", $body);
+    }
+
     public function testIndexDoesNotShowChiefOnlyCalendarToPublicVisitor(): void
     {
         $calendar = $this->calendarService->addCalendar('Réservé', 'chief');

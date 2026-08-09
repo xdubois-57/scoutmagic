@@ -40,7 +40,15 @@
     {% else %}
         <ul class="list-group mb-4">
             {% for event in upcoming_events %}
-                <li class="list-group-item d-flex justify-content-between align-items-start">
+                {# Same GridEvent shape/data-* attributes as a grid bar (see
+                   partials/month_grid.html.twig) so both feed the same
+                   showEventDetails() below — color travels via data-color
+                   since, unlike a bar, this <li> has no colored background
+                   of its own to read the color back off of. #}
+                <li class="list-group-item d-flex justify-content-between align-items-start calendar-upcoming-event-item"
+                    tabindex="0" role="button" aria-label="{{ event.label }}"
+                    data-color="{{ event.color }}"
+                    {%- for key, value in event.data %} data-{{ key }}="{{ value }}"{% endfor %}>
                     <div>
                         <div class="fw-semibold">{{ event.label }}</div>
                         <div class="text-body-secondary small d-flex align-items-center gap-1">
@@ -125,40 +133,51 @@ function formatDateFr(isoDate) {
     return `${d}/${m}/${y}`;
 }
 
-document.querySelectorAll('.calendar-event-bar--clickable').forEach(bar => {
-    bar.addEventListener('click', () => {
-        const data = bar.dataset;
-        document.getElementById('event-details-title').textContent = data.title;
-        document.getElementById('event-details-calendar-dot').style.backgroundColor = bar.style.backgroundColor;
-        document.getElementById('event-details-calendar-label').textContent = data.calendarLabel;
+// Shared by both the month-grid bars and the "Prochains évènements" list
+// items below — both emit the identical data-* bag (see
+// partials/month_grid.html.twig and the <li> loop above), so there is only
+// ever one place that knows how to fill this modal.
+function showEventDetails(data) {
+    document.getElementById('event-details-title').textContent = data.title;
+    document.getElementById('event-details-calendar-dot').style.backgroundColor = data.color;
+    document.getElementById('event-details-calendar-label').textContent = data.calendarLabel;
 
-        let dates = formatDateFr(data.startDate);
-        if (data.endDate && data.endDate !== data.startDate) {
-            dates += ' — ' + formatDateFr(data.endDate);
+    let dates = formatDateFr(data.startDate);
+    if (data.endDate && data.endDate !== data.startDate) {
+        dates += ' — ' + formatDateFr(data.endDate);
+    }
+    document.getElementById('event-details-dates').textContent = dates;
+
+    const timeRow = document.getElementById('event-details-time-row');
+    if (data.startTime) {
+        let time = data.startTime;
+        if (data.endTime) time += ' - ' + data.endTime;
+        document.getElementById('event-details-time').textContent = time;
+        timeRow.classList.remove('d-none');
+    } else {
+        timeRow.classList.add('d-none');
+    }
+
+    const locationRow = document.getElementById('event-details-location-row');
+    if (data.location) {
+        document.getElementById('event-details-location').textContent = data.location;
+        locationRow.classList.remove('d-none');
+    } else {
+        locationRow.classList.add('d-none');
+    }
+
+    document.getElementById('event-details-description').textContent = data.description || '';
+
+    eventDetailsModal.show();
+}
+
+document.querySelectorAll('.calendar-event-bar--clickable, .calendar-upcoming-event-item').forEach(trigger => {
+    trigger.addEventListener('click', () => showEventDetails(trigger.dataset));
+    trigger.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            showEventDetails(trigger.dataset);
         }
-        document.getElementById('event-details-dates').textContent = dates;
-
-        const timeRow = document.getElementById('event-details-time-row');
-        if (data.startTime) {
-            let time = data.startTime;
-            if (data.endTime) time += ' - ' + data.endTime;
-            document.getElementById('event-details-time').textContent = time;
-            timeRow.classList.remove('d-none');
-        } else {
-            timeRow.classList.add('d-none');
-        }
-
-        const locationRow = document.getElementById('event-details-location-row');
-        if (data.location) {
-            document.getElementById('event-details-location').textContent = data.location;
-            locationRow.classList.remove('d-none');
-        } else {
-            locationRow.classList.add('d-none');
-        }
-
-        document.getElementById('event-details-description').textContent = data.description || '';
-
-        eventDetailsModal.show();
     });
 });
 </script>

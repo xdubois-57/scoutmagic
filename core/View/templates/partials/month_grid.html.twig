@@ -29,7 +29,7 @@
 {% set month_bar_count = 0 %}
 {% for week in weeks %}{% set month_bar_count = month_bar_count + week.bars|length %}{% endfor %}
 {% for week in weeks %}
-    <div class="calendar-week" style="grid-template-rows: auto repeat({{ week.row_count }}, 1.35rem);">
+    <div class="calendar-week" style="grid-template-rows: auto repeat({{ week.row_count }}, var(--calendar-bar-height));">
         {% for day in week.days %}
             <div class="calendar-day-cell{{ days_clickable ? ' calendar-day-cell--clickable' : '' }}{{ not day.in_month ? ' is-padding' : '' }}{{ day.is_today ? ' is-today' : '' }}"
                  style="grid-column: {{ loop.index }}; grid-row: 1 / span {{ week.row_count + 1 }};"
@@ -49,6 +49,7 @@
                  style="grid-column: {{ bar.col_start }} / span {{ bar.col_span }}; grid-row: {{ bar.row + 2 }}; background-color: {{ bar.event.color }};"
                  title="{{ bar.event.tooltip ?? bar.event.label }}"
                  {%- if events_clickable %} tabindex="0" role="button" aria-label="{{ bar.event.label }}"{% endif %}
+                 data-color="{{ bar.event.color }}"
                  {%- for key, value in bar.event.data %} data-{{ key }}="{{ value }}"{% endfor %}>
                 {{ bar.event.label }}
             </div>
