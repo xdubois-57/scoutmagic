@@ -1315,9 +1315,6 @@ $activePageUrl = '';
 $bestMatchLength = -1;
 foreach ($menus as $menu) {
     foreach ($menu['pages'] as $page) {
-        if ($page['isSeparator']) {
-            continue;
-        }
         $pageUrl = $page['url'] ?? '';
         if ($pageUrl === '') {
             continue;
