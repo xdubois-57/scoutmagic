@@ -256,6 +256,29 @@ class DeskImportServiceTest extends TestCase
         $this->assertSame(2, (int) $stmt->fetchColumn());
     }
 
+    public function testAddressBlindIndexComputedOnImport(): void
+    {
+        $this->importFixture();
+
+        $stmt = $this->pdo->query(
+            'SELECT ma.address_normalized_blind_index FROM member_addresses ma
+             JOIN member_years my ON ma.member_year_id = my.id
+             JOIN members m ON my.member_id = m.id
+             WHERE m.desk_id = \'T001\' ORDER BY ma.id'
+        );
+        $blindIndexes = $stmt->fetchAll(\PDO::FETCH_COLUMN);
+
+        $this->assertCount(2, $blindIndexes);
+        foreach ($blindIndexes as $blindIndex) {
+            $this->assertNotNull($blindIndex);
+        }
+
+        $expected = $this->encryption->blindIndex(
+            \Core\Member\AddressNormalizer::normalize('Rue de la Liberté', '12', null, '1000')
+        );
+        $this->assertSame($expected, $blindIndexes[0]);
+    }
+
     public function testFunctionsStoredCorrectly(): void
     {
         $this->importFixture();

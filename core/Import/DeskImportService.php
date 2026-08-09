@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Core\Import;
 
+use Core\Member\AddressNormalizer;
 use Core\Member\SectionMembershipService;
 use Core\Member\UnitStaffSectionService;
 use Core\Security\EncryptionService;
@@ -143,6 +144,12 @@ class DeskImportService
         // Replace addresses
         $addresses = [];
         foreach ($member->addresses as $addr) {
+            // Blind index of the comparison-normalized address (Core\
+            // Member\AddressNormalizer, §8) — never stores the address in
+            // clear, exact-match only, feeds Core\Member\
+            // FeeEstimationService's household count.
+            $normalized = AddressNormalizer::normalize($addr->street, $addr->number, $addr->box, $addr->postalCode);
+
             $addresses[] = [
                 'address_type' => $addr->type,
                 'street_encrypted' => $addr->street !== null ? $this->encryption->encrypt($addr->street) : null,
@@ -152,6 +159,7 @@ class DeskImportService
                 'postal_code_encrypted' => $addr->postalCode !== null ? $this->encryption->encrypt($addr->postalCode) : null,
                 'city_encrypted' => $addr->city !== null ? $this->encryption->encrypt($addr->city) : null,
                 'country_encrypted' => $addr->country !== null ? $this->encryption->encrypt($addr->country) : null,
+                'address_normalized_blind_index' => $normalized !== '' ? $this->encryption->blindIndex($normalized) : null,
             ];
         }
         $this->memberYearRepository->replaceAddresses($memberYearId, $addresses);

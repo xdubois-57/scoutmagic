@@ -23,6 +23,7 @@ This document defines the non-negotiable security requirements for the project. 
 - Every route must declare `role_min`. A route without `role_min` is rejected at load time.
 - New imported functions default to lowest role. An import never silently elevates privileges.
 - Role check is always server-side. Menu visibility is a convenience, never a security boundary.
+- `Core\Member\SectionStaffAuthorizationService` ("which sections is this account chief/animateur of") is a Controller-level narrowing on top of the route's `role_min`, not a replacement for it — same pattern as `MemberService::canAccess()` narrowing onto one member. The RBAC guard still gates the route first; this service only answers which resource(s) the already-authorized caller may act on within it.
 
 ## 4. CSRF
 
@@ -36,7 +37,7 @@ This document defines the non-negotiable security requirements for the project. 
 
 All fields identifying a natural person are encrypted (AES-256-GCM) as BLOB:
 
-**Encrypted**: name, surname, totem, quali, date of birth, gender, street, number, box, complement, postal code, city, country, phone, mobile, email.
+**Encrypted**: name, surname, totem, quali, date of birth, gender, street, number, box, complement, postal code, city, country, phone, mobile, email, departure comment (`member_years.leaving_comment_encrypted` — often a sensitive reason: conflict, family situation, health).
 
 **In clear**: all IDs, FKs, timestamps, flags, module/role references.
 

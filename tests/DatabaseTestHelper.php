@@ -126,6 +126,9 @@ class DatabaseTestHelper
             handicap_encrypted BLOB,
             supplementary_insurance TEXT,
             is_active INTEGER NOT NULL DEFAULT 1,
+            leaving INTEGER NOT NULL DEFAULT 0,
+            leaving_marked_at TEXT,
+            leaving_comment_encrypted BLOB,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(member_id, scout_year_id),
             FOREIGN KEY (member_id) REFERENCES members(id),
@@ -144,6 +147,7 @@ class DatabaseTestHelper
             postal_code_encrypted BLOB,
             city_encrypted BLOB,
             country_encrypted BLOB,
+            address_normalized_blind_index TEXT,
             FOREIGN KEY (member_year_id) REFERENCES member_years(id)
         )');
 
