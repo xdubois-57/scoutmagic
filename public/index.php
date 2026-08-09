@@ -502,6 +502,23 @@ $settingService->register('offline_cache_staleness_days', '7', 'number', 'Pérem
     'Au-delà de ce délai, une page mise en cache pour la consultation hors ligne n\'est plus affichée — la page hors ligne générique est montrée à la place plutôt qu\'un contenu obsolète.',
     null, null, null, true, 261);
 
+// Core\Security\HumanCheck — generic anti-bot protection for public forms
+// submitted by a non-identified session (ARCHITECTURE.md §8). Applies to
+// every integration point (magic-link request, news module public form
+// responses, and any future module reusing the component) at once.
+$settingService->register('human_check_min_delay_seconds', '3', 'number', 'Délai minimum avant soumission (secondes)',
+    'Une soumission de formulaire public reçue moins de X secondes après son affichage est rejetée (probable robot). Une valeur trop élevée finit par rejeter de vrais visiteurs.',
+    null, '^\d+$', null, true, 270);
+$settingService->register('human_check_form_validity_seconds', '14400', 'number', 'Durée de validité d\'un formulaire (secondes)',
+    'Au-delà de ce délai après son affichage, un formulaire public est considéré expiré et sa soumission est rejetée — évite qu\'un onglet resté ouvert très longtemps soit rejoué indéfiniment.',
+    null, '^\d+$', null, true, 271);
+$settingService->register('human_check_rate_limit_window_minutes', '10', 'number', 'Fenêtre de limitation par IP (minutes)',
+    'Taille de la fenêtre glissante utilisée pour compter les soumissions de formulaires publics par adresse IP.',
+    null, '^\d+$', null, true, 272);
+$settingService->register('human_check_rate_limit_max_attempts', '5', 'number', 'Soumissions maximum par IP',
+    'Nombre maximum de soumissions de formulaires publics autorisées pour une même adresse IP dans la fenêtre de limitation, au-delà duquel les soumissions suivantes sont rejetées.',
+    null, '^\d+$', null, true, 273);
+
 // Migrate non-secret settings from secrets.enc to settings table (one-time)
 if ($settingService->get('settings_migrated') !== '1') {
     $settingService->register('settings_migrated', '0', 'boolean', 'Migration effectuée',
@@ -1004,6 +1021,7 @@ $schedulerRunner->registerHandler('core', 'check_stable_update', new \Core\Maint
 $schedulerRunner->registerHandler('core', 'compress_section_document', new \Core\Member\Task\CompressSectionDocumentHandler());
 $schedulerRunner->registerHandler('core', 'send_notifications', new \Core\Notification\Task\SendNotificationsHandler());
 $schedulerRunner->registerHandler('core', 'purge_notifications', new \Core\Notification\Task\PurgeNotificationsHandler());
+$schedulerRunner->registerHandler('core', 'purge_human_check_rate_limits', new \Core\Security\HumanCheck\Task\PurgeHumanCheckRateLimitsHandler());
 
 // Bootstrap the recurring automatic backup — Task\AutoBackupHandler
 // re-schedules itself at the end of every run (same pattern as
@@ -1026,6 +1044,12 @@ if ($schedulerService->find('core', 'purge_notifications', \Core\Notification\Ta
 // jitter every day after that.
 if ($schedulerService->find('core', 'check_stable_update', 'daily') === null) {
     $schedulerService->schedule('core', 'check_stable_update', new DateTimeImmutable(), [], 'daily');
+}
+
+// Same bootstrap for the human-check rate-limit purge (Core\Security\
+// HumanCheck\Task\PurgeHumanCheckRateLimitsHandler).
+if ($schedulerService->find('core', 'purge_human_check_rate_limits', \Core\Security\HumanCheck\Task\PurgeHumanCheckRateLimitsHandler::REFERENCE) === null) {
+    $schedulerService->schedule('core', 'purge_human_check_rate_limits', new DateTimeImmutable(), [], \Core\Security\HumanCheck\Task\PurgeHumanCheckRateLimitsHandler::REFERENCE);
 }
 
 // Add dynamic member entries to Espace animés — group: GROUP_DYNAMIC keeps
@@ -1384,6 +1408,12 @@ $passwordResetService->setJournalService($journalService);
 $loginThrottler = new LoginThrottler($connection);
 $passwordAuthMethod = new PasswordAuthMethod($userAccountRepo, $encryptionService, $loginThrottler);
 $passwordAuthMethod->setJournalService($journalService);
+$humanCheckService = new \Core\Security\HumanCheck\HumanCheckService(
+    $encryptionService,
+    new \Core\Security\HumanCheck\HumanCheckRateLimitRepository($pdo),
+    $settingService,
+    $journalService
+);
 $webAuthnCredentialRepo = new WebAuthnCredentialRepository($pdo);
 $webAuthnBaseUrl = (string) ($settingService->get('base_url') ?: 'https://localhost');
 $webAuthnService = new WebAuthnService(
@@ -1397,6 +1427,7 @@ $webAuthnService = new WebAuthnService(
 $authController = new AuthController($twig, $authService, $roleResolver, $scoutYearResolver, $cookieConsentService);
 $authController->setPasswordAuth($passwordAuthMethod);
 $authController->setWebAuthnService($webAuthnService);
+$authController->setHumanCheck($humanCheckService);
 $frontController->registerController(AuthController::class, $authController);
 $frontController->registerController(AccountController::class, new AccountController($twig, $userAccountRepo, $webAuthnCredentialRepo, $webAuthnService));
 $frontController->registerController(PushSubscriptionController::class, new PushSubscriptionController($twig, $notificationService, $journalService));
@@ -1895,13 +1926,14 @@ if (in_array('news', $moduleManager->getEnabledModuleIds(), true)) {
             $twig, $newsArticleService, $newsFormService, $newsResponseService, $newsSeoKeywordService,
             $posterPdfService, $scoutYearService, $settingService, $schedulerService, $userAccountRepo,
             $memberService, $sectionService, $uploadHandler, $fileRepository, $storagePath, $journalService,
-            $financeAccountForOthers
+            $financeAccountForOthers, $humanCheckService
         )
     );
     $frontController->registerController(
         \Modules\News\Controller\FormController::class,
         new \Modules\News\Controller\FormController(
-            $twig, $newsArticleService, $newsFormService, $newsResponseService, $scoutYearService, $journalService, $financeExpectedReceivableForOthers
+            $twig, $newsArticleService, $newsFormService, $newsResponseService, $scoutYearService, $journalService,
+            $financeExpectedReceivableForOthers, $humanCheckService
         )
     );
 

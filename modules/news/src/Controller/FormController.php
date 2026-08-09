@@ -11,8 +11,10 @@ use Core\Http\Response;
 use Core\Journal\JournalService;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
+use Core\Security\HumanCheck\HumanCheckService;
 use Core\Security\Role;
 use Modules\Finance\Api\ExpectedReceivableInterface;
+use Modules\News\Repository\Article;
 use Modules\News\Repository\FormField;
 use Modules\News\Repository\FormResponse;
 use Modules\News\Repository\NewsForm;
@@ -27,6 +29,13 @@ use Twig\Environment;
 
 class FormController extends AbstractController
 {
+    /**
+     * Core\Security\HumanCheck form key — must match
+     * NewsController::HUMAN_CHECK_FORM_KEY (a signature made with one is
+     * rejected against the other).
+     */
+    private const HUMAN_CHECK_FORM_KEY = 'news_form_response';
+
     public function __construct(
         protected Environment $twig,
         private ArticleService $articleService,
@@ -34,7 +43,8 @@ class FormController extends AbstractController
         private ResponseService $responseService,
         private ScoutYearService $scoutYearService,
         private JournalService $journalService,
-        private ?ExpectedReceivableInterface $expectedReceivable = null
+        private ?ExpectedReceivableInterface $expectedReceivable = null,
+        private ?HumanCheckService $humanCheck = null
     ) {
     }
 
@@ -74,6 +84,22 @@ class FormController extends AbstractController
         $memberYearId = $request->getBody('member_year_id') !== null && $request->getBody('member_year_id') !== ''
             ? (int) $request->getBody('member_year_id') : null;
 
+        // Core\Security\HumanCheck: only applies to a non-identified
+        // session (ARCHITECTURE.md §8 — an identified session's response
+        // is never anonymous spam). A rejection re-renders the form with
+        // a fresh challenge rather than a dead-end error page, same
+        // pattern as the NewsException catch below — a legitimate slow
+        // human never has to retype anything.
+        $humanCheckResult = $this->humanCheck?->verify(
+            self::HUMAN_CHECK_FORM_KEY,
+            AuthSession::isAuthenticated(),
+            $request->getBodyAll(),
+            (string) $request->getServer('REMOTE_ADDR', '')
+        );
+        if ($humanCheckResult !== null && !$humanCheckResult->accepted) {
+            return $this->rerenderFormWithError($article, $form, $fields, $email, $scoutYearId, 'Une erreur est survenue. Veuillez réessayer.');
+        }
+
         try {
             $response = $this->responseService->submit(
                 $article, $form, $fields, $accountId, $email, $scoutYearId,
@@ -82,23 +108,7 @@ class FormController extends AbstractController
                 $memberYearId
             );
         } catch (NewsException $e) {
-            $memberOptions = $form->access === NewsForm::ACCESS_IDENTIFIED ? $this->responseService->resolveMemberOptions($email, $scoutYearId) : [];
-            return $this->render('@news/detail.html.twig', [
-                'article' => $article,
-                'breadcrumb_current' => $article->title,
-                'form' => $form,
-                'fields' => $this->fieldsForTemplate($fields, $memberOptions),
-                'has_real_input' => (bool) array_filter($fields, fn(FormField $f) => !$f->isNonInput()),
-                'form_open' => $form->isOpen(),
-                'already_responded' => false,
-                'requires_login' => false,
-                'requires_member_selector' => $form->responseLimit === NewsForm::RESPONSE_LIMIT_ONE_PER_MEMBER,
-                'payment_available' => false,
-                'contact_email_default' => $email ?? '',
-                'member_options' => $memberOptions,
-                'submit_error' => $e->getMessage(),
-                'csrf_token' => CsrfGuard::generateToken(),
-            ])->setStatusCode(422);
+            return $this->rerenderFormWithError($article, $form, $fields, $email, $scoutYearId, $e->getMessage());
         }
 
         $this->journalService->log(
@@ -319,6 +329,40 @@ class FormController extends AbstractController
         }
 
         return $this->json(['success' => true]);
+    }
+
+    /**
+     * Re-renders the submission form with an error message and a fresh
+     * Core\Security\HumanCheck challenge — shared by the human-check
+     * rejection path and the NewsException catch in submit(). Never a
+     * dead-end error page: the visitor's contact email default and every
+     * form field are still there to fill in again.
+     *
+     * @param FormField[] $fields
+     */
+    private function rerenderFormWithError(Article $article, NewsForm $form, array $fields, ?string $email, int $scoutYearId, string $errorMessage): Response
+    {
+        $memberOptions = $form->access === NewsForm::ACCESS_IDENTIFIED ? $this->responseService->resolveMemberOptions($email, $scoutYearId) : [];
+
+        return $this->render('@news/detail.html.twig', [
+            'article' => $article,
+            'breadcrumb_current' => $article->title,
+            'form' => $form,
+            'fields' => $this->fieldsForTemplate($fields, $memberOptions),
+            'has_real_input' => (bool) array_filter($fields, fn(FormField $f) => !$f->isNonInput()),
+            'form_open' => $form->isOpen(),
+            'already_responded' => false,
+            'requires_login' => false,
+            'requires_member_selector' => $form->responseLimit === NewsForm::RESPONSE_LIMIT_ONE_PER_MEMBER,
+            'payment_available' => false,
+            'contact_email_default' => $email ?? '',
+            'member_options' => $memberOptions,
+            'submit_error' => $errorMessage,
+            'csrf_token' => CsrfGuard::generateToken(),
+            'human_check' => $this->humanCheck !== null && !AuthSession::isAuthenticated()
+                ? $this->humanCheck->generateChallenge(self::HUMAN_CHECK_FORM_KEY)
+                : null,
+        ])->setStatusCode(422);
     }
 
     /**

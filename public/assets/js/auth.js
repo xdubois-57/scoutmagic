@@ -24,6 +24,20 @@
         return document.getElementById('csrf-token').value;
     }
 
+    // --- Core\Security\HumanCheck (magic-link form only, per module spec) ---
+    function humanCheckParams() {
+        var params = '';
+        var token = document.querySelector('input[name="human_check_token"]');
+        if (token) {
+            params += '&human_check_token=' + encodeURIComponent(token.value);
+        }
+        var trap = document.querySelector('.hc-trap input');
+        if (trap) {
+            params += '&' + encodeURIComponent(trap.name) + '=' + encodeURIComponent(trap.value);
+        }
+        return params;
+    }
+
     // --- Mandatory RGPD consent (module addendum) — one checkbox per tab, each inside its own login box. ---
     function hasRgpdConsent(tab) {
         var checkbox = document.getElementById('rgpd-consent-checkbox-' + tab);
@@ -92,7 +106,7 @@
         fetch('/login/magic-link', {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: 'email=' + encodeURIComponent(email) + '&_csrf_token=' + encodeURIComponent(csrf) + '&rgpd_consent=1'
+            body: 'email=' + encodeURIComponent(email) + '&_csrf_token=' + encodeURIComponent(csrf) + '&rgpd_consent=1' + humanCheckParams()
         })
         .then(function(r) { return r.json(); })
         .then(function(data) {

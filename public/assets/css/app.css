@@ -257,3 +257,21 @@ td code,
         display: flex;
     }
 }
+
+/* Core\Security\HumanCheck — partials/human_check_fields.html.twig's
+   honeypot trap field. Global (app.css, loaded on every page by
+   base.html.twig) rather than components.css (opt-in per template) since
+   any future public form anywhere can include the partial and must get
+   this styling for free. Off-screen rather than display:none/visibility:
+   hidden: a real, visible-to-the-DOM input a robot's form-filler still
+   finds and fills, which is the entire point (a CSP-forbidden inline
+   style, or a display:none some scrapers special-case and skip, would
+   both defeat it). tabindex="-1"/aria-hidden on the field itself keep a
+   human on keyboard/screen reader from ever reaching it. */
+.hc-trap {
+    position: absolute;
+    left: -9999px;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+}

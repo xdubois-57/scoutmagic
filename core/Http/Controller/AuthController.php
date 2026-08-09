@@ -13,6 +13,7 @@ use Core\ScoutYear\ScoutYearSession;
 use Core\Security\AuthService;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
+use Core\Security\HumanCheck\HumanCheckService;
 use Core\Security\LastLoginMethodCookie;
 use Core\Security\LoginThrottler;
 use Core\Security\PasswordAuthMethod;
@@ -22,8 +23,12 @@ use Twig\Environment;
 
 class AuthController extends AbstractController
 {
+    /** Core\Security\HumanCheck form key for the magic-link request form. */
+    private const HUMAN_CHECK_FORM_KEY = 'magic_link_request';
+
     private ?PasswordAuthMethod $passwordAuth = null;
     private ?WebAuthnService $webAuthnService = null;
+    private ?HumanCheckService $humanCheck = null;
 
     public function __construct(
         protected Environment $twig,
@@ -44,6 +49,11 @@ class AuthController extends AbstractController
         $this->webAuthnService = $webAuthnService;
     }
 
+    public function setHumanCheck(HumanCheckService $humanCheck): void
+    {
+        $this->humanCheck = $humanCheck;
+    }
+
     /**
      * GET /login — render the login page.
      *
@@ -60,6 +70,7 @@ class AuthController extends AbstractController
         return $this->render('auth/login.html.twig', [
             'csrf_token' => $csrfToken,
             'default_login_method' => LastLoginMethodCookie::read() ?? 'magic-link',
+            'human_check' => $this->humanCheck?->generateChallenge(self::HUMAN_CHECK_FORM_KEY),
         ]);
     }
 
@@ -78,6 +89,27 @@ class AuthController extends AbstractController
 
         if (!$this->hasRgpdConsent($request)) {
             return $this->json(['success' => false, 'error' => 'Vous devez accepter la politique de protection des données pour vous connecter.']);
+        }
+
+        // Core\Security\HumanCheck: honeypot + minimum-delay barriers only
+        // (enforceRateLimit: false). AuthService::requestMagicLink()
+        // already rate-limits by email blind index (SECURITY.md §8,
+        // MAX_REQUESTS_PER_HOUR) — a second, differently-scoped (per-IP)
+        // counter here would produce inconsistent thresholds and
+        // unexplained lockouts for the same abuse pattern (ARCHITECTURE.md
+        // §8's iteration-1 spec calls this out explicitly). The honeypot
+        // and delay checks are still worth applying: they catch a naive
+        // bot before it ever touches AuthService, at zero cost to a
+        // legitimate slow human.
+        $humanCheckResult = $this->humanCheck?->verify(
+            self::HUMAN_CHECK_FORM_KEY,
+            AuthSession::isAuthenticated(),
+            $request->getBodyAll(),
+            (string) $request->getServer('REMOTE_ADDR', ''),
+            false
+        );
+        if ($humanCheckResult !== null && !$humanCheckResult->accepted) {
+            return $this->json(['success' => false, 'error' => 'Une erreur est survenue. Veuillez réessayer.']);
         }
 
         $email = trim((string) $request->getBody('email', ''));

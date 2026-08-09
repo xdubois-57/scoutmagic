@@ -453,6 +453,13 @@ class DatabaseTestHelper
             FOREIGN KEY (created_by) REFERENCES user_accounts(id) ON DELETE SET NULL
         )');
 
+        $pdo->exec('CREATE TABLE human_check_rate_limits (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ip_hash TEXT NOT NULL,
+            form_key TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )');
+
         return $pdo;
     }
 }
