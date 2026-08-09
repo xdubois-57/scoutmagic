@@ -23,9 +23,10 @@ class BreadcrumbBarRenderingTest extends TestCase
 
     /**
      * @param ?array{label: string, parents: array<string>} $routeBreadcrumb
-     * @param array<int, array{label: string, pages: array<int, array<string, mixed>>}> $menus Same shape as
-     *   Core\View\MenuBuilder::build() — the breadcrumb partial matches a parent label against menu.label to
-     *   decide whether it can link to that menu's first real page.
+     * @param array<int, array{id: string, label: string}> $menus Same shape as
+     *   Core\View\MenuBuilder::build() (id/label only matter here) — the breadcrumb
+     *   partial matches a parent label against menu.label to decide whether it can
+     *   render as a button opening that menu (by id), never a link to a specific page.
      */
     private function render(?array $routeBreadcrumb, string $currentPath = '/some-page', ?string $breadcrumbCurrent = null, array $menus = []): string
     {
@@ -42,20 +43,11 @@ class BreadcrumbBarRenderingTest extends TestCase
     }
 
     /**
-     * @param array<int, array<string, mixed>> $pages
-     * @return array{label: string, pages: array<int, array<string, mixed>>}
+     * @return array{id: string, label: string}
      */
-    private function menu(string $label, array $pages): array
+    private function menu(string $id, string $label): array
     {
-        return ['label' => $label, 'pages' => $pages];
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    private function page(string $url, bool $isDynamic = false): array
-    {
-        return ['label' => 'x', 'url' => $url, 'isDynamic' => $isDynamic];
+        return ['id' => $id, 'label' => $label];
     }
 
     public function testHomeIconAlwaysPresentAndHardcodedToRoot(): void
@@ -89,9 +81,8 @@ class BreadcrumbBarRenderingTest extends TestCase
 
     public function testParentSegmentIsPlainTextWhenNoMenuMatchesItsLabel(): void
     {
-        // No `menus` supplied at all — nothing to link to, and a parent
-        // must never invent a URL (e.g. "/" or "#") for a menu category
-        // that has no real landing page of its own.
+        // No `menus` supplied at all — nothing to open, and a parent must
+        // never invent a menu id for a label that doesn't actually exist.
         $html = $this->render(
             ['label' => 'Staffs', 'parents' => ['Espace chefs']],
             '/chefs/staffs'
@@ -101,86 +92,71 @@ class BreadcrumbBarRenderingTest extends TestCase
             '/<li class="breadcrumb-item text-body-secondary">Espace chefs<\/li>/',
             $html
         );
+        $this->assertStringNotContainsString('breadcrumb-parent-btn', $html);
     }
 
-    public function testParentSegmentIsClickableWhenItsMenuHasARealFirstPage(): void
+    /**
+     * A parent whose label matches a real menu is always a button that
+     * opens that menu's own section (public/assets/js/breadcrumb.js) —
+     * never a link to one arbitrarily-chosen page within it. This holds
+     * regardless of what pages the menu has, since the button no longer
+     * needs to resolve a landing page at all.
+     */
+    public function testParentSegmentIsAButtonThatOpensTheMatchingMenu(): void
     {
-        // Viewing Journal, whose parent "Espace chefs d'U" resolves to that
-        // menu's first real page — Import Desk, a genuinely different page.
         $html = $this->render(
             ['label' => 'Journal', 'parents' => ['Espace chefs d\'U']],
             '/admin/journal',
             null,
-            [$this->menu('Espace chefs d\'U', [$this->page('/admin/import'), $this->page('/admin/journal')])]
+            [$this->menu('espace_admin', 'Espace chefs d\'U')]
         );
 
         $this->assertMatchesRegularExpression(
-            '/<li class="breadcrumb-item"><a href="\/admin\/import"[^>]*>Espace chefs d&#039;U<\/a><\/li>/',
+            '/<li class="breadcrumb-item">\s*<button type="button" class="[^"]*breadcrumb-parent-btn[^"]*" data-open-menu="espace_admin">Espace chefs d&#039;U<\/button>\s*<\/li>/',
             $html
         );
     }
 
-    public function testParentSegmentIsNotLinkedBackToTheCurrentPageItself(): void
+    /**
+     * Opening the menu the current page already belongs to is a legitimate
+     * action now (pick a different sub-page) — unlike the old "link to a
+     * landing page" behavior, there is no "dead click"/self-link concern
+     * anymore, so the button still renders even when viewing that menu's
+     * only page.
+     */
+    public function testParentButtonStillRendersWhenViewingTheOnlyPageInThatMenu(): void
     {
-        // Mirrors the real Staffs page: "Espace chefs" currently has
-        // only one static page (Staffs itself). Linking the parent back to
-        // the page already being viewed would be a dead click, so it falls
-        // back to plain text rather than a self-link.
         $html = $this->render(
             ['label' => 'Staffs', 'parents' => ['Espace chefs']],
             '/chefs/staffs',
             null,
-            [$this->menu('Espace chefs', [$this->page('/chefs/staffs')])]
+            [$this->menu('espace_chefs', 'Espace chefs')]
         );
 
-        $this->assertStringNotContainsString('<a href="/chefs/staffs"', $html);
         $this->assertMatchesRegularExpression(
-            '/<li class="breadcrumb-item text-body-secondary">Espace chefs<\/li>/',
+            '/data-open-menu="espace_chefs">Espace chefs<\/button>/',
             $html
         );
     }
 
-    public function testParentSegmentSkipsDynamicAndPlaceholderPagesWhenPickingALink(): void
+    /**
+     * The button never needs a menu's `pages` at all anymore — matching by
+     * label is enough, whether the menu has dynamic entries, a placeholder,
+     * or nothing rendered here (Core\View\MenuBuilder::build() never
+     * actually emits an empty menu, but the template itself has no reason
+     * to depend on `pages` being present to decide button vs. plain text).
+     */
+    public function testParentButtonRendersRegardlessOfTheMenusPages(): void
     {
-        // Mirrors Espace animés: dynamic per-member entries first (sorted
-        // there by Core\View\MenuBuilder's group-based sort, no separator
-        // involved anymore), then a real static page. The link must be the
-        // first genuinely navigable page, not the placeholder/dynamic ones
-        // ahead of it. Viewing a member page here (not Notifications
-        // itself) so the resolved link is a genuinely different page, not
-        // a self-link.
         $html = $this->render(
             ['label' => 'Membre', 'parents' => ['Espace animés']],
             '/members/1',
             null,
-            [$this->menu('Espace animés', [
-                $this->page('#'),
-                $this->page('/members/1', true),
-                $this->page('/notifications'),
-            ])]
+            [$this->menu('espace_animes', 'Espace animés')]
         );
 
         $this->assertMatchesRegularExpression(
-            '/<a href="\/notifications"[^>]*>Espace animés<\/a>/',
-            $html
-        );
-    }
-
-    public function testParentSegmentStaysPlainTextWhenItsMenuHasOnlyDynamicOrPlaceholderPages(): void
-    {
-        // A menu can exist and still have no landing page worth linking to
-        // (e.g. Espace animés with no linked members — only the "#"
-        // empty-state entry and dynamic per-member ones) — never invented.
-        $html = $this->render(
-            ['label' => 'Membre', 'parents' => ['Espace animés']],
-            '/members/1',
-            null,
-            [$this->menu('Espace animés', [$this->page('#'), $this->page('/members/1', true)])]
-        );
-
-        $this->assertStringNotContainsString('<a href="#"', $html);
-        $this->assertMatchesRegularExpression(
-            '/<li class="breadcrumb-item text-body-secondary">Espace animés<\/li>/',
+            '/data-open-menu="espace_animes">Espace animés<\/button>/',
             $html
         );
     }
@@ -191,10 +167,11 @@ class BreadcrumbBarRenderingTest extends TestCase
             ['label' => 'Import Desk', 'parents' => ['Espace chefs d\'U']],
             '/admin/import',
             null,
-            [$this->menu('Espace chefs d\'U', [$this->page('/admin/import')])]
+            [$this->menu('espace_admin', 'Espace chefs d\'U')]
         );
 
         $this->assertDoesNotMatchRegularExpression('/<a[^>]*>\s*Import Desk\s*<\/a>/', $html);
+        $this->assertDoesNotMatchRegularExpression('/<button[^>]*>\s*Import Desk\s*<\/button>/', $html);
     }
 
     public function testBreadcrumbCurrentOverridesStaticLabel(): void
@@ -228,5 +205,21 @@ class BreadcrumbBarRenderingTest extends TestCase
         $html = $this->twig->render('partials/breadcrumb_bar.html.twig');
 
         $this->assertStringContainsString('bi-house-door', $html);
+    }
+
+    public function testMultipleParentsEachBecomeTheirOwnButtonWithTheCorrectMenuId(): void
+    {
+        $html = $this->render(
+            ['label' => 'Staffs', 'parents' => ['Espace chefs', 'Espace chefs d\'U']],
+            '/chefs/staffs',
+            null,
+            [
+                $this->menu('espace_chefs', 'Espace chefs'),
+                $this->menu('espace_admin', 'Espace chefs d\'U'),
+            ]
+        );
+
+        $this->assertMatchesRegularExpression('/data-open-menu="espace_chefs">Espace chefs<\/button>/', $html);
+        $this->assertMatchesRegularExpression('/data-open-menu="espace_admin">Espace chefs d&#039;U<\/button>/', $html);
     }
 }

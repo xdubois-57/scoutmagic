@@ -930,19 +930,23 @@ $menuBuilder->addPage(MenuBuilder::MENU_NOTRE_UNITE, 'Contact', '/contact', 'pub
 $menuBuilder->addPage(MenuBuilder::MENU_NOTRE_UNITE, 'Sections', '/sections', 'public', 30);
 $menuBuilder->addPage(MenuBuilder::MENU_NOTRE_UNITE, 'Protection des données', '/rgpd', 'public', 40);
 $menuBuilder->addPage(MenuBuilder::MENU_ESPACE_CHEFS, 'Staffs', '/chefs/staffs', 'intendant', 10);
-$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Import Desk', '/admin/import', 'admin', 10);
-$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Journal', '/admin/journal', 'admin', 20);
-$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Année scoute', '/admin/scout-year', 'admin', 30);
-$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Membres', '/admin/members', 'admin', 40);
 // Configuration générale — shrunk to just the configuration-mode toggle,
 // moved here from the Configuration menu and widened from superadmin to
 // admin (see /config-mode/activate|deactivate's own role_min and
 // Core\View\ConfigurationMode, widened the same way) so every chief
-// d'unité, not only a superadmin, can edit site content.
-$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Configuration générale', '/config/general', 'admin', 50);
+// d'unité, not only a superadmin, can edit site content. First in this
+// menu (order 10) — the most-used entry for a chief d'unité.
+$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Configuration générale', '/config/general', 'admin', 10);
+$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Import Desk', '/admin/import', 'admin', 20);
+$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Membres', '/admin/members', 'admin', 30);
+$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Année scoute', '/admin/scout-year', 'admin', 40);
+$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Journal', '/admin/journal', 'admin', 50);
+// Configuration avancée first (order 5, ahead of Modules/Badges below) —
+// the most-used entry for a superadmin; the rest of this menu keeps its
+// existing relative order.
+$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Configuration avancée', '/setup', 'superadmin', 5);
 $menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Modules', '/config/modules', 'superadmin', 10);
 $menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Badges', '/config/badges', 'superadmin', 12);
-$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Configuration avancée', '/setup', 'superadmin', 15);
 $menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Desk', '/config/functions', 'superadmin', 20);
 $menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Paramètres', '/config/settings', 'superadmin', 30);
 $menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'RGPD', '/config/rgpd', 'superadmin', 35);

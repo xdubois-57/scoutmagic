@@ -14,16 +14,18 @@
    Core\View\MenuBuilder::labelFor() rather than repeating the string, so a
    label rename only ever needs changing in MenuBuilder::MENUS itself;
    module.json breadcrumbs still hardcode their own copy, since a JSON
-   manifest has no PHP to call that from) — most menu categories still have
-   no single landing page of their own (never invent one, e.g. writing "/"
-   or "#"), so a parent is a clickable link only when the matching menu in
-   `menus` actually has a real, non-dynamic first page to send people to,
-   other than the page already being viewed (linking a parent back to
-   itself — e.g. "Espace chefs" on /chefs/staffs, currently that menu's
-   only static page — would be a dead click); otherwise it
-   stays plain text, exactly as before. This is a template-side lookup
-   against the same `menus` global the nav already renders from — no new
-   data on the breadcrumb declaration itself.
+   manifest has no PHP to call that from).
+
+   A parent is never a link to a specific page anymore — most menu
+   categories have no single landing page of their own, and even the ones
+   that do would send every visitor to the same arbitrarily-chosen page
+   regardless of what they actually want. Instead, clicking a parent OPENS
+   that menu's own section (public/assets/js/breadcrumb.js): the desktop
+   submenu bar, or the mobile offcanvas with the matching accordion section
+   expanded — letting the visitor pick the sub-page themselves, same as
+   using the nav directly. Only rendered as a button when the parent label
+   actually matches one of the current `menus` (the same global the nav
+   itself renders from); otherwise it stays plain text, exactly as before.
    `breadcrumb_current`, when the controller passes it, replaces the
    route's static `label` for a dynamic page title (a member's name, an
    article title...); the current page is never itself a link. #}
@@ -37,18 +39,16 @@
         {% set breadcrumb = route_breadcrumb|default(null) %}
         {% if breadcrumb is not null and current_path|default('/') != '/' %}
             {% for parent in breadcrumb.parents %}
-                {% set parent_url = null %}
+                {% set parentMenuId = null %}
                 {% for menu in menus|default([]) %}
                     {% if menu.label == parent %}
-                        {% for page in menu.pages %}
-                            {% if parent_url is null and not page.isDynamic and page.url is defined and page.url != '' and page.url != '#' and page.url != current_path|default('/') %}
-                                {% set parent_url = page.url %}
-                            {% endif %}
-                        {% endfor %}
+                        {% set parentMenuId = menu.id %}
                     {% endif %}
                 {% endfor %}
-                {% if parent_url is not null %}
-                    <li class="breadcrumb-item"><a href="{{ parent_url }}" class="text-decoration-none">{{ parent }}</a></li>
+                {% if parentMenuId is not null %}
+                    <li class="breadcrumb-item">
+                        <button type="button" class="btn btn-link p-0 border-0 align-baseline text-decoration-none breadcrumb-parent-btn" data-open-menu="{{ parentMenuId }}">{{ parent }}</button>
+                    </li>
                 {% else %}
                     <li class="breadcrumb-item text-body-secondary">{{ parent }}</li>
                 {% endif %}

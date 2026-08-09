@@ -85,6 +85,7 @@ class FormController extends AbstractController
             $memberOptions = $form->access === NewsForm::ACCESS_IDENTIFIED ? $this->responseService->resolveMemberOptions($email, $scoutYearId) : [];
             return $this->render('@news/detail.html.twig', [
                 'article' => $article,
+                'breadcrumb_current' => $article->title,
                 'form' => $form,
                 'fields' => $this->fieldsForTemplate($fields, $memberOptions),
                 'has_real_input' => (bool) array_filter($fields, fn(FormField $f) => !$f->isNonInput()),
@@ -110,6 +111,7 @@ class FormController extends AbstractController
 
         return $this->render('@news/confirmation.html.twig', [
             'article' => $article,
+            'breadcrumb_current' => $article->title,
             'response' => $response,
             'answers' => $this->answerLines($fields, $storedAnswers),
             'payment' => $this->responseService->buildPaymentSummary($form, $response, $total),
