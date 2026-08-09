@@ -41,7 +41,7 @@ class UploadControllerTest extends TestCase
     private UploadController $controller;
     private MemberPhotoService $memberPhotoService;
     private SectionPhotoService $sectionPhotoService;
-    private \Core\Photo\PwaIconService $pwaIconService;
+    private \Core\Photo\UnitLogoService $unitLogoService;
     private JournalRepository $journalRepo;
     private EncryptionService $encryption;
     private int $memberId;
@@ -89,17 +89,17 @@ class UploadControllerTest extends TestCase
         $settingService = new \Core\Config\SettingService(new \Core\Config\SettingRepository($this->pdo));
         $settingService->register('pwa_background_color', '#ffffff', 'color', 'x', 'x');
         $settingService->register('pwa_icon_version', '1', 'number', 'x', 'x', null, null, null, false);
-        $this->pwaIconService = new \Core\Photo\PwaIconService(
-            new \Core\Photo\PwaIconProcessor(),
+        $this->unitLogoService = new \Core\Photo\UnitLogoService(
+            new \Core\Photo\UnitLogoProcessor(),
             $settingService,
-            $this->tmpDir . '/pwa',
-            $this->tmpDir . '/pwa_defaults'
+            $this->tmpDir . '/logo',
+            $this->tmpDir . '/logo_defaults'
         );
 
         $this->controller = new UploadController(
             $twig, $uploadHandler, $editableContentService, $this->memberPhotoService,
             $this->sectionPhotoService, new SectionPhotoProcessor(), new LandscapeImageProcessor(),
-            $memberService, new AgeBranchRepository($this->pdo), $this->pwaIconService
+            $memberService, new AgeBranchRepository($this->pdo), $this->unitLogoService
         );
         $this->controller->setJournalService(new JournalService($this->journalRepo));
 
@@ -335,6 +335,86 @@ class UploadControllerTest extends TestCase
         $response = $this->controller->store($request, []);
 
         $this->assertSame(403, $response->getStatusCode());
+
+        unset($_FILES['file']);
+    }
+
+    /**
+     * unit_logo (Configuration > Paramètres généraux's logo upload) is a
+     * direct role check like age_branch_logo — its own admin page is
+     * already superadmin-gated, no configuration-mode flag involved.
+     */
+    public function testUnitLogoContextAllowedForSuperadminWithoutConfigMode(): void
+    {
+        ConfigurationMode::deactivate();
+
+        $tmpFile = $this->createTempImage();
+        $_FILES['file'] = ['tmp_name' => $tmpFile, 'name' => 'logo.png', 'size' => filesize($tmpFile), 'error' => UPLOAD_ERR_OK];
+
+        $request = new Request('POST', '/upload', [], [
+            '_csrf_token' => CsrfGuard::generateToken(),
+            'context' => 'unit_logo',
+            'key' => '',
+            'return_url' => '/config/settings',
+        ], [], []);
+
+        $response = $this->controller->store($request, []);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertTrue($this->unitLogoService->hasCustomLogo());
+        $this->assertNotNull($this->unitLogoService->resolveIconContent('192'));
+
+        $stmt = $this->pdo->query("SELECT COUNT(*) FROM event_log WHERE event_type = 'unit_logo_updated'");
+        $this->assertSame(1, (int) $stmt->fetchColumn());
+
+        unset($_FILES['file']);
+    }
+
+    public function testUnitLogoContextDeniedForNonSuperadminRole(): void
+    {
+        ConfigurationMode::deactivate();
+        AuthSession::login(1, 'admin@test.com', 'admin');
+
+        $tmpFile = $this->createTempImage();
+        $_FILES['file'] = ['tmp_name' => $tmpFile, 'name' => 'logo.png', 'size' => filesize($tmpFile), 'error' => UPLOAD_ERR_OK];
+
+        $request = new Request('POST', '/upload', [], [
+            '_csrf_token' => CsrfGuard::generateToken(),
+            'context' => 'unit_logo',
+            'key' => '',
+            'return_url' => '/config/settings',
+        ], [], []);
+
+        $response = $this->controller->store($request, []);
+
+        $this->assertSame(403, $response->getStatusCode());
+        $this->assertFalse($this->unitLogoService->hasCustomLogo());
+
+        unset($_FILES['file']);
+    }
+
+    /**
+     * unit_logo never becomes a `files` table row — see
+     * Core\Photo\UnitLogoService's own docblock (a favicon/manifest icon
+     * is fetched with no session, same reasoning as the original PWA-only
+     * version of this context).
+     */
+    public function testUnitLogoContextNeverCreatesAFilesTableRow(): void
+    {
+        $countBefore = (int) $this->pdo->query('SELECT COUNT(*) FROM files')->fetchColumn();
+
+        $tmpFile = $this->createTempImage();
+        $_FILES['file'] = ['tmp_name' => $tmpFile, 'name' => 'logo.png', 'size' => filesize($tmpFile), 'error' => UPLOAD_ERR_OK];
+        $request = new Request('POST', '/upload', [], [
+            '_csrf_token' => CsrfGuard::generateToken(),
+            'context' => 'unit_logo',
+            'key' => '',
+            'return_url' => '/config/settings',
+        ], [], []);
+        $this->controller->store($request, []);
+
+        $countAfter = (int) $this->pdo->query('SELECT COUNT(*) FROM files')->fetchColumn();
+        $this->assertSame($countBefore, $countAfter);
 
         unset($_FILES['file']);
     }

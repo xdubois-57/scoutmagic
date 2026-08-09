@@ -462,9 +462,12 @@ $settingService->register('section_document_oversize_warning_mb', '5', 'number',
     'Taille (Mo) à partir de laquelle un avertissement s\'affiche avant l\'ajout d\'un document, uniquement lorsqu\'aucun outil de compression n\'est disponible sur le serveur.',
     null, '^[1-9][0-9]*$', null, true, 254);
 // Installable PWA (Lot 1) — theme_color/background_color feed both the
-// manifest and the maskable icon's own backdrop (Core\Photo\
-// PwaIconProcessor), so a re-uploaded logo always matches whatever the
-// unit has configured, never a hardcoded color (ARCHITECTURE §1).
+// manifest and the maskable/icon-180 icons' own opaque backdrop
+// (Core\Photo\UnitLogoProcessor::flattenOpaque()), so a re-uploaded logo
+// always matches whatever the unit has configured, never a hardcoded
+// color (ARCHITECTURE §1). background_color changes also trigger
+// Core\Photo\UnitLogoService::rederiveFromSource() from SettingsController
+// — those two icons are re-baked immediately, not just future uploads.
 $settingService->register('pwa_theme_color', '#0d6efd', 'color', 'Couleur du thème (PWA)',
     'Couleur de la barre d\'état/du thème lorsque le site est installé comme application.',
     null, null, null, true, 255);
@@ -785,16 +788,20 @@ $sectionDocumentService = new \Core\Member\SectionDocumentService(
     new \Core\Pdf\PdfCompressor($storagePath . '/temp')
 );
 
-// Installable PWA (Lot 1) — icon storage lives under storage/core/pwa/,
-// deliberately outside the files table (see Core\Photo\PwaIconService's
-// own docblock); the shipped defaults ship under public/assets/img/pwa/.
-$pwaIconService = new \Core\Photo\PwaIconService(
-    new \Core\Photo\PwaIconProcessor(),
+// Unit logo (favicon, PWA icons, footer logo — originally Lot 1's PWA-only
+// icon set, widened later) — override storage lives under
+// storage/core/logo/, deliberately outside the files table (see
+// Core\Photo\UnitLogoService's own docblock); the shipped defaults ship
+// under public/assets/img/pwa/ (kept at its original path — still exactly
+// what it says, the defaults used before/absent any upload).
+$unitLogoService = new \Core\Photo\UnitLogoService(
+    new \Core\Photo\UnitLogoProcessor(),
     $settingService,
-    $storagePath . '/core/pwa',
+    $storagePath . '/core/logo',
     dirname(__DIR__) . '/public/assets/img/pwa'
 );
-$twig->addGlobal('pwa_icon_version', $pwaIconService->currentVersion());
+$twig->addGlobal('pwa_icon_version', $unitLogoService->currentVersion());
+$twig->addGlobal('unit_logo_available', $unitLogoService->resolveIconContent('64') !== null);
 
 // Create backup service (Configuration > Maintenance)
 $backupRepository = new BackupRepository($pdo);
@@ -1131,8 +1138,14 @@ $router->addRoute('POST', '/upload', UploadController::class, 'store', 'identifi
 // Installable PWA (Lot 1) — all public: a manifest, its icons, and the
 // offline fallback are all fetched with no session at all (an installed
 // app's home-screen icon lookup, or a navigation with no network).
+// /pwa/icon-{size}.png also now serves the unit-logo feature's favicon
+// PNG sizes (16/32/48) and footer logo (64), not just the original four
+// PWA sizes — same route, same "no session" reasoning, kept unrenamed
+// since only base.html.twig/the manifest response ever reference it (see
+// Core\Http\Controller\PwaController::icon()'s own docblock).
 $router->addRoute('GET', '/manifest.webmanifest', \Core\Http\Controller\PwaController::class, 'manifest', 'public');
 $router->addRoute('GET', '/pwa/icon-{size}.png', \Core\Http\Controller\PwaController::class, 'icon', 'public');
+$router->addRoute('GET', '/favicon.ico', \Core\Http\Controller\PwaController::class, 'favicon', 'public');
 $router->addRoute('GET', '/offline', \Core\Http\Controller\PwaController::class, 'offline', 'public');
 
 // Setup routes (admin, but bypassed when not initialized)
@@ -1166,6 +1179,7 @@ $router->addRoute('POST', '/admin/scout-year/activate-public', ScoutYearControll
 // Settings
 $router->addRoute('GET', '/config/settings', SettingsController::class, 'index', 'superadmin');
 $router->addRoute('POST', '/config/settings/update', SettingsController::class, 'update', 'superadmin');
+$router->addRoute('POST', '/config/settings/logo-delete', SettingsController::class, 'deleteLogo', 'superadmin');
 
 // Scheduled actions
 $router->addRoute('GET', '/config/scheduled', ScheduledActionsController::class, 'index', 'superadmin');
@@ -1403,14 +1417,14 @@ $offlineController = new OfflineController(
     $storagePath, $encryptedFileStorageService, null
 );
 $frontController->registerController(OfflineController::class, $offlineController);
-$uploadController = new UploadController($twig, $uploadHandler, $editableContentService, $memberPhotoService, $sectionPhotoService, $sectionPhotoProcessor, $landscapeImageProcessor, $memberService, $ageBranchRepo, $pwaIconService);
+$uploadController = new UploadController($twig, $uploadHandler, $editableContentService, $memberPhotoService, $sectionPhotoService, $sectionPhotoProcessor, $landscapeImageProcessor, $memberService, $ageBranchRepo, $unitLogoService);
 $uploadController->setJournalService($journalService);
 $frontController->registerController(UploadController::class, $uploadController);
-$frontController->registerController(\Core\Http\Controller\PwaController::class, new \Core\Http\Controller\PwaController($twig, $settingService, $pwaIconService));
+$frontController->registerController(\Core\Http\Controller\PwaController::class, new \Core\Http\Controller\PwaController($twig, $settingService, $unitLogoService));
 $frontController->registerController(JournalController::class, new JournalController($twig, $journalRepo, $userAccountRepo));
 $frontController->registerController(ScoutYearController::class, new ScoutYearController($twig, $scoutYearResolver, $scoutYearAdminService, $scoutYearService, $journalService));
 $frontController->registerController(MemberSearchController::class, new MemberSearchController($twig, $memberSearchService, $memberService, $scoutYearResolver, $memberYearService));
-$frontController->registerController(SettingsController::class, new SettingsController($twig, $settingService, $journalService));
+$frontController->registerController(SettingsController::class, new SettingsController($twig, $settingService, $journalService, $unitLogoService));
 $frontController->registerController(ScheduledActionsController::class, new ScheduledActionsController($twig, $schedulerRepo));
 $frontController->registerController(ConfigGeneralController::class, new ConfigGeneralController($twig, $moduleManager, $badgeService, $journalService));
 $frontController->registerController(FunctionsController::class, new FunctionsController($twig, $functionRepo, $journalService, $sectionService, $unitStaffSectionService, $scoutYearResolver, $badgeService, $ageBranchRepo));

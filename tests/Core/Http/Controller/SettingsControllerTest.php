@@ -10,6 +10,8 @@ use Core\Http\Controller\SettingsController;
 use Core\Http\Request;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
+use Core\Photo\UnitLogoProcessor;
+use Core\Photo\UnitLogoService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Twig\Environment;
@@ -20,6 +22,8 @@ class SettingsControllerTest extends TestCase
     private SettingsController $controller;
     private SettingService $settingService;
     private JournalService $journalService;
+    private UnitLogoService $unitLogoService;
+    private string $logoStoragePath;
     private \PDO $pdo;
 
     protected function setUp(): void
@@ -29,6 +33,18 @@ class SettingsControllerTest extends TestCase
         $this->settingService = new SettingService($settingRepo);
         $journalRepo = new JournalRepository($this->pdo);
         $this->journalService = new JournalService($journalRepo);
+
+        $this->settingService->register('pwa_background_color', '#ffffff', 'color', 'L', 'D');
+        $this->settingService->register('pwa_icon_version', '1', 'number', 'L', 'D', null, null, null, false);
+        $this->logoStoragePath = sys_get_temp_dir() . '/scoutmagic_settings_ctrl_logo_' . uniqid();
+        $defaultIconPath = sys_get_temp_dir() . '/scoutmagic_settings_ctrl_logo_defaults_' . uniqid();
+        mkdir($defaultIconPath, 0755, true);
+        $this->unitLogoService = new UnitLogoService(
+            new UnitLogoProcessor(),
+            $this->settingService,
+            $this->logoStoragePath,
+            $defaultIconPath
+        );
 
         $templateDir = dirname(__DIR__, 4) . '/core/View/templates';
         $twig = new Environment(new FilesystemLoader($templateDir), [
@@ -48,7 +64,29 @@ class SettingsControllerTest extends TestCase
         $twig->addFunction(new \Twig\TwigFunction('file_url', fn() => ''));
         $twig->addFunction(new \Twig\TwigFunction('param', fn(string $k) => (string) ($this->settingService->get($k) ?? '')));
 
-        $this->controller = new SettingsController($twig, $this->settingService, $this->journalService);
+        $this->controller = new SettingsController($twig, $this->settingService, $this->journalService, $this->unitLogoService);
+    }
+
+    protected function tearDown(): void
+    {
+        if (is_dir($this->logoStoragePath)) {
+            foreach (glob($this->logoStoragePath . '/*') ?: [] as $file) {
+                unlink($file);
+            }
+            rmdir($this->logoStoragePath);
+        }
+    }
+
+    private function solidPngBytes(int $side, int $r, int $g, int $b): string
+    {
+        $image = imagecreatetruecolor($side, $side);
+        $color = imagecolorallocate($image, $r, $g, $b);
+        imagefill($image, 0, 0, $color);
+        ob_start();
+        imagepng($image);
+        $bytes = (string) ob_get_clean();
+        imagedestroy($image);
+        return $bytes;
     }
 
     public function testIndexRendersPage(): void
@@ -62,6 +100,27 @@ class SettingsControllerTest extends TestCase
         $this->assertSame(200, $response->getStatusCode());
         $this->assertStringContainsString('Paramètres', $response->getBody());
         $this->assertStringContainsString('Test Key', $response->getBody());
+    }
+
+    public function testIndexShowsTheLogoUploadBlockButNotTheDeleteButtonWithNoCustomLogo(): void
+    {
+        $request = new Request('GET', '/config/settings', [], [], [], []);
+        $response = $this->controller->index($request, []);
+
+        $body = $response->getBody();
+        $this->assertStringContainsString('Logo de l\'unité', $body);
+        $this->assertStringContainsString('context=unit_logo', $body);
+        $this->assertStringNotContainsString('unit-logo-delete-btn', $body);
+    }
+
+    public function testIndexShowsTheDeleteButtonOnceACustomLogoExists(): void
+    {
+        $this->unitLogoService->storeUploadedLogo($this->solidPngBytes(400, 1, 2, 3), 'image/png');
+
+        $request = new Request('GET', '/config/settings', [], [], [], []);
+        $response = $this->controller->index($request, []);
+
+        $this->assertStringContainsString('unit-logo-delete-btn', $response->getBody());
     }
 
     public function testIndexExcludesAutoUpdateSettingsFromTheGenericRendering(): void
@@ -132,12 +191,91 @@ class SettingsControllerTest extends TestCase
     }
 
     /**
+     * The real point of retaining the uploaded source (Core\Photo\
+     * UnitLogoService::rederiveFromSource()): changing this one setting
+     * must re-bake the maskable icon immediately, without asking the
+     * superadmin to re-upload anything.
+     */
+    public function testUpdatingBackgroundColorRederivesTheMaskableIconFromTheRetainedSource(): void
+    {
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+        $token = bin2hex(random_bytes(32));
+        $_SESSION['_csrf_token'] = $token;
+
+        $this->unitLogoService->storeUploadedLogo($this->solidPngBytes(400, 255, 0, 0), 'image/png');
+        $versionAfterUpload = $this->unitLogoService->currentVersion();
+
+        $request = $this->createJsonRequest(['key' => 'pwa_background_color', 'value' => '#00ff00', '_csrf_token' => $token]);
+        $response = $this->controller->update($request, []);
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertTrue($decoded['success']);
+        $this->assertGreaterThan($versionAfterUpload, $this->unitLogoService->currentVersion());
+
+        $maskable = $this->unitLogoService->resolveIconContent('512-maskable');
+        $decodedImg = imagecreatefromstring($maskable);
+        $corner = imagecolorsforindex($decodedImg, imagecolorat($decodedImg, 2, 2));
+        $this->assertSame(0, $corner['red']);
+        $this->assertSame(255, $corner['green']);
+        $this->assertSame(0, $corner['blue']);
+        imagedestroy($decodedImg);
+    }
+
+    public function testUpdatingAnUnrelatedSettingDoesNotTriggerRederivation(): void
+    {
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+        $token = bin2hex(random_bytes(32));
+        $_SESSION['_csrf_token'] = $token;
+        $this->settingService->register('editable', 'old', 'text', 'L', 'D');
+        $this->settingService->clearCache();
+
+        $request = $this->createJsonRequest(['key' => 'editable', 'value' => 'new', '_csrf_token' => $token]);
+        $this->controller->update($request, []);
+
+        $this->assertSame(1, $this->unitLogoService->currentVersion());
+    }
+
+    public function testDeleteLogoRequiresValidCsrf(): void
+    {
+        $request = $this->createJsonRequest(['_csrf_token' => 'invalid'], '/config/settings/logo-delete');
+        $response = $this->controller->deleteLogo($request, []);
+
+        $this->assertSame(403, $response->getStatusCode());
+    }
+
+    public function testDeleteLogoRemovesTheCustomLogoAndJournalsIt(): void
+    {
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+        $token = bin2hex(random_bytes(32));
+        $_SESSION['_csrf_token'] = $token;
+
+        $this->unitLogoService->storeUploadedLogo($this->solidPngBytes(400, 1, 2, 3), 'image/png');
+        $this->assertTrue($this->unitLogoService->hasCustomLogo());
+
+        $request = $this->createJsonRequest(['_csrf_token' => $token], '/config/settings/logo-delete');
+        $response = $this->controller->deleteLogo($request, []);
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertTrue($decoded['success']);
+        $this->assertFalse($this->unitLogoService->hasCustomLogo());
+
+        $stmt = $this->pdo->query("SELECT COUNT(*) FROM event_log WHERE event_type = 'unit_logo_deleted'");
+        $this->assertSame(1, (int) $stmt->fetchColumn());
+    }
+
+    /**
      * @param array<string, mixed> $data
      */
-    private function createJsonRequest(array $data): Request
+    private function createJsonRequest(array $data, string $path = '/config/settings/update'): Request
     {
         $request = $this->getMockBuilder(Request::class)
-            ->setConstructorArgs(['POST', '/config/settings/update', [], [], [], []])
+            ->setConstructorArgs(['POST', $path, [], [], [], []])
             ->onlyMethods(['getRawBody'])
             ->getMock();
 

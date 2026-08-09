@@ -9,6 +9,7 @@ use Core\Config\SettingService;
 use Core\Http\Request;
 use Core\Http\Response;
 use Core\Journal\JournalService;
+use Core\Photo\UnitLogoService;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Twig\Environment;
@@ -29,7 +30,8 @@ class SettingsController extends AbstractController
     public function __construct(
         protected Environment $twig,
         private SettingService $settingService,
-        private JournalService $journal
+        private JournalService $journal,
+        private UnitLogoService $unitLogoService
     ) {
     }
 
@@ -50,6 +52,7 @@ class SettingsController extends AbstractController
 
         $html = $this->twig->render('config/settings.html.twig', [
             'setting_groups' => $groups,
+            'unit_logo_is_custom' => $this->unitLogoService->hasCustomLogo(),
         ]);
         return new Response($html);
     }
@@ -91,12 +94,59 @@ class SettingsController extends AbstractController
             return $this->json(['success' => false, 'error' => $e->getMessage()]);
         }
 
+        // The maskable icon and icon-180 are baked onto pwa_background_color
+        // at derivation time (Core\Photo\UnitLogoProcessor::flattenOpaque())
+        // — without this, changing the color here would update the theme
+        // and the manifest's own background_color immediately but leave
+        // those two icons showing whatever color was in effect at the last
+        // upload. A no-op when no custom logo was ever uploaded (nothing
+        // to re-derive from).
+        if ($moduleId === null && $key === 'pwa_background_color') {
+            $this->unitLogoService->rederiveFromSource();
+        }
+
         $this->journal->log(
             'core',
             'setting_changed',
             'info',
             "Paramètre « {$key} » modifié",
             ['key' => $key, 'module_id' => $moduleId, 'old_value' => $oldValue, 'new_value' => $value, 'ip' => $_SERVER['REMOTE_ADDR'] ?? ''],
+            AuthSession::getUserAccountId()
+        );
+
+        return $this->json(['success' => true]);
+    }
+
+    /**
+     * POST /config/settings/logo-delete — remove an uploaded unit logo
+     * override, reverting the favicon/PWA icons/footer logo to the
+     * shipped defaults (AJAX, JSON). Not part of the generic key/value
+     * update() above — a logo has no single settings-table row of its own
+     * (see Core\Photo\UnitLogoService's own docblock, "is_file() is the
+     * state").
+     *
+     * @param array<string, string> $params
+     */
+    public function deleteLogo(Request $request, array $params): Response
+    {
+        $data = json_decode($request->getRawBody(), true);
+        if (!is_array($data)) {
+            return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
+        }
+
+        $csrfToken = $data['_csrf_token'] ?? '';
+        if (!CsrfGuard::validateToken($csrfToken)) {
+            return $this->json(['success' => false, 'error' => 'Jeton CSRF invalide.'], 403);
+        }
+
+        $this->unitLogoService->deleteUploadedLogo();
+
+        $this->journal->log(
+            'core',
+            'unit_logo_deleted',
+            'info',
+            'Logo de l\'unité supprimé — retour aux icônes par défaut',
+            [],
             AuthSession::getUserAccountId()
         );
 

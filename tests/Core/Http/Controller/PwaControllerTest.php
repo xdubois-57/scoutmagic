@@ -11,8 +11,8 @@ use Core\Http\Controller\PwaController;
 use Core\Http\FrontController;
 use Core\Http\Request;
 use Core\Http\Router;
-use Core\Photo\PwaIconProcessor;
-use Core\Photo\PwaIconService;
+use Core\Photo\UnitLogoProcessor;
+use Core\Photo\UnitLogoService;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Twig\Environment;
@@ -39,8 +39,8 @@ class PwaControllerTest extends TestCase
         $this->defaultIconPath = sys_get_temp_dir() . '/scoutmagic_pwa_ctrl_defaults_' . uniqid();
         mkdir($this->defaultIconPath, 0755, true);
 
-        $iconService = new PwaIconService(
-            new PwaIconProcessor(),
+        $iconService = new UnitLogoService(
+            new UnitLogoProcessor(),
             $this->settingService,
             $this->storagePath,
             $this->defaultIconPath
@@ -129,7 +129,7 @@ class PwaControllerTest extends TestCase
         $settingService = new SettingService(new SettingRepository($pdo));
         $settingService->register('pwa_icon_version', '1', 'number', 'x', 'x', null, null, null, false);
 
-        $iconService = new PwaIconService(new PwaIconProcessor(), $settingService, $this->storagePath, $this->defaultIconPath);
+        $iconService = new UnitLogoService(new UnitLogoProcessor(), $settingService, $this->storagePath, $this->defaultIconPath);
         $templateDir = dirname(__DIR__, 4) . '/core/View/templates';
         $twig = new Environment(new FilesystemLoader($templateDir), ['cache' => false, 'autoescape' => 'html']);
         $controller = new PwaController($twig, $settingService, $iconService);
@@ -184,6 +184,82 @@ class PwaControllerTest extends TestCase
         $this->assertSame('custom-uploaded-bytes', $response->getBody());
     }
 
+    /**
+     * @dataProvider faviconAndFooterLogoSizesProvider
+     */
+    public function testIconServesTheNewFaviconAndFooterLogoSizes(string $size, string $filename): void
+    {
+        file_put_contents($this->defaultIconPath . '/' . $filename, 'default-bytes-for-' . $size);
+
+        $request = new Request('GET', "/pwa/icon-{$size}.png", [], [], [], []);
+        $response = $this->controller->icon($request, ['size' => $size]);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame('default-bytes-for-' . $size, $response->getBody());
+    }
+
+    /**
+     * @return array<string, array{0: string, 1: string}>
+     */
+    public static function faviconAndFooterLogoSizesProvider(): array
+    {
+        return [
+            'favicon 16' => ['16', 'favicon-16.png'],
+            'favicon 32' => ['32', 'favicon-32.png'],
+            'favicon 48' => ['48', 'favicon-48.png'],
+            'footer logo 64' => ['64', 'logo-64.png'],
+        ];
+    }
+
+    public function testFaviconReturns404WhenNeitherOverrideNorShippedDefaultExists(): void
+    {
+        $request = new Request('GET', '/favicon.ico', [], [], [], []);
+        $response = $this->controller->favicon($request, []);
+
+        $this->assertSame(404, $response->getStatusCode());
+    }
+
+    public function testFaviconServesTheShippedDefaultIcoWithTheRightMimeType(): void
+    {
+        file_put_contents($this->defaultIconPath . '/favicon.ico', 'shipped-ico-bytes');
+
+        $request = new Request('GET', '/favicon.ico', [], [], [], []);
+        $response = $this->controller->favicon($request, []);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame('shipped-ico-bytes', $response->getBody());
+        $this->assertSame('image/x-icon', $response->getHeaders()['Content-Type']);
+    }
+
+    public function testFaviconServesUploadedOverrideInsteadOfShippedDefault(): void
+    {
+        file_put_contents($this->defaultIconPath . '/favicon.ico', 'shipped-ico-bytes');
+        mkdir($this->storagePath, 0755, true);
+        file_put_contents($this->storagePath . '/favicon.ico', 'custom-ico-bytes');
+
+        $request = new Request('GET', '/favicon.ico', [], [], [], []);
+        $response = $this->controller->favicon($request, []);
+
+        $this->assertSame('custom-ico-bytes', $response->getBody());
+    }
+
+    /**
+     * Unlike icon()'s year-long immutable cache, /favicon.ico has no
+     * query-string versioning available (a browser's own implicit request
+     * for it never carries one) — its Cache-Control must stay short enough
+     * that a re-upload doesn't stay invisible on this legacy path for a
+     * year.
+     */
+    public function testFaviconCacheControlIsShortNotImmutable(): void
+    {
+        file_put_contents($this->defaultIconPath . '/favicon.ico', 'bytes');
+
+        $request = new Request('GET', '/favicon.ico', [], [], [], []);
+        $response = $this->controller->favicon($request, []);
+
+        $this->assertStringNotContainsString('immutable', $response->getHeaders()['Cache-Control']);
+    }
+
     public function testOfflinePageRendersFrenchNoPersonalOrDynamicData(): void
     {
         $request = new Request('GET', '/offline', [], [], [], []);
@@ -197,11 +273,12 @@ class PwaControllerTest extends TestCase
 
     /**
      * Mirrors public/index.php's actual route registrations: role_min
-     * "public" for all three PWA routes, so an unauthenticated request must
-     * reach the controller (200/404 territory) rather than being redirected
-     * to /login like every other route in the app defaults to.
+     * "public" for all four PWA/favicon routes, so an unauthenticated
+     * request must reach the controller (200/404 territory) rather than
+     * being redirected to /login like every other route in the app
+     * defaults to.
      */
-    public function testManifestIconAndOfflineRoutesAreReachableWithoutAuthentication(): void
+    public function testManifestIconFaviconAndOfflineRoutesAreReachableWithoutAuthentication(): void
     {
         if (session_status() === PHP_SESSION_ACTIVE) {
             session_write_close();
@@ -215,6 +292,7 @@ class PwaControllerTest extends TestCase
         $router = new Router();
         $router->addRoute('GET', '/manifest.webmanifest', PwaController::class, 'manifest', 'public');
         $router->addRoute('GET', '/pwa/icon-{size}.png', PwaController::class, 'icon', 'public');
+        $router->addRoute('GET', '/favicon.ico', PwaController::class, 'favicon', 'public');
         $router->addRoute('GET', '/offline', PwaController::class, 'offline', 'public');
 
         $fc = new FrontController($router, $this->createMock(Environment::class), $config);
@@ -225,6 +303,9 @@ class PwaControllerTest extends TestCase
 
         $iconResponse = $fc->handle(new Request('GET', '/pwa/icon-999.png', [], [], [], []));
         $this->assertSame(404, $iconResponse->getStatusCode(), 'unauthenticated request must reach the controller, not be redirected to /login');
+
+        $faviconResponse = $fc->handle(new Request('GET', '/favicon.ico', [], [], [], []));
+        $this->assertSame(404, $faviconResponse->getStatusCode(), 'unauthenticated request must reach the controller, not be redirected to /login');
 
         $offlineResponse = $fc->handle(new Request('GET', '/offline', [], [], [], []));
         $this->assertSame(200, $offlineResponse->getStatusCode());

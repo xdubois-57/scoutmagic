@@ -76,4 +76,59 @@ class FooterTest extends TestCase
 
         $this->assertStringContainsString('Test Unit', $html);
     }
+
+    public function testFooterShowsTheUnitLogoWhenAvailable(): void
+    {
+        $this->twig->addGlobal('unit_logo_available', true);
+        $this->twig->addGlobal('pwa_icon_version', 7);
+
+        $html = $this->twig->render('base.html.twig');
+
+        $this->assertMatchesRegularExpression('#<img src="/pwa/icon-64\.png\?v=7" alt=""#', $html);
+    }
+
+    /**
+     * "Nothing if absent" — same principle as section_photo() (ARCHITECTURE
+     * §8.10): no broken <img> when neither an upload nor a shipped default
+     * resolves, rather than an empty box or a broken-image icon.
+     */
+    public function testFooterShowsNoImageWhenNoLogoIsAvailable(): void
+    {
+        $this->twig->addGlobal('unit_logo_available', false);
+
+        $html = $this->twig->render('base.html.twig');
+
+        $this->assertStringNotContainsString('icon-64.png', $html);
+    }
+
+    public function testFooterRendersWithoutTheUnitLogoGlobalsSetAtAll(): void
+    {
+        // No unit_logo_available/pwa_icon_version global registered at
+        // all — must default safely rather than throwing (mirrors how
+        // every other pre-existing test in this class renders base.html.twig
+        // with no PWA-related globals either).
+        $html = $this->twig->render('base.html.twig');
+
+        $this->assertStringNotContainsString('icon-64.png', $html);
+    }
+
+    public function testHeadLinksTheFaviconPngsWhenAvailable(): void
+    {
+        $this->twig->addGlobal('unit_logo_available', true);
+        $this->twig->addGlobal('pwa_icon_version', 4);
+
+        $html = $this->twig->render('base.html.twig');
+
+        $this->assertStringContainsString('<link rel="icon" type="image/png" sizes="32x32" href="/pwa/icon-32.png?v=4">', $html);
+        $this->assertStringContainsString('<link rel="icon" type="image/png" sizes="16x16" href="/pwa/icon-16.png?v=4">', $html);
+    }
+
+    public function testHeadOmitsFaviconLinksWhenNoLogoIsAvailable(): void
+    {
+        $this->twig->addGlobal('unit_logo_available', false);
+
+        $html = $this->twig->render('base.html.twig');
+
+        $this->assertStringNotContainsString('rel="icon"', $html);
+    }
 }
