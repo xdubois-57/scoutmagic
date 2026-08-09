@@ -12,6 +12,15 @@
        whether the site is installed or just open in a tab. #}
     <link rel="manifest" href="/manifest.webmanifest">
     <link rel="apple-touch-icon" href="/pwa/icon-180.png?v={{ pwa_icon_version|default(1) }}">
+    {# Unit logo feature — favicons derived from the same uploaded logo as
+       the PWA icons above (Core\Photo\UnitLogoService). The 32/16 PNGs
+       here are what every current browser actually uses; /favicon.ico
+       (no <link> needed — browsers request it implicitly at the root) is
+       the legacy fallback for the rest, see PwaController::favicon(). #}
+    {% if unit_logo_available|default(false) %}
+    <link rel="icon" type="image/png" sizes="32x32" href="/pwa/icon-32.png?v={{ pwa_icon_version|default(1) }}">
+    <link rel="icon" type="image/png" sizes="16x16" href="/pwa/icon-16.png?v={{ pwa_icon_version|default(1) }}">
+    {% endif %}
     <meta name="theme-color" content="{{ pwa_theme_color|default('#0d6efd') }}">
     {% block head_meta %}{% endblock %}
     <link rel="stylesheet" href="/assets/vendor/bootstrap/css/bootstrap.min.css">
@@ -84,7 +93,20 @@
     {% block footer %}
     <footer class="border-top py-3 mt-4">
         <div class="container d-flex flex-wrap justify-content-between align-items-center small text-body-secondary">
-            <span>{{ site_name }}</span>
+            <span class="d-flex align-items-center gap-2">
+                {# Same logo as the favicon/PWA icons (Core\Photo\
+                   UnitLogoService) — nothing rendered when neither an
+                   upload nor a shipped default resolves, rather than a
+                   broken image (same "nothing if absent" principle as
+                   section_photo(), ARCHITECTURE §8.10). alt="" is
+                   deliberate: decorative, the unit name text sits right
+                   next to it, so a redundant alt would just be screen-
+                   reader noise. #}
+                {% if unit_logo_available|default(false) %}
+                <img src="/pwa/icon-64.png?v={{ pwa_icon_version|default(1) }}" alt="" width="24" height="24">
+                {% endif %}
+                {{ site_name }}
+            </span>
             <div class="d-flex gap-3">
                 <a href="/rgpd" class="text-body-secondary text-decoration-none">Protection des données</a>
                 <a href="/cookies" class="text-body-secondary text-decoration-none">Préférences cookies</a>

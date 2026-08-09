@@ -14,9 +14,9 @@ use Core\Journal\JournalService;
 use Core\Member\MemberService;
 use Core\Photo\LandscapeImageProcessor;
 use Core\Photo\MemberPhotoService;
-use Core\Photo\PwaIconService;
 use Core\Photo\SectionPhotoProcessor;
 use Core\Photo\SectionPhotoService;
+use Core\Photo\UnitLogoService;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\Security\Role;
@@ -38,7 +38,7 @@ class UploadController extends AbstractController
         private LandscapeImageProcessor $landscapeImageProcessor,
         private MemberService $memberService,
         private AgeBranchRepository $ageBranchRepository,
-        private PwaIconService $pwaIconService
+        private UnitLogoService $unitLogoService
     ) {
     }
 
@@ -100,13 +100,16 @@ class UploadController extends AbstractController
             $allowedMimes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
             $maxSize = 5 * 1024 * 1024; // 5 MB
 
-            // pwa_icon (the installable-app logo, Configuration > PWA) is
-            // deliberately never handed to UploadHandler::handle() at all:
-            // it never becomes a `files` row / /files/{id} download, since
-            // a manifest/home-screen icon is fetched with no session —
-            // see Core\Photo\PwaIconService's own docblock. Returns here,
-            // short-circuiting the generic files-table flow below entirely.
-            if ($context === 'pwa_icon') {
+            // unit_logo (Configuration > Paramètres généraux's logo
+            // upload — feeds the favicon, the installed-app icons, and the
+            // footer logo) is deliberately never handed to
+            // UploadHandler::handle() at all: it never becomes a `files`
+            // row / /files/{id} download, since every one of those is
+            // fetched with no session — see Core\Photo\UnitLogoService's
+            // own docblock. Returns here, short-circuiting the generic
+            // files-table flow below entirely. Named 'pwa_icon' before the
+            // logo feature widened this beyond the PWA manifest icons.
+            if ($context === 'unit_logo') {
                 $tmpName = (string) ($uploadedFile['tmp_name'] ?? '');
                 if ($tmpName === '' || !is_file($tmpName)) {
                     throw new UploadException('Fichier invalide.');
@@ -116,10 +119,10 @@ class UploadController extends AbstractController
                     throw new UploadException('Type de fichier non accepté — formats attendus : JPEG, PNG, GIF, WebP.');
                 }
 
-                $this->pwaIconService->storeUploadedLogo((string) file_get_contents($tmpName), $mimeType);
-                $this->journalService?->log('core', 'pwa_icon_updated', 'info', 'Icône PWA modifiée', [], AuthSession::getUserAccountId());
+                $this->unitLogoService->storeUploadedLogo((string) file_get_contents($tmpName), $mimeType);
+                $this->journalService?->log('core', 'unit_logo_updated', 'info', 'Logo de l\'unité modifié', [], AuthSession::getUserAccountId());
 
-                FlashMessage::set('success', 'Icône mise à jour.');
+                FlashMessage::set('success', 'Logo mis à jour.');
                 return $this->redirect($returnUrl);
             }
 
@@ -283,11 +286,12 @@ class UploadController extends AbstractController
             return Role::fromString(AuthSession::getRole())->hasAccess(Role::SUPERADMIN);
         }
 
-        // pwa_icon (Configuration > PWA's logo upload) — same direct
-        // role check as age_branch_logo above: its own admin page is
-        // already superadmin-gated, not the front-end configuration-mode
-        // overlay, so there's no session flag to require here either.
-        if ($context === 'pwa_icon') {
+        // unit_logo (Configuration > Paramètres généraux's logo upload) —
+        // same direct role check as age_branch_logo above: its own admin
+        // page is already superadmin-gated, not the front-end
+        // configuration-mode overlay, so there's no session flag to
+        // require here either.
+        if ($context === 'unit_logo') {
             return Role::fromString(AuthSession::getRole())->hasAccess(Role::SUPERADMIN);
         }
 

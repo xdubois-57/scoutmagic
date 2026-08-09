@@ -7,20 +7,26 @@ namespace Core\Http\Controller;
 use Core\Config\SettingService;
 use Core\Http\Request;
 use Core\Http\Response;
-use Core\Photo\PwaIconService;
+use Core\Photo\UnitLogoService;
 use Twig\Environment;
 
 /**
  * Installable-PWA app shell (Lot 1) — manifest, icons, and the offline
  * fallback page. No notifications, no content caching: see public/sw.js
  * for what little the service worker itself does in this lot.
+ *
+ * icon()/favicon() below outlived "PWA-only" once the unit logo feature
+ * widened Core\Photo\UnitLogoService's scope to favicons and the footer
+ * logo too (see that class's own docblock) — kept here rather than split
+ * into a new controller since they're still the same "installed-app icon,
+ * fetched with no session" route family as manifest()/offline().
  */
 class PwaController extends AbstractController
 {
     public function __construct(
         protected Environment $twig,
         private SettingService $settingService,
-        private PwaIconService $iconService
+        private UnitLogoService $iconService
     ) {
     }
 
@@ -64,15 +70,19 @@ class PwaController extends AbstractController
 
     /**
      * GET /pwa/icon-{size}.png — a dedicated public route rather than
-     * /files/{id}: an installed app's manifest/home-screen icon is
-     * fetched with no session at all, and SECURITY.md §6's single-
-     * download-path rule governs session/role-gated files, not static
-     * public assets that were never candidates for access control in the
-     * first place. Serves an uploaded override if one exists
-     * (Core\Photo\PwaIconService), otherwise the shipped default —
+     * /files/{id}: a favicon/manifest/home-screen icon is fetched with no
+     * session at all, and SECURITY.md §6's single-download-path rule
+     * governs session/role-gated files, not static public assets that
+     * were never candidates for access control in the first place. $size
+     * covers every PNG derivative Core\Photo\UnitLogoService knows how to
+     * resolve — the original four PWA sizes (192/512/512-maskable/180)
+     * plus, since the unit logo feature widened that service's scope,
+     * three favicon sizes (16/32/48) and the footer logo (64). Serves an
+     * uploaded override if one exists, otherwise the shipped default —
      * either way, long cache headers plus the version query string
-     * (bumped on every new upload) are what actually invalidate a stale
-     * cached copy, not the Cache-Control lifetime itself.
+     * (bumped on every upload/deletion/re-derivation) are what actually
+     * invalidate a stale cached copy, not the Cache-Control lifetime
+     * itself.
      *
      * @param array<string, string> $params
      */
@@ -91,6 +101,38 @@ class PwaController extends AbstractController
         return (new Response($content))
             ->setHeader('Content-Type', 'image/png')
             ->setHeader('Cache-Control', 'public, max-age=31536000, immutable')
+            ->setHeader('Content-Length', (string) strlen($content));
+    }
+
+    /**
+     * GET /favicon.ico — the legacy fallback browsers request implicitly
+     * at the document root when a page has no (or an unsupported)
+     * <link rel="icon">; base.html.twig's <head> always links the PNG
+     * favicons too (see manifest()'s sibling icon() route above), which
+     * every current browser prefers over this route. Packed by
+     * Core\Photo\UnitLogoProcessor::packIco() — a hand-written ICO
+     * container around already-PNG-encoded 16/32/48 bytes, no image
+     * library beyond GD (see that method's own docblock for why writing
+     * ~30 lines here was chosen over serving a bare 32px PNG at this
+     * path instead). Cache-Control is deliberately much shorter than
+     * icon()'s: this route has no way to be versioned by a query string
+     * (a browser's own implicit /favicon.ico request never carries one),
+     * so a full year of "immutable" here would mean a stale icon could
+     * outlive several re-uploads for any visitor relying on this legacy
+     * path alone.
+     *
+     * @param array<string, string> $params
+     */
+    public function favicon(Request $request, array $params): Response
+    {
+        $content = $this->iconService->resolveFaviconIcoContent();
+        if ($content === null) {
+            return new Response('Not Found', 404);
+        }
+
+        return (new Response($content))
+            ->setHeader('Content-Type', 'image/x-icon')
+            ->setHeader('Cache-Control', 'public, max-age=86400')
             ->setHeader('Content-Length', (string) strlen($content));
     }
 

@@ -73,6 +73,17 @@ const APP_SHELL_URLS = [
     '/pwa/icon-512.png',
     '/pwa/icon-512-maskable.png',
     '/pwa/icon-180.png',
+    // Unit logo feature widened Core\Photo\UnitLogoService beyond the
+    // original four PWA sizes above — favicons and the footer logo are
+    // precached the same way, same reasoning (small, static, no personal
+    // data). ignoreSearch:true in the fetch handler below still applies,
+    // so a version-bumped '?v=' request still matches these bare-path
+    // entries.
+    '/pwa/icon-16.png',
+    '/pwa/icon-32.png',
+    '/pwa/icon-48.png',
+    '/pwa/icon-64.png',
+    '/favicon.ico',
     '/offline',
 ];
 
