@@ -137,6 +137,50 @@ class NotificationRepositoryTest extends TestCase
         $this->assertSame(1, $this->repository->countUnread($this->userId));
     }
 
+    public function testFindLatestUnreadReturnsNullWhenNoneExist(): void
+    {
+        $this->assertNull($this->repository->findLatestUnread($this->userId));
+    }
+
+    public function testFindLatestUnreadSkipsAlreadyReadNotifications(): void
+    {
+        // The most recent notification overall is already read (the
+        // member followed a direct link to it without visiting the
+        // centre) — the nav indicator's "last one" must still surface the
+        // older, still-unread one, not the read newest one.
+        $olderUnread = $this->repository->create($this->userId, null, 'core.system', 'Older unread', 'Corps', '/a');
+        $newerRead = $this->repository->create($this->userId, null, 'core.system', 'Newer read', 'Corps', '/b');
+        $this->repository->markRead($newerRead);
+
+        $latest = $this->repository->findLatestUnread($this->userId);
+
+        $this->assertNotNull($latest);
+        $this->assertSame($olderUnread, $latest->id);
+        $this->assertSame('Older unread', $latest->title);
+    }
+
+    public function testFindLatestUnreadReturnsTheNewestWhenSeveralAreUnread(): void
+    {
+        $this->repository->create($this->userId, null, 'core.system', 'First', 'Corps', null);
+        $second = $this->repository->create($this->userId, null, 'core.system', 'Second', 'Corps', null);
+
+        $latest = $this->repository->findLatestUnread($this->userId);
+
+        $this->assertNotNull($latest);
+        $this->assertSame($second, $latest->id);
+    }
+
+    public function testFindLatestUnreadOnlyReturnsRequestedUsersNotification(): void
+    {
+        $stmt = $this->pdo->prepare('INSERT INTO user_accounts (email_encrypted, email_blind_index) VALUES (?, ?)');
+        $stmt->execute(['enc3', 'idx3']);
+        $otherUserId = (int) $this->pdo->lastInsertId();
+
+        $this->repository->create($otherUserId, null, 'core.system', 'Theirs', 'Corps', null);
+
+        $this->assertNull($this->repository->findLatestUnread($this->userId));
+    }
+
     public function testDeleteReadOlderThanOnlyDeletesReadRowsPastTheCutoff(): void
     {
         $oldRead = $this->repository->create($this->userId, null, 'core.system', 'Old read', 'Corps', null);

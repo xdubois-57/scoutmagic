@@ -100,9 +100,9 @@ class UploadController extends AbstractController
             $allowedMimes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
             $maxSize = 5 * 1024 * 1024; // 5 MB
 
-            // unit_logo (Configuration > Paramètres généraux's logo
-            // upload — feeds the favicon, the installed-app icons, and the
-            // footer logo) is deliberately never handed to
+            // unit_logo (Configuration avancée's "Paramètres généraux"
+            // logo upload — feeds the favicon, the installed-app icons,
+            // and the footer logo) is deliberately never handed to
             // UploadHandler::handle() at all: it never becomes a `files`
             // row / /files/{id} download, since every one of those is
             // fetched with no session — see Core\Photo\UnitLogoService's
@@ -122,7 +122,19 @@ class UploadController extends AbstractController
                 $this->unitLogoService->storeUploadedLogo((string) file_get_contents($tmpName), $mimeType);
                 $this->journalService?->log('core', 'unit_logo_updated', 'info', 'Logo de l\'unité modifié', [], AuthSession::getUserAccountId());
 
-                FlashMessage::set('success', 'Logo mis à jour.');
+                // The iOS caveat rides the same one-time success flash
+                // rather than a permanent on-page fixture — it only
+                // matters in the moment right after a change. iOS never
+                // re-reads the manifest/apple-touch-icon for an
+                // already-installed app (no web API can refresh that icon
+                // — see ARCHITECTURE §8.23); Android/Chrome re-reads the
+                // manifest on its own and needs no admin action.
+                FlashMessage::set(
+                    'success',
+                    'Logo mis à jour. Sur iOS, les personnes ayant déjà installé l\'application devront la '
+                    . 'supprimer puis la réinstaller pour voir le nouveau logo — la mise à jour est automatique '
+                    . 'sur Android (peut prendre un moment).'
+                );
                 return $this->redirect($returnUrl);
             }
 

@@ -56,6 +56,20 @@ class NotificationRegistry
                 roleMin: 'chief',
                 channels: ['in_app' => 'default_on', 'push' => 'default_off', 'email' => 'default_off']
             ),
+            // Manually triggered by a superadmin from the logo upload
+            // block (Configuration avancée, /setup) after a unit logo
+            // change — never automatically on every upload (see Core\
+            // Http\Controller\SettingsController::notifyIosLogoUpdate()).
+            // Broadcast to every account, not just iOS ones — the site has
+            // no way to know which platform a given account is on.
+            new NotificationType(
+                id: 'core.unit_logo_updated_ios',
+                label: 'Nouveau logo — réinstallation iOS',
+                description: "Quand le logo de l'unité a changé et que l'administrateur invite les utilisateurs iOS à réinstaller l'application pour le voir",
+                group: 'Informations',
+                roleMin: 'identified',
+                channels: ['in_app' => 'default_on', 'push' => 'default_on', 'email' => 'default_off']
+            ),
         ];
     }
 }

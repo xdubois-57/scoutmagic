@@ -15,15 +15,19 @@
 // registration base.html.twig already performs instead of registering a
 // second worker.
 //
-// Registered as /sw.js?v={appVersion} (see base.html.twig) — appVersion
-// comes from Core\Maintenance\VersionFile, the same file a GitHub-release
-// install (§8.17) overwrites as its last step. self.location.search is
-// how a plain static script reads that query string at runtime; there is
-// no server-side templating here. The cache name derives from it, so a
-// version bump is the entire update/invalidation mechanism: a new query
-// string means the browser treats this as a new worker (a byte-different
-// script), which installs, precaches fresh copies under a new cache name,
-// and activate() below deletes every cache that doesn't match it.
+// Registered as /sw.js?v={appVersion}&iv={pwaIconVersion} (see
+// base.html.twig) — appVersion comes from Core\Maintenance\VersionFile,
+// the same file a GitHub-release install (§8.17) overwrites as its last
+// step; pwaIconVersion is Core\Photo\UnitLogoService's independent
+// counter, bumped on every unit logo upload/delete/re-derivation.
+// self.location.search is how a plain static script reads that query
+// string at runtime; there is no server-side templating here. The cache
+// name derives from BOTH values, so either one changing is enough to
+// invalidate: a release bump OR a standalone logo upload (which never
+// touches appVersion) each make the browser treat this as a new worker
+// (a byte-different script), which installs, precaches fresh copies
+// under a new cache name, and activate() below deletes every cache that
+// doesn't match it.
 //
 // Scope of the app-shell cache (Lot 1): the shell ONLY (Bootstrap, the
 // site's own CSS/JS, the icons, /offline). Cache-first for exactly those;
@@ -56,11 +60,49 @@
 
 const params = new URLSearchParams(self.location.search);
 const VERSION = params.get('v') || 'dev';
-const CACHE_NAME = 'app-shell-' + VERSION;
+// pwa_icon_version (Core\Photo\UnitLogoService) — bumped on every unit
+// logo upload/delete/re-derivation, entirely independent of VERSION
+// above (a logo change is not a release). Folded into CACHE_NAME below so
+// an icon-only change still gets its own purge-and-re-precache cycle
+// instead of silently reusing whatever was cached under the last app
+// version — this is the actual fix for icons never updating without a
+// manual cache wipe (see the real bug this closes: ARCHITECTURE §8.23).
+const ICON_VERSION = params.get('iv') || '1';
+const CACHE_NAME = 'app-shell-' + VERSION + '-icons-' + ICON_VERSION;
+
+// Icon URLs carry their own server-issued `?v=` cache-buster
+// (pwa_icon_version) baked into the precached Request's URL below, and
+// are matched WITHOUT ignoreSearch in the fetch handler further down — a
+// stale `?v=` cached from an old HTML response must reliably MISS this
+// cache and fall through to the network rather than resolving to
+// whatever version happens to be precached (that was the actual bug:
+// ignoreSearch made every "?v=N" match the one bare-path entry
+// regardless of N, so a re-upload never visibly changed anything without
+// a manual cache wipe). /favicon.ico is deliberately NOT in this list —
+// browsers request it implicitly at the document root with no query
+// string to version at all, so it can never carry `?v=` and stays in the
+// plain APP_SHELL_URLS list below instead, matched with ignoreSearch
+// (harmless there, since it never legitimately carries one).
+const ICON_URLS = [
+    '/pwa/icon-192.png',
+    '/pwa/icon-512.png',
+    '/pwa/icon-512-maskable.png',
+    '/pwa/icon-180.png',
+    // Unit logo feature widened Core\Photo\UnitLogoService beyond the
+    // original four PWA sizes above — favicons and the footer logo are
+    // versioned/precached the exact same way.
+    '/pwa/icon-16.png',
+    '/pwa/icon-32.png',
+    '/pwa/icon-48.png',
+    '/pwa/icon-64.png',
+];
+const VERSIONED_ICON_URLS = ICON_URLS.map(function (path) { return path + '?v=' + ICON_VERSION; });
 
 // Explicit whitelist — never a blacklist. Every entry here is public,
-// static, and contains no personal data.
-const APP_SHELL_URLS = [
+// static, and contains no personal data. ignoreSearch stays in effect for
+// all of these (see the fetch handler) — none of them legitimately
+// carries a query string in real traffic, unlike the icon URLs above.
+const APP_SHELL_BASE_URLS = [
     '/assets/vendor/bootstrap/css/bootstrap.min.css',
     '/assets/vendor/bootstrap-icons/bootstrap-icons.min.css',
     '/assets/vendor/bootstrap/js/bootstrap.bundle.min.js',
@@ -69,23 +111,11 @@ const APP_SHELL_URLS = [
     '/assets/js/nav.js',
     '/assets/js/editable.js',
     '/assets/js/cookie-consent.js',
-    '/pwa/icon-192.png',
-    '/pwa/icon-512.png',
-    '/pwa/icon-512-maskable.png',
-    '/pwa/icon-180.png',
-    // Unit logo feature widened Core\Photo\UnitLogoService beyond the
-    // original four PWA sizes above — favicons and the footer logo are
-    // precached the same way, same reasoning (small, static, no personal
-    // data). ignoreSearch:true in the fetch handler below still applies,
-    // so a version-bumped '?v=' request still matches these bare-path
-    // entries.
-    '/pwa/icon-16.png',
-    '/pwa/icon-32.png',
-    '/pwa/icon-48.png',
-    '/pwa/icon-64.png',
     '/favicon.ico',
     '/offline',
 ];
+
+const APP_SHELL_URLS = APP_SHELL_BASE_URLS.concat(VERSIONED_ICON_URLS);
 
 // --- Lot 3: content caching config ---
 // Not durable as a plain JS variable — the browser can terminate and
@@ -171,9 +201,26 @@ self.addEventListener('fetch', function (event) {
 
     const url = new URL(request.url);
 
-    // Cache-first for the app shell — ignoreSearch so a cache-busting
-    // "?v=..." on an icon URL still matches the precached entry.
-    if (APP_SHELL_URLS.indexOf(url.pathname) !== -1) {
+    // Icons: exact match INCLUDING their `?v=` cache-buster — never
+    // ignoreSearch. A request for an old `?v=` (a stale HTML page still
+    // referencing it) must genuinely miss this cache rather than resolve
+    // to whichever version happens to be precached; a fresh `?v=` after a
+    // logo upload must equally miss until CACHE_NAME's own icon-version
+    // bump has re-precached it. This is the actual cache-busting fix —
+    // ignoreSearch here would silently undo it (see ARCHITECTURE §8.23).
+    if (ICON_URLS.indexOf(url.pathname) !== -1) {
+        event.respondWith(
+            caches.match(request).then(function (cached) {
+                return cached || fetch(request);
+            })
+        );
+        return;
+    }
+
+    // Rest of the app shell — cache-first, ignoreSearch so a request that
+    // happens to carry a query string (none of these legitimately do)
+    // still matches the precached bare-path entry.
+    if (APP_SHELL_BASE_URLS.indexOf(url.pathname) !== -1) {
         event.respondWith(
             caches.match(request, { ignoreSearch: true }).then(function (cached) {
                 return cached || fetch(request);

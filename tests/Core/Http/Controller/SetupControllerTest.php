@@ -4,12 +4,17 @@ declare(strict_types=1);
 
 namespace Tests\Core\Http\Controller;
 
+use Core\Config\SettingRepository;
+use Core\Config\SettingService;
 use Core\Http\Controller\SetupController;
 use Core\Http\Request;
 use Core\Mail\DkimManager;
+use Core\Photo\UnitLogoProcessor;
+use Core\Photo\UnitLogoService;
 use Core\Security\SecretManager;
 use Core\View\TwigFactory;
 use PHPUnit\Framework\TestCase;
+use Tests\DatabaseTestHelper;
 
 class SetupControllerTest extends TestCase
 {
@@ -47,6 +52,38 @@ class SetupControllerTest extends TestCase
         if (session_status() === PHP_SESSION_ACTIVE) {
             session_destroy();
         }
+    }
+
+    /**
+     * Real UnitLogoService backed by an in-memory SQLite SettingService,
+     * matching public/index.php's normal-boot wiring (setUnitLogoService()
+     * is only ever called there once secrets.enc/the database exist —
+     * this mirrors that state for the "is_initialized" tests below).
+     */
+    private function buildUnitLogoService(): UnitLogoService
+    {
+        $pdo = DatabaseTestHelper::createTestDatabase();
+        $settingService = new SettingService(new SettingRepository($pdo));
+        $settingService->register('pwa_background_color', '#ffffff', 'color', 'L', 'D');
+        $settingService->register('pwa_icon_version', '1', 'number', 'L', 'D', null, null, null, false);
+
+        $logoStoragePath = sys_get_temp_dir() . '/setup_ctrl_logo_' . uniqid();
+        $defaultIconPath = sys_get_temp_dir() . '/setup_ctrl_logo_defaults_' . uniqid();
+        mkdir($defaultIconPath, 0755, true);
+
+        return new UnitLogoService(new UnitLogoProcessor(), $settingService, $logoStoragePath, $defaultIconPath);
+    }
+
+    private function solidPngBytes(int $side, int $r, int $g, int $b): string
+    {
+        $image = imagecreatetruecolor($side, $side);
+        $color = imagecolorallocate($image, $r, $g, $b);
+        imagefill($image, 0, 0, $color);
+        ob_start();
+        imagepng($image);
+        $bytes = (string) ob_get_clean();
+        imagedestroy($image);
+        return $bytes;
     }
 
     public function testIndexRendersSetupForm(): void
@@ -233,6 +270,101 @@ class SetupControllerTest extends TestCase
         // Admin section should appear with update wording
         $this->assertStringContainsString('admin_email', $body);
         $this->assertStringContainsString('Compte administrateur', $body);
+    }
+
+    /**
+     * The single remaining activation point for the configuration mode
+     * lives on the Espace chefs d'U page (config/general.html.twig) —
+     * this page must not carry a second one anymore.
+     */
+    public function testIndexNoLongerShowsTheModeConfigurationCard(): void
+    {
+        $this->secretManager->generateMasterKey();
+        $this->secretManager->writeSecrets(['site_name' => 'Mon Unité']);
+
+        $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath);
+        $request = new Request('GET', '/setup', [], [], [], []);
+
+        $response = $controller->index($request, []);
+
+        $body = $response->getBody();
+        $this->assertStringNotContainsString('Mode configuration', $body);
+        $this->assertStringNotContainsString('/config-mode/', $body);
+    }
+
+    public function testIndexOrdersParametresGenerauxCardBeforeBaseDeDonnees(): void
+    {
+        $this->secretManager->generateMasterKey();
+        $this->secretManager->writeSecrets(['site_name' => 'Mon Unité']);
+
+        $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath);
+        $request = new Request('GET', '/setup', [], [], [], []);
+
+        $body = $controller->index($request, [])->getBody();
+
+        $generalPos = strpos($body, 'Paramètres généraux');
+        $dbPos = strpos($body, 'Base de données');
+        $this->assertNotFalse($generalPos);
+        $this->assertNotFalse($dbPos);
+        $this->assertLessThan($dbPos, $generalPos);
+    }
+
+    public function testIndexShowsLogoUploadBlockWhenInitializedAndServiceWired(): void
+    {
+        $this->secretManager->generateMasterKey();
+        $this->secretManager->writeSecrets(['site_name' => 'Mon Unité']);
+
+        $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath);
+        $controller->setUnitLogoService($this->buildUnitLogoService());
+        $request = new Request('GET', '/setup', [], [], [], []);
+
+        $body = $controller->index($request, [])->getBody();
+
+        $this->assertStringContainsString('Logo de l\'unité', $body);
+        $this->assertStringContainsString('context=unit_logo&return=/setup', $body);
+        $this->assertStringNotContainsString('unit-logo-delete-btn', $body);
+    }
+
+    public function testIndexShowsDeleteAndNotifyIosButtonsOnceACustomLogoExists(): void
+    {
+        $this->secretManager->generateMasterKey();
+        $this->secretManager->writeSecrets(['site_name' => 'Mon Unité']);
+
+        $unitLogoService = $this->buildUnitLogoService();
+        $unitLogoService->storeUploadedLogo($this->solidPngBytes(400, 1, 2, 3), 'image/png');
+
+        $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath);
+        $controller->setUnitLogoService($unitLogoService);
+        $request = new Request('GET', '/setup', [], [], [], []);
+
+        $body = $controller->index($request, [])->getBody();
+
+        $this->assertStringContainsString('unit-logo-delete-btn', $body);
+        $this->assertStringContainsString('unit-logo-notify-ios-btn', $body);
+    }
+
+    /**
+     * First-run safety (before secrets.enc exists): SetupController's
+     * UnitLogoService is never wired in this state (public/index.php only
+     * calls setUnitLogoService() from the normal-boot branch) — the logo
+     * block must not render at all rather than link into an upload flow
+     * that has no database/session to work against yet, and the page must
+     * render without error.
+     */
+    public function testIndexHidesLogoUploadBlockWhenNotInitialized(): void
+    {
+        $_SESSION['setup_token_verified'] = true;
+
+        $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath);
+        $request = new Request('GET', '/setup', [], [], [], []);
+
+        $response = $controller->index($request, []);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $body = $response->getBody();
+        $this->assertStringContainsString('Installation', $body);
+        $this->assertStringNotContainsString('Logo de l\'unité', $body);
+        $this->assertStringNotContainsString('context=unit_logo', $body);
     }
 
     public function testTestDatabaseReturnsJsonErrorWithInvalidCredentials(): void

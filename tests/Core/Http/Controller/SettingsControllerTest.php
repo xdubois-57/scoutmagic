@@ -10,8 +10,17 @@ use Core\Http\Controller\SettingsController;
 use Core\Http\Request;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
+use Core\Notification\NotificationPreferenceRepository;
+use Core\Notification\NotificationRepository;
+use Core\Notification\NotificationService;
+use Core\Notification\PushSubscriptionRepository;
 use Core\Photo\UnitLogoProcessor;
 use Core\Photo\UnitLogoService;
+use Core\Scheduler\SchedulerRepository;
+use Core\Scheduler\SchedulerService;
+use Core\Security\EncryptionService;
+use Core\Security\UserAccountRepository;
+use Minishlink\WebPush\WebPush;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Twig\Environment;
@@ -23,6 +32,8 @@ class SettingsControllerTest extends TestCase
     private SettingService $settingService;
     private JournalService $journalService;
     private UnitLogoService $unitLogoService;
+    private NotificationService $notificationService;
+    private UserAccountRepository $userAccountRepository;
     private string $logoStoragePath;
     private \PDO $pdo;
 
@@ -33,6 +44,18 @@ class SettingsControllerTest extends TestCase
         $this->settingService = new SettingService($settingRepo);
         $journalRepo = new JournalRepository($this->pdo);
         $this->journalService = new JournalService($journalRepo);
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $this->userAccountRepository = new UserAccountRepository($this->pdo, $encryption);
+        $this->notificationService = new NotificationService(
+            new NotificationRepository($this->pdo, $encryption),
+            new PushSubscriptionRepository($this->pdo, $encryption),
+            new NotificationPreferenceRepository($this->pdo),
+            $this->createMock(WebPush::class),
+            $this->settingService,
+            $this->journalService,
+            new SchedulerService(new SchedulerRepository($this->pdo)),
+            $this->userAccountRepository
+        );
 
         $this->settingService->register('pwa_background_color', '#ffffff', 'color', 'L', 'D');
         $this->settingService->register('pwa_icon_version', '1', 'number', 'L', 'D', null, null, null, false);
@@ -64,7 +87,14 @@ class SettingsControllerTest extends TestCase
         $twig->addFunction(new \Twig\TwigFunction('file_url', fn() => ''));
         $twig->addFunction(new \Twig\TwigFunction('param', fn(string $k) => (string) ($this->settingService->get($k) ?? '')));
 
-        $this->controller = new SettingsController($twig, $this->settingService, $this->journalService, $this->unitLogoService);
+        $this->controller = new SettingsController(
+            $twig,
+            $this->settingService,
+            $this->journalService,
+            $this->unitLogoService,
+            $this->notificationService,
+            $this->userAccountRepository
+        );
     }
 
     protected function tearDown(): void
@@ -102,25 +132,30 @@ class SettingsControllerTest extends TestCase
         $this->assertStringContainsString('Test Key', $response->getBody());
     }
 
-    public function testIndexShowsTheLogoUploadBlockButNotTheDeleteButtonWithNoCustomLogo(): void
+    /**
+     * The logo upload block moved to Configuration avancée's "Paramètres
+     * généraux" card (SetupControllerTest covers its presence there) — it
+     * must no longer appear on this page at all, custom logo or not.
+     */
+    public function testIndexNoLongerShowsTheLogoUploadBlock(): void
     {
         $request = new Request('GET', '/config/settings', [], [], [], []);
         $response = $this->controller->index($request, []);
 
         $body = $response->getBody();
-        $this->assertStringContainsString('Logo de l\'unité', $body);
-        $this->assertStringContainsString('context=unit_logo', $body);
+        $this->assertStringNotContainsString('Logo de l\'unité', $body);
+        $this->assertStringNotContainsString('context=unit_logo', $body);
         $this->assertStringNotContainsString('unit-logo-delete-btn', $body);
     }
 
-    public function testIndexShowsTheDeleteButtonOnceACustomLogoExists(): void
+    public function testIndexNoLongerShowsTheLogoUploadBlockEvenWithACustomLogo(): void
     {
         $this->unitLogoService->storeUploadedLogo($this->solidPngBytes(400, 1, 2, 3), 'image/png');
 
         $request = new Request('GET', '/config/settings', [], [], [], []);
         $response = $this->controller->index($request, []);
 
-        $this->assertStringContainsString('unit-logo-delete-btn', $response->getBody());
+        $this->assertStringNotContainsString('unit-logo-delete-btn', $response->getBody());
     }
 
     public function testIndexExcludesAutoUpdateSettingsFromTheGenericRendering(): void
@@ -267,6 +302,64 @@ class SettingsControllerTest extends TestCase
 
         $stmt = $this->pdo->query("SELECT COUNT(*) FROM event_log WHERE event_type = 'unit_logo_deleted'");
         $this->assertSame(1, (int) $stmt->fetchColumn());
+    }
+
+    public function testNotifyIosLogoUpdateRequiresValidCsrf(): void
+    {
+        $request = $this->createJsonRequest(['_csrf_token' => 'invalid'], '/config/settings/logo-notify-ios');
+        $response = $this->controller->notifyIosLogoUpdate($request, []);
+
+        $this->assertSame(403, $response->getStatusCode());
+    }
+
+    public function testNotifyIosLogoUpdateRejectsWhenNoCustomLogoExists(): void
+    {
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+        $token = bin2hex(random_bytes(32));
+        $_SESSION['_csrf_token'] = $token;
+
+        $request = $this->createJsonRequest(['_csrf_token' => $token], '/config/settings/logo-notify-ios');
+        $response = $this->controller->notifyIosLogoUpdate($request, []);
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertFalse($decoded['success']);
+    }
+
+    /**
+     * Broadcasts to every user account (dispatch(), not the single-
+     * recipient notify() — see the controller's own docblock) and
+     * journals the action.
+     */
+    public function testNotifyIosLogoUpdateDispatchesToEveryAccountAndJournalsIt(): void
+    {
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+        $token = bin2hex(random_bytes(32));
+        $_SESSION['_csrf_token'] = $token;
+
+        $this->unitLogoService->storeUploadedLogo($this->solidPngBytes(400, 1, 2, 3), 'image/png');
+
+        $stmt = $this->pdo->prepare('INSERT INTO user_accounts (email_encrypted, email_blind_index) VALUES (?, ?)');
+        $stmt->execute(['enc1', 'idx1']);
+        $recipientId = (int) $this->pdo->lastInsertId();
+
+        $request = $this->createJsonRequest(['_csrf_token' => $token], '/config/settings/logo-notify-ios');
+        $response = $this->controller->notifyIosLogoUpdate($request, []);
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertTrue($decoded['success']);
+
+        $notifStmt = $this->pdo->prepare(
+            "SELECT COUNT(*) FROM notifications WHERE user_account_id = ? AND type_id = 'core.unit_logo_updated_ios'"
+        );
+        $notifStmt->execute([$recipientId]);
+        $this->assertSame(1, (int) $notifStmt->fetchColumn());
+
+        $journalStmt = $this->pdo->query("SELECT COUNT(*) FROM event_log WHERE event_type = 'unit_logo_ios_notify_sent'");
+        $this->assertSame(1, (int) $journalStmt->fetchColumn());
     }
 
     /**

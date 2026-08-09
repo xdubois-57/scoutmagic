@@ -1,0 +1,48 @@
+{# Notification indicator (Core\Notification) — bell + unread badge +
+   dropdown panel showing the count, the most recent unread notification,
+   and a link into the full centre (/notifications). Reused identically in
+   all three nav surfaces (mobile header, mobile offcanvas, desktop bar) —
+   exactly one definition of this behavior, never copy this markup at a
+   call site. The avatar (partials/account_avatar.html.twig) never carries
+   this indication anymore — it always links straight to /account, and
+   this dropdown is the sole place "you have pending notifications" is
+   shown and actionable.
+
+   `.notification-badge` is the same class notification-badge.js already
+   updates everywhere via querySelectorAll (60s poll + service worker
+   postMessage) — every instance of this partial on the page stays in
+   sync with no extra JS. The panel's own content (count, latest
+   notification) is server-rendered on page load and does not live-update
+   with the badge — a stale "last notification" a minute behind is
+   harmless, the visitor lands on the always-current /notifications page
+   through it regardless. #}
+<div class="dropdown">
+    <button class="btn btn-link text-dark position-relative p-2 d-inline-flex align-items-center justify-content-center"
+            type="button" data-bs-toggle="dropdown" aria-expanded="false"
+            aria-label="Notifications" title="Notifications" style="min-width:44px;min-height:44px;">
+        <i class="bi bi-bell fs-5"></i>
+        <span class="notification-badge position-absolute badge rounded-pill bg-danger{% if unread_notifications_count is not defined or unread_notifications_count == 0 %} d-none{% endif %}" style="top:2px;right:2px;font-size:.6rem;">{{ unread_notifications_count|default(0) }}</span>
+    </button>
+    <div class="dropdown-menu dropdown-menu-end p-0" style="min-width:280px;max-width:320px;">
+        {% if unread_notifications_count is defined and unread_notifications_count > 0 %}
+            <div class="px-3 py-2 border-bottom small fw-semibold">
+                {{ unread_notifications_count }} notification{{ unread_notifications_count > 1 ? 's' : '' }} non lue{{ unread_notifications_count > 1 ? 's' : '' }}
+            </div>
+            {% if latest_notification %}
+                {# Same "row is its own tiny POST form" pattern as
+                   notifications/index.html.twig — a plain GET <a> can't
+                   carry CSRF protection for the mark-read side effect. #}
+                <form method="post" action="/notifications/{{ latest_notification.id }}/read">
+                    {{ csrf_field() }}
+                    <button type="submit" class="btn btn-link text-decoration-none text-start text-body w-100 p-3 d-block border-bottom">
+                        <span class="d-block fw-semibold small text-truncate">{{ latest_notification.title }}</span>
+                        <span class="d-block small text-body-secondary text-truncate">{{ latest_notification.body }}</span>
+                    </button>
+                </form>
+            {% endif %}
+            <a href="/notifications" class="dropdown-item text-center text-primary small py-2">Voir toutes les notifications</a>
+        {% else %}
+            <div class="px-3 py-3 text-center small text-body-secondary">Aucune notification</div>
+        {% endif %}
+    </div>
+</div>

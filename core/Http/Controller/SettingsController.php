@@ -9,9 +9,11 @@ use Core\Config\SettingService;
 use Core\Http\Request;
 use Core\Http\Response;
 use Core\Journal\JournalService;
+use Core\Notification\NotificationService;
 use Core\Photo\UnitLogoService;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
+use Core\Security\UserAccountRepository;
 use Twig\Environment;
 
 class SettingsController extends AbstractController
@@ -31,7 +33,9 @@ class SettingsController extends AbstractController
         protected Environment $twig,
         private SettingService $settingService,
         private JournalService $journal,
-        private UnitLogoService $unitLogoService
+        private UnitLogoService $unitLogoService,
+        private NotificationService $notificationService,
+        private UserAccountRepository $userAccountRepository
     ) {
     }
 
@@ -52,7 +56,6 @@ class SettingsController extends AbstractController
 
         $html = $this->twig->render('config/settings.html.twig', [
             'setting_groups' => $groups,
-            'unit_logo_is_custom' => $this->unitLogoService->hasCustomLogo(),
         ]);
         return new Response($html);
     }
@@ -148,6 +151,68 @@ class SettingsController extends AbstractController
             'Logo de l\'unité supprimé — retour aux icônes par défaut',
             [],
             AuthSession::getUserAccountId()
+        );
+
+        return $this->json(['success' => true]);
+    }
+
+    /**
+     * POST /config/settings/logo-notify-ios — sends the "core.
+     * unit_logo_updated_ios" notification (Core\Notification\
+     * NotificationRegistry) to every user account. Deliberately
+     * superadmin-triggered and manual, never automatic on every upload:
+     * a logo retouched three times in a row must not spam the whole unit
+     * three times — the button only appears once a custom logo already
+     * exists (setup/index.html.twig), and it's up to the admin to decide
+     * when the change is "done" and worth notifying about. Uses
+     * dispatch() (not the simpler notify()) so the send respects each
+     * recipient's own channel preferences/quiet hours like any other
+     * declared notification type, rather than bypassing them for a
+     * one-off broadcast.
+     *
+     * @param array<string, string> $params
+     */
+    public function notifyIosLogoUpdate(Request $request, array $params): Response
+    {
+        $data = json_decode($request->getRawBody(), true);
+        if (!is_array($data)) {
+            return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
+        }
+
+        $csrfToken = $data['_csrf_token'] ?? '';
+        if (!CsrfGuard::validateToken($csrfToken)) {
+            return $this->json(['success' => false, 'error' => 'Jeton CSRF invalide.'], 403);
+        }
+
+        if (!$this->unitLogoService->hasCustomLogo()) {
+            return $this->json(['success' => false, 'error' => 'Aucun logo personnalisé actif.'], 400);
+        }
+
+        $actorId = AuthSession::getUserAccountId();
+        $recipients = array_map(
+            static fn(int $id): array => ['userAccountId' => $id, 'memberId' => null],
+            $this->userAccountRepository->findAllIds()
+        );
+
+        $this->notificationService->dispatch(
+            'core.unit_logo_updated_ios',
+            $recipients,
+            [
+                'title' => 'Nouveau logo disponible',
+                'body' => 'Le logo de l\'unité a changé. Si tu as installé l\'application sur iPhone/iPad, '
+                    . 'supprime-la puis réinstalle-la pour voir le nouveau logo — sur Android, la mise à jour '
+                    . 'se fait automatiquement.',
+            ],
+            $actorId
+        );
+
+        $this->journal->log(
+            'core',
+            'unit_logo_ios_notify_sent',
+            'info',
+            'Notification de réinstallation iOS envoyée à tous les comptes',
+            [],
+            $actorId
         );
 
         return $this->json(['success' => true]);

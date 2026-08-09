@@ -66,6 +66,27 @@ class NotificationRepository
         return (int) $stmt->fetchColumn();
     }
 
+    /**
+     * Most recent unread notification for an account — feeds the nav
+     * notification indicator's "last one" preview (partials/
+     * notification_dropdown.html.twig). Deliberately unread-only, not just
+     * "most recent overall": the most recent notification can already be
+     * read while an older one is still unread (e.g. the member followed a
+     * direct link to a newer notification without visiting the centre),
+     * and showing an already-read notification in a "pending" indicator
+     * would misrepresent what's actually waiting for attention.
+     */
+    public function findLatestUnread(int $userAccountId): ?NotificationRecord
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT * FROM notifications WHERE user_account_id = ? AND read_at IS NULL ORDER BY created_at DESC, id DESC LIMIT 1'
+        );
+        $stmt->execute([$userAccountId]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+        return $row !== false ? $this->hydrate($row) : null;
+    }
+
     public function markRead(int $id): void
     {
         $stmt = $this->pdo->prepare('UPDATE notifications SET read_at = ? WHERE id = ? AND read_at IS NULL');
