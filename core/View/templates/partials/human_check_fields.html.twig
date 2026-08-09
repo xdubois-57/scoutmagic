@@ -1,0 +1,27 @@
+{#
+  Core\Security\HumanCheck — anti-bot protection for a public form
+  submitted by a non-identified session. One line protects a form:
+
+  {% include 'partials/human_check_fields.html.twig' with { human_check: human_check } %}
+
+  `human_check` is a Core\Security\HumanCheck\HumanCheckChallenge (built by
+  HumanCheckService::generateChallenge($formKey) in the Controller). Omit
+  the include entirely — or pass null — when the session is already known
+  identified server-side; HumanCheckService::verify() also short-circuits
+  for an identified session regardless, so this is purely to skip
+  rendering unused markup, never a security boundary on its own.
+
+  The trap field is a REAL, visible-to-a-robot input — never
+  type="hidden", which bots skip over — hidden from a human only via the
+  .hc-trap CSS class (public/assets/css/app.css), never an inline style
+  (CSP, SECURITY.md §9). tabindex="-1" and aria-hidden="true" keep it
+  unreachable by keyboard navigation or a screen reader.
+#}
+{% if human_check is defined and human_check is not null %}
+    {# Field name must match Core\Security\HumanCheck\HumanCheckService::TOKEN_FIELD — same convention as CsrfGuard's own '_csrf_token' literal, duplicated rather than shared across the PHP/Twig boundary. #}
+    <input type="hidden" name="human_check_token" value="{{ human_check.tokenValue }}">
+    <div class="hc-trap" aria-hidden="true">
+        <label for="{{ human_check.trapField }}">Laissez ce champ vide</label>
+        <input type="text" id="{{ human_check.trapField }}" name="{{ human_check.trapField }}" tabindex="-1" autocomplete="off">
+    </div>
+{% endif %}
