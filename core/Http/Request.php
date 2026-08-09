@@ -113,18 +113,6 @@ class Request
         return $this->body[$key] ?? $default;
     }
 
-    /**
-     * The full body array — for a caller that needs to look up a key it
-     * doesn't know in advance (e.g. Core\Security\HumanCheck\
-     * HumanCheckService's per-render honeypot field name).
-     *
-     * @return array<string, mixed>
-     */
-    public function getBodyAll(): array
-    {
-        return $this->body;
-    }
-
     public function getCookie(string $key, mixed $default = null): mixed
     {
         return $this->cookies[$key] ?? $default;

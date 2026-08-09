@@ -19,8 +19,6 @@ use Core\Pdf\PosterPdfService;
 use Core\Scheduler\SchedulerService;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
-use Core\Security\HumanCheck\HumanCheckChallenge;
-use Core\Security\HumanCheck\HumanCheckService;
 use Core\Security\Role;
 use Core\Security\UserAccountRepository;
 use Core\View\SectionPickerHelper;
@@ -42,13 +40,6 @@ class NewsController extends AbstractController
     private const IMAGE_ALLOWED_MIMES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
     private const IMAGE_MAX_SIZE_BYTES = 5 * 1024 * 1024;
 
-    /**
-     * Core\Security\HumanCheck form key for a public form response — must
-     * match FormController::HUMAN_CHECK_FORM_KEY (a signature made with
-     * one is rejected against the other).
-     */
-    private const HUMAN_CHECK_FORM_KEY = 'news_form_response';
-
     public function __construct(
         protected Environment $twig,
         private ArticleService $articleService,
@@ -66,8 +57,7 @@ class NewsController extends AbstractController
         private FileRepository $fileRepository,
         private string $storagePath,
         private JournalService $journalService,
-        private ?FinanceAccountInterface $financeAccount = null,
-        private ?HumanCheckService $humanCheck = null
+        private ?FinanceAccountInterface $financeAccount = null
     ) {
     }
 
@@ -454,23 +444,7 @@ class NewsController extends AbstractController
             // re-fetching og:url gets redirected the same way either way).
             'og_url' => $article->shortUrlCode !== null ? $baseUrl . '/s/' . $article->shortUrlCode : $baseUrl . '/news/' . $article->id,
             'og_image_url' => $article->imageFileId !== null ? $baseUrl . '/files/' . $article->imageFileId : null,
-            'human_check' => $this->humanCheckChallenge(),
         ]);
-    }
-
-    /**
-     * Core\Security\HumanCheck: no challenge needed for an identified
-     * session (HumanCheckService::verify() short-circuits it regardless —
-     * see the service's own docblock), so nothing is generated in that
-     * case.
-     */
-    private function humanCheckChallenge(): ?HumanCheckChallenge
-    {
-        if ($this->humanCheck === null || AuthSession::isAuthenticated()) {
-            return null;
-        }
-
-        return $this->humanCheck->generateChallenge(self::HUMAN_CHECK_FORM_KEY);
     }
 
     /**

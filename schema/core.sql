@@ -752,19 +752,3 @@ CREATE TABLE short_urls (
     created_by INT UNSIGNED,
     CONSTRAINT fk_su_created_by FOREIGN KEY (created_by) REFERENCES user_accounts(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
--- Core\Security\HumanCheck: generic anti-bot protection for a public form
--- submitted by a non-identified session (ARCHITECTURE.md §8) — the third
--- barrier's per-IP sliding-window counter. Short-lived rows only, purged
--- by Task\PurgeHumanCheckRateLimitsHandler once past the configured
--- window. ip_hash is a one-way HMAC (Core\Security\EncryptionService::
--- blindIndex(), same technique as every other blind-indexed lookup in
--- this codebase, e.g. modules/retro's retro_rate_limits) — the real IP
--- address, personal data, is never stored.
-CREATE TABLE human_check_rate_limits (
-    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    ip_hash CHAR(64) NOT NULL,
-    form_key VARCHAR(60) NOT NULL,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    INDEX idx_human_check_rate_limits_lookup (ip_hash, form_key, created_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

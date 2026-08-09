@@ -73,7 +73,6 @@
                 {% else %}
                     <form method="POST" action="/news/{{ article.id }}/form/submit" id="news-form">
                         <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
-                        {% include 'partials/human_check_fields.html.twig' with { human_check: human_check } %}
 
                         <div class="mb-3">
                             <label class="form-label" for="contact_email">Email de contact <span class="text-danger">*</span></label>
