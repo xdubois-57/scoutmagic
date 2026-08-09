@@ -23,7 +23,7 @@
       "menu": "espace_chefs",
       "role_min": "chief",
       "label": "Actualités",
-      "breadcrumb": { "label": "Actualités", "parents": ["Espace des chefs"] }
+      "breadcrumb": { "label": "Actualités", "parents": ["Espace chefs"] }
     },
     {
       "path": "/news/create",

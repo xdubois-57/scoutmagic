@@ -254,15 +254,26 @@ class UploadController extends AbstractController
      * role_min (`identified`) only gets a logged-in user in the door; a UI
      * flag (member_photo()'s $editable param) is never sufficient on its
      * own. member_photo uploads are allowed either through configuration
-     * mode (unchanged, existing superadmin-only path) OR when the
-     * requesting account is linked to the member the upload key names —
-     * this is what lets a member replace their own photo from the member
-     * page outside configuration mode. age_branch_logo (Config Desk's
-     * branch card logo) is a direct role check instead — that page is its
-     * own superadmin-only admin area, not the front-end configuration-mode
-     * overlay, so there's no session flag to require. Every other context
-     * keeps the pre-existing configuration-mode-only behavior (effectively
-     * superadmin-only, since only a superadmin session can activate it).
+     * mode OR when the requesting account is linked to the member the
+     * upload key names — this is what lets a member replace their own
+     * photo from the member page outside configuration mode.
+     * age_branch_logo/unit_logo are direct role checks instead — both
+     * pages are their own superadmin-only admin area, not the front-end
+     * configuration-mode overlay, so there's no session flag to require.
+     * Every other context (editable_image, section_photo) keeps the
+     * pre-existing configuration-mode-only behavior.
+     *
+     * Configuration mode itself widened from superadmin-only to admin
+     * (chief d'unité) — see Core\View\ConfigurationMode's own docblock —
+     * and every context gated purely on ConfigurationMode::isActive()
+     * (member_photo's config-mode branch included) widens the same way as
+     * a deliberate, analyzed consequence: this method's whole point is
+     * "can this session use the configuration-mode content-editing
+     * overlay", and that capability itself is what moved to admin — there
+     * is no reason for member_photo/editable_image/section_photo
+     * specifically to stay carved out at superadmin while the mode that
+     * gates them moves. age_branch_logo/unit_logo above are unaffected —
+     * they never read ConfigurationMode at all.
      */
     private function isUploadAuthorized(string $context, string $key): bool
     {

@@ -102,6 +102,27 @@ class FunctionsControllerTest extends TestCase
         $this->assertStringContainsString('Aucune section importée', $body);
     }
 
+    /**
+     * The "Fonctions" section's explanation paragraph must sit under its
+     * own <h2>, matching the "Sections" and "Branches" sections further
+     * down the same page — it used to sit above the page's <h1>-adjacent
+     * intro instead, the one block out of the three not following that
+     * pattern.
+     */
+    public function testFonctionsExplanationParagraphIsPlacedUnderItsOwnHeading(): void
+    {
+        $request = new Request('GET', '/config/functions', [], [], [], []);
+        $response = $this->controller->index($request, []);
+
+        $body = $response->getBody();
+        $h2Pos = strpos($body, '<h2 class="h4">Fonctions</h2>');
+        $pPos = strpos($body, 'Associez chaque fonction importée depuis Desk');
+
+        $this->assertNotFalse($h2Pos);
+        $this->assertNotFalse($pPos);
+        $this->assertGreaterThan($h2Pos, $pPos, 'the explanation paragraph must come after the Fonctions <h2>, not before it');
+    }
+
     public function testIndexRendersUnconfirmedFunctionsAtTop(): void
     {
         $this->functionRepo->create('Scout', 'Scout', 'identified', false);

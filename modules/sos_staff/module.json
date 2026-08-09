@@ -14,7 +14,7 @@
       "role_min": "admin",
       "label": "SOS Staff d'U",
       "menu_order": 50,
-      "breadcrumb": { "label": "SOS Staff d'U", "parents": ["Espace admin"] }
+      "breadcrumb": { "label": "SOS Staff d'U", "parents": ["Espace chefs d'U"] }
     },
     {
       "path": "/admin/sos/default-number",

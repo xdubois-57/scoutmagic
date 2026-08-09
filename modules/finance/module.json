@@ -13,7 +13,7 @@
       "menu": "espace_chefs",
       "role_min": "intendant",
       "label": "Finances",
-      "breadcrumb": { "label": "Finances", "parents": ["Espace des chefs"] }
+      "breadcrumb": { "label": "Finances", "parents": ["Espace chefs"] }
     },
     {
       "path": "/finance/receivables",

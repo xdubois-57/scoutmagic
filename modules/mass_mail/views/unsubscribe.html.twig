@@ -9,7 +9,7 @@
     <div class="card">
         <div class="card-body text-center py-4">
             {% if state == 'confirm' %}
-                <p class="mb-3">Voulez-vous vraiment vous désinscrire des emails groupés envoyés à cette adresse ? Vous pourrez vous réinscrire à tout moment depuis votre espace des animés.</p>
+                <p class="mb-3">Voulez-vous vraiment vous désinscrire des emails groupés envoyés à cette adresse ? Vous pourrez vous réinscrire à tout moment depuis votre espace animés.</p>
                 <form method="post" action="/mass-mail/unsubscribe/{{ recipient_id }}">
                     <input type="hidden" name="token" value="{{ token }}">
                     <button type="submit" class="btn btn-outline-danger">Se désinscrire</button>

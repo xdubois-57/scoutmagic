@@ -253,10 +253,14 @@ class ModuleManagerTest extends TestCase
         $this->assertFalse($entry['enabled']);
     }
 
-    public function testLoadEnabledModulesUsesCustomMenuOrder(): void
+    public function testLoadEnabledModulesUsesCustomMenuOrderOnlyWithinTheModuleGroup(): void
     {
-        // auto_enabled_module declares menu_order: 3, so its menu entry must
-        // sort before a manually added order-10 core page.
+        // auto_enabled_module declares menu_order: 3 — a real, very low
+        // value (same shape as trombinoscope's 5 / gallery's 6, see
+        // ARCHITECTURE §7.1). Core\View\MenuBuilder::buildPages() now
+        // sorts by entry type first (dynamic, then core, then module), so
+        // however low this module's menu_order is, it can never sort
+        // ahead of a core page anymore — only against other modules.
         $this->menuBuilder->addPage('espace_animes', 'Placeholder', '/placeholder', 'identified', 10);
 
         $this->manager->loadEnabledModules();
@@ -272,8 +276,8 @@ class ModuleManagerTest extends TestCase
         $this->assertNotNull($espaceAnimes);
 
         $labels = array_map(fn($p) => $p['label'] ?? '', $espaceAnimes['pages']);
-        $this->assertSame('Auto Enabled', $labels[0]);
-        $this->assertContains('Placeholder', $labels);
+        $this->assertSame('Placeholder', $labels[0], 'core page must sort before the module page regardless of the module\'s low menu_order');
+        $this->assertContains('Auto Enabled', $labels);
     }
 
     public function testGetEnabledModuleIds(): void

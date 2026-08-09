@@ -452,7 +452,7 @@ class SosAdminControllerTest extends TestCase
     }
 
     /**
-     * RBAC boundary for /admin/sos (Espace admin, role_min admin):
+     * RBAC boundary for /admin/sos (Espace chefs d'U, role_min admin):
      * admin -> 200, intendant -> 403.
      */
     private function buildFrontController(): FrontController

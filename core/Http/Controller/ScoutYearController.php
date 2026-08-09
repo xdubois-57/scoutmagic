@@ -18,7 +18,7 @@ use Core\Security\Role;
 use Twig\Environment;
 
 /**
- * Scout year navigation and transition (Espace admin).
+ * Scout year navigation and transition (Espace chefs d'U).
  *
  * Lets a chief preview any year (session-only), activate a staff year for
  * chiefs/intendants, and transition the whole site to a new public year.

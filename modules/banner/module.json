@@ -13,7 +13,7 @@
       "menu": "espace_admin",
       "role_min": "admin",
       "label": "Bannière",
-      "breadcrumb": { "label": "Bannière", "parents": ["Espace admin"] }
+      "breadcrumb": { "label": "Bannière", "parents": ["Espace chefs d'U"] }
     },
     {
       "path": "/config/banner/add",

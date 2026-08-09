@@ -17,9 +17,11 @@ class ModuleManager
     // Effective menu_order for a module's default-order (non-explicit)
     // routes is BASE + position*STEP + the route's own (always-100) value —
     // 1000 apart is far more than any single module will ever declare
-    // routes in one menu, and BASE (1000) is always above every hardcoded
-    // core page order (all ≤ ~50 today), so core pages sort first without
-    // needing any structural guarantee beyond that convention.
+    // routes in one menu. This value only ever breaks ties *within* the
+    // module group now (Core\View\MenuBuilder::buildPages() sorts by group
+    // — dynamic, then core, then module — before it ever looks at `order`),
+    // so unlike before this file's own numeric convention no longer has to
+    // carry the "core sorts first" guarantee by itself.
     private const MODULE_ORDER_BASE = 1000;
     private const MODULE_ORDER_STEP = 1000;
 
@@ -304,7 +306,10 @@ class ModuleManager
                     $route['label'],
                     $route['path'],
                     $route['role_min'],
-                    $menuOrder
+                    $menuOrder,
+                    false,
+                    null,
+                    MenuBuilder::GROUP_MODULE
                 );
             }
         }

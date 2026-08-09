@@ -291,7 +291,7 @@ class BannerConfigControllerTest extends TestCase
     }
 
     /**
-     * RBAC boundary for /config/banner (Espace admin menu, router-level
+     * RBAC boundary for /config/banner (Espace chefs d'U menu, router-level
      * role_min "admin"): admin/superadmin -> 200 (as long as they're also
      * a chef d'unité, stubbed true on $this->controller here), chief ->
      * 403 at the router before the controller is even reached.

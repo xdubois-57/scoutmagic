@@ -12,7 +12,7 @@
       "menu": "espace_chefs",
       "label": "Statistiques",
       "role_min": "chief",
-      "breadcrumb": { "label": "Statistiques", "parents": ["Espace des chefs"] }
+      "breadcrumb": { "label": "Statistiques", "parents": ["Espace chefs"] }
     }
   ],
   "settings": [],
