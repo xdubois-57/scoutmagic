@@ -64,9 +64,6 @@ class NavRenderingTest extends TestCase
         $bestMatchLength = -1;
         foreach ($menus as $menu) {
             foreach ($menu['pages'] as $page) {
-                if ($page['isSeparator']) {
-                    continue;
-                }
                 $pageUrl = $page['url'] ?? '';
                 if ($pageUrl === '') {
                     continue;
@@ -118,7 +115,7 @@ class NavRenderingTest extends TestCase
     {
         $html = $this->renderNav(Role::IDENTIFIED);
         $this->assertStringContainsString('Notre unité', $html);
-        $this->assertStringContainsString('Espace des animés', $html);
+        $this->assertStringContainsString('Espace animés', $html);
         $this->assertStringNotContainsString('Configuration', $html);
     }
 

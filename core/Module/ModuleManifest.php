@@ -230,7 +230,7 @@ class ModuleManifest
 
         // Optional: where this route's menu entry sorts relative to other
         // pages in its menu (lower = earlier). Defaults to 100, after core
-        // pages and dynamic entries (e.g. Espace des animés member pages,
+        // pages and dynamic entries (e.g. Espace animés member pages,
         // which use order 10+). A module can set a lower value to appear
         // before those, e.g. the trombinoscope page before per-member pages.
         $menuOrder = 100;

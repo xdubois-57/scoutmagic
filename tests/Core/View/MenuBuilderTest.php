@@ -59,7 +59,7 @@ class MenuBuilderTest extends TestCase
 
         $menus = $builder->build();
 
-        // Espace admin now requires "Chef d'Unité" (admin); Configuration requires superadmin.
+        // Espace chefs d'U now requires "Chef d'Unité" (admin); Configuration requires superadmin.
         $this->assertCount(3, $menus);
         $ids = array_column($menus, 'id');
         $this->assertNotContains('espace_admin', $ids);
@@ -111,23 +111,6 @@ class MenuBuilderTest extends TestCase
         $this->assertSame('Staffs', $pages[0]['label']);
     }
 
-    public function testAddSeparatorCreatesSeparatorEntry(): void
-    {
-        $builder = new MenuBuilder(Role::ADMIN);
-        $builder->addPage(MenuBuilder::MENU_NOTRE_UNITE, 'Before', '/before', 'public', 10);
-        $builder->addSeparator(MenuBuilder::MENU_NOTRE_UNITE, 50);
-        $builder->addPage(MenuBuilder::MENU_NOTRE_UNITE, 'After', '/after', 'public', 60);
-
-        $menus = $builder->build();
-
-        $this->assertCount(1, $menus);
-        $pages = $menus[0]['pages'];
-        $this->assertCount(3, $pages);
-        $this->assertFalse($pages[0]['isSeparator']);
-        $this->assertTrue($pages[1]['isSeparator']);
-        $this->assertFalse($pages[2]['isSeparator']);
-    }
-
     public function testMenusWithNoVisibleSubPagesAreExcluded(): void
     {
         $builder = new MenuBuilder(Role::PUBLIC);
@@ -139,7 +122,7 @@ class MenuBuilderTest extends TestCase
         $this->assertCount(0, $menus);
     }
 
-    public function testPagesAreSortedByOrder(): void
+    public function testPagesAreSortedByOrderWithinTheSameGroup(): void
     {
         $builder = new MenuBuilder(Role::ADMIN);
         $builder->addPage(MenuBuilder::MENU_NOTRE_UNITE, 'Third', '/third', 'public', 30);
@@ -152,5 +135,89 @@ class MenuBuilderTest extends TestCase
         $this->assertSame('First', $pages[0]['label']);
         $this->assertSame('Second', $pages[1]['label']);
         $this->assertSame('Third', $pages[2]['label']);
+    }
+
+    /**
+     * The real bug this sort was fixed for (ARCHITECTURE §7.1): a module
+     * page declaring a very low menu_order (trombinoscope: 5, gallery: 6)
+     * used to sort ahead of dynamic per-member entries and core pages with
+     * a numerically higher order. Group (dynamic → core → module) is now
+     * checked before `order` at all, so this can no longer happen —
+     * however low a module sets its `menu_order`.
+     */
+    public function testDynamicEntriesAlwaysSortBeforeCorePagesWhichAlwaysSortBeforeModulePagesRegardlessOfOrder(): void
+    {
+        $builder = new MenuBuilder(Role::IDENTIFIED);
+        // Registered out of "natural" order and with module pages using a
+        // numerically LOWER order than the core/dynamic entries, matching
+        // the real trombinoscope (5) / gallery (6) case.
+        $builder->addPage(MenuBuilder::MENU_ESPACE_ANIMES, 'Trombinoscope', '/trombinoscope', 'identified', 5, false, null, MenuBuilder::GROUP_MODULE);
+        $builder->addPage(MenuBuilder::MENU_ESPACE_ANIMES, 'Galerie', '/gallery', 'identified', 6, false, null, MenuBuilder::GROUP_MODULE);
+        $builder->addPage(MenuBuilder::MENU_ESPACE_ANIMES, 'Notifications', '/notifications', 'identified', 10, false, null, MenuBuilder::GROUP_CORE);
+        $builder->addPage(MenuBuilder::MENU_ESPACE_ANIMES, 'Kaa', '/members/2', 'identified', 11, true, null, MenuBuilder::GROUP_DYNAMIC);
+        $builder->addPage(MenuBuilder::MENU_ESPACE_ANIMES, 'Baloo', '/members/1', 'identified', 10, true, null, MenuBuilder::GROUP_DYNAMIC);
+
+        $menus = $builder->build();
+
+        $labels = array_column($menus[0]['pages'], 'label');
+        $this->assertSame(['Baloo', 'Kaa', 'Notifications', 'Trombinoscope', 'Galerie'], $labels);
+    }
+
+    public function testModuleGroupDefaultsWhenGroupIsOmitted(): void
+    {
+        // addPage()'s default $group is GROUP_CORE, not GROUP_MODULE — a
+        // caller must opt in to the module group explicitly (only
+        // Core\Module\ModuleManager::loadModule() does).
+        $builder = new MenuBuilder(Role::IDENTIFIED);
+        $builder->addPage(MenuBuilder::MENU_ESPACE_ANIMES, 'Core page', '/core-page', 'identified', 100);
+        $builder->addPage(MenuBuilder::MENU_ESPACE_ANIMES, 'Dynamic', '/members/1', 'identified', 10, true, null, MenuBuilder::GROUP_DYNAMIC);
+
+        $menus = $builder->build();
+
+        $labels = array_column($menus[0]['pages'], 'label');
+        $this->assertSame(['Dynamic', 'Core page'], $labels);
+    }
+
+    /**
+     * usort() has been stable since PHP 8.0 — two entries with the same
+     * group and the same numeric order must keep their registration order.
+     */
+    public function testSortIsStableForEntriesWithTheSameGroupAndOrder(): void
+    {
+        $builder = new MenuBuilder(Role::ADMIN);
+        $builder->addPage(MenuBuilder::MENU_NOTRE_UNITE, 'Registered first', '/a', 'public', 50);
+        $builder->addPage(MenuBuilder::MENU_NOTRE_UNITE, 'Registered second', '/b', 'public', 50);
+        $builder->addPage(MenuBuilder::MENU_NOTRE_UNITE, 'Registered third', '/c', 'public', 50);
+
+        $menus = $builder->build();
+
+        $labels = array_column($menus[0]['pages'], 'label');
+        $this->assertSame(['Registered first', 'Registered second', 'Registered third'], $labels);
+    }
+
+    public function testNoPageEverCarriesAnIsSeparatorKey(): void
+    {
+        // Separators were removed entirely (ARCHITECTURE §6.3 of the menu
+        // reorg) — the built page shape must never expose that key at all.
+        $builder = new MenuBuilder(Role::PUBLIC);
+        $builder->addPage(MenuBuilder::MENU_NOTRE_UNITE, 'Accueil', '/', 'public', 10);
+
+        $menus = $builder->build();
+
+        $this->assertArrayNotHasKey('isSeparator', $menus[0]['pages'][0]);
+    }
+
+    public function testLabelForReturnsTheRegisteredMenuLabel(): void
+    {
+        $this->assertSame('Notre unité', MenuBuilder::labelFor(MenuBuilder::MENU_NOTRE_UNITE));
+        $this->assertSame('Espace animés', MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ANIMES));
+        $this->assertSame('Espace chefs', MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_CHEFS));
+        $this->assertSame("Espace chefs d'U", MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ADMIN));
+        $this->assertSame('Configuration', MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION));
+    }
+
+    public function testLabelForReturnsEmptyStringForAnUnknownMenuId(): void
+    {
+        $this->assertSame('', MenuBuilder::labelFor('not_a_real_menu'));
     }
 }

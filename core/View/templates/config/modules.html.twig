@@ -1,0 +1,79 @@
+{% extends "base.html.twig" %}
+
+{% block title %}Modules — {{ site_name }}{% endblock %}
+
+{% block content %}
+    <h1 class="mb-4">Modules</h1>
+
+    <p class="text-body-secondary small mb-3">
+        Activez ou désactivez les fonctionnalités du site. Les pages et paramètres d'un module
+        n'apparaissent que lorsqu'il est actif. L'ordre ci-dessous (glisser-déposer, ou les
+        flèches sur mobile) détermine l'ordre des pages des modules dans les menus — les pages
+        du cœur du site apparaissent toujours en premier.
+    </p>
+
+    {% embed 'partials/list_editor.html.twig' with {
+        list_id: 'module-list',
+        items: modules,
+        reorder_url: '/config/modules/reorder',
+        empty_label: "Aucun module disponible. Placez des modules dans le répertoire modules/ pour les voir apparaître ici."
+    } %}
+        {% block item_content %}
+            <div class="d-flex align-items-center gap-2 flex-wrap">
+                <span class="fw-semibold">{{ item.info.manifest.name }}</span>
+                {% if item.info.enabled %}
+                    <span class="badge bg-success-subtle text-success-emphasis">Actif</span>
+                {% else %}
+                    <span class="badge bg-secondary-subtle text-secondary-emphasis">Inactif</span>
+                {% endif %}
+                <span class="text-body-tertiary" style="font-size:0.75rem;">
+                    v{{ item.info.manifest.version }}
+                </span>
+                {% if item.info.validationError %}
+                    <span class="badge bg-danger-subtle text-danger-emphasis"
+                          title="{{ item.info.validationError }}">Erreur</span>
+                {% endif %}
+                {% if not item.info.presentOnDisk %}
+                    <span class="badge bg-warning-subtle text-warning-emphasis">Manquant</span>
+                {% endif %}
+            </div>
+            {% if item.info.manifest.description %}
+                <p class="text-body-secondary small mb-0 mt-1">{{ item.info.manifest.description }}</p>
+            {% endif %}
+        {% endblock %}
+        {% block item_edit %}
+            {% if item.info.presentOnDisk and not item.info.validationError %}
+                <div class="form-check form-switch">
+                    <input class="form-check-input module-toggle"
+                           type="checkbox" data-module="{{ item.info.manifest.id }}"
+                           {{ item.info.enabled ? 'checked' : '' }}>
+                </div>
+            {% endif %}
+        {% endblock %}
+    {% endembed %}
+{% endblock %}
+
+{% block scripts %}
+<script src="/assets/js/list-editor.js" defer></script>
+<script nonce="{{ csp_nonce }}">
+document.querySelectorAll('.module-toggle').forEach(toggle => {
+    toggle.addEventListener('change', async () => {
+        const moduleId = toggle.dataset.module;
+        const enabled = toggle.checked;
+        const csrf = document.querySelector('meta[name="csrf-token"]')?.content;
+        const res = await fetch('/config/modules/toggle', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ module_id: moduleId, enabled, _csrf_token: csrf })
+        });
+        const data = await res.json();
+        if (!data.success) {
+            alert(data.error);
+            toggle.checked = !enabled;
+        } else {
+            window.location.reload();
+        }
+    });
+});
+</script>
+{% endblock %}

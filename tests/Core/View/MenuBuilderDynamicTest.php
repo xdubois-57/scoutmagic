@@ -8,6 +8,15 @@ use Core\Security\Role;
 use Core\View\MenuBuilder;
 use PHPUnit\Framework\TestCase;
 
+/**
+ * Espace animés' dynamic per-member entries — same production shape as
+ * public/index.php's own registration (GROUP_DYNAMIC + isDynamic: true for
+ * real member pages; GROUP_DYNAMIC + isDynamic: false for the empty-state
+ * placeholder, which occupies the same sort slot but must not render with
+ * the per-member avatar-circle styling). Broader group-vs-order sorting
+ * coverage (dynamic/core/module, stability, labelFor()) lives in
+ * MenuBuilderTest — this file stays focused on the per-member entry shape.
+ */
 class MenuBuilderDynamicTest extends TestCase
 {
     private MenuBuilder $builder;
@@ -19,7 +28,6 @@ class MenuBuilderDynamicTest extends TestCase
 
     public function testDynamicMemberEntriesAppearInEspaceAnimesMenu(): void
     {
-        // Add a dynamic member entry
         $this->builder->addPage(
             MenuBuilder::MENU_ESPACE_ANIMES,
             'Baloo',
@@ -27,7 +35,8 @@ class MenuBuilderDynamicTest extends TestCase
             'identified',
             10,
             true,  // isDynamic
-            'Meute Akela'  // subtitle
+            'Meute Akela',  // subtitle
+            MenuBuilder::GROUP_DYNAMIC
         );
 
         $menus = $this->builder->build();
@@ -50,22 +59,25 @@ class MenuBuilderDynamicTest extends TestCase
         $this->assertSame('Meute Akela', $page['subtitle']);
     }
 
-    public function testSeparatorIsBetweenDynamicAndStaticEntries(): void
+    /**
+     * No separator exists anymore (ARCHITECTURE §6.3) — the dynamic
+     * member entry and the static page that follows it sort correctly
+     * purely by group (GROUP_DYNAMIC before GROUP_CORE), with nothing
+     * placed between them in the built pages array.
+     */
+    public function testDynamicEntryStillSortsBeforeAStaticEntryWithNoSeparatorBetweenThem(): void
     {
-        // Add dynamic member entry
         $this->builder->addPage(
             MenuBuilder::MENU_ESPACE_ANIMES,
             'Baloo',
             '/members/1',
             'identified',
             10,
-            true
+            true,
+            null,
+            MenuBuilder::GROUP_DYNAMIC
         );
 
-        // Add separator
-        $this->builder->addSeparator(MenuBuilder::MENU_ESPACE_ANIMES, 50);
-
-        // Add static entry
         $this->builder->addPage(
             MenuBuilder::MENU_ESPACE_ANIMES,
             'Configuration',
@@ -85,13 +97,14 @@ class MenuBuilderDynamicTest extends TestCase
         }
 
         $this->assertNotNull($espaceAnimesMenu);
-        $this->assertCount(3, $espaceAnimesMenu['pages']);
+        $this->assertCount(2, $espaceAnimesMenu['pages']);
 
-        // Check order: dynamic, separator, static
         $this->assertTrue($espaceAnimesMenu['pages'][0]['isDynamic']);
-        $this->assertTrue($espaceAnimesMenu['pages'][1]['isSeparator']);
-        $this->assertFalse($espaceAnimesMenu['pages'][2]['isDynamic']);
-        $this->assertFalse($espaceAnimesMenu['pages'][2]['isSeparator']);
+        $this->assertSame('Baloo', $espaceAnimesMenu['pages'][0]['label']);
+        $this->assertFalse($espaceAnimesMenu['pages'][1]['isDynamic']);
+        $this->assertSame('Configuration', $espaceAnimesMenu['pages'][1]['label']);
+        $this->assertArrayNotHasKey('isSeparator', $espaceAnimesMenu['pages'][0]);
+        $this->assertArrayNotHasKey('isSeparator', $espaceAnimesMenu['pages'][1]);
     }
 
     public function testSubtitleIsSetOnDynamicEntries(): void
@@ -103,7 +116,8 @@ class MenuBuilderDynamicTest extends TestCase
             'identified',
             10,
             true,
-            'Sizaine Loups'
+            'Sizaine Loups',
+            MenuBuilder::GROUP_DYNAMIC
         );
 
         $menus = $this->builder->build();
@@ -132,14 +146,17 @@ class MenuBuilderDynamicTest extends TestCase
             100
         );
 
-        // Add dynamic entries (lower order)
+        // Add dynamic entries (lower order) — group: GROUP_DYNAMIC, same as
+        // public/index.php's real registration.
         $this->builder->addPage(
             MenuBuilder::MENU_ESPACE_ANIMES,
             'First Member',
             '/members/1',
             'identified',
             10,
-            true
+            true,
+            null,
+            MenuBuilder::GROUP_DYNAMIC
         );
 
         $this->builder->addPage(
@@ -148,7 +165,9 @@ class MenuBuilderDynamicTest extends TestCase
             '/members/2',
             'identified',
             20,
-            true
+            true,
+            null,
+            MenuBuilder::GROUP_DYNAMIC
         );
 
         $menus = $this->builder->build();
@@ -196,13 +215,18 @@ class MenuBuilderDynamicTest extends TestCase
 
         $page = $espaceAnimesMenu['pages'][0];
         $this->assertFalse($page['isDynamic']);
-        $this->assertFalse($page['isSeparator']);
         $this->assertSame('Configuration', $page['label']);
     }
 
+    /**
+     * The "no linked members" placeholder — GROUP_DYNAMIC (so it still
+     * occupies the front-of-menu slot real member entries would) but
+     * isDynamic: false (so it renders as a plain line, not the per-member
+     * avatar-circle treatment), matching public/index.php's own
+     * registration exactly.
+     */
     public function testEmptyStateMessageIsAddedWhenNoMembers(): void
     {
-        // Add empty state message
         $this->builder->addPage(
             MenuBuilder::MENU_ESPACE_ANIMES,
             'Aucun membre associé à votre compte pour l\'année 2025-2026',
@@ -210,7 +234,8 @@ class MenuBuilderDynamicTest extends TestCase
             'identified',
             10,
             false,
-            null
+            null,
+            MenuBuilder::GROUP_DYNAMIC
         );
 
         $menus = $this->builder->build();
@@ -228,8 +253,47 @@ class MenuBuilderDynamicTest extends TestCase
 
         $page = $espaceAnimesMenu['pages'][0];
         $this->assertFalse($page['isDynamic']);
-        $this->assertFalse($page['isSeparator']);
         $this->assertStringContainsString('Aucun membre associé', $page['label']);
         $this->assertSame('#', $page['url']);
+    }
+
+    /**
+     * The empty-state placeholder must still sort ahead of a core static
+     * page even though both would share the same numeric `order` (10) —
+     * it's GROUP_DYNAMIC, not GROUP_CORE.
+     */
+    public function testEmptyStateMessageSortsBeforeACorePageAtTheSameOrder(): void
+    {
+        $this->builder->addPage(
+            MenuBuilder::MENU_ESPACE_ANIMES,
+            'Aucun membre associé à votre compte pour l\'année 2025-2026',
+            '#',
+            'identified',
+            10,
+            false,
+            null,
+            MenuBuilder::GROUP_DYNAMIC
+        );
+        $this->builder->addPage(
+            MenuBuilder::MENU_ESPACE_ANIMES,
+            'Notifications',
+            '/notifications',
+            'identified',
+            10
+        );
+
+        $menus = $this->builder->build();
+
+        $espaceAnimesMenu = null;
+        foreach ($menus as $menu) {
+            if ($menu['id'] === MenuBuilder::MENU_ESPACE_ANIMES) {
+                $espaceAnimesMenu = $menu;
+                break;
+            }
+        }
+
+        $this->assertNotNull($espaceAnimesMenu);
+        $labels = array_column($espaceAnimesMenu['pages'], 'label');
+        $this->assertSame(['Aucun membre associé à votre compte pour l\'année 2025-2026', 'Notifications'], $labels);
     }
 }

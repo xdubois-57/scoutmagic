@@ -16,23 +16,35 @@ use Twig\Environment;
 use Twig\Loader\FilesystemLoader;
 
 /**
- * RBAC boundary for the scout-year routes (Espace chefs d'U): all require `admin`
- * (displayed as "Chef d'Unité"). Allowed at admin, denied (403) one level below
- * (chief), redirect (302 /login) when unauthenticated.
+ * RBAC boundaries introduced by the "Configuration générale" split: the
+ * Modules/Badges pages stay superadmin-only (unchanged), while the
+ * remaining configuration-mode toggle page (still /config/general, moved
+ * to "Espace chefs d'U" in the menu) and the /config-mode/* routes it
+ * drives are deliberately widened from superadmin to admin (Chef d'Unité)
+ * — the one real access-scope change in this lot.
  */
-class ScoutYearRbacTest extends TestCase
+class ConfigMenuSplitRbacTest extends TestCase
 {
     private Environment $twig;
     private AppConfig $config;
 
     /** @return array<int, array{string, string}> method + path */
-    private const ROUTES = [
-        ['GET', '/admin/scout-year'],
-        ['POST', '/admin/scout-year/preview'],
-        ['POST', '/admin/scout-year/clear-preview'],
-        ['POST', '/admin/scout-year/activate-staff'],
-        ['POST', '/admin/scout-year/deactivate-staff'],
-        ['POST', '/admin/scout-year/activate-public'],
+    private const SUPERADMIN_ROUTES = [
+        ['GET', '/config/modules'],
+        ['POST', '/config/modules/toggle'],
+        ['POST', '/config/modules/reorder'],
+        ['GET', '/config/badges'],
+        ['POST', '/config/badges/add'],
+        ['POST', '/config/badges/update'],
+        ['POST', '/config/badges/toggle-active'],
+        ['POST', '/config/badges/delete'],
+    ];
+
+    /** @return array<int, array{string, string}> method + path */
+    private const ADMIN_ROUTES = [
+        ['GET', '/config/general'],
+        ['POST', '/config-mode/activate'],
+        ['POST', '/config-mode/deactivate'],
     ];
 
     protected function setUp(): void
@@ -70,11 +82,14 @@ class ScoutYearRbacTest extends TestCase
     private function buildFrontController(): FrontController
     {
         $router = new Router();
-        foreach (self::ROUTES as [$method, $path]) {
-            $router->addRoute($method, $path, ScoutYearStubController::class, 'index', 'admin');
+        foreach (self::SUPERADMIN_ROUTES as [$method, $path]) {
+            $router->addRoute($method, $path, ConfigSplitStubController::class, 'index', 'superadmin');
+        }
+        foreach (self::ADMIN_ROUTES as [$method, $path]) {
+            $router->addRoute($method, $path, ConfigSplitStubController::class, 'index', 'admin');
         }
         $fc = new FrontController($router, $this->twig, $this->config);
-        $fc->registerController(ScoutYearStubController::class, new ScoutYearStubController($this->twig));
+        $fc->registerController(ConfigSplitStubController::class, new ConfigSplitStubController($this->twig));
 
         return $fc;
     }
@@ -88,36 +103,67 @@ class ScoutYearRbacTest extends TestCase
         }
     }
 
-    public function testAdminIsAllowed(): void
+    public function testModulesAndBadgesRoutesAllowedForSuperadmin(): void
     {
         $this->startTestSession();
-        AuthSession::login(1, 'unitchief@test.com', 'admin');
+        AuthSession::login(1, 'super@test.com', 'superadmin');
         $fc = $this->buildFrontController();
 
-        foreach (self::ROUTES as [$method, $path]) {
+        foreach (self::SUPERADMIN_ROUTES as [$method, $path]) {
+            $response = $fc->handle(new Request($method, $path, [], [], [], []));
+            $this->assertSame(200, $response->getStatusCode(), "{$method} {$path} should be allowed for superadmin");
+        }
+    }
+
+    public function testModulesAndBadgesRoutesDeniedForAdmin(): void
+    {
+        // The whole point of the split: Modules/Badges stay superadmin-only
+        // even though the Configuration menu's other former resident
+        // (the config-mode toggle) widened to admin — no accidental
+        // widening of the module registry or badges themselves.
+        $this->startTestSession();
+        AuthSession::login(1, 'chief-unite@test.com', 'admin');
+        $fc = $this->buildFrontController();
+
+        foreach (self::SUPERADMIN_ROUTES as [$method, $path]) {
+            $response = $fc->handle(new Request($method, $path, [], [], [], []));
+            $this->assertSame(403, $response->getStatusCode(), "{$method} {$path} should be denied for admin (Chef d'Unité)");
+        }
+    }
+
+    public function testConfigModeRoutesAllowedForAdmin(): void
+    {
+        // The deliberate, analyzed widening: any chief d'unité (admin) can
+        // now reach the configuration-mode toggle page and its two routes,
+        // not just a superadmin.
+        $this->startTestSession();
+        AuthSession::login(1, 'chief-unite@test.com', 'admin');
+        $fc = $this->buildFrontController();
+
+        foreach (self::ADMIN_ROUTES as [$method, $path]) {
             $response = $fc->handle(new Request($method, $path, [], [], [], []));
             $this->assertSame(200, $response->getStatusCode(), "{$method} {$path} should be allowed for admin (Chef d'Unité)");
         }
     }
 
-    public function testChiefIsDenied(): void
+    public function testConfigModeRoutesDeniedForChief(): void
     {
         $this->startTestSession();
         AuthSession::login(1, 'chief@test.com', 'chief');
         $fc = $this->buildFrontController();
 
-        foreach (self::ROUTES as [$method, $path]) {
+        foreach (self::ADMIN_ROUTES as [$method, $path]) {
             $response = $fc->handle(new Request($method, $path, [], [], [], []));
-            $this->assertSame(403, $response->getStatusCode(), "{$method} {$path} should be denied for chief");
+            $this->assertSame(403, $response->getStatusCode(), "{$method} {$path} should be denied for chief, one level below admin");
         }
     }
 
-    public function testUnauthenticatedRedirectsToLogin(): void
+    public function testAllRoutesRedirectToLoginWhenUnauthenticated(): void
     {
         $this->startTestSession();
         $fc = $this->buildFrontController();
 
-        foreach (self::ROUTES as [$method, $path]) {
+        foreach ([...self::SUPERADMIN_ROUTES, ...self::ADMIN_ROUTES] as [$method, $path]) {
             $response = $fc->handle(new Request($method, $path, [], [], [], []));
             $this->assertSame(302, $response->getStatusCode(), "{$method} {$path} should redirect when unauthenticated");
             $this->assertSame('/login', $response->getHeaders()['Location']);
@@ -125,7 +171,7 @@ class ScoutYearRbacTest extends TestCase
     }
 }
 
-class ScoutYearStubController extends AbstractController
+class ConfigSplitStubController extends AbstractController
 {
     /**
      * @param array<string, string> $params

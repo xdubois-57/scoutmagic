@@ -120,7 +120,7 @@ class RouterModuleTest extends TestCase
                     'menu' => 'espace_animes',
                     'role_min' => 'identified',
                     'label' => 'Calendrier',
-                    'breadcrumb' => ['label' => 'Calendrier', 'parents' => ['Espace des animés']],
+                    'breadcrumb' => ['label' => 'Calendrier', 'parents' => ['Espace animés']],
                 ],
             ],
         ]);
@@ -131,7 +131,7 @@ class RouterModuleTest extends TestCase
         $resolved = $this->router->resolve($request);
 
         $this->assertNotNull($resolved);
-        $this->assertSame(['label' => 'Calendrier', 'parents' => ['Espace des animés']], $resolved->breadcrumb);
+        $this->assertSame(['label' => 'Calendrier', 'parents' => ['Espace animés']], $resolved->breadcrumb);
     }
 
     public function testRegisterModuleRoutesWithoutBreadcrumbResolvesToNull(): void

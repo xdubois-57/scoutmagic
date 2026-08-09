@@ -59,7 +59,7 @@
       "menu": "espace_chefs",
       "role_min": "chief",
       "label": "Calendrier",
-      "breadcrumb": { "label": "Calendrier", "parents": ["Espace des chefs"] }
+      "breadcrumb": { "label": "Calendrier", "parents": ["Espace chefs"] }
     },
     {
       "path": "/chefs/calendar/event-create",

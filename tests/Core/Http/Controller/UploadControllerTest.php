@@ -289,6 +289,36 @@ class UploadControllerTest extends TestCase
     }
 
     /**
+     * The other half of the same widening covered above for editable_image
+     * — section_photo is gated purely on ConfigurationMode::isActive() too,
+     * so an admin-level (not just superadmin) config-mode session must now
+     * be able to use it.
+     */
+    public function testSectionPhotoContextAllowedForAdminLevelConfigMode(): void
+    {
+        ConfigurationMode::deactivate();
+        AuthSession::login(1, 'chief-unite@test.com', 'admin');
+        ConfigurationMode::activate('admin');
+
+        $tmpFile = $this->createTempImage();
+        $_FILES['file'] = ['tmp_name' => $tmpFile, 'name' => 'staff.jpg', 'size' => filesize($tmpFile), 'error' => UPLOAD_ERR_OK];
+
+        $request = new Request('POST', '/upload', [], [
+            '_csrf_token' => CsrfGuard::generateToken(),
+            'context' => 'section_photo',
+            'key' => $this->sectionId . ':' . $this->scoutYearId,
+            'return_url' => '/chefs/staffs',
+        ], [], []);
+
+        $response = $this->controller->store($request, []);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertNotNull($this->sectionPhotoService->resolveFileId($this->sectionId, $this->scoutYearId));
+
+        unset($_FILES['file']);
+    }
+
+    /**
      * age_branch_logo is a direct role check, not configuration-mode-only
      * — Config Desk is its own superadmin-only admin area with no session
      * flag to toggle, unlike editable_image/section_photo.
@@ -421,6 +451,40 @@ class UploadControllerTest extends TestCase
 
     public function testEditableImageContextSetsTheEditableContentRecord(): void
     {
+        $tmpFile = $this->createTempImage();
+        $_FILES['file'] = ['tmp_name' => $tmpFile, 'name' => 'hero.jpg', 'size' => filesize($tmpFile), 'error' => UPLOAD_ERR_OK];
+
+        $request = new Request('POST', '/upload', [], [
+            '_csrf_token' => CsrfGuard::generateToken(),
+            'context' => 'editable_image',
+            'key' => 'home.hero',
+            'return_url' => '/',
+        ], [], []);
+
+        $response = $this->controller->store($request, []);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $stmt = $this->pdo->query("SELECT COUNT(*) FROM editable_contents WHERE content_key = 'home.hero'");
+        $this->assertSame(1, (int) $stmt->fetchColumn());
+
+        unset($_FILES['file']);
+    }
+
+    /**
+     * Configuration mode widened from superadmin-only to admin (Chef
+     * d'Unité) — analyzed and confirmed as a deliberate consequence for
+     * every context gated purely on ConfigurationMode::isActive()
+     * (Core\Http\Controller\UploadController::isUploadAuthorized()'s own
+     * docblock). editable_image is exactly that kind of context: an admin
+     * session (not superadmin) activating configuration mode must now be
+     * able to use it, where before this lot it could not.
+     */
+    public function testEditableImageContextAllowedForAdminLevelConfigMode(): void
+    {
+        ConfigurationMode::deactivate();
+        AuthSession::login(1, 'chief-unite@test.com', 'admin');
+        ConfigurationMode::activate('admin');
+
         $tmpFile = $this->createTempImage();
         $_FILES['file'] = ['tmp_name' => $tmpFile, 'name' => 'hero.jpg', 'size' => filesize($tmpFile), 'error' => UPLOAD_ERR_OK];
 

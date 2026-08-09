@@ -51,9 +51,7 @@
                     <div class="accordion-body p-0">
                         <ul class="list-group list-group-flush">
                             {% for page in menu.pages %}
-                                {% if page.isSeparator %}
-                                    <li class="list-group-item p-0"><hr class="my-1"></li>
-                                {% elseif page.isDynamic %}
+                                {% if page.isDynamic %}
                                     {# No Bootstrap `active` class here: `.list-group-item.active` paints a
                                        solid --bs-primary background (not !important), while the `text-primary`
                                        below is a color utility and IS !important — together that's blue text
@@ -148,9 +146,7 @@
     <div class="desktop-submenu border-top bg-light {% if menu.id != active_menu_id %}d-none{% endif %}" data-submenu-id="{{ menu.id }}">
         <div class="container-fluid px-3 py-2 d-flex flex-wrap gap-2">
             {% for page in menu.pages %}
-                {% if page.isSeparator %}
-                    <span class="border-start mx-1" style="height:24px;"></span>
-                {% elseif page.isDynamic %}
+                {% if page.isDynamic %}
                     <a href="{{ page.url }}"
                        class="btn btn-sm {% if current_path == page.url %}btn-primary{% else %}btn-outline-secondary{% endif %} d-flex align-items-center gap-1">
                         <span class="d-inline-flex align-items-center justify-content-center rounded-circle bg-primary-subtle text-primary fw-bold"

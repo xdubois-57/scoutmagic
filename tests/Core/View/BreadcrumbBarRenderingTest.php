@@ -55,15 +55,7 @@ class BreadcrumbBarRenderingTest extends TestCase
      */
     private function page(string $url, bool $isDynamic = false): array
     {
-        return ['label' => 'x', 'url' => $url, 'isDynamic' => $isDynamic, 'isSeparator' => false];
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    private function separator(): array
-    {
-        return ['isDynamic' => false, 'isSeparator' => true];
+        return ['label' => 'x', 'url' => $url, 'isDynamic' => $isDynamic];
     }
 
     public function testHomeIconAlwaysPresentAndHardcodedToRoot(): void
@@ -76,11 +68,11 @@ class BreadcrumbBarRenderingTest extends TestCase
     public function testRouteWithBreadcrumbRendersFullTrail(): void
     {
         $html = $this->render(
-            ['label' => 'Staffs', 'parents' => ['Espace des chefs']],
+            ['label' => 'Staffs', 'parents' => ['Espace chefs']],
             '/chefs/staffs'
         );
 
-        $this->assertStringContainsString('Espace des chefs', $html);
+        $this->assertStringContainsString('Espace chefs', $html);
         $this->assertStringContainsString('Staffs', $html);
         $this->assertStringContainsString('aria-current="page"', $html);
     }
@@ -101,74 +93,75 @@ class BreadcrumbBarRenderingTest extends TestCase
         // must never invent a URL (e.g. "/" or "#") for a menu category
         // that has no real landing page of its own.
         $html = $this->render(
-            ['label' => 'Staffs', 'parents' => ['Espace des chefs']],
+            ['label' => 'Staffs', 'parents' => ['Espace chefs']],
             '/chefs/staffs'
         );
 
         $this->assertMatchesRegularExpression(
-            '/<li class="breadcrumb-item text-body-secondary">Espace des chefs<\/li>/',
+            '/<li class="breadcrumb-item text-body-secondary">Espace chefs<\/li>/',
             $html
         );
     }
 
     public function testParentSegmentIsClickableWhenItsMenuHasARealFirstPage(): void
     {
-        // Viewing Journal, whose parent "Espace admin" resolves to that
+        // Viewing Journal, whose parent "Espace chefs d'U" resolves to that
         // menu's first real page — Import Desk, a genuinely different page.
         $html = $this->render(
-            ['label' => 'Journal', 'parents' => ['Espace admin']],
+            ['label' => 'Journal', 'parents' => ['Espace chefs d\'U']],
             '/admin/journal',
             null,
-            [$this->menu('Espace admin', [$this->page('/admin/import'), $this->page('/admin/journal')])]
+            [$this->menu('Espace chefs d\'U', [$this->page('/admin/import'), $this->page('/admin/journal')])]
         );
 
         $this->assertMatchesRegularExpression(
-            '/<li class="breadcrumb-item"><a href="\/admin\/import"[^>]*>Espace admin<\/a><\/li>/',
+            '/<li class="breadcrumb-item"><a href="\/admin\/import"[^>]*>Espace chefs d&#039;U<\/a><\/li>/',
             $html
         );
     }
 
     public function testParentSegmentIsNotLinkedBackToTheCurrentPageItself(): void
     {
-        // Mirrors the real Staffs page: "Espace des chefs" currently has
+        // Mirrors the real Staffs page: "Espace chefs" currently has
         // only one static page (Staffs itself). Linking the parent back to
         // the page already being viewed would be a dead click, so it falls
         // back to plain text rather than a self-link.
         $html = $this->render(
-            ['label' => 'Staffs', 'parents' => ['Espace des chefs']],
+            ['label' => 'Staffs', 'parents' => ['Espace chefs']],
             '/chefs/staffs',
             null,
-            [$this->menu('Espace des chefs', [$this->page('/chefs/staffs')])]
+            [$this->menu('Espace chefs', [$this->page('/chefs/staffs')])]
         );
 
         $this->assertStringNotContainsString('<a href="/chefs/staffs"', $html);
         $this->assertMatchesRegularExpression(
-            '/<li class="breadcrumb-item text-body-secondary">Espace des chefs<\/li>/',
+            '/<li class="breadcrumb-item text-body-secondary">Espace chefs<\/li>/',
             $html
         );
     }
 
-    public function testParentSegmentSkipsDynamicSeparatorAndPlaceholderPagesWhenPickingALink(): void
+    public function testParentSegmentSkipsDynamicAndPlaceholderPagesWhenPickingALink(): void
     {
-        // Mirrors Espace des animés: dynamic per-member entries first, a
-        // separator, then a real static page. The link must be the first
-        // genuinely navigable page, not the placeholder/dynamic ones ahead
-        // of it. Viewing a member page here (not Notifications itself) so
-        // the resolved link is a genuinely different page, not a self-link.
+        // Mirrors Espace animés: dynamic per-member entries first (sorted
+        // there by Core\View\MenuBuilder's group-based sort, no separator
+        // involved anymore), then a real static page. The link must be the
+        // first genuinely navigable page, not the placeholder/dynamic ones
+        // ahead of it. Viewing a member page here (not Notifications
+        // itself) so the resolved link is a genuinely different page, not
+        // a self-link.
         $html = $this->render(
-            ['label' => 'Membre', 'parents' => ['Espace des animés']],
+            ['label' => 'Membre', 'parents' => ['Espace animés']],
             '/members/1',
             null,
-            [$this->menu('Espace des animés', [
+            [$this->menu('Espace animés', [
                 $this->page('#'),
                 $this->page('/members/1', true),
-                $this->separator(),
                 $this->page('/notifications'),
             ])]
         );
 
         $this->assertMatchesRegularExpression(
-            '/<a href="\/notifications"[^>]*>Espace des animés<\/a>/',
+            '/<a href="\/notifications"[^>]*>Espace animés<\/a>/',
             $html
         );
     }
@@ -176,18 +169,18 @@ class BreadcrumbBarRenderingTest extends TestCase
     public function testParentSegmentStaysPlainTextWhenItsMenuHasOnlyDynamicOrPlaceholderPages(): void
     {
         // A menu can exist and still have no landing page worth linking to
-        // (e.g. Espace des animés with no linked members — only the "#"
+        // (e.g. Espace animés with no linked members — only the "#"
         // empty-state entry and dynamic per-member ones) — never invented.
         $html = $this->render(
-            ['label' => 'Membre', 'parents' => ['Espace des animés']],
+            ['label' => 'Membre', 'parents' => ['Espace animés']],
             '/members/1',
             null,
-            [$this->menu('Espace des animés', [$this->page('#'), $this->page('/members/1', true)])]
+            [$this->menu('Espace animés', [$this->page('#'), $this->page('/members/1', true)])]
         );
 
         $this->assertStringNotContainsString('<a href="#"', $html);
         $this->assertMatchesRegularExpression(
-            '/<li class="breadcrumb-item text-body-secondary">Espace des animés<\/li>/',
+            '/<li class="breadcrumb-item text-body-secondary">Espace animés<\/li>/',
             $html
         );
     }
@@ -195,10 +188,10 @@ class BreadcrumbBarRenderingTest extends TestCase
     public function testCurrentPageSegmentIsNeverALink(): void
     {
         $html = $this->render(
-            ['label' => 'Import Desk', 'parents' => ['Espace admin']],
+            ['label' => 'Import Desk', 'parents' => ['Espace chefs d\'U']],
             '/admin/import',
             null,
-            [$this->menu('Espace admin', [$this->page('/admin/import')])]
+            [$this->menu('Espace chefs d\'U', [$this->page('/admin/import')])]
         );
 
         $this->assertDoesNotMatchRegularExpression('/<a[^>]*>\s*Import Desk\s*<\/a>/', $html);
@@ -207,7 +200,7 @@ class BreadcrumbBarRenderingTest extends TestCase
     public function testBreadcrumbCurrentOverridesStaticLabel(): void
     {
         $html = $this->render(
-            ['label' => 'Membre', 'parents' => ['Espace des animés']],
+            ['label' => 'Membre', 'parents' => ['Espace animés']],
             '/members/42',
             'Jean Dupont'
         );

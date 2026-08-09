@@ -24,7 +24,7 @@ use Twig\TwigFilter;
 use Twig\TwigFunction;
 
 /**
- * RBAC boundary for /trombinoscope (Espace des animés, role_min identified):
+ * RBAC boundary for /trombinoscope (Espace animés, role_min identified):
  * identified -> 200 (renders), public -> 403.
  */
 class TrombinoscopeControllerTest extends TestCase
@@ -88,7 +88,7 @@ class TrombinoscopeControllerTest extends TestCase
         $router = new Router();
         $router->addRoute('GET', '/trombinoscope', TrombinoscopeController::class, 'index', 'identified', [
             'label' => 'Trombinoscope',
-            'parents' => ['Espace des animés'],
+            'parents' => ['Espace animés'],
         ]);
 
         $sections = $this->sections;

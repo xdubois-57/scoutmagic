@@ -16,7 +16,7 @@ use Twig\Environment;
 use Twig\Loader\FilesystemLoader;
 
 /**
- * RBAC boundary for /admin/members (Espace admin): requires `admin`
+ * RBAC boundary for /admin/members (Espace chefs d'U): requires `admin`
  * (Chef d'Unité). Allowed at admin, denied (403) one level below (chief),
  * redirect (302 /login) when unauthenticated.
  */

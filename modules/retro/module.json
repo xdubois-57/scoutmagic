@@ -13,7 +13,7 @@
       "menu": "espace_admin",
       "role_min": "admin",
       "label": "Rétrospectives — Config",
-      "breadcrumb": { "label": "Rétrospectives — Config", "parents": ["Espace admin"] }
+      "breadcrumb": { "label": "Rétrospectives — Config", "parents": ["Espace chefs d'U"] }
     },
     {
       "path": "/config/retro",
@@ -32,7 +32,7 @@
       "menu": "espace_chefs",
       "role_min": "intendant",
       "label": "Rétrospectives",
-      "breadcrumb": { "label": "Rétrospectives", "parents": ["Espace des chefs"] }
+      "breadcrumb": { "label": "Rétrospectives", "parents": ["Espace chefs"] }
     },
     {
       "path": "/retro/create",

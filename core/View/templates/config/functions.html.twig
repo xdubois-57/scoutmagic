@@ -2,6 +2,8 @@
 {% block title %}Config Desk — {{ site_name }}{% endblock %}
 {% block content %}
     <h1>Config Desk</h1>
+
+    <h2 class="h4">Fonctions</h2>
     <p class="text-body-secondary mb-4">
         Associez chaque fonction importée depuis Desk à un rôle sur le site.
         Les fonctions non confirmées ont le rôle "Animé" par défaut —
@@ -10,8 +12,6 @@
     <p class="text-body-secondary small">
         Les changements de rôle prennent effet à la prochaine connexion des membres concernés.
     </p>
-
-    <h2 class="h4">Fonctions</h2>
 
     {# Unconfirmed functions #}
     {% if unconfirmed|length > 0 %}
@@ -164,8 +164,8 @@
     <h2 class="h4">Branches</h2>
     <p class="text-body-secondary mb-4">
         Configurez, pour chaque branche d'âge, le logo fédéral et le lien
-        d'explication affichés sur la carte de branche de l'espace des
-        animés. Sans logo téléversé, un logo par défaut est utilisé quand
+        d'explication affichés sur la carte de branche de l'espace animés.
+        Sans logo téléversé, un logo par défaut est utilisé quand
         il existe ; sans lien personnalisé, le lien par défaut de la
         fédération Les Scouts est utilisé.
     </p>

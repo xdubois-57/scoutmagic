@@ -118,13 +118,13 @@ class RouterTest extends TestCase
             'App\\Controller\\StaffsController',
             'index',
             'intendant',
-            ['label' => 'Staffs', 'parents' => ['Espace des chefs']]
+            ['label' => 'Staffs', 'parents' => ['Espace chefs']]
         );
 
         $request = new Request('GET', '/chefs/staffs', [], [], [], []);
         $resolved = $router->resolve($request);
 
         $this->assertInstanceOf(ResolvedRoute::class, $resolved);
-        $this->assertSame(['label' => 'Staffs', 'parents' => ['Espace des chefs']], $resolved->breadcrumb);
+        $this->assertSame(['label' => 'Staffs', 'parents' => ['Espace chefs']], $resolved->breadcrumb);
     }
 }

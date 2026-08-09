@@ -40,7 +40,7 @@
       "menu": "espace_chefs",
       "role_min": "chief",
       "label": "Envoi de mails",
-      "breadcrumb": { "label": "Envoi de mails", "parents": ["Espace des chefs"] }
+      "breadcrumb": { "label": "Envoi de mails", "parents": ["Espace chefs"] }
     },
     {
       "path": "/mass-mail",

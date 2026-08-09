@@ -285,13 +285,13 @@ class ModuleManifestTest extends TestCase
                     'action' => 'a',
                     'menu' => 'espace_chefs',
                     'role_min' => 'intendant',
-                    'breadcrumb' => ['label' => 'Staffs', 'parents' => ['Espace des chefs']],
+                    'breadcrumb' => ['label' => 'Staffs', 'parents' => ['Espace chefs']],
                 ],
             ],
         ]);
 
         $this->assertSame(
-            ['label' => 'Staffs', 'parents' => ['Espace des chefs']],
+            ['label' => 'Staffs', 'parents' => ['Espace chefs']],
             $manifest->routes[0]['breadcrumb']
         );
     }
@@ -333,7 +333,7 @@ class ModuleManifestTest extends TestCase
                     'action' => 'a',
                     'menu' => 'espace_chefs',
                     'role_min' => 'intendant',
-                    'breadcrumb' => ['parents' => ['Espace des chefs']],
+                    'breadcrumb' => ['parents' => ['Espace chefs']],
                 ],
             ],
         ]);
@@ -355,7 +355,7 @@ class ModuleManifestTest extends TestCase
                     'action' => 'a',
                     'menu' => 'espace_chefs',
                     'role_min' => 'intendant',
-                    'breadcrumb' => ['label' => 'Staffs', 'parents' => 'Espace des chefs'],
+                    'breadcrumb' => ['label' => 'Staffs', 'parents' => 'Espace chefs'],
                 ],
             ],
         ]);

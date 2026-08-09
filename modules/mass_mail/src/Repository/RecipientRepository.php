@@ -192,7 +192,7 @@ class RecipientRepository
 
     /**
      * Backs Api\MassMailQueryInterface::getRecentEmailsForMember() — the
-     * espace des animés member page's optional "Emails reçus" section
+     * espace animés member page's optional "Emails reçus" section
      * (ARCHITECTURE.md §7.5). Only ever 'sent' recipients — a still-
      * pending or errored row was never actually delivered to this member.
      * `id` is the recipient id, not the email id — it's what the member

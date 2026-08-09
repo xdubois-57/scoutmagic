@@ -30,6 +30,8 @@ use Core\Http\Controller\AccountController;
 use Core\Http\Controller\AuthController;
 use Core\Http\Controller\PasswordResetController;
 use Core\Http\Controller\ConfigGeneralController;
+use Core\Http\Controller\ConfigModulesController;
+use Core\Http\Controller\ConfigBadgesController;
 use Core\Http\Controller\RgpdConfigController;
 use Core\Http\Controller\FunctionsController;
 use Core\Http\Controller\CookieController;
@@ -743,7 +745,7 @@ $memberBadgeRepository = new MemberBadgeRepository($pdo);
 $sectionService = new SectionService($connection, $encryptionService, $memberBadgeRepository);
 $badgeService = new BadgeService($badgeRepository, $memberBadgeRepository, $sectionService);
 
-// Member page (Espace des animés) "Documents privés" storage — see
+// Member page (Espace animés) "Documents privés" storage — see
 // Core\Member\MemberDocumentService.
 $memberDocumentService = new \Core\Member\MemberDocumentService(new \Core\Member\MemberDocumentRepository($pdo));
 
@@ -924,15 +926,26 @@ $menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Import Desk', '/admin/imp
 $menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Journal', '/admin/journal', 'admin', 20);
 $menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Année scoute', '/admin/scout-year', 'admin', 30);
 $menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Membres', '/admin/members', 'admin', 40);
-$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Générale', '/config/general', 'superadmin', 10);
-$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Technique', '/setup', 'superadmin', 15);
+// Configuration générale — shrunk to just the configuration-mode toggle,
+// moved here from the Configuration menu and widened from superadmin to
+// admin (see /config-mode/activate|deactivate's own role_min and
+// Core\View\ConfigurationMode, widened the same way) so every chief
+// d'unité, not only a superadmin, can edit site content.
+$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ADMIN, 'Configuration générale', '/config/general', 'admin', 50);
+$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Modules', '/config/modules', 'superadmin', 10);
+$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Badges', '/config/badges', 'superadmin', 12);
+$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Configuration avancée', '/setup', 'superadmin', 15);
 $menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Desk', '/config/functions', 'superadmin', 20);
 $menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Paramètres', '/config/settings', 'superadmin', 30);
 $menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'RGPD', '/config/rgpd', 'superadmin', 35);
 $menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Actions planifiées', '/config/scheduled', 'superadmin', 40);
 $menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Maintenance', '/config/maintenance', 'admin', 45);
 $menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Notifications', '/config/notifications', 'superadmin', 46);
-$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ANIMES, 'Notifications', '/notifications', 'identified', 60);
+// order 10, not a leftover "after the separator" number — GROUP_CORE
+// (addPage()'s default) already sorts this after the dynamic member
+// entries/empty-state placeholder above regardless of the numeric order,
+// and it's currently the only core static page in this menu.
+$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ANIMES, 'Notifications', '/notifications', 'identified', 10);
 
 // Create router early so ModuleManager can register routes
 $router = new Router();
@@ -1003,7 +1016,11 @@ if ($schedulerService->find('core', 'check_stable_update', 'daily') === null) {
     $schedulerService->schedule('core', 'check_stable_update', new DateTimeImmutable(), [], 'daily');
 }
 
-// Add dynamic member entries to Espace des animés
+// Add dynamic member entries to Espace animés — group: GROUP_DYNAMIC keeps
+// these (and the empty-state placeholder below) sorted ahead of every core
+// static page and every module page in this menu regardless of numeric
+// `order` (Core\View\MenuBuilder::buildPages() sorts by group first). No
+// separator/magic-number order needed anymore to keep them there.
 if (AuthSession::isAuthenticated()) {
     $linkedMembers = $memberService->getLinkedMembers(
         AuthSession::getEmail(),
@@ -1017,16 +1034,17 @@ if (AuthSession::isAuthenticated()) {
             '/members/' . $member->memberYearId,
             'identified',
             10 + $index,  // order: members first
-            true,          // isDynamic = true
-            $member->getMainSectionName()  // subtitle
+            true,          // isDynamic = true (renders with the avatar-circle styling)
+            $member->getMainSectionName(),  // subtitle
+            MenuBuilder::GROUP_DYNAMIC
         );
     }
 
-    // Separator between dynamic member entries and static module pages
-    if (count($linkedMembers) > 0) {
-        $menuBuilder->addSeparator(MenuBuilder::MENU_ESPACE_ANIMES, 50);
-    } else {
-        // Empty state message when no members are linked
+    // Empty state message when no members are linked — conceptually the
+    // same "dynamic member list" slot (hence GROUP_DYNAMIC), but isDynamic
+    // stays false so it renders as a plain line, not a two-letter avatar
+    // bubble carved out of this whole sentence.
+    if (count($linkedMembers) === 0) {
         $menuBuilder->addPage(
             MenuBuilder::MENU_ESPACE_ANIMES,
             'Aucun membre associé à votre compte pour l\'année ' . $effectiveScoutYear->label,
@@ -1034,7 +1052,8 @@ if (AuthSession::isAuthenticated()) {
             'identified',
             10,
             false,
-            null
+            null,
+            MenuBuilder::GROUP_DYNAMIC
         );
     }
 }
@@ -1042,9 +1061,9 @@ if (AuthSession::isAuthenticated()) {
 // Register core routes
 // Public pages
 $router->addRoute('GET', '/', PageController::class, 'home', 'public');
-$router->addRoute('GET', '/contact', PageController::class, 'contact', 'public', ['label' => 'Contact', 'parents' => ['Notre unité']]);
-$router->addRoute('GET', '/sections', PageController::class, 'sections', 'public', ['label' => 'Sections', 'parents' => ['Notre unité']]);
-$router->addRoute('GET', '/rgpd', PageController::class, 'rgpd', 'public', ['label' => 'Protection des données', 'parents' => ['Notre unité']]);
+$router->addRoute('GET', '/contact', PageController::class, 'contact', 'public', ['label' => 'Contact', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_NOTRE_UNITE)]]);
+$router->addRoute('GET', '/sections', PageController::class, 'sections', 'public', ['label' => 'Sections', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_NOTRE_UNITE)]]);
+$router->addRoute('GET', '/rgpd', PageController::class, 'rgpd', 'public', ['label' => 'Protection des données', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_NOTRE_UNITE)]]);
 
 // Auth routes
 $router->addRoute('GET', '/login', AuthController::class, 'login', 'public');
@@ -1072,7 +1091,7 @@ $router->addRoute('POST', '/api/push-subscription', PushSubscriptionController::
 $router->addRoute('DELETE', '/api/push-subscription', PushSubscriptionController::class, 'unsubscribe', 'identified');
 
 // Notification centre (Core\Notification, Lot 2)
-$router->addRoute('GET', '/notifications', \Core\Http\Controller\NotificationController::class, 'index', 'identified', ['label' => 'Notifications', 'parents' => ['Espace des animés']]);
+$router->addRoute('GET', '/notifications', \Core\Http\Controller\NotificationController::class, 'index', 'identified', ['label' => 'Notifications', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ANIMES)]]);
 $router->addRoute('POST', '/notifications/{id}/read', \Core\Http\Controller\NotificationController::class, 'markRead', 'identified');
 $router->addRoute('POST', '/notifications/mark-all-read', \Core\Http\Controller\NotificationController::class, 'markAllRead', 'identified');
 $router->addRoute('GET', '/api/notifications/unread-count', \Core\Http\Controller\NotificationController::class, 'unreadCount', 'identified');
@@ -1084,7 +1103,7 @@ $router->addRoute('POST', '/config/notifications/rotate-vapid', \Core\Http\Contr
 $router->addRoute('POST', '/config/notifications/test', \Core\Http\Controller\NotificationConfigController::class, 'sendTest', 'superadmin');
 
 // Member pages
-$router->addRoute('GET', '/members/{id}', MemberController::class, 'show', 'identified', ['label' => 'Membre', 'parents' => ['Espace des animés']]);
+$router->addRoute('GET', '/members/{id}', MemberController::class, 'show', 'identified', ['label' => 'Membre', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ANIMES)]]);
 $router->addRoute('POST', '/members/{id}/scout-year-offset', MemberController::class, 'updateScoutYearOffset', 'chief');
 // Member page "Adresses email" — self-service only, no chief/admin route
 // exists for this (Core\Http\Controller\MemberEmailAddressController
@@ -1101,9 +1120,13 @@ $router->addRoute('GET', '/members/emails/confirm/{id}', \Core\Http\Controller\M
 // core only ever links to it) — it doesn't exist at all when mass_mail is
 // disabled.
 
-// Configuration mode
-$router->addRoute('POST', '/config-mode/activate', ConfigModeController::class, 'activate', 'superadmin');
-$router->addRoute('POST', '/config-mode/deactivate', ConfigModeController::class, 'deactivate', 'superadmin');
+// Configuration mode — widened from superadmin to admin (chief d'unité)
+// alongside the /config/general toggle page's own menu move; the real
+// enforcement point is Core\View\ConfigurationMode::activate()/isActive(),
+// widened the same way — this route_min only gets an admin session in the
+// door before that.
+$router->addRoute('POST', '/config-mode/activate', ConfigModeController::class, 'activate', 'admin');
+$router->addRoute('POST', '/config-mode/deactivate', ConfigModeController::class, 'deactivate', 'admin');
 
 // Editable content API
 $router->addRoute('POST', '/api/editable-content', EditableContentController::class, 'update', 'superadmin');
@@ -1161,15 +1184,15 @@ $router->addRoute('POST', '/setup/test-email', SetupController::class, 'testEmai
 $router->addRoute('POST', '/setup/generate-dkim-key', SetupController::class, 'generateDkimKey', 'superadmin');
 
 // Import
-$router->addRoute('GET', '/admin/import', ImportController::class, 'index', 'admin', ['label' => 'Import Desk', 'parents' => ['Espace admin']]);
+$router->addRoute('GET', '/admin/import', ImportController::class, 'index', 'admin', ['label' => 'Import Desk', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ADMIN)]]);
 $router->addRoute('POST', '/admin/import', ImportController::class, 'import', 'admin');
 
 // Journal
-$router->addRoute('GET', '/admin/journal', JournalController::class, 'index', 'admin', ['label' => 'Journal', 'parents' => ['Espace admin']]);
+$router->addRoute('GET', '/admin/journal', JournalController::class, 'index', 'admin', ['label' => 'Journal', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ADMIN)]]);
 
 // Scout year navigation and transition
-$router->addRoute('GET', '/admin/members', MemberSearchController::class, 'index', 'admin', ['label' => 'Membres', 'parents' => ['Espace admin']]);
-$router->addRoute('GET', '/admin/scout-year', ScoutYearController::class, 'index', 'admin', ['label' => 'Année scoute', 'parents' => ['Espace admin']]);
+$router->addRoute('GET', '/admin/members', MemberSearchController::class, 'index', 'admin', ['label' => 'Membres', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ADMIN)]]);
+$router->addRoute('GET', '/admin/scout-year', ScoutYearController::class, 'index', 'admin', ['label' => 'Année scoute', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ADMIN)]]);
 $router->addRoute('POST', '/admin/scout-year/preview', ScoutYearController::class, 'preview', 'admin');
 $router->addRoute('POST', '/admin/scout-year/clear-preview', ScoutYearController::class, 'clearPreview', 'admin');
 $router->addRoute('POST', '/admin/scout-year/activate-staff', ScoutYearController::class, 'activateStaff', 'admin');
@@ -1203,14 +1226,26 @@ $router->addRoute('POST', '/api/maintenance/webhook-secret', MaintenanceControll
 // instead. See Core\Http\Controller\WebhookController's own docblock.
 $router->addRoute('POST', '/api/webhook/github', \Core\Http\Controller\WebhookController::class, 'github', 'public');
 
-// Configuration générale
-$router->addRoute('GET', '/config/general', ConfigGeneralController::class, 'index', 'superadmin');
-$router->addRoute('POST', '/config/general/module-toggle', ConfigGeneralController::class, 'toggleModule', 'superadmin');
-$router->addRoute('POST', '/config/general/module-reorder', ConfigGeneralController::class, 'reorderModules', 'superadmin');
-$router->addRoute('POST', '/config/general/badge-add', ConfigGeneralController::class, 'addBadge', 'superadmin');
-$router->addRoute('POST', '/config/general/badge-update', ConfigGeneralController::class, 'updateBadge', 'superadmin');
-$router->addRoute('POST', '/config/general/badge-toggle-active', ConfigGeneralController::class, 'toggleBadgeActive', 'superadmin');
-$router->addRoute('POST', '/config/general/badge-delete', ConfigGeneralController::class, 'deleteBadge', 'superadmin');
+// Configuration générale — shrunk to just the configuration-mode toggle
+// (module registry and badges split out below); moved to "Espace chefs d'U"
+// in the menu (see addPage() above) and widened to admin, same as the
+// /config-mode/* routes it links to — URL kept unchanged, nothing forces it
+// to change.
+$router->addRoute('GET', '/config/general', ConfigGeneralController::class, 'index', 'admin');
+
+// Configuration > Modules — module registry (split out of Configuration
+// générale, ARCHITECTURE §7.1). Stays superadmin, in the Configuration menu.
+$router->addRoute('GET', '/config/modules', ConfigModulesController::class, 'index', 'superadmin');
+$router->addRoute('POST', '/config/modules/toggle', ConfigModulesController::class, 'toggleModule', 'superadmin');
+$router->addRoute('POST', '/config/modules/reorder', ConfigModulesController::class, 'reorderModules', 'superadmin');
+
+// Configuration > Badges — badge registry (split out of Configuration
+// générale, ARCHITECTURE §8.11). Stays superadmin, in the Configuration menu.
+$router->addRoute('GET', '/config/badges', ConfigBadgesController::class, 'index', 'superadmin');
+$router->addRoute('POST', '/config/badges/add', ConfigBadgesController::class, 'addBadge', 'superadmin');
+$router->addRoute('POST', '/config/badges/update', ConfigBadgesController::class, 'updateBadge', 'superadmin');
+$router->addRoute('POST', '/config/badges/toggle-active', ConfigBadgesController::class, 'toggleBadgeActive', 'superadmin');
+$router->addRoute('POST', '/config/badges/delete', ConfigBadgesController::class, 'deleteBadge', 'superadmin');
 
 // RGPD configuration
 $router->addRoute('GET', '/config/rgpd', RgpdConfigController::class, 'index', 'superadmin');
@@ -1219,7 +1254,7 @@ $router->addRoute('POST', '/config/rgpd/generate', RgpdConfigController::class, 
 $router->addRoute('POST', '/config/rgpd/reset', RgpdConfigController::class, 'reset', 'superadmin');
 
 // Staffs
-$router->addRoute('GET', '/chefs/staffs', StaffsController::class, 'index', 'intendant', ['label' => 'Staffs', 'parents' => ['Espace des chefs']]);
+$router->addRoute('GET', '/chefs/staffs', StaffsController::class, 'index', 'intendant', ['label' => 'Staffs', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_CHEFS)]]);
 $router->addRoute('POST', '/chefs/staffs/badge-toggle', StaffsController::class, 'toggleBadge', 'chief');
 $router->addRoute('POST', '/chefs/staffs/documents', \Core\Http\Controller\SectionDocumentController::class, 'add', 'chief');
 $router->addRoute('POST', '/chefs/staffs/documents/reorder', \Core\Http\Controller\SectionDocumentController::class, 'reorder', 'chief');
@@ -1426,7 +1461,9 @@ $frontController->registerController(ScoutYearController::class, new ScoutYearCo
 $frontController->registerController(MemberSearchController::class, new MemberSearchController($twig, $memberSearchService, $memberService, $scoutYearResolver, $memberYearService));
 $frontController->registerController(SettingsController::class, new SettingsController($twig, $settingService, $journalService, $unitLogoService));
 $frontController->registerController(ScheduledActionsController::class, new ScheduledActionsController($twig, $schedulerRepo));
-$frontController->registerController(ConfigGeneralController::class, new ConfigGeneralController($twig, $moduleManager, $badgeService, $journalService));
+$frontController->registerController(ConfigGeneralController::class, new ConfigGeneralController($twig));
+$frontController->registerController(ConfigModulesController::class, new ConfigModulesController($twig, $moduleManager, $journalService));
+$frontController->registerController(ConfigBadgesController::class, new ConfigBadgesController($twig, $badgeService, $journalService));
 $frontController->registerController(FunctionsController::class, new FunctionsController($twig, $functionRepo, $journalService, $sectionService, $unitStaffSectionService, $scoutYearResolver, $badgeService, $ageBranchRepo));
 $frontController->registerController(PlaceholderController::class, new PlaceholderController($twig));
 
