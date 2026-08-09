@@ -12,8 +12,8 @@
       "action": "index",
       "menu": "espace_admin",
       "role_min": "admin",
-      "label": "Rétrospectives — Config",
-      "breadcrumb": { "label": "Rétrospectives — Config", "parents": ["Espace chefs d'U"] }
+      "label": "Rétrospective",
+      "breadcrumb": { "label": "Rétrospective", "parents": ["Espace chefs d'U"] }
     },
     {
       "path": "/config/retro",

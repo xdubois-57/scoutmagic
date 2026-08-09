@@ -228,6 +228,46 @@ class NewsIntegrationTest extends TestCase
         $this->assertStringContainsString('abc123', $response->getBody());
     }
 
+    /**
+     * Mirrors testShowSetsBreadcrumbCurrentToTheArticleTitle — the edit
+     * page's breadcrumb also shows the real article title, not the
+     * route's static "Modifier l'article" label.
+     */
+    public function testEditEditorPageSetsBreadcrumbCurrentToTheArticleTitle(): void
+    {
+        $this->twig->addGlobal('route_breadcrumb', ['label' => "Modifier l'article", 'parents' => ['Espace chefs']]);
+        $this->twig->addGlobal('menus', [['id' => 'espace_chefs', 'label' => 'Espace chefs']]);
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+        $articleId = $this->articleRepository->create('Fête des familles', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId);
+
+        $response = $this->newsController->edit(new Request('GET', '/news/' . $articleId . '/edit', [], [], [], []), ['id' => (string) $articleId]);
+
+        $this->assertMatchesRegularExpression(
+            '/aria-current="page">\s*Fête des familles\s*</',
+            $response->getBody()
+        );
+    }
+
+    /**
+     * create() passes no article ($article = null in editorContext()) —
+     * breadcrumb_current stays unset, so the breadcrumb bar falls back to
+     * the route's own static breadcrumb.label ("Nouvel article", see
+     * module.json) rather than erroring or showing an empty string.
+     */
+    public function testCreateEditorPageBreadcrumbFallsBackToTheStaticLabelSinceThereIsNoArticleYet(): void
+    {
+        $this->twig->addGlobal('route_breadcrumb', ['label' => 'Nouvel article', 'parents' => ['Espace chefs']]);
+        $this->twig->addGlobal('menus', [['id' => 'espace_chefs', 'label' => 'Espace chefs']]);
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+
+        $response = $this->newsController->create(new Request('GET', '/news/create', [], [], [], []), []);
+
+        $this->assertMatchesRegularExpression(
+            '/aria-current="page">\s*Nouvel article\s*</',
+            $response->getBody()
+        );
+    }
+
     public function testEditEditorPreviewTabRendersWithAnExistingFormAndFields(): void
     {
         AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
@@ -297,6 +337,28 @@ class NewsIntegrationTest extends TestCase
         // so the submission mechanics must not render (usability review).
         $this->assertStringNotContainsString('Envoyer', $response->getBody());
         $this->assertStringNotContainsString('contact_email', $response->getBody());
+    }
+
+    /**
+     * The breadcrumb was previously empty on this page (module.json's
+     * /news/{id} route declared no `breadcrumb` at all) — now declared,
+     * with `breadcrumb_current` set to the real article title rather than
+     * a static, uninformative label (same pattern as MemberController).
+     */
+    public function testShowSetsBreadcrumbCurrentToTheArticleTitle(): void
+    {
+        $this->twig->addGlobal('route_breadcrumb', ['label' => 'Actualité', 'parents' => ['Notre unité']]);
+        $this->twig->addGlobal('menus', [['id' => 'notre_unite', 'label' => 'Notre unité']]);
+
+        $id = $this->articleRepository->create('Camp d\'été 2026', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId);
+
+        $response = $this->newsController->show(new Request('GET', '/news/' . $id, [], [], [], []), ['id' => (string) $id]);
+
+        $this->assertStringContainsString('aria-current="page"', $response->getBody());
+        $this->assertMatchesRegularExpression(
+            '/aria-current="page">\s*Camp d&#039;été 2026\s*</',
+            $response->getBody()
+        );
     }
 
     public function testShowMigratesLegacyBodyHtmlIntoContentWhenArticlePredatesTheMandatoryForm(): void
@@ -411,6 +473,34 @@ class NewsIntegrationTest extends TestCase
 
         $this->assertSame(422, $response->getStatusCode());
         $this->assertStringContainsString('fermé', $response->getBody());
+    }
+
+    /**
+     * The error re-render (@news/detail.html.twig, same template show()
+     * itself renders) must carry the same breadcrumb_current as a normal
+     * GET /news/{id} — a validation error must not silently drop it.
+     */
+    public function testSubmitErrorRedisplayKeepsBreadcrumbCurrentAsTheArticleTitle(): void
+    {
+        $this->twig->addGlobal('route_breadcrumb', ['label' => 'Actualité', 'parents' => ['Notre unité']]);
+        $this->twig->addGlobal('menus', [['id' => 'notre_unite', 'label' => 'Notre unité']]);
+
+        $articleId = $this->articleRepository->create('Sortie Ardennes', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId);
+        $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, true, 'chief', false, null);
+        $this->fieldRepository->create($formId, 0, FormField::TYPE_SHORT_TEXT, 'Nom', true, null, null, null, null, null);
+
+        $request = new Request('POST', '/news/' . $articleId . '/form/submit', [], [
+            '_csrf_token' => CsrfGuard::generateToken(),
+            'contact_email' => 'parent@test.com',
+        ], [], []);
+
+        $response = $this->formController->submit($request, ['id' => (string) $articleId]);
+
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertMatchesRegularExpression(
+            '/aria-current="page">\s*Sortie Ardennes\s*</',
+            $response->getBody()
+        );
     }
 
     public function testResponsesPageRendersForChiefAndListsSubmission(): void

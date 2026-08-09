@@ -422,6 +422,7 @@ class NewsController extends AbstractController
 
         return $this->render('@news/detail.html.twig', [
             'article' => $article,
+            'breadcrumb_current' => $article->title,
             'author_name' => $author?->firstName ?? $author?->email,
             'form' => $form,
             'fields' => $this->fieldsForTemplate($fields, $memberOptions),
@@ -487,6 +488,12 @@ class NewsController extends AbstractController
 
         return [
             'article' => $article,
+            // Only meaningful for edit/update (a real article, whose title
+            // is worth showing in the trail) — create/store pass $article
+            // as null, so this falls back to the route's static
+            // breadcrumb.label ("Nouvel article") via Twig's default()
+            // filter, same as MemberController's pattern for a dynamic title.
+            'breadcrumb_current' => $article?->title,
             'title_value' => $article?->title ?? '',
             'summary_value' => $article?->summary ?? '',
             'visibility_value' => $article?->visibility ?? Article::VISIBILITY_PUBLIC,

@@ -118,6 +118,11 @@
 
     <script src="/assets/vendor/bootstrap/js/bootstrap.bundle.min.js"></script>
     <script src="/assets/js/nav.js"></script>
+    {# partials/breadcrumb_bar.html.twig's parent buttons — opens the
+       matching menu section rather than navigating. Loads unconditionally
+       like nav.js above: the breadcrumb bar itself is CSS-hidden except in
+       installed-PWA mode, but costs nothing to include either way. #}
+    <script src="/assets/js/breadcrumb.js"></script>
     {# partials/chip_picker.html.twig's JS — truncation + mode:multi
        toggling. Loads unconditionally: the public calendar page
        (role_min: public) uses a chip picker too, not just
