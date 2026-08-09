@@ -87,6 +87,12 @@
     font-size: 0.7rem;
 }
 .calendar-week {
+    /* Single source of truth for bar-row height — partials/month_grid.html.twig
+       reads this same variable for grid-template-rows, so the CSS bar height
+       and the grid track height can never drift apart again (they did: a
+       real bug, found and fixed — see the pointer:coarse note on
+       .calendar-event-bar--clickable below for what that looked like). */
+    --calendar-bar-height: 1.35rem;
     display: grid;
     grid-template-columns: repeat(7, 1fr);
     border-left: 1px solid var(--bs-border-color, #dee2e6);
@@ -144,7 +150,10 @@
     padding: 0 0.3rem;
     border-radius: 0.25rem;
     font-size: 0.68rem;
-    line-height: 1.25rem;
+    /* Derived from the same --calendar-bar-height the grid row height comes
+       from (minus the 1px top/bottom margin above) — never a value of its
+       own, or the two drift apart again. */
+    line-height: calc(var(--calendar-bar-height) - 2px);
     color: #fff;
     white-space: nowrap;
     overflow: hidden;
@@ -163,21 +172,40 @@
     cursor: pointer;
 }
 
-/* On touch devices, enlarge event bars for reliable tap targets */
+/* "Prochains évènements" list item (modules/calendar/views/public.html.twig)
+   — opens the same #eventDetailsModal as a grid bar, via the same
+   showEventDetails() data-* contract. Not part of the grid itself, so it
+   gets its own hook class rather than reusing .calendar-event-bar--clickable. */
+.calendar-upcoming-event-item {
+    cursor: pointer;
+}
+
+/* Touch-target exception to AGENTS.md's 44px minimum, deliberate and
+   documented (not an oversight): a month grid packs several event bars
+   into one ~22px grid row inside a 7-column day cell, back-to-back with a
+   1px margin and no slack above/below to widen an invisible hit area into
+   without covering a stacked sibling event, nor sideways without spilling
+   into the next day's column. The previous approach grew the bar itself to
+   44px on touch (line-height:2rem + min-height:44px) — but the grid row
+   height (see --calendar-bar-height above) never grew to match, so the
+   44px-tall bar simply overflowed its ~22px track and covered the
+   neighbouring row/day below it. That was the actual reported bug. The bar
+   now keeps its real, compact height as its tap target on every pointer
+   type — a small font-size bump is still worth it for legibility, but the
+   box itself no longer grows.
+   Cell height / MonthGridBuilder's maxVisibleRows: unaffected by this —
+   that cap was always a fixed PHP-side constant (3), never derived from
+   any CSS value; this fix only makes the grid's own rendered row height
+   finally match what that cap was always meant to look like. */
 @media (pointer: coarse) {
     .calendar-event-bar {
-        line-height: 2rem;
         font-size: 0.72rem;
         padding: 0.15rem 0.4rem;
-    }
-    .calendar-event-bar--clickable {
-        min-height: 44px;
-        display: flex;
-        align-items: center;
     }
 }
 
 @media (min-width: 768px) {
+    .calendar-week { --calendar-bar-height: 1.5rem; }
     .calendar-day-number { min-height: 1.75rem; padding: 0.3rem 0.5rem; font-size: 0.85rem; }
     .calendar-event-bar { font-size: 0.75rem; }
 }

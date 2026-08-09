@@ -84,13 +84,30 @@
         justify-content: center;
     }
 
-    /* Bootstrap switches & checkboxes: enlarge touch area */
-    .form-check-input {
-        min-width: 44px;
+    /* Bootstrap switches & checkboxes: AGENTS.md's 44px rule is about the
+       tappable ZONE, not the drawn control. This block used to grow the
+       input itself to 44x44 (min-width/min-height directly on
+       .form-check-input) — that turned a checkbox into an oversized square
+       next to ~14px of label text, and a switch's 3rem/44px box into an
+       almost-square lozenge instead of Bootstrap's pill. That was the
+       actual reported bug. The control now keeps its native Bootstrap size
+       (~1em checkbox/radio, 2em-wide switch pill); the 44px zone moves to
+       .form-check-label instead — a real <label for="...">, which the
+       browser already activates its control from anywhere inside its box,
+       so growing the label (not just decorative padding around it) is what
+       makes the extra height actually tappable, not just visually taller.
+       inline-flex + align-items:center keeps the label an inline-level box
+       (still wraps next to the float-positioned .form-check-input the way
+       Bootstrap lays it out) while vertically centering its text inside
+       the taller box — the checkbox/label pair's own relative alignment
+       (.form-check-input's margin-top:.25em against the label's first
+       line) is untouched by this, only the row's overall height changes. */
+    .form-check {
         min-height: 44px;
     }
-    .form-switch .form-check-input {
-        min-width: 3rem;
+    .form-check-label {
+        display: inline-flex;
+        align-items: center;
         min-height: 44px;
     }
 
@@ -122,12 +139,12 @@
         min-height: revert;
         min-width: revert;
     }
-    .form-check-input {
-        min-width: revert;
+    .form-check {
         min-height: revert;
     }
-    .form-switch .form-check-input {
-        min-width: revert;
+    .form-check-label {
+        display: revert;
+        align-items: revert;
         min-height: revert;
     }
 }
