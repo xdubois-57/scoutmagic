@@ -35,7 +35,15 @@ use Core\Config\SettingService;
  */
 class UnitLogoService
 {
-    /** @var array<string, string> */
+    // Keys here are a real PHP array literal, not markup: PHP coerces any
+    // key that's a canonical decimal-integer string ('16', '32', ... '512')
+    // to an int key at parse time — only '512-maskable' stays a string key.
+    // The @var below reflects that mix (int|string), not array<string,
+    // string> — every lookup already passes a string $size (resolveIconContent(),
+    // isValidSize()), which PHP/PHPStan both resolve against an int|string
+    // key set without issue; only the annotation itself needed to match
+    // the actual literal's shape.
+    /** @var array<int|string, string> */
     private const FILENAMES = [
         '16' => 'favicon-16.png',
         '32' => 'favicon-32.png',
