@@ -7,12 +7,16 @@ namespace Tests\Core\View;
 use PHPUnit\Framework\TestCase;
 
 /**
- * public/sw.js's APP_SHELL_URLS whitelist (§8.23) — no JS test runner in
- * this repo (AGENTS.md), so this reads the raw file to pin down the one
- * thing that matters structurally: every icon URL base.html.twig can now
- * link (favicons, footer logo, /favicon.ico) is precached alongside the
- * original four PWA sizes, so an offline-installed app never shows a
- * broken favicon/footer logo.
+ * public/sw.js's icon precaching and cache-invalidation logic (§8.23) —
+ * no JS test runner in this repo (AGENTS.md), so this reads the raw file
+ * to pin down the structural things that matter: every icon URL
+ * base.html.twig can link (favicons, footer logo, the original PWA sizes)
+ * is precached WITH its current `?v=` cache-buster, the icon match never
+ * uses ignoreSearch (that was the actual bug — a stale/fresh `?v=` must
+ * genuinely hit or miss the cache, never be silently ignored), and the
+ * cache name folds in pwa_icon_version alongside app_version so a
+ * standalone logo upload (which never bumps app_version) still purges
+ * and re-precaches.
  */
 class ServiceWorkerPrecacheTest extends TestCase
 {
@@ -23,42 +27,99 @@ class ServiceWorkerPrecacheTest extends TestCase
         $this->swJs = (string) file_get_contents(dirname(__DIR__, 3) . '/public/sw.js');
     }
 
-    private function appShellUrlsBlock(): string
+    private function iconUrlsBlock(): string
     {
-        preg_match('/const APP_SHELL_URLS = \[(.*?)\];/s', $this->swJs, $m);
-        $this->assertNotEmpty($m, 'Could not locate APP_SHELL_URLS in public/sw.js');
+        preg_match('/const ICON_URLS = \[(.*?)\];/s', $this->swJs, $m);
+        $this->assertNotEmpty($m, 'Could not locate ICON_URLS in public/sw.js');
         return $m[1];
     }
 
-    public function testPrecachesEveryOriginalPwaIconSize(): void
+    private function appShellBaseUrlsBlock(): string
     {
-        $block = $this->appShellUrlsBlock();
+        preg_match('/const APP_SHELL_BASE_URLS = \[(.*?)\];/s', $this->swJs, $m);
+        $this->assertNotEmpty($m, 'Could not locate APP_SHELL_BASE_URLS in public/sw.js');
+        return $m[1];
+    }
+
+    public function testIconUrlsIncludeEveryOriginalPwaIconSize(): void
+    {
+        $block = $this->iconUrlsBlock();
 
         foreach (['/pwa/icon-192.png', '/pwa/icon-512.png', '/pwa/icon-512-maskable.png', '/pwa/icon-180.png'] as $url) {
             $this->assertStringContainsString("'{$url}'", $block);
         }
     }
 
-    public function testPrecachesTheNewFaviconAndFooterLogoSizes(): void
+    public function testIconUrlsIncludeTheFaviconAndFooterLogoSizes(): void
     {
-        $block = $this->appShellUrlsBlock();
+        $block = $this->iconUrlsBlock();
 
         foreach (['/pwa/icon-16.png', '/pwa/icon-32.png', '/pwa/icon-48.png', '/pwa/icon-64.png'] as $url) {
             $this->assertStringContainsString("'{$url}'", $block);
         }
     }
 
-    public function testPrecachesTheFaviconIcoLegacyFallback(): void
+    /**
+     * /favicon.ico can never carry a `?v=` — browsers request it
+     * implicitly at the document root with no query string at all — so it
+     * must live in the plain (ignoreSearch-matched) app-shell list, never
+     * in the versioned ICON_URLS list.
+     */
+    public function testFaviconIcoIsNotInTheVersionedIconList(): void
     {
-        $block = $this->appShellUrlsBlock();
+        $block = $this->iconUrlsBlock();
 
-        $this->assertStringContainsString("'/favicon.ico'", $block);
+        $this->assertStringNotContainsString('favicon.ico', $block);
     }
 
-    public function testStillPrecachesTheOfflineFallbackPage(): void
+    public function testFaviconIcoAndOfflinePageAreInTheBaseAppShellList(): void
     {
-        $block = $this->appShellUrlsBlock();
+        $block = $this->appShellBaseUrlsBlock();
 
+        $this->assertStringContainsString("'/favicon.ico'", $block);
         $this->assertStringContainsString("'/offline'", $block);
+    }
+
+    public function testIconUrlsArePrecachedWithTheirVersionQueryString(): void
+    {
+        $this->assertStringContainsString('VERSIONED_ICON_URLS', $this->swJs);
+        $this->assertMatchesRegularExpression(
+            "/ICON_URLS\\.map\\(function \\(path\\) \\{ return path \\+ '\\?v=' \\+ ICON_VERSION; \\}\\)/",
+            $this->swJs
+        );
+        $this->assertStringContainsString('const APP_SHELL_URLS = APP_SHELL_BASE_URLS.concat(VERSIONED_ICON_URLS);', $this->swJs);
+    }
+
+    public function testCacheNameFoldsInBothAppVersionAndIconVersion(): void
+    {
+        $this->assertMatchesRegularExpression(
+            "/const CACHE_NAME = 'app-shell-' \\+ VERSION \\+ '-icons-' \\+ ICON_VERSION;/",
+            $this->swJs
+        );
+    }
+
+    public function testIconVersionIsReadFromTheIvQueryParamNeverHardcoded(): void
+    {
+        $this->assertStringContainsString("params.get('iv')", $this->swJs);
+    }
+
+    /**
+     * The actual bug this whole lot fixes: icon URLs must be matched
+     * WITHOUT ignoreSearch, or a "?v=7" request would resolve to whatever
+     * was precached under "?v=6" (or vice versa) instead of correctly
+     * missing the cache.
+     */
+    public function testIconFetchHandlerDoesNotUseIgnoreSearch(): void
+    {
+        preg_match('/if \(ICON_URLS\.indexOf\(url\.pathname\) !== -1\) \{(.*?)\n    \}/s', $this->swJs, $m);
+        $this->assertNotEmpty($m, 'Could not locate the ICON_URLS fetch-handler branch in public/sw.js');
+        $this->assertStringNotContainsString('ignoreSearch', $m[1]);
+    }
+
+    public function testAppShellBaseFetchHandlerStillUsesIgnoreSearch(): void
+    {
+        preg_match('/if \(APP_SHELL_BASE_URLS\.indexOf\(url\.pathname\) !== -1\) \{(.*?)\n    \}/s', $this->swJs, $m);
+        $this->assertNotEmpty($m, 'Could not locate the APP_SHELL_BASE_URLS fetch-handler branch in public/sw.js');
+        $this->assertStringContainsString('ignoreSearch', $m[1]);
     }
 }

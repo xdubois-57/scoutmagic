@@ -881,9 +881,17 @@ $twig->addGlobal('current_user_display_name', $displayName);
 $twig->addGlobal('current_user_member_count', $memberCount);
 // Server-rendered on page load — public/assets/js/notification-badge.js
 // refreshes it live afterward (60s poll + immediate on an incoming push).
+$unreadNotificationsCount = AuthSession::isAuthenticated()
+    ? $notificationRepo->countUnread((int) AuthSession::getUserAccountId())
+    : 0;
+$twig->addGlobal('unread_notifications_count', $unreadNotificationsCount);
+// Feeds partials/notification_dropdown.html.twig's "last one" preview —
+// only fetched when there's actually something pending, same "cheap
+// enough, nothing to gain from unconditional" precedent as elsewhere in
+// this bootstrap (see e.g. $linkedMembers above).
 $twig->addGlobal(
-    'unread_notifications_count',
-    AuthSession::isAuthenticated() ? $notificationRepo->countUnread((int) AuthSession::getUserAccountId()) : 0
+    'latest_notification',
+    $unreadNotificationsCount > 0 ? $notificationRepo->findLatestUnread((int) AuthSession::getUserAccountId()) : null
 );
 $twig->addGlobal('current_user_role_label', $roleLabelMap[$currentRole] ?? 'Public');
 $twig->addGlobal('current_path', $request->getPath());
@@ -1203,6 +1211,7 @@ $router->addRoute('POST', '/admin/scout-year/activate-public', ScoutYearControll
 $router->addRoute('GET', '/config/settings', SettingsController::class, 'index', 'superadmin');
 $router->addRoute('POST', '/config/settings/update', SettingsController::class, 'update', 'superadmin');
 $router->addRoute('POST', '/config/settings/logo-delete', SettingsController::class, 'deleteLogo', 'superadmin');
+$router->addRoute('POST', '/config/settings/logo-notify-ios', SettingsController::class, 'notifyIosLogoUpdate', 'superadmin');
 
 // Scheduled actions
 $router->addRoute('GET', '/config/scheduled', ScheduledActionsController::class, 'index', 'superadmin');
@@ -1306,9 +1315,6 @@ $activePageUrl = '';
 $bestMatchLength = -1;
 foreach ($menus as $menu) {
     foreach ($menu['pages'] as $page) {
-        if ($page['isSeparator']) {
-            continue;
-        }
         $pageUrl = $page['url'] ?? '';
         if ($pageUrl === '') {
             continue;
@@ -1366,6 +1372,7 @@ $frontController->registerController(CookieController::class, new CookieControll
 $setupController = new SetupController($twig, $secretManager, $dkimManager, $schemaPath, __DIR__);
 $setupController->setSettingService($settingService);
 $setupController->setJournalService($journalService);
+$setupController->setUnitLogoService($unitLogoService);
 $frontController->registerController(SetupController::class, $setupController);
 // Build auth dependencies
 $authService->setJournalService($journalService);
@@ -1459,7 +1466,7 @@ $frontController->registerController(\Core\Http\Controller\PwaController::class,
 $frontController->registerController(JournalController::class, new JournalController($twig, $journalRepo, $userAccountRepo));
 $frontController->registerController(ScoutYearController::class, new ScoutYearController($twig, $scoutYearResolver, $scoutYearAdminService, $scoutYearService, $journalService));
 $frontController->registerController(MemberSearchController::class, new MemberSearchController($twig, $memberSearchService, $memberService, $scoutYearResolver, $memberYearService));
-$frontController->registerController(SettingsController::class, new SettingsController($twig, $settingService, $journalService, $unitLogoService));
+$frontController->registerController(SettingsController::class, new SettingsController($twig, $settingService, $journalService, $unitLogoService, $notificationService, $userAccountRepo));
 $frontController->registerController(ScheduledActionsController::class, new ScheduledActionsController($twig, $schedulerRepo));
 $frontController->registerController(ConfigGeneralController::class, new ConfigGeneralController($twig));
 $frontController->registerController(ConfigModulesController::class, new ConfigModulesController($twig, $moduleManager, $journalService));

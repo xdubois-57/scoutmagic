@@ -10,34 +10,94 @@
     <p class="lead text-muted mb-4">Bienvenue ! Configurez les paramètres de base pour initialiser le site.</p>
 {% else %}
     <h1 class="mb-4">Configuration du site</h1>
-
-    <div class="card mb-4 border-warning">
-        <div class="card-body d-flex align-items-center gap-3">
-            <div>
-                <h5 class="card-title h6 mb-1">Mode configuration</h5>
-                <p class="card-text small text-muted mb-0">Permet de modifier les textes et images des pages publiques.</p>
-            </div>
-            <div class="ms-auto">
-                {% if config_mode is defined and config_mode %}
-                <form method="post" action="/config-mode/deactivate">
-                    {{ csrf_field()|raw }}
-                    <button type="submit" class="btn btn-outline-warning btn-sm">Désactiver</button>
-                </form>
-                {% else %}
-                <form method="post" action="/config-mode/activate">
-                    {{ csrf_field()|raw }}
-                    <button type="submit" class="btn btn-warning btn-sm">Activer</button>
-                </form>
-                {% endif %}
-            </div>
-        </div>
-    </div>
 {% endif %}
 
 <form method="post" action="/setup/save" id="setup-form" data-initialized="{{ is_initialized ? '1' : '0' }}" novalidate>
     <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
 
-    {# Section 1: Database #}
+    {# Section 1: General settings — first card on the page (moved ahead
+       of Base de données): this is the section a returning admin reaches
+       for most often, and it now also hosts the unit logo upload block
+       below. #}
+    <div class="card mb-4">
+        <div class="card-body">
+            <h2 class="card-title h5 mb-3">Paramètres généraux</h2>
+
+            <div class="mb-3">
+                <label for="site_name" class="form-label">Nom de l'unité</label>
+                <input type="text" class="form-control{% if errors.site_name is defined %} is-invalid{% endif %}" id="site_name" name="site_name" value="{{ values.site_name ?? '' }}" required>
+                <div class="form-text">Nom complet de l'unité, affiché dans le header et le titre du site.</div>
+                {% if errors.site_name is defined %}<div class="invalid-feedback">{{ errors.site_name }}</div>{% endif %}
+            </div>
+
+            <div class="mb-3">
+                <label for="short_name" class="form-label">Nom court</label>
+                <input type="text" class="form-control{% if errors.short_name is defined %} is-invalid{% endif %}" id="short_name" name="short_name" value="{{ values.short_name ?? '' }}" maxlength="5" pattern="[A-Za-z0-9]{1,5}" required>
+                <div class="form-text">Identifiant court (5 caractères maximum), utilisé comme préfixe du sujet de tous les emails envoyés par le site, par exemple [25SV].</div>
+                {% if errors.short_name is defined %}<div class="invalid-feedback">{{ errors.short_name }}</div>{% endif %}
+            </div>
+
+            <div class="mb-3">
+                <label for="base_url" class="form-label">URL de base</label>
+                <input type="url" class="form-control{% if errors.base_url is defined %} is-invalid{% endif %}" id="base_url" name="base_url" value="{{ values.base_url ?? '' }}" placeholder="https://www.unite-exemple.be" required>
+                <div class="form-text">Adresse complète du site (ex. https://www.unite-exemple.be). Utilisée pour générer les liens dans les emails.</div>
+                {% if errors.base_url is defined %}<div class="invalid-feedback">{{ errors.base_url }}</div>{% endif %}
+            </div>
+
+            {% if is_initialized %}
+            {# Logo de l'unité — moved here from Configuration > Paramètres
+               (config/settings.html.twig) so it lives in this page's own
+               "Paramètres généraux" card instead. Not a key/value setting
+               row (see Core\Photo\UnitLogoService's own docblock —
+               is_file() is the entire state), same reasoning as before.
+               Gated on is_initialized: during first-run (before
+               secrets.enc exists) there is no database, so UnitLogoService
+               isn't available at all (SetupController::$unitLogoService
+               stays null) — nothing to upload to yet, so the block simply
+               doesn't render rather than showing a broken image or a
+               link into a flow that can't work without a session/DB. #}
+            <hr class="my-4">
+            <div class="border rounded-3 p-3 d-flex flex-wrap align-items-center gap-3">
+                <img src="/pwa/icon-64.png?v={{ pwa_icon_version|default(1) }}" alt="" width="64" height="64" class="rounded border">
+                <div class="flex-grow-1">
+                    <div class="fw-semibold small">Logo de l'unité</div>
+                    <p class="text-body-secondary small mb-2">
+                        Utilisé comme favicon, comme icône de l'application installée, et dans le pied de page.
+                        Image carrée, fond transparent ou uni, idéalement 512×512 px ou plus (PNG, JPEG ou WebP).
+                    </p>
+                    <div class="d-flex gap-2">
+                        <a href="/upload?context=unit_logo&return=/setup" class="btn btn-sm btn-outline-primary">
+                            <i class="bi bi-upload"></i> Envoyer un logo
+                        </a>
+                        {% if unit_logo_is_custom %}
+                        <button type="button" class="btn btn-sm btn-outline-danger" id="unit-logo-delete-btn">
+                            <i class="bi bi-trash"></i> Supprimer
+                        </button>
+                        {% endif %}
+                    </div>
+                    {# The iOS home-screen-icon warning itself is part of
+                       UploadController::store()'s success flash message for
+                       this context (shown once, right after a successful
+                       upload, via base.html.twig's generic get_flash()
+                       rendering) — not a permanent fixture here, since it
+                       only matters in the moment right after a change (see
+                       ARCHITECTURE §8.23: iOS can never refresh an
+                       already-installed icon, no web API for it). #}
+                    {% if unit_logo_is_custom %}
+                    <p class="text-body-secondary small mt-2 mb-0">
+                        <i class="bi bi-info-circle"></i>
+                        Notifier les membres ayant installé l'application sur iOS qu'un nouveau logo est
+                        disponible (ils devront supprimer puis réinstaller l'application pour le voir) :
+                        <button type="button" class="btn btn-link btn-sm p-0 align-baseline" id="unit-logo-notify-ios-btn">envoyer une notification</button>.
+                    </p>
+                    {% endif %}
+                </div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    {# Section 2: Database #}
     <div class="card mb-4">
         <div class="card-body">
             <h2 class="card-title h5 mb-3">Base de données</h2>
@@ -92,34 +152,6 @@
                 <span id="backup-empty-result" class="ms-2"></span>
             </div>
             {% endif %}
-        </div>
-    </div>
-
-    {# Section 2: General settings #}
-    <div class="card mb-4">
-        <div class="card-body">
-            <h2 class="card-title h5 mb-3">Paramètres généraux</h2>
-
-            <div class="mb-3">
-                <label for="site_name" class="form-label">Nom de l'unité</label>
-                <input type="text" class="form-control{% if errors.site_name is defined %} is-invalid{% endif %}" id="site_name" name="site_name" value="{{ values.site_name ?? '' }}" required>
-                <div class="form-text">Nom complet de l'unité, affiché dans le header et le titre du site.</div>
-                {% if errors.site_name is defined %}<div class="invalid-feedback">{{ errors.site_name }}</div>{% endif %}
-            </div>
-
-            <div class="mb-3">
-                <label for="short_name" class="form-label">Nom court</label>
-                <input type="text" class="form-control{% if errors.short_name is defined %} is-invalid{% endif %}" id="short_name" name="short_name" value="{{ values.short_name ?? '' }}" maxlength="5" pattern="[A-Za-z0-9]{1,5}" required>
-                <div class="form-text">Identifiant court (5 caractères maximum), utilisé comme préfixe du sujet de tous les emails envoyés par le site, par exemple [25SV].</div>
-                {% if errors.short_name is defined %}<div class="invalid-feedback">{{ errors.short_name }}</div>{% endif %}
-            </div>
-
-            <div class="mb-3">
-                <label for="base_url" class="form-label">URL de base</label>
-                <input type="url" class="form-control{% if errors.base_url is defined %} is-invalid{% endif %}" id="base_url" name="base_url" value="{{ values.base_url ?? '' }}" placeholder="https://www.unite-exemple.be" required>
-                <div class="form-text">Adresse complète du site (ex. https://www.unite-exemple.be). Utilisée pour générer les liens dans les emails.</div>
-                {% if errors.base_url is defined %}<div class="invalid-feedback">{{ errors.base_url }}</div>{% endif %}
-            </div>
         </div>
     </div>
 
@@ -318,4 +350,8 @@
 
 {% block scripts %}
 <script src="/assets/js/setup.js"></script>
+{% if is_initialized and unit_logo_is_custom %}
+<script src="/assets/js/unit-logo.js" defer></script>
+<script src="/assets/js/unit-logo-notify-ios.js" defer></script>
+{% endif %}
 {% endblock %}

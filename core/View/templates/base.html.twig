@@ -145,11 +145,18 @@
        activate handler). updateViaCache: 'none' additionally stops the
        browser from serving the WORKER SCRIPT ITSELF from its own HTTP
        cache — without it, a changed ?v= alone can still resolve to a
-       byte-identical cached sw.js response on some browsers. #}
+       byte-identical cached sw.js response on some browsers.
+
+       `iv` (pwa_icon_version, Core\Photo\UnitLogoService) rides the same
+       query string, same mechanism, entirely independent of `v` — a logo
+       upload bumps pwa_icon_version without touching app_version at all,
+       and public/sw.js folds both into its precache's cache name so an
+       icon-only change still purges/re-precaches the icons instead of
+       silently keeping the stale ones (see that file's own comments). #}
     <script nonce="{{ csp_nonce }}">
     if ('serviceWorker' in navigator) {
         window.addEventListener('load', function () {
-            navigator.serviceWorker.register('/sw.js?v={{ app_version|default('0.0.0') }}', { updateViaCache: 'none' });
+            navigator.serviceWorker.register('/sw.js?v={{ app_version|default('0.0.0') }}&iv={{ pwa_icon_version|default(1) }}', { updateViaCache: 'none' });
         });
     }
     </script>

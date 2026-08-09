@@ -370,9 +370,9 @@ class UploadControllerTest extends TestCase
     }
 
     /**
-     * unit_logo (Configuration > Paramètres généraux's logo upload) is a
-     * direct role check like age_branch_logo — its own admin page is
-     * already superadmin-gated, no configuration-mode flag involved.
+     * unit_logo (Configuration avancée's logo upload) is a direct role
+     * check like age_branch_logo — its own admin page is already
+     * superadmin-gated, no configuration-mode flag involved.
      */
     public function testUnitLogoContextAllowedForSuperadminWithoutConfigMode(): void
     {
@@ -385,17 +385,50 @@ class UploadControllerTest extends TestCase
             '_csrf_token' => CsrfGuard::generateToken(),
             'context' => 'unit_logo',
             'key' => '',
-            'return_url' => '/config/settings',
+            'return_url' => '/setup',
         ], [], []);
 
         $response = $this->controller->store($request, []);
 
         $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('/setup', $response->getHeaders()['Location']);
         $this->assertTrue($this->unitLogoService->hasCustomLogo());
         $this->assertNotNull($this->unitLogoService->resolveIconContent('192'));
 
         $stmt = $this->pdo->query("SELECT COUNT(*) FROM event_log WHERE event_type = 'unit_logo_updated'");
         $this->assertSame(1, (int) $stmt->fetchColumn());
+
+        unset($_FILES['file']);
+    }
+
+    /**
+     * The iOS caveat rides the success flash itself (see ARCHITECTURE
+     * §8.23 — iOS never re-reads the manifest/apple-touch-icon for an
+     * already-installed app, no web API can refresh that icon), shown
+     * once right after a successful upload rather than as a permanent
+     * on-page fixture.
+     */
+    public function testUnitLogoContextSuccessFlashIncludesTheIosReinstallCaveat(): void
+    {
+        ConfigurationMode::deactivate();
+
+        $tmpFile = $this->createTempImage();
+        $_FILES['file'] = ['tmp_name' => $tmpFile, 'name' => 'logo.png', 'size' => filesize($tmpFile), 'error' => UPLOAD_ERR_OK];
+
+        $request = new Request('POST', '/upload', [], [
+            '_csrf_token' => CsrfGuard::generateToken(),
+            'context' => 'unit_logo',
+            'key' => '',
+            'return_url' => '/setup',
+        ], [], []);
+
+        $this->controller->store($request, []);
+
+        $flash = \Core\Http\FlashMessage::get();
+        $this->assertNotNull($flash);
+        $this->assertSame('success', $flash['type']);
+        $this->assertStringContainsString('iOS', $flash['message']);
+        $this->assertStringContainsString('Android', $flash['message']);
 
         unset($_FILES['file']);
     }
@@ -412,7 +445,7 @@ class UploadControllerTest extends TestCase
             '_csrf_token' => CsrfGuard::generateToken(),
             'context' => 'unit_logo',
             'key' => '',
-            'return_url' => '/config/settings',
+            'return_url' => '/setup',
         ], [], []);
 
         $response = $this->controller->store($request, []);
@@ -439,7 +472,7 @@ class UploadControllerTest extends TestCase
             '_csrf_token' => CsrfGuard::generateToken(),
             'context' => 'unit_logo',
             'key' => '',
-            'return_url' => '/config/settings',
+            'return_url' => '/setup',
         ], [], []);
         $this->controller->store($request, []);
 

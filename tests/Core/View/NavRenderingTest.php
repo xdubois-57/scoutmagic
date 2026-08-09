@@ -274,4 +274,82 @@ class NavRenderingTest extends TestCase
         $html = $this->renderNav(Role::PUBLIC, false);
         $this->assertSame(0, substr_count($html, 'notification-badge'));
     }
+
+    /**
+     * The avatar circle itself never links to /notifications anymore in
+     * any of the three surfaces — only /account. The sole remaining
+     * "/notifications" reference on the page is the notification
+     * dropdown's own "Voir toutes les notifications" link, asserted
+     * separately below.
+     */
+    public function testOffcanvasAvatarLinksToAccountNotNotifications(): void
+    {
+        $html = $this->renderNav(Role::ADMIN, true);
+        $offcanvasStart = strpos($html, 'id="navOffcanvas"');
+        $offcanvasEnd = strpos($html, '{# Desktop navigation', $offcanvasStart) ?: strlen($html);
+        $offcanvas = substr($html, $offcanvasStart, $offcanvasEnd - $offcanvasStart);
+
+        $this->assertStringContainsString('href="/account"', $offcanvas);
+        $this->assertMatchesRegularExpression(
+            '/<a href="\/account"[^>]*>\s*<span class="d-inline-flex[^"]*rounded-circle/',
+            $offcanvas
+        );
+    }
+
+    public function testDesktopAvatarLinksToAccountNotNotifications(): void
+    {
+        $html = $this->renderNav(Role::ADMIN, true);
+        $desktopStart = strpos($html, 'id="desktopNav"');
+        $this->assertNotFalse($desktopStart);
+        $desktop = substr($html, $desktopStart);
+
+        $this->assertMatchesRegularExpression(
+            '/<a href="\/account"[^>]*>\s*<span class="d-inline-flex[^"]*rounded-circle/',
+            $desktop
+        );
+    }
+
+    public function testNotificationDropdownShowsCountAndLatestAndLink(): void
+    {
+        $latest = new \Core\Notification\NotificationRecord(
+            id: 42,
+            userAccountId: 1,
+            memberId: null,
+            typeId: 'core.test',
+            title: 'Nouvelle inscription',
+            body: 'Un membre vient de s\'inscrire.',
+            url: '/members/1',
+            readAt: null,
+            createdAt: '2026-08-09 10:00:00'
+        );
+
+        $builder = new MenuBuilder(Role::ADMIN);
+        $menus = $builder->build();
+
+        $html = $this->twig->render('partials/nav.html.twig', [
+            'menus' => $menus,
+            'current_path' => '/',
+            'is_authenticated' => true,
+            'current_user_display_name' => 'test@example.com',
+            'current_user_role_label' => 'Admin',
+            'site_name' => 'Test Scout',
+            'active_menu_id' => '',
+            'active_page_url' => '',
+            'unread_notifications_count' => 3,
+            'latest_notification' => $latest,
+        ]);
+
+        $this->assertStringContainsString('3 notifications non lues', $html);
+        $this->assertStringContainsString('Nouvelle inscription', $html);
+        $this->assertStringContainsString('action="/notifications/42/read"', $html);
+        $this->assertStringContainsString('href="/notifications"', $html);
+        $this->assertStringContainsString('Voir toutes les notifications', $html);
+    }
+
+    public function testNotificationDropdownShowsEmptyStateWhenNoneUnread(): void
+    {
+        $html = $this->renderNav(Role::ADMIN, true);
+        $this->assertStringContainsString('Aucune notification', $html);
+        $this->assertStringNotContainsString('action="/notifications/', $html);
+    }
 }

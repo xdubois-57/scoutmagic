@@ -159,6 +159,20 @@ class NotificationServiceTest extends TestCase
         $this->assertNull($this->service->findType('nope.does_not_exist'));
     }
 
+    /**
+     * Manual, superadmin-triggered "notify iOS users to reinstall" type
+     * (Core\Http\Controller\SettingsController::notifyIosLogoUpdate(), see
+     * ARCHITECTURE §8.23) — open to every identified account, since the
+     * site has no way to know which accounts are actually on iOS.
+     */
+    public function testUnitLogoUpdatedIosTypeIsDeclaredAndOpenToEveryIdentifiedAccount(): void
+    {
+        $type = $this->service->findType('core.unit_logo_updated_ios');
+
+        $this->assertNotNull($type);
+        $this->assertSame('identified', $type->roleMin);
+    }
+
     // --- dispatch() ---
 
     public function testDispatchRejectsAnUndeclaredType(): void

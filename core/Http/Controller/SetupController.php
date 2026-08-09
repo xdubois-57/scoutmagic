@@ -17,6 +17,7 @@ use Core\Journal\JournalService;
 use Core\Mail\DkimManager;
 use Core\Mail\DnsVerifier;
 use Core\Mail\MailServiceFactory;
+use Core\Photo\UnitLogoService;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\Security\EncryptionService;
@@ -28,6 +29,12 @@ class SetupController extends AbstractController
 {
     private ?SettingService $settingService = null;
     private ?JournalService $journalService = null;
+    // Nullable/setter-injected like the two above: the first-run
+    // instantiation of this controller (public/index.php, before
+    // secrets.enc exists) happens before there's any database to build a
+    // real UnitLogoService against — see index()'s own is_initialized
+    // gating of the logo block, which never renders while this stays null.
+    private ?UnitLogoService $unitLogoService = null;
 
     public function __construct(
         protected Environment $twig,
@@ -46,6 +53,11 @@ class SetupController extends AbstractController
     public function setJournalService(JournalService $journalService): void
     {
         $this->journalService = $journalService;
+    }
+
+    public function setUnitLogoService(UnitLogoService $unitLogoService): void
+    {
+        $this->unitLogoService = $unitLogoService;
     }
 
     /**
@@ -110,6 +122,11 @@ class SetupController extends AbstractController
             'has_dkim_key' => $this->dkimManager->hasKey(),
             'dkim_public_key' => $this->dkimManager->hasKey() ? $this->dkimManager->getPublicKey() : null,
             'cron_script_path' => $this->publicDir !== '' ? rtrim($this->publicDir, '/') . '/cron.php' : null,
+            // Only meaningful once initialized (see the template's own
+            // is_initialized gate on the whole logo block) — false rather
+            // than null when the service isn't wired yet, so the template
+            // never has to special-case an undefined/null value.
+            'unit_logo_is_custom' => $this->unitLogoService?->hasCustomLogo() ?? false,
         ]);
     }
 
