@@ -1210,7 +1210,7 @@ $router->addRoute('GET', '/api/notifications/unread-count', \Core\Http\Controlle
 $router->addRoute('GET', '/notifications/preferences', \Core\Http\Controller\NotificationPreferenceController::class, 'index', 'identified');
 $router->addRoute('POST', '/notifications/preferences', \Core\Http\Controller\NotificationPreferenceController::class, 'updateChannel', 'identified');
 $router->addRoute('POST', '/notifications/quiet-hours', \Core\Http\Controller\NotificationPreferenceController::class, 'updateAccountSettings', 'identified');
-$router->addRoute('GET', '/config/notifications', \Core\Http\Controller\NotificationConfigController::class, 'index', 'superadmin');
+$router->addRoute('GET', '/config/notifications', \Core\Http\Controller\NotificationConfigController::class, 'index', 'superadmin', ['label' => 'Notifications', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]]);
 $router->addRoute('POST', '/config/notifications/rotate-vapid', \Core\Http\Controller\NotificationConfigController::class, 'rotateVapid', 'superadmin');
 $router->addRoute('POST', '/config/notifications/test', \Core\Http\Controller\NotificationConfigController::class, 'sendTest', 'superadmin');
 
@@ -1284,7 +1284,7 @@ $router->addRoute('GET', '/favicon.ico', \Core\Http\Controller\PwaController::cl
 $router->addRoute('GET', '/offline', \Core\Http\Controller\PwaController::class, 'offline', 'public');
 
 // Setup routes (admin, but bypassed when not initialized)
-$router->addRoute('GET', '/setup', SetupController::class, 'index', 'superadmin');
+$router->addRoute('GET', '/setup', SetupController::class, 'index', 'superadmin', ['label' => 'Configuration avancée', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]]);
 $router->addRoute('POST', '/setup/verify-token', SetupController::class, 'verifyToken', 'superadmin');
 $router->addRoute('POST', '/setup/test-db', SetupController::class, 'testDatabase', 'superadmin');
 $router->addRoute('POST', '/setup/install-database', SetupController::class, 'installDatabase', 'superadmin');
@@ -1312,14 +1312,14 @@ $router->addRoute('POST', '/admin/scout-year/deactivate-staff', ScoutYearControl
 $router->addRoute('POST', '/admin/scout-year/activate-public', ScoutYearController::class, 'activatePublic', 'admin');
 
 // Settings
-$router->addRoute('GET', '/config/settings', SettingsController::class, 'index', 'superadmin');
+$router->addRoute('GET', '/config/settings', SettingsController::class, 'index', 'superadmin', ['label' => 'Paramètres', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]]);
 $router->addRoute('POST', '/config/settings/update', SettingsController::class, 'update', 'superadmin');
 $router->addRoute('POST', '/config/settings/logo-delete', SettingsController::class, 'deleteLogo', 'superadmin');
 $router->addRoute('POST', '/config/settings/logo-notify-ios', SettingsController::class, 'notifyIosLogoUpdate', 'superadmin');
 
 // Scheduled actions
-$router->addRoute('GET', '/config/scheduled', ScheduledActionsController::class, 'index', 'superadmin');
-$router->addRoute('GET', '/config/maintenance', MaintenanceController::class, 'index', 'admin');
+$router->addRoute('GET', '/config/scheduled', ScheduledActionsController::class, 'index', 'superadmin', ['label' => 'Actions planifiées', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]]);
+$router->addRoute('GET', '/config/maintenance', MaintenanceController::class, 'index', 'admin', ['label' => 'Maintenance', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]]);
 $router->addRoute('POST', '/config/maintenance/backup/database', MaintenanceController::class, 'createDatabaseBackup', 'admin');
 $router->addRoute('POST', '/config/maintenance/backup/full', MaintenanceController::class, 'createFullBackup', 'admin');
 $router->addRoute('POST', '/config/maintenance/backup/auto-frequency', MaintenanceController::class, 'updateAutoBackupFrequency', 'admin');
@@ -1344,24 +1344,24 @@ $router->addRoute('POST', '/api/webhook/github', \Core\Http\Controller\WebhookCo
 // in the menu (see addPage() above) and widened to admin, same as the
 // /config-mode/* routes it links to — URL kept unchanged, nothing forces it
 // to change.
-$router->addRoute('GET', '/config/general', ConfigGeneralController::class, 'index', 'admin');
+$router->addRoute('GET', '/config/general', ConfigGeneralController::class, 'index', 'admin', ['label' => 'Configuration générale', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ADMIN)]]);
 
 // Configuration > Modules — module registry (split out of Configuration
 // générale, ARCHITECTURE §7.1). Stays superadmin, in the Configuration menu.
-$router->addRoute('GET', '/config/modules', ConfigModulesController::class, 'index', 'superadmin');
+$router->addRoute('GET', '/config/modules', ConfigModulesController::class, 'index', 'superadmin', ['label' => 'Modules', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]]);
 $router->addRoute('POST', '/config/modules/toggle', ConfigModulesController::class, 'toggleModule', 'superadmin');
 $router->addRoute('POST', '/config/modules/reorder', ConfigModulesController::class, 'reorderModules', 'superadmin');
 
 // Configuration > Badges — badge registry (split out of Configuration
 // générale, ARCHITECTURE §8.11). Stays superadmin, in the Configuration menu.
-$router->addRoute('GET', '/config/badges', ConfigBadgesController::class, 'index', 'superadmin');
+$router->addRoute('GET', '/config/badges', ConfigBadgesController::class, 'index', 'superadmin', ['label' => 'Badges', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]]);
 $router->addRoute('POST', '/config/badges/add', ConfigBadgesController::class, 'addBadge', 'superadmin');
 $router->addRoute('POST', '/config/badges/update', ConfigBadgesController::class, 'updateBadge', 'superadmin');
 $router->addRoute('POST', '/config/badges/toggle-active', ConfigBadgesController::class, 'toggleBadgeActive', 'superadmin');
 $router->addRoute('POST', '/config/badges/delete', ConfigBadgesController::class, 'deleteBadge', 'superadmin');
 
 // RGPD configuration
-$router->addRoute('GET', '/config/rgpd', RgpdConfigController::class, 'index', 'superadmin');
+$router->addRoute('GET', '/config/rgpd', RgpdConfigController::class, 'index', 'superadmin', ['label' => 'RGPD', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]]);
 $router->addRoute('POST', '/config/rgpd/save', RgpdConfigController::class, 'save', 'superadmin');
 $router->addRoute('POST', '/config/rgpd/generate', RgpdConfigController::class, 'generate', 'superadmin');
 $router->addRoute('POST', '/config/rgpd/reset', RgpdConfigController::class, 'reset', 'superadmin');
@@ -1375,7 +1375,7 @@ $router->addRoute('POST', '/chefs/staffs/documents/delete', \Core\Http\Controlle
 $router->addRoute('POST', '/chefs/staffs/documents/{id}', \Core\Http\Controller\SectionDocumentController::class, 'update', 'chief');
 
 // Functions configuration
-$router->addRoute('GET', '/config/functions', FunctionsController::class, 'index', 'superadmin');
+$router->addRoute('GET', '/config/functions', FunctionsController::class, 'index', 'superadmin', ['label' => 'Desk', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]]);
 $router->addRoute('POST', '/config/functions/update', FunctionsController::class, 'update', 'superadmin');
 $router->addRoute('POST', '/config/functions/flags', FunctionsController::class, 'updateFlags', 'superadmin');
 $router->addRoute('POST', '/config/functions/section-name', FunctionsController::class, 'updateSectionName', 'superadmin');

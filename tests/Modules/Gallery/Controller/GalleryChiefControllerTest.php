@@ -115,6 +115,8 @@ class GalleryChiefControllerTest extends TestCase
         $twig->addGlobal('config_mode', false);
         $twig->addGlobal('cookie_consent_given', true);
         $twig->addGlobal('menus', null);
+        $twig->addGlobal('current_path', '/gallery/create');
+        $twig->addGlobal('route_breadcrumb', ['label' => 'Nouvel album', 'parents' => ["Espace chefs"]]);
         $twig->addGlobal('csp_nonce', 'test-nonce');
         $twig->addFunction(new TwigFunction('csrf_field', fn() => '<input type="hidden" name="_csrf_token" value="test">', ['is_safe' => ['html']]));
         $twig->addFunction(new TwigFunction('get_flash', fn() => null));
@@ -232,6 +234,47 @@ class GalleryChiefControllerTest extends TestCase
         $response = $this->controller->edit(new Request('GET', '/gallery/999/edit', [], [], [], []), ['id' => '999']);
 
         $this->assertSame(404, $response->getStatusCode());
+    }
+
+    public function testEditBreadcrumbShowsTheRealAlbumTitle(): void
+    {
+        // modules/gallery/module.json's /gallery/{id}/edit route only
+        // declares the static "Modifier l'album" label — the edit page's
+        // own breadcrumb_current (album title) is what actually surfaces
+        // in the trail, same pattern as News's editorContext().
+        $id = $this->createLocalAlbum();
+
+        $response = $this->controller->edit(new Request('GET', '/gallery/' . $id . '/edit', [], [], [], []), ['id' => (string) $id]);
+
+        $this->assertMatchesRegularExpression(
+            '/aria-current="page">\s*Camp\s*</',
+            $response->getBody()
+        );
+    }
+
+    public function testCreateBreadcrumbFallsBackToStaticLabel(): void
+    {
+        // No album yet on the create page — breadcrumb_current is null,
+        // so the route's static breadcrumb.label applies via Twig's
+        // default() filter.
+        $response = $this->controller->create(new Request('GET', '/gallery/create', [], [], [], []), []);
+
+        $this->assertMatchesRegularExpression(
+            '/aria-current="page">\s*Nouvel album\s*</',
+            $response->getBody()
+        );
+    }
+
+    public function testAlbumFormNoLongerHasABackButton(): void
+    {
+        // The breadcrumb now covers navigating back to the album list —
+        // the page's own "Retour" button to /gallery/manage was removed.
+        $id = $this->createLocalAlbum();
+
+        $response = $this->controller->edit(new Request('GET', '/gallery/' . $id . '/edit', [], [], [], []), ['id' => (string) $id]);
+
+        $this->assertStringNotContainsString('Retour', $response->getBody());
+        $this->assertStringNotContainsString('/gallery/manage', $response->getBody());
     }
 
     public function testUpdateChangesTitle(): void

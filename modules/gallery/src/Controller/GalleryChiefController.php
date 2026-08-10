@@ -358,6 +358,12 @@ class GalleryChiefController extends AbstractController
 
         return [
             'album' => $album,
+            // Only meaningful for edit/update (a real album, whose title
+            // is worth showing in the trail) — create/store pass $album as
+            // null, so this falls back to the route's static
+            // breadcrumb.label ("Nouvel album") via Twig's default()
+            // filter, same as News's editorContext() pattern.
+            'breadcrumb_current' => $album?->title,
             'sections' => $sections,
             'allow_local' => $locations !== [],
             'allow_external' => (bool) $this->settingService->get('gallery_allow_external', 'gallery', true),

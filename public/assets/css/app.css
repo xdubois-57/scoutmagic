@@ -246,11 +246,22 @@ td code,
     cursor: not-allowed;
 }
 
-/* Breadcrumb bar (partials/breadcrumb_bar.html.twig) — visible only when
-   the site is running as an installed PWA. Pure CSS: no server-side flag,
-   no JS "is this installed?" detection. Hidden by default (browser tab). */
+/* Breadcrumb bar (partials/breadcrumb_bar.html.twig) — always visible on
+   mobile viewports (below the site's lg breakpoint, 992px, same as
+   nav.html.twig's own d-lg-none/d-none d-lg-block split and
+   chip-picker.js's LG_BREAKPOINT_PX), since a mobile browser tab has no
+   persistent back affordance of its own. At lg and up, still gated to an
+   installed PWA (display-mode: standalone) — hidden in an ordinary
+   desktop browser tab, which already has its own back button and more
+   screen for the nav itself. Pure CSS: no server-side flag, no JS
+   "is this installed?" detection. */
 .breadcrumb-bar {
     display: none;
+}
+@media (max-width: 991.98px) {
+    .breadcrumb-bar {
+        display: flex;
+    }
 }
 @media (display-mode: standalone) {
     .breadcrumb-bar {

@@ -1,8 +1,9 @@
-{# Fil d'Ariane — visible only when the site runs as an installed PWA
-   (display-mode: standalone). Visibility is 100% CSS (see app.css's
-   .breadcrumb-bar rule) — no server flag, no JS detection, since this is a
-   navigation convenience, never a security boundary (SECURITY §3, same
-   principle as menu visibility).
+{# Fil d'Ariane — always visible on mobile viewports (below the site's lg
+   breakpoint, 992px), and on desktop only when the site runs as an
+   installed PWA (display-mode: standalone). Visibility is 100% CSS (see
+   app.css's .breadcrumb-bar rule) — no server flag, no JS detection,
+   since this is a navigation convenience, never a security boundary
+   (SECURITY §3, same principle as menu visibility).
 
    The home icon is always hard-coded to "/", never sourced from config.
    Everything past it comes from the current route's optional `breadcrumb`
