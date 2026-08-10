@@ -443,6 +443,66 @@ class SchemaComparatorTest extends TestCase
         $this->assertStringContainsString('ADD INDEX `idx_email`', $statements[0]);
     }
 
+    public function testCompareOneDeclaredTableGeneratesCreateTableWhenActualIsNull(): void
+    {
+        $declared = new TableDefinition(
+            name: 'users',
+            columns: [
+                new ColumnDefinition('id', 'int unsigned', false, null, true, 'auto_increment'),
+            ],
+            indexes: [new IndexDefinition('PRIMARY', ['id'], true, true)],
+            foreignKeys: []
+        );
+
+        $statements = $this->comparator->compareOneDeclaredTable($declared, null);
+
+        $this->assertCount(1, $statements);
+        $this->assertStringContainsString('CREATE TABLE `users`', $statements[0]);
+    }
+
+    public function testCompareOneDeclaredTableGeneratesAlterWhenActualDiffers(): void
+    {
+        $declared = new TableDefinition(
+            name: 'users',
+            columns: [
+                new ColumnDefinition('id', 'int unsigned', false, null, true, 'auto_increment'),
+                new ColumnDefinition('email', 'varchar(255)', false, null, false, null),
+            ],
+            indexes: [new IndexDefinition('PRIMARY', ['id'], true, true)],
+            foreignKeys: []
+        );
+        $actual = new TableDefinition(
+            name: 'users',
+            columns: [
+                new ColumnDefinition('id', 'int unsigned', false, null, true, 'auto_increment'),
+            ],
+            indexes: [new IndexDefinition('PRIMARY', ['id'], true, true)],
+            foreignKeys: []
+        );
+
+        $statements = $this->comparator->compareOneDeclaredTable($declared, $actual);
+
+        $this->assertCount(1, $statements);
+        $this->assertStringContainsString('ALTER TABLE `users` ADD COLUMN', $statements[0]);
+        $this->assertStringContainsString('`email`', $statements[0]);
+    }
+
+    public function testCompareOneDeclaredTableGeneratesNoStatementWhenIdentical(): void
+    {
+        $table = new TableDefinition(
+            name: 'users',
+            columns: [
+                new ColumnDefinition('id', 'int unsigned', false, null, true, 'auto_increment'),
+            ],
+            indexes: [new IndexDefinition('PRIMARY', ['id'], true, true)],
+            foreignKeys: []
+        );
+
+        $statements = $this->comparator->compareOneDeclaredTable($table, $table);
+
+        $this->assertEmpty($statements);
+    }
+
     public function testNewForeignKeyGeneratesAddConstraint(): void
     {
         $declared = [

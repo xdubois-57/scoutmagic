@@ -75,6 +75,28 @@ class SchemaComparator
         return $this->warnings;
     }
 
+    /**
+     * DDL for ONE declared table against its introspected counterpart
+     * ($actual null when the table doesn't exist yet) — the per-table
+     * unit MigrationRunner's chunked, resumable migrate() uses so it can
+     * checkpoint between tables instead of introspecting and diffing the
+     * entire database in one uninterruptible pass. compare() above stays
+     * the bulk, all-at-once entry point (existing behavior, existing
+     * tests, unchanged); this is an additional, narrower entry point
+     * reusing the exact same private diff logic — never a second
+     * implementation of it.
+     *
+     * @return array<string>
+     */
+    public function compareOneDeclaredTable(TableDefinition $declared, ?TableDefinition $actual): array
+    {
+        if ($actual === null) {
+            return [$this->generateCreateTable($declared)];
+        }
+
+        return $this->compareTable($declared, $actual);
+    }
+
     private function generateCreateTable(TableDefinition $table): string
     {
         $lines = [];

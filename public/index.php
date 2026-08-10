@@ -305,25 +305,119 @@ if (!$notificationsV2Migrated) {
     ]);
 }
 
-// Auto-migrate: apply any pending schema changes from core.sql
-\Core\Debug\RequestTimeline::mark('migration_begin');
+// Auto-migrate: apply any pending schema changes from core.sql — via short,
+// foreground-driven sub-steps rather than inline on every page load. A
+// schema change on a database with many tables can take well beyond a
+// single request's max_execution_time to fully diff+apply; previously that
+// meant every request silently retried the whole (uncompleted, uncached)
+// migration from scratch, which is exactly what made the site fall over
+// after the first iteration's schema change shipped. Now: cheaply check
+// whether a migration is pending (one hash comparison, no real work) and,
+// if so, either serve one short chunk of it (the migration-step endpoint
+// below, polled by the page's own JS) or show the progress page instead of
+// routing normally — never do migration work inline on a normal page load.
+\Core\Debug\RequestTimeline::mark('migration_pending_check_begin');
 $migrationRunner = new MigrationRunner(
     $connection,
     new SchemaIntrospector($connection->getPdo()),
     new SchemaComparator(),
     new SqlParser()
 );
-$migrationResultForTimeline = $migrationRunner->migrate([$schemaPath]);
-\Core\Debug\RequestTimeline::mark('migration_done', [
-    'executed_statements' => count($migrationResultForTimeline->executedStatements),
-    'warnings' => count($migrationResultForTimeline->warnings),
-    // Full text, not just counts: when this keeps re-running on every
-    // request instead of settling into the hash-cache no-op path, the
-    // warning text is what tells us why the run never reaches "clean"
-    // (see MigrationRunner::migrate()'s caching condition).
-    'warning_details' => $migrationResultForTimeline->warnings,
-    'executed_statements_sample' => array_slice($migrationResultForTimeline->executedStatements, 0, 15),
-]);
+$migrationIsPending = $migrationRunner->isPending([$schemaPath]);
+\Core\Debug\RequestTimeline::mark('migration_pending_check_done', ['pending' => $migrationIsPending]);
+
+if ($migrationIsPending) {
+    $migrationStepPath = '/api/system/migration-step';
+
+    if ($request->getMethod() === 'POST' && $request->getPath() === $migrationStepPath) {
+        // Short, foreground-safe time budget: this endpoint is called
+        // repeatedly in a fast loop by the progress page below, not once
+        // per page load, so each call must return quickly rather than
+        // spending a full background-task-sized turn.
+        $stepRunner = new MigrationRunner(
+            $connection,
+            new SchemaIntrospector($connection->getPdo()),
+            new SchemaComparator(),
+            new SqlParser(),
+            5
+        );
+        $stepResult = $stepRunner->migrate([$schemaPath]);
+        \Core\Debug\RequestTimeline::mark('migration_step_done', [
+            'complete' => $stepResult->complete,
+            'progress' => $stepResult->progressFraction,
+            'executed_statements' => count($stepResult->executedStatements),
+            'warnings' => count($stepResult->warnings),
+        ]);
+
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode([
+            'complete' => $stepResult->complete,
+            'progress' => round($stepResult->progressFraction, 3),
+        ]);
+        exit;
+    }
+
+    // Any other request while a migration is pending: a self-contained
+    // page (no external CSS/JS/asset requests, so it never depends on the
+    // rest of the app being routable) whose script drives the actual
+    // migration work via short calls to the endpoint above, updating a
+    // progress bar as it goes. Closing the tab is safe — MigrationRunner
+    // persists progress after every unit of work, so the next visit (from
+    // anyone) resumes exactly where this one left off instead of
+    // restarting.
+    header('Content-Type: text/html; charset=utf-8');
+    echo <<<'HTML'
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mise à jour en cours…</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font-family: system-ui, -apple-system, sans-serif; max-width: 32rem; margin: 4rem auto; padding: 0 1.5rem; text-align: center; }
+  h1 { font-size: 1.25rem; }
+  .bar-track { background: rgba(127, 127, 127, 0.25); border-radius: 999px; height: 0.75rem; overflow: hidden; margin: 1.5rem 0; }
+  .bar-fill { background: #2f6f4f; height: 100%; width: 0%; transition: width 0.4s ease; }
+  p.hint { opacity: 0.7; font-size: 0.9rem; }
+</style>
+</head>
+<body>
+<h1>Mise à jour du site en cours…</h1>
+<p>Merci de patienter, cette page se rechargera automatiquement une fois la mise à jour terminée. Vous pouvez aussi fermer cet onglet : la mise à jour reprendra à l'endroit où elle s'est arrêtée lors de votre prochaine visite.</p>
+<div class="bar-track"><div class="bar-fill" id="bar"></div></div>
+<p class="hint" id="hint">Démarrage…</p>
+<script>
+(function () {
+  var bar = document.getElementById('bar');
+  var hint = document.getElementById('hint');
+
+  function step() {
+    fetch('/api/system/migration-step', { method: 'POST' })
+      .then(function (response) { return response.json(); })
+      .then(function (data) {
+        var percent = Math.round((data.progress || 0) * 100);
+        bar.style.width = percent + '%';
+        hint.textContent = percent + ' %';
+        if (data.complete) {
+          window.location.reload();
+        } else {
+          setTimeout(step, 250);
+        }
+      })
+      .catch(function () {
+        setTimeout(step, 2000);
+      });
+  }
+
+  step();
+})();
+</script>
+</body>
+</html>
+HTML;
+    exit;
+}
 
 $pdo = $connection->getPdo();
 
@@ -501,6 +595,23 @@ $settingService->register('notifications_retention_days', '90', 'number', 'Conse
 $settingService->register('offline_cache_staleness_days', '7', 'number', 'Péremption du contenu hors ligne (jours)',
     'Au-delà de ce délai, une page mise en cache pour la consultation hors ligne n\'est plus affichée — la page hors ligne générique est montrée à la place plutôt qu\'un contenu obsolète.',
     null, null, null, true, 261);
+
+// Core\Security\HumanCheck — generic anti-bot protection for public forms
+// submitted by a non-identified session (ARCHITECTURE.md §8). Applies to
+// every integration point (magic-link request, news module public form
+// responses, and any future module reusing the component) at once.
+$settingService->register('human_check_min_delay_seconds', '3', 'number', 'Délai minimum avant soumission (secondes)',
+    'Une soumission de formulaire public reçue moins de X secondes après son affichage est rejetée (probable robot). Une valeur trop élevée finit par rejeter de vrais visiteurs.',
+    null, '^\d+$', null, true, 270);
+$settingService->register('human_check_form_validity_seconds', '14400', 'number', 'Durée de validité d\'un formulaire (secondes)',
+    'Au-delà de ce délai après son affichage, un formulaire public est considéré expiré et sa soumission est rejetée — évite qu\'un onglet resté ouvert très longtemps soit rejoué indéfiniment.',
+    null, '^\d+$', null, true, 271);
+$settingService->register('human_check_rate_limit_window_minutes', '10', 'number', 'Fenêtre de limitation par IP (minutes)',
+    'Taille de la fenêtre glissante utilisée pour compter les soumissions de formulaires publics par adresse IP.',
+    null, '^\d+$', null, true, 272);
+$settingService->register('human_check_rate_limit_max_attempts', '5', 'number', 'Soumissions maximum par IP',
+    'Nombre maximum de soumissions de formulaires publics autorisées pour une même adresse IP dans la fenêtre de limitation, au-delà duquel les soumissions suivantes sont rejetées.',
+    null, '^\d+$', null, true, 273);
 
 // Migrate non-secret settings from secrets.enc to settings table (one-time)
 if ($settingService->get('settings_migrated') !== '1') {
@@ -761,24 +872,6 @@ $memberEmailService = new \Core\Member\MemberEmailService(
 $scoutYearResolver = new ScoutYearResolver($scoutYearService, $settingService, $memberYearRepo);
 $scoutYearAdminService = new ScoutYearAdminService($settingService);
 
-// Automatic public-year switch (from September 30, whatever happens): advance
-// the public year if the configured one is stale. Runs once per request.
-$autoSwitchedLabel = $scoutYearAdminService->enforceAutomaticSwitch(
-    $scoutYearService,
-    $scoutYearResolver->getPublicYearId(),
-    new DateTimeImmutable()
-);
-if ($autoSwitchedLabel !== null) {
-    $journalService->log(
-        'core',
-        'scout_year_auto_switched',
-        'security',
-        "Bascule automatique de l'année publique : {$autoSwitchedLabel}",
-        [],
-        null
-    );
-}
-
 // Create file services
 $storagePath = dirname(__DIR__) . '/storage';
 $fileRepository = new FileRepository($pdo);
@@ -1004,6 +1097,7 @@ $schedulerRunner->registerHandler('core', 'check_stable_update', new \Core\Maint
 $schedulerRunner->registerHandler('core', 'compress_section_document', new \Core\Member\Task\CompressSectionDocumentHandler());
 $schedulerRunner->registerHandler('core', 'send_notifications', new \Core\Notification\Task\SendNotificationsHandler());
 $schedulerRunner->registerHandler('core', 'purge_notifications', new \Core\Notification\Task\PurgeNotificationsHandler());
+$schedulerRunner->registerHandler('core', 'purge_human_check_rate_limits', new \Core\Security\HumanCheck\Task\PurgeHumanCheckRateLimitsHandler());
 
 // Bootstrap the recurring automatic backup — Task\AutoBackupHandler
 // re-schedules itself at the end of every run (same pattern as
@@ -1026,6 +1120,12 @@ if ($schedulerService->find('core', 'purge_notifications', \Core\Notification\Ta
 // jitter every day after that.
 if ($schedulerService->find('core', 'check_stable_update', 'daily') === null) {
     $schedulerService->schedule('core', 'check_stable_update', new DateTimeImmutable(), [], 'daily');
+}
+
+// Same bootstrap for the human-check rate-limit purge (Core\Security\
+// HumanCheck\Task\PurgeHumanCheckRateLimitsHandler).
+if ($schedulerService->find('core', 'purge_human_check_rate_limits', \Core\Security\HumanCheck\Task\PurgeHumanCheckRateLimitsHandler::REFERENCE) === null) {
+    $schedulerService->schedule('core', 'purge_human_check_rate_limits', new DateTimeImmutable(), [], \Core\Security\HumanCheck\Task\PurgeHumanCheckRateLimitsHandler::REFERENCE);
 }
 
 // Add dynamic member entries to Espace animés — group: GROUP_DYNAMIC keeps
@@ -1384,6 +1484,12 @@ $passwordResetService->setJournalService($journalService);
 $loginThrottler = new LoginThrottler($connection);
 $passwordAuthMethod = new PasswordAuthMethod($userAccountRepo, $encryptionService, $loginThrottler);
 $passwordAuthMethod->setJournalService($journalService);
+$humanCheckService = new \Core\Security\HumanCheck\HumanCheckService(
+    $encryptionService,
+    new \Core\Security\HumanCheck\HumanCheckRateLimitRepository($pdo),
+    $settingService,
+    $journalService
+);
 $webAuthnCredentialRepo = new WebAuthnCredentialRepository($pdo);
 $webAuthnBaseUrl = (string) ($settingService->get('base_url') ?: 'https://localhost');
 $webAuthnService = new WebAuthnService(
@@ -1397,6 +1503,7 @@ $webAuthnService = new WebAuthnService(
 $authController = new AuthController($twig, $authService, $roleResolver, $scoutYearResolver, $cookieConsentService);
 $authController->setPasswordAuth($passwordAuthMethod);
 $authController->setWebAuthnService($webAuthnService);
+$authController->setHumanCheck($humanCheckService);
 $frontController->registerController(AuthController::class, $authController);
 $frontController->registerController(AccountController::class, new AccountController($twig, $userAccountRepo, $webAuthnCredentialRepo, $webAuthnService));
 $frontController->registerController(PushSubscriptionController::class, new PushSubscriptionController($twig, $notificationService, $journalService));
@@ -1895,13 +2002,14 @@ if (in_array('news', $moduleManager->getEnabledModuleIds(), true)) {
             $twig, $newsArticleService, $newsFormService, $newsResponseService, $newsSeoKeywordService,
             $posterPdfService, $scoutYearService, $settingService, $schedulerService, $userAccountRepo,
             $memberService, $sectionService, $uploadHandler, $fileRepository, $storagePath, $journalService,
-            $financeAccountForOthers
+            $financeAccountForOthers, $humanCheckService
         )
     );
     $frontController->registerController(
         \Modules\News\Controller\FormController::class,
         new \Modules\News\Controller\FormController(
-            $twig, $newsArticleService, $newsFormService, $newsResponseService, $scoutYearService, $journalService, $financeExpectedReceivableForOthers
+            $twig, $newsArticleService, $newsFormService, $newsResponseService, $scoutYearService, $journalService,
+            $financeExpectedReceivableForOthers, $humanCheckService
         )
     );
 

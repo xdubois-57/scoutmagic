@@ -88,19 +88,4 @@ class ScoutYearServiceTest extends TestCase
         $this->assertSame('2024-2025', $all[1]['label']);
         $this->assertSame('2025-2026', $all[2]['label']);
     }
-
-    public function testIsSwitchWindow(): void
-    {
-        // August and September (up to the 29th) are the manual switch window.
-        $this->assertTrue(ScoutYearService::isSwitchWindow(new \DateTimeImmutable('2026-08-01')));
-        $this->assertTrue(ScoutYearService::isSwitchWindow(new \DateTimeImmutable('2026-08-31')));
-        $this->assertTrue(ScoutYearService::isSwitchWindow(new \DateTimeImmutable('2026-09-01')));
-        $this->assertTrue(ScoutYearService::isSwitchWindow(new \DateTimeImmutable('2026-09-29')));
-
-        // September 30 onwards: automatic, no manual switch.
-        $this->assertFalse(ScoutYearService::isSwitchWindow(new \DateTimeImmutable('2026-09-30')));
-        $this->assertFalse(ScoutYearService::isSwitchWindow(new \DateTimeImmutable('2026-10-01')));
-        $this->assertFalse(ScoutYearService::isSwitchWindow(new \DateTimeImmutable('2026-07-31')));
-        $this->assertFalse(ScoutYearService::isSwitchWindow(new \DateTimeImmutable('2027-01-15')));
-    }
 }

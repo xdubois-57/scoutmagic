@@ -12,6 +12,8 @@ use Core\File\FileRepository;
 use Core\Maintenance\BackupException;
 use Core\Maintenance\BackupRepository;
 use Core\Maintenance\BackupService;
+use Core\Scheduler\SchedulerRepository;
+use Core\Scheduler\SchedulerService;
 use Core\Scheduler\TaskContext;
 use Core\Scheduler\TaskHandlerInterface;
 use Core\Security\EncryptionService;
@@ -36,6 +38,15 @@ use Core\Security\EncryptionService;
  * Like Task\InstallUpdateHandler, a safety backup of the CURRENT state is
  * taken first and used to roll back automatically if the restore itself
  * fails.
+ *
+ * The restored database may be older than the current code, so a schema
+ * migration (Core\Database\MigrationRunner) runs after restoreDatabase().
+ * That migration can span more than one invocation of this handler — see
+ * resumeMigration(): payload['resume_migration'] === true re-enters this
+ * handler for a follow-up attempt that ONLY retries the migration (the
+ * restore itself, and the safety backup taken before it, are never
+ * repeated — resumeMigration() reconstructs the safety backup's file paths
+ * from payload['safety_backup_id'] for its own rollback-on-failure path).
  */
 class RestoreBackupHandler implements TaskHandlerInterface
 {
@@ -52,14 +63,24 @@ class RestoreBackupHandler implements TaskHandlerInterface
         $requestedBy = isset($payload['requested_by_user_account_id']) && $payload['requested_by_user_account_id'] !== null
             ? (int) $payload['requested_by_user_account_id']
             : null;
+
+        $pdo = $context->connection->getPdo();
+        $backupRepository = new BackupRepository($pdo);
+        $fileRepository = new FileRepository($pdo);
+
+        // A migration left incomplete by a previous attempt's time budget —
+        // the restore itself (and its safety backup) already happened and
+        // must never be repeated; only the migration is retried.
+        if (($payload['resume_migration'] ?? false) === true) {
+            $this->resumeMigration($payload, $context, $requestedBy, $backupRepository, $fileRepository);
+            return;
+        }
+
         $uploadedTempPath = isset($payload['uploaded_temp_path']) ? (string) $payload['uploaded_temp_path'] : null;
         $extractedUploadDbDump = null;
 
-        $pdo = $context->connection->getPdo();
         $basePath = dirname($context->storagePath);
         $backupService = new BackupService($context->connection, $context->storagePath, $basePath);
-        $backupRepository = new BackupRepository($pdo);
-        $fileRepository = new FileRepository($pdo);
 
         $safetyDbDump = null;
         $safetyZip = null;
@@ -109,66 +130,17 @@ class RestoreBackupHandler implements TaskHandlerInterface
                     new SchemaComparator(),
                     new SqlParser()
                 );
-                $migrationRunner->migrate([$basePath . '/schema/core.sql']);
+                $migrationResult = $migrationRunner->migrate([$basePath . '/schema/core.sql']);
+                $source = (string) ($payload['source'] ?? 'server');
 
-                $context->journal->log(
-                    'core',
-                    'backup_restored',
-                    'info',
-                    'Sauvegarde restaurée',
-                    ['source' => (string) ($payload['source'] ?? 'server')],
-                    $requestedBy
-                );
-
-                $this->purgeBeyondLimit($backupRepository, $fileRepository, $context->storagePath);
-
-                if ($requestedBy !== null) {
-                    $context->notifications?->notify(
-                        $requestedBy,
-                        'Restauration terminée',
-                        'La restauration de la sauvegarde est terminée.',
-                        '/config/maintenance'
-                    );
+                if (!$migrationResult->complete) {
+                    $this->scheduleMigrationResume($context, $safetyBackupId, $source, $requestedBy);
+                    return;
                 }
+
+                $this->finishRestore($context, $backupRepository, $fileRepository, $source, $requestedBy);
             } catch (\Throwable $restoreError) {
-                $context->journal->log(
-                    'core',
-                    'backup_restore_failed',
-                    'info',
-                    'Échec de la restauration',
-                    ['error' => $restoreError->getMessage()],
-                    $requestedBy
-                );
-
-                try {
-                    $backupService->restoreDatabase($safetyDbDump);
-                    $backupService->restoreFiles($safetyZip);
-                    $context->journal->log(
-                        'core',
-                        'backup_restore_rolled_back',
-                        'info',
-                        'Restauration automatique de l\'état précédent effectuée après échec de restauration',
-                        [],
-                        $requestedBy
-                    );
-                    $notifyTitle = 'Échec de la restauration';
-                    $notifyBody = 'La restauration a échoué — l\'état précédent a été restauré automatiquement.';
-                } catch (\Throwable $rollbackError) {
-                    $context->journal->log(
-                        'core',
-                        'backup_restore_rollback_failed',
-                        'info',
-                        'La restauration automatique après échec a elle-même échoué',
-                        ['error' => $rollbackError->getMessage()],
-                        $requestedBy
-                    );
-                    $notifyTitle = 'Échec critique de la restauration';
-                    $notifyBody = 'La restauration a échoué et la restauration automatique de l\'état précédent a également échoué. Une intervention manuelle est nécessaire.';
-                }
-
-                if ($requestedBy !== null) {
-                    $context->notifications?->notify($requestedBy, $notifyTitle, $notifyBody, '/config/maintenance');
-                }
+                $this->rollbackToSafetyBackup($context, $backupService, (string) $safetyDbDump, (string) $safetyZip, $requestedBy, $restoreError);
             }
         } catch (\Throwable $e) {
             $context->journal->log(
@@ -195,6 +167,186 @@ class RestoreBackupHandler implements TaskHandlerInterface
             if ($extractedUploadDbDump !== null) {
                 @unlink($extractedUploadDbDump);
             }
+        }
+    }
+
+    /**
+     * Re-entry point for a restore whose migration step didn't finish
+     * within MigrationRunner's time budget on a previous attempt. The
+     * restore itself (and the safety backup taken before it) already
+     * happened and is never repeated — only the migration is retried,
+     * which resumes automatically from where it left off.
+     *
+     * @param array<string, mixed> $payload
+     */
+    private function resumeMigration(
+        array $payload,
+        TaskContext $context,
+        ?int $requestedBy,
+        BackupRepository $backupRepository,
+        FileRepository $fileRepository
+    ): void {
+        $pdo = $context->connection->getPdo();
+        $basePath = dirname($context->storagePath);
+        $safetyBackupId = (int) ($payload['safety_backup_id'] ?? 0);
+        $source = (string) ($payload['source'] ?? 'server');
+
+        try {
+            $migrationRunner = new MigrationRunner(
+                $context->connection,
+                new SchemaIntrospector($pdo),
+                new SchemaComparator(),
+                new SqlParser()
+            );
+            $migrationResult = $migrationRunner->migrate([$basePath . '/schema/core.sql']);
+
+            if (!$migrationResult->complete) {
+                $this->scheduleMigrationResume($context, $safetyBackupId, $source, $requestedBy);
+                return;
+            }
+
+            $this->finishRestore($context, $backupRepository, $fileRepository, $source, $requestedBy);
+        } catch (\Throwable $migrationError) {
+            $safetyBackup = $safetyBackupId > 0 ? $backupRepository->findById($safetyBackupId) : null;
+            $safetyDbDumpFile = $safetyBackup !== null && $safetyBackup->dbDumpFileId !== null
+                ? $fileRepository->findById($safetyBackup->dbDumpFileId)
+                : null;
+            $safetyZipFile = $safetyBackup !== null && $safetyBackup->fileId !== null
+                ? $fileRepository->findById($safetyBackup->fileId)
+                : null;
+
+            if ($safetyDbDumpFile === null || $safetyZipFile === null) {
+                $context->journal->log(
+                    'core',
+                    'backup_restore_failed',
+                    'info',
+                    'Échec de la migration lors de la reprise d\'une restauration, sans sauvegarde de sécurité disponible pour restauration',
+                    ['error' => $migrationError->getMessage()],
+                    $requestedBy
+                );
+                if ($requestedBy !== null) {
+                    $context->notifications?->notify(
+                        $requestedBy,
+                        'Échec critique de la restauration',
+                        'La migration a échoué et aucune sauvegarde de sécurité n\'a pu être restaurée automatiquement. Une intervention manuelle est nécessaire.',
+                        '/config/maintenance'
+                    );
+                }
+                return;
+            }
+
+            $backupService = new BackupService($context->connection, $context->storagePath, $basePath);
+            $this->rollbackToSafetyBackup(
+                $context,
+                $backupService,
+                $context->storagePath . '/' . $safetyDbDumpFile->relativePath,
+                $context->storagePath . '/' . $safetyZipFile->relativePath,
+                $requestedBy,
+                $migrationError
+            );
+        }
+    }
+
+    /**
+     * Reschedules this same task, with resume_migration=true, so a
+     * migration left incomplete by the time budget gets another turn
+     * shortly — routed back into resumeMigration() next time.
+     */
+    private function scheduleMigrationResume(TaskContext $context, int $safetyBackupId, string $source, ?int $requestedBy): void
+    {
+        $schedulerService = new SchedulerService(new SchedulerRepository($context->connection->getPdo()));
+        $schedulerService->scheduleAfter('core', 'restore_backup', 0, [
+            'resume_migration' => true,
+            'safety_backup_id' => $safetyBackupId,
+            'source' => $source,
+        ], null, $requestedBy);
+    }
+
+    /**
+     * The tail shared by a fully-completed initial attempt and a
+     * fully-completed resumed attempt: journal entry, backup purge,
+     * notification.
+     */
+    private function finishRestore(
+        TaskContext $context,
+        BackupRepository $backupRepository,
+        FileRepository $fileRepository,
+        string $source,
+        ?int $requestedBy
+    ): void {
+        $context->journal->log(
+            'core',
+            'backup_restored',
+            'info',
+            'Sauvegarde restaurée',
+            ['source' => $source],
+            $requestedBy
+        );
+
+        $this->purgeBeyondLimit($backupRepository, $fileRepository, $context->storagePath);
+
+        if ($requestedBy !== null) {
+            $context->notifications?->notify(
+                $requestedBy,
+                'Restauration terminée',
+                'La restauration de la sauvegarde est terminée.',
+                '/config/maintenance'
+            );
+        }
+    }
+
+    /**
+     * Restores the safety backup taken before this restore attempt and
+     * records the outcome — shared by the initial attempt's catch block
+     * (which already holds $safetyDbDump/$safetyZip locally) and
+     * resumeMigration()'s catch block (which reconstructs them from
+     * payload['safety_backup_id'] first).
+     */
+    private function rollbackToSafetyBackup(
+        TaskContext $context,
+        BackupService $backupService,
+        string $safetyDbDump,
+        string $safetyZip,
+        ?int $requestedBy,
+        \Throwable $error
+    ): void {
+        $context->journal->log(
+            'core',
+            'backup_restore_failed',
+            'info',
+            'Échec de la restauration',
+            ['error' => $error->getMessage()],
+            $requestedBy
+        );
+
+        try {
+            $backupService->restoreDatabase($safetyDbDump);
+            $backupService->restoreFiles($safetyZip);
+            $context->journal->log(
+                'core',
+                'backup_restore_rolled_back',
+                'info',
+                'Restauration automatique de l\'état précédent effectuée après échec de restauration',
+                [],
+                $requestedBy
+            );
+            $notifyTitle = 'Échec de la restauration';
+            $notifyBody = 'La restauration a échoué — l\'état précédent a été restauré automatiquement.';
+        } catch (\Throwable $rollbackError) {
+            $context->journal->log(
+                'core',
+                'backup_restore_rollback_failed',
+                'info',
+                'La restauration automatique après échec a elle-même échoué',
+                ['error' => $rollbackError->getMessage()],
+                $requestedBy
+            );
+            $notifyTitle = 'Échec critique de la restauration';
+            $notifyBody = 'La restauration a échoué et la restauration automatique de l\'état précédent a également échoué. Une intervention manuelle est nécessaire.';
+        }
+
+        if ($requestedBy !== null) {
+            $context->notifications?->notify($requestedBy, $notifyTitle, $notifyBody, '/config/maintenance');
         }
     }
 

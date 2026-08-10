@@ -85,7 +85,10 @@ class ScoutYearController extends AbstractController
             'target_year' => $targetYear,
             'transition_steps' => $steps,
             'current_step' => $currentStep,
-            'switch_window_open' => ScoutYearService::isSwitchWindow($this->now()),
+            // Non-blocking signal only (§8.26) — the transition itself is no
+            // longer gated by any date, this just flags that nobody has run
+            // it yet even though the calendar has moved past this year.
+            'public_year_ended' => $publicYear['end_date'] < $this->now()->format('Y-m-d'),
         ]);
     }
 
@@ -201,13 +204,6 @@ class ScoutYearController extends AbstractController
         $year = $yearId > 0 ? $this->scoutYearService->findById($yearId) : null;
         if ($year === null) {
             FlashMessage::set('error', 'Année scoute invalide.');
-            return $this->redirect('/admin/scout-year');
-        }
-
-        // The public switch is only allowed during the transition window
-        // (August–September 29); after that it is enforced automatically.
-        if (!ScoutYearService::isSwitchWindow($this->now())) {
-            FlashMessage::set('error', 'Le changement d\'année publique n\'est possible qu\'en août et en septembre.');
             return $this->redirect('/admin/scout-year');
         }
 

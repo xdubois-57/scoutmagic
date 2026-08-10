@@ -207,8 +207,8 @@ class MemberYearRepository
                 member_year_id, address_type,
                 street_encrypted, number_encrypted, box_encrypted,
                 complement_encrypted, postal_code_encrypted,
-                city_encrypted, country_encrypted
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                city_encrypted, country_encrypted, address_normalized_blind_index
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
 
         foreach ($addresses as $addr) {
@@ -222,6 +222,7 @@ class MemberYearRepository
                 $addr['postal_code_encrypted'],
                 $addr['city_encrypted'],
                 $addr['country_encrypted'],
+                $addr['address_normalized_blind_index'] ?? null,
             ]);
         }
     }

@@ -221,6 +221,17 @@ CREATE TABLE member_years (
     -- Assurance complémentaire is administrative → stored in clear like formation_level.
     supplementary_insurance VARCHAR(255),
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    -- Departure marking (Core\Member\DepartureService, ARCHITECTURE.md §8) —
+    -- a chief/animateur flags a member as not returning next scout year,
+    -- while Desk still lists them as active this year. Scoped to THIS row's
+    -- scout year on purpose: it resets naturally every new import/year, no
+    -- purge task needed. leaving_comment_encrypted is a free-text reason —
+    -- often a sensitive one (conflict, family situation, health) — so it is
+    -- BLOB + encrypted like handicap_encrypted above, decrypted only in
+    -- Core\Member\DepartureRepository.
+    leaving BOOLEAN NOT NULL DEFAULT FALSE,
+    leaving_marked_at DATETIME,
+    leaving_comment_encrypted BLOB,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE INDEX idx_member_year (member_id, scout_year_id),
     INDEX idx_scout_year (scout_year_id),
@@ -241,7 +252,16 @@ CREATE TABLE member_addresses (
     postal_code_encrypted BLOB,
     city_encrypted BLOB,
     country_encrypted BLOB,
-    CONSTRAINT fk_ma_member_year FOREIGN KEY (member_year_id) REFERENCES member_years(id) ON DELETE CASCADE
+    -- Blind index (HMAC) of Core\Member\AddressNormalizer::normalize()'s
+    -- comparison form of street+number+box+postal_code — never a readable
+    -- value, exact-match only (Core\Member\FeeEstimationService, §8), same
+    -- technique as every other blind-indexed field. Populated at import
+    -- time (Core\Import\DeskImportService) going forward; existing rows
+    -- were retroactively filled once by the temporary Core\Member\
+    -- AddressBlindIndexBackfill (removed at iteration 3).
+    address_normalized_blind_index CHAR(64),
+    CONSTRAINT fk_ma_member_year FOREIGN KEY (member_year_id) REFERENCES member_years(id) ON DELETE CASCADE,
+    INDEX idx_ma_address_blind (address_normalized_blind_index)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE member_functions (
@@ -751,4 +771,20 @@ CREATE TABLE short_urls (
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     created_by INT UNSIGNED,
     CONSTRAINT fk_su_created_by FOREIGN KEY (created_by) REFERENCES user_accounts(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Core\Security\HumanCheck: generic anti-bot protection for a public form
+-- submitted by a non-identified session (ARCHITECTURE.md §8) — the third
+-- barrier's per-IP sliding-window counter. Short-lived rows only, purged
+-- by Task\PurgeHumanCheckRateLimitsHandler once past the configured
+-- window. ip_hash is a one-way HMAC (Core\Security\EncryptionService::
+-- blindIndex(), same technique as every other blind-indexed lookup in
+-- this codebase, e.g. modules/retro's retro_rate_limits) — the real IP
+-- address, personal data, is never stored.
+CREATE TABLE human_check_rate_limits (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    ip_hash CHAR(64) NOT NULL,
+    form_key VARCHAR(60) NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_human_check_rate_limits_lookup (ip_hash, form_key, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
