@@ -166,6 +166,27 @@
 
     init();
 
+    // Generic escape hatch for mode:multi callers that need to correct a
+    // selection from outside a user click — e.g. reverting the optimistic
+    // toggle when their own persistence call (chip-picker:change's
+    // listener) comes back rejected by the server. Applies to the chip and
+    // its mirrored sheet row, re-truncates, but never dispatches
+    // chip-picker:change itself (the caller already knows what happened;
+    // re-dispatching would loop back into its own listener).
+    function setSelected(pickerId, id, selected) {
+        var container = document.getElementById(pickerId);
+        if (!container) return;
+        var sheet = document.querySelector(container.dataset.sheetTarget || '');
+        var selector = '.chip-picker-item[data-id="' + String(id).replace(/["\\]/g, '\\$&') + '"]';
+        var all = Array.prototype.slice.call(container.querySelectorAll(selector));
+        if (sheet) all = all.concat(Array.prototype.slice.call(sheet.querySelectorAll(selector)));
+        all.forEach(function (el) { setItemSelected(el, selected); });
+        truncate(container);
+    }
+
+    window.ChipPicker = window.ChipPicker || {};
+    window.ChipPicker.setSelected = setSelected;
+
     var resizeTimer;
     function scheduleRetruncate() {
         clearTimeout(resizeTimer);

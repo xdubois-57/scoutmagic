@@ -67,19 +67,26 @@
                         </div>
 
                         {% if can_edit_section and available_badges|length > 0 %}
-                            <div class="d-flex flex-wrap gap-1 mb-2 badge-picker" data-member-year-id="{{ member.memberYearId }}">
-                                {% for badge in available_badges %}
-                                    {% set assigned = false %}
-                                    {% for mb in member.badges %}
-                                        {% if mb.id == badge.id %}{% set assigned = true %}{% endif %}
-                                    {% endfor %}
-                                    <button type="button"
-                                            class="btn btn-sm {{ assigned ? 'btn-info' : 'btn-outline-secondary' }} d-inline-flex align-items-center gap-1 badge-toggle-btn"
-                                            data-badge-id="{{ badge.id }}"
-                                            style="font-size:0.7rem;">
-                                        {{ badge.name }}
-                                    </button>
+                            {% set badge_items = [] %}
+                            {% for badge in available_badges %}
+                                {% set assigned = false %}
+                                {% for mb in member.badges %}
+                                    {% if mb.id == badge.id %}{% set assigned = true %}{% endif %}
                                 {% endfor %}
+                                {% set badge_items = badge_items|merge([{
+                                    id: badge.id,
+                                    label: badge.name,
+                                    selected: assigned,
+                                }]) %}
+                            {% endfor %}
+                            <div class="badge-picker" data-member-year-id="{{ member.memberYearId }}">
+                                {% include 'partials/chip_picker.html.twig' with {
+                                    picker_id: 'badge-picker-' ~ member.memberYearId,
+                                    items: badge_items,
+                                    mode: 'multi',
+                                    sheet_title: 'Choisir les badges',
+                                    empty_text: 'Aucun badge disponible.',
+                                } %}
                             </div>
                         {% elseif member.badges|length > 0 %}
                             <div class="d-flex flex-wrap gap-1 mb-2">
@@ -316,26 +323,48 @@ document.querySelectorAll('.section-document-title-input, .section-document-desc
 })();
 {% endif %}
 
-document.querySelectorAll('.badge-toggle-btn').forEach(btn => {
-    btn.addEventListener('click', async () => {
-        const group = btn.closest('.badge-picker');
-        const memberYearId = group.dataset.memberYearId;
-        const badgeId = btn.dataset.badgeId;
+// Badge picker per staff member — partials/chip_picker.html.twig in
+// mode:multi, same component as the section picker above. chip-picker.js
+// already flips the chip/sheet-row visual state optimistically on click
+// and dispatches chip-picker:change with the picker's full new selection
+// (docs/module-development.md); this only needs to translate that into
+// the existing single-badge-toggle AJAX endpoint (one member_year_id +
+// the one badge_id that just changed) and revert the optimistic state if
+// the server rejects the toggle.
+document.querySelectorAll('.badge-picker').forEach(wrapper => {
+    const picker = wrapper.querySelector('.chip-picker');
+    if (!picker) return;
+
+    const memberYearId = wrapper.dataset.memberYearId;
+    let previousSelected = new Set(
+        Array.prototype.slice
+            .call(picker.querySelectorAll('.chip-picker-item[data-selected="true"]'))
+            .map(el => el.dataset.id)
+    );
+
+    picker.addEventListener('chip-picker:change', async (e) => {
+        const nextSelected = new Set(e.detail.selectedIds);
+        let badgeId = null;
+        nextSelected.forEach(id => { if (!previousSelected.has(id)) badgeId = id; });
+        if (badgeId === null) {
+            previousSelected.forEach(id => { if (!nextSelected.has(id)) badgeId = id; });
+        }
+        if (badgeId === null) return;
+
+        const assigned = nextSelected.has(badgeId);
         const csrf = document.querySelector('meta[name="csrf-token"]')?.content;
 
-        btn.disabled = true;
         const res = await fetch('/chefs/staffs/badge-toggle', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ member_year_id: parseInt(memberYearId), badge_id: parseInt(badgeId), _csrf_token: csrf })
         });
         const data = await res.json();
-        btn.disabled = false;
 
         if (data.success) {
-            btn.classList.toggle('btn-info', data.assigned);
-            btn.classList.toggle('btn-outline-secondary', !data.assigned);
+            previousSelected = nextSelected;
         } else {
+            window.ChipPicker.setSelected(picker.id, badgeId, !assigned);
             alert(data.error);
         }
     });

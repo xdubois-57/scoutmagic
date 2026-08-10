@@ -373,6 +373,40 @@ class StaffsControllerTest extends TestCase
         $this->assertStringContainsString('Communication', $response->getBody());
     }
 
+    public function testIndexRendersBadgesAsAChipPickerPerMemberWithCorrectSelectionState(): void
+    {
+        // The badge picker reuses partials/chip_picker.html.twig (mode
+        // multi) — same component/style as the section picker above the
+        // staff list, one instance per member so each keeps its own
+        // selection independent of the others.
+        $branchId = $this->createBranch('BAL', 'Baladins', 1);
+        $sectionId = $this->createSection('BAL01', $branchId, 'Ma section');
+        $memberYearId = $this->createMemberInSection($sectionId, 'Alice', 'chief');
+        $assignedBadge = $this->badgeService->create('Communication');
+        $unassignedBadge = $this->badgeService->create('Animation');
+        $this->badgeService->toggleAssignment($memberYearId, $assignedBadge->id, 1);
+
+        $request = new Request('GET', '/chefs/staffs', [], [], [], []);
+        $response = $this->controller->index($request, []);
+
+        $body = $response->getBody();
+        $this->assertStringContainsString('id="badge-picker-' . $memberYearId . '"', $body);
+        $this->assertStringContainsString('data-mode="multi"', $body);
+        $this->assertStringContainsString('data-member-year-id="' . $memberYearId . '"', $body);
+
+        // The Communication chip (assigned) must be selected, Animation
+        // (not assigned) must not — order in the DOM is available_badges'
+        // own order, so locate each chip by its data-id.
+        $this->assertMatchesRegularExpression(
+            '/data-id="' . $assignedBadge->id . '"[^>]*data-selected="true"/',
+            $body
+        );
+        $this->assertMatchesRegularExpression(
+            '/data-id="' . $unassignedBadge->id . '"[^>]*data-selected="false"/',
+            $body
+        );
+    }
+
     public function testToggleBadgeAssignsThenUnassigns(): void
     {
         $branchId = $this->createBranch('BAL', 'Baladins', 1);
