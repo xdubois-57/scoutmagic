@@ -157,6 +157,36 @@ class UploadHandlerTest extends TestCase
         $this->assertNotFalse(@imagecreatefromjpeg($storedPath));
     }
 
+    public function testExifOrientationIsAppliedBeforeStripping(): void
+    {
+        // A landscape-dimensioned JPEG (20x10) tagged as EXIF orientation 6
+        // (rotate 90° CW to display upright) — the phone-camera case: pixels
+        // are stored sideways, the tag says how to fix it on display. Once
+        // EXIF is stripped, that tag is gone, so orientation must be baked
+        // into the pixels first or the photo stays sideways forever.
+        $tmpFile = tempnam(sys_get_temp_dir(), 'exif_orientation');
+        file_put_contents($tmpFile, $this->createJpegWithOrientation(20, 10, 6));
+
+        $fileId = $this->handler->handle(
+            ['tmp_name' => $tmpFile, 'name' => 'photo.jpg', 'size' => filesize($tmpFile), 'error' => UPLOAD_ERR_OK],
+            'test',
+            ['image/jpeg'],
+            10 * 1024 * 1024,
+            'public'
+        );
+
+        $stmt = $this->pdo->prepare('SELECT relative_path FROM files WHERE id = ?');
+        $stmt->execute([$fileId]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+        $storedPath = $this->tmpDir . '/' . $row['relative_path'];
+
+        $stored = imagecreatefromjpeg($storedPath);
+        $this->assertNotFalse($stored);
+        // A 90° rotation swaps the dimensions: 20x10 becomes 10x20.
+        $this->assertSame(10, imagesx($stored));
+        $this->assertSame(20, imagesy($stored));
+    }
+
     public function testUploadErrorThrowsException(): void
     {
         $this->expectException(UploadException::class);
@@ -176,6 +206,30 @@ class UploadHandlerTest extends TestCase
         imagejpeg($img, $tmpFile);
         imagedestroy($img);
         return $tmpFile;
+    }
+
+    /**
+     * Builds a JPEG of the given pixel dimensions with a hand-packed EXIF
+     * APP1 segment declaring the given Orientation tag — GD itself has no
+     * API to write EXIF, so this constructs the minimal TIFF/IFD structure
+     * (little-endian "II" byte order, one Orientation SHORT entry) and
+     * splices it right after the SOI marker, same placement real cameras use.
+     */
+    private function createJpegWithOrientation(int $width, int $height, int $orientation): string
+    {
+        $img = imagecreatetruecolor($width, $height);
+        ob_start();
+        imagejpeg($img, null, 90);
+        $jpegData = (string) ob_get_clean();
+        imagedestroy($img);
+
+        $tiffHeader = 'II' . pack('v', 0x002A) . pack('V', 8);
+        $entry = pack('v', 0x0112) . pack('v', 3) . pack('V', 1) . pack('v', $orientation) . pack('v', 0);
+        $ifd = pack('v', 1) . $entry . pack('V', 0);
+        $exifPayload = "Exif\x00\x00" . $tiffHeader . $ifd;
+        $app1 = "\xFF\xE1" . pack('n', strlen($exifPayload) + 2) . $exifPayload;
+
+        return substr($jpegData, 0, 2) . $app1 . substr($jpegData, 2);
     }
 
     private function recursiveDelete(string $dir): void

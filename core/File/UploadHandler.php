@@ -118,6 +118,16 @@ class UploadHandler
             return;
         }
 
+        // Bake the EXIF orientation (phone cameras store portrait shots as
+        // landscape pixels + an Orientation tag) into the pixels themselves
+        // before EXIF gets stripped below — otherwise the tag that would
+        // have told a browser to auto-rotate the photo is gone and the
+        // image is stuck sideways. Same pattern as the dedicated processors
+        // (Core\Photo\SectionPhotoProcessor and friends), needed here too
+        // since member_photo/age_branch_logo uploads come straight through
+        // this generic path with no processor of their own.
+        $image = $this->correctOrientation($image, $source, $mimeType);
+
         $result = match ($mimeType) {
             'image/jpeg' => imagejpeg($image, $target, 90),
             'image/png' => imagepng($image, $target),
@@ -131,6 +141,26 @@ class UploadHandler
         if (!$result) {
             throw new UploadException('Impossible de sauvegarder l\'image.');
         }
+    }
+
+    /**
+     * @return \GdImage
+     */
+    private function correctOrientation(\GdImage $image, string $source, string $mimeType)
+    {
+        if ($mimeType !== 'image/jpeg' || !function_exists('exif_read_data')) {
+            return $image;
+        }
+
+        $exif = @exif_read_data($source);
+        $orientation = $exif['Orientation'] ?? 1;
+
+        return match ($orientation) {
+            3 => imagerotate($image, 180, 0) ?: $image,
+            6 => imagerotate($image, -90, 0) ?: $image,
+            8 => imagerotate($image, 90, 0) ?: $image,
+            default => $image,
+        };
     }
 
     /**
