@@ -70,7 +70,7 @@ class CalendarConfigController extends AbstractController
         return $this->render('@calendar/config.html.twig', [
             'default_title' => (string) $this->settingService->get('event_default_title', 'calendar', 'Réunion'),
             'default_start_time' => (string) $this->settingService->get('event_default_start_time', 'calendar', '14:00'),
-            'default_end_time' => (string) $this->settingService->get('event_default_end_time', 'calendar', '16:00'),
+            'default_end_time' => (string) $this->settingService->get('event_default_end_time', 'calendar', '17:45'),
             'default_location' => (string) $this->settingService->get('event_default_location', 'calendar', ''),
             'notify_multiday_events_enabled' => $this->notificationService->isEnabled(),
             'notify_multiday_events_days_before' => $this->notificationService->getDaysBefore(),

@@ -3,10 +3,7 @@
 {% block title %}{{ album ? 'Éditer l\'album' : 'Nouvel album' }} — {{ site_name }}{% endblock %}
 
 {% block content %}
-    <div class="d-flex justify-content-between align-items-start mb-3 flex-wrap gap-2">
-        <h1 class="h4 mb-0">{{ album ? 'Éditer l\'album' : 'Nouvel album' }}</h1>
-        <a href="/gallery/manage" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left"></i> Retour</a>
-    </div>
+    <h1 class="h4 mb-3">{{ album ? 'Éditer l\'album' : 'Nouvel album' }}</h1>
 
     {% if submit_error %}
         <div class="alert alert-danger">{{ submit_error }}</div>
