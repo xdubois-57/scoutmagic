@@ -304,6 +304,7 @@ class MigrationRunner
         try {
             $stmt = $this->connection->getPdo()->query("SELECT GET_LOCK('scoutmagic_schema_migration', 0)");
             $acquired = $stmt !== false ? $stmt->fetchColumn() : null;
+            $stmt?->closeCursor();
             return (int) $acquired === 1;
         } catch (\PDOException) {
             // GET_LOCK() is MySQL/MariaDB-specific and unavailable on the
@@ -457,8 +458,19 @@ class MigrationRunner
 
             $checkStmt = $pdo->prepare('SELECT 1 FROM settings WHERE module_id IS NULL AND setting_key = ?');
             $checkStmt->execute([$key]);
+            $exists = $checkStmt->fetchColumn() !== false;
+            // With real (non-emulated) prepares, MySQL keeps this statement's
+            // cursor "active" until every row is read or it's explicitly
+            // closed — fetchColumn() alone doesn't do that when the result
+            // has 0 or 1 rows, and $checkStmt is still in scope (the
+            // function hasn't returned) when the INSERT/UPDATE below runs
+            // on the same connection. Without this, that next query fails
+            // with "Cannot execute queries while other unbuffered queries
+            // are active" — MigrationRunner.php's own checkpoint() calls
+            // this every unit of work, so this isn't a rare edge case.
+            $checkStmt->closeCursor();
 
-            if ($checkStmt->fetchColumn() !== false) {
+            if ($exists) {
                 $updateStmt = $pdo->prepare(
                     'UPDATE settings SET setting_value = ? WHERE module_id IS NULL AND setting_key = ?'
                 );
