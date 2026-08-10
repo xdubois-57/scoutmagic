@@ -12,8 +12,11 @@ use Core\File\FileRepository;
 use Core\Maintenance\BackupRepository;
 use Core\Maintenance\BackupService;
 use Core\Maintenance\UpdateException;
+use Core\Maintenance\UpdateHistory;
 use Core\Maintenance\UpdateHistoryRepository;
 use Core\Maintenance\VersionFile;
+use Core\Scheduler\SchedulerRepository;
+use Core\Scheduler\SchedulerService;
 use Core\Scheduler\TaskContext;
 use Core\Scheduler\TaskHandlerInterface;
 
@@ -33,12 +36,23 @@ use Core\Scheduler\TaskHandlerInterface;
  * (copy over the live install, excluding storage/ and VERSION, then clear
  * storage/temp/twig_cache so no pre-update compiled template lingers,
  * see clearCompiledTemplateCache()) → migrating
- * (reuses Core\Database\MigrationRunner, same DDL-diff engine as every
- * normal request) → VERSION file written → completed. Any throwable from
- * downloading through the VERSION write triggers an automatic rollback via
- * the same backup just taken; a throwable from the backup step itself
- * cannot be rolled back (nothing was changed yet) and is just recorded as
- * failed.
+ * (reuses Core\Database\MigrationRunner, same chunked/resumable DDL-diff
+ * engine as every normal request) → VERSION file written → completed.
+ * migrating can span more than one invocation of this handler:
+ * MigrationRunner::migrate() returns early (MigrationResult::$complete
+ * false) once it hits its own internal time budget, in which case this
+ * handler reschedules itself (scheduleMigrationResume()) rather than
+ * treating the update as finished — update_history.status stays
+ * 'migrating', and the next invocation re-enters via the status==='migrating'
+ * branch below, which retries ONLY the migration step (backing_up/
+ * downloading/installing already happened and must never be repeated).
+ * Any throwable from downloading through a completed migration triggers an
+ * automatic rollback via the same backup just taken (see
+ * rollbackToSafetyBackup(), reused by both the initial attempt — which
+ * still holds the backup's file paths locally — and a resumed attempt,
+ * which reconstructs them from update_history.backup_id); a throwable from
+ * the backup step itself cannot be rolled back (nothing was changed yet)
+ * and is just recorded as failed.
  */
 class InstallUpdateHandler implements TaskHandlerInterface
 {
@@ -64,7 +78,21 @@ class InstallUpdateHandler implements TaskHandlerInterface
         $fileRepository = new FileRepository($pdo);
 
         $history = $updateHistoryRepository->findById($historyId);
-        if ($history === null || $history->status !== 'pending') {
+        if ($history === null) {
+            return;
+        }
+
+        // A migration left incomplete by a previous attempt's time budget
+        // (MigrationResult::$complete false) — resume ONLY the migration
+        // step. backing_up/downloading/installing already happened and
+        // must never be repeated: installFiles() is not safe to re-run
+        // over files that may already reflect the new version.
+        if ($history->status === 'migrating') {
+            $this->resumeMigration($historyId, $history, $downloadUrl, $sourceType, $context, $updateHistoryRepository, $backupRepository, $fileRepository);
+            return;
+        }
+
+        if ($history->status !== 'pending') {
             return;
         }
 
@@ -132,75 +160,25 @@ class InstallUpdateHandler implements TaskHandlerInterface
                     new SchemaComparator(),
                     new SqlParser()
                 );
-                $migrationRunner->migrate([$basePath . '/schema/core.sql']);
+                $migrationResult = $migrationRunner->migrate([$basePath . '/schema/core.sql']);
 
-                VersionFile::write($basePath, $history->versionTo);
-                $context->settings->setInternal('site_version', $history->versionTo);
-
-                $updateHistoryRepository->markCompleted($historyId);
-                $context->journal->log(
-                    'core',
-                    'update_installed',
-                    'info',
-                    'Mise à jour installée',
-                    ['version_from' => $history->versionFrom, 'version_to' => $history->versionTo],
-                    $history->requestedBy
-                );
-
-                $this->purgeBeyondLimit($backupRepository, $fileRepository, $context->storagePath);
-
-                if ($history->requestedBy !== null) {
-                    $context->notifications?->notify(
-                        $history->requestedBy,
-                        'Mise à jour terminée',
-                        "La mise à jour vers la version {$history->versionTo} est terminée.",
-                        '/config/maintenance'
-                    );
+                if (!$migrationResult->complete) {
+                    $this->scheduleMigrationResume($context, $historyId, $downloadUrl, $sourceType);
+                    return;
                 }
+
+                $this->finishInstall($historyId, $history, $context, $updateHistoryRepository, $backupRepository, $fileRepository);
             } catch (\Throwable $installError) {
-                $context->journal->log(
-                    'core',
-                    'update_failed',
-                    'info',
-                    'Échec de l\'installation de la mise à jour',
-                    ['version_from' => $history->versionFrom, 'version_to' => $history->versionTo, 'error' => $installError->getMessage()],
-                    $history->requestedBy
+                $this->rollbackToSafetyBackup(
+                    $historyId,
+                    $history,
+                    $context,
+                    $updateHistoryRepository,
+                    $backupService,
+                    (string) $dbDumpPath,
+                    (string) $filesZipPath,
+                    $installError
                 );
-
-                try {
-                    $backupService->restoreDatabase($dbDumpPath);
-                    $backupService->restoreFiles($filesZipPath);
-                    $updateHistoryRepository->markRolledBack($historyId, $installError->getMessage());
-                    $context->journal->log(
-                        'core',
-                        'update_rolled_back',
-                        'info',
-                        'Restauration automatique effectuée après échec de mise à jour',
-                        ['version_from' => $history->versionFrom, 'version_to' => $history->versionTo],
-                        $history->requestedBy
-                    );
-                    $notifyTitle = 'Échec de la mise à jour';
-                    $notifyBody = "La mise à jour vers la version {$history->versionTo} a échoué — une restauration automatique a été effectuée.";
-                } catch (\Throwable $rollbackError) {
-                    $updateHistoryRepository->markFailed(
-                        $historyId,
-                        'Échec de la mise à jour et de la restauration automatique : ' . $rollbackError->getMessage()
-                    );
-                    $context->journal->log(
-                        'core',
-                        'update_rollback_failed',
-                        'info',
-                        'La restauration automatique après échec de mise à jour a elle-même échoué',
-                        ['version_from' => $history->versionFrom, 'version_to' => $history->versionTo, 'error' => $rollbackError->getMessage()],
-                        $history->requestedBy
-                    );
-                    $notifyTitle = 'Échec critique de la mise à jour';
-                    $notifyBody = 'La mise à jour a échoué et la restauration automatique a également échoué. Une intervention manuelle est nécessaire.';
-                }
-
-                if ($history->requestedBy !== null) {
-                    $context->notifications?->notify($history->requestedBy, $notifyTitle, $notifyBody, '/config/maintenance');
-                }
             }
         } catch (\Throwable $e) {
             // The safety backup itself failed — nothing was changed yet, so
@@ -225,6 +203,211 @@ class InstallUpdateHandler implements TaskHandlerInterface
             }
         } finally {
             $this->removeDirectory($tempDir);
+        }
+    }
+
+    /**
+     * Re-entry point for an update whose migration step didn't finish
+     * within MigrationRunner's time budget on a previous attempt.
+     * backing_up/downloading/installing are NOT repeated — only the
+     * migration itself is retried, which resumes automatically from
+     * exactly where it left off (MigrationRunner persists its own
+     * progress, keyed by the schema files, independent of this handler).
+     */
+    private function resumeMigration(
+        int $historyId,
+        UpdateHistory $history,
+        string $downloadUrl,
+        string $sourceType,
+        TaskContext $context,
+        UpdateHistoryRepository $updateHistoryRepository,
+        BackupRepository $backupRepository,
+        FileRepository $fileRepository
+    ): void {
+        $basePath = dirname($context->storagePath);
+        $pdo = $context->connection->getPdo();
+        $backupService = new BackupService($context->connection, $context->storagePath, $basePath);
+
+        try {
+            $migrationRunner = new MigrationRunner(
+                $context->connection,
+                new SchemaIntrospector($pdo),
+                new SchemaComparator(),
+                new SqlParser()
+            );
+            $migrationResult = $migrationRunner->migrate([$basePath . '/schema/core.sql']);
+
+            if (!$migrationResult->complete) {
+                $this->scheduleMigrationResume($context, $historyId, $downloadUrl, $sourceType);
+                return;
+            }
+
+            $this->finishInstall($historyId, $history, $context, $updateHistoryRepository, $backupRepository, $fileRepository);
+        } catch (\Throwable $migrationError) {
+            // Unlike the initial attempt, this invocation never created its
+            // own backup — reconstruct the safety backup's file paths from
+            // update_history.backup_id (set on the original attempt) so the
+            // same rollback path applies here too.
+            $backup = $history->backupId !== null ? $backupRepository->findById($history->backupId) : null;
+            $dbDumpFile = $backup !== null && $backup->dbDumpFileId !== null
+                ? $fileRepository->findById($backup->dbDumpFileId)
+                : null;
+            $filesZipFile = $backup !== null && $backup->fileId !== null
+                ? $fileRepository->findById($backup->fileId)
+                : null;
+
+            if ($dbDumpFile === null || $filesZipFile === null) {
+                $updateHistoryRepository->markFailed(
+                    $historyId,
+                    'Échec de la migration et sauvegarde de sécurité introuvable pour restauration automatique : ' . $migrationError->getMessage()
+                );
+                $context->journal->log(
+                    'core',
+                    'update_failed',
+                    'info',
+                    'Échec de la migration lors de la reprise d\'une mise à jour, sans sauvegarde disponible pour restauration',
+                    ['version_from' => $history->versionFrom, 'version_to' => $history->versionTo, 'error' => $migrationError->getMessage()],
+                    $history->requestedBy
+                );
+                if ($history->requestedBy !== null) {
+                    $context->notifications?->notify(
+                        $history->requestedBy,
+                        'Échec critique de la mise à jour',
+                        'La migration a échoué et aucune sauvegarde de sécurité n\'a pu être restaurée automatiquement. Une intervention manuelle est nécessaire.',
+                        '/config/maintenance'
+                    );
+                }
+                return;
+            }
+
+            $this->rollbackToSafetyBackup(
+                $historyId,
+                $history,
+                $context,
+                $updateHistoryRepository,
+                $backupService,
+                $context->storagePath . '/' . $dbDumpFile->relativePath,
+                $context->storagePath . '/' . $filesZipFile->relativePath,
+                $migrationError
+            );
+        }
+    }
+
+    /**
+     * Reschedules this same task so a migration left incomplete by the time
+     * budget gets another turn shortly — update_history.status is left at
+     * 'migrating' (already set by the caller), which is exactly the state
+     * the top-level guard in handle() checks to route back into
+     * resumeMigration() next time.
+     */
+    private function scheduleMigrationResume(TaskContext $context, int $historyId, string $downloadUrl, string $sourceType): void
+    {
+        $schedulerService = new SchedulerService(new SchedulerRepository($context->connection->getPdo()));
+        $schedulerService->scheduleAfter('core', 'install_update', 0, [
+            'history_id' => $historyId,
+            'download_url' => $downloadUrl,
+            'source_type' => $sourceType,
+        ]);
+    }
+
+    /**
+     * The tail shared by a fully-completed initial attempt and a
+     * fully-completed resumed attempt: VERSION write, completion bookkeeping,
+     * backup purge, notification.
+     */
+    private function finishInstall(
+        int $historyId,
+        UpdateHistory $history,
+        TaskContext $context,
+        UpdateHistoryRepository $updateHistoryRepository,
+        BackupRepository $backupRepository,
+        FileRepository $fileRepository
+    ): void {
+        $basePath = dirname($context->storagePath);
+        VersionFile::write($basePath, $history->versionTo);
+        $context->settings->setInternal('site_version', $history->versionTo);
+
+        $updateHistoryRepository->markCompleted($historyId);
+        $context->journal->log(
+            'core',
+            'update_installed',
+            'info',
+            'Mise à jour installée',
+            ['version_from' => $history->versionFrom, 'version_to' => $history->versionTo],
+            $history->requestedBy
+        );
+
+        $this->purgeBeyondLimit($backupRepository, $fileRepository, $context->storagePath);
+
+        if ($history->requestedBy !== null) {
+            $context->notifications?->notify(
+                $history->requestedBy,
+                'Mise à jour terminée',
+                "La mise à jour vers la version {$history->versionTo} est terminée.",
+                '/config/maintenance'
+            );
+        }
+    }
+
+    /**
+     * Restores the safety backup taken before this update attempt and
+     * records the outcome — shared by the initial attempt's catch block
+     * (which already holds $dbDumpPath/$filesZipPath locally) and
+     * resumeMigration()'s catch block (which reconstructs them from
+     * update_history.backup_id first).
+     */
+    private function rollbackToSafetyBackup(
+        int $historyId,
+        UpdateHistory $history,
+        TaskContext $context,
+        UpdateHistoryRepository $updateHistoryRepository,
+        BackupService $backupService,
+        string $dbDumpPath,
+        string $filesZipPath,
+        \Throwable $error
+    ): void {
+        $context->journal->log(
+            'core',
+            'update_failed',
+            'info',
+            'Échec de l\'installation de la mise à jour',
+            ['version_from' => $history->versionFrom, 'version_to' => $history->versionTo, 'error' => $error->getMessage()],
+            $history->requestedBy
+        );
+
+        try {
+            $backupService->restoreDatabase($dbDumpPath);
+            $backupService->restoreFiles($filesZipPath);
+            $updateHistoryRepository->markRolledBack($historyId, $error->getMessage());
+            $context->journal->log(
+                'core',
+                'update_rolled_back',
+                'info',
+                'Restauration automatique effectuée après échec de mise à jour',
+                ['version_from' => $history->versionFrom, 'version_to' => $history->versionTo],
+                $history->requestedBy
+            );
+            $notifyTitle = 'Échec de la mise à jour';
+            $notifyBody = "La mise à jour vers la version {$history->versionTo} a échoué — une restauration automatique a été effectuée.";
+        } catch (\Throwable $rollbackError) {
+            $updateHistoryRepository->markFailed(
+                $historyId,
+                'Échec de la mise à jour et de la restauration automatique : ' . $rollbackError->getMessage()
+            );
+            $context->journal->log(
+                'core',
+                'update_rollback_failed',
+                'info',
+                'La restauration automatique après échec de mise à jour a elle-même échoué',
+                ['version_from' => $history->versionFrom, 'version_to' => $history->versionTo, 'error' => $rollbackError->getMessage()],
+                $history->requestedBy
+            );
+            $notifyTitle = 'Échec critique de la mise à jour';
+            $notifyBody = 'La mise à jour a échoué et la restauration automatique a également échoué. Une intervention manuelle est nécessaire.';
+        }
+
+        if ($history->requestedBy !== null) {
+            $context->notifications?->notify($history->requestedBy, $notifyTitle, $notifyBody, '/config/maintenance');
         }
     }
 

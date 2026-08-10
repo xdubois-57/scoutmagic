@@ -305,25 +305,119 @@ if (!$notificationsV2Migrated) {
     ]);
 }
 
-// Auto-migrate: apply any pending schema changes from core.sql
-\Core\Debug\RequestTimeline::mark('migration_begin');
+// Auto-migrate: apply any pending schema changes from core.sql — via short,
+// foreground-driven sub-steps rather than inline on every page load. A
+// schema change on a database with many tables can take well beyond a
+// single request's max_execution_time to fully diff+apply; previously that
+// meant every request silently retried the whole (uncompleted, uncached)
+// migration from scratch, which is exactly what made the site fall over
+// after the first iteration's schema change shipped. Now: cheaply check
+// whether a migration is pending (one hash comparison, no real work) and,
+// if so, either serve one short chunk of it (the migration-step endpoint
+// below, polled by the page's own JS) or show the progress page instead of
+// routing normally — never do migration work inline on a normal page load.
+\Core\Debug\RequestTimeline::mark('migration_pending_check_begin');
 $migrationRunner = new MigrationRunner(
     $connection,
     new SchemaIntrospector($connection->getPdo()),
     new SchemaComparator(),
     new SqlParser()
 );
-$migrationResultForTimeline = $migrationRunner->migrate([$schemaPath]);
-\Core\Debug\RequestTimeline::mark('migration_done', [
-    'executed_statements' => count($migrationResultForTimeline->executedStatements),
-    'warnings' => count($migrationResultForTimeline->warnings),
-    // Full text, not just counts: when this keeps re-running on every
-    // request instead of settling into the hash-cache no-op path, the
-    // warning text is what tells us why the run never reaches "clean"
-    // (see MigrationRunner::migrate()'s caching condition).
-    'warning_details' => $migrationResultForTimeline->warnings,
-    'executed_statements_sample' => array_slice($migrationResultForTimeline->executedStatements, 0, 15),
-]);
+$migrationIsPending = $migrationRunner->isPending([$schemaPath]);
+\Core\Debug\RequestTimeline::mark('migration_pending_check_done', ['pending' => $migrationIsPending]);
+
+if ($migrationIsPending) {
+    $migrationStepPath = '/api/system/migration-step';
+
+    if ($request->getMethod() === 'POST' && $request->getPath() === $migrationStepPath) {
+        // Short, foreground-safe time budget: this endpoint is called
+        // repeatedly in a fast loop by the progress page below, not once
+        // per page load, so each call must return quickly rather than
+        // spending a full background-task-sized turn.
+        $stepRunner = new MigrationRunner(
+            $connection,
+            new SchemaIntrospector($connection->getPdo()),
+            new SchemaComparator(),
+            new SqlParser(),
+            5
+        );
+        $stepResult = $stepRunner->migrate([$schemaPath]);
+        \Core\Debug\RequestTimeline::mark('migration_step_done', [
+            'complete' => $stepResult->complete,
+            'progress' => $stepResult->progressFraction,
+            'executed_statements' => count($stepResult->executedStatements),
+            'warnings' => count($stepResult->warnings),
+        ]);
+
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode([
+            'complete' => $stepResult->complete,
+            'progress' => round($stepResult->progressFraction, 3),
+        ]);
+        exit;
+    }
+
+    // Any other request while a migration is pending: a self-contained
+    // page (no external CSS/JS/asset requests, so it never depends on the
+    // rest of the app being routable) whose script drives the actual
+    // migration work via short calls to the endpoint above, updating a
+    // progress bar as it goes. Closing the tab is safe — MigrationRunner
+    // persists progress after every unit of work, so the next visit (from
+    // anyone) resumes exactly where this one left off instead of
+    // restarting.
+    header('Content-Type: text/html; charset=utf-8');
+    echo <<<'HTML'
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mise à jour en cours…</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font-family: system-ui, -apple-system, sans-serif; max-width: 32rem; margin: 4rem auto; padding: 0 1.5rem; text-align: center; }
+  h1 { font-size: 1.25rem; }
+  .bar-track { background: rgba(127, 127, 127, 0.25); border-radius: 999px; height: 0.75rem; overflow: hidden; margin: 1.5rem 0; }
+  .bar-fill { background: #2f6f4f; height: 100%; width: 0%; transition: width 0.4s ease; }
+  p.hint { opacity: 0.7; font-size: 0.9rem; }
+</style>
+</head>
+<body>
+<h1>Mise à jour du site en cours…</h1>
+<p>Merci de patienter, cette page se rechargera automatiquement une fois la mise à jour terminée. Vous pouvez aussi fermer cet onglet : la mise à jour reprendra à l'endroit où elle s'est arrêtée lors de votre prochaine visite.</p>
+<div class="bar-track"><div class="bar-fill" id="bar"></div></div>
+<p class="hint" id="hint">Démarrage…</p>
+<script>
+(function () {
+  var bar = document.getElementById('bar');
+  var hint = document.getElementById('hint');
+
+  function step() {
+    fetch('/api/system/migration-step', { method: 'POST' })
+      .then(function (response) { return response.json(); })
+      .then(function (data) {
+        var percent = Math.round((data.progress || 0) * 100);
+        bar.style.width = percent + '%';
+        hint.textContent = percent + ' %';
+        if (data.complete) {
+          window.location.reload();
+        } else {
+          setTimeout(step, 250);
+        }
+      })
+      .catch(function () {
+        setTimeout(step, 2000);
+      });
+  }
+
+  step();
+})();
+</script>
+</body>
+</html>
+HTML;
+    exit;
+}
 
 $pdo = $connection->getPdo();
 

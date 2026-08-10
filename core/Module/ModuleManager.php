@@ -184,10 +184,21 @@ class ModuleManager
                 && version_compare($module->manifest->version, $module->installedVersion, '>')
             ) {
                 $schemaPath = $this->modulesDir . '/' . $module->manifest->id . '/schema.sql';
+                $migrationComplete = true;
                 if (file_exists($schemaPath)) {
-                    $this->migrationRunner->migrate([$schemaPath]);
+                    $migrationComplete = $this->migrationRunner->migrate([$schemaPath])->complete;
                 }
-                $this->registryRepo->upsert($module->manifest->id, true, $module->manifest->version, null);
+
+                // Only record the new version once its migration actually
+                // finished — MigrationRunner::migrate() can return early
+                // (its own time budget) with the schema not yet fully
+                // caught up. Bumping the registry version anyway would make
+                // this version_compare() check stop matching, permanently
+                // stranding the module mid-migration since nothing would
+                // ever call migrate() for it again.
+                if ($migrationComplete) {
+                    $this->registryRepo->upsert($module->manifest->id, true, $module->manifest->version, null);
+                }
             }
 
             $this->enabledModuleIds[] = $module->manifest->id;
@@ -212,10 +223,16 @@ class ModuleManager
             throw new ModuleException("Module id '{$manifest->id}' does not match directory name '{$moduleId}'");
         }
 
-        // Run schema migration if schema.sql exists
+        // Run schema migration if schema.sql exists. A caller retrying
+        // after this exception resumes automatically — MigrationRunner
+        // persists its own progress, keyed by the schema file, independent
+        // of this method ever being called again.
         $schemaPath = $this->modulesDir . '/' . $moduleId . '/schema.sql';
         if (file_exists($schemaPath)) {
-            $this->migrationRunner->migrate([$schemaPath]);
+            $migrationResult = $this->migrationRunner->migrate([$schemaPath]);
+            if (!$migrationResult->complete) {
+                throw new ModuleException("La migration du schéma du module '{$moduleId}' n'a pas pu se terminer dans le temps imparti — réessayez l'activation dans un instant, elle reprendra automatiquement là où elle s'est arrêtée.");
+            }
         }
 
         // Register default settings
