@@ -44,7 +44,7 @@ Five main menus, visibility by role:
 Public pages.
 
 ### 3.2 Espace des animés (identified)
-**Dynamic entries** (one per member linked to email, named by totem/prénom, section subtitle; if the `registration` module is active, one more per pending registration request linked to the same email) + separator + **static entries** from active modules.
+**Dynamic entries** (one per member linked to email, named by totem/prénom, section subtitle; if the `registration` module is active, one more per registration request linked to the same email, for as long as that request stays visible there — see §17) + separator + **static entries** from active modules.
 
 ### 3.3 Espace des chefs (intendant / chief)
 Filtered by role — intendants see only `role_min: intendant` pages, chiefs see all.
@@ -71,6 +71,7 @@ Site-wide settings, modules, functions.
 | RGPD | Content set via the RGPD configuration page (§4.5): default reference text, admin-edited custom text, or AI-generated text. Links to the cookie preferences page for the cookie list (no longer embedded inline). |
 | Calendrier (module) | Public activity calendar (month/week view); read-only ICS subscription feeds. Accepts `?section={id}` to preselect that section's calendar (used by the member page's own link, §4.2). |
 | Actualités (module) | Public news article list/detail, each with an optional registration form (fields, capacity, payment) |
+| Inscriptions (module) | Public form to request a spot for a child (open/closed by the admin, optionally on a schedule), with an optional availability display by birth year; a tracking link/page for the family (minimal view by token, full view once identified and linked); see §17 for the staff side |
 
 ### 4.2 Espace des animés
 
@@ -105,6 +106,7 @@ Site-wide settings, modules, functions.
 | Bannière (module) | admin | Manage homepage banner messages (role-gated visibility, ordered list) |
 | SOS Staff d'U (module) | admin | On-call duty roster (month grid), default forwarding number, live redirect status, scheduled redirection list |
 | Rétrospectives — Config (module) | admin | Per-board moderation/AI settings restricted to chef d'unité |
+| Inscriptions (module) | admin | See §17 — request management: age brackets/capacities/year code, year selector, capacity-verification table, request list (filter/search), "non rapprochées"/"non clôturées" encarts with bulk refuse/withdraw, and a per-request fiche (status transitions, section prévue, tarif, internal notes, acceptance/refusal emails, manual Desk linking) |
 
 ### 4.5 Configuration
 
@@ -344,3 +346,50 @@ This is deliberate: a future "inscriptions" module needs to be able to veto step
 Without an automatic catch-up, a unit that never runs the transition would stay on a stale public year indefinitely with no visible sign. The Année scoute page shows a non-blocking warning when the current public year is past its end date, inviting the admin to run the transition workflow — it never blocks anything and never changes anything on its own.
 
 A freshly installed site with no public year configured yet still starts on a plausible year computed from the current date — this initial determination is unrelated to (and unaffected by) the removal of the automatic switch above.
+
+## 17. Registration module — staff-side request management (module registration)
+
+A request's full life cycle after submission (§4.1's public form/tracking page covers the deposit itself): review, decision, communication with the family, reconciliation with the annual Desk import, and eventual retention/deletion. See ARCHITECTURE.md §8.36 for implementation detail.
+
+### 17.1 States
+
+Three progression states plus two exits:
+
+| State | Meaning | Reached by |
+|---|---|---|
+| En attente (pending) | Received, not yet decided | Submission, or "revenir en attente" from any other non-final state |
+| Acceptée (accepted) | Decided, not yet matched to a Desk member | Staff action |
+| Encodée dans Desk (encoded) | Matched to a real, Desk-imported member — final | Automatic reconciliation at import, or manual linking (§17.4) — never a plain status change |
+| Refusée (refused) | Decided negatively — final | Staff action |
+| Retirée (withdrawn) | Abandoned, by the family or the staff — final | Staff action |
+
+A final state (encodée, refusée, retirée) starts both retention clocks (§17.5). "Revenir en attente" is the only transition leaving a final state, and only from refusée/retirée/acceptée — never from encodée.
+
+### 17.2 The decoupling rule
+
+The tracking page (§4.1) never shows an acceptance or a refusal before the corresponding email (§17.3) has actually been sent — it shows "en attente" until then, regardless of the real internal state. Staff-facing pages always show the real state plus whether/when each email was sent, side by side.
+
+### 17.3 Acceptance/refusal emails
+
+Sent explicitly from a request's fiche, never automatically at the moment of the decision. Each email's body is edited like the module's other emails (§4.1); unlike those, it has no default text — the send button stays disabled until a body has actually been written. Resendable at any time; a delivery failure is shown to the staff member rather than silently recorded as sent.
+
+### 17.4 Reconciliation and manual linking
+
+At every Desk import, accepted requests for that scout year are compared against the freshly imported members by name + birth date. Exactly one match on each side migrates the request automatically: it becomes "encodée", any confirmed secondary tracking email moves to the real member's record, and the request's own page in Espace des animés is replaced by the real member page (the fiche itself stays staff-visible, see §17.5). No match leaves the request as "acceptée", surfaced to staff as unmatched. More than one possible match on either side (e.g. twins, or two families sharing a name) is never guessed — staff resolves it manually by entering the child's Desk "numéro de tiers", which goes through the exact same migration as an automatic match, refusing an unknown number or one already linked to another request.
+
+### 17.5 Retention
+
+Two durations, both admin-configurable and both counted from the moment a request reaches a final state (never from its submission date):
+
+| Setting | Default | Effect |
+|---|---|---|
+| Disparition de l'Espace des animés | 3 months | A refused/retirée request stops appearing in the family's personal space (an encodée request disappears immediately, replaced by the real member page) |
+| Suppression définitive | 2 years | The request row is permanently deleted, regardless of state |
+
+A request still "en attente" or "acceptée" is never purged, however old.
+
+### 17.6 Management page and fiche
+
+**Management page** (Espace admin > Inscriptions, §4.4): year selector (target year by default, plus the current and any past year still in the database — past years are consultation-only), the existing age-bracket/capacity/year-code configuration (§4.1 form setup), a capacity-verification table (capacity, projected headcount, accepted requests, remaining, and the same availability level shown to the public), the request list (searchable/filterable by state), and two encarts: unmatched accepted requests, and non-final requests with bulk "tout refuser"/"tout retirer" actions (each behind an explicit confirmation showing the exact count affected).
+
+**Fiche** (one per request): fields in the same order Desk itself asks for them. Everything the family submitted is read-only except two staff-only fields — "section prévue" (the section actually offered, distinct from and never shown alongside the family's own "section souhaitée" to the family, restricted to the child's own age branch) and "tarif" (a household-size-based suggestion, always overridable, using the same estimation as an existing member's fee category — counting other accepted/encoded requests at the same address alongside existing members). A free-form internal notes field (never shown to the family) completes the fiche, alongside the status banner and its available transitions.

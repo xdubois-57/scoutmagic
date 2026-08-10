@@ -1,0 +1,229 @@
+{% extends 'base.html.twig' %}
+{% block title %}{{ r.childFirstName }} {{ r.childLastName }} — Inscriptions — {{ site_name }}{% endblock %}
+{% block content %}
+    <div class="container py-4" style="max-width: 900px;">
+        <p class="mb-2"><a href="/config/inscriptions?year={{ r.scoutYearId }}">&laquo; Retour à la liste</a></p>
+        <h1 class="h3 mb-1">{{ r.childFirstName }} {{ r.childLastName }}</h1>
+        <p class="text-body-secondary small mb-4">Demande reçue le {{ r.receivedAt|french_date }} — année scoute {{ scout_year_label }}</p>
+
+        <div class="card mb-4">
+            <div class="card-body">
+                <div class="d-flex flex-wrap gap-2 align-items-center mb-3">
+                    {% if r.status == 'pending' %}
+                        <span class="badge bg-info text-dark fs-6">En attente</span>
+                    {% elseif r.status == 'accepted' %}
+                        <span class="badge bg-primary fs-6">Acceptée</span>
+                    {% elseif r.status == 'refused' %}
+                        <span class="badge bg-danger fs-6">Refusée</span>
+                    {% elseif r.status == 'withdrawn' %}
+                        <span class="badge bg-secondary fs-6">Retirée</span>
+                    {% elseif r.status == 'encoded' %}
+                        <span class="badge bg-success fs-6">Encodée dans Desk</span>
+                    {% endif %}
+                    {% if visible_status != r.status %}
+                        <span class="text-body-secondary small">— visible par la famille comme « {{ visible_status == 'pending' ? 'en attente' : visible_status }} » tant que l'email n'est pas envoyé</span>
+                    {% endif %}
+                </div>
+
+                <div class="d-flex flex-wrap gap-2">
+                    {% if r.status == 'pending' %}
+                        <form method="post" action="/config/inscriptions/demandes/{{ r.id }}/accept">{{ csrf_field()|raw }}<button type="submit" class="btn btn-sm btn-primary">Accepter</button></form>
+                        <form method="post" action="/config/inscriptions/demandes/{{ r.id }}/refuse">{{ csrf_field()|raw }}<button type="submit" class="btn btn-sm btn-outline-danger">Refuser</button></form>
+                        <form method="post" action="/config/inscriptions/demandes/{{ r.id }}/withdraw">{{ csrf_field()|raw }}<button type="submit" class="btn btn-sm btn-outline-secondary">Retirer</button></form>
+                    {% elseif r.status == 'accepted' %}
+                        <form method="post" action="/config/inscriptions/demandes/{{ r.id }}/refuse">{{ csrf_field()|raw }}<button type="submit" class="btn btn-sm btn-outline-danger">Refuser</button></form>
+                        <form method="post" action="/config/inscriptions/demandes/{{ r.id }}/withdraw">{{ csrf_field()|raw }}<button type="submit" class="btn btn-sm btn-outline-secondary">Retirer</button></form>
+                        <form method="post" action="/config/inscriptions/demandes/{{ r.id }}/revert" data-confirm="Remettre cette demande en attente ?">{{ csrf_field()|raw }}<button type="submit" class="btn btn-sm btn-outline-secondary">Revenir en attente</button></form>
+                    {% elseif r.status == 'refused' or r.status == 'withdrawn' %}
+                        <form method="post" action="/config/inscriptions/demandes/{{ r.id }}/revert" data-confirm="Remettre cette demande en attente ?">{{ csrf_field()|raw }}<button type="submit" class="btn btn-sm btn-outline-secondary">Revenir en attente</button></form>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        {% if r.status == 'encoded' %}
+            <div class="alert alert-success">
+                Demande encodée — rattachée au membre
+                {% if linked_member_year_id %}
+                    <a href="/members/{{ linked_member_year_id }}">voir la fiche membre</a>.
+                {% else %}
+                    #{{ r.linkedMemberId }}.
+                {% endif %}
+            </div>
+        {% endif %}
+
+        <div class="card mb-4">
+            <div class="card-body">
+                <h2 class="h5 mb-3">Informations (ordre d'encodage Desk)</h2>
+                <div class="row g-3">
+                    <div class="col-6 col-sm-4">
+                        <span class="text-body-secondary small">Nom</span><br><strong>{{ r.childLastName }}</strong>
+                    </div>
+                    <div class="col-6 col-sm-4">
+                        <span class="text-body-secondary small">Prénom</span><br><strong>{{ r.childFirstName }}</strong>
+                    </div>
+                    <div class="col-12 col-sm-4">
+                        <span class="text-body-secondary small">Créneau (calculé)</span><br>{{ slot_label }}
+                    </div>
+
+                    <div class="col-12">
+                        <hr class="my-2">
+                        <span class="text-body-secondary small">Section souhaitée (choix du parent, lecture seule)</span><br>
+                        {{ desired_section_label ?? 'Aucune préférence exprimée' }}
+                    </div>
+                    <div class="col-12">
+                        <span class="text-body-secondary small d-block mb-1">Section prévue (staff — jamais visible par la famille)</span>
+                        <form method="post" action="/config/inscriptions/demandes/{{ r.id }}/intended-section" class="d-flex gap-2">
+                            {{ csrf_field()|raw }}
+                            <select name="intended_section_id" class="form-select form-select-sm" style="max-width:260px;">
+                                <option value="0">— Non défini —</option>
+                                {% for section in sections_in_branch %}
+                                    <option value="{{ section.id }}" {{ r.intendedSectionId == section.id ? 'selected' : '' }}>{{ section.name ?? section.desk_code }}</option>
+                                {% endfor %}
+                            </select>
+                            <button type="submit" class="btn btn-sm btn-outline-primary text-nowrap">Enregistrer</button>
+                        </form>
+                        {% if sections_in_branch is empty %}
+                            <div class="form-text">Aucune section configurée pour la branche de ce créneau.</div>
+                        {% endif %}
+                    </div>
+
+                    <div class="col-6 col-sm-4">
+                        <hr class="my-2">
+                        <span class="text-body-secondary small">Genre</span><br>{{ r.gender }}
+                    </div>
+                    <div class="col-6 col-sm-4">
+                        <hr class="my-2">
+                        <span class="text-body-secondary small">Date de naissance</span><br>{{ r.birthDate|french_date }}
+                    </div>
+                    <div class="col-12 col-sm-4"></div>
+
+                    <div class="col-6 col-sm-4">
+                        <span class="text-body-secondary small">Téléphone 1</span><br>{{ r.phone1 }}
+                    </div>
+                    <div class="col-6 col-sm-4">
+                        <span class="text-body-secondary small">Téléphone 2</span><br>{{ r.phone2 ?? '—' }}
+                    </div>
+                    <div class="col-12 col-sm-4">
+                        <span class="text-body-secondary small">Email</span><br>{{ r.email }}
+                    </div>
+
+                    <div class="col-12">
+                        <hr class="my-2">
+                        <span class="text-body-secondary small">Tarif</span><br>
+                        <div class="small text-body-secondary mb-1">
+                            Suggestion : {{ fee_estimate.category.value == 'family' ? 'Famille' : (fee_estimate.category.value == 'couple' ? 'Couple' : 'Normal') }}
+                            ({{ fee_estimate.householdSize }} personne(s) au même foyer, membres et demandes acceptées confondus)
+                        </div>
+                        <form method="post" action="/config/inscriptions/demandes/{{ r.id }}/fee-category" class="d-flex gap-2">
+                            {{ csrf_field()|raw }}
+                            <select name="fee_category_id" class="form-select form-select-sm" style="max-width:260px;">
+                                <option value="0">— Non défini —</option>
+                                {% for category in fee_categories %}
+                                    <option value="{{ category.id }}" {{ r.feeCategoryId == category.id ? 'selected' : '' }}>{{ category.label }}</option>
+                                {% endfor %}
+                            </select>
+                            <button type="submit" class="btn btn-sm btn-outline-primary text-nowrap">Enregistrer</button>
+                        </form>
+                    </div>
+
+                    <div class="col-12">
+                        <hr class="my-2">
+                        <span class="text-body-secondary small">Adresse postale</span><br>
+                        {{ r.number }} {{ r.street }}, {{ r.postalCode }} {{ r.city }}
+                    </div>
+
+                    {% if r.remarks %}
+                        <div class="col-12">
+                            <hr class="my-2">
+                            <span class="text-body-secondary small">Remarques (parent)</span><br>{{ r.remarks }}
+                        </div>
+                    {% endif %}
+                    {% if sibling_count > 0 %}
+                        <div class="col-12">
+                            <span class="text-body-secondary small">{{ sibling_count }} frère(s)/sœur(s) déjà membre(s) déclaré(s)</span>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <div class="card mb-4">
+            <div class="card-body">
+                <h2 class="h5 mb-3">Notes internes</h2>
+                <p class="small text-body-secondary">Jamais visibles par la famille, jamais journalisées.</p>
+                <form method="post" action="/config/inscriptions/demandes/{{ r.id }}/notes">
+                    {{ csrf_field()|raw }}
+                    <textarea name="internal_notes" class="form-control mb-2" rows="4">{{ r.internalNotes }}</textarea>
+                    <button type="submit" class="btn btn-sm btn-outline-primary">Enregistrer</button>
+                </form>
+            </div>
+        </div>
+
+        <div class="card mb-4">
+            <div class="card-body">
+                <h2 class="h5 mb-3">Emails d'acceptation / de refus</h2>
+                <div class="row g-4">
+                    <div class="col-12 col-sm-6">
+                        <h3 class="h6">Acceptation</h3>
+                        <p class="small text-body-secondary mb-2">
+                            {{ r.acceptedEmailSentAt ? 'Envoyé le ' ~ r.acceptedEmailSentAt|french_date : 'Non envoyé' }}
+                        </p>
+                        <form method="post" action="/config/inscriptions/demandes/{{ r.id }}/send-accepted-email">
+                            {{ csrf_field()|raw }}
+                            <button type="submit" class="btn btn-sm btn-primary" {{ accepted_email_ready ? '' : 'disabled' }}>
+                                {{ r.acceptedEmailSentAt ? 'Renvoyer' : 'Envoyer' }}
+                            </button>
+                        </form>
+                        {% if not accepted_email_ready %}
+                            <div class="form-text">Le corps de l'email d'acceptation n'a pas encore été rédigé — voir <a href="/config/settings">Paramètres</a>.</div>
+                        {% endif %}
+                    </div>
+                    <div class="col-12 col-sm-6">
+                        <h3 class="h6">Refus</h3>
+                        <p class="small text-body-secondary mb-2">
+                            {{ r.refusedEmailSentAt ? 'Envoyé le ' ~ r.refusedEmailSentAt|french_date : 'Non envoyé' }}
+                        </p>
+                        <form method="post" action="/config/inscriptions/demandes/{{ r.id }}/send-refused-email">
+                            {{ csrf_field()|raw }}
+                            <button type="submit" class="btn btn-sm btn-primary" {{ refused_email_ready ? '' : 'disabled' }}>
+                                {{ r.refusedEmailSentAt ? 'Renvoyer' : 'Envoyer' }}
+                            </button>
+                        </form>
+                        {% if not refused_email_ready %}
+                            <div class="form-text">Le corps de l'email de refus n'a pas encore été rédigé — voir <a href="/config/settings">Paramètres</a>.</div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        {% if r.status != 'encoded' %}
+            <div class="card mb-4">
+                <div class="card-body">
+                    <h2 class="h5 mb-3">Rapprochement manuel</h2>
+                    <p class="small text-body-secondary">
+                        Si l'import Desk n'a pas pu rapprocher automatiquement cette demande (ou si le membre existe déjà dans Desk sans passer par un nouvel import), saisissez son numéro de tiers Desk ci-dessous.
+                    </p>
+                    <form method="post" action="/config/inscriptions/demandes/{{ r.id }}/link" class="d-flex flex-column flex-sm-row gap-2">
+                        {{ csrf_field()|raw }}
+                        <input type="text" name="desk_id" class="form-control form-control-sm" style="max-width:220px;" placeholder="Numéro de tiers Desk" required>
+                        <button type="submit" class="btn btn-sm btn-outline-primary text-nowrap">Rapprocher et encoder</button>
+                    </form>
+                </div>
+            </div>
+        {% endif %}
+    </div>
+{% endblock %}
+
+{% block scripts %}
+<script nonce="{{ csp_nonce }}">
+document.querySelectorAll('form[data-confirm]').forEach(function (form) {
+    form.addEventListener('submit', function (e) {
+        if (!confirm(form.dataset.confirm)) {
+            e.preventDefault();
+        }
+    });
+});
+</script>
+{% endblock %}

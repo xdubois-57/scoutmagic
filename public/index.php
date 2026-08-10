@@ -1545,7 +1545,7 @@ $frontController->registerController(\Core\Http\Controller\WebhookController::cl
 ));
 $frontController->registerController(PasswordResetController::class, new PasswordResetController($twig, $passwordResetService));
 $frontController->registerController(ShortUrlController::class, new ShortUrlController($twig, $shortUrlService));
-$frontController->registerController(ImportController::class, new ImportController($twig, $importService, $scoutYearResolver, $importJournalRepo, $functionRepo, $storagePath));
+$frontController->registerController(ImportController::class, new ImportController($twig, $importService, $scoutYearResolver, $importJournalRepo, $functionRepo, $storagePath, $registrationReconciliation ?? null));
 $frontController->registerController(MemberController::class, new MemberController($twig, $memberService, $memberYearService, $journalService, $memberPageService));
 $frontController->registerController(
     \Core\Http\Controller\MemberEmailAddressController::class,
@@ -2221,7 +2221,26 @@ if (in_array('registration', $moduleManager->getEnabledModuleIds(), true)) {
     $registrationTrackingService = new \Modules\Registration\Service\TrackingService(
         $registrationRequestRepo, $registrationSecondaryEmailRepo, $encryptionService
     );
-    $registrationMenuHookService = new \Modules\Registration\Service\RegistrationMenuHookService($registrationTrackingService);
+    $registrationMenuHookService = new \Modules\Registration\Service\RegistrationMenuHookService($registrationTrackingService, $settingService);
+
+    // Iteration 5's staff-side services — status transitions, acceptance/
+    // refusal emails, the one migration path shared by automatic
+    // reconciliation and manual linking, and the household count Api\
+    // HouseholdRegistrationCountProvider implementation wired nullable into
+    // Core\Member\FeeEstimationService (ARCHITECTURE.md §7.5).
+    $registrationStatusService = new \Modules\Registration\Service\RequestStatusService($registrationRequestRepo, $journalService);
+    $registrationEmailService = new \Modules\Registration\Service\RequestEmailService(
+        $registrationRequestRepo, $mailService, $editableContentService, $journalService, $registrationBaseUrl, $registrationSiteName
+    );
+    $registrationMigrationService = new \Modules\Registration\Service\MigrationService(
+        $pdo, $registrationRequestRepo, $registrationSecondaryEmailRepo, $memberEmailRepository, $journalService
+    );
+    $registrationReconciliation = new \Modules\Registration\Service\ReconciliationService(
+        $pdo, $registrationRequestRepo, $encryptionService, $registrationMigrationService, $journalService
+    );
+    $registrationHouseholdCountService = new \Modules\Registration\Service\HouseholdRegistrationCountService($registrationRequestRepo);
+    $feeEstimationRepository = new \Core\Member\FeeEstimationRepository($pdo);
+    $feeEstimationService = new \Core\Member\FeeEstimationService($feeEstimationRepository, $encryptionService, $registrationHouseholdCountService);
 
     $frontController->registerController(
         \Modules\Registration\Controller\PublicRegistrationController::class,
@@ -2240,7 +2259,28 @@ if (in_array('registration', $moduleManager->getEnabledModuleIds(), true)) {
         \Modules\Registration\Controller\RegistrationConfigController::class,
         new \Modules\Registration\Controller\RegistrationConfigController(
             $twig, $registrationAgeBracketRepo, $registrationSlotCapacityRepo, $registrationYearCodeRepo,
-            $ageBranchRepo, $scoutYearResolver
+            $ageBranchRepo, $scoutYearResolver, $scoutYearService, $registrationRequestRepo, $registrationSlotService,
+            $sectionService, $editableContentService, $registrationStatusService, $journalService
+        )
+    );
+    $frontController->registerController(
+        \Modules\Registration\Controller\RegistrationRequestController::class,
+        new \Modules\Registration\Controller\RegistrationRequestController(
+            $twig, $registrationRequestRepo, $registrationAgeBracketRepo, $sectionService, $feeCategoryRepo,
+            $feeEstimationService, $registrationStatusService, $registrationEmailService, $registrationMigrationService,
+            $memberRepo, $memberYearRepo, $scoutYearResolver, $scoutYearService, $registrationSlotService
+        )
+    );
+
+    // Re-registers ImportController with the real reconciliation trigger —
+    // the earlier registration (before this module's services existed)
+    // used a forward-reference `?? null` since $registrationReconciliation
+    // is only actually built here (same "re-register with the real
+    // provider" pattern as MemberController's own re-registration below).
+    $frontController->registerController(
+        ImportController::class,
+        new ImportController(
+            $twig, $importService, $scoutYearResolver, $importJournalRepo, $functionRepo, $storagePath, $registrationReconciliation
         )
     );
 
@@ -2254,6 +2294,13 @@ if (in_array('registration', $moduleManager->getEnabledModuleIds(), true)) {
     }
     if ($schedulerService->find('registration', 'close_registration', 'poll') === null) {
         $schedulerService->schedule('registration', 'close_registration', new DateTimeImmutable(), [], 'poll');
+    }
+    // Same bootstrap for the daily retention purge (Task\
+    // PurgeRegistrationRequestsHandler) — module-scoped handlers need no
+    // manual registerHandler() call in either entry point (auto-resolved
+    // via ModuleManager::getTaskHandler()), only this one-time nudge.
+    if ($schedulerService->find('registration', 'purge_registration_requests', 'daily') === null) {
+        $schedulerService->schedule('registration', 'purge_registration_requests', new DateTimeImmutable(), [], 'daily');
     }
 
     // Espace animés menu hook (Core\Module\EspaceAnimesEntryProvider,

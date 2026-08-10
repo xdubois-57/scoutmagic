@@ -30,8 +30,19 @@ class RegistrationTestHelper
             status TEXT NOT NULL DEFAULT "pending",
             received_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             tracking_token_hash TEXT NOT NULL,
+            intended_section_id INTEGER,
+            fee_category_id INTEGER,
+            internal_notes_encrypted BLOB,
+            linked_member_id INTEGER UNIQUE,
+            accepted_email_sent_at TEXT,
+            refused_email_sent_at TEXT,
+            final_at TEXT,
+            address_normalized_blind_index TEXT,
             FOREIGN KEY (scout_year_id) REFERENCES scout_years(id),
-            FOREIGN KEY (desired_section_id) REFERENCES sections(id)
+            FOREIGN KEY (desired_section_id) REFERENCES sections(id),
+            FOREIGN KEY (intended_section_id) REFERENCES sections(id),
+            FOREIGN KEY (fee_category_id) REFERENCES fee_categories(id),
+            FOREIGN KEY (linked_member_id) REFERENCES members(id)
         )');
 
         $pdo->exec('CREATE TABLE registration_request_siblings (

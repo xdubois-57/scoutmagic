@@ -108,16 +108,18 @@ class RegistrationRequestRepositoryTest extends TestCase
         $this->assertSame($created['id'], $matches[0]->id);
     }
 
-    public function testFindPendingForYearOnlyReturnsRequestsForThatYear(): void
+    public function testFindAllForYearOnlyReturnsRequestsForThatYearOldestFirst(): void
     {
         $otherYearId = RegistrationTestHelper::insertScoutYear($this->pdo, '2027-2028', '2027-09-01', '2028-08-31');
 
-        $this->repository->create($this->scoutYearId, $this->sampleFields(), null, []);
+        $first = $this->repository->create($this->scoutYearId, $this->sampleFields(['child_first_name' => 'Aa']), null, []);
         $this->repository->create($otherYearId, $this->sampleFields(), null, []);
+        $second = $this->repository->create($this->scoutYearId, $this->sampleFields(['child_first_name' => 'Bb']), null, []);
 
-        $pending = $this->repository->findPendingForYear($this->scoutYearId);
-        $this->assertCount(1, $pending);
-        $this->assertSame($this->scoutYearId, $pending[0]->scoutYearId);
+        $all = $this->repository->findAllForYear($this->scoutYearId);
+        $this->assertCount(2, $all);
+        $this->assertSame($first['id'], $all[0]->id);
+        $this->assertSame($second['id'], $all[1]->id);
     }
 
     public function testNameDobBlindIndexIsStableAcrossCaseAndWhitespace(): void

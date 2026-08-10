@@ -87,7 +87,7 @@ class SlotService
         );
 
         $projected = $this->projectedHeadcountBySlot($currentScoutYearId, $brackets);
-        $pending = $this->pendingCountBySlot($targetScoutYearId, $brackets, $referenceYear);
+        $accepted = $this->acceptedCountBySlot($targetScoutYearId, $brackets, $referenceYear);
 
         $tiers = [SlotMath::TIER_AVAILABLE => [], SlotMath::TIER_LIMITED => [], SlotMath::TIER_HEAVY => []];
 
@@ -95,7 +95,7 @@ class SlotService
             for ($yearInBranch = 1; $yearInBranch <= $bracket->durationYears; $yearInBranch++) {
                 $slotKey = $bracket->ageBranchId . ':' . $yearInBranch;
                 $capacity = $capacities[$bracket->ageBranchId][$yearInBranch] ?? 0;
-                $remaining = $capacity - ($projected[$slotKey] ?? 0) - ($pending[$slotKey] ?? 0);
+                $remaining = $capacity - ($projected[$slotKey] ?? 0) - ($accepted[$slotKey] ?? 0);
 
                 $tier = SlotMath::tierForRemaining($capacity, $remaining, $availableThreshold, $limitedThreshold);
                 $birthYear = SlotMath::birthYearForSlot($bracket, $yearInBranch, $referenceYear);
@@ -110,6 +110,59 @@ class SlotService
         }
 
         return $tiers;
+    }
+
+    /**
+     * The admin capacity table's own row set (module spec: "capacité,
+     * effectif projeté, demandes acceptées, restant, et le niveau tel
+     * qu'il apparaît au public") — same underlying numbers as
+     * waitlistTiersByBirthYear(), just returned per-slot rather than
+     * bucketed into birth years, so a chief can verify the public tier
+     * isn't a black box.
+     *
+     * @return array<int, array{
+     *   age_branch_id: int, branch_label: string, year_in_branch: int,
+     *   capacity: int, projected: int, accepted: int, remaining: int, tier: string
+     * }>
+     */
+    public function capacityBreakdownForYear(int $targetScoutYearId, string $targetScoutYearLabel, int $currentScoutYearId): array
+    {
+        $availableThreshold = (float) $this->settingService->get('registration_waitlist_threshold_available', 'registration', '0.5');
+        $limitedThreshold = (float) $this->settingService->get('registration_waitlist_threshold_limited', 'registration', '0.1');
+
+        $brackets = $this->ageBracketRepository->findAllOrdered();
+        $capacities = $this->slotCapacityRepository->findAllAsMap();
+        $referenceYear = SlotMath::referenceCalendarYear(
+            MemberYearService::referenceYearFromScoutYearLabel($targetScoutYearLabel),
+            $this->referenceMonthDay()
+        );
+
+        $projected = $this->projectedHeadcountBySlot($currentScoutYearId, $brackets);
+        $accepted = $this->acceptedCountBySlot($targetScoutYearId, $brackets, $referenceYear);
+
+        $rows = [];
+        foreach ($brackets as $bracket) {
+            for ($yearInBranch = 1; $yearInBranch <= $bracket->durationYears; $yearInBranch++) {
+                $slotKey = $bracket->ageBranchId . ':' . $yearInBranch;
+                $capacity = $capacities[$bracket->ageBranchId][$yearInBranch] ?? 0;
+                $projectedCount = $projected[$slotKey] ?? 0;
+                $acceptedCount = $accepted[$slotKey] ?? 0;
+                $remaining = $capacity - $projectedCount - $acceptedCount;
+
+                $rows[] = [
+                    'age_branch_id' => $bracket->ageBranchId,
+                    'branch_label' => $bracket->branchLabel,
+                    'year_in_branch' => $yearInBranch,
+                    'capacity' => $capacity,
+                    'projected' => $projectedCount,
+                    'accepted' => $acceptedCount,
+                    'remaining' => $remaining,
+                    'tier' => SlotMath::tierForRemaining($capacity, $remaining, $availableThreshold, $limitedThreshold),
+                ];
+            }
+        }
+
+        return $rows;
     }
 
     /**
@@ -176,12 +229,12 @@ class SlotService
 
     /**
      * @param array<\Modules\Registration\Repository\AgeBracket> $orderedBrackets
-     * @return array<string, int> "{ageBranchId}:{yearInBranch}" => pending request count
+     * @return array<string, int> "{ageBranchId}:{yearInBranch}" => accepted request count
      */
-    private function pendingCountBySlot(int $targetScoutYearId, array $orderedBrackets, int $referenceCalendarYear): array
+    private function acceptedCountBySlot(int $targetScoutYearId, array $orderedBrackets, int $referenceCalendarYear): array
     {
         $counts = [];
-        foreach ($this->requestRepository->findPendingForYear($targetScoutYearId) as $request) {
+        foreach ($this->requestRepository->findAcceptedForYear($targetScoutYearId) as $request) {
             $slot = SlotMath::slotForBirthDate($orderedBrackets, $request->birthDate, $referenceCalendarYear);
             if ($slot === null) {
                 continue;

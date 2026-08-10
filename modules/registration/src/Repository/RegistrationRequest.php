@@ -13,6 +13,15 @@ namespace Modules\Registration\Repository;
 final class RegistrationRequest
 {
     public const STATUS_PENDING = 'pending';
+    public const STATUS_ACCEPTED = 'accepted';
+    public const STATUS_REFUSED = 'refused';
+    public const STATUS_WITHDRAWN = 'withdrawn';
+    public const STATUS_ENCODED = 'encoded';
+
+    /**
+     * @var array<int, string>
+     */
+    public const FINAL_STATUSES = [self::STATUS_ENCODED, self::STATUS_REFUSED, self::STATUS_WITHDRAWN];
 
     public function __construct(
         public readonly int $id,
@@ -32,7 +41,14 @@ final class RegistrationRequest
         public readonly ?string $remarks,
         public readonly ?int $desiredSectionId,
         public readonly string $status,
-        public readonly \DateTimeImmutable $receivedAt
+        public readonly \DateTimeImmutable $receivedAt,
+        public readonly ?int $intendedSectionId = null,
+        public readonly ?int $feeCategoryId = null,
+        public readonly ?string $internalNotes = null,
+        public readonly ?int $linkedMemberId = null,
+        public readonly ?\DateTimeImmutable $acceptedEmailSentAt = null,
+        public readonly ?\DateTimeImmutable $refusedEmailSentAt = null,
+        public readonly ?\DateTimeImmutable $finalAt = null
     ) {
     }
 
@@ -43,5 +59,10 @@ final class RegistrationRequest
         }
 
         return null;
+    }
+
+    public function isFinal(): bool
+    {
+        return in_array($this->status, self::FINAL_STATUSES, true);
     }
 }

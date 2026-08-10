@@ -9,6 +9,7 @@ use Core\Member\FeeEstimationRepository;
 use Core\Member\FeeEstimationService;
 use Core\Member\HouseholdFeeCategory;
 use Core\Security\EncryptionService;
+use Modules\Registration\Api\HouseholdRegistrationCountProvider;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 
@@ -118,5 +119,38 @@ class FeeEstimationServiceTest extends TestCase
 
         $this->assertSame(0, $estimate->householdSize);
         $this->assertSame(HouseholdFeeCategory::NORMAL, $estimate->category);
+    }
+
+    /**
+     * Without the registration module enabled (no provider wired), only
+     * existing members are counted — the null default is what
+     * public/index.php falls back to whenever "registration" isn't in
+     * getEnabledModuleIds().
+     */
+    public function testWithoutRegistrationModuleCountsMembersOnly(): void
+    {
+        $this->createMemberAtAddress('Rue de la Station', '5', null, '1000');
+        $serviceWithoutModule = new FeeEstimationService(new FeeEstimationRepository($this->pdo), $this->encryption, null);
+
+        $estimate = $serviceWithoutModule->estimate('Rue de la Station', '5', null, '1000', $this->scoutYearId);
+
+        $this->assertSame(1, $estimate->householdSize);
+    }
+
+    public function testRegistrationModuleCountIsAddedToMemberCount(): void
+    {
+        $this->createMemberAtAddress('Rue de la Station', '5', null, '1000');
+        $provider = new class implements HouseholdRegistrationCountProvider {
+            public function countAtAddress(string $addressBlindIndex, int $scoutYearId, ?int $excludeRequestId): int
+            {
+                return 2;
+            }
+        };
+        $service = new FeeEstimationService(new FeeEstimationRepository($this->pdo), $this->encryption, $provider);
+
+        $estimate = $service->estimate('Rue de la Station', '5', null, '1000', $this->scoutYearId);
+
+        $this->assertSame(3, $estimate->householdSize);
+        $this->assertSame(HouseholdFeeCategory::FAMILY, $estimate->category);
     }
 }

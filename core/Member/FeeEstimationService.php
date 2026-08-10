@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Core\Member;
 
 use Core\Security\EncryptionService;
+use Modules\Registration\Api\HouseholdRegistrationCountProvider;
 
 /**
  * Suggests a fee category from how many people already live at a given
@@ -14,25 +15,36 @@ use Core\Security\EncryptionService;
  * normalization can catch. The caller always gets both the suggested
  * category AND the raw household size so it can show its work.
  *
- * Counts existing members only (Core\Member\FeeEstimationRepository) —
- * the "accepted registrations" module doesn't exist yet, and
- * ARCHITECTURE.md §7.5 requires that a module publish its own Api
- * interface for core to optionally depend on, not the reverse. Once
- * the future inscriptions module does that (iteration 5/6), the fix here
- * is additive, not a rewrite: add a nullable constructor parameter for
- * that interface and sum its count into the total below — no interface
- * is invented speculatively here since none exists to depend on yet.
+ * Counts existing members (Core\Member\FeeEstimationRepository) plus,
+ * when the registration module is enabled, its 'accepted'/'encoded'
+ * registration requests at the same address (ARCHITECTURE.md §7.5 —
+ * $registrationCount is wired in the composition root only then, and
+ * degrades to counting members alone when null).
  */
 class FeeEstimationService
 {
     public function __construct(
         private FeeEstimationRepository $repository,
-        private EncryptionService $encryption
+        private EncryptionService $encryption,
+        private ?HouseholdRegistrationCountProvider $registrationCount = null
     ) {
     }
 
-    public function estimate(?string $street, ?string $number, ?string $box, ?string $postalCode, int $scoutYearId): FeeEstimate
-    {
+    /**
+     * $excludeRegistrationRequestId: when estimating for a registration
+     * request's own address (Modules\Registration\Controller\
+     * RegistrationRequestController's fiche), that request's own id, so
+     * it never counts itself via $registrationCount. Meaningless
+     * (harmlessly ignored) when $registrationCount is null.
+     */
+    public function estimate(
+        ?string $street,
+        ?string $number,
+        ?string $box,
+        ?string $postalCode,
+        int $scoutYearId,
+        ?int $excludeRegistrationRequestId = null
+    ): FeeEstimate {
         $normalized = AddressNormalizer::normalize($street, $number, $box, $postalCode);
         if ($normalized === '') {
             return new FeeEstimate(HouseholdFeeCategory::NORMAL, 0);
@@ -40,6 +52,9 @@ class FeeEstimationService
 
         $blindIndex = $this->encryption->blindIndex($normalized);
         $count = $this->repository->countHouseholdMembers($blindIndex, $scoutYearId);
+        if ($this->registrationCount !== null) {
+            $count += $this->registrationCount->countAtAddress($blindIndex, $scoutYearId, $excludeRegistrationRequestId);
+        }
 
         return new FeeEstimate(HouseholdFeeCategory::fromHouseholdSize($count), $count);
     }

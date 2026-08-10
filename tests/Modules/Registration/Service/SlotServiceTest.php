@@ -63,7 +63,7 @@ class SlotServiceTest extends TestCase
         );
     }
 
-    public function testWaitlistTiersByBirthYearWithNoMembersAndNoPendingIsFullyAvailable(): void
+    public function testWaitlistTiersByBirthYearWithNoMembersAndNoAcceptedRequestsIsFullyAvailable(): void
     {
         $this->capacityRepository->upsert($this->baladinsId, 1, 20);
         $this->capacityRepository->upsert($this->baladinsId, 2, 20);
@@ -78,7 +78,7 @@ class SlotServiceTest extends TestCase
         $this->assertContains($expectedYear1, $tiers[SlotMath::TIER_AVAILABLE]);
     }
 
-    public function testWaitlistTiersByBirthYearReflectsPendingRequests(): void
+    public function testWaitlistTiersByBirthYearReflectsAcceptedRequestsNotPendingOnes(): void
     {
         $this->capacityRepository->upsert($this->baladinsId, 1, 2);
         $currentYearId = RegistrationTestHelper::insertScoutYear($this->pdo, '2026-2027', '2026-09-01', '2027-08-31');
@@ -89,14 +89,19 @@ class SlotServiceTest extends TestCase
 
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $requestRepository = new RegistrationRequestRepository($this->pdo, $encryption);
-        // Two pending requests against a capacity-2 slot exhausts it entirely.
-        for ($i = 0; $i < 2; $i++) {
-            $requestRepository->create($targetYearId, [
+        // Two accepted requests against a capacity-2 slot exhausts it
+        // entirely — a third, still-pending one must NOT count (accepted
+        // requests are real commitments, undecided ones aren't).
+        for ($i = 0; $i < 3; $i++) {
+            $created = $requestRepository->create($targetYearId, [
                 'parent_name' => 'P', 'child_last_name' => 'L', 'child_first_name' => 'F' . $i,
                 'gender' => 'F', 'birth_date' => $birthYear1 . '-06-01', 'street' => 'S', 'number' => '1',
                 'postal_code' => '1000', 'city' => 'V', 'email' => 'p' . $i . '@example.com',
                 'phone1' => '000', 'phone2' => null, 'remarks' => null,
             ], null, []);
+            if ($i < 2) {
+                $requestRepository->updateStatus($created['id'], 'accepted', null);
+            }
         }
 
         $tiers = $this->service->waitlistTiersByBirthYear($targetYearId, '2027-2028', $currentYearId);

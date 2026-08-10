@@ -1,6 +1,8 @@
 -- registration module: public "inscriptions" workflow — a prospective
--- family submits a request, which lives at status 'pending' throughout this
--- iteration (staff review/acceptance is a later iteration; see module docs).
+-- family submits a request (status 'pending'), staff review it (accepted/
+-- refused/withdrawn), and an accepted one is automatically migrated into a
+-- real member once Desk reconciliation (or a manual link by Desk tiers
+-- number) finds it (status 'encoded') — see module docs and ARCHITECTURE.md.
 --
 -- registration_requests deliberately does NOT store a requester
 -- user_account_id: linking a request to an identified visitor is always
@@ -25,8 +27,7 @@ CREATE TABLE registration_requests (
     child_last_name_encrypted BLOB NOT NULL,
     child_first_name_encrypted BLOB NOT NULL,
     -- Three values, matching Desk's own "Genre" column domain (M/F/X) —
-    -- see Core\Import\DeskCsvParser — so a future Desk reconciliation
-    -- (iteration 5) compares like with like without a translation table.
+    -- see Core\Import\DeskCsvParser.
     gender_encrypted BLOB NOT NULL,
     birth_date_encrypted BLOB NOT NULL,
     street_encrypted BLOB NOT NULL,
@@ -35,25 +36,29 @@ CREATE TABLE registration_requests (
     city_encrypted BLOB NOT NULL,
     email_encrypted BLOB NOT NULL,
     -- Exact-match lookup: tracking-page linkage (by email) and the
-    -- staff-facing possible-duplicate signal in a later iteration. Never
-    -- used to block a submission (Service\RegistrationService never
-    -- refuses on a blind-index match — see the class docblock).
+    -- staff-facing possible-duplicate signal. Never used to block a
+    -- submission (Service\RegistrationService never refuses on a
+    -- blind-index match — see the class docblock).
     email_blind_index CHAR(64) NOT NULL,
     phone1_encrypted BLOB NOT NULL,
     phone2_encrypted BLOB,
     remarks_encrypted BLOB,
     -- Blind index of the normalized (last name, first name, birth date)
-    -- triple — created here, consumed by the Desk-reconciliation match in
-    -- a later iteration. Never used for anything in this iteration.
+    -- triple, computed via Core\Service\TextNormalizerService::
+    -- normalizeName() (module spec) — Service\ReconciliationService's
+    -- exact-match key against freshly Desk-imported members. Comparison
+    -- only, never displayed.
     name_dob_blind_index CHAR(64) NOT NULL,
     -- NULL = "pas de préférence". Deliberately no ON DELETE behavior
     -- beyond the FK default (RESTRICT) — a section actually referenced by
     -- a pending request should not silently disappear from under it.
     desired_section_id INT UNSIGNED NULL,
-    -- Single value today ('pending' — this iteration adds nothing else),
-    -- extended by a future iteration's ALTER when acceptance/refusal
-    -- states are added; never pre-declared speculatively here.
-    status ENUM('pending') NOT NULL DEFAULT 'pending',
+    -- Iteration 5's full progression: pending -> accepted -> encoded
+    -- (automatic at Desk reconciliation, or manual linking — same code
+    -- path, see Service\ReconciliationService), plus two exits (refused,
+    -- withdrawn), both manual. encoded/refused/withdrawn are the three
+    -- FINAL states that start the retention clock (final_at below).
+    status ENUM('pending', 'accepted', 'refused', 'withdrawn', 'encoded') NOT NULL DEFAULT 'pending',
     received_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     -- Tracking-page token (see Service\TrackingService): 32 random bytes,
     -- hashed at rest (password_hash, same technique as Core\Member\
@@ -61,11 +66,68 @@ CREATE TABLE registration_requests (
     -- password_verify() against the value presented in the link — never
     -- stored or compared in clear. Non-expiring while the request lives.
     tracking_token_hash VARCHAR(255) NOT NULL,
+    -- "Section prévue" (module spec, itération 5) — decided by staff,
+    -- distinct from desired_section_id ("section souhaitée", the parent's
+    -- own pick, read-only once submitted). Never communicated to parents,
+    -- never on the tracking page, whichever access path is used. The same
+    -- field the "Passage" page (a later iteration) also writes to — one
+    -- piece of data, two surfaces, not duplicated here.
+    intended_section_id INT UNSIGNED NULL,
+    -- Staff-chosen/overridden fee category — Core\Member\
+    -- FeeEstimationService only ever SUGGESTS one (household size on the
+    -- fiche, never applied automatically); this column is where the
+    -- staff's actual decision is recorded, independent of the suggestion.
+    fee_category_id INT UNSIGNED NULL,
+    -- Free-form staff notes — chiefs only, chiffré au repos, jamais
+    -- exposé aux parents, jamais journalisé (module spec's own privacy
+    -- rule for this field, stricter than the rest of the fiche).
+    internal_notes_encrypted BLOB NULL,
+    -- Set only once status reaches 'encoded' — the real member this
+    -- request became, via Service\ReconciliationService::migrate()
+    -- (automatic match or manual link by Desk tiers number, one single
+    -- code path either way). A member can be the target of at most one
+    -- request (idx_rr_linked_member below) — Desk identity data itself
+    -- never migrates, Desk stays authoritative (module spec).
+    linked_member_id INT UNSIGNED NULL,
+    -- Emails are sent explicitly, never automatically at a status change
+    -- (module spec) — and the tracking page shows a status change only
+    -- once the corresponding email has actually gone out (module spec's
+    -- own design rule, not a display nuance): a chief refusing on Friday
+    -- and sending the email on Monday must not let the parent discover
+    -- the refusal in between. NULL = not sent yet (or not applicable).
+    accepted_email_sent_at DATETIME NULL,
+    refused_email_sent_at DATETIME NULL,
+    -- The moment status entered a FINAL state (encoded/refused/withdrawn)
+    -- — both retention settings (Espace animés disappearance, permanent
+    -- deletion) count from here, never from received_at, and this is the
+    -- one column Task\PurgeRegistrationRequestsHandler filters on. Reset
+    -- to NULL if a chief reverts a final state back to pending (module
+    -- spec's manual "revenir en attente" transition).
+    final_at DATETIME NULL,
+    -- Blind index of the comparison-normalized submitted address (Core\
+    -- Member\AddressNormalizer, same technique as member_addresses) —
+    -- feeds the module's Api\HouseholdRegistrationCountProvider
+    -- implementation, itself injected nullable into Core\Member\
+    -- FeeEstimationService so the household-size suggestion also counts
+    -- accepted/encoded registration requests, not just existing members.
+    address_normalized_blind_index CHAR(64) NULL,
     CONSTRAINT fk_rr_year FOREIGN KEY (scout_year_id) REFERENCES scout_years(id),
     CONSTRAINT fk_rr_section FOREIGN KEY (desired_section_id) REFERENCES sections(id),
+    CONSTRAINT fk_rr_intended_section FOREIGN KEY (intended_section_id) REFERENCES sections(id),
+    CONSTRAINT fk_rr_fee_category FOREIGN KEY (fee_category_id) REFERENCES fee_categories(id),
+    CONSTRAINT fk_rr_linked_member FOREIGN KEY (linked_member_id) REFERENCES members(id),
     INDEX idx_rr_email_blind (email_blind_index),
     INDEX idx_rr_name_dob_blind (name_dob_blind_index),
-    INDEX idx_rr_year (scout_year_id)
+    INDEX idx_rr_year (scout_year_id),
+    INDEX idx_rr_status (status),
+    INDEX idx_rr_final_at (final_at),
+    INDEX idx_rr_address_blind (address_normalized_blind_index),
+    -- A member can only ever be the migration target of one request — the
+    -- same constraint that makes "refuser un numéro déjà lié à une autre
+    -- demande" (manual linking) enforceable at the database level, not
+    -- just in application code. Multiple NULLs are allowed (MySQL unique
+    -- index semantics), so every not-yet-encoded request is unaffected.
+    UNIQUE INDEX idx_rr_linked_member (linked_member_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Declared siblings the submitting visitor selected — always a link to a

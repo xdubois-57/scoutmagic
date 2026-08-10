@@ -4,15 +4,19 @@ declare(strict_types=1);
 
 namespace Modules\Registration\Repository;
 
+use Core\Member\AddressNormalizer;
 use Core\Security\EncryptionService;
+use Core\Service\TextNormalizerService;
 
 /**
  * All identity data is encrypted at rest (SECURITY.md §5) — this is the
  * only class that ever calls EncryptionService::encrypt()/decrypt() for a
- * registration request. Blind indexes exist for the two exact-match
- * lookups the module spec calls for: email (tracking-page linkage,
- * duplicate signal) and the normalized name+birth-date triple (Desk
- * reconciliation, a later iteration) — never used to refuse a submission.
+ * registration request. Blind indexes exist for the exact-match lookups
+ * the module spec calls for: email (tracking-page linkage), the normalized
+ * name+birth-date triple (Desk reconciliation, Service\
+ * ReconciliationService), and the normalized address (household fee count,
+ * Api\HouseholdRegistrationCountProvider) — never used to refuse a
+ * submission.
  */
 class RegistrationRequestRepository
 {
@@ -49,14 +53,17 @@ class RegistrationRequestRepository
             $fields['birth_date']
         ));
 
+        $addressNormalized = AddressNormalizer::normalize($fields['street'], $fields['number'], null, $fields['postal_code']);
+        $addressBlind = $addressNormalized !== '' ? $this->encryption->blindIndex($addressNormalized) : null;
+
         $stmt = $this->pdo->prepare(
             'INSERT INTO registration_requests (
                 scout_year_id, parent_name_encrypted, child_last_name_encrypted, child_first_name_encrypted,
                 gender_encrypted, birth_date_encrypted, street_encrypted, number_encrypted,
                 postal_code_encrypted, city_encrypted, email_encrypted, email_blind_index,
                 phone1_encrypted, phone2_encrypted, remarks_encrypted, name_dob_blind_index,
-                desired_section_id, status, tracking_token_hash
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                desired_section_id, status, tracking_token_hash, address_normalized_blind_index
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([
             $scoutYearId,
@@ -78,6 +85,7 @@ class RegistrationRequestRepository
             $desiredSectionId,
             RegistrationRequest::STATUS_PENDING,
             $trackingTokenHash,
+            $addressBlind,
         ]);
 
         $id = (int) $this->pdo->lastInsertId();
@@ -135,20 +143,122 @@ class RegistrationRequestRepository
     }
 
     /**
-     * Every pending request targeting $scoutYearId — Service\SlotService
-     * buckets these into slots by decrypted birth date (never a stored
-     * slot column: the slot is a derived concept, see schema.sql).
+     * Every request for $scoutYearId, oldest first ("premier arrivé,
+     * premier servi" — module spec) — Controller\RegistrationConfigController's
+     * management list.
      *
      * @return array<RegistrationRequest>
      */
-    public function findPendingForYear(int $scoutYearId): array
+    public function findAllForYear(int $scoutYearId): array
+    {
+        $stmt = $this->pdo->prepare('SELECT * FROM registration_requests WHERE scout_year_id = ? ORDER BY received_at ASC, id ASC');
+        $stmt->execute([$scoutYearId]);
+
+        return array_map(fn(array $row) => $this->hydrate($row), $stmt->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
+    /**
+     * "Accepted" requests still missing a linked member ("demandes non
+     * rapprochées" encart) — never automatically decided further, only a
+     * chief acting (manual link) or a future import clears this.
+     *
+     * @return array<RegistrationRequest>
+     */
+    public function findUnreconciledAcceptedForYear(int $scoutYearId): array
     {
         $stmt = $this->pdo->prepare(
-            "SELECT * FROM registration_requests WHERE scout_year_id = ? AND status = 'pending'"
+            "SELECT * FROM registration_requests
+             WHERE scout_year_id = ? AND status = 'accepted' AND linked_member_id IS NULL
+             ORDER BY received_at ASC, id ASC"
         );
         $stmt->execute([$scoutYearId]);
 
         return array_map(fn(array $row) => $this->hydrate($row), $stmt->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
+    /**
+     * Non-final requests ("demandes non clôturées" encart, and the bulk
+     * "tout refuser"/"tout retirer" actions' own target set).
+     *
+     * @return array<RegistrationRequest>
+     */
+    public function findNonFinalForYear(int $scoutYearId): array
+    {
+        $stmt = $this->pdo->prepare(
+            "SELECT * FROM registration_requests
+             WHERE scout_year_id = ? AND status IN ('pending', 'accepted')
+             ORDER BY received_at ASC, id ASC"
+        );
+        $stmt->execute([$scoutYearId]);
+
+        return array_map(fn(array $row) => $this->hydrate($row), $stmt->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
+    /**
+     * Every 'accepted' request for $scoutYearId, fully decrypted —
+     * Service\SlotService buckets these into slots by birth date, same as
+     * the public waitlist display, for both the admin capacity table's
+     * "demandes acceptées" column and the tier shown to the public (module
+     * spec: accepted requests are real commitments, unlike still-undecided
+     * pending ones, so they're what the public-facing availability level
+     * is computed from).
+     *
+     * @return array<RegistrationRequest>
+     */
+    public function findAcceptedForYear(int $scoutYearId): array
+    {
+        $stmt = $this->pdo->prepare(
+            "SELECT * FROM registration_requests WHERE scout_year_id = ? AND status = 'accepted'"
+        );
+        $stmt->execute([$scoutYearId]);
+
+        return array_map(fn(array $row) => $this->hydrate($row), $stmt->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
+    /**
+     * Every 'accepted' request for $scoutYearId — Service\
+     * ReconciliationService's own candidate pool at import time. Only the
+     * id and name_dob_blind_index are needed for matching; the full
+     * decrypted row is only ever read again for the (small) subset that
+     * actually gets migrated or flagged ambiguous.
+     *
+     * @return array<int, array{id: int, name_dob_blind_index: string}>
+     */
+    public function findAcceptedIdsAndBlindIndexForYear(int $scoutYearId): array
+    {
+        $stmt = $this->pdo->prepare(
+            "SELECT id, name_dob_blind_index FROM registration_requests WHERE scout_year_id = ? AND status = 'accepted'"
+        );
+        $stmt->execute([$scoutYearId]);
+
+        return array_map(
+            static fn(array $row) => ['id' => (int) $row['id'], 'name_dob_blind_index' => (string) $row['name_dob_blind_index']],
+            $stmt->fetchAll(\PDO::FETCH_ASSOC)
+        );
+    }
+
+    /**
+     * Count of 'accepted'/'encoded' requests whose submitted address
+     * matches this blind index, for $scoutYearId, excluding
+     * $excludeRequestId (a request must never count itself while its own
+     * fiche is being estimated) — Api\HouseholdRegistrationCountProvider's
+     * implementation, injected nullable into Core\Member\
+     * FeeEstimationService (ARCHITECTURE.md §7.5).
+     */
+    public function countHouseholdAtAddress(string $addressBlindIndex, int $scoutYearId, ?int $excludeRequestId): int
+    {
+        $sql = "SELECT COUNT(*) FROM registration_requests
+                WHERE address_normalized_blind_index = ? AND scout_year_id = ? AND status IN ('accepted', 'encoded')";
+        $params = [$addressBlindIndex, $scoutYearId];
+        if ($excludeRequestId !== null) {
+            $sql .= ' AND id != ?';
+            $params[] = $excludeRequestId;
+        }
+
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute($params);
+
+        return (int) $stmt->fetchColumn();
     }
 
     /**
@@ -162,20 +272,147 @@ class RegistrationRequestRepository
         return array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN));
     }
 
+    /**
+     * Every manual status transition (accept/refuse/withdraw/revert) goes
+     * through here. $finalAt is set the moment $status becomes one of
+     * RegistrationRequest::FINAL_STATUSES (module spec: retention counters
+     * start there, never at received_at), and cleared back to NULL by
+     * "revenir en attente" — the one transition that leaves a final state.
+     */
+    public function updateStatus(int $id, string $status, ?\DateTimeImmutable $finalAt): void
+    {
+        $stmt = $this->pdo->prepare('UPDATE registration_requests SET status = ?, final_at = ? WHERE id = ?');
+        $stmt->execute([$status, $finalAt?->format('Y-m-d H:i:s'), $id]);
+    }
+
+    public function updateIntendedSection(int $id, ?int $sectionId): void
+    {
+        $stmt = $this->pdo->prepare('UPDATE registration_requests SET intended_section_id = ? WHERE id = ?');
+        $stmt->execute([$sectionId, $id]);
+    }
+
+    public function updateFeeCategory(int $id, ?int $feeCategoryId): void
+    {
+        $stmt = $this->pdo->prepare('UPDATE registration_requests SET fee_category_id = ? WHERE id = ?');
+        $stmt->execute([$feeCategoryId, $id]);
+    }
+
+    /**
+     * Chiffré au repos, jamais journalisé (module spec's own stricter
+     * privacy rule for this one field — Controller\
+     * RegistrationRequestController::saveNotes() never logs its content,
+     * only that a save happened).
+     */
+    public function updateInternalNotes(int $id, ?string $notes): void
+    {
+        $stmt = $this->pdo->prepare('UPDATE registration_requests SET internal_notes_encrypted = ? WHERE id = ?');
+        $stmt->execute([$notes !== null && $notes !== '' ? $this->encryption->encrypt($notes) : null, $id]);
+    }
+
+    /**
+     * A fresh tracking token for a request whose original (shown once, at
+     * submission) is long gone — password_hash() overwrites the stored
+     * hash in place, same "previous value stops matching immediately"
+     * precedent as RegistrationYearCodeRepository::regenerate(). Used
+     * whenever a later email (acceptance/refusal) needs to embed a
+     * tracking link again.
+     */
+    public function rotateTrackingToken(int $id): string
+    {
+        $trackingToken = bin2hex(random_bytes(32));
+        $stmt = $this->pdo->prepare('UPDATE registration_requests SET tracking_token_hash = ? WHERE id = ?');
+        $stmt->execute([password_hash($trackingToken, PASSWORD_DEFAULT), $id]);
+
+        return $trackingToken;
+    }
+
+    public function markAcceptedEmailSent(int $id): void
+    {
+        $now = (new \DateTimeImmutable())->format('Y-m-d H:i:s');
+        $stmt = $this->pdo->prepare('UPDATE registration_requests SET accepted_email_sent_at = ? WHERE id = ?');
+        $stmt->execute([$now, $id]);
+    }
+
+    public function markRefusedEmailSent(int $id): void
+    {
+        $now = (new \DateTimeImmutable())->format('Y-m-d H:i:s');
+        $stmt = $this->pdo->prepare('UPDATE registration_requests SET refused_email_sent_at = ? WHERE id = ?');
+        $stmt->execute([$now, $id]);
+    }
+
+    /**
+     * The request already linked to $memberId, if any — Service\
+     * ReconciliationService's manual-link pre-check ("refuser un numéro
+     * déjà lié à une autre demande"), backed either way by
+     * idx_rr_linked_member's UNIQUE constraint at the database level.
+     */
+    public function findByLinkedMemberId(int $memberId): ?RegistrationRequest
+    {
+        $stmt = $this->pdo->prepare('SELECT * FROM registration_requests WHERE linked_member_id = ?');
+        $stmt->execute([$memberId]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+        return $row !== false ? $this->hydrate($row) : null;
+    }
+
+    /**
+     * The one write both the automatic reconciliation match and the
+     * manual Desk-tiers-number link go through (module spec: "un seul
+     * chemin de code, pas deux") — sets the migration target and moves
+     * status to 'encoded' in one statement.
+     */
+    public function linkToMemberAndEncode(int $id, int $memberId, \DateTimeImmutable $finalAt): void
+    {
+        $stmt = $this->pdo->prepare(
+            "UPDATE registration_requests SET linked_member_id = ?, status = 'encoded', final_at = ? WHERE id = ?"
+        );
+        $stmt->execute([$memberId, $finalAt->format('Y-m-d H:i:s'), $id]);
+    }
+
+    /**
+     * Ids of every request in a FINAL state whose final_at is at or before
+     * $cutoff — Task\PurgeRegistrationRequestsHandler's own candidate set.
+     * Ids only: a row about to be deleted outright is never worth
+     * decrypting.
+     *
+     * @return array<int>
+     */
+    public function findFinalIdsOlderThan(\DateTimeImmutable $cutoff): array
+    {
+        $stmt = $this->pdo->prepare(
+            "SELECT id FROM registration_requests
+             WHERE status IN ('encoded', 'refused', 'withdrawn') AND final_at IS NOT NULL AND final_at <= ?"
+        );
+        $stmt->execute([$cutoff->format('Y-m-d H:i:s')]);
+
+        return array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN));
+    }
+
+    /**
+     * Permanent deletion — cascades to registration_request_siblings and
+     * registration_secondary_emails via their own ON DELETE CASCADE.
+     */
+    public function deleteById(int $id): void
+    {
+        $stmt = $this->pdo->prepare('DELETE FROM registration_requests WHERE id = ?');
+        $stmt->execute([$id]);
+    }
+
     public static function normalizeEmail(string $email): string
     {
         return mb_strtolower(trim($email));
     }
 
     /**
-     * Same normalization spirit as Core\Member\AddressNormalizer: a stable,
-     * comparison-only form, never displayed. Word-level (not substring)
-     * normalization isn't needed here — names/dates don't have the
-     * "substring accidentally matches a stop word" problem addresses do.
+     * Comparison-only key, never displayed — Core\Service\
+     * TextNormalizerService::normalizeName() (module spec) folds accents/
+     * spacing/particle-casing consistently regardless of how the source
+     * spelled it, then a final lowercase pass keeps the blind index itself
+     * fully case-insensitive.
      */
     public static function normalizeForNameDobBlindIndex(string $lastName, string $firstName, string $birthDate): string
     {
-        $fold = static fn(string $s): string => mb_strtolower(trim(preg_replace('/\s+/', ' ', $s) ?? $s));
+        $fold = static fn(string $s): string => mb_strtolower(TextNormalizerService::normalizeName($s), 'UTF-8');
 
         return $fold($lastName) . '|' . $fold($firstName) . '|' . trim($birthDate);
     }
@@ -203,7 +440,14 @@ class RegistrationRequestRepository
             remarks: $row['remarks_encrypted'] !== null ? $this->encryption->decrypt($row['remarks_encrypted']) : null,
             desiredSectionId: $row['desired_section_id'] !== null ? (int) $row['desired_section_id'] : null,
             status: (string) $row['status'],
-            receivedAt: new \DateTimeImmutable((string) $row['received_at'])
+            receivedAt: new \DateTimeImmutable((string) $row['received_at']),
+            intendedSectionId: $row['intended_section_id'] !== null ? (int) $row['intended_section_id'] : null,
+            feeCategoryId: $row['fee_category_id'] !== null ? (int) $row['fee_category_id'] : null,
+            internalNotes: $row['internal_notes_encrypted'] !== null ? $this->encryption->decrypt($row['internal_notes_encrypted']) : null,
+            linkedMemberId: $row['linked_member_id'] !== null ? (int) $row['linked_member_id'] : null,
+            acceptedEmailSentAt: $row['accepted_email_sent_at'] !== null ? new \DateTimeImmutable((string) $row['accepted_email_sent_at']) : null,
+            refusedEmailSentAt: $row['refused_email_sent_at'] !== null ? new \DateTimeImmutable((string) $row['refused_email_sent_at']) : null,
+            finalAt: $row['final_at'] !== null ? new \DateTimeImmutable((string) $row['final_at']) : null
         );
     }
 }
