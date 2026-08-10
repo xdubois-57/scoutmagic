@@ -16,6 +16,23 @@
     var backupEmptySpinner = document.getElementById('backup-empty-spinner');
     var backupEmptyResult = document.getElementById('backup-empty-result');
 
+    function escapeHtml(text) {
+        var div = document.createElement('div');
+        div.textContent = text == null ? '' : text;
+        return div.innerHTML;
+    }
+
+    // escapeHtml alone doesn't escape quotes (not required in text-node
+    // context), so any value interpolated inside a double-quoted HTML
+    // attribute (value="...") needs this instead.
+    function escapeAttr(text) {
+        return String(text == null ? '' : text)
+            .replace(/&/g, '&amp;')
+            .replace(/"/g, '&quot;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;');
+    }
+
     // Copy-to-clipboard for the DKIM key and DNS record values. Delegated
     // on document (not inline onclick="" attributes) because this app's
     // CSP has no 'unsafe-inline' in script-src \u2014 inline event handler
@@ -407,7 +424,7 @@
                         html += '<strong>' + rec.label + '</strong> <span class="badge bg-secondary">Optionnel</span><br>';
                         html += '<span class="text-muted">Aucune adresse de rapport DMARC renseign\u00e9e \u2014 aucune modification de votre DNS n\'est n\u00e9cessaire pour cela. Renseignez une adresse dans le champ \u00ab\u00a0Email rapports DMARC\u00a0\u00bb ci-dessus si vous souhaitez recevoir des rapports.</span>';
                         if (data.actual) {
-                            html += '<br><span class="text-muted">Enregistrement DMARC actuel :</span> <code class="text-break">' + data.actual + '</code>';
+                            html += '<br><span class="text-muted">Enregistrement DMARC actuel :</span> <code class="text-break">' + escapeHtml(data.actual) + '</code>';
                         }
                         html += '</div>';
                         return;
@@ -421,18 +438,18 @@
                     html += '<span class="text-muted">Type :</span> <code>' + rec.type + '</code><br>';
                     html += '<span class="text-muted">Nom :</span> ';
                     html += '<div class="input-group input-group-sm mt-1 mb-1">';
-                    html += '<input type="text" class="form-control form-control-sm font-monospace" value="' + rec.name + '" readonly>';
+                    html += '<input type="text" class="form-control form-control-sm font-monospace" value="' + escapeAttr(rec.name) + '" readonly>';
                     html += '<button type="button" class="btn btn-outline-secondary btn-sm btn-copy-value">Copier</button>';
                     html += '</div>';
                     html += '<span class="text-muted">' + expectedLabel + ' :</span> ';
                     html += '<div class="input-group input-group-sm mt-1 mb-1">';
-                    html += '<input type="text" class="form-control form-control-sm font-monospace" value="' + data.expected.replace(/"/g, '&quot;') + '" readonly>';
+                    html += '<input type="text" class="form-control form-control-sm font-monospace" value="' + escapeAttr(data.expected) + '" readonly>';
                     html += '<button type="button" class="btn btn-outline-secondary btn-sm btn-copy-value">Copier</button>';
                     html += '</div>';
                     if (data.actual) {
-                        html += '<span class="text-muted">Valeur actuelle :</span> <code class="text-break">' + data.actual + '</code><br>';
+                        html += '<span class="text-muted">Valeur actuelle :</span> <code class="text-break">' + escapeHtml(data.actual) + '</code><br>';
                     }
-                    html += '<span class="text-muted">Nom complet (si votre h\u00e9bergeur le demande \u00e0 la place du nom court) :</span> <code class="text-break">' + rec.host + '</code>';
+                    html += '<span class="text-muted">Nom complet (si votre h\u00e9bergeur le demande \u00e0 la place du nom court) :</span> <code class="text-break">' + escapeHtml(rec.host) + '</code>';
                     html += '</div>';
                 });
                 dnsRecords.innerHTML = html;

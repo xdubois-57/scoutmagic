@@ -56,7 +56,7 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     function buildInput(type, value, regex, options) {
-        var pattern = regex ? ' pattern="' + regex + '"' : '';
+        var pattern = regex ? ' pattern="' + escapeAttr(regex) + '"' : '';
         switch (type) {
             case 'boolean':
                 return '<div class="form-check form-switch">' +
@@ -64,14 +64,14 @@ document.addEventListener('DOMContentLoaded', function() {
                     '</div>';
             case 'select':
                 return '<select class="form-select">' +
-                    options.map(function(o) { return '<option value="' + o + '"' + (o === value ? ' selected' : '') + '>' + o + '</option>'; }).join('') +
+                    options.map(function(o) { return '<option value="' + escapeAttr(o) + '"' + (o === value ? ' selected' : '') + '>' + escapeHtml(o) + '</option>'; }).join('') +
                     '</select>';
             case 'textarea':
                 return '<textarea class="form-control" rows="4"' + pattern + '>' + escapeHtml(value) + '</textarea>';
             case 'color':
-                return '<input type="color" class="form-control form-control-color" value="' + value + '">';
+                return '<input type="color" class="form-control form-control-color" value="' + escapeAttr(value) + '">';
             default:
-                return '<input type="' + type + '" class="form-control" value="' + escapeHtml(value) + '"' + pattern + '>';
+                return '<input type="' + type + '" class="form-control" value="' + escapeAttr(value) + '"' + pattern + '>';
         }
     }
 
@@ -79,5 +79,16 @@ document.addEventListener('DOMContentLoaded', function() {
         var div = document.createElement('div');
         div.textContent = text;
         return div.innerHTML;
+    }
+
+    // escapeHtml alone doesn't escape quotes (not required in text-node
+    // context), so any value interpolated inside a double-quoted HTML
+    // attribute (value="...", pattern="...") needs this instead.
+    function escapeAttr(text) {
+        return String(text == null ? '' : text)
+            .replace(/&/g, '&amp;')
+            .replace(/"/g, '&quot;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;');
     }
 });
