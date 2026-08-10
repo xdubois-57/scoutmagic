@@ -815,24 +815,6 @@ if ($settingService->get('member_section_periods_backfilled') !== '1') {
     $settingService->clearCache();
 }
 
-// TEMPORARY — remove this whole block, Core\Member\AddressBlindIndexBackfill,
-// and the 'address_blind_index_backfilled' setting at iteration 3. One-time
-// catch-up for member_addresses rows written before address_normalized_
-// blind_index existed (schema/core.sql's migration is DDL-only — it never
-// backfills data). Guarded by this flag, not a COUNT(*), so the check stays
-// a free settings-cache read on every request once done — see Core\Member\
-// AddressBlindIndexBackfill's own docblock.
-if ($settingService->get('address_blind_index_backfilled') !== '1') {
-    $settingService->register('address_blind_index_backfilled', '0', 'boolean', 'Index d\'adresse rétroactif appliqué',
-        'Indique si l\'index aveugle d\'adresse normalisée a été calculé pour les lignes existantes (code temporaire, retiré à l\'itération 3).',
-        null, null, null, false, 999);
-
-    (new \Core\Member\AddressBlindIndexBackfill($pdo, $encryptionService))->run();
-
-    $settingRepo->updateValue(null, 'address_blind_index_backfilled', '1');
-    $settingService->clearCache();
-}
-
 $sectionDocumentRepository = new \Core\Member\SectionDocumentRepository($pdo);
 $importService = new DeskImportService(
     $pdo, $encryptionService, $csvParser, $mappingResolver,
@@ -889,24 +871,6 @@ $memberEmailService = new \Core\Member\MemberEmailService(
 // Scout year resolution (public / staff / session-preview priority)
 $scoutYearResolver = new ScoutYearResolver($scoutYearService, $settingService, $memberYearRepo);
 $scoutYearAdminService = new ScoutYearAdminService($settingService);
-
-// Automatic public-year switch (from September 30, whatever happens): advance
-// the public year if the configured one is stale. Runs once per request.
-$autoSwitchedLabel = $scoutYearAdminService->enforceAutomaticSwitch(
-    $scoutYearService,
-    $scoutYearResolver->getPublicYearId(),
-    new DateTimeImmutable()
-);
-if ($autoSwitchedLabel !== null) {
-    $journalService->log(
-        'core',
-        'scout_year_auto_switched',
-        'security',
-        "Bascule automatique de l'année publique : {$autoSwitchedLabel}",
-        [],
-        null
-    );
-}
 
 // Create file services
 $storagePath = dirname(__DIR__) . '/storage';

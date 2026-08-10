@@ -100,7 +100,7 @@ Site-wide settings, modules, functions.
 |---|---|---|
 | Import Desk | admin | CSV upload/import for current scout year. Year selection. Function mapping status. |
 | Journal | admin | Searchable event log. |
-| Année scoute | admin | Scout year management: preview any year (session-only), activate a staff year for chiefs/intendants, transition the whole site to the next public year (4-step workflow: preview, import, activate for staff, activate for everyone). Displays effective year, public year, staff year, member/section counts. Public year transition only allowed during the switch window (August–September 29). |
+| Année scoute | admin | Scout year management: preview any year (session-only), activate a staff year for chiefs/intendants, transition the whole site to the next public year (4-step workflow: preview, import, activate for staff, activate for everyone). Displays effective year, public year, staff year, member/section counts. Public year transition is manual-only and available year-round; a non-blocking warning appears when the current public year is past its end date. |
 | Membres | admin | Member search (name/email/phone) for the effective scout year, with detailed view showing all personal data from Desk (contact info, addresses, functions, age), plus effective age calculation with scout year offset. |
 | Bannière (module) | admin | Manage homepage banner messages (role-gated visibility, ordered list) |
 | SOS Staff d'U (module) | admin | On-call duty roster (month grid), default forwarding number, live redirect status, scheduled redirection list |
@@ -333,11 +333,14 @@ For each request, the effective year is determined in order of precedence:
 - Admin transitions entire site to next year (permanent)
 - All users (staff, members, public) now see next year
 - Staff year automatically deactivated
-- Only allowed during switch window (August 1 – September 29)
-- Outside switch window, transition happens automatically on September 30
+- Available at any time — not restricted to a particular period
 
-### 16.4 Switch window
-- Configurable period (August 1 – September 29 by default)
-- Manual transition allowed only during this window
-- After September 29, the next year becomes public year automatically
-- Prevents accidental early transitions
+### 16.4 Manual transition only
+
+The transition to a new public year is exclusively manual — step 4 is available year-round, and nothing switches the public year automatically. There is no switch window and no date-based fallback transition.
+
+This is deliberate: a future "inscriptions" module needs to be able to veto step 4 while registration requests are still open, and a date-driven automatic transition would bypass that veto — a calculated date can't be told "not yet". Manual and automatic are incompatible, so manual wins.
+
+Without an automatic catch-up, a unit that never runs the transition would stay on a stale public year indefinitely with no visible sign. The Année scoute page shows a non-blocking warning when the current public year is past its end date, inviting the admin to run the transition workflow — it never blocks anything and never changes anything on its own.
+
+A freshly installed site with no public year configured yet still starts on a plausible year computed from the current date — this initial determination is unrelated to (and unaffected by) the removal of the automatic switch above.

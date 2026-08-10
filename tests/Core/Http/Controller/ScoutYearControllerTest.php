@@ -65,7 +65,6 @@ class ScoutYearControllerTest extends TestCase
         $twig->addFunction(new \Twig\TwigFunction('param', fn(string $k) => 'Test'));
 
         $this->controller = new ClockableScoutYearController($twig, $resolver, $adminService, $scoutYearService, $journalService);
-        // Default to a date inside the manual switch window (August).
         $this->controller->fakeNow = new \DateTimeImmutable('2026-08-15');
 
         $this->startSession();
@@ -209,28 +208,44 @@ class ScoutYearControllerTest extends TestCase
         $this->assertStringContainsString('bi-check-lg', $body);
     }
 
-    public function testActivatePublicRejectedOutsideSwitchWindow(): void
+    /**
+     * The transition is manual-only now (itération 3): no date restricts it
+     * any more, so a date that used to fall well outside the old August–
+     * September window must still succeed.
+     */
+    public function testActivatePublicAllowedAnyTimeOfYear(): void
     {
-        $this->controller->fakeNow = new \DateTimeImmutable('2026-10-15'); // outside the window
+        $this->controller->fakeNow = new \DateTimeImmutable('2026-01-15');
         $this->settingService->setInternal(ScoutYearResolver::SETTING_STAFF_YEAR, (string) $this->yearB);
 
         $request = $this->post('/admin/scout-year/activate-public', ['_csrf_token' => $this->token, 'scout_year_id' => $this->yearB]);
         $response = $this->controller->activatePublic($request, []);
 
         $this->assertSame(302, $response->getStatusCode());
-        // Public year was NOT changed.
-        $this->assertSame('0', $this->settingService->get(ScoutYearResolver::SETTING_PUBLIC_YEAR));
+        $this->assertSame((string) $this->yearB, $this->settingService->get(ScoutYearResolver::SETTING_PUBLIC_YEAR));
     }
 
-    public function testActivatePublicAllowedInsideSwitchWindow(): void
+    public function testWarningAbsentWhenPublicYearHasNotEnded(): void
     {
-        $this->controller->fakeNow = new \DateTimeImmutable('2026-09-10'); // inside the window
-        $this->settingService->setInternal(ScoutYearResolver::SETTING_STAFF_YEAR, (string) $this->yearB);
+        // yearB ("2025-2026") runs through 2026-08-31; "now" is well within it.
+        $this->settingService->setInternal(ScoutYearResolver::SETTING_PUBLIC_YEAR, (string) $this->yearB);
+        $this->controller->fakeNow = new \DateTimeImmutable('2026-03-01');
 
-        $request = $this->post('/admin/scout-year/activate-public', ['_csrf_token' => $this->token, 'scout_year_id' => $this->yearB]);
-        $this->controller->activatePublic($request, []);
+        $body = $this->controller->index(new Request('GET', '/admin/scout-year', [], [], [], []), [])->getBody();
 
-        $this->assertSame((string) $this->yearB, $this->settingService->get(ScoutYearResolver::SETTING_PUBLIC_YEAR));
+        $this->assertStringNotContainsString('est terminée depuis le', $body);
+    }
+
+    public function testWarningShownWhenPublicYearHasEnded(): void
+    {
+        // yearA ("2024-2025") ended 2025-08-31; "now" is well past it.
+        $this->settingService->setInternal(ScoutYearResolver::SETTING_PUBLIC_YEAR, (string) $this->yearA);
+        $this->controller->fakeNow = new \DateTimeImmutable('2026-03-01');
+
+        $body = $this->controller->index(new Request('GET', '/admin/scout-year', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('est terminée depuis le', $body);
+        $this->assertStringContainsString('2024-2025', $body);
     }
 
     private function assertJournalHas(string $eventType, string $level): void
@@ -242,7 +257,8 @@ class ScoutYearControllerTest extends TestCase
 }
 
 /**
- * Test double allowing the current date to be controlled for switch-window logic.
+ * Test double allowing the current date to be controlled, for the
+ * "public year ended" warning (§8.26).
  */
 class ClockableScoutYearController extends ScoutYearController
 {

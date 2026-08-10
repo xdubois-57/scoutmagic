@@ -7,6 +7,17 @@
         puis basculez tout le monde le moment venu.
     </p>
 
+    {% if public_year_ended %}
+    <div class="alert alert-warning d-flex align-items-center gap-2" role="alert">
+        <i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i>
+        <div>
+            L'année publique actuellement affichée ({{ public_year.label }}) est terminée depuis le
+            {{ public_year.end_date }}. Le site continuera à l'afficher tant que personne n'aura suivi les étapes
+            ci-dessous pour basculer vers l'année suivante.
+        </div>
+    </div>
+    {% endif %}
+
     {# Current public year #}
     <div class="card mb-3">
         <div class="card-body">
@@ -133,7 +144,7 @@
                                 <div>
                                     <label class="form-label small mb-1" for="public-year">Année</label>
                                     <select class="form-select form-select-sm" name="scout_year_id" id="public-year"
-                                            {{ (can_activate_public and switch_window_open) ? '' : 'disabled' }}>
+                                            {{ can_activate_public ? '' : 'disabled' }}>
                                         {% for y in years %}
                                             <option value="{{ y.id }}" {{ y.id == target_year.id ? 'selected' : '' }}>{{ y.label }}</option>
                                         {% endfor %}
@@ -141,16 +152,11 @@
                                 </div>
                                 <button type="submit"
                                         class="btn btn-sm {{ is_current ? 'btn-danger' : 'btn-outline-secondary' }}"
-                                        {{ (is_current and can_activate_public and switch_window_open) ? '' : 'disabled' }}>
+                                        {{ (is_current and can_activate_public) ? '' : 'disabled' }}>
                                     Activer pour tout le monde
                                 </button>
                             </form>
-                            {% if not switch_window_open %}
-                            <p class="text-body-secondary small mb-0 mt-2">
-                                Le changement d'année pour tout le monde n'est possible qu'en août et en septembre.
-                                À partir du 30 septembre, il se fait automatiquement.
-                            </p>
-                            {% elseif not can_activate_public %}
+                            {% if not can_activate_public %}
                             <p class="text-body-secondary small mb-0 mt-2">
                                 Activez d'abord une année pour le staff (étape 3).
                             </p>
@@ -165,7 +171,7 @@
 {% endblock %}
 
 {% block scripts %}
-{% if can_activate_public and switch_window_open %}
+{% if can_activate_public %}
 <script nonce="{{ csp_nonce }}">
 document.getElementById('activate-public-form')?.addEventListener('submit', function (e) {
     if (!confirm('Activer cette année pour tout le monde ? Le public verra immédiatement cette année.')) {
