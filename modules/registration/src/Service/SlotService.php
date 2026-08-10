@@ -31,7 +31,7 @@ class SlotService
 
     public function referenceMonthDay(): string
     {
-        $value = (string) $this->settingService->get('registration_reference_date', null, '12-31');
+        $value = (string) $this->settingService->get('registration_reference_date', 'registration', '12-31');
 
         return preg_match('/^\d{2}-\d{2}$/', $value) === 1 ? $value : '12-31';
     }
@@ -76,8 +76,8 @@ class SlotService
      */
     public function waitlistTiersByBirthYear(int $targetScoutYearId, string $targetScoutYearLabel, int $currentScoutYearId): array
     {
-        $availableThreshold = (float) $this->settingService->get('registration_waitlist_threshold_available', null, '0.5');
-        $limitedThreshold = (float) $this->settingService->get('registration_waitlist_threshold_limited', null, '0.1');
+        $availableThreshold = (float) $this->settingService->get('registration_waitlist_threshold_available', 'registration', '0.5');
+        $limitedThreshold = (float) $this->settingService->get('registration_waitlist_threshold_limited', 'registration', '0.1');
 
         $brackets = $this->ageBracketRepository->findAllOrdered();
         $capacities = $this->slotCapacityRepository->findAllAsMap();

@@ -736,7 +736,7 @@ try {
 } catch (\Throwable $e) {
     $webPush = null;
     $journalService->log(
-        'core', 'vapid_construction_failed', 'error',
+        'core', 'vapid_construction_failed', 'info',
         'Configuration VAPID invalide : notifications push désactivées pour cette requête',
         ['message' => $e->getMessage()]
     );
@@ -2196,6 +2196,108 @@ if (in_array('calendar', $moduleManager->getEnabledModuleIds(), true)) {
             $sectionService, $memberService, $scoutYearResolver, $journalService, $settingService, $moduleManager
         )
     );
+}
+
+if (in_array('registration', $moduleManager->getEnabledModuleIds(), true)) {
+    $registrationBaseUrl = (string) ($settingService->get('base_url') ?: '');
+    $registrationSiteName = (string) ($settingService->get('site_name') ?: 'Unité scoute');
+
+    $registrationRequestRepo = new \Modules\Registration\Repository\RegistrationRequestRepository($pdo, $encryptionService);
+    $registrationYearCodeRepo = new \Modules\Registration\Repository\RegistrationYearCodeRepository($pdo);
+    $registrationAgeBracketRepo = new \Modules\Registration\Repository\AgeBracketRepository($pdo);
+    $registrationSlotCapacityRepo = new \Modules\Registration\Repository\SlotCapacityRepository($pdo);
+    $registrationSecondaryEmailRepo = new \Modules\Registration\Repository\RegistrationSecondaryEmailRepository($pdo, $encryptionService);
+
+    $registrationSlotService = new \Modules\Registration\Service\SlotService(
+        $pdo, $encryptionService, $settingService, $registrationAgeBracketRepo, $registrationSlotCapacityRepo, $registrationRequestRepo
+    );
+    $registrationService = new \Modules\Registration\Service\RegistrationService(
+        $registrationRequestRepo, $registrationYearCodeRepo, $scoutYearResolver, $scoutYearService, $settingService,
+        $mailService, $editableContentService, $journalService, $registrationBaseUrl, $registrationSiteName
+    );
+    $registrationSecondaryEmailService = new \Modules\Registration\Service\SecondaryEmailService(
+        $registrationSecondaryEmailRepo, $mailService, $twig, $journalService, $registrationBaseUrl, $registrationSiteName
+    );
+    $registrationTrackingService = new \Modules\Registration\Service\TrackingService(
+        $registrationRequestRepo, $registrationSecondaryEmailRepo, $encryptionService
+    );
+    $registrationMenuHookService = new \Modules\Registration\Service\RegistrationMenuHookService($registrationTrackingService);
+
+    $frontController->registerController(
+        \Modules\Registration\Controller\PublicRegistrationController::class,
+        new \Modules\Registration\Controller\PublicRegistrationController(
+            $twig, $registrationService, $registrationSlotService, $sectionService, $registrationAgeBracketRepo,
+            $scoutYearResolver, $memberService, $settingService, $humanCheckService
+        )
+    );
+    $frontController->registerController(
+        \Modules\Registration\Controller\TrackingController::class,
+        new \Modules\Registration\Controller\TrackingController(
+            $twig, $registrationTrackingService, $registrationSecondaryEmailService, $registrationRequestRepo
+        )
+    );
+    $frontController->registerController(
+        \Modules\Registration\Controller\RegistrationConfigController::class,
+        new \Modules\Registration\Controller\RegistrationConfigController(
+            $twig, $registrationAgeBracketRepo, $registrationSlotCapacityRepo, $registrationYearCodeRepo,
+            $ageBranchRepo, $scoutYearResolver
+        )
+    );
+
+    // Bootstrap the recurring open/close pollers — Task\
+    // OpenRegistrationHandler/CloseRegistrationHandler re-schedule
+    // themselves hourly at the end of every run (same pattern as
+    // Modules\Retro\Task\PurgeRateLimitHandler), but the very first
+    // occurrence needs an initial nudge.
+    if ($schedulerService->find('registration', 'open_registration', 'poll') === null) {
+        $schedulerService->schedule('registration', 'open_registration', new DateTimeImmutable(), [], 'poll');
+    }
+    if ($schedulerService->find('registration', 'close_registration', 'poll') === null) {
+        $schedulerService->schedule('registration', 'close_registration', new DateTimeImmutable(), [], 'poll');
+    }
+
+    // Espace animés menu hook (Core\Module\EspaceAnimesEntryProvider,
+    // ARCHITECTURE.md §7.4) — one entry per pending registration request
+    // linked to the visitor's email. $menuBuilder->build() was already
+    // called above (before this module's services existed); addPage() only
+    // mutates MenuBuilder's own internal list, so calling build() again
+    // here safely picks up these entries too, and the Twig global is
+    // re-set to the refreshed array. The highlight/active-page scan above
+    // ran before these URLs existed, so it's re-applied here for exact
+    // matches only (same "isDynamic entries: exact match only" rule as the
+    // original scan — see its own comment).
+    if (AuthSession::isAuthenticated()) {
+        $registrationMenuEmail = AuthSession::getEmail();
+        if ($registrationMenuEmail !== null) {
+            $registrationMenuEntries = $registrationMenuHookService->getEntriesForEmail($registrationMenuEmail);
+            foreach ($registrationMenuEntries as $registrationMenuIndex => $registrationMenuEntry) {
+                $menuBuilder->addPage(
+                    MenuBuilder::MENU_ESPACE_ANIMES,
+                    $registrationMenuEntry['label'],
+                    $registrationMenuEntry['url'],
+                    'identified',
+                    1000 + $registrationMenuIndex,
+                    true,
+                    $registrationMenuEntry['subtitle'],
+                    MenuBuilder::GROUP_DYNAMIC
+                );
+            }
+            if ($registrationMenuEntries !== []) {
+                $menus = $menuBuilder->build();
+                $twig->addGlobal('menus', $menus);
+
+                foreach ($registrationMenuEntries as $registrationMenuEntry) {
+                    if ($registrationMenuEntry['url'] === $currentPath && strlen($registrationMenuEntry['url']) > $bestMatchLength) {
+                        $activeMenuId = MenuBuilder::MENU_ESPACE_ANIMES;
+                        $activePageUrl = $registrationMenuEntry['url'];
+                        $bestMatchLength = strlen($registrationMenuEntry['url']);
+                    }
+                }
+                $twig->addGlobal('active_menu_id', $activeMenuId);
+                $twig->addGlobal('active_page_url', $activePageUrl);
+            }
+        }
+    }
 }
 
 // Re-registers MemberController (and its MemberPageService) with

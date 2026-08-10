@@ -71,11 +71,19 @@ class AgeBracketRepository
      */
     public function upsert(int $ageBranchId, int $entryAge, int $durationYears): void
     {
-        $stmt = $this->pdo->prepare(
-            'INSERT INTO registration_age_brackets (age_branch_id, entry_age, duration_years)
-             VALUES (?, ?, ?)
-             ON DUPLICATE KEY UPDATE entry_age = VALUES(entry_age), duration_years = VALUES(duration_years)'
+        $stmt = $this->pdo->prepare('SELECT id FROM registration_age_brackets WHERE age_branch_id = ?');
+        $stmt->execute([$ageBranchId]);
+        $existingId = $stmt->fetchColumn();
+
+        if ($existingId !== false) {
+            $update = $this->pdo->prepare('UPDATE registration_age_brackets SET entry_age = ?, duration_years = ? WHERE id = ?');
+            $update->execute([$entryAge, $durationYears, (int) $existingId]);
+            return;
+        }
+
+        $insert = $this->pdo->prepare(
+            'INSERT INTO registration_age_brackets (age_branch_id, entry_age, duration_years) VALUES (?, ?, ?)'
         );
-        $stmt->execute([$ageBranchId, $entryAge, $durationYears]);
+        $insert->execute([$ageBranchId, $entryAge, $durationYears]);
     }
 }

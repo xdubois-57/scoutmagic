@@ -59,12 +59,20 @@ class RegistrationYearCodeRepository
     {
         $code = self::generateCode();
 
-        $stmt = $this->pdo->prepare(
-            'INSERT INTO registration_year_codes (scout_year_id, code, is_active)
-             VALUES (?, ?, 1)
-             ON DUPLICATE KEY UPDATE code = VALUES(code), is_active = 1'
+        $stmt = $this->pdo->prepare('SELECT id FROM registration_year_codes WHERE scout_year_id = ?');
+        $stmt->execute([$scoutYearId]);
+        $existingId = $stmt->fetchColumn();
+
+        if ($existingId !== false) {
+            $update = $this->pdo->prepare('UPDATE registration_year_codes SET code = ?, is_active = 1 WHERE id = ?');
+            $update->execute([$code, (int) $existingId]);
+            return $code;
+        }
+
+        $insert = $this->pdo->prepare(
+            'INSERT INTO registration_year_codes (scout_year_id, code, is_active) VALUES (?, ?, 1)'
         );
-        $stmt->execute([$scoutYearId, $code]);
+        $insert->execute([$scoutYearId, $code]);
 
         return $code;
     }

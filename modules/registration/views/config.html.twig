@@ -1,0 +1,77 @@
+{% extends 'base.html.twig' %}
+{% block title %}Inscriptions — {{ site_name }}{% endblock %}
+{% block content %}
+    <div class="container py-4" style="max-width: 800px;">
+        <h1 class="h3 mb-1">Configuration des inscriptions</h1>
+        <p class="text-body-secondary small mb-4">
+            Les autres réglages (ouverture du formulaire, seuils d'affichage des places, adresse d'alerte...) se trouvent sur la page <a href="/config/settings">Paramètres</a>.
+        </p>
+
+        <form method="post" action="/config/inscriptions" class="card mb-4">
+            <div class="card-body">
+                <h2 class="h5 mb-3">Tranches d'âge et capacités par branche</h2>
+                {{ csrf_field()|raw }}
+                <div class="table-responsive">
+                    <table class="table align-middle">
+                        <thead>
+                            <tr>
+                                <th>Branche</th>
+                                <th>Âge d'entrée</th>
+                                <th>Nombre d'années</th>
+                                {% for yearInBranch in 1..max_years_in_branch %}
+                                    <th>Capacité {{ yearInBranch }}<sup>e</sup> année</th>
+                                {% endfor %}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for branch in branches %}
+                                {% set bracket = brackets_by_branch[branch.id] ?? null %}
+                                <tr>
+                                    <td>{{ branch.label }}</td>
+                                    <td style="max-width:100px;">
+                                        <input type="number" min="0" max="30" class="form-control form-control-sm" name="entry_age[{{ branch.id }}]" value="{{ bracket ? bracket.entryAge : '' }}">
+                                    </td>
+                                    <td style="max-width:100px;">
+                                        <input type="number" min="0" max="{{ max_years_in_branch }}" class="form-control form-control-sm" name="duration_years[{{ branch.id }}]" value="{{ bracket ? bracket.durationYears : '' }}">
+                                    </td>
+                                    {% for yearInBranch in 1..max_years_in_branch %}
+                                        <td style="max-width:100px;">
+                                            <input type="number" min="0" class="form-control form-control-sm" name="capacity[{{ branch.id }}][{{ yearInBranch }}]" value="{{ capacities[branch.id][yearInBranch] ?? '' }}">
+                                        </td>
+                                    {% endfor %}
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                <div class="form-text mb-3">Laissez à 0 une case de capacité au-delà du nombre d'années configuré pour une branche — elle n'est pas utilisée.</div>
+                <button type="submit" class="btn btn-primary">Enregistrer</button>
+            </div>
+        </form>
+
+        <div class="card">
+            <div class="card-body">
+                <h2 class="h5 mb-3">Code d'inscription en cours d'année — année {{ public_year_label }}</h2>
+                {% if year_code and year_code.isActive %}
+                    <p>Code actif : <strong class="font-monospace">{{ year_code.code }}</strong></p>
+                {% elseif year_code %}
+                    <p class="text-body-secondary">Dernier code (désactivé) : <span class="font-monospace">{{ year_code.code }}</span></p>
+                {% else %}
+                    <p class="text-body-secondary">Aucun code généré pour cette année.</p>
+                {% endif %}
+                <div class="d-flex gap-2">
+                    <form method="post" action="/config/inscriptions/code/regenerate">
+                        {{ csrf_field()|raw }}
+                        <button type="submit" class="btn btn-outline-primary btn-sm">Générer un nouveau code</button>
+                    </form>
+                    {% if year_code and year_code.isActive %}
+                        <form method="post" action="/config/inscriptions/code/deactivate">
+                            {{ csrf_field()|raw }}
+                            <button type="submit" class="btn btn-outline-danger btn-sm">Désactiver</button>
+                        </form>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+{% endblock %}

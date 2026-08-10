@@ -1,0 +1,104 @@
+{% extends 'base.html.twig' %}
+{% block title %}Suivi de votre demande — {{ site_name }}{% endblock %}
+{% block content %}
+    <div class="container py-4" style="max-width: 640px;">
+        <h1 class="h4 mb-3">Suivi de votre demande</h1>
+
+        <div class="card mb-3">
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-6 col-sm-4">
+                        <span class="text-body-secondary small">Enfant</span><br>
+                        <strong>{{ registration_request.childFirstName }} {{ registration_request.childLastName }}</strong>
+                    </div>
+                    <div class="col-6 col-sm-4">
+                        <span class="text-body-secondary small">Né(e) le</span><br>
+                        {{ registration_request.birthDate|french_date }}
+                    </div>
+                    <div class="col-6 col-sm-4">
+                        <span class="text-body-secondary small">Reçue le</span><br>
+                        {{ registration_request.receivedAt|french_date }}
+                    </div>
+                </div>
+                <hr>
+                <div class="row g-3">
+                    <div class="col-12 col-sm-6">
+                        <span class="text-body-secondary small">Parent</span><br>
+                        {{ registration_request.parentName }}
+                    </div>
+                    <div class="col-12 col-sm-6">
+                        <span class="text-body-secondary small">Adresse</span><br>
+                        {{ registration_request.number }} {{ registration_request.street }}, {{ registration_request.postalCode }} {{ registration_request.city }}
+                    </div>
+                    <div class="col-12 col-sm-6">
+                        <span class="text-body-secondary small">Téléphone</span><br>
+                        {{ registration_request.phone1 }}{% if registration_request.phone2 %} / {{ registration_request.phone2 }}{% endif %}
+                    </div>
+                    <div class="col-12 col-sm-6">
+                        <span class="text-body-secondary small">Statut</span><br>
+                        {% if registration_request.status == 'pending' %}
+                            <span class="badge bg-info text-dark">En attente d'examen</span>
+                        {% else %}
+                            <span class="badge bg-secondary">{{ registration_request.status }}</span>
+                        {% endif %}
+                    </div>
+                </div>
+                {% if registration_request.remarks %}
+                    <hr>
+                    <span class="text-body-secondary small">Remarques</span><br>
+                    {{ registration_request.remarks }}
+                {% endif %}
+                {% if sibling_member_ids is not empty %}
+                    <hr>
+                    <span class="text-body-secondary small">Déjà {{ sibling_member_ids|length }} frère(s)/sœur(s) déclaré(s) membre(s) de l'unité</span>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-body">
+                <h2 class="h5 mb-3">Adresses email de suivi</h2>
+                <p class="small text-body-secondary">Chacune de ces adresses (une fois confirmée) peut être utilisée pour retrouver le suivi complet de cette demande.</p>
+
+                {% for row in secondary_emails %}
+                    <div class="d-flex justify-content-between align-items-start border-bottom py-2 flex-wrap gap-2">
+                        <div>
+                            <div>
+                                {{ row.email }}
+                                {% if row.isValid() %}
+                                    <span class="badge bg-success">Confirmée</span>
+                                {% elseif row.isPending() %}
+                                    <span class="badge bg-warning text-dark">En attente de confirmation</span>
+                                {% else %}
+                                    <span class="badge bg-secondary">Inactive</span>
+                                {% endif %}
+                            </div>
+                            {% if row.isPending() %}
+                                <div class="small text-body-secondary">Email de confirmation envoyé le {{ row.lastConfirmationSentAt|french_date }} — pour le renvoyer, saisissez à nouveau la même adresse ci-dessous.</div>
+                            {% endif %}
+                        </div>
+                        <div class="d-flex flex-wrap gap-2">
+                            {% if row.isInactive() %}
+                                <form method="post" action="/inscriptions/suivi/demande/{{ registration_request.id }}/emails/{{ row.id }}/reactivate">
+                                    {{ csrf_field()|raw }}
+                                    <button type="submit" class="btn btn-sm btn-outline-primary">Réactiver</button>
+                                </form>
+                            {% else %}
+                                <form method="post" action="/inscriptions/suivi/demande/{{ registration_request.id }}/emails/{{ row.id }}/remove" data-confirm="Supprimer cette adresse email ?">
+                                    {{ csrf_field()|raw }}
+                                    <button type="submit" class="btn btn-sm btn-outline-danger">Supprimer</button>
+                                </form>
+                            {% endif %}
+                        </div>
+                    </div>
+                {% endfor %}
+
+                <form method="post" action="/inscriptions/suivi/demande/{{ registration_request.id }}/emails" class="d-flex flex-wrap gap-2 mt-3">
+                    {{ csrf_field()|raw }}
+                    <input type="email" name="email" class="form-control form-control-sm" style="max-width:260px;" placeholder="nouvelle-adresse@example.com" required>
+                    <button type="submit" class="btn btn-sm btn-primary text-nowrap">Ajouter une adresse</button>
+                </form>
+            </div>
+        </div>
+    </div>
+{% endblock %}

@@ -1,0 +1,185 @@
+{% extends 'base.html.twig' %}
+{% block title %}Inscriptions — {{ site_name }}{% endblock %}
+{% block content %}
+    <div class="container py-4" style="max-width: 720px;">
+        <h1 class="h3 mb-3">Inscriptions</h1>
+
+        <div class="mb-4">
+            {{ editable('registration_intro', '<p>Bienvenue sur la page d\'inscription de l\'unité. Retrouvez ci-dessous le parcours scout et les places disponibles pour l\'année ' ~ target_year_label ~ '.</p>') }}
+        </div>
+
+        <div class="mb-4 text-center">
+            {% if parcours_image_file_id > 0 %}
+                <img src="{{ file_url(parcours_image_file_id) }}" alt="Parcours scout : Baladins 6-8 ans, Louveteaux 8-12 ans, Éclaireurs 12-16 ans, Pionniers 16-18 ans" class="img-fluid rounded">
+            {% else %}
+                <img src="/assets/img/parcours_scout.webp" alt="Parcours scout : Baladins 6-8 ans, Louveteaux 8-12 ans, Éclaireurs 12-16 ans, Pionniers 16-18 ans" class="img-fluid rounded">
+            {% endif %}
+        </div>
+
+        <div class="card mb-4">
+            <div class="card-body">
+                <h2 class="h5 mb-3">Année scoute {{ target_year_label }} — nés en...</h2>
+                <div class="row g-3">
+                    {% for branch in birth_years_by_branch %}
+                        <div class="col-6 col-sm-3">
+                            <div class="fw-semibold small mb-1">{{ branch.branch_label }}</div>
+                            <div class="text-body-secondary small">
+                                {% for year in branch.birth_years %}{{ year }}{% if not loop.last %}, {% endif %}{% endfor %}
+                            </div>
+                        </div>
+                    {% endfor %}
+                </div>
+
+                {% if waitlist_enabled %}
+                    <hr class="my-3">
+                    <h3 class="h6 mb-2">Disponibilité des places</h3>
+                    <div class="d-flex flex-column gap-2 small">
+                        {% if waitlist_tiers.available|default([]) is not empty %}
+                            <div><span class="badge bg-success me-1">Places disponibles</span> nés en {{ waitlist_tiers.available|join(', ') }}</div>
+                        {% endif %}
+                        {% if waitlist_tiers.limited|default([]) is not empty %}
+                            <div><span class="badge bg-warning text-dark me-1">Attente limitée</span> nés en {{ waitlist_tiers.limited|join(', ') }}</div>
+                        {% endif %}
+                        {% if waitlist_tiers.heavy|default([]) is not empty %}
+                            <div><span class="badge bg-danger me-1">Attente importante</span> nés en {{ waitlist_tiers.heavy|join(', ') }}</div>
+                        {% endif %}
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="bg-body-tertiary rounded-3 p-3 p-sm-4">
+            <h2 class="h4 mb-3">Formulaire de demande d'inscription</h2>
+
+            {% if submit_error %}
+                <div class="alert alert-danger">{{ submit_error }}</div>
+            {% endif %}
+
+            {% if not form_open %}
+                <div class="alert alert-secondary">
+                    Les inscriptions ne sont pas ouvertes pour le moment. Revenez plus tard, ou contactez l'unité si vous disposez d'un code d'inscription en cours d'année.
+                </div>
+            {% else %}
+                <form method="POST" action="/inscriptions" id="registration-form">
+                    <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                    {% include 'partials/human_check_fields.html.twig' with { human_check: human_check } %}
+
+                    <h3 class="h6 mb-2">Parent</h3>
+                    <div class="mb-3">
+                        <label class="form-label" for="parent_name">Nom et prénom du parent <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="parent_name" name="parent_name" required maxlength="150" value="{{ sticky.parent_name|default('') }}">
+                    </div>
+                    <div class="row g-3 mb-3">
+                        <div class="col-12 col-sm-6">
+                            <label class="form-label" for="email">Email <span class="text-danger">*</span></label>
+                            <input type="email" class="form-control" id="email" name="email" required maxlength="190" value="{{ sticky.email|default('') }}">
+                        </div>
+                        <div class="col-12 col-sm-6">
+                            <label class="form-label" for="phone1">Téléphone <span class="text-danger">*</span></label>
+                            <input type="tel" class="form-control" id="phone1" name="phone1" required maxlength="30" value="{{ sticky.phone1|default('') }}">
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label" for="phone2">Téléphone (2, facultatif)</label>
+                        <input type="tel" class="form-control" id="phone2" name="phone2" maxlength="30" value="{{ sticky.phone2|default('') }}">
+                    </div>
+
+                    <div class="row g-3 mb-3">
+                        <div class="col-12 col-sm-3">
+                            <label class="form-label" for="number">N° <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" id="number" name="number" required maxlength="20" value="{{ sticky.number|default('') }}">
+                        </div>
+                        <div class="col-12 col-sm-9">
+                            <label class="form-label" for="street">Rue <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" id="street" name="street" required maxlength="150" value="{{ sticky.street|default('') }}">
+                        </div>
+                    </div>
+                    <div class="row g-3 mb-4">
+                        <div class="col-12 col-sm-4">
+                            <label class="form-label" for="postal_code">Code postal <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" id="postal_code" name="postal_code" required maxlength="20" value="{{ sticky.postal_code|default('') }}">
+                        </div>
+                        <div class="col-12 col-sm-8">
+                            <label class="form-label" for="city">Ville <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" id="city" name="city" required maxlength="100" value="{{ sticky.city|default('') }}">
+                        </div>
+                    </div>
+
+                    <h3 class="h6 mb-2">Enfant</h3>
+                    <div class="row g-3 mb-3">
+                        <div class="col-12 col-sm-6">
+                            <label class="form-label" for="child_first_name">Prénom <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" id="child_first_name" name="child_first_name" required maxlength="100" value="{{ sticky.child_first_name|default('') }}">
+                        </div>
+                        <div class="col-12 col-sm-6">
+                            <label class="form-label" for="child_last_name">Nom <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" id="child_last_name" name="child_last_name" required maxlength="100" value="{{ sticky.child_last_name|default('') }}">
+                        </div>
+                    </div>
+                    <div class="row g-3 mb-3">
+                        <div class="col-12 col-sm-6">
+                            <label class="form-label" for="birth_date">Date de naissance <span class="text-danger">*</span></label>
+                            <input type="date" class="form-control" id="birth_date" name="birth_date" required value="{{ sticky.birth_date|default('') }}">
+                        </div>
+                        <div class="col-12 col-sm-6">
+                            <label class="form-label" for="gender">Genre <span class="text-danger">*</span></label>
+                            <select class="form-select" id="gender" name="gender" required>
+                                <option value="">Choisissez…</option>
+                                <option value="F" {{ sticky.gender|default('') == 'F' ? 'selected' : '' }}>Fille</option>
+                                <option value="M" {{ sticky.gender|default('') == 'M' ? 'selected' : '' }}>Garçon</option>
+                                <option value="X" {{ sticky.gender|default('') == 'X' ? 'selected' : '' }}>Autre / préfère ne pas préciser</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="mb-4">
+                        <label class="form-label" for="desired_section_id">Section souhaitée (facultatif)</label>
+                        <select class="form-select" id="desired_section_id" name="desired_section_id">
+                            <option value="">Aucune préférence</option>
+                            {% for section in sections %}
+                                <option value="{{ section.id }}" data-branch-id="{{ section.age_branch_id }}">{{ section.branch_name }}{% if section.name %} — {{ section.name }}{% endif %}</option>
+                            {% endfor %}
+                        </select>
+                        <div class="form-text">La section n'est proposée qu'à titre indicatif : elle sera confirmée par l'unité en fonction de la date de naissance.</div>
+                    </div>
+
+                    {% if is_identified and sibling_candidates is not empty %}
+                        <div class="mb-4">
+                            <label class="form-label d-block">Frères et sœurs déjà membres de l'unité</label>
+                            {% for candidate in sibling_candidates %}
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" name="sibling_member_ids[]" value="{{ candidate.member_id }}" id="sibling-{{ candidate.member_id }}">
+                                    <label class="form-check-label" for="sibling-{{ candidate.member_id }}">{{ candidate.name }}</label>
+                                </div>
+                            {% endfor %}
+                        </div>
+                    {% endif %}
+
+                    <div class="mb-4">
+                        <label class="form-label" for="remarks">Remarques (facultatif)</label>
+                        <textarea class="form-control" id="remarks" name="remarks" rows="3" maxlength="2000">{{ sticky.remarks|default('') }}</textarea>
+                    </div>
+
+                    <div class="mb-4">
+                        <button class="btn btn-link p-0 small" type="button" data-bs-toggle="collapse" data-bs-target="#year-code-collapse">
+                            J'ai un code d'inscription en cours d'année
+                        </button>
+                        <div class="collapse mt-2" id="year-code-collapse">
+                            <label class="form-label" for="year_code">Code d'inscription</label>
+                            <input type="text" class="form-control" id="year_code" name="year_code" maxlength="20" placeholder="ex. 4KX9-7QRM" value="{{ sticky.year_code|default('') }}">
+                        </div>
+                    </div>
+
+                    <div class="form-check mb-4">
+                        <input class="form-check-input" type="checkbox" name="rgpd_accepted" id="rgpd_accepted" required {{ sticky.rgpd_accepted|default('') ? 'checked' : '' }}>
+                        <label class="form-check-label" for="rgpd_accepted">
+                            J'accepte que ces informations soient utilisées dans le cadre du traitement de cette demande d'inscription — voir notre <a href="/rgpd" target="_blank">politique de protection des données</a>. <span class="text-danger">*</span>
+                        </label>
+                    </div>
+
+                    <button type="submit" class="btn btn-primary w-100 w-sm-auto float-sm-end">Envoyer la demande</button>
+                </form>
+            {% endif %}
+        </div>
+    </div>
+{% endblock %}

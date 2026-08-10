@@ -1,0 +1,13 @@
+{% extends 'email/base.html.twig' %}
+{% block content %}
+    <h2 style="margin:0 0 16px;font-size:20px;">Confirmez votre adresse email</h2>
+    <p>Bonjour,</p>
+    <p>Cette adresse a été ajoutée comme adresse de suivi pour une demande d'inscription auprès de {{ site_name }}. Confirmez-la pour pouvoir l'utiliser afin de consulter le suivi complet de la demande :</p>
+    <p style="text-align:center;margin:24px 0;">
+        <a href="{{ confirm_url }}"
+           style="display:inline-block;padding:10px 24px;background-color:#0d6efd;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:bold;">
+            Confirmer cette adresse
+        </a>
+    </p>
+    <p style="font-size:13px;color:#666;">Ce lien expire dans {{ expiry_hours }} heures. Si vous n'êtes pas à l'origine de cette demande, vous pouvez ignorer cet email.</p>
+{% endblock %}

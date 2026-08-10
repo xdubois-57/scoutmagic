@@ -44,7 +44,7 @@ Five main menus, visibility by role:
 Public pages.
 
 ### 3.2 Espace des animés (identified)
-**Dynamic entries** (one per member linked to email, named by totem/prénom, section subtitle) + separator + **static entries** from active modules.
+**Dynamic entries** (one per member linked to email, named by totem/prénom, section subtitle; if the `registration` module is active, one more per pending registration request linked to the same email) + separator + **static entries** from active modules.
 
 ### 3.3 Espace des chefs (intendant / chief)
 Filtered by role — intendants see only `role_min: intendant` pages, chiefs see all.

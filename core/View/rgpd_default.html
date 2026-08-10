@@ -192,6 +192,23 @@ Modèles : Llama, Qwen, divers modèles open source</li>
 <p><strong>Conservation</strong> : les emails envoyés et la liste de leurs destinataires (y compris l'adresse copiée au moment de l'envoi) sont conservés indéfiniment, au même titre que le reste des données actives de l'unité (section 3.1) — il n'existe pas, à ce jour, de purge automatique dédiée aux anciens envois groupés. Une suppression peut être demandée par un membre auprès du responsable du traitement (section 7).</p>
 <p><strong>Base légale</strong> : Intérêt légitime (communication interne de l'unité, nécessaire à son organisation et à la participation aux activités).</p>
 
+<h4>Module Inscriptions</h4>
+<p><strong>Finalité</strong> : Permettre aux familles de déposer une demande d'inscription pour un enfant via un formulaire public, de consulter à tout moment l'état de leur demande, et informer l'unité par email de chaque nouvelle demande. Cette première version couvre uniquement le dépôt de la demande et son suivi par la famille — le traitement de la demande par le staff (acceptation, refus, courriers associés) est prévu pour une itération ultérieure.</p>
+<p><strong>Données traitées</strong> :</p>
+<ul>
+<li>Identité et coordonnées du parent (nom, adresse postale, téléphone(s), email) et de l'enfant (nom, prénom, genre, date de naissance) saisies dans le formulaire, chiffrées au repos (AES-256-CBC), au même titre que les données des membres actifs (section 2.2)</li>
+<li>Un index de recherche chiffré (« blind index ») sur l'adresse email et sur la combinaison nom + prénom + date de naissance de l'enfant, utilisé uniquement pour retrouver une demande existante depuis la page de suivi — jamais pour bloquer, ralentir ou refuser automatiquement une demande</li>
+<li>Section souhaitée (facultative, purement indicative — la section réellement proposée à l'enfant est confirmée par le staff en fonction de sa date de naissance)</li>
+<li>Lien vers un ou plusieurs frères et sœurs déjà membres de l'unité, uniquement lorsque la personne effectuant la demande est identifiée sur le site : ce lien référence l'identifiant du membre existant, aucune donnée n'est dupliquée</li>
+<li>Remarques libres éventuellement ajoutées par la famille</li>
+<li>Jeton de suivi (valeur aléatoire, conservée hachée — jamais en clair) donnant accès à une page de suivi sans authentification, avec un affichage réduit au strict minimum (prénom de l'enfant, statut, date de réception) tant que la personne consultant la page n'est pas identifiée et rattachée à la demande par son adresse email</li>
+<li>Adresses email secondaires de suivi, ajoutées volontairement par la famille depuis la page de suivi, avec le même mécanisme de confirmation par email que les adresses secondaires d'un compte membre (section 2.2) : une fois confirmée par son seul propriétaire, une telle adresse donne accès au suivi complet de la demande (coordonnées, statut, gestion des adresses de suivi), sans validation ni intervention du staff — au même titre que l'adresse d'origine de la demande</li>
+</ul>
+<p><strong>Alerte à l'unité</strong> : à chaque nouvelle demande, un email automatique est envoyé à l'adresse configurée par l'administrateur, contenant uniquement le prénom de l'enfant, le créneau (branche et année) concerné et un lien vers la demande — jamais les coordonnées complètes de la famille dans cet email.</p>
+<p><strong>Ouverture du formulaire</strong> : le formulaire est ouvert ou fermé par l'administrateur, manuellement ou à des horaires programmés à l'avance ; un code d'inscription distinct, communiqué directement par l'unité, permet en complément de déposer une demande pour l'année scoute en cours, en dehors des périodes d'ouverture générale pour l'année suivante.</p>
+<p><strong>Conservation</strong> : aucune purge automatique n'est encore mise en place pour ce module — les demandes sont conservées comme le reste des données actives de l'unité (section 3.1), jusqu'à l'introduction d'une politique de conservation dédiée dans une itération ultérieure.</p>
+<p><strong>Base légale</strong> : Consentement explicite (case à cocher obligatoire lors du dépôt de la demande) et intérêt légitime de l'unité (gestion des demandes d'inscription).</p>
+
 <h3>2.5. Sécurité et traçabilité</h3>
 <p><strong>Finalité</strong> : Détecter et prévenir les abus, assurer la sécurité du site.</p>
 <p><strong>Données traitées</strong> : Journal d'audit contenant l'adresse IP, l'identifiant du compte (jamais l'email en clair), la date et l'action effectuée.</p>

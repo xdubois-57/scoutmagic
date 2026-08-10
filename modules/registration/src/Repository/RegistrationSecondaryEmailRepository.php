@@ -6,6 +6,12 @@ namespace Modules\Registration\Repository;
 
 use Core\Security\EncryptionService;
 
+/**
+ * Every timestamp comparison/write is computed in PHP and bound as a
+ * parameter, never MySQL's NOW() — same convention as Core\Member\
+ * MemberEmailRepository (see its own docblock), so this repository (and
+ * its tests) work unmodified against the SQLite test database too.
+ */
 class RegistrationSecondaryEmailRepository
 {
     public function __construct(
@@ -20,11 +26,12 @@ class RegistrationSecondaryEmailRepository
         string $confirmationTokenHash,
         \DateTimeImmutable $confirmationExpiresAt
     ): int {
+        $now = (new \DateTimeImmutable())->format('Y-m-d H:i:s');
         $stmt = $this->pdo->prepare(
             'INSERT INTO registration_secondary_emails (
                 registration_request_id, email_encrypted, email_blind_index, status,
                 confirmation_token_hash, confirmation_expires_at, last_confirmation_sent_at
-             ) VALUES (?, ?, ?, ?, ?, ?, NOW())'
+             ) VALUES (?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([
             $registrationRequestId,
@@ -33,6 +40,7 @@ class RegistrationSecondaryEmailRepository
             RegistrationSecondaryEmail::STATUS_PENDING,
             $confirmationTokenHash,
             $confirmationExpiresAt->format('Y-m-d H:i:s'),
+            $now,
         ]);
 
         return (int) $this->pdo->lastInsertId();
@@ -89,14 +97,26 @@ class RegistrationSecondaryEmailRepository
         return array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN));
     }
 
+    public function refreshConfirmation(int $id, string $confirmationTokenHash, \DateTimeImmutable $confirmationExpiresAt): void
+    {
+        $now = (new \DateTimeImmutable())->format('Y-m-d H:i:s');
+        $stmt = $this->pdo->prepare(
+            'UPDATE registration_secondary_emails
+             SET confirmation_token_hash = ?, confirmation_expires_at = ?, last_confirmation_sent_at = ?
+             WHERE id = ?'
+        );
+        $stmt->execute([$confirmationTokenHash, $confirmationExpiresAt->format('Y-m-d H:i:s'), $now, $id]);
+    }
+
     public function markValid(int $id): void
     {
+        $now = (new \DateTimeImmutable())->format('Y-m-d H:i:s');
         $stmt = $this->pdo->prepare(
             "UPDATE registration_secondary_emails
-             SET status = 'valid', confirmed_at = NOW(), confirmation_token_hash = NULL, confirmation_expires_at = NULL
+             SET status = 'valid', confirmed_at = ?, confirmation_token_hash = NULL, confirmation_expires_at = NULL
              WHERE id = ?"
         );
-        $stmt->execute([$id]);
+        $stmt->execute([$now, $id]);
     }
 
     public function reactivate(int $id): void
@@ -109,10 +129,11 @@ class RegistrationSecondaryEmailRepository
 
     public function markInactive(int $id): void
     {
+        $now = (new \DateTimeImmutable())->format('Y-m-d H:i:s');
         $stmt = $this->pdo->prepare(
-            "UPDATE registration_secondary_emails SET status = 'inactive', deactivated_at = NOW() WHERE id = ?"
+            "UPDATE registration_secondary_emails SET status = 'inactive', deactivated_at = ? WHERE id = ?"
         );
-        $stmt->execute([$id]);
+        $stmt->execute([$now, $id]);
     }
 
     public function delete(int $id): void

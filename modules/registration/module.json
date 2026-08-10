@@ -25,15 +25,6 @@
       "label": ""
     },
     {
-      "path": "/inscriptions/code-verifier",
-      "method": "POST",
-      "controller": "Modules\\Registration\\Controller\\PublicRegistrationController",
-      "action": "verifyCode",
-      "menu": "notre_unite",
-      "role_min": "public",
-      "label": ""
-    },
-    {
       "path": "/inscriptions/suivi/{id}/{token}",
       "method": "GET",
       "controller": "Modules\\Registration\\Controller\\TrackingController",

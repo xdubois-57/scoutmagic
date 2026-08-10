@@ -1,0 +1,24 @@
+{% extends 'base.html.twig' %}
+{% block title %}Suivi de votre demande — {{ site_name }}{% endblock %}
+{% block content %}
+    <div class="container py-4" style="max-width: 560px;">
+        <h1 class="h4 mb-3">Suivi de votre demande</h1>
+        <div class="card">
+            <div class="card-body">
+                <p class="mb-1"><span class="text-body-secondary small">Enfant</span><br><strong>{{ registration_request.childFirstName }}</strong></p>
+                <p class="mb-1"><span class="text-body-secondary small">Reçue le</span><br>{{ registration_request.receivedAt|french_date }}</p>
+                <p class="mb-0">
+                    <span class="text-body-secondary small">Statut</span><br>
+                    {% if registration_request.status == 'pending' %}
+                        <span class="badge bg-info text-dark">En attente d'examen</span>
+                    {% else %}
+                        <span class="badge bg-secondary">{{ registration_request.status }}</span>
+                    {% endif %}
+                </p>
+            </div>
+        </div>
+        <p class="text-body-secondary small mt-3 mb-0">
+            Pour gérer les adresses email de suivi ou voir le détail complet de la demande, connectez-vous avec l'adresse email utilisée lors de l'inscription.
+        </p>
+    </div>
+{% endblock %}
