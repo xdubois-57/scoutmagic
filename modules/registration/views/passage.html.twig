@@ -1,0 +1,125 @@
+{% extends 'base.html.twig' %}
+{% block title %}Passage — {{ site_name }}{% endblock %}
+{% block content %}
+    <div class="container py-4" style="max-width: 1100px;">
+        <h1 class="h3 mb-1">Passage</h1>
+        <p class="text-body-secondary small mb-4">
+            Répartit les arrivants de l'année {{ target_year_label }} entre les sections — toujours calculé sur
+            l'année {{ target_year_label }} (l'année publique + 1), quelle que soit l'année actuellement prévisualisée.
+        </p>
+
+        <div class="card mb-4">
+            <div class="card-body">
+                <h2 class="h5 mb-3">Nouvelles inscriptions — année {{ target_year_label }}</h2>
+                <p class="small text-body-secondary">Demandes acceptées, pas encore encodées dans Desk. La section prévue choisie ici est la même donnée que sur la fiche de la demande.</p>
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle">
+                        <thead>
+                            <tr>
+                                <th>Enfant</th>
+                                <th>Créneau visé</th>
+                                <th>Section souhaitée</th>
+                                <th>Remarques</th>
+                                <th>Fratrie</th>
+                                <th>Section prévue</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for row in new_registrations %}
+                                {% set r = row.request %}
+                                <tr>
+                                    <td>{{ r.childFirstName }} {{ r.childLastName }}</td>
+                                    <td>{{ row.slot_label }}</td>
+                                    <td>{{ row.desired_section_label ?? '—' }}</td>
+                                    <td>{{ r.remarks ?? '—' }}</td>
+                                    <td>
+                                        {% if row.siblings is empty %}
+                                            —
+                                        {% else %}
+                                            {% for sibling in row.siblings %}
+                                                <div>{{ sibling.name }} ({{ sibling.section_label ?? '—' }})</div>
+                                            {% endfor %}
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        <form method="post" action="/passage/inscription/{{ r.id }}/section" class="d-flex gap-2">
+                                            {{ csrf_field()|raw }}
+                                            <select name="intended_section_id" class="form-select form-select-sm">
+                                                <option value="0">— Non défini —</option>
+                                                {% for section in row.sections_in_branch %}
+                                                    <option value="{{ section.id }}" {{ r.intendedSectionId == section.id ? 'selected' : '' }}>{{ section.name ?? section.desk_code }}</option>
+                                                {% endfor %}
+                                            </select>
+                                            <button type="submit" class="btn btn-sm btn-outline-primary text-nowrap">OK</button>
+                                        </form>
+                                    </td>
+                                </tr>
+                            {% else %}
+                                <tr><td colspan="6" class="text-body-secondary text-center py-3">Aucune inscription acceptée en attente d'affectation pour cette année.</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-body">
+                <h2 class="h5 mb-3">Changements de branche — animés actuels</h2>
+                <p class="small text-body-secondary">Seuls les animés au dernier rang de leur branche apparaissent ici (hors marqués partants, hors fin de parcours). « Même adresse » ne signifie pas « fratrie » : colocation, deux familles au même numéro, garde alternée sont possibles.</p>
+
+                {% if branch_changes is empty %}
+                    <p class="text-body-secondary fst-italic mb-0">Aucun changement de branche pour cette année.</p>
+                {% endif %}
+
+                {% for key, group in branch_changes %}
+                    <h3 class="h6 mt-4">{{ group.section_label }}</h3>
+                    <div class="table-responsive">
+                        <table class="table table-sm align-middle">
+                            <thead>
+                                <tr>
+                                    <th>Nom</th>
+                                    <th>Année de parcours</th>
+                                    <th>Même adresse</th>
+                                    <th>Destination</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for member in group.members %}
+                                    <tr>
+                                        <td>{{ member.name }}</td>
+                                        <td>{{ member.branch_year_label }}</td>
+                                        <td>
+                                            {% if member.household is empty %}
+                                                —
+                                            {% else %}
+                                                {% for person in member.household %}
+                                                    <div>{{ person.name }} ({{ person.section_label ?? '—' }})</div>
+                                                {% endfor %}
+                                            {% endif %}
+                                        </td>
+                                        <td>
+                                            <form method="post" action="/passage/membre/{{ member.member_id }}/destination" class="d-flex gap-2">
+                                                {{ csrf_field()|raw }}
+                                                <select name="destination_section_id" class="form-select form-select-sm">
+                                                    <option value="0">— Non défini —</option>
+                                                    {% for section in member.destination_options %}
+                                                        <option value="{{ section.id }}" {{ member.destination_section_id == section.id ? 'selected' : '' }}>{{ section.name ?? section.desk_code }}</option>
+                                                    {% endfor %}
+                                                </select>
+                                                <button type="submit" class="btn btn-sm btn-outline-primary text-nowrap">OK</button>
+                                            </form>
+                                            {% if member.destination_options is empty %}
+                                                <div class="form-text">Aucune section configurée pour la branche d'arrivée.</div>
+                                            {% endif %}
+                                        </td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+{% endblock %}

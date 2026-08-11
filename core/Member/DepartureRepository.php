@@ -40,6 +40,24 @@ class DepartureRepository
         $stmt->execute([$memberYearId]);
     }
 
+    /**
+     * Updates ONLY the comment, leaving `leaving`/`leaving_marked_at`
+     * untouched — the registration module's "Départs" page (ARCHITECTURE.md
+     * §8.36) saves the checkbox and the comment as two independent
+     * auto-save requests specifically so one never silently clobbers the
+     * other when two animateurs edit the same section around the same
+     * time (module spec's own concurrency requirement). Harmless to call
+     * on a not-currently-leaving row; the UI simply never does.
+     */
+    public function updateComment(int $memberYearId, ?string $comment): void
+    {
+        $trimmed = $comment !== null ? trim($comment) : '';
+        $commentEncrypted = $trimmed !== '' ? $this->encryption->encrypt($trimmed) : null;
+
+        $stmt = $this->pdo->prepare('UPDATE member_years SET leaving_comment_encrypted = ? WHERE id = ?');
+        $stmt->execute([$commentEncrypted, $memberYearId]);
+    }
+
     public function getStatus(int $memberYearId): ?DepartureStatus
     {
         $stmt = $this->pdo->prepare(

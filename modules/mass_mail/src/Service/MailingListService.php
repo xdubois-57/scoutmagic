@@ -6,18 +6,24 @@ namespace Modules\MassMail\Service;
 
 use Core\Import\FunctionRepository;
 use Core\Member\SectionService;
+use Modules\MassMail\Repository\Email;
 use Modules\MassMail\Repository\MailingList;
 use Modules\MassMail\Repository\MailingListRepository;
 use Modules\MassMail\Repository\MemberResolutionRepository;
+use Modules\Registration\Api\ExternalMailingListProvider;
 
 /**
- * Owns both "kinds" of mailing list (module spec): default lists — one
+ * Owns all "kinds" of mailing list (module spec): default lists — one
  * per active section plus "Membres actifs"/"Chefs uniquement" — are
  * computed here on every call from Core\Member\SectionService, never
  * stored as rows, so a section becoming inactive (or a new one appearing)
  * at the next Desk import is reflected immediately with no sync step of
  * its own to run. Custom lists are the only ones backed by
- * Repository\MailingListRepository.
+ * Repository\MailingListRepository. The "external" kind is contributed,
+ * optionally, by another module's own Api\ExternalMailingListProvider
+ * (ARCHITECTURE.md §7.5) — currently only the registration module
+ * publishes one; $externalListProvider is null (and the list simply
+ * doesn't appear anywhere) whenever that module is disabled.
  */
 class MailingListService
 {
@@ -28,7 +34,8 @@ class MailingListService
         private MailingListRepository $listRepository,
         private MemberResolutionRepository $resolutionRepository,
         private SectionService $sectionService,
-        private FunctionRepository $functionRepository
+        private FunctionRepository $functionRepository,
+        private ?ExternalMailingListProvider $externalListProvider = null
     ) {
     }
 
@@ -67,6 +74,16 @@ class MailingListService
             'description' => "Les membres ayant une fonction de chef ou plus (chef, chef d'unité, super-administrateur), "
                 . "toutes sections confondues, pour l'année scoute sélectionnée.",
         ];
+
+        if ($this->externalListProvider !== null) {
+            $external = $this->externalListProvider->describeMailingList();
+            $lists[] = [
+                'list_type' => Email::LIST_TYPE_EXTERNAL,
+                'list_section_id' => null,
+                'label' => $external['label'],
+                'description' => $external['description'],
+            ];
+        }
 
         return $lists;
     }
@@ -190,6 +207,15 @@ class MailingListService
                 return $this->resolutionRepository->resolveActiveMembers($scoutYearId);
             case 'default_chiefs':
                 return $this->resolutionRepository->resolveChiefs($scoutYearId);
+            case Email::LIST_TYPE_EXTERNAL:
+                // $scoutYearId is ignored on purpose — the provider
+                // resolves its own fixed target year internally (module
+                // spec: this list is never re-scoped by the compose
+                // dialog's own year selector).
+                if ($this->externalListProvider === null) {
+                    throw new MailingListException('Liste externe indisponible.');
+                }
+                return $this->externalListProvider->resolveMailingListMembers();
             case 'custom':
                 \assert($listId !== null);
                 $list = $this->listRepository->findById($listId);
@@ -223,10 +249,27 @@ class MailingListService
      *
      * @param int[] $scoutYearIds Most-recent-first.
      * @return array<int, array{member_id: int, email: ?string, scout_year_id: int}>
-     * @throws MailingListException on an unknown custom list id
+     * @throws MailingListException on an unknown custom list id, or when the external list is unavailable
      */
     public function resolveMembersForYears(string $listType, ?int $listId, ?int $listSectionId, array $scoutYearIds): array
     {
+        // The external list is never re-scoped by the compose dialog's own
+        // year checkboxes (module spec) — resolved exactly once, tagged
+        // with the provider's OWN target year rather than whichever of
+        // previous/current/next happens to be checked, so a recipient's
+        // scout_year_id always matches where their real member_years
+        // profile actually lives.
+        if ($listType === Email::LIST_TYPE_EXTERNAL) {
+            if ($this->externalListProvider === null) {
+                throw new MailingListException('Liste externe indisponible.');
+            }
+
+            return $this->deduplicateByMemberAndAddress(
+                $this->externalListProvider->resolveMailingListMembers(),
+                $this->externalListProvider->targetScoutYearId()
+            );
+        }
+
         $seenMemberIds = [];
         $seenAddresses = [];
         $merged = [];
@@ -249,6 +292,34 @@ class MailingListService
 
                 $merged[] = ['member_id' => $member['member_id'], 'email' => $member['email'], 'scout_year_id' => $scoutYearId];
             }
+        }
+
+        return $merged;
+    }
+
+    /**
+     * @param array<int, array{member_id: int, email: ?string}> $members
+     * @return array<int, array{member_id: int, email: ?string, scout_year_id: int}>
+     */
+    private function deduplicateByMemberAndAddress(array $members, int $scoutYearId): array
+    {
+        $seenMemberIds = [];
+        $seenAddresses = [];
+        $merged = [];
+
+        foreach ($members as $member) {
+            if (isset($seenMemberIds[$member['member_id']])) {
+                continue;
+            }
+            $addressKey = $member['email'] !== null ? mb_strtolower(trim($member['email'])) : null;
+            if ($addressKey !== null && isset($seenAddresses[$addressKey])) {
+                continue;
+            }
+            $seenMemberIds[$member['member_id']] = true;
+            if ($addressKey !== null) {
+                $seenAddresses[$addressKey] = true;
+            }
+            $merged[] = ['member_id' => $member['member_id'], 'email' => $member['email'], 'scout_year_id' => $scoutYearId];
         }
 
         return $merged;

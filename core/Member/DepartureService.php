@@ -15,8 +15,8 @@ use Core\Journal\JournalService;
  * resets naturally on the next Desk import (a new member_years row,
  * leaving defaults to false), no purge task needed.
  *
- * No screen in this iteration — this service and its Repository are the
- * whole deliverable, consumed later by the "Départs" page.
+ * Consumed by the registration module's "Départs" page (ARCHITECTURE.md
+ * §8.37), which never touches member_years directly.
  */
 class DepartureService
 {
@@ -41,6 +41,18 @@ class DepartureService
     public function getStatus(int $memberYearId): ?DepartureStatus
     {
         return $this->repository->getStatus($memberYearId);
+    }
+
+    /**
+     * Comment-only update — see DepartureRepository::updateComment()'s own
+     * docblock for why this stays a separate write from markLeaving().
+     * Never journaled, same rule as markLeaving()/unmarkLeaving() never
+     * logging the comment itself: a content-only edit isn't a state
+     * transition worth an event of its own.
+     */
+    public function updateComment(int $memberYearId, ?string $comment): void
+    {
+        $this->repository->updateComment($memberYearId, $comment);
     }
 
     /**

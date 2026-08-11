@@ -487,7 +487,7 @@ class MassMailService
         }
         if (!in_array($listType, [
             Email::LIST_TYPE_DEFAULT_SECTION, Email::LIST_TYPE_DEFAULT_ACTIVE_MEMBERS,
-            Email::LIST_TYPE_DEFAULT_CHIEFS, Email::LIST_TYPE_CUSTOM,
+            Email::LIST_TYPE_DEFAULT_CHIEFS, Email::LIST_TYPE_CUSTOM, Email::LIST_TYPE_EXTERNAL,
         ], true)) {
             throw new MassMailException('Type de liste invalide.');
         }

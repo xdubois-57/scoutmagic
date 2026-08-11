@@ -228,6 +228,50 @@ class SectionService
     }
 
     /**
+     * The animés (non-staff members) of a section for a scout year — the
+     * exact complement of getSectionStaff() above, same trap it already
+     * guards against: an animé's own member_functions row carries the
+     * SAME section_id as that section's staff, so only the role filter
+     * (here, everyone NOT chief/admin) tells them apart. First consumer:
+     * the registration module's "Départs" and "Passage" pages
+     * (ARCHITECTURE.md §8.36), which list children, never leaders.
+     *
+     * @return MemberProfile[]
+     */
+    public function getSectionAnimes(int $sectionId, int $scoutYearId): array
+    {
+        $pdo = $this->connection->getPdo();
+
+        $stmt = $pdo->prepare(
+            'SELECT DISTINCT mf.member_year_id
+             FROM member_functions mf
+             JOIN member_years my ON mf.member_year_id = my.id
+             JOIN functions f ON mf.function_id = f.id
+             WHERE mf.section_id = ? AND my.scout_year_id = ? AND my.is_active = 1
+               AND f.role NOT IN (\'chief\', \'admin\')'
+        );
+        $stmt->execute([$sectionId, $scoutYearId]);
+        $memberYearIds = array_map(fn(array $row) => (int) $row['member_year_id'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
+
+        if (count($memberYearIds) === 0) {
+            return [];
+        }
+
+        $profiles = [];
+        foreach ($memberYearIds as $myId) {
+            $profile = $this->hydrateMemberProfile($myId);
+            if ($profile !== null) {
+                $profiles[] = $profile;
+            }
+        }
+
+        usort($profiles, fn(MemberProfile $a, MemberProfile $b) =>
+            strcasecmp($a->getDisplayName(), $b->getDisplayName()));
+
+        return $profiles;
+    }
+
+    /**
      * Update a section's configurable info (name, email).
      */
     public function updateSectionInfo(int $sectionId, ?string $name, ?string $email): void
@@ -337,6 +381,7 @@ class SectionService
             addresses: [],
             functions: $functions,
             scoutYearLabel: $scoutYearLabel,
+            scoutYearOffset: (int) $row['scout_year_offset'],
             badges: $this->memberBadgeRepository->getActiveBadgesForMemberYear((int) $row['id'])
         );
     }

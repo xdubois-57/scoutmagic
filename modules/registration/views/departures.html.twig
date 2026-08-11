@@ -1,0 +1,97 @@
+{% extends 'base.html.twig' %}
+{% block title %}Départs — {{ site_name }}{% endblock %}
+{% block content %}
+    <div class="container py-4" style="max-width: 900px;">
+        <h1 class="h3 mb-1">Départs</h1>
+        <p class="text-body-secondary small mb-4">
+            Marque les animés qui <strong>ne seront plus là l'année scoute prochaine</strong>. Ce marquage porte
+            uniquement sur l'année scoute {{ scout_year_label }} : il se réinitialise de lui-même à chaque nouvelle
+            année (nouvel import Desk), il n'a donc jamais besoin d'être retiré manuellement d'une année sur l'autre.
+            L'enregistrement est automatique — il n'y a pas de bouton « Enregistrer ».
+        </p>
+
+        {% if sections is empty %}
+            <div class="alert alert-info">Vous n'êtes animateur d'aucune section.</div>
+        {% else %}
+            {% if sections|length > 1 %}
+                <form method="get" action="/departs" class="mb-4">
+                    <label class="form-label small" for="section_id">Section</label>
+                    <select class="form-select" id="section_id" name="section_id" onchange="this.form.submit()">
+                        {% for section in sections %}
+                            <option value="{{ section.id }}" {{ selected_section.id == section.id ? 'selected' : '' }}>{{ section.name ?? section.desk_code }}</option>
+                        {% endfor %}
+                    </select>
+                </form>
+            {% else %}
+                <h2 class="h5 mb-3">{{ selected_section.name ?? selected_section.desk_code }}</h2>
+            {% endif %}
+
+            <div class="table-responsive">
+                <table class="table align-middle">
+                    <thead>
+                        <tr>
+                            <th>Nom</th>
+                            <th>Année de parcours</th>
+                            <th class="text-center">Ne sera plus là l'année prochaine</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in rows %}
+                            <tr>
+                                <td>{{ row.profile.firstName }} {{ row.profile.lastName }}</td>
+                                <td>{{ row.branch_year_label }}</td>
+                                <td class="text-center">
+                                    <input type="checkbox" class="form-check-input departure-checkbox" data-member-year-id="{{ row.profile.memberYearId }}" {{ row.leaving ? 'checked' : '' }}>
+                                </td>
+                            </tr>
+                            <tr class="departure-comment-row" data-member-year-id="{{ row.profile.memberYearId }}" style="{{ row.leaving ? '' : 'display:none;' }}">
+                                <td colspan="3" class="pt-0">
+                                    <textarea class="form-control form-control-sm departure-comment" data-member-year-id="{{ row.profile.memberYearId }}"
+                                        rows="2" placeholder="Commentaire facultatif (motif du départ, jamais visible en dehors de cette section)">{{ row.comment }}</textarea>
+                                </td>
+                            </tr>
+                        {% else %}
+                            <tr><td colspan="3" class="text-body-secondary text-center py-3">Aucun animé dans cette section pour cette année.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% endif %}
+    </div>
+{% endblock %}
+
+{% block scripts %}
+<script nonce="{{ csp_nonce }}">
+const departsCsrf = () => document.querySelector('meta[name="csrf-token"]')?.content;
+
+function departsSave(memberYearId, payload) {
+    fetch('/departs/' + memberYearId, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(Object.assign({ _csrf_token: departsCsrf() }, payload))
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (!data.success) alert(data.error || 'Erreur lors de l\'enregistrement.');
+    })
+    .catch(() => alert('Erreur réseau.'));
+}
+
+document.querySelectorAll('.departure-checkbox').forEach(function (checkbox) {
+    checkbox.addEventListener('change', function () {
+        const memberYearId = checkbox.dataset.memberYearId;
+        const commentRow = document.querySelector('.departure-comment-row[data-member-year-id="' + memberYearId + '"]');
+        if (commentRow) {
+            commentRow.style.display = checkbox.checked ? '' : 'none';
+        }
+        departsSave(memberYearId, { leaving: checkbox.checked });
+    });
+});
+
+document.querySelectorAll('.departure-comment').forEach(function (field) {
+    field.addEventListener('blur', function () {
+        departsSave(field.dataset.memberYearId, { comment: field.value });
+    });
+});
+</script>
+{% endblock %}

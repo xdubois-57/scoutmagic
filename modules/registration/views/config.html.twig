@@ -1,0 +1,304 @@
+{% extends 'base.html.twig' %}
+{% block title %}Inscriptions — {{ site_name }}{% endblock %}
+{% block content %}
+    <div class="container py-4" style="max-width: 1100px;">
+        <h1 class="h3 mb-1">Gestion des inscriptions</h1>
+        <p class="text-body-secondary small mb-4">
+            Les autres réglages (ouverture du formulaire, seuils d'affichage des places, adresse d'alerte...) se trouvent sur la page <a href="/config/settings">Paramètres</a>.
+        </p>
+
+        <div class="card mb-4">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-start mb-2">
+                    <h2 class="h6 mb-0">Notes internes</h2>
+                    {% include 'partials/rich_text_edit_button.html.twig' with {
+                        content_key: notice_content_key,
+                        save_url: '/api/rich-text-content'
+                    } %}
+                </div>
+                {% include 'partials/rich_text_field.html.twig' with {
+                    content_key: notice_content_key,
+                    content_value: notice_content
+                } %}
+                {% if notice_content is empty %}
+                    <p class="text-body-secondary small fst-italic mb-0">Aucune note — cliquez sur le crayon pour en ajouter une (visible uniquement du staff).</p>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="card mb-4">
+            <div class="card-body">
+                <h2 class="h6 mb-3">États d'une demande</h2>
+                <div class="row g-2 small">
+                    <div class="col-12 col-sm-6 col-lg-4"><span class="badge bg-info text-dark">En attente</span> reçue, pas encore examinée.</div>
+                    <div class="col-12 col-sm-6 col-lg-4"><span class="badge bg-primary">Acceptée</span> décidée, en attente de son email et/ou de rapprochement Desk.</div>
+                    <div class="col-12 col-sm-6 col-lg-4"><span class="badge bg-success">Encodée dans Desk</span> rapprochée d'un membre — la fiche membre fait foi désormais.</div>
+                    <div class="col-12 col-sm-6 col-lg-4"><span class="badge bg-danger">Refusée</span> décidée, en attente de son email.</div>
+                    <div class="col-12 col-sm-6 col-lg-4"><span class="badge bg-secondary">Retirée</span> abandonnée (par la famille ou le staff).</div>
+                </div>
+                <p class="text-body-secondary small mt-3 mb-0">
+                    Important : la page de suivi de la famille n'affiche jamais une acceptation ou un refus tant que l'email correspondant n'a pas réellement été envoyé — voir la colonne « Email » ci-dessous.
+                </p>
+            </div>
+        </div>
+
+        <form method="post" action="/config/inscriptions" class="card mb-4">
+            <div class="card-body">
+                <h2 class="h5 mb-3">Tranches d'âge et capacités par branche</h2>
+                {{ csrf_field()|raw }}
+                <div class="table-responsive">
+                    <table class="table align-middle">
+                        <thead>
+                            <tr>
+                                <th>Branche</th>
+                                <th>Âge d'entrée</th>
+                                <th>Nombre d'années</th>
+                                {% for yearInBranch in 1..max_years_in_branch %}
+                                    <th>Capacité {{ yearInBranch }}<sup>e</sup> année</th>
+                                {% endfor %}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for branch in branches %}
+                                {% set bracket = brackets_by_branch[branch.id] ?? null %}
+                                <tr>
+                                    <td>{{ branch.label }}</td>
+                                    <td style="max-width:100px;">
+                                        <input type="number" min="0" max="30" class="form-control form-control-sm" name="entry_age[{{ branch.id }}]" value="{{ bracket ? bracket.entryAge : '' }}">
+                                    </td>
+                                    <td style="max-width:100px;">
+                                        <input type="number" min="0" max="{{ max_years_in_branch }}" class="form-control form-control-sm" name="duration_years[{{ branch.id }}]" value="{{ bracket ? bracket.durationYears : '' }}">
+                                    </td>
+                                    {% for yearInBranch in 1..max_years_in_branch %}
+                                        <td style="max-width:100px;">
+                                            <input type="number" min="0" class="form-control form-control-sm" name="capacity[{{ branch.id }}][{{ yearInBranch }}]" value="{{ capacities[branch.id][yearInBranch] ?? '' }}">
+                                        </td>
+                                    {% endfor %}
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                <div class="form-text mb-3">Laissez à 0 une case de capacité au-delà du nombre d'années configuré pour une branche — elle n'est pas utilisée.</div>
+                <button type="submit" class="btn btn-primary">Enregistrer</button>
+            </div>
+        </form>
+
+        <div class="card mb-4">
+            <div class="card-body">
+                <h2 class="h5 mb-3">Code d'inscription en cours d'année — année {{ public_year_label }}</h2>
+                {% if year_code and year_code.isActive %}
+                    <p>Code actif : <strong class="font-monospace">{{ year_code.code }}</strong></p>
+                {% elseif year_code %}
+                    <p class="text-body-secondary">Dernier code (désactivé) : <span class="font-monospace">{{ year_code.code }}</span></p>
+                {% else %}
+                    <p class="text-body-secondary">Aucun code généré pour cette année.</p>
+                {% endif %}
+                <div class="d-flex gap-2">
+                    <form method="post" action="/config/inscriptions/code/regenerate">
+                        {{ csrf_field()|raw }}
+                        <button type="submit" class="btn btn-outline-primary btn-sm">Générer un nouveau code</button>
+                    </form>
+                    {% if year_code and year_code.isActive %}
+                        <form method="post" action="/config/inscriptions/code/deactivate">
+                            {{ csrf_field()|raw }}
+                            <button type="submit" class="btn btn-outline-danger btn-sm">Désactiver</button>
+                        </form>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <div class="card mb-4">
+            <div class="card-body">
+                <h2 class="h5 mb-3">Demandes — année {{ selected_year.label }}{% if is_past_year %} <span class="badge bg-secondary">Consultation seule</span>{% endif %}</h2>
+
+                <form method="get" action="/config/inscriptions" class="row g-2 align-items-end mb-4">
+                    <div class="col-12 col-sm-4 col-md-3">
+                        <label class="form-label small mb-1" for="year">Année scoute</label>
+                        <select class="form-select form-select-sm" id="year" name="year">
+                            {% for year in selectable_years %}
+                                <option value="{{ year.id }}" {{ year.id == selected_year.id ? 'selected' : '' }}>
+                                    {{ year.label }}{{ year.id == target_year_id ? ' (cible)' : '' }}{{ year.id == current_year_id ? ' (en cours)' : '' }}
+                                </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-12 col-sm-4 col-md-3">
+                        <label class="form-label small mb-1" for="status">État</label>
+                        <select class="form-select form-select-sm" id="status" name="status">
+                            <option value="">Tous</option>
+                            <option value="pending" {{ status_filter == 'pending' ? 'selected' : '' }}>En attente</option>
+                            <option value="accepted" {{ status_filter == 'accepted' ? 'selected' : '' }}>Acceptée</option>
+                            <option value="refused" {{ status_filter == 'refused' ? 'selected' : '' }}>Refusée</option>
+                            <option value="withdrawn" {{ status_filter == 'withdrawn' ? 'selected' : '' }}>Retirée</option>
+                            <option value="encoded" {{ status_filter == 'encoded' ? 'selected' : '' }}>Encodée dans Desk</option>
+                        </select>
+                    </div>
+                    <div class="col-12 col-sm-4 col-md-4">
+                        <label class="form-label small mb-1" for="q">Recherche (enfant, parent)</label>
+                        <input type="text" class="form-control form-control-sm" id="q" name="q" value="{{ search }}">
+                    </div>
+                    <div class="col-12 col-md-2">
+                        <button type="submit" class="btn btn-outline-primary btn-sm w-100">Filtrer</button>
+                    </div>
+                </form>
+
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle">
+                        <thead>
+                            <tr>
+                                <th>Reçue le</th>
+                                <th>Enfant</th>
+                                <th>Créneau</th>
+                                <th>Section prévue</th>
+                                <th>Fratrie</th>
+                                <th>État</th>
+                                <th>Email</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for row in request_rows %}
+                                {% set r = row.request %}
+                                <tr>
+                                    <td>{{ r.receivedAt|french_date }}</td>
+                                    <td>{{ r.childFirstName }} {{ r.childLastName }}</td>
+                                    <td>{{ row.slot_label }}</td>
+                                    <td>{{ row.intended_section_label ?? '—' }}</td>
+                                    <td>{{ row.sibling_count > 0 ? row.sibling_count : '—' }}</td>
+                                    <td>
+                                        {% if r.status == 'pending' %}
+                                            <span class="badge bg-info text-dark">En attente</span>
+                                        {% elseif r.status == 'accepted' %}
+                                            <span class="badge bg-primary">Acceptée</span>
+                                        {% elseif r.status == 'refused' %}
+                                            <span class="badge bg-danger">Refusée</span>
+                                        {% elseif r.status == 'withdrawn' %}
+                                            <span class="badge bg-secondary">Retirée</span>
+                                        {% elseif r.status == 'encoded' %}
+                                            <span class="badge bg-success">Encodée</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if r.status == 'accepted' or r.status == 'encoded' %}
+                                            {{ r.acceptedEmailSentAt ? 'Envoyé le ' ~ r.acceptedEmailSentAt|french_date : 'Non envoyé' }}
+                                        {% elseif r.status == 'refused' %}
+                                            {{ r.refusedEmailSentAt ? 'Envoyé le ' ~ r.refusedEmailSentAt|french_date : 'Non envoyé' }}
+                                        {% else %}
+                                            —
+                                        {% endif %}
+                                    </td>
+                                    <td><a href="/config/inscriptions/demandes/{{ r.id }}" class="btn btn-sm btn-outline-secondary">Ouvrir</a></td>
+                                </tr>
+                            {% else %}
+                                <tr><td colspan="8" class="text-body-secondary text-center py-3">Aucune demande pour ces critères.</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div class="card mb-4">
+            <div class="card-body">
+                <h2 class="h5 mb-3">Vérification des capacités — année {{ selected_year.label }}</h2>
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle">
+                        <thead>
+                            <tr>
+                                <th>Branche</th>
+                                <th>Année</th>
+                                <th>Capacité</th>
+                                <th>Effectif projeté</th>
+                                <th>Demandes acceptées</th>
+                                <th>Restant</th>
+                                <th>Niveau public</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for row in capacity_breakdown %}
+                                <tr>
+                                    <td>{{ row.branch_label }}</td>
+                                    <td>{{ row.year_in_branch }}<sup>e</sup></td>
+                                    <td>{{ row.capacity }}</td>
+                                    <td>{{ row.projected }}</td>
+                                    <td>{{ row.accepted }}</td>
+                                    <td>{{ row.remaining }}</td>
+                                    <td>
+                                        {% if row.tier == 'available' %}
+                                            <span class="badge bg-success">Disponible</span>
+                                        {% elseif row.tier == 'limited' %}
+                                            <span class="badge bg-warning text-dark">Attente limitée</span>
+                                        {% else %}
+                                            <span class="badge bg-danger">Attente importante</span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div class="card mb-4">
+            <div class="card-body">
+                <h2 class="h5 mb-3">Demandes acceptées non rapprochées</h2>
+                {% if unreconciled is empty %}
+                    <p class="text-body-secondary small mb-0">Aucune — toutes les demandes acceptées sont soit encodées dans Desk, soit en attente du prochain import.</p>
+                {% else %}
+                    <p class="small text-body-secondary">Aucun membre importé de Desk ne correspond encore à ces demandes (ou plusieurs correspondances possibles). Un rapprochement manuel est possible depuis la fiche de chaque demande.</p>
+                    <ul class="list-group list-group-flush">
+                        {% for r in unreconciled %}
+                            <li class="list-group-item d-flex justify-content-between align-items-center px-0">
+                                <span>{{ r.childFirstName }} {{ r.childLastName }} — reçue le {{ r.receivedAt|french_date }}</span>
+                                <a href="/config/inscriptions/demandes/{{ r.id }}" class="btn btn-sm btn-outline-secondary">Ouvrir</a>
+                            </li>
+                        {% endfor %}
+                    </ul>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="card mb-4">
+            <div class="card-body">
+                <h2 class="h5 mb-3">Demandes non clôturées</h2>
+                <p class="small text-body-secondary">{{ non_final_count }} demande(s) en attente ou acceptée(s) pour l'année {{ selected_year.label }}.</p>
+                {% if not is_past_year and non_final_count > 0 %}
+                    <div class="d-flex flex-wrap gap-2">
+                        <form method="post" action="/config/inscriptions/bulk/refuse"
+                              data-confirm="Refuser les {{ non_final_count }} demande(s) non clôturée(s) de l'année {{ selected_year.label }} ? Cette action ne peut pas être annulée en masse.">
+                            {{ csrf_field()|raw }}
+                            <input type="hidden" name="scout_year_id" value="{{ selected_year.id }}">
+                            <button type="submit" class="btn btn-outline-danger btn-sm">Tout refuser ({{ non_final_count }})</button>
+                        </form>
+                        <form method="post" action="/config/inscriptions/bulk/withdraw"
+                              data-confirm="Retirer les {{ non_final_count }} demande(s) non clôturée(s) de l'année {{ selected_year.label }} ? Cette action ne peut pas être annulée en masse.">
+                            {{ csrf_field()|raw }}
+                            <input type="hidden" name="scout_year_id" value="{{ selected_year.id }}">
+                            <button type="submit" class="btn btn-outline-secondary btn-sm">Tout retirer ({{ non_final_count }})</button>
+                        </form>
+                    </div>
+                {% elseif is_past_year %}
+                    <p class="text-body-secondary small mb-0 fst-italic">Année passée — consultation seule, aucune action groupée possible.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    {% include 'partials/rich_text_editor.html.twig' %}
+{% endblock %}
+
+{% block scripts %}
+<script src="/assets/js/rich-text-field.js" defer></script>
+<script nonce="{{ csp_nonce }}">
+document.querySelectorAll('form[data-confirm]').forEach(function (form) {
+    form.addEventListener('submit', function (e) {
+        if (!confirm(form.dataset.confirm)) {
+            e.preventDefault();
+        }
+    });
+});
+</script>
+{% endblock %}

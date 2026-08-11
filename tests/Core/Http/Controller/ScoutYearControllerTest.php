@@ -15,6 +15,7 @@ use Core\Journal\JournalService;
 use Core\ScoutYear\ScoutYearAdminService;
 use Core\ScoutYear\ScoutYearResolver;
 use Core\ScoutYear\ScoutYearSession;
+use Modules\Registration\Api\ScoutYearTransitionVetoProvider;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Twig\Environment;
@@ -246,6 +247,125 @@ class ScoutYearControllerTest extends TestCase
 
         $this->assertStringContainsString('est terminée depuis le', $body);
         $this->assertStringContainsString('2024-2025', $body);
+    }
+
+    /**
+     * §8.38 — the registration module's veto, exercised at the controller
+     * layer: blocked at step 4, shown as a non-blocking warning at step 3,
+     * and refused server-side even when replayed directly (not merely a
+     * disabled button).
+     */
+    public function testActivatePublicBlockedWhenVetoReportsOpenRequests(): void
+    {
+        $controller = $this->buildControllerWithVeto(3);
+        $this->settingService->setInternal(ScoutYearResolver::SETTING_STAFF_YEAR, (string) $this->yearB);
+
+        $request = $this->post('/admin/scout-year/activate-public', ['_csrf_token' => $this->token, 'scout_year_id' => $this->yearB]);
+        $response = $controller->activatePublic($request, []);
+
+        $this->assertSame(302, $response->getStatusCode());
+        // The old (unset) public year is unchanged — the transition never happened.
+        $this->assertSame('0', $this->settingService->get(ScoutYearResolver::SETTING_PUBLIC_YEAR));
+        $this->assertJournalHas('scout_year_public_activation_blocked', 'security');
+    }
+
+    public function testActivatePublicBlockedEvenWhenReplayedDirectly(): void
+    {
+        // No prior GET, no button state — a bare POST straight to the
+        // endpoint, exactly like a replayed/forged request would look.
+        $controller = $this->buildControllerWithVeto(1);
+        $this->settingService->setInternal(ScoutYearResolver::SETTING_STAFF_YEAR, (string) $this->yearB);
+
+        $request = $this->post('/admin/scout-year/activate-public', ['_csrf_token' => $this->token, 'scout_year_id' => $this->yearB]);
+        $controller->activatePublic($request, []);
+
+        $this->assertSame('0', $this->settingService->get(ScoutYearResolver::SETTING_PUBLIC_YEAR));
+    }
+
+    public function testActivatePublicSucceedsWhenVetoReportsNothingOpen(): void
+    {
+        $controller = $this->buildControllerWithVeto(0);
+        $this->settingService->setInternal(ScoutYearResolver::SETTING_STAFF_YEAR, (string) $this->yearB);
+
+        $request = $this->post('/admin/scout-year/activate-public', ['_csrf_token' => $this->token, 'scout_year_id' => $this->yearB]);
+        $controller->activatePublic($request, []);
+
+        $this->assertSame((string) $this->yearB, $this->settingService->get(ScoutYearResolver::SETTING_PUBLIC_YEAR));
+    }
+
+    public function testActivateStaffNotBlockedByVeto(): void
+    {
+        // Step 3 only warns, never blocks — activating the staff year must
+        // still succeed with open requests present.
+        $controller = $this->buildControllerWithVeto(4);
+
+        $request = $this->post('/admin/scout-year/activate-staff', ['_csrf_token' => $this->token, 'scout_year_id' => $this->yearB]);
+        $response = $controller->activateStaff($request, []);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame((string) $this->yearB, $this->settingService->get(ScoutYearResolver::SETTING_STAFF_YEAR));
+    }
+
+    public function testIndexShowsNonBlockingWarningAtStepThree(): void
+    {
+        $controller = $this->buildControllerWithVeto(2);
+
+        $body = $controller->index(new Request('GET', '/admin/scout-year', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('2 demande', $body);
+        $this->assertStringContainsString('/config/inscriptions', $body);
+    }
+
+    public function testIndexShowsBlockingAlertAtStepFourAndDisablesActivation(): void
+    {
+        $controller = $this->buildControllerWithVeto(2);
+        $this->settingService->setInternal(ScoutYearResolver::SETTING_STAFF_YEAR, (string) $this->yearB);
+
+        $body = $controller->index(new Request('GET', '/admin/scout-year', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('Activation bloquée', $body);
+    }
+
+    public function testIndexHasNoWarningWhenNothingBlocks(): void
+    {
+        $controller = $this->buildControllerWithVeto(0);
+
+        $body = $controller->index(new Request('GET', '/admin/scout-year', [], [], [], []), [])->getBody();
+
+        $this->assertStringNotContainsString('Activation bloquée', $body);
+        $this->assertStringNotContainsString("ne sont pas encore clôturées", $body);
+    }
+
+    private function buildControllerWithVeto(int $blockingCount): ClockableScoutYearController
+    {
+        $scoutYearService = new ScoutYearService($this->pdo);
+        $resolver = new ScoutYearResolver($scoutYearService, $this->settingService, new MemberYearRepository($this->pdo));
+        $journalService = new JournalService(new JournalRepository($this->pdo));
+
+        $veto = $this->createMock(ScoutYearTransitionVetoProvider::class);
+        $veto->method('countBlockingRequests')->willReturn($blockingCount);
+        $adminService = new ScoutYearAdminService($this->settingService, $veto);
+
+        $templateDir = dirname(__DIR__, 4) . '/core/View/templates';
+        $twig = new Environment(new FilesystemLoader($templateDir), ['cache' => false, 'autoescape' => 'html']);
+        $twig->addGlobal('site_name', 'Test');
+        $twig->addGlobal('is_authenticated', true);
+        $twig->addGlobal('current_user_email', 'chief@test.com');
+        $twig->addGlobal('current_user_role', 'chief');
+        $twig->addGlobal('config_mode', false);
+        $twig->addGlobal('cookie_consent_given', true);
+        $twig->addGlobal('menus', null);
+        $twig->addGlobal('csp_nonce', 'test-nonce');
+        $twig->addFunction(new \Twig\TwigFunction('csrf_field', fn() => '<input type="hidden" name="_csrf_token" value="test">', ['is_safe' => ['html']]));
+        $twig->addFunction(new \Twig\TwigFunction('get_flash', fn() => null));
+        $twig->addFunction(new \Twig\TwigFunction('csrf_token', fn() => 'test'));
+        $twig->addFunction(new \Twig\TwigFunction('file_url', fn() => ''));
+        $twig->addFunction(new \Twig\TwigFunction('param', fn(string $k) => 'Test'));
+
+        $controller = new ClockableScoutYearController($twig, $resolver, $adminService, $scoutYearService, $journalService);
+        $controller->fakeNow = new \DateTimeImmutable('2026-08-15');
+
+        return $controller;
     }
 
     private function assertJournalHas(string $eventType, string $level): void

@@ -4,9 +4,28 @@
 // push arrives while a tab is open, immediately via the service worker's
 // postMessage (see public/sw.js's own 'push' handler) rather than waiting
 // out the next poll.
+//
+// Also keeps the installed app icon's OS-level badge (navigator.
+// setAppBadge()/clearAppBadge()) in sync with the same count. sw.js's own
+// 'push' handler already sets it while the app is closed (the one place
+// that still runs then) — but nothing used to clear or update it once the
+// app was reopened and notifications were read via the plain POST+redirect
+// mark-read/mark-all-read routes, so the OS badge could keep showing a
+// stale count (or stay stuck) indefinitely after everything was read. The
+// immediate refresh() call below (not just the 60s interval) closes that
+// gap: it runs on every page load, including the one right after a
+// mark-read redirect lands.
 (function () {
     var badges = document.querySelectorAll('.notification-badge');
-    if (badges.length === 0) return;
+
+    function syncAppBadge(count) {
+        if (!('setAppBadge' in navigator)) return;
+        if (count > 0) {
+            navigator.setAppBadge(count).catch(function () {});
+        } else if ('clearAppBadge' in navigator) {
+            navigator.clearAppBadge().catch(function () {});
+        }
+    }
 
     function render(count) {
         badges.forEach(function (badge) {
@@ -17,6 +36,7 @@
                 badge.classList.add('d-none');
             }
         });
+        syncAppBadge(count);
     }
 
     function refresh() {
@@ -33,6 +53,9 @@
             });
     }
 
+    if (badges.length === 0) return;
+
+    refresh();
     setInterval(refresh, 60000);
 
     if ('serviceWorker' in navigator) {

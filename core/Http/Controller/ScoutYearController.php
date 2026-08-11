@@ -12,6 +12,7 @@ use Core\Journal\JournalService;
 use Core\ScoutYear\ScoutYearAdminService;
 use Core\ScoutYear\ScoutYearResolver;
 use Core\ScoutYear\ScoutYearSession;
+use Core\ScoutYear\ScoutYearTransitionVetoedException;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\Security\Role;
@@ -53,6 +54,12 @@ class ScoutYearController extends AbstractController
         $targetId = $this->scoutYearService->ensureYear(ScoutYearService::nextLabel($publicYear['label']));
         $targetYear = $this->scoutYearService->findById($targetId);
 
+        // Registration module veto (§8.38) — 0 when the module is absent,
+        // disabled, or has nothing open. Step 3 shows this as a non-blocking
+        // warning; step 4 hard-blocks on it (enforced again, server-side, in
+        // activatePublic() below — this is only for the page's own display).
+        $blockingRequestCount = $this->adminService->countBlockingRegistrationRequests();
+
         $steps = $this->buildTransitionSteps(
             $targetYear,
             $publicYear,
@@ -81,10 +88,11 @@ class ScoutYearController extends AbstractController
             'years' => $this->resolver->listYears(),
             'member_count' => $this->resolver->countMembers($effective->id),
             'section_count' => $this->resolver->countSections($effective->id),
-            'can_activate_public' => $staffYear !== null,
+            'can_activate_public' => $staffYear !== null && $blockingRequestCount === 0,
             'target_year' => $targetYear,
             'transition_steps' => $steps,
             'current_step' => $currentStep,
+            'blocking_request_count' => $blockingRequestCount,
             // Non-blocking signal only (§8.26) — the transition itself is no
             // longer gated by any date, this just flags that nobody has run
             // it yet even though the calendar has moved past this year.
@@ -209,7 +217,27 @@ class ScoutYearController extends AbstractController
 
         $oldYearId = $this->resolver->getPublicYearId();
 
-        $this->adminService->activatePublicYear($yearId);
+        try {
+            $this->adminService->activatePublicYear($yearId);
+        } catch (ScoutYearTransitionVetoedException $e) {
+            $count = $e->getBlockingRequestCount();
+            $this->journalService->log(
+                'core',
+                'scout_year_public_activation_blocked',
+                'security',
+                "Bascule vers {$year['label']} refusée : {$count} demande(s) d'inscription non clôturée(s)",
+                ['blocking_request_count' => $count],
+                AuthSession::getUserAccountId()
+            );
+            FlashMessage::set('error', sprintf(
+                "Impossible de basculer : %d demande(s) d'inscription ne sont pas encore clôturées, toutes années confondues. "
+                . 'Traitez-les depuis la page de gestion des inscriptions avant de poursuivre — le traitement en masse '
+                . "(« tout refuser », « tout retirer ») y est disponible.",
+                $count
+            ));
+            return $this->redirect('/admin/scout-year');
+        }
+
         $this->journalService->log(
             'core',
             'scout_year_public_activated',

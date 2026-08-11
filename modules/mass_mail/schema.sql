@@ -1,6 +1,6 @@
 -- mass_mail module
 --
--- Mass emails sent to unit members. Two kinds of mailing lists:
+-- Mass emails sent to unit members. Three kinds of mailing lists:
 -- - "default" lists are never stored as rows — they're computed on the fly
 --   by Service\MailingListService (one per active section, "Membres actifs",
 --   "Chefs uniquement"), so a section becoming active/inactive at Desk
@@ -9,6 +9,10 @@
 --   resolved dynamically at every use (functions x sections criteria,
 --   never a cached member snapshot) — see mass_mail_list_functions/
 --   mass_mail_list_sections below.
+-- - "external" lists are never stored here either — contributed at
+--   request time by another module's Api\ExternalMailingListProvider
+--   (ARCHITECTURE.md §7.5), nullable, degrading to "no such list" when
+--   that module is disabled. See mass_mail_emails.list_type below.
 
 -- mass_mail_lists: a custom mailing list's identity/lifecycle. The
 -- selection criteria themselves live in the two junction tables below —
@@ -67,7 +71,13 @@ CREATE TABLE IF NOT EXISTS mass_mail_emails (
     subject VARCHAR(255) NOT NULL,
     body_html TEXT NOT NULL,
     section_id INT UNSIGNED NOT NULL,
-    list_type ENUM('default_section', 'default_active_members', 'default_chiefs', 'custom') NOT NULL,
+    -- 'external': a predefined, non-editable list contributed by another
+    -- module via Api\ExternalMailingListProvider (ARCHITECTURE.md §7.5) —
+    -- list_id/list_section_id both stay NULL for it, exactly like
+    -- 'default_active_members'/'default_chiefs'; the providing module
+    -- resolves its own single list fresh on every use, nothing to key
+    -- against here. Currently only the registration module provides one.
+    list_type ENUM('default_section', 'default_active_members', 'default_chiefs', 'custom', 'external') NOT NULL,
     list_id INT UNSIGNED NULL,
     list_section_id INT UNSIGNED NULL,
     status ENUM('draft', 'test', 'sending', 'sent') NOT NULL DEFAULT 'draft',

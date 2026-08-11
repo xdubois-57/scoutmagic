@@ -87,6 +87,30 @@
                         <div class="fw-semibold {{ step.done ? 'text-success-emphasis' : '' }}">{{ step.title }}</div>
                         <p class="text-body-secondary small mb-2">{{ step.description }}</p>
 
+                        {% if step.number == 3 and blocking_request_count > 0 %}
+                        <div class="alert alert-warning d-flex align-items-start gap-2 py-2 px-3 mb-2" role="alert">
+                            <i class="bi bi-exclamation-triangle-fill mt-1" aria-hidden="true"></i>
+                            <div class="small">
+                                {{ blocking_request_count }} demande(s) d'inscription ne sont pas encore clôturées
+                                (toutes années confondues). Cela n'empêche pas d'activer l'année pour le staff, mais
+                                bloquera l'étape 4 (activation pour tout le monde) tant qu'elles restent ouvertes.
+                                <a href="/config/inscriptions">Aller à la gestion des inscriptions</a>.
+                            </div>
+                        </div>
+                        {% endif %}
+                        {% if step.number == 4 and blocking_request_count > 0 %}
+                        <div class="alert alert-danger d-flex align-items-start gap-2 py-2 px-3 mb-2" role="alert">
+                            <i class="bi bi-x-octagon-fill mt-1" aria-hidden="true"></i>
+                            <div class="small">
+                                Activation bloquée : {{ blocking_request_count }} demande(s) d'inscription ne sont pas
+                                encore clôturées (toutes années confondues). Traitez-les — individuellement ou en
+                                masse (« tout refuser », « tout retirer ») — depuis la
+                                <a href="/config/inscriptions">page de gestion des inscriptions</a> avant de pouvoir
+                                basculer tout le monde vers la nouvelle année.
+                            </div>
+                        </div>
+                        {% endif %}
+
                         {% if step.action == 'preview' %}
                             <form method="post" action="/admin/scout-year/preview"
                                   class="d-flex flex-wrap gap-2 align-items-end">
@@ -156,7 +180,7 @@
                                     Activer pour tout le monde
                                 </button>
                             </form>
-                            {% if not can_activate_public %}
+                            {% if not staff_year %}
                             <p class="text-body-secondary small mb-0 mt-2">
                                 Activez d'abord une année pour le staff (étape 3).
                             </p>

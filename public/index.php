@@ -736,7 +736,7 @@ try {
 } catch (\Throwable $e) {
     $webPush = null;
     $journalService->log(
-        'core', 'vapid_construction_failed', 'error',
+        'core', 'vapid_construction_failed', 'info',
         'Configuration VAPID invalide : notifications push désactivées pour cette requête',
         ['message' => $e->getMessage()]
     );
@@ -1545,7 +1545,7 @@ $frontController->registerController(\Core\Http\Controller\WebhookController::cl
 ));
 $frontController->registerController(PasswordResetController::class, new PasswordResetController($twig, $passwordResetService));
 $frontController->registerController(ShortUrlController::class, new ShortUrlController($twig, $shortUrlService));
-$frontController->registerController(ImportController::class, new ImportController($twig, $importService, $scoutYearResolver, $importJournalRepo, $functionRepo, $storagePath));
+$frontController->registerController(ImportController::class, new ImportController($twig, $importService, $scoutYearResolver, $importJournalRepo, $functionRepo, $storagePath, $registrationReconciliation ?? null));
 $frontController->registerController(MemberController::class, new MemberController($twig, $memberService, $memberYearService, $journalService, $memberPageService));
 $frontController->registerController(
     \Core\Http\Controller\MemberEmailAddressController::class,
@@ -2196,6 +2196,243 @@ if (in_array('calendar', $moduleManager->getEnabledModuleIds(), true)) {
             $sectionService, $memberService, $scoutYearResolver, $journalService, $settingService, $moduleManager
         )
     );
+}
+
+if (in_array('registration', $moduleManager->getEnabledModuleIds(), true)) {
+    $registrationBaseUrl = (string) ($settingService->get('base_url') ?: '');
+    $registrationSiteName = (string) ($settingService->get('site_name') ?: 'Unité scoute');
+
+    $registrationRequestRepo = new \Modules\Registration\Repository\RegistrationRequestRepository($pdo, $encryptionService);
+    $registrationYearCodeRepo = new \Modules\Registration\Repository\RegistrationYearCodeRepository($pdo);
+    $registrationAgeBracketRepo = new \Modules\Registration\Repository\AgeBracketRepository($pdo);
+    $registrationSlotCapacityRepo = new \Modules\Registration\Repository\SlotCapacityRepository($pdo);
+    $registrationSecondaryEmailRepo = new \Modules\Registration\Repository\RegistrationSecondaryEmailRepository($pdo, $encryptionService);
+
+    $registrationSlotService = new \Modules\Registration\Service\SlotService(
+        $pdo, $encryptionService, $settingService, $registrationAgeBracketRepo, $registrationSlotCapacityRepo, $registrationRequestRepo
+    );
+    $registrationService = new \Modules\Registration\Service\RegistrationService(
+        $registrationRequestRepo, $registrationYearCodeRepo, $scoutYearResolver, $scoutYearService, $settingService,
+        $mailService, $editableContentService, $journalService, $registrationBaseUrl, $registrationSiteName
+    );
+    $registrationSecondaryEmailService = new \Modules\Registration\Service\SecondaryEmailService(
+        $registrationSecondaryEmailRepo, $mailService, $twig, $journalService, $registrationBaseUrl, $registrationSiteName
+    );
+    $registrationTrackingService = new \Modules\Registration\Service\TrackingService(
+        $registrationRequestRepo, $registrationSecondaryEmailRepo, $encryptionService
+    );
+    $registrationMenuHookService = new \Modules\Registration\Service\RegistrationMenuHookService($registrationTrackingService, $settingService);
+
+    // Iteration 5's staff-side services — status transitions, acceptance/
+    // refusal emails, the one migration path shared by automatic
+    // reconciliation and manual linking, and the household count Api\
+    // HouseholdRegistrationCountProvider implementation wired nullable into
+    // Core\Member\FeeEstimationService (ARCHITECTURE.md §7.5).
+    $registrationStatusService = new \Modules\Registration\Service\RequestStatusService($registrationRequestRepo, $journalService);
+    $registrationEmailService = new \Modules\Registration\Service\RequestEmailService(
+        $registrationRequestRepo, $mailService, $editableContentService, $journalService, $registrationBaseUrl, $registrationSiteName
+    );
+    $registrationMigrationService = new \Modules\Registration\Service\MigrationService(
+        $pdo, $registrationRequestRepo, $registrationSecondaryEmailRepo, $memberEmailRepository, $journalService
+    );
+    $registrationReconciliation = new \Modules\Registration\Service\ReconciliationService(
+        $pdo, $registrationRequestRepo, $encryptionService, $registrationMigrationService, $journalService
+    );
+    $registrationHouseholdCountService = new \Modules\Registration\Service\HouseholdRegistrationCountService($registrationRequestRepo);
+    $feeEstimationRepository = new \Core\Member\FeeEstimationRepository($pdo);
+    $feeEstimationService = new \Core\Member\FeeEstimationService($feeEstimationRepository, $encryptionService, $registrationHouseholdCountService);
+
+    $frontController->registerController(
+        \Modules\Registration\Controller\PublicRegistrationController::class,
+        new \Modules\Registration\Controller\PublicRegistrationController(
+            $twig, $registrationService, $registrationSlotService, $sectionService, $registrationAgeBracketRepo,
+            $scoutYearResolver, $memberService, $settingService, $humanCheckService
+        )
+    );
+    $frontController->registerController(
+        \Modules\Registration\Controller\TrackingController::class,
+        new \Modules\Registration\Controller\TrackingController(
+            $twig, $registrationTrackingService, $registrationSecondaryEmailService, $registrationRequestRepo
+        )
+    );
+    $frontController->registerController(
+        \Modules\Registration\Controller\RegistrationConfigController::class,
+        new \Modules\Registration\Controller\RegistrationConfigController(
+            $twig, $registrationAgeBracketRepo, $registrationSlotCapacityRepo, $registrationYearCodeRepo,
+            $ageBranchRepo, $scoutYearResolver, $scoutYearService, $registrationRequestRepo, $registrationSlotService,
+            $sectionService, $editableContentService, $registrationStatusService, $journalService
+        )
+    );
+    $frontController->registerController(
+        \Modules\Registration\Controller\RegistrationRequestController::class,
+        new \Modules\Registration\Controller\RegistrationRequestController(
+            $twig, $registrationRequestRepo, $registrationAgeBracketRepo, $sectionService, $feeCategoryRepo,
+            $feeEstimationService, $registrationStatusService, $registrationEmailService, $registrationMigrationService,
+            $memberRepo, $memberYearRepo, $scoutYearResolver, $scoutYearService, $registrationSlotService
+        )
+    );
+
+    // Iteration 6 — Départs (Core\Member\SectionStaffAuthorizationService/
+    // DepartureService are core, first actually consumed by this page) and
+    // Passage (own PassageService + SectionTransferRepository storage).
+    $registrationSectionStaffAuth = new \Core\Member\SectionStaffAuthorizationService($connection, $encryptionService, $sectionService);
+    $registrationDepartureService = new \Core\Member\DepartureService(
+        new \Core\Member\DepartureRepository($pdo, $encryptionService), $journalService
+    );
+    $frontController->registerController(
+        \Modules\Registration\Controller\DeparturesController::class,
+        new \Modules\Registration\Controller\DeparturesController(
+            $twig, $registrationSectionStaffAuth, $sectionService, $registrationDepartureService, $scoutYearResolver
+        )
+    );
+
+    $registrationSectionTransferRepo = new \Modules\Registration\Repository\SectionTransferRepository($pdo);
+    $registrationPassageService = new \Modules\Registration\Service\PassageService(
+        $pdo, $encryptionService, $sectionService, $registrationSectionTransferRepo, $registrationRequestRepo, $registrationAgeBracketRepo
+    );
+    $frontController->registerController(
+        \Modules\Registration\Controller\PassageController::class,
+        new \Modules\Registration\Controller\PassageController(
+            $twig, $registrationPassageService, $registrationRequestRepo, $registrationSectionTransferRepo, $sectionService,
+            $registrationAgeBracketRepo, $registrationSlotService, $scoutYearResolver, $scoutYearService
+        )
+    );
+
+    // Iteration 7 — the year-transition veto (Api\
+    // ScoutYearTransitionVetoProvider, ARCHITECTURE.md §7.5/§8.38): Core\
+    // ScoutYear\ScoutYearAdminService/ScoutYearController were already
+    // registered earlier (before this module's services existed, same
+    // ordering constraint as ImportController/mass_mail above) with a
+    // null veto — rebuilt and re-registered here with the real one.
+    $registrationScoutYearVeto = new \Modules\Registration\Service\ScoutYearTransitionVetoService($registrationRequestRepo);
+    $scoutYearAdminService = new ScoutYearAdminService($settingService, $registrationScoutYearVeto);
+    $frontController->registerController(
+        ScoutYearController::class,
+        new ScoutYearController($twig, $scoutYearResolver, $scoutYearAdminService, $scoutYearService, $journalService)
+    );
+
+    // Iteration 7 — "Prévisions" (own ForecastService, reusing
+    // PassageService::getAnimeMemberYears()/getBranchChanges()/
+    // getNewRegistrations() rather than recomputing any of them).
+    $registrationForecastService = new \Modules\Registration\Service\ForecastService(
+        $pdo, $encryptionService, $sectionService, $registrationPassageService
+    );
+    $frontController->registerController(
+        \Modules\Registration\Controller\ForecastController::class,
+        new \Modules\Registration\Controller\ForecastController(
+            $twig, $registrationForecastService, $scoutYearResolver, $scoutYearService, $registrationSlotService
+        )
+    );
+
+    // Re-registers ImportController with the real reconciliation trigger —
+    // the earlier registration (before this module's services existed)
+    // used a forward-reference `?? null` since $registrationReconciliation
+    // is only actually built here (same "re-register with the real
+    // provider" pattern as MemberController's own re-registration below).
+    $frontController->registerController(
+        ImportController::class,
+        new ImportController(
+            $twig, $importService, $scoutYearResolver, $importJournalRepo, $functionRepo, $storagePath, $registrationReconciliation
+        )
+    );
+
+    // Iteration 6's mailing list — Api\ExternalMailingListProvider,
+    // consumed optionally by mass_mail (ARCHITECTURE.md §7.5). mass_mail's
+    // own MailingListService/MassMailController/ConfigController were
+    // already registered earlier (before this module's services existed,
+    // same ordering constraint as ImportController above) — re-registered
+    // here with the real provider only when mass_mail is also enabled.
+    $registrationExternalMailingListService = new \Modules\Registration\Service\ExternalMailingListService(
+        $pdo, $encryptionService, $scoutYearResolver, $scoutYearService, $registrationRequestRepo
+    );
+    if (in_array('mass_mail', $moduleManager->getEnabledModuleIds(), true)) {
+        // $massMailService itself holds its own internal reference to the
+        // OLD $massMailListService built above (before this provider
+        // existed) — rebuilding just the list service wouldn't be enough,
+        // since PHP doesn't retroactively update an already-injected
+        // dependency. Both are rebuilt together here.
+        $massMailListService = new \Modules\MassMail\Service\MailingListService(
+            $massMailListRepo, $massMailResolutionRepo, $sectionService, $massMailFunctionRepo, $registrationExternalMailingListService
+        );
+        $massMailService = new \Modules\MassMail\Service\MassMailService(
+            $massMailEmailRepo, $massMailRecipientRepo, $massMailAttachmentRepo, $fileRepository,
+            $massMailListService, $memberService, $memberEmailService, $sectionService, $mailService, $schedulerService, $journalService,
+            new \Core\Security\HtmlSanitizer(), $scoutYearService, $importJournalRepo, $storagePath
+        );
+        $frontController->registerController(
+            \Modules\MassMail\Controller\MassMailController::class,
+            new \Modules\MassMail\Controller\MassMailController(
+                $twig, $massMailService, $massMailListService, $massMailAccessService, $memberService, $sectionService,
+                $scoutYearService, $importJournalRepo, $settingService, $uploadHandler, $fileRepository
+            )
+        );
+        $frontController->registerController(
+            \Modules\MassMail\Controller\ConfigController::class,
+            new \Modules\MassMail\Controller\ConfigController($twig, $massMailListService, $settingService)
+        );
+    }
+
+    // Bootstrap the recurring open/close pollers — Task\
+    // OpenRegistrationHandler/CloseRegistrationHandler re-schedule
+    // themselves hourly at the end of every run (same pattern as
+    // Modules\Retro\Task\PurgeRateLimitHandler), but the very first
+    // occurrence needs an initial nudge.
+    if ($schedulerService->find('registration', 'open_registration', 'poll') === null) {
+        $schedulerService->schedule('registration', 'open_registration', new DateTimeImmutable(), [], 'poll');
+    }
+    if ($schedulerService->find('registration', 'close_registration', 'poll') === null) {
+        $schedulerService->schedule('registration', 'close_registration', new DateTimeImmutable(), [], 'poll');
+    }
+    // Same bootstrap for the daily retention purge (Task\
+    // PurgeRegistrationRequestsHandler) — module-scoped handlers need no
+    // manual registerHandler() call in either entry point (auto-resolved
+    // via ModuleManager::getTaskHandler()), only this one-time nudge.
+    if ($schedulerService->find('registration', 'purge_registration_requests', 'daily') === null) {
+        $schedulerService->schedule('registration', 'purge_registration_requests', new DateTimeImmutable(), [], 'daily');
+    }
+
+    // Espace animés menu hook (Core\Module\EspaceAnimesEntryProvider,
+    // ARCHITECTURE.md §7.4) — one entry per pending registration request
+    // linked to the visitor's email. $menuBuilder->build() was already
+    // called above (before this module's services existed); addPage() only
+    // mutates MenuBuilder's own internal list, so calling build() again
+    // here safely picks up these entries too, and the Twig global is
+    // re-set to the refreshed array. The highlight/active-page scan above
+    // ran before these URLs existed, so it's re-applied here for exact
+    // matches only (same "isDynamic entries: exact match only" rule as the
+    // original scan — see its own comment).
+    if (AuthSession::isAuthenticated()) {
+        $registrationMenuEmail = AuthSession::getEmail();
+        if ($registrationMenuEmail !== null) {
+            $registrationMenuEntries = $registrationMenuHookService->getEntriesForEmail($registrationMenuEmail);
+            foreach ($registrationMenuEntries as $registrationMenuIndex => $registrationMenuEntry) {
+                $menuBuilder->addPage(
+                    MenuBuilder::MENU_ESPACE_ANIMES,
+                    $registrationMenuEntry['label'],
+                    $registrationMenuEntry['url'],
+                    'identified',
+                    1000 + $registrationMenuIndex,
+                    true,
+                    $registrationMenuEntry['subtitle'],
+                    MenuBuilder::GROUP_DYNAMIC
+                );
+            }
+            if ($registrationMenuEntries !== []) {
+                $menus = $menuBuilder->build();
+                $twig->addGlobal('menus', $menus);
+
+                foreach ($registrationMenuEntries as $registrationMenuEntry) {
+                    if ($registrationMenuEntry['url'] === $currentPath && strlen($registrationMenuEntry['url']) > $bestMatchLength) {
+                        $activeMenuId = MenuBuilder::MENU_ESPACE_ANIMES;
+                        $activePageUrl = $registrationMenuEntry['url'];
+                        $bestMatchLength = strlen($registrationMenuEntry['url']);
+                    }
+                }
+                $twig->addGlobal('active_menu_id', $activeMenuId);
+                $twig->addGlobal('active_page_url', $activePageUrl);
+            }
+        }
+    }
 }
 
 // Re-registers MemberController (and its MemberPageService) with

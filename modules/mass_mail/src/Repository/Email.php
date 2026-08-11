@@ -23,6 +23,13 @@ final class Email
     public const LIST_TYPE_DEFAULT_ACTIVE_MEMBERS = 'default_active_members';
     public const LIST_TYPE_DEFAULT_CHIEFS = 'default_chiefs';
     public const LIST_TYPE_CUSTOM = 'custom';
+    /**
+     * A predefined, non-editable list contributed by another module's
+     * Api\ExternalMailingListProvider (ARCHITECTURE.md §7.5) — list_id/
+     * list_section_id both stay NULL for it, same as the other two
+     * "always exactly one, nothing to key against" types above.
+     */
+    public const LIST_TYPE_EXTERNAL = 'external';
 
     /**
      * @param int[] $scoutYearIds One or more scout years this email targets — module addendum

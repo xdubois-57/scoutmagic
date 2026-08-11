@@ -134,4 +134,59 @@ class MailingListServiceTest extends TestCase
             $this->assertNotSame('', trim($list['description']));
         }
     }
+
+    public function testExternalListAbsentWhenNoProviderIsWired(): void
+    {
+        $types = array_column($this->service->getDefaultLists(), 'list_type');
+
+        $this->assertNotContains('external', $types);
+    }
+
+    public function testExternalListAppearsWhenProviderIsWired(): void
+    {
+        $provider = $this->createMock(\Modules\Registration\Api\ExternalMailingListProvider::class);
+        $provider->method('describeMailingList')->willReturn([
+            'label' => 'Inscriptions 2026-2027', 'description' => 'Demandes encodées pour 2026-2027.',
+        ]);
+        $service = new MailingListService(
+            new MailingListRepository($this->pdo), new MemberResolutionRepository($this->pdo, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32))),
+            new SectionService(Connection::withPdo($this->pdo), new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)), new MemberBadgeRepository($this->pdo)),
+            new FunctionRepository($this->pdo), $provider
+        );
+
+        $lists = $service->getDefaultLists();
+        $external = array_values(array_filter($lists, fn($l) => $l['list_type'] === 'external'));
+
+        $this->assertCount(1, $external);
+        $this->assertSame('Inscriptions 2026-2027', $external[0]['label']);
+        $this->assertNull($external[0]['list_section_id']);
+    }
+
+    public function testResolveMembersForYearsTagsExternalMembersWithTheProvidersOwnTargetYear(): void
+    {
+        $provider = $this->createMock(\Modules\Registration\Api\ExternalMailingListProvider::class);
+        $provider->method('resolveMailingListMembers')->willReturn([
+            ['member_id' => 42, 'email' => 'parent@example.com'],
+        ]);
+        $provider->method('targetScoutYearId')->willReturn(999);
+        $service = new MailingListService(
+            new MailingListRepository($this->pdo), new MemberResolutionRepository($this->pdo, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32))),
+            new SectionService(Connection::withPdo($this->pdo), new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)), new MemberBadgeRepository($this->pdo)),
+            new FunctionRepository($this->pdo), $provider
+        );
+
+        // The compose dialog's own year checkboxes (current year here) must
+        // NOT override the provider's own fixed target year (999).
+        $members = $service->resolveMembersForYears('external', null, null, [$this->scoutYearId]);
+
+        $this->assertCount(1, $members);
+        $this->assertSame(42, $members[0]['member_id']);
+        $this->assertSame(999, $members[0]['scout_year_id']);
+    }
+
+    public function testResolveMembersForYearsThrowsWhenExternalProviderIsMissing(): void
+    {
+        $this->expectException(MailingListException::class);
+        $this->service->resolveMembersForYears('external', null, null, [$this->scoutYearId]);
+    }
 }

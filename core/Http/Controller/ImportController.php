@@ -14,6 +14,7 @@ use Core\Import\ImportJournalRepository;
 use Core\ScoutYear\ScoutYearResolver;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
+use Modules\Registration\Api\ReconciliationTrigger;
 use Twig\Environment;
 
 class ImportController extends AbstractController
@@ -24,7 +25,8 @@ class ImportController extends AbstractController
         private ScoutYearResolver $scoutYearResolver,
         private ImportJournalRepository $importJournalRepo,
         private FunctionRepository $functionRepo,
-        private string $storagePath
+        private string $storagePath,
+        private ?ReconciliationTrigger $registrationReconciliation = null
     ) {
     }
 
@@ -108,6 +110,12 @@ class ImportController extends AbstractController
             }
             return $this->redirect('/admin/import');
         }
+
+        // Optional module hook (ARCHITECTURE.md §7.5) — confronts every
+        // 'accepted' registration request for this year against the
+        // members just imported. A no-op when the registration module is
+        // disabled ($registrationReconciliation is null then).
+        $this->registrationReconciliation?->reconcileForYear($scoutYearId);
 
         $currentYear = $this->scoutYearResolver->getCurrentPublicYear();
         $years = $this->scoutYearResolver->listYears();

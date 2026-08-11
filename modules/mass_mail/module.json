@@ -1,8 +1,8 @@
 {
   "id": "mass_mail",
   "name": "Envoi de mails",
-  "description": "Envoi de mails groupés aux membres de l'unité : listes de diffusion par défaut ou personnalisées, mode test, envoi en arrière-plan par lots, suivi détaillé des envois.",
-  "version": "1.4.0",
+  "description": "Envoi de mails groupés aux membres de l'unité : listes de diffusion par défaut ou personnalisées, mode test, envoi en arrière-plan par lots, suivi détaillé des envois. Accueille aussi, lorsque le module inscriptions est actif, une liste prédéfinie non modifiable pour l'année scoute cible.",
+  "version": "1.5.0",
   "enabled_by_default": false,
   "routes": [
     {

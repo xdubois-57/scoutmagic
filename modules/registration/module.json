@@ -1,0 +1,388 @@
+{
+  "id": "registration",
+  "name": "Inscriptions",
+  "description": "Parcours d'inscription complet : page publique avec places disponibles, formulaire de demande, accusés de réception par email, page de suivi pour les familles, gestion des demandes côté staff (acceptation, refus, rapprochement automatique à l'import Desk, rétention), préparation de l'année suivante (départs, passage entre sections, prévisions d'effectifs), veto sur la bascule d'année scoute tant que des demandes restent ouvertes, et liste de diffusion pour le module d'envoi de mails.",
+  "version": "4.0.0",
+  "enabled_by_default": false,
+  "routes": [
+    {
+      "path": "/inscriptions",
+      "method": "GET",
+      "controller": "Modules\\Registration\\Controller\\PublicRegistrationController",
+      "action": "index",
+      "menu": "notre_unite",
+      "role_min": "public",
+      "label": "Inscriptions",
+      "breadcrumb": { "label": "Inscriptions", "parents": ["Notre unité"] }
+    },
+    {
+      "path": "/inscriptions",
+      "method": "POST",
+      "controller": "Modules\\Registration\\Controller\\PublicRegistrationController",
+      "action": "submit",
+      "menu": "notre_unite",
+      "role_min": "public",
+      "label": ""
+    },
+    {
+      "path": "/inscriptions/suivi/{id}/{token}",
+      "method": "GET",
+      "controller": "Modules\\Registration\\Controller\\TrackingController",
+      "action": "showByToken",
+      "menu": "notre_unite",
+      "role_min": "public",
+      "label": ""
+    },
+    {
+      "path": "/inscriptions/suivi/demande/{id}",
+      "method": "GET",
+      "controller": "Modules\\Registration\\Controller\\TrackingController",
+      "action": "showLinked",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/inscriptions/suivi/demande/{id}/emails",
+      "method": "POST",
+      "controller": "Modules\\Registration\\Controller\\TrackingController",
+      "action": "addEmail",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/inscriptions/suivi/demande/{id}/emails/{email_id}/reactivate",
+      "method": "POST",
+      "controller": "Modules\\Registration\\Controller\\TrackingController",
+      "action": "reactivateEmail",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/inscriptions/suivi/demande/{id}/emails/{email_id}/remove",
+      "method": "POST",
+      "controller": "Modules\\Registration\\Controller\\TrackingController",
+      "action": "removeEmail",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/inscriptions/suivi/emails/confirm/{id}",
+      "method": "GET",
+      "controller": "Modules\\Registration\\Controller\\TrackingController",
+      "action": "confirmEmail",
+      "menu": "notre_unite",
+      "role_min": "public",
+      "label": ""
+    },
+    {
+      "path": "/config/inscriptions",
+      "method": "GET",
+      "controller": "Modules\\Registration\\Controller\\RegistrationConfigController",
+      "action": "index",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": "Inscriptions",
+      "breadcrumb": { "label": "Inscriptions", "parents": ["Configuration"] }
+    },
+    {
+      "path": "/config/inscriptions",
+      "method": "POST",
+      "controller": "Modules\\Registration\\Controller\\RegistrationConfigController",
+      "action": "save",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/config/inscriptions/code/regenerate",
+      "method": "POST",
+      "controller": "Modules\\Registration\\Controller\\RegistrationConfigController",
+      "action": "regenerateCode",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/config/inscriptions/code/deactivate",
+      "method": "POST",
+      "controller": "Modules\\Registration\\Controller\\RegistrationConfigController",
+      "action": "deactivateCode",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/config/inscriptions/bulk/refuse",
+      "method": "POST",
+      "controller": "Modules\\Registration\\Controller\\RegistrationConfigController",
+      "action": "bulkRefuse",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/config/inscriptions/bulk/withdraw",
+      "method": "POST",
+      "controller": "Modules\\Registration\\Controller\\RegistrationConfigController",
+      "action": "bulkWithdraw",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/config/inscriptions/demandes/{id}",
+      "method": "GET",
+      "controller": "Modules\\Registration\\Controller\\RegistrationRequestController",
+      "action": "show",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/config/inscriptions/demandes/{id}/accept",
+      "method": "POST",
+      "controller": "Modules\\Registration\\Controller\\RegistrationRequestController",
+      "action": "accept",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/config/inscriptions/demandes/{id}/refuse",
+      "method": "POST",
+      "controller": "Modules\\Registration\\Controller\\RegistrationRequestController",
+      "action": "refuse",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/config/inscriptions/demandes/{id}/withdraw",
+      "method": "POST",
+      "controller": "Modules\\Registration\\Controller\\RegistrationRequestController",
+      "action": "withdraw",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/config/inscriptions/demandes/{id}/revert",
+      "method": "POST",
+      "controller": "Modules\\Registration\\Controller\\RegistrationRequestController",
+      "action": "revert",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/config/inscriptions/demandes/{id}/intended-section",
+      "method": "POST",
+      "controller": "Modules\\Registration\\Controller\\RegistrationRequestController",
+      "action": "saveIntendedSection",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/config/inscriptions/demandes/{id}/fee-category",
+      "method": "POST",
+      "controller": "Modules\\Registration\\Controller\\RegistrationRequestController",
+      "action": "saveFeeCategory",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/config/inscriptions/demandes/{id}/notes",
+      "method": "POST",
+      "controller": "Modules\\Registration\\Controller\\RegistrationRequestController",
+      "action": "saveNotes",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/config/inscriptions/demandes/{id}/link",
+      "method": "POST",
+      "controller": "Modules\\Registration\\Controller\\RegistrationRequestController",
+      "action": "link",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/config/inscriptions/demandes/{id}/send-accepted-email",
+      "method": "POST",
+      "controller": "Modules\\Registration\\Controller\\RegistrationRequestController",
+      "action": "sendAcceptedEmail",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/config/inscriptions/demandes/{id}/send-refused-email",
+      "method": "POST",
+      "controller": "Modules\\Registration\\Controller\\RegistrationRequestController",
+      "action": "sendRefusedEmail",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/departs",
+      "method": "GET",
+      "controller": "Modules\\Registration\\Controller\\DeparturesController",
+      "action": "index",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": "Départs",
+      "breadcrumb": { "label": "Départs", "parents": ["Espace des chefs"] }
+    },
+    {
+      "path": "/departs/{member_year_id}",
+      "method": "POST",
+      "controller": "Modules\\Registration\\Controller\\DeparturesController",
+      "action": "update",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/passage",
+      "method": "GET",
+      "controller": "Modules\\Registration\\Controller\\PassageController",
+      "action": "index",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": "Passage",
+      "breadcrumb": { "label": "Passage", "parents": ["Espace des chefs"] }
+    },
+    {
+      "path": "/passage/inscription/{id}/section",
+      "method": "POST",
+      "controller": "Modules\\Registration\\Controller\\PassageController",
+      "action": "saveIntendedSection",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/passage/membre/{id}/destination",
+      "method": "POST",
+      "controller": "Modules\\Registration\\Controller\\PassageController",
+      "action": "saveDestination",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/previsions",
+      "method": "GET",
+      "controller": "Modules\\Registration\\Controller\\ForecastController",
+      "action": "index",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": "Prévisions",
+      "breadcrumb": { "label": "Prévisions", "parents": ["Espace des chefs"] }
+    }
+  ],
+  "settings": [
+    {
+      "key": "registration_form_open",
+      "default_value": "0",
+      "type": "boolean",
+      "label": "Formulaire ouvert",
+      "description": "Quand actif, la page publique affiche le formulaire d'inscription. Peut aussi être piloté par une ouverture/fermeture programmée ci-dessous."
+    },
+    {
+      "key": "registration_scheduled_open_at",
+      "default_value": "",
+      "type": "text",
+      "label": "Ouverture programmée",
+      "description": "Date et heure (AAAA-MM-JJ HH:MM) à laquelle le formulaire s'ouvre automatiquement. Laisser vide pour piloter l'ouverture manuellement uniquement."
+    },
+    {
+      "key": "registration_scheduled_close_at",
+      "default_value": "",
+      "type": "text",
+      "label": "Fermeture programmée",
+      "description": "Date et heure (AAAA-MM-JJ HH:MM) à laquelle le formulaire se ferme automatiquement. Laisser vide pour piloter la fermeture manuellement uniquement."
+    },
+    {
+      "key": "registration_waitlist_enabled",
+      "default_value": "0",
+      "type": "boolean",
+      "label": "Afficher la disponibilité des places",
+      "description": "Quand actif, la page publique affiche les places disponibles par créneau (disponible / attente limitée / attente importante) sous forme d'années de naissance. Quand inactif, cette section n'apparaît pas du tout."
+    },
+    {
+      "key": "registration_reference_date",
+      "default_value": "12-31",
+      "type": "text",
+      "label": "Date de référence pour le calcul de l'âge",
+      "description": "Jour et mois (MM-JJ) utilisés pour déterminer l'âge d'un enfant au sein de l'année scoute ciblée, et donc son créneau (branche × rang). Par défaut le 31 décembre (12-31)."
+    },
+    {
+      "key": "registration_waitlist_threshold_available",
+      "default_value": "0.5",
+      "type": "text",
+      "label": "Seuil « places disponibles »",
+      "description": "Ratio (0 à 1) de la capacité d'un créneau restant estimé au-delà duquel ce créneau est annoncé comme « places disponibles ». Ex. : 0.5 = au moins la moitié de la capacité encore libre."
+    },
+    {
+      "key": "registration_waitlist_threshold_limited",
+      "default_value": "0.1",
+      "type": "text",
+      "label": "Seuil « attente limitée »",
+      "description": "Ratio (0 à 1) de la capacité d'un créneau restant estimé au-delà duquel ce créneau est annoncé comme « attente limitée » plutôt que « attente importante ». Doit être inférieur au seuil « places disponibles »."
+    },
+    {
+      "key": "registration_unit_alert_email",
+      "default_value": "",
+      "type": "text",
+      "label": "Adresse d'alerte de l'unité",
+      "description": "Adresse email recevant une notification à chaque nouvelle demande d'inscription (prénom de l'enfant uniquement, jamais de coordonnées). Laisser vide pour désactiver cet envoi."
+    },
+    {
+      "key": "registration_parcours_image_file_id",
+      "default_value": "0",
+      "type": "number",
+      "label": "Image du parcours scout (interne)",
+      "description": "Identifiant du fichier téléversé remplaçant l'image du parcours scout livrée par défaut. Géré via le flux de téléversement générique, jamais modifié à la main."
+    },
+    {
+      "key": "registration_espace_animes_retention_months",
+      "default_value": "3",
+      "type": "number",
+      "label": "Disparition de l'Espace des animés (mois)",
+      "description": "Nombre de mois après le passage d'une demande refusée ou retirée dans son état final avant qu'elle ne disparaisse de l'Espace des animés de la famille. Une demande encodée dans Desk disparaît immédiatement, remplacée par la vraie fiche membre."
+    },
+    {
+      "key": "registration_purge_retention_years",
+      "default_value": "2",
+      "type": "number",
+      "label": "Suppression définitive (années)",
+      "description": "Nombre d'années après le passage d'une demande dans son état final (encodée dans Desk, refusée ou retirée) avant sa suppression définitive et irréversible. Une demande non finalisée n'est jamais supprimée."
+    }
+  ],
+  "cookies": [],
+  "scheduled_tasks": [
+    {
+      "key": "open_registration",
+      "handler": "Modules\\Registration\\Task\\OpenRegistrationHandler"
+    },
+    {
+      "key": "close_registration",
+      "handler": "Modules\\Registration\\Task\\CloseRegistrationHandler"
+    },
+    {
+      "key": "purge_registration_requests",
+      "handler": "Modules\\Registration\\Task\\PurgeRegistrationRequestsHandler"
+    }
+  ],
+  "storage": {}
+}
