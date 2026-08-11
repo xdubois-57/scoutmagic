@@ -9,4 +9,4 @@
 - [ ] All UI-facing text is in French
 - [ ] Automated tests are written/updated for this change
 - [ ] Tests pass locally (`vendor/bin/phpunit`)
-- [ ] PHPStan passes (`vendor/bin/phpstan analyse core/ --level=6`)
+- [ ] PHPStan passes (`vendor/bin/phpstan analyse` — covers `core/`, `modules/`, and `public/`)

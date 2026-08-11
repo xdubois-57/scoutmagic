@@ -1,5 +1,13 @@
+includes:
+  - phpstan-baseline.neon
+
 parameters:
   level: 6
   paths:
     - core
+    - modules
+    - public/index.php
+    - public/cron.php
   tmpDir: storage/temp/phpstan
+  excludePaths:
+    - modules/*/vendor/*
