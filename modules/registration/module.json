@@ -2,7 +2,7 @@
   "id": "registration",
   "name": "Inscriptions",
   "description": "Parcours d'inscription complet : page publique avec places disponibles, formulaire de demande, accusés de réception par email, page de suivi pour les familles, gestion des demandes côté staff (acceptation, refus, rapprochement automatique à l'import Desk, rétention), préparation de l'année suivante (départs, passage entre sections, prévisions d'effectifs), veto sur la bascule d'année scoute tant que des demandes restent ouvertes, et liste de diffusion pour le module d'envoi de mails.",
-  "version": "5.0.0",
+  "version": "6.0.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -93,6 +93,24 @@
       "method": "POST",
       "controller": "Modules\\Registration\\Controller\\RegistrationConfigController",
       "action": "save",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/config/inscriptions/toggle-open",
+      "method": "POST",
+      "controller": "Modules\\Registration\\Controller\\RegistrationConfigController",
+      "action": "toggleOpen",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/config/inscriptions/schedule",
+      "method": "POST",
+      "controller": "Modules\\Registration\\Controller\\RegistrationConfigController",
+      "action": "saveSchedule",
       "menu": "espace_admin",
       "role_min": "admin",
       "label": ""
@@ -300,17 +318,31 @@
     },
     {
       "key": "registration_scheduled_open_at",
-      "default_value": "",
+      "default_value": "09-30",
       "type": "text",
-      "label": "Ouverture programmée",
-      "description": "Date et heure (AAAA-MM-JJ HH:MM) à laquelle le formulaire s'ouvre automatiquement. Laisser vide pour piloter l'ouverture manuellement uniquement."
+      "label": "Ouverture programmée chaque année",
+      "description": "Jour et mois (MM-JJ) auxquels le formulaire s'ouvre automatiquement, chaque année (par défaut le 30 septembre, 09-30) — jamais d'année à indiquer, la même configuration se répète d'une année scoute à l'autre. Laisser vide pour piloter l'ouverture manuellement uniquement (voir Configuration > Inscriptions)."
     },
     {
       "key": "registration_scheduled_close_at",
+      "default_value": "08-31",
+      "type": "text",
+      "label": "Fermeture programmée chaque année",
+      "description": "Jour et mois (MM-JJ) auxquels le formulaire se ferme automatiquement, chaque année (par défaut le 31 août, 08-31) — jamais d'année à indiquer. Laisser vide pour piloter la fermeture manuellement uniquement (voir Configuration > Inscriptions)."
+    },
+    {
+      "key": "registration_scheduled_open_applied_on",
       "default_value": "",
       "type": "text",
-      "label": "Fermeture programmée",
-      "description": "Date et heure (AAAA-MM-JJ HH:MM) à laquelle le formulaire se ferme automatiquement. Laisser vide pour piloter la fermeture manuellement uniquement."
+      "label": "Dernière ouverture automatique appliquée",
+      "description": "Date (AAAA-MM-JJ) à laquelle l'ouverture programmée a été appliquée pour la dernière fois — empêche une nouvelle ouverture automatique le même jour. Géré automatiquement, ne pas modifier."
+    },
+    {
+      "key": "registration_scheduled_close_applied_on",
+      "default_value": "",
+      "type": "text",
+      "label": "Dernière fermeture automatique appliquée",
+      "description": "Date (AAAA-MM-JJ) à laquelle la fermeture programmée a été appliquée pour la dernière fois — empêche une nouvelle fermeture automatique le même jour. Géré automatiquement, ne pas modifier."
     },
     {
       "key": "registration_waitlist_enabled",

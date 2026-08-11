@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Modules\Registration\Controller;
 
 use Core\Config\ScoutYearService;
+use Core\Config\SettingService;
 use Core\Http\Controller\AbstractController;
 use Core\Http\FlashMessage;
 use Core\Http\Request;
@@ -69,7 +70,8 @@ class RegistrationConfigController extends AbstractController
         private SectionService $sectionService,
         private EditableContentService $editableContentService,
         private RequestStatusService $statusService,
-        private JournalService $journalService
+        private JournalService $journalService,
+        private SettingService $settingService
     ) {
     }
 
@@ -159,6 +161,82 @@ class RegistrationConfigController extends AbstractController
 
         FlashMessage::set('success', 'Code désactivé.');
         return $this->redirect('/config/inscriptions');
+    }
+
+    /**
+     * POST /config/inscriptions/toggle-open — immediate manual open/close
+     * of the public form, independent of the recurring schedule below (see
+     * Task\OpenRegistrationHandler's docblock: a manual toggle never
+     * touches the applied-on markers, so it never interferes with next
+     * year's automatic transition).
+     *
+     * @param array<string, string> $params
+     */
+    public function toggleOpen(Request $request, array $params): Response
+    {
+        if (!CsrfGuard::validateToken((string) $request->getBody('_csrf_token', ''))) {
+            FlashMessage::set('error', 'Jeton CSRF invalide.');
+            return $this->redirect('/config/inscriptions');
+        }
+
+        $isOpen = $this->settingService->get('registration_form_open', 'registration', '0') === '1';
+        $this->settingService->set('registration_form_open', $isOpen ? '0' : '1', 'registration');
+
+        $this->journalService->log(
+            'registration',
+            $isOpen ? 'registration_form_manually_closed' : 'registration_form_manually_opened',
+            'info',
+            $isOpen ? 'Formulaire d\'inscription fermé manuellement' : 'Formulaire d\'inscription ouvert manuellement'
+        );
+
+        FlashMessage::set('success', $isOpen ? 'Formulaire fermé.' : 'Formulaire ouvert.');
+        return $this->redirect('/config/inscriptions');
+    }
+
+    /**
+     * POST /config/inscriptions/schedule — saves the recurring MM-JJ
+     * open/close dates. Module.json-declared settings carry no validation
+     * regex (Module\ModuleManager::load()'s registration loop only passes
+     * key/default/type/label/description/moduleId to SettingService::
+     * register()), so the MM-DD format is validated here instead.
+     *
+     * @param array<string, string> $params
+     */
+    public function saveSchedule(Request $request, array $params): Response
+    {
+        if (!CsrfGuard::validateToken((string) $request->getBody('_csrf_token', ''))) {
+            FlashMessage::set('error', 'Jeton CSRF invalide.');
+            return $this->redirect('/config/inscriptions');
+        }
+
+        $openAt = trim((string) $request->getBody('scheduled_open_at', ''));
+        $closeAt = trim((string) $request->getBody('scheduled_close_at', ''));
+
+        if (!$this->isValidMonthDayOrEmpty($openAt) || !$this->isValidMonthDayOrEmpty($closeAt)) {
+            FlashMessage::set('error', 'Date invalide : utilisez le format MM-JJ (ex. 09-30), ou laissez vide.');
+            return $this->redirect('/config/inscriptions');
+        }
+
+        $this->settingService->set('registration_scheduled_open_at', $openAt, 'registration');
+        $this->settingService->set('registration_scheduled_close_at', $closeAt, 'registration');
+
+        FlashMessage::set('success', 'Programmation enregistrée.');
+        return $this->redirect('/config/inscriptions');
+    }
+
+    private function isValidMonthDayOrEmpty(string $monthDay): bool
+    {
+        if ($monthDay === '') {
+            return true;
+        }
+        if (preg_match('/^(\d{2})-(\d{2})$/', $monthDay, $matches) !== 1) {
+            return false;
+        }
+
+        // Leap-agnostic reference year — 02-29 is always accepted as a
+        // valid recurring date, exactly as SlotMath::referenceCalendarYear()
+        // treats this same MM-DD convention leap-agnostically elsewhere.
+        return checkdate((int) $matches[1], (int) $matches[2], 2024);
     }
 
     /**
@@ -266,6 +344,10 @@ class RegistrationConfigController extends AbstractController
 
             'notice_content' => $this->editableContentService->get(self::NOTICE_CONTENT_KEY, ''),
             'notice_content_key' => self::NOTICE_CONTENT_KEY,
+
+            'registration_form_open' => $this->settingService->get('registration_form_open', 'registration', '0') === '1',
+            'scheduled_open_at' => (string) $this->settingService->get('registration_scheduled_open_at', 'registration', ''),
+            'scheduled_close_at' => (string) $this->settingService->get('registration_scheduled_close_at', 'registration', ''),
 
             'selectable_years' => $years['selectable'],
             'target_year_id' => (int) $years['target']['id'],

@@ -45,6 +45,7 @@ class RegistrationConfigControllerTest extends TestCase
     private RegistrationConfigController $controller;
     private RegistrationRequestRepository $requestRepository;
     private ScoutYearService $scoutYearService;
+    private SettingService $settingService;
     private int $baladinsId;
     private int $currentYearId;
     private int $targetYearId;
@@ -66,8 +67,12 @@ class RegistrationConfigControllerTest extends TestCase
         $settingService->register('registration_reference_date', '12-31', 'text', 'Réf', 'desc', 'registration');
         $settingService->register('registration_waitlist_threshold_available', '0.5', 'text', 'Dispo', 'desc', 'registration');
         $settingService->register('registration_waitlist_threshold_limited', '0.1', 'text', 'Limité', 'desc', 'registration');
+        $settingService->register('registration_form_open', '0', 'boolean', 'Ouvert', 'desc', 'registration');
+        $settingService->register('registration_scheduled_open_at', '09-30', 'text', 'Ouverture', 'desc', 'registration');
+        $settingService->register('registration_scheduled_close_at', '08-31', 'text', 'Fermeture', 'desc', 'registration');
         $settingService->register(ScoutYearResolver::SETTING_PUBLIC_YEAR, '0', 'number', 'Public', 'desc', null, '^[0-9]+$', null, false);
         $settingService->register(ScoutYearResolver::SETTING_STAFF_YEAR, '0', 'number', 'Staff', 'desc', null, '^[0-9]+$', null, false);
+        $this->settingService = $settingService;
 
         $this->scoutYearService = new ScoutYearService($this->pdo);
         $this->currentYearId = $this->scoutYearService->ensureYear('2026-2027');
@@ -103,7 +108,7 @@ class RegistrationConfigControllerTest extends TestCase
         $this->controller = new RegistrationConfigController(
             $twig, $ageBracketRepository, $slotCapacityRepository, $yearCodeRepository,
             $scoutYearResolver, $this->scoutYearService, $this->requestRepository, $slotService, $sectionService,
-            $editableContentService, $statusService, $journalService
+            $editableContentService, $statusService, $journalService, $settingService
         );
 
         if (session_status() === PHP_SESSION_NONE) {
@@ -246,5 +251,88 @@ class RegistrationConfigControllerTest extends TestCase
         ], [], []), []);
 
         $this->assertSame('withdrawn', $this->requestRepository->findById($id)->status);
+    }
+
+    public function testToggleOpenRejectsInvalidCsrf(): void
+    {
+        $this->controller->toggleOpen(new Request('POST', '/config/inscriptions/toggle-open', [], [
+            '_csrf_token' => 'invalid',
+        ], [], []), []);
+
+        $this->assertSame('0', $this->settingService->get('registration_form_open', 'registration'));
+    }
+
+    public function testToggleOpenFlipsClosedToOpen(): void
+    {
+        $token = CsrfGuard::generateToken();
+        $this->controller->toggleOpen(new Request('POST', '/config/inscriptions/toggle-open', [], [
+            '_csrf_token' => $token,
+        ], [], []), []);
+
+        $this->assertSame('1', $this->settingService->get('registration_form_open', 'registration'));
+    }
+
+    public function testToggleOpenFlipsOpenToClosed(): void
+    {
+        $this->settingService->set('registration_form_open', '1', 'registration');
+
+        $token = CsrfGuard::generateToken();
+        $this->controller->toggleOpen(new Request('POST', '/config/inscriptions/toggle-open', [], [
+            '_csrf_token' => $token,
+        ], [], []), []);
+
+        $this->assertSame('0', $this->settingService->get('registration_form_open', 'registration'));
+    }
+
+    public function testSaveScheduleRejectsInvalidCsrf(): void
+    {
+        $this->controller->saveSchedule(new Request('POST', '/config/inscriptions/schedule', [], [
+            '_csrf_token' => 'invalid', 'scheduled_open_at' => '10-01', 'scheduled_close_at' => '07-01',
+        ], [], []), []);
+
+        $this->assertSame('09-30', $this->settingService->get('registration_scheduled_open_at', 'registration'));
+    }
+
+    public function testSaveScheduleAcceptsValidMonthDays(): void
+    {
+        $token = CsrfGuard::generateToken();
+        $this->controller->saveSchedule(new Request('POST', '/config/inscriptions/schedule', [], [
+            '_csrf_token' => $token, 'scheduled_open_at' => '10-01', 'scheduled_close_at' => '07-15',
+        ], [], []), []);
+
+        $this->assertSame('10-01', $this->settingService->get('registration_scheduled_open_at', 'registration'));
+        $this->assertSame('07-15', $this->settingService->get('registration_scheduled_close_at', 'registration'));
+    }
+
+    public function testSaveScheduleAcceptsEmptyToDisableAutomation(): void
+    {
+        $token = CsrfGuard::generateToken();
+        $this->controller->saveSchedule(new Request('POST', '/config/inscriptions/schedule', [], [
+            '_csrf_token' => $token, 'scheduled_open_at' => '', 'scheduled_close_at' => '',
+        ], [], []), []);
+
+        $this->assertSame('', $this->settingService->get('registration_scheduled_open_at', 'registration'));
+        $this->assertSame('', $this->settingService->get('registration_scheduled_close_at', 'registration'));
+    }
+
+    public function testSaveScheduleRejectsMalformedMonthDay(): void
+    {
+        $token = CsrfGuard::generateToken();
+        $this->controller->saveSchedule(new Request('POST', '/config/inscriptions/schedule', [], [
+            '_csrf_token' => $token, 'scheduled_open_at' => '2026-09-30', 'scheduled_close_at' => '08-31',
+        ], [], []), []);
+
+        // Rejected wholesale — neither field is saved on a bad request.
+        $this->assertSame('09-30', $this->settingService->get('registration_scheduled_open_at', 'registration'));
+    }
+
+    public function testSaveScheduleRejectsImpossibleCalendarDate(): void
+    {
+        $token = CsrfGuard::generateToken();
+        $this->controller->saveSchedule(new Request('POST', '/config/inscriptions/schedule', [], [
+            '_csrf_token' => $token, 'scheduled_open_at' => '02-30', 'scheduled_close_at' => '08-31',
+        ], [], []), []);
+
+        $this->assertSame('09-30', $this->settingService->get('registration_scheduled_open_at', 'registration'));
     }
 }
