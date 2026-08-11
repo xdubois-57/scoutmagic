@@ -70,6 +70,47 @@ class SchedulerRepositoryTest extends TestCase
         $this->assertSame('due_task', $due[0]['task_key']);
     }
 
+    public function testClaimOverdueMovesRowsToProcessing(): void
+    {
+        $stmt = $this->pdo->prepare(
+            "INSERT INTO scheduled_actions (module_id, task_key, run_at, status)
+             VALUES ('core', 'due_task', datetime('now', '-1 minute'), 'pending')"
+        );
+        $stmt->execute();
+
+        $due = $this->repo->claimOverdue();
+
+        $this->assertSame('processing', $due[0]['status']);
+    }
+
+    /**
+     * The bug this guards: claimOverdue() used to run a blanket
+     * "SET status = processing WHERE status = pending" UPDATE and then
+     * re-SELECT *every* row currently 'processing' — which would hand the
+     * same row back to a second caller too, since nothing distinguished
+     * "processing because I just claimed it" from "processing because an
+     * earlier claimOverdue() call already did". Two callers could then
+     * both run the same task's handler concurrently (e.g. two overlapping
+     * Task\InstallUpdateHandler runs both copying files over the live
+     * install at once). A second claimOverdue() call, simulating a second
+     * concurrent caller arriving after the first already claimed the row,
+     * must come back empty.
+     */
+    public function testClaimOverdueNeverReturnsARowAlreadyClaimedByAnEarlierCall(): void
+    {
+        $stmt = $this->pdo->prepare(
+            "INSERT INTO scheduled_actions (module_id, task_key, run_at, status)
+             VALUES ('core', 'due_task', datetime('now', '-1 minute'), 'pending')"
+        );
+        $stmt->execute();
+
+        $firstCaller = $this->repo->claimOverdue();
+        $secondCaller = $this->repo->claimOverdue();
+
+        $this->assertCount(1, $firstCaller);
+        $this->assertCount(0, $secondCaller);
+    }
+
     public function testCountAllReturnsZeroWhenEmpty(): void
     {
         $this->assertSame(0, $this->repo->countAll());

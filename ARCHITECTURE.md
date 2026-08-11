@@ -255,6 +255,8 @@ Generic key-value with type, label, description (NOT NULL), optional regex valid
 
 Two triggers (real cron + poor man's cron), atomic task claim. Modules declare handlers in `module.json`.
 
+**`SchedulerRepository::claimOverdue()`'s per-row claim**: genuinely atomic under concurrent callers (two requests' poor-man's-cron tail firing close together, or a real crontab hitting `public/cron.php` at the same moment a request does) — each candidate row is claimed via its own `UPDATE ... WHERE id = ? AND status = 'pending'`, and only a row whose `rowCount()` comes back 1 (i.e. THIS call's UPDATE actually flipped it) is returned to that caller. An earlier version ran one blanket `UPDATE ... WHERE status = 'pending'` covering every due row, then re-`SELECT`ed *every* row currently `'processing'` — indistinguishable from a row a concurrent caller had just claimed a moment earlier, so two callers could both receive the same row and both run its handler at once. This let two overlapping `Task\InstallUpdateHandler` runs both copy an extracted archive over the live install directory at the same time, once leaving a production site with a route in `module.json` pointing at a controller method the deployed `.php` file didn't actually have — `Core\Maintenance\GitHubWebhookService::handlePushEvent()` additionally cancels any still-`'pending'` (never a `'processing'` one already running) earlier push-triggered install before scheduling a new one, so two pushes seconds apart can no longer even queue two separate `install_update` rows that might both become due at once in the first place.
+
 ### 8.6 Event journal
 
 Central `JournalService::log()`. No personal data in entries. Modules never write their own log tables.

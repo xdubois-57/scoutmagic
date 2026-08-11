@@ -38,6 +38,7 @@ class GitHubWebhookService
     ];
 
     private const SCHEDULED_INSTALL_REFERENCE = 'scheduled_install';
+    private const PUSH_INSTALL_REFERENCE = 'push_install';
 
     public function __construct(
         private SettingService $settings,
@@ -220,11 +221,27 @@ class GitHubWebhookService
 
         $historyId = $this->updateHistoryRepository->create($installedVersion, $versionTo, false, null);
 
+        // A push arriving while a previous push's install is still merely
+        // *queued* (not yet claimed/running — cancelPending() only ever
+        // touches a still-'pending' row, never one already 'processing')
+        // replaces it, exactly like processRelease()'s own dedup above:
+        // only the newest commit should ever be waiting to install. Without
+        // this, two pushes seconds apart queue two separate install_update
+        // tasks that could both become due at once — Repository\
+        // SchedulerRepository::claimOverdue() now claims each row
+        // atomically so two concurrent requests can no longer BOTH run the
+        // same row's InstallUpdateHandler, but two *different* rows can
+        // still legitimately both be due and would then both copy an
+        // extracted archive over the live install directory around the
+        // same time. This dedup avoids ever creating that situation in the
+        // first place.
+        $this->schedulerService->cancelPending('core', 'install_update', self::PUSH_INSTALL_REFERENCE);
         $this->schedulerService->scheduleAfter(
             'core',
             'install_update',
             0,
-            ['history_id' => $historyId, 'download_url' => $downloadUrl, 'source_type' => 'branch']
+            ['history_id' => $historyId, 'download_url' => $downloadUrl, 'source_type' => 'branch'],
+            self::PUSH_INSTALL_REFERENCE
         );
 
         $this->journalService->log(

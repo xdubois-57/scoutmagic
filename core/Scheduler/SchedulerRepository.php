@@ -80,7 +80,28 @@ class SchedulerRepository
     }
 
     /**
-     * Atomically claim overdue tasks for processing.
+     * Atomically claim overdue tasks for processing — safe under concurrent
+     * callers (two requests racing the "poor man's cron" tail at the end of
+     * public/index.php, or a real crontab hitting public/cron.php at the
+     * same moment a request does). The previous implementation ran a
+     * blanket "SET status = processing WHERE status = pending" UPDATE and
+     * then re-SELECTed *every* row currently in 'processing' state — which
+     * hands back rows a concurrent call just claimed too, since the SELECT
+     * has no way to tell "processing because I just claimed it" from
+     * "processing because another caller did a moment ago". Two callers
+     * could then both run Task\InstallUpdateHandler for the very same
+     * install, each copying the extracted archive over the live install
+     * directory at the same time — exactly the kind of interleaved partial
+     * write that once left a production site with a route registered in
+     * module.json but the controller method it pointed to missing, because
+     * one copy's file tree and the other's got interleaved mid-copy.
+     *
+     * Fixed by claiming one candidate row at a time via its own
+     * `WHERE id = ? AND status = 'pending'` UPDATE and checking
+     * `rowCount()` — only a row THIS call's UPDATE actually flipped from
+     * pending to processing is counted as claimed by it; a row a
+     * concurrent caller already flipped a moment earlier simply reports
+     * zero affected rows here and is left for that other caller.
      *
      * @return array<int, array<string, mixed>>
      */
@@ -88,17 +109,34 @@ class SchedulerRepository
     {
         $now = (new \DateTimeImmutable())->format('Y-m-d H:i:s');
 
-        // Update pending tasks that are due
-        $stmt = $this->pdo->prepare(
-            "UPDATE scheduled_actions SET status = 'processing' WHERE status = 'pending' AND run_at <= ?"
+        $candidateStmt = $this->pdo->prepare(
+            "SELECT id FROM scheduled_actions WHERE status = 'pending' AND run_at <= ?"
         );
-        $stmt->execute([$now]);
+        $candidateStmt->execute([$now]);
+        $candidateIds = $candidateStmt->fetchAll(\PDO::FETCH_COLUMN);
 
-        // Fetch the claimed tasks
-        $stmt = $this->pdo->prepare(
-            "SELECT * FROM scheduled_actions WHERE status = 'processing'"
+        if ($candidateIds === []) {
+            return [];
+        }
+
+        $claimStmt = $this->pdo->prepare(
+            "UPDATE scheduled_actions SET status = 'processing' WHERE id = ? AND status = 'pending'"
         );
-        $stmt->execute();
+        $claimedIds = [];
+        foreach ($candidateIds as $id) {
+            $claimStmt->execute([(int) $id]);
+            if ($claimStmt->rowCount() === 1) {
+                $claimedIds[] = (int) $id;
+            }
+        }
+
+        if ($claimedIds === []) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($claimedIds), '?'));
+        $stmt = $this->pdo->prepare("SELECT * FROM scheduled_actions WHERE id IN ({$placeholders})");
+        $stmt->execute($claimedIds);
         return $stmt->fetchAll(\PDO::FETCH_ASSOC) ?: [];
     }
 
