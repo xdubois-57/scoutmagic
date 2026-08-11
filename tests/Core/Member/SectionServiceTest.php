@@ -155,6 +155,42 @@ class SectionServiceTest extends TestCase
         $this->assertNotContains('Petit Loup', $names);
     }
 
+    public function testGetSectionAnimesReturnsNonStaffMembersOnly(): void
+    {
+        $stmt = $this->pdo->prepare('SELECT id FROM age_branches WHERE desk_code = ?');
+        $stmt->execute(['BAL']);
+        $balId = (int) $stmt->fetchColumn();
+
+        $sectionId = $this->createSection('BAL01', $balId);
+        $this->createMemberInSection($sectionId, 'Alice', 'chief');
+        $this->createMemberInSection($sectionId, 'Bob', 'admin');
+        $this->createMemberInSection($sectionId, 'Petit Loup', 'identified');
+
+        $animes = $this->service->getSectionAnimes($sectionId, $this->scoutYearId);
+
+        $names = array_map(fn($p) => $p->firstName, $animes);
+        $this->assertSame(['Petit Loup'], $names);
+    }
+
+    public function testGetSectionAnimesIsScopedToOneSection(): void
+    {
+        $stmt = $this->pdo->prepare('SELECT id FROM age_branches WHERE desk_code = ?');
+        $stmt->execute(['BAL']);
+        $balId = (int) $stmt->fetchColumn();
+        $stmt->execute(['LOU']);
+        $louId = (int) $stmt->fetchColumn();
+
+        $sectionA = $this->createSection('BAL01', $balId);
+        $sectionB = $this->createSection('LOU01', $louId);
+        $this->createMemberInSection($sectionA, 'Petit Loup', 'identified');
+        $this->createMemberInSection($sectionB, 'Autre Loup', 'identified');
+
+        $animes = $this->service->getSectionAnimes($sectionA, $this->scoutYearId);
+
+        $names = array_map(fn($p) => $p->firstName, $animes);
+        $this->assertSame(['Petit Loup'], $names);
+    }
+
     public function testGetSectionStaffIncludesActiveBadges(): void
     {
         $stmt = $this->pdo->prepare('SELECT id FROM age_branches WHERE desk_code = ?');

@@ -216,6 +216,26 @@ class RegistrationRequestRepository
     }
 
     /**
+     * The real member id behind every 'encoded' request for $scoutYearId
+     * — Service\ExternalMailingListService's own candidate pool (module
+     * spec: the mailing list contributed to mass_mail only ever includes
+     * requests that made it all the way to a real Desk member; an
+     * 'accepted'-but-not-yet-encoded request has no `members` row to send
+     * to at all, which is exactly why it's excluded here).
+     *
+     * @return array<int>
+     */
+    public function findEncodedMemberIdsForYear(int $scoutYearId): array
+    {
+        $stmt = $this->pdo->prepare(
+            "SELECT linked_member_id FROM registration_requests WHERE scout_year_id = ? AND status = 'encoded' AND linked_member_id IS NOT NULL"
+        );
+        $stmt->execute([$scoutYearId]);
+
+        return array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN));
+    }
+
+    /**
      * Every 'accepted' request for $scoutYearId — Service\
      * ReconciliationService's own candidate pool at import time. Only the
      * id and name_dob_blind_index are needed for matching; the full

@@ -217,3 +217,28 @@ CREATE TABLE registration_year_codes (
     UNIQUE INDEX idx_ryc_year (scout_year_id),
     CONSTRAINT fk_ryc_year FOREIGN KEY (scout_year_id) REFERENCES scout_years(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Iteration 6 — "Passage" page: the destination section a chief picks for
+-- an existing member changing branch for the TARGET scout year (public
+-- year + 1, never the effective year — see Service\PassageService's own
+-- docblock for why). This is planning data, not a fact about the member:
+-- it belongs to the module, keyed on the permanent member_id (survives a
+-- scout year change) plus the target scout year, never written to
+-- member_years — Desk stays the sole source of truth once that year is
+-- actually activated and re-imported. A row simply stops being relevant
+-- (never purged) once its target year is no longer in the future; it is
+-- never read outside the Passage page itself.
+CREATE TABLE registration_section_transfers (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    member_id INT UNSIGNED NOT NULL,
+    target_scout_year_id INT UNSIGNED NOT NULL,
+    destination_section_id INT UNSIGNED NOT NULL,
+    -- PHP-computed on every write (never SQL's NOW() / ON UPDATE
+    -- CURRENT_TIMESTAMP — same portability rule as the rest of this
+    -- module, so the SQLite test database behaves identically).
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE INDEX idx_rst_member_year (member_id, target_scout_year_id),
+    CONSTRAINT fk_rst_member FOREIGN KEY (member_id) REFERENCES members(id) ON DELETE CASCADE,
+    CONSTRAINT fk_rst_year FOREIGN KEY (target_scout_year_id) REFERENCES scout_years(id) ON DELETE CASCADE,
+    CONSTRAINT fk_rst_section FOREIGN KEY (destination_section_id) REFERENCES sections(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

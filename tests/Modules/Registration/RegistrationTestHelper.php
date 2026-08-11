@@ -95,6 +95,18 @@ class RegistrationTestHelper
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (scout_year_id) REFERENCES scout_years(id)
         )');
+
+        $pdo->exec('CREATE TABLE registration_section_transfers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            member_id INTEGER NOT NULL,
+            target_scout_year_id INTEGER NOT NULL,
+            destination_section_id INTEGER NOT NULL,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(member_id, target_scout_year_id),
+            FOREIGN KEY (member_id) REFERENCES members(id),
+            FOREIGN KEY (target_scout_year_id) REFERENCES scout_years(id),
+            FOREIGN KEY (destination_section_id) REFERENCES sections(id)
+        )');
     }
 
     /**

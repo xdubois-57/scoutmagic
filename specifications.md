@@ -91,9 +91,11 @@ Site-wide settings, modules, functions.
 | Finances (module) | intendant | Bank statement import, receivables, receipts, movements |
 | Statistiques (module) | chief | Member statistics |
 | Calendrier (module) | chief | Chiefs' calendar view (month grid, event edit) |
-| Envoi de mails (module) | chief | Mass email to selected members/sections across one or more scout years |
+| Envoi de mails (module) | chief | Mass email to selected members/sections across one or more scout years; when the Inscriptions module is also active, an extra predefined, non-editable "Inscriptions {année cible}" list is available (see §18.3) |
 | Rétrospectives (module) | intendant | Create/manage post-activity retrospective boards |
 | Galerie (module) | chief | Manage photo/video albums |
+| Départs (module registration) | chief | Mark which of this year's animés won't be back next scout year, per section — see §18.1 |
+| Passage (module registration) | chief | Split arriving families and promoted animés between sections ahead of next scout year — see §18.2 |
 
 ### 4.4 Espace admin
 
@@ -393,3 +395,29 @@ A request still "en attente" or "acceptée" is never purged, however old.
 **Management page** (Espace admin > Inscriptions, §4.4): year selector (target year by default, plus the current and any past year still in the database — past years are consultation-only), the existing age-bracket/capacity/year-code configuration (§4.1 form setup), a capacity-verification table (capacity, projected headcount, accepted requests, remaining, and the same availability level shown to the public), the request list (searchable/filterable by state), and two encarts: unmatched accepted requests, and non-final requests with bulk "tout refuser"/"tout retirer" actions (each behind an explicit confirmation showing the exact count affected).
 
 **Fiche** (one per request): fields in the same order Desk itself asks for them. Everything the family submitted is read-only except two staff-only fields — "section prévue" (the section actually offered, distinct from and never shown alongside the family's own "section souhaitée" to the family, restricted to the child's own age branch) and "tarif" (a household-size-based suggestion, always overridable, using the same estimation as an existing member's fee category — counting other accepted/encoded requests at the same address alongside existing members). A free-form internal notes field (never shown to the family) completes the fiche, alongside the status banner and its available transitions.
+
+## 18. Registration module — Départs, Passage, mailing list (module registration)
+
+Two Espace des chefs pages that prepare the next scout year, plus an optional predefined list for the mass-mail module. See ARCHITECTURE.md §8.37 for implementation detail.
+
+### 18.1 Départs
+
+Espace des chefs, role `chief`. Scoped by section: an animateur/chief sees and can only act on the section(s) they staff; `admin`/`superadmin` see and can act on every section. For the selected section, lists this year's animés (never the section's own staff) with, per row, their year within their branch, a "won't be back next scout year" checkbox, and an optional comment that only appears once the checkbox is ticked.
+
+The mark applies to the current scout year only and resets itself automatically at the next Desk import — it never needs to be manually cleared from one year to the next, and the page says so explicitly. Saving is automatic (no save button); the checkbox and the comment save independently of each other, so two people editing the same section around the same time never have one field's save overwrite the other's. The comment is encrypted at rest and never appears in the audit journal, an error message, or a section its author doesn't staff.
+
+### 18.2 Passage
+
+Espace des chefs, role `chief`, **not** scoped by section (splitting arrivals across sections needs to see the whole unit). Always targets the current public scout year **plus one** — never whatever year an admin happens to be previewing, and never a staff year override. This is a deliberate exception to the rule that otherwise governs every page on the site.
+
+Two independent blocks:
+- **New registrations**: accepted-but-not-yet-Desk-encoded requests for the target year, with the child's targeted slot, the section requested by the parent, any remarks, each declared sibling together with that sibling's own current section, and a "section prévue" picker — the exact same field shown on that request's own fiche (§17.6): editing it here edits it there, and vice versa.
+- **Passages**: existing animés at the last year of their current branch (excluding anyone marked leaving in Départs, and excluding the oldest branch, which has nowhere further to go), grouped by their current section. Each row shows the animé's current year within their branch, everyone else at the **same address** (never called "fratrie" — a shared address can mean roommates or two families at one number just as easily as siblings, and is a different notion from the declared sibling links in the block above), and a destination picker limited to the sections of the branch they're moving into.
+
+The destination chosen for a passage is stored by the module itself (keyed on the member and the target year), never written onto the member's Desk-sourced record — Desk stays authoritative once that year is actually activated and re-imported.
+
+### 18.3 Mailing list for the mass-mail module
+
+When the mass-mail module (§4.3) is also active, its "nouvel email" list picker gains one extra, non-editable entry: **"Inscriptions {année scoute cible}"** — always named after the target year (never reused across years), containing every request that has been both accepted and encoded into Desk for that year (a still-pending, refused, or withdrawn request never appears). Its member list is recomputed at the moment an email actually sends, never fixed when the email is drafted. Available only to a chef d'unité (or above), same as the mass-mail module's own unit-wide lists. If the inscriptions module is disabled, this entry simply doesn't appear and the mass-mail module works exactly as it does today; if the mass-mail module is disabled, nothing changes on the inscriptions side.
+
+Sending both this list and, separately, a section list that now includes the same newly-encoded child will reach that family twice — the same is already true of any two overlapping mass-mail lists today, so this isn't a new failure mode, and no automatic cross-email deduplication exists (or is planned) to prevent it.

@@ -2272,6 +2272,32 @@ if (in_array('registration', $moduleManager->getEnabledModuleIds(), true)) {
         )
     );
 
+    // Iteration 6 — Départs (Core\Member\SectionStaffAuthorizationService/
+    // DepartureService are core, first actually consumed by this page) and
+    // Passage (own PassageService + SectionTransferRepository storage).
+    $registrationSectionStaffAuth = new \Core\Member\SectionStaffAuthorizationService($connection, $encryptionService, $sectionService);
+    $registrationDepartureService = new \Core\Member\DepartureService(
+        new \Core\Member\DepartureRepository($pdo, $encryptionService), $journalService
+    );
+    $frontController->registerController(
+        \Modules\Registration\Controller\DeparturesController::class,
+        new \Modules\Registration\Controller\DeparturesController(
+            $twig, $registrationSectionStaffAuth, $sectionService, $registrationDepartureService, $scoutYearResolver
+        )
+    );
+
+    $registrationSectionTransferRepo = new \Modules\Registration\Repository\SectionTransferRepository($pdo);
+    $registrationPassageService = new \Modules\Registration\Service\PassageService(
+        $pdo, $encryptionService, $sectionService, $registrationSectionTransferRepo, $registrationRequestRepo, $registrationAgeBracketRepo
+    );
+    $frontController->registerController(
+        \Modules\Registration\Controller\PassageController::class,
+        new \Modules\Registration\Controller\PassageController(
+            $twig, $registrationPassageService, $registrationRequestRepo, $registrationSectionTransferRepo, $sectionService,
+            $registrationAgeBracketRepo, $registrationSlotService, $scoutYearResolver, $scoutYearService
+        )
+    );
+
     // Re-registers ImportController with the real reconciliation trigger —
     // the earlier registration (before this module's services existed)
     // used a forward-reference `?? null` since $registrationReconciliation
@@ -2283,6 +2309,42 @@ if (in_array('registration', $moduleManager->getEnabledModuleIds(), true)) {
             $twig, $importService, $scoutYearResolver, $importJournalRepo, $functionRepo, $storagePath, $registrationReconciliation
         )
     );
+
+    // Iteration 6's mailing list — Api\ExternalMailingListProvider,
+    // consumed optionally by mass_mail (ARCHITECTURE.md §7.5). mass_mail's
+    // own MailingListService/MassMailController/ConfigController were
+    // already registered earlier (before this module's services existed,
+    // same ordering constraint as ImportController above) — re-registered
+    // here with the real provider only when mass_mail is also enabled.
+    $registrationExternalMailingListService = new \Modules\Registration\Service\ExternalMailingListService(
+        $pdo, $encryptionService, $scoutYearResolver, $scoutYearService, $registrationRequestRepo
+    );
+    if (in_array('mass_mail', $moduleManager->getEnabledModuleIds(), true)) {
+        // $massMailService itself holds its own internal reference to the
+        // OLD $massMailListService built above (before this provider
+        // existed) — rebuilding just the list service wouldn't be enough,
+        // since PHP doesn't retroactively update an already-injected
+        // dependency. Both are rebuilt together here.
+        $massMailListService = new \Modules\MassMail\Service\MailingListService(
+            $massMailListRepo, $massMailResolutionRepo, $sectionService, $massMailFunctionRepo, $registrationExternalMailingListService
+        );
+        $massMailService = new \Modules\MassMail\Service\MassMailService(
+            $massMailEmailRepo, $massMailRecipientRepo, $massMailAttachmentRepo, $fileRepository,
+            $massMailListService, $memberService, $memberEmailService, $sectionService, $mailService, $schedulerService, $journalService,
+            new \Core\Security\HtmlSanitizer(), $scoutYearService, $importJournalRepo, $storagePath
+        );
+        $frontController->registerController(
+            \Modules\MassMail\Controller\MassMailController::class,
+            new \Modules\MassMail\Controller\MassMailController(
+                $twig, $massMailService, $massMailListService, $massMailAccessService, $memberService, $sectionService,
+                $scoutYearService, $importJournalRepo, $settingService, $uploadHandler, $fileRepository
+            )
+        );
+        $frontController->registerController(
+            \Modules\MassMail\Controller\ConfigController::class,
+            new \Modules\MassMail\Controller\ConfigController($twig, $massMailListService, $settingService)
+        );
+    }
 
     // Bootstrap the recurring open/close pollers — Task\
     // OpenRegistrationHandler/CloseRegistrationHandler re-schedule

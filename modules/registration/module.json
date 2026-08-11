@@ -1,8 +1,8 @@
 {
   "id": "registration",
   "name": "Inscriptions",
-  "description": "Parcours d'inscription complet : page publique avec places disponibles, formulaire de demande, accusés de réception par email, page de suivi pour les familles, et gestion des demandes côté staff (acceptation, refus, rapprochement automatique à l'import Desk, rétention).",
-  "version": "2.0.0",
+  "description": "Parcours d'inscription complet : page publique avec places disponibles, formulaire de demande, accusés de réception par email, page de suivi pour les familles, gestion des demandes côté staff (acceptation, refus, rapprochement automatique à l'import Desk, rétention), préparation de l'année suivante (départs, passage entre sections) et liste de diffusion pour le module d'envoi de mails.",
+  "version": "3.0.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -230,6 +230,53 @@
       "action": "sendRefusedEmail",
       "menu": "espace_admin",
       "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/departs",
+      "method": "GET",
+      "controller": "Modules\\Registration\\Controller\\DeparturesController",
+      "action": "index",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": "Départs",
+      "breadcrumb": { "label": "Départs", "parents": ["Espace des chefs"] }
+    },
+    {
+      "path": "/departs/{member_year_id}",
+      "method": "POST",
+      "controller": "Modules\\Registration\\Controller\\DeparturesController",
+      "action": "update",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/passage",
+      "method": "GET",
+      "controller": "Modules\\Registration\\Controller\\PassageController",
+      "action": "index",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": "Passage",
+      "breadcrumb": { "label": "Passage", "parents": ["Espace des chefs"] }
+    },
+    {
+      "path": "/passage/inscription/{id}/section",
+      "method": "POST",
+      "controller": "Modules\\Registration\\Controller\\PassageController",
+      "action": "saveIntendedSection",
+      "menu": "espace_chefs",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/passage/membre/{id}/destination",
+      "method": "POST",
+      "controller": "Modules\\Registration\\Controller\\PassageController",
+      "action": "saveDestination",
+      "menu": "espace_chefs",
+      "role_min": "chief",
       "label": ""
     }
   ],
