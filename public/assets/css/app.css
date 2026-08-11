@@ -291,3 +291,19 @@ td code,
     height: 1px;
     overflow: hidden;
 }
+
+/* iOS Safari auto-zooms the page on focus for any text input/select/
+   textarea whose computed font-size is under 16px — Bootstrap's -sm form
+   control variants are 0.875rem (14px), so every compact table (Passage,
+   Départs, the config screens) triggered it. Fixed at the font-size
+   level, never via the viewport meta tag's user-scalable/maximum-scale
+   (that would disable pinch-zoom site-wide, a real accessibility
+   regression — WCAG 1.4.4 — for a cosmetic annoyance). 16px is the exact
+   threshold, not a rounder "safe" number, so this is the smallest change
+   that stops the zoom. Padding/border-radius/etc. from .form-control-sm/
+   .form-select-sm are left alone — only the font-size that actually
+   triggers the browser behavior is overridden. */
+.form-control-sm,
+.form-select-sm {
+    font-size: 16px;
+}

@@ -51,6 +51,26 @@
     };
     var HTML_SANITIZER_STRIP_WITH_CONTENT = ['script', 'style', 'iframe', 'object', 'embed', 'form', 'textarea', 'select'];
 
+    // Allowlist, not a denylist: a denylist of "dangerous" schemes
+    // (javascript:, data:, ...) always misses one (vbscript:, and
+    // whatever comes next) — only a fixed set of schemes we actually
+    // need for a link is ever accepted. No scheme at all (a relative
+    // URL, fragment, or query string) is safe and always allowed.
+    var URL_SCHEME_ALLOWLIST = ['http', 'https', 'mailto', 'tel'];
+
+    function isSafeUrlScheme(value) {
+        // Strip tabs/newlines/carriage-returns and leading/trailing
+        // whitespace the way a browser's URL parser does before reading
+        // the scheme, so an injected tab/newline (e.g. "java\tscript:")
+        // can't slip past a naive prefix check.
+        var normalized = String(value).replace(/[\t\r\n]+/g, '').trim().toLowerCase();
+        var schemeMatch = normalized.match(/^([a-z][a-z0-9+.-]*):/);
+        if (!schemeMatch) {
+            return true;
+        }
+        return URL_SCHEME_ALLOWLIST.indexOf(schemeMatch[1]) !== -1;
+    }
+
     function sanitizeHtmlAttributes(el, tagName) {
         var allowed = HTML_SANITIZER_ALLOWED_TAGS[tagName] || [];
         Array.prototype.slice.call(el.attributes).forEach(function (attr) {
@@ -59,11 +79,8 @@
                 el.removeAttribute(attr.name);
                 return;
             }
-            if (name === 'href') {
-                var value = attr.value.trim().toLowerCase();
-                if (value.indexOf('javascript:') === 0 || value.indexOf('data:') === 0) {
-                    el.removeAttribute(attr.name);
-                }
+            if (name === 'href' && !isSafeUrlScheme(attr.value)) {
+                el.removeAttribute(attr.name);
             }
         });
         if (tagName === 'a' && el.getAttribute('target') === '_blank') {
@@ -98,14 +115,20 @@
         }
     }
 
-    // Parses into an inert <template> fragment (never attached to the
-    // live document, so no image load / script execution can fire while
-    // walking it) and returns the tag/attribute-allowlisted HTML.
+    // Parses via DOMParser rather than assigning to some element's
+    // .innerHTML: the resulting Document has no browsing context, so
+    // (unlike a live element) it never loads images or runs scripts
+    // while we walk and strip it below. Also avoids ever writing
+    // unsanitized input into a live DOM property, even a detached one.
+    var HTML_SANITIZER_PARSER = new DOMParser();
+
     function sanitizeHtml(html) {
-        var template = document.createElement('template');
-        template.innerHTML = html || '';
-        sanitizeHtmlChildren(template.content);
-        return template.innerHTML;
+        var doc = HTML_SANITIZER_PARSER.parseFromString(
+            '<!DOCTYPE html><html><body>' + (html || '') + '</body></html>',
+            'text/html'
+        );
+        sanitizeHtmlChildren(doc.body);
+        return doc.body.innerHTML;
     }
 
     // --- Shared rich-text editor (module spec §11.5 — no modal, unlike
