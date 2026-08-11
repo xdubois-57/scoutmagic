@@ -1,5 +1,8 @@
 {% extends 'base.html.twig' %}
 {% block title %}Départs — {{ site_name }}{% endblock %}
+{% block stylesheets %}
+<link rel="stylesheet" href="/assets/css/components.css">
+{% endblock %}
 {% block content %}
     <div class="container py-4" style="max-width: 900px;">
         <h1 class="h3 mb-1">Départs</h1>
@@ -14,16 +17,15 @@
             <div class="alert alert-info">Vous n'êtes animateur d'aucune section.</div>
         {% else %}
             {% if sections|length > 1 %}
-                <form method="get" action="/departs" class="mb-4">
-                    <label class="form-label small" for="section_id">Section</label>
-                    <select class="form-select" id="section_id" name="section_id" onchange="this.form.submit()">
-                        {% for section in sections %}
-                            <option value="{{ section.id }}" {{ selected_section.id == section.id ? 'selected' : '' }}>{{ section.name ?? section.desk_code }}</option>
-                        {% endfor %}
-                    </select>
-                </form>
+                <div class="mb-4">
+                    {% include 'partials/section_picker.html.twig' with {
+                        sections: sections,
+                        selected_id: selected_section.id|default(0),
+                        base_url: '/departs?section_id='
+                    } %}
+                </div>
             {% else %}
-                <h2 class="h5 mb-3">{{ selected_section.name ?? selected_section.desk_code }}</h2>
+                <h2 class="h5 mb-3">Actuellement {{ selected_section.name ?? selected_section.desk_code }}</h2>
             {% endif %}
 
             <div class="table-responsive">

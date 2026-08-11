@@ -40,9 +40,12 @@ use Tests\Modules\Registration\RegistrationTestHelper;
 use Twig\Environment;
 
 /**
- * RBAC boundary for the "Départs"/"Passage"/"Prévisions" routes —
- * role_min: chief (the espace_chefs menu's own floor), one level below
- * (intendant) must be rejected.
+ * RBAC boundary for the "Départs"/"Prévisions" routes — role_min: chief
+ * (the espace_chefs menu's own floor), one level below (intendant) must be
+ * rejected. "Passage" lives one floor up (espace_admin, role_min: admin —
+ * it deliberately shows the whole unit at once, not just a staffed
+ * section) and gets its own pair of tests below rather than sharing this
+ * provider, since chief must now be REJECTED from it, not accepted.
  *
  * @group database
  */
@@ -125,7 +128,6 @@ class RegistrationChefsRbacTest extends TestCase
     {
         return [
             'departs' => ['/departs', 'DeparturesController', 'index'],
-            'passage' => ['/passage', 'PassageController', 'index'],
             'previsions' => ['/previsions', 'ForecastController', 'index'],
         ];
     }
@@ -137,7 +139,7 @@ class RegistrationChefsRbacTest extends TestCase
     {
         AuthSession::login(1, 'chief@example.com', 'chief');
 
-        $response = $this->dispatch($path, $controllerName, $action);
+        $response = $this->dispatch($path, $controllerName, $action, 'chief');
 
         $this->assertSame(200, $response->getStatusCode(), (string) $response->getBody());
     }
@@ -149,15 +151,39 @@ class RegistrationChefsRbacTest extends TestCase
     {
         AuthSession::login(1, 'intendant@example.com', 'intendant');
 
-        $response = $this->dispatch($path, $controllerName, $action);
+        $response = $this->dispatch($path, $controllerName, $action, 'chief');
 
         $this->assertSame(403, $response->getStatusCode());
     }
 
-    private function dispatch(string $path, string $controllerName, string $action): \Core\Http\Response
+    /**
+     * "Passage" is espace_admin/role_min: admin, not espace_chefs/chief
+     * like its siblings above — it shows the whole unit at once, so it
+     * sits one floor higher. Own pair of tests rather than routeProvider()
+     * since chief must be REJECTED here, the opposite of testChiefGetsPage().
+     */
+    public function testAdminGetsPassagePage(): void
+    {
+        AuthSession::login(1, 'admin@example.com', 'admin');
+
+        $response = $this->dispatch('/passage', 'PassageController', 'index', 'admin');
+
+        $this->assertSame(200, $response->getStatusCode(), (string) $response->getBody());
+    }
+
+    public function testChiefIsRejectedFromPassage(): void
+    {
+        AuthSession::login(1, 'chief@example.com', 'chief');
+
+        $response = $this->dispatch('/passage', 'PassageController', 'index', 'admin');
+
+        $this->assertSame(403, $response->getStatusCode());
+    }
+
+    private function dispatch(string $path, string $controllerName, string $action, string $minRole): \Core\Http\Response
     {
         $router = new Router();
-        $router->addRoute('GET', $path, "Modules\\Registration\\Controller\\{$controllerName}", $action, 'chief');
+        $router->addRoute('GET', $path, "Modules\\Registration\\Controller\\{$controllerName}", $action, $minRole);
 
         $configFile = sys_get_temp_dir() . '/test_registration_chefs_config_' . uniqid() . '.php';
         file_put_contents($configFile, "<?php\nreturn ['site_name' => 'Test', 'debug' => false];");

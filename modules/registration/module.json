@@ -256,18 +256,18 @@
       "method": "GET",
       "controller": "Modules\\Registration\\Controller\\PassageController",
       "action": "index",
-      "menu": "espace_chefs",
-      "role_min": "chief",
+      "menu": "espace_admin",
+      "role_min": "admin",
       "label": "Passage",
-      "breadcrumb": { "label": "Passage", "parents": ["Espace des chefs"] }
+      "breadcrumb": { "label": "Passage", "parents": ["Espace chefs d'U"] }
     },
     {
       "path": "/passage/inscription/{id}/section",
       "method": "POST",
       "controller": "Modules\\Registration\\Controller\\PassageController",
       "action": "saveIntendedSection",
-      "menu": "espace_chefs",
-      "role_min": "chief",
+      "menu": "espace_admin",
+      "role_min": "admin",
       "label": ""
     },
     {
@@ -275,8 +275,8 @@
       "method": "POST",
       "controller": "Modules\\Registration\\Controller\\PassageController",
       "action": "saveDestination",
-      "menu": "espace_chefs",
-      "role_min": "chief",
+      "menu": "espace_admin",
+      "role_min": "admin",
       "label": ""
     },
     {

@@ -165,6 +165,19 @@ class PassageControllerTest extends TestCase
         $this->assertStringContainsString('2027-2028', $response->getBody());
     }
 
+    public function testIndexAutoAssignsTheOnlyPossibleDestination(): void
+    {
+        // setUp only ever creates one Éclaireurs section — a last-rank
+        // Louveteau therefore has exactly one destination_options entry,
+        // so index() should persist it without staff picking anything.
+        $member = $this->createLouveteauLastRank();
+
+        $this->controller->index(new Request('GET', '/passage', [], [], [], []), []);
+
+        $destinations = $this->transferRepository->findDestinationsForMembers([$member['member_id']], $this->targetYearId);
+        $this->assertSame($this->eclaireursSectionId, $destinations[$member['member_id']] ?? null);
+    }
+
     public function testSaveIntendedSectionWritesTheSameFieldAsTheFiche(): void
     {
         $member = $this->createLouveteauLastRank();

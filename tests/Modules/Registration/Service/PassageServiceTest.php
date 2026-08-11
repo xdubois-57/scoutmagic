@@ -176,6 +176,21 @@ class PassageServiceTest extends TestCase
         $this->assertSame([$this->eclaireursSectionId], $optionIds);
     }
 
+    public function testGroupsAreOrderedByDeskCodeNotRawSectionId(): void
+    {
+        // 'LOUV0' sorts before the setUp's own 'LOUV1' by desk_code, but is
+        // created afterwards here, so it always gets the HIGHER (later)
+        // section id — a plain sort by raw id (the old ksort($grouped) on
+        // the string keys) would wrongly put 'Louveteaux A' (LOUV1) first.
+        $louvZeroSectionId = $this->createSection('LOUV0', $this->louveteauxBranchId, 'Louveteaux Zero');
+        $this->createMember('Alt', '2015-06-01', $louvZeroSectionId);
+        $this->createMember('Sacha', '2015-06-01', $this->louveteauxSectionId);
+
+        $changes = $this->service->getBranchChanges($this->currentYearId, '2026-2027', $this->targetYearId);
+
+        $this->assertSame(['Louveteaux Zero', 'Louveteaux A'], array_values(array_column($changes, 'section_label')));
+    }
+
     public function testHouseholdGroupsBySharedAddressNotSiblingDeclaration(): void
     {
         $sacha = $this->createMember('Sacha', '2015-06-01', $this->louveteauxSectionId, street: 'Rue de la Paix', postalCode: '1000');

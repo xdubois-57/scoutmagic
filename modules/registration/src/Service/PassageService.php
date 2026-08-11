@@ -179,9 +179,58 @@ class PassageService
             ];
         }
 
-        ksort($grouped);
+        // Branch (then desk_code) order — the same convention every other
+        // section listing on the site follows (SectionService::
+        // getAllWithBranches(), ARCHITECTURE.md §8.8), never the raw
+        // section id a plain ksort() on the string keys above would use.
+        // "none" (no current section) has no entry in $sectionSortKeys and
+        // sorts last.
+        $sectionSortKeys = [];
+        foreach ($sections as $section) {
+            $sectionSortKeys[$section['id']] = [$section['branch_sort_order'], $section['desk_code']];
+        }
+        uksort($grouped, static function (string $a, string $b) use ($sectionSortKeys): int {
+            $keyA = $sectionSortKeys[(int) $a] ?? [PHP_INT_MAX, ''];
+            $keyB = $sectionSortKeys[(int) $b] ?? [PHP_INT_MAX, ''];
+            return $keyA <=> $keyB;
+        });
 
         return $grouped;
+    }
+
+    /**
+     * Persists the destination for every branch-change member who has
+     * exactly one possible destination section and no destination chosen
+     * yet — there is no real decision to make (module spec's own "if
+     * there's only one possible section, just assign it" rule), so this
+     * saves staff from a pointless click.
+     *
+     * Deliberately a SEPARATE step from getBranchChanges() itself, called
+     * only from Controller\PassageController::index() — that method is
+     * also called by Service\ForecastService (explicitly read-only, module
+     * spec: "no route writes anything") and by PassageController's own
+     * arrivalSectionIdsForMember() (with a throwaway target year id of 0,
+     * only ever used to read destination_options back out). Auto-writing
+     * inside getBranchChanges() itself would fire on both of those too.
+     *
+     * @param array<string, array{section_label: string, members: array<int, array<string, mixed>>}> $branchChanges
+     * @return array<string, array{section_label: string, members: array<int, array<string, mixed>>}>
+     */
+    public function autoAssignSingleOptionDestinations(array $branchChanges, int $targetYearId): array
+    {
+        foreach ($branchChanges as $key => $group) {
+            foreach ($group['members'] as $index => $member) {
+                if ($member['destination_section_id'] !== null || count($member['destination_options']) !== 1) {
+                    continue;
+                }
+
+                $onlyOption = $member['destination_options'][0];
+                $this->transferRepository->setDestination($member['member_id'], $targetYearId, $onlyOption['id']);
+                $branchChanges[$key]['members'][$index]['destination_section_id'] = $onlyOption['id'];
+            }
+        }
+
+        return $branchChanges;
     }
 
     /**
