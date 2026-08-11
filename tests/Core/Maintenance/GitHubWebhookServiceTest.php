@@ -428,8 +428,35 @@ class GitHubWebhookServiceTest extends TestCase
         $history = $this->updateHistoryRepository->findById((int) $payload['history_id']);
         $this->assertSame('dev-a1b2c3d', $history->versionTo);
 
-        // Immediate — no weekly-slot reference, unlike the release path.
-        $this->assertNull($all[0]['reference']);
+        // Immediate — runs at once (delay 0), unlike the release path's
+        // weekly slot — but still carries its own reference so a rapid
+        // follow-up push can dedup it (see the test below).
+        $this->assertSame('push_install', $all[0]['reference']);
+    }
+
+    public function testHandlePushEventCancelsAStillPendingEarlierPushInstall(): void
+    {
+        $this->settings->set('auto_update_enabled', '1');
+        $this->settings->set('auto_update_level', 'dev');
+        $this->settings->set('dev_update_branch', 'main');
+        $this->settings->clearCache();
+
+        $this->service()->handlePushEvent($this->pushPayload('main', 'aaaaaaaaaaaa'));
+        $this->service()->handlePushEvent($this->pushPayload('main', 'bbbbbbbbbbbb'));
+
+        // Two rapid pushes must never leave two tasks both due at once —
+        // that's exactly what once let two InstallUpdateHandler runs copy
+        // over the live install directory at the same time. Only the
+        // second (newest) commit's install should still be pending.
+        $all = $this->schedulerRepository->findByModuleAndTaskKey('core', 'install_update', 10);
+        $this->assertCount(2, $all);
+        $statuses = array_column($all, 'status');
+        sort($statuses);
+        $this->assertSame(['canceled', 'pending'], $statuses);
+
+        $pending = array_values(array_filter($all, static fn(array $row) => $row['status'] === 'pending'))[0];
+        $payload = json_decode((string) $pending['payload'], true);
+        $this->assertSame('https://api.github.com/repos/owner/repo/zipball/bbbbbbbbbbbb', $payload['download_url']);
     }
 
     public function testHandlePushEventIgnoresAPushWithNoCommitSha(): void
