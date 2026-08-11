@@ -2,7 +2,19 @@
 
 declare(strict_types=1);
 
-require_once __DIR__ . '/../vendor/autoload.php';
+$composerAutoloader = require_once __DIR__ . '/../vendor/autoload.php';
+
+// Self-healing safety net for the "Update from GitHub" auto-update path
+// (Core\Maintenance\Task\InstallUpdateHandler), which copies tracked
+// repository files over the live install but never runs `composer
+// install`/`composer dump-autoload` — vendor/ is git-ignored, entirely
+// outside its reach, and this app targets fully-managed hosting where a
+// shell to run composer manually may not even exist. Without this, a new
+// module's very first commit (which always adds a PSR-4 entry to
+// composer.json) 500s with "Class not found" on every host whose vendor/
+// predates that commit. See Core\System\ComposerAutoloadSync's own
+// docblock for the full story.
+\Core\System\ComposerAutoloadSync::apply($composerAutoloader, __DIR__ . '/../composer.json');
 
 use Core\Badge\BadgeRepository;
 use Core\Badge\BadgeService;
