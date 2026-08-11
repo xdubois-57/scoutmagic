@@ -74,17 +74,36 @@ class MemberYearService
     }
 
     /**
-     * Map an age_branches.sort_order value (canonical order assigned by
+     * The BRANCHES entry (key, name, age_min/age_max, color) matching an
+     * age_branches.sort_order value (canonical order assigned by
      * AgeBranchRepository::canonicalSortOrder() at import time: 10/20/30/40
-     * for Baladins/Louveteaux/Éclaireurs/Pionniers) to that branch's display
-     * color. Branches outside the four animés branches (Staff d'U, Route,
-     * Iama, unknown) get a neutral gray.
+     * for Baladins/Louveteaux/Éclaireurs/Pionniers), or null for anything
+     * outside the four animés branches (Staff d'U, Route, Iama, unknown).
+     *
+     * The single central source for "what age range is this branch" —
+     * every feature that needs it (member_stats, the registration module's
+     * age brackets, ForecastService's segmented bars) reads it from here
+     * rather than keeping its own copy, so the federation's age boundaries
+     * can never drift out of sync between two features answering the same
+     * question two different ways.
+     *
+     * @return array{key: string, name: string, age_min: int, age_max: int, color: string}|null
      */
-    public static function colorForBranchSortOrder(int $sortOrder): string
+    public static function branchForSortOrder(int $sortOrder): ?array
     {
         $index = intdiv($sortOrder, 10) - 1;
 
-        return self::BRANCHES[$index]['color'] ?? '#6c757d';
+        return self::BRANCHES[$index] ?? null;
+    }
+
+    /**
+     * Map an age_branches.sort_order value to that branch's display color.
+     * Branches outside the four animés branches (Staff d'U, Route, Iama,
+     * unknown) get a neutral gray.
+     */
+    public static function colorForBranchSortOrder(int $sortOrder): string
+    {
+        return self::branchForSortOrder($sortOrder)['color'] ?? '#6c757d';
     }
 
     /**

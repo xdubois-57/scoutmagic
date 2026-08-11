@@ -47,7 +47,6 @@ class SlotServiceTest extends TestCase
         );
 
         $this->baladinsId = RegistrationTestHelper::insertAgeBranch($this->pdo, 'BALA', 'Baladins', 10);
-        $this->bracketRepository->upsert($this->baladinsId, 6, 2);
     }
 
     public function testBirthYearsByBranchListsOneYearPerYearInBranch(): void

@@ -5,10 +5,13 @@ declare(strict_types=1);
 namespace Modules\Registration\Repository;
 
 /**
- * One branch's configured age bracket: the age reached at year_in_branch 1,
- * and how many years the branch spans. Module-owned settings — see
- * schema.sql's registration_age_brackets comment for why this is never
- * Core\Member\MemberYearService::BRANCHES reused directly.
+ * One branch's age bracket: the age reached at year_in_branch 1, and how
+ * many years the branch spans. Read-only reflection of Core\Member\
+ * MemberYearService::BRANCHES (the same federation age ranges
+ * member_stats already uses) for the branch matching this bracket's
+ * branchSortOrder — never a second, independently admin-configurable copy
+ * of those numbers. See Repository\AgeBracketRepository for where these
+ * values actually come from.
  */
 final class AgeBracket
 {

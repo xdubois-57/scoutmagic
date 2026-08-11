@@ -54,8 +54,6 @@ class ForecastServiceTest extends TestCase
         $this->eclaireursBranchId = RegistrationTestHelper::insertAgeBranch($this->pdo, 'ECLA', 'Éclaireurs', 30);
 
         $ageBracketRepository = new AgeBracketRepository($this->pdo);
-        $ageBracketRepository->upsert($this->louveteauxBranchId, 8, 4);
-        $ageBracketRepository->upsert($this->eclaireursBranchId, 12, 4);
 
         $this->louveteauxSectionId = $this->createSection('LOUV1', $this->louveteauxBranchId, 'Louveteaux A');
         $this->eclaireursSectionId = $this->createSection('ECLA1', $this->eclaireursBranchId, 'Éclaireurs A');

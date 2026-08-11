@@ -13,7 +13,6 @@ use Core\Database\Connection;
 use Core\Http\FrontController;
 use Core\Http\Request;
 use Core\Http\Router;
-use Core\Import\AgeBranchRepository;
 use Core\Import\FeeCategoryRepository;
 use Core\Import\MemberRepository;
 use Core\Import\MemberYearRepository;
@@ -65,7 +64,6 @@ class RegistrationRbacTest extends TestCase
 
         $baladinsId = RegistrationTestHelper::insertAgeBranch($this->pdo, 'BALA', 'Baladins', 10);
         $ageBracketRepository = new AgeBracketRepository($this->pdo);
-        $ageBracketRepository->upsert($baladinsId, 6, 2);
 
         $settingService = new SettingService(new SettingRepository($this->pdo));
         $settingService->register('registration_reference_date', '12-31', 'text', 'Réf', 'desc', 'registration');
@@ -113,7 +111,7 @@ class RegistrationRbacTest extends TestCase
 
         $this->configController = new RegistrationConfigController(
             $twig, $ageBracketRepository, $slotCapacityRepository, new RegistrationYearCodeRepository($this->pdo),
-            new AgeBranchRepository($this->pdo), $scoutYearResolver, $scoutYearService, $requestRepository, $slotService,
+            $scoutYearResolver, $scoutYearService, $requestRepository, $slotService,
             $sectionService, $editableContentService, $statusService, $journalService
         );
         $this->requestController = new RegistrationRequestController(
