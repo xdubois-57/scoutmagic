@@ -112,7 +112,7 @@ class RegistrationRbacTest extends TestCase
         $this->configController = new RegistrationConfigController(
             $twig, $ageBracketRepository, $slotCapacityRepository, new RegistrationYearCodeRepository($this->pdo),
             $scoutYearResolver, $scoutYearService, $requestRepository, $slotService,
-            $sectionService, $editableContentService, $statusService, $journalService
+            $sectionService, $editableContentService, $statusService, $journalService, $settingService
         );
         $this->requestController = new RegistrationRequestController(
             $twig, $requestRepository, $ageBracketRepository, $sectionService, $feeCategoryRepository, $feeEstimationService,

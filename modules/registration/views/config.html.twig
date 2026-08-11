@@ -4,8 +4,49 @@
     <div class="container py-4" style="max-width: 1100px;">
         <h1 class="h3 mb-1">Gestion des inscriptions</h1>
         <p class="text-body-secondary small mb-4">
-            Les autres réglages (ouverture du formulaire, seuils d'affichage des places, adresse d'alerte...) se trouvent sur la page <a href="/config/settings">Paramètres</a>.
+            Les autres réglages (seuils d'affichage des places, adresse d'alerte...) se trouvent sur la page <a href="/config/settings">Paramètres</a>.
         </p>
+
+        <div class="card mb-4">
+            <div class="card-body">
+                <h2 class="h5 mb-3">Formulaire d'inscription</h2>
+                <p class="mb-3">
+                    État actuel :
+                    {% if registration_form_open %}
+                        <span class="badge bg-success">Ouvert</span>
+                    {% else %}
+                        <span class="badge bg-secondary">Fermé</span>
+                    {% endif %}
+                </p>
+                <form method="post" action="/config/inscriptions/toggle-open" class="mb-4">
+                    {{ csrf_field()|raw }}
+                    {% if registration_form_open %}
+                        <button type="submit" class="btn btn-outline-danger btn-sm">Fermer maintenant</button>
+                    {% else %}
+                        <button type="submit" class="btn btn-outline-success btn-sm">Ouvrir maintenant</button>
+                    {% endif %}
+                </form>
+
+                <h3 class="h6 mb-2">Programmation annuelle récurrente</h3>
+                <p class="text-body-secondary small mb-3">
+                    Jour et mois (format MM-JJ, sans année) — le formulaire s'ouvre et se ferme automatiquement à ces dates chaque année scoute, sans devoir reconfigurer. Laisser un champ vide pour piloter cette bascule uniquement à la main.
+                </p>
+                <form method="post" action="/config/inscriptions/schedule" class="row g-2 align-items-end">
+                    {{ csrf_field()|raw }}
+                    <div class="col-auto">
+                        <label class="form-label small mb-1" for="scheduled_open_at">Ouverture (MM-JJ)</label>
+                        <input type="text" class="form-control form-control-sm" id="scheduled_open_at" name="scheduled_open_at" value="{{ scheduled_open_at }}" placeholder="09-30" pattern="\d{2}-\d{2}" style="max-width:120px;">
+                    </div>
+                    <div class="col-auto">
+                        <label class="form-label small mb-1" for="scheduled_close_at">Fermeture (MM-JJ)</label>
+                        <input type="text" class="form-control form-control-sm" id="scheduled_close_at" name="scheduled_close_at" value="{{ scheduled_close_at }}" placeholder="08-31" pattern="\d{2}-\d{2}" style="max-width:120px;">
+                    </div>
+                    <div class="col-auto">
+                        <button type="submit" class="btn btn-outline-primary btn-sm">Enregistrer la programmation</button>
+                    </div>
+                </form>
+            </div>
+        </div>
 
         <div class="card mb-4">
             <div class="card-body">
