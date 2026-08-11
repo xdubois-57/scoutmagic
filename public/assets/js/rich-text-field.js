@@ -1,3 +1,8 @@
+/*!
+ * ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ * Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+ */
+
 // Generic reusable "rich text field" wiring — see
 // core/View/templates/partials/rich_text_field.html.twig and
 // partials/rich_text_edit_button.html.twig. Reuses the same shared

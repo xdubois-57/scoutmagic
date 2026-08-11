@@ -1,3 +1,8 @@
+/*!
+ * ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ * Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+ */
+
 (function() {
     var form = document.getElementById('setup-form');
     var mailMode = document.getElementById('mail_mode');

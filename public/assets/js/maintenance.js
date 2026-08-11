@@ -1,3 +1,8 @@
+/*!
+ * ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ * Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+ */
+
 // Configuration > Maintenance — "Sauvegarde automatique" frequency select:
 // auto-saves on change (same pattern as the banner module's per-item
 // visibility select's JS).

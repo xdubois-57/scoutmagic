@@ -1,3 +1,8 @@
+/*!
+ * ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ * Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+ */
+
 // partials/breadcrumb_bar.html.twig — a breadcrumb parent (e.g. "Espace
 // animés") never links to a specific page anymore: clicking it OPENS that
 // menu's section so the visitor picks the sub-page themselves, rather than

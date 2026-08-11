@@ -24,6 +24,17 @@ Thank you for considering contributing to this project.
 4. Ensure static analysis passes: `vendor/bin/phpstan analyse` (covers `core/`, `modules/`, and `public/index.php`/`public/cron.php` — the composition roots where controllers are wired up are in scope specifically because a wiring bug there only ever surfaces at runtime, never in an IDE or a unit test)
 5. Open a PR against `main` and fill in the PR template checklist.
 
+## License and attribution
+
+This project is licensed under AGPL-3.0-or-later (see [LICENSE](LICENSE)). By submitting a
+contribution, you agree that it is licensed under the same terms.
+
+Contributors are added to [NOTICE](NOTICE) as their contributions are merged. LICENSE also
+carries an additional permission under AGPL §7: a modified version of this project may not be
+distributed, or offered as a service, under the name "ScoutMagic" (or a confusingly similar
+name) without the copyright holder's prior written permission. This does not restrict
+contributing to or running this project — only publishing a modified fork under its name.
+
 ## Security issues
 
 Report security vulnerabilities privately — not via public issues. Contact the maintainer directly.

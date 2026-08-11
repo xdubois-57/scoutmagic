@@ -1,3 +1,8 @@
+/*!
+ * ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ * Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+ */
+
 // Shared live password complexity checklist — mirrors Core\Security\
 // PasswordPolicy exactly (5 rules, ≥12 chars). Reused by the password-reset
 // page and the account page's change-password box.

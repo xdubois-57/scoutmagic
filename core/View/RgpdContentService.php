@@ -1,4 +1,8 @@
 <?php
+/**
+ * ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ * Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+ */
 
 declare(strict_types=1);
 
@@ -132,13 +136,45 @@ class RgpdContentService
         }
 
         try {
-            return $this->sanitizeHtmlOutput($content);
+            $sanitized = $this->sanitizeHtmlOutput($content);
         } catch (\RuntimeException $e) {
             // Log the raw LLM response to help diagnose the issue
             error_log('RGPD AI Generation Error: ' . $e->getMessage());
             error_log('Raw LLM Response (first 1000 chars): ' . substr($content, 0, 1000));
             throw $e;
         }
+
+        $unitName = $this->settingService->get('site_name') ?: 'Unité scoute';
+        if (!$this->hasClearControllerDesignation($sanitized, $unitName)) {
+            // The system prompt requires the deploying unit to be named as
+            // data controller (never ScoutMagic or its author) — see rule
+            // 6bis in buildSystemPrompt(). If that didn't happen, the text
+            // must not be silently auto-saved and published (see save flow
+            // in RgpdConfigController::generate()); surfacing this as an
+            // exception routes it through that controller's existing
+            // catch-all error handling instead.
+            throw new \RuntimeException(
+                "Le contenu généré ne désigne pas clairement « {$unitName} » comme responsable du traitement — il n'a pas été enregistré. Réessayez, ou complétez les instructions personnalisées pour préciser le nom de l'unité."
+            );
+        }
+
+        return $sanitized;
+    }
+
+    /**
+     * Simple post-generation sanity check: does the generated text actually
+     * name the deploying unit as data controller? Not a full legal review —
+     * just a guard against the model silently omitting or genericizing the
+     * one thing rule 6bis of buildSystemPrompt() requires.
+     */
+    private function hasClearControllerDesignation(string $content, string $unitName): bool
+    {
+        $plainText = strip_tags($content);
+        if ($unitName === '' || stripos($plainText, $unitName) === false) {
+            return false;
+        }
+
+        return stripos($plainText, 'responsable du traitement') !== false;
     }
 
     /**
@@ -260,6 +296,7 @@ RÈGLES CRITIQUES (ne JAMAIS déroger) :
 4bis. **Espace animés (page membre)** : Section 2.2 doit conserver explicitement : (a) que l'espace personnel d'un membre peut afficher des documents qui lui sont propres (documents privés, ex. future attestation fiscale), chiffrés au repos et accessibles uniquement aux comptes explicitement liés à ce membre — jamais à un chef ou administrateur non lié, même avec un rôle plus élevé ; (b) que le nom complet et l'adresse postale du chef désigné responsable d'une section sont affichés, sur la page de chaque membre de cette section, aux comptes qui lui sont liés (le membre, ses parents) — jamais publiquement ; (c) que le site conserve un historique des sections auxquelles chaque membre a appartenu au fil des années (utilisé uniquement pour déterminer l'accès aux documents de section ci-dessous) ; (d) que les responsables d'une section peuvent y déposer des documents (carnets de camp, feuilles d'activité, etc.), chiffrés au repos, consultables par tout membre ayant appartenu à cette section — y compris les années passées, même si la section a depuis été masquée — et que les PDF peuvent être compressés automatiquement en arrière-plan, entièrement sur le serveur, sans aucun envoi à un service externe ; (e) qu'un chef ou animateur peut marquer qu'un animé ne reviendra probablement pas l'année suivante, avec un motif optionnel chiffré au repos, jamais visible dans le journal d'audit, et propre à l'année scoute en cours (il ne se reporte jamais d'une année à l'autre) ; (f) qu'un index aveugle est calculé sur une forme normalisée non lisible de l'adresse postale, utilisé uniquement pour suggérer une catégorie de cotisation selon le nombre de personnes au même foyer — jamais pour afficher ou reconstituer l'adresse elle-même
 5. **Modules actifs uniquement** : Retirer les sections des modules INACTIFS (comparer avec liste modules actifs)
 6. **Personnalisation obligatoire** : Remplacer {$unitName} et {$contactEmail} partout. Ne JAMAIS laisser de placeholder générique
+6bis. **Responsable du traitement — jamais ScoutMagic** : Le responsable du traitement décrit en section 1.1 est TOUJOURS {$unitName} (l'unité qui déploie ce site), jamais « ScoutMagic », son auteur ou ses contributeurs. Le contenu de référence l'illustre déjà (« le chef d'unité de notre unité scoute ») : personnalise cette désignation avec {$unitName} sans jamais la remplacer par le nom du logiciel ou de son éditeur. Le logiciel ScoutMagic n'est mentionné, le cas échéant, qu'à titre d'outil technique utilisé par l'unité (section 1.5), jamais comme partie responsable d'un traitement de données. Cette règle n'admet aucune exception, y compris si les instructions de l'administrateur ne précisent rien à ce sujet.
 7. **Délai raisonnable bénévoles** : Section 1.1 doit mentionner "délai raisonnable" car organisation bénévole, visant 1 mois art. 12.3
 8. **Hébergeur générique** : NE PAS demander à l'admin de remplir. Écrire "La localisation dépend de l'hébergeur sélectionné. Pour toute question, contacter le responsable."
 9. **IA provider** : Utiliser les infos exactes du fournisseur actif ({$providerInfo}, {$modelsInfo}) avec localisation et privacy policy

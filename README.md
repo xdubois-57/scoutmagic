@@ -2,6 +2,32 @@
 
 Open-source website for Belgian scout units in the "Les Scouts" federation.
 
+## Auteur
+
+ScoutMagic est développé et maintenu par Xavier Dubois.
+
+Voir [NOTICE](NOTICE) pour la liste des contributeurs et
+[LICENSE](LICENSE) pour les conditions de licence, y compris les conditions
+additionnelles relatives à l'usage du nom « ScoutMagic ».
+
+## Avertissement
+
+ScoutMagic est un logiciel libre fourni sans garantie d'aucune sorte,
+conformément à la licence AGPL-3.0 (voir LICENSE, sections 15-16).
+
+Toute unité qui déploie ScoutMagic agit en tant que responsable de
+traitement au sens du RGPD pour les données qu'elle y héberge : c'est à
+elle qu'incombent l'évaluation de la conformité RGPD, la sécurisation de
+son hébergement, la tenue du registre de traitement et la notification en
+cas de violation de données. L'auteur et les contributeurs du projet ne
+sont ni responsables de traitement ni sous-traitants pour les instances
+déployées par des tiers, et n'ont aucun accès aux données qui y sont
+hébergées.
+
+Une faille de sécurité découverte dans le code doit être signalée via
+[SECURITY.md](SECURITY.md). Les corrections sont apportées sur une base
+volontaire, sans garantie de délai.
+
 ## Features
 
 - Member management from Desk CSV import
@@ -12,7 +38,7 @@ Open-source website for Belgian scout units in the "Les Scouts" federation.
 - Modular architecture for extensibility
 - Encrypted personal data at rest
 - DKIM-signed transactional emails
-- Cookie consent management (ePrivacy compliant)
+- Cookie consent management (banner and preferences aligned with ePrivacy requirements)
 - Automated schema migration
 - Task scheduler (cron + poor man's cron)
 - Audit journal

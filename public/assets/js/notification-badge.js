@@ -1,3 +1,8 @@
+/*!
+ * ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ * Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+ */
+
 // Avatar notification badge (Core\Notification, Lot 2) — the count is
 // server-rendered on page load (nav.html.twig), refreshed every 60s (same
 // setInterval pattern as the backup-status/magic-link polls) and, when a

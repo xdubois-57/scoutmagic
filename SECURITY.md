@@ -2,6 +2,22 @@
 
 This document defines the non-negotiable security requirements for the project. Every contribution must comply. The RBAC guard, encryption, and file access guard are the three pillars — none may be bypassed.
 
+## Reporting a vulnerability
+
+Report security vulnerabilities privately — not via public GitHub issues — by contacting the
+maintainer directly. Include enough detail to reproduce the issue. There is no guaranteed
+response time; this project is maintained on a volunteer basis, and fixes are made as time
+allows.
+
+## Avertissement
+
+Les exigences de ce document décrivent les pratiques de sécurité visées
+par le projet. Leur respect n'emporte aucune garantie de sécurité absolue,
+conformément à l'exclusion de garantie de la licence AGPL-3.0 (voir
+LICENSE). La sécurité effective d'un déploiement dépend aussi de facteurs
+hors du contrôle du projet : configuration de l'hébergement, mises à jour
+appliquées, mots de passe et clés gérés par l'unité déployante.
+
 ## 1. Database access
 
 - Prepared statements everywhere (PDO). **No SQL concatenation, ever.**

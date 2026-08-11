@@ -1,3 +1,8 @@
+/*!
+ * ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ * Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+ */
+
 // Gallery module superadmin storage-location pages: the locations table on
 // config.html.twig (test/delete buttons), the album storage-migration table
 // on the same page, and the add/edit location form (location_form.html.twig:

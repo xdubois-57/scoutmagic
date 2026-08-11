@@ -1,3 +1,8 @@
+/*!
+ * ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ * Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+ */
+
 // Retro module public board (retro/board.html.twig): polling, comment
 // submission with AI-shorten, vote controls, hide/unhide, QR toggle, copy
 // link. Pure JS, no external library — same IIFE/var/fetch style as

@@ -1,3 +1,8 @@
+/*!
+ * ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ * Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+ */
+
 // Retro module chief-facing create/edit form (retro/config.html.twig):
 // vote-mode toggle, event-picker date sync, max-length slider live value.
 // Pure JS, no external library — same IIFE/var style as gallery-config.js.

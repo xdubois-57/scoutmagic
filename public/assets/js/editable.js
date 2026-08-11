@@ -1,3 +1,8 @@
+/*!
+ * ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ * Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+ */
+
 (function () {
     // Image upload — navigate to upload page. data-context lets other core
     // components (e.g. member_photo()) reuse this same overlay/click wiring

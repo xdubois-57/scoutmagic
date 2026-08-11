@@ -1,3 +1,8 @@
+/*!
+ * ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ * Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+ */
+
 // Generic reusable list editor — see
 // core/View/templates/partials/list_editor.html.twig. Knows nothing about
 // what an item "is"; only handles the list chrome: native HTML5

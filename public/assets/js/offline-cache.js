@@ -1,3 +1,8 @@
+/*!
+ * ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ * Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+ */
+
 // Offline content caching (Lot 3) — hands the server-declared whitelist
 // (Core\Offline\OfflineWhitelist), the staleness setting, and the current
 // functional-consent/account-scope state to the service worker on every

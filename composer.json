@@ -2,7 +2,13 @@
     "name": "les-scouts/unit-website",
     "description": "Open-source website for Belgian scout units (Les Scouts federation)",
     "type": "project",
-    "license": "AGPL-3.0-only",
+    "license": "AGPL-3.0-or-later",
+    "authors": [
+        {
+            "name": "Xavier Dubois",
+            "role": "Author & Maintainer"
+        }
+    ],
     "require": {
         "php": "^8.4",
         "twig/twig": "^3.0",

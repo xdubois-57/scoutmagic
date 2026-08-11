@@ -1,3 +1,8 @@
+/*!
+ * ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ * Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+ */
+
 // Notification preferences page (Core\Notification, Lot 2) — auto-saves
 // every toggle individually on change (no "Enregistrer" button). The Push
 // column is gated on Notification.permission rather than requesting it

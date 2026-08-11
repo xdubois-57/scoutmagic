@@ -1,3 +1,8 @@
+/*!
+ * ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ * Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+ */
+
 // Gallery module front-end: lightbox/player (album.html.twig), drag-and-drop
 // batch upload + media reorder/delete/cover (album_form.html.twig). Pure JS,
 // no external library — same IIFE/var/fetch style as list-editor.js.

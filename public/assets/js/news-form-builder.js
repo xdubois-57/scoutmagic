@@ -1,3 +1,8 @@
+/*!
+ * ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ * Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+ */
+
 // News module: article editor rich-text toolbar, visibility/SEO toggles,
 // the interactive form builder (field list add/edit/reorder/delete), and
 // the live payment total on the public submission form. One file since
