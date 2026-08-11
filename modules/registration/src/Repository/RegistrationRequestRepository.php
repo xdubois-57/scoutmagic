@@ -195,6 +195,22 @@ class RegistrationRequestRepository
     }
 
     /**
+     * Count of non-final requests (pending/accepted) across every scout
+     * year — Api\ScoutYearTransitionVetoProvider's own count, deliberately
+     * NOT scoped to one year ("toutes années cibles confondues", module
+     * spec): a request that targeted a past year and was simply never
+     * processed still blocks, so a forgotten backlog can never hide behind
+     * a year switch. Ids only would be pointless here — the veto only ever
+     * needs the count.
+     */
+    public function countNonFinalAllYears(): int
+    {
+        $stmt = $this->pdo->query("SELECT COUNT(*) FROM registration_requests WHERE status IN ('pending', 'accepted')");
+
+        return $stmt !== false ? (int) $stmt->fetchColumn() : 0;
+    }
+
+    /**
      * Every 'accepted' request for $scoutYearId, fully decrypted —
      * Service\SlotService buckets these into slots by birth date, same as
      * the public waitlist display, for both the admin capacity table's

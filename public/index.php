@@ -2298,6 +2298,32 @@ if (in_array('registration', $moduleManager->getEnabledModuleIds(), true)) {
         )
     );
 
+    // Iteration 7 — the year-transition veto (Api\
+    // ScoutYearTransitionVetoProvider, ARCHITECTURE.md §7.5/§8.38): Core\
+    // ScoutYear\ScoutYearAdminService/ScoutYearController were already
+    // registered earlier (before this module's services existed, same
+    // ordering constraint as ImportController/mass_mail above) with a
+    // null veto — rebuilt and re-registered here with the real one.
+    $registrationScoutYearVeto = new \Modules\Registration\Service\ScoutYearTransitionVetoService($registrationRequestRepo);
+    $scoutYearAdminService = new ScoutYearAdminService($settingService, $registrationScoutYearVeto);
+    $frontController->registerController(
+        ScoutYearController::class,
+        new ScoutYearController($twig, $scoutYearResolver, $scoutYearAdminService, $scoutYearService, $journalService)
+    );
+
+    // Iteration 7 — "Prévisions" (own ForecastService, reusing
+    // PassageService::getAnimeMemberYears()/getBranchChanges()/
+    // getNewRegistrations() rather than recomputing any of them).
+    $registrationForecastService = new \Modules\Registration\Service\ForecastService(
+        $pdo, $encryptionService, $sectionService, $registrationPassageService
+    );
+    $frontController->registerController(
+        \Modules\Registration\Controller\ForecastController::class,
+        new \Modules\Registration\Controller\ForecastController(
+            $twig, $registrationForecastService, $scoutYearResolver, $scoutYearService, $registrationSlotService
+        )
+    );
+
     // Re-registers ImportController with the real reconciliation trigger —
     // the earlier registration (before this module's services existed)
     // used a forward-reference `?? null` since $registrationReconciliation

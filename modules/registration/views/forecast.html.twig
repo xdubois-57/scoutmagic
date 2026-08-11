@@ -1,0 +1,172 @@
+{% extends 'base.html.twig' %}
+{% block title %}Prévisions — {{ site_name }}{% endblock %}
+
+{% block content %}
+    <div class="container py-4" style="max-width: 1100px;">
+        <h1 class="h3 mb-1">Prévisions</h1>
+        <p class="text-body-secondary small mb-3">
+            Effectif projeté pour l'année {{ target_year_label }} — toujours calculé sur l'année publique + 1, quelle
+            que soit l'année actuellement prévisualisée. Combine ce qui est déjà encodé dans Desk (certain), les
+            départs annoncés, les passages entre sections et les inscriptions acceptées (prévisionnel).
+        </p>
+
+        <p class="small text-body-secondary d-flex flex-wrap align-items-center gap-3 mb-4">
+            <span class="d-inline-flex align-items-center gap-1">
+                <i class="bi bi-check-circle-fill text-success" aria-hidden="true"></i>
+                <strong>Certain</strong> — déjà encodé dans Desk pour {{ target_year_label }}
+            </span>
+            <span class="d-inline-flex align-items-center gap-1">
+                <i class="bi bi-question-circle text-body-secondary" aria-hidden="true"></i>
+                <strong>Prévisionnel</strong> — passage ou inscription pas encore encodé(e), une hypothèse tant que
+                Desk ne l'a pas confirmée
+            </span>
+        </p>
+
+        {# Header stats #}
+        <div class="row g-2 g-md-3 mb-4">
+            {% set summary = [
+                { label: 'Effectif projeté', value: forecast.summary.projected_total, icon: 'bi-people-fill', tone: 'primary' },
+                { label: 'Variation', value: (forecast.summary.variation > 0 ? '+' : '') ~ forecast.summary.variation, icon: 'bi-arrow-left-right', tone: forecast.summary.variation < 0 ? 'danger' : 'success' },
+                { label: 'Départs annoncés', value: forecast.summary.departures_count, icon: 'bi-box-arrow-right', tone: 'secondary' },
+                { label: 'Entrées', value: forecast.summary.new_registrations_count, icon: 'bi-box-arrow-in-right', tone: 'info' }
+            ] %}
+            {% for card in summary %}
+                <div class="col-6 col-md-3">
+                    <div class="card h-100 border-0 shadow-sm">
+                        <div class="card-body py-3">
+                            <div class="text-body-secondary small d-flex align-items-center gap-2">
+                                <i class="bi {{ card.icon }} text-{{ card.tone }}"></i> {{ card.label }}
+                            </div>
+                            <div class="fs-3 fw-semibold lh-1 mt-1">{{ card.value }}</div>
+                        </div>
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+
+        {# Non attribués — planning not yet decided #}
+        <div class="card mb-4 {{ forecast.unassigned.total > 0 ? 'border-warning' : 'border-success' }}">
+            <div class="card-body">
+                <div class="d-flex flex-wrap align-items-center justify-content-between gap-2">
+                    <div>
+                        <h2 class="h6 mb-1">
+                            {% if forecast.unassigned.total > 0 %}
+                                <i class="bi bi-exclamation-triangle-fill text-warning" aria-hidden="true"></i>
+                            {% else %}
+                                <i class="bi bi-check-circle-fill text-success" aria-hidden="true"></i>
+                            {% endif %}
+                            Non attribués
+                        </h2>
+                        {% if forecast.unassigned.total > 0 %}
+                            <p class="small text-body-secondary mb-0">
+                                {{ forecast.unassigned.total }} personne(s) comptée(s) dans le total de l'unité et dans
+                                la pyramide, mais dans aucune section réelle tant qu'une décision n'est pas prise —
+                                {{ forecast.unassigned.from_passage }} passage(s) sans destination,
+                                {{ forecast.unassigned.from_registration }} inscription(s) sans section prévue.
+                            </p>
+                        {% else %}
+                            <p class="small text-body-secondary mb-0">
+                                Tout est attribué — les prévisions par section sont à jour.
+                            </p>
+                        {% endif %}
+                    </div>
+                    <a href="/passage" class="btn btn-sm btn-outline-secondary text-nowrap">
+                        Aller à la page Passage
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        {# Per-section breakdown #}
+        {% for section in forecast.sections %}
+            <section class="card mb-3">
+                <div class="card-body">
+                    <div class="d-flex align-items-center gap-2 mb-2">
+                        <span class="d-inline-block rounded-circle flex-shrink-0"
+                              style="width: 0.9rem; height: 0.9rem; background-color: {{ section.color }};"></span>
+                        <h2 class="h5 mb-0">{{ section.label }}</h2>
+                        <span class="badge bg-light text-body border">{{ section.total }} au total</span>
+                    </div>
+                    <p class="small text-body-secondary mb-2">
+                        <i class="bi bi-check-circle-fill text-success" aria-hidden="true"></i> {{ section.certain_total }} certain(s)
+                        <span class="mx-1">·</span>
+                        <i class="bi bi-question-circle text-body-secondary" aria-hidden="true"></i> {{ section.hypothesis_total }} prévisionnel(s)
+                    </p>
+
+                    {# Répartition par année de parcours — one segmented bar #}
+                    {% set max_year = section.total_years_in_branch %}
+                    <div class="d-flex align-items-center gap-1 mb-3" style="height: 30px;" role="img"
+                         aria-label="Répartition par année de parcours pour {{ section.label }}">
+                        {% for y in 1..max_year %}
+                            {% set count = section.year_segments[y]|default(0) %}
+                            {% set width = section.total > 0 ? (count / section.total * 100) : 0 %}
+                            {% if count > 0 %}
+                                <span class="d-flex align-items-center justify-content-center text-white fw-semibold small rounded"
+                                      style="flex-grow: {{ count }}; min-width: 1.75rem; height: 100%; background-color: {{ section.color }}; opacity: {{ 0.55 + (0.45 * y / max_year) }};"
+                                      title="{{ y }}e année — {{ count }}">
+                                    {{ count }}
+                                </span>
+                            {% endif %}
+                        {% endfor %}
+                        {% if section.total == 0 %}
+                            <span class="text-body-secondary small">Aucun membre projeté.</span>
+                        {% endif %}
+                    </div>
+
+                    {# Gender balance — one divided bar #}
+                    {% if section.gender.total > 0 %}
+                        {% set male_pct = (section.gender.male / section.gender.total * 100)|round %}
+                        {% set female_pct = (section.gender.female / section.gender.total * 100)|round %}
+                        <div class="d-flex rounded overflow-hidden small" style="height: 24px;" role="img"
+                             aria-label="Équilibre filles/garçons pour {{ section.label }}">
+                            {% if section.gender.male > 0 %}
+                                <div class="d-flex align-items-center justify-content-center text-white bg-info"
+                                     style="width: {{ male_pct }}%;">{{ male_pct }}% G</div>
+                            {% endif %}
+                            {% if section.gender.female > 0 %}
+                                <div class="d-flex align-items-center justify-content-center text-white bg-danger"
+                                     style="width: {{ female_pct }}%;">{{ female_pct }}% F</div>
+                            {% endif %}
+                        </div>
+                    {% endif %}
+                </div>
+            </section>
+        {% endfor %}
+
+        {# Pyramid by birth year, unit-wide #}
+        <div class="card mb-3">
+            <div class="card-body">
+                <h2 class="h5 mb-1">Pyramide par année de naissance</h2>
+                <p class="small text-body-secondary mb-3">
+                    Toute l'unité, non attribués compris — un creux annonce une section qui se videra dans deux ou
+                    trois ans.
+                </p>
+                {% if forecast.pyramid|length == 0 %}
+                    <p class="text-body-secondary small mb-0">Aucune donnée.</p>
+                {% else %}
+                    <div class="d-flex flex-column gap-1">
+                        {% for birth_year, row in forecast.pyramid %}
+                            {% set male_width = forecast.pyramid_max > 0 ? (row.male / forecast.pyramid_max * 50) : 0 %}
+                            {% set female_width = forecast.pyramid_max > 0 ? (row.female / forecast.pyramid_max * 50) : 0 %}
+                            <div class="d-flex align-items-center gap-2">
+                                <div class="d-flex justify-content-end" style="width: 42%;">
+                                    <span class="d-flex align-items-center justify-content-end text-white small rounded-start bg-info px-1"
+                                          style="width: {{ male_width }}%; min-width: {{ row.male > 0 ? '1.5rem' : '0' }}; height: 22px;">
+                                        {% if row.male > 0 %}{{ row.male }}{% endif %}
+                                    </span>
+                                </div>
+                                <span class="text-body-secondary small text-nowrap" style="width: 3.5rem; text-align: center;">{{ birth_year }}</span>
+                                <div class="d-flex justify-content-start" style="width: 42%;">
+                                    <span class="d-flex align-items-center justify-content-start text-white small rounded-end bg-danger px-1"
+                                          style="width: {{ female_width }}%; min-width: {{ row.female > 0 ? '1.5rem' : '0' }}; height: 22px;">
+                                        {% if row.female > 0 %}{{ row.female }}{% endif %}
+                                    </span>
+                                </div>
+                            </div>
+                        {% endfor %}
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+{% endblock %}

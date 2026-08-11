@@ -96,6 +96,7 @@ Site-wide settings, modules, functions.
 | Galerie (module) | chief | Manage photo/video albums |
 | Départs (module registration) | chief | Mark which of this year's animés won't be back next scout year, per section — see §18.1 |
 | Passage (module registration) | chief | Split arriving families and promoted animés between sections ahead of next scout year — see §18.2 |
+| Prévisions (module registration) | chief | Read-only projected headcount for next scout year, per section and unit-wide — see §19.1 |
 
 ### 4.4 Espace admin
 
@@ -103,7 +104,7 @@ Site-wide settings, modules, functions.
 |---|---|---|
 | Import Desk | admin | CSV upload/import for current scout year. Year selection. Function mapping status. |
 | Journal | admin | Searchable event log. |
-| Année scoute | admin | Scout year management: preview any year (session-only), activate a staff year for chiefs/intendants, transition the whole site to the next public year (4-step workflow: preview, import, activate for staff, activate for everyone). Displays effective year, public year, staff year, member/section counts. Public year transition is manual-only and available year-round; a non-blocking warning appears when the current public year is past its end date. |
+| Année scoute | admin | Scout year management: preview any year (session-only), activate a staff year for chiefs/intendants, transition the whole site to the next public year (4-step workflow: preview, import, activate for staff, activate for everyone). Displays effective year, public year, staff year, member/section counts. Public year transition is manual-only and available year-round; a non-blocking warning appears when the current public year is past its end date. When the Inscriptions module is active: step 4 is refused server-side while any registration request is still pending/accepted (any target year); step 3 shows the same count as a non-blocking warning — see §19.2. |
 | Membres | admin | Member search (name/email/phone) for the effective scout year, with detailed view showing all personal data from Desk (contact info, addresses, functions, age), plus effective age calculation with scout year offset. |
 | Bannière (module) | admin | Manage homepage banner messages (role-gated visibility, ordered list) |
 | SOS Staff d'U (module) | admin | On-call duty roster (month grid), default forwarding number, live redirect status, scheduled redirection list |
@@ -332,18 +333,20 @@ For each request, the effective year is determined in order of precedence:
 - Staff immediately see next year on login
 - Identified members and public still see current year
 - Allows staff to prepare (configure sections, plan activities) while site remains stable for members
+- Never blocked by open registration requests; a non-blocking warning is shown when the Inscriptions module reports any (§19.2)
 
 **Step 4: Activate public year**
 - Admin transitions entire site to next year (permanent)
 - All users (staff, members, public) now see next year
 - Staff year automatically deactivated
 - Available at any time — not restricted to a particular period
+- Refused, server-side, while the Inscriptions module reports any pending/accepted registration request (any target year, not just the one being activated) — §19.2
 
 ### 16.4 Manual transition only
 
 The transition to a new public year is exclusively manual — step 4 is available year-round, and nothing switches the public year automatically. There is no switch window and no date-based fallback transition.
 
-This is deliberate: a future "inscriptions" module needs to be able to veto step 4 while registration requests are still open, and a date-driven automatic transition would bypass that veto — a calculated date can't be told "not yet". Manual and automatic are incompatible, so manual wins.
+This is deliberate: the "inscriptions" module vetoes step 4 while registration requests are still open (§19.2), and a date-driven automatic transition would have bypassed that veto — a calculated date can't be told "not yet". Manual and automatic are incompatible, so manual wins.
 
 Without an automatic catch-up, a unit that never runs the transition would stay on a stale public year indefinitely with no visible sign. The Année scoute page shows a non-blocking warning when the current public year is past its end date, inviting the admin to run the transition workflow — it never blocks anything and never changes anything on its own.
 
@@ -421,3 +424,35 @@ The destination chosen for a passage is stored by the module itself (keyed on th
 When the mass-mail module (§4.3) is also active, its "nouvel email" list picker gains one extra, non-editable entry: **"Inscriptions {année scoute cible}"** — always named after the target year (never reused across years), containing every request that has been both accepted and encoded into Desk for that year (a still-pending, refused, or withdrawn request never appears). Its member list is recomputed at the moment an email actually sends, never fixed when the email is drafted. Available only to a chef d'unité (or above), same as the mass-mail module's own unit-wide lists. If the inscriptions module is disabled, this entry simply doesn't appear and the mass-mail module works exactly as it does today; if the mass-mail module is disabled, nothing changes on the inscriptions side.
 
 Sending both this list and, separately, a section list that now includes the same newly-encoded child will reach that family twice — the same is already true of any two overlapping mass-mail lists today, so this isn't a new failure mode, and no automatic cross-email deduplication exists (or is planned) to prevent it.
+
+## 19. Registration module — Prévisions and the year-transition veto (module registration)
+
+The module's last piece: a read-only headcount projection for next scout year, and a hard block on transitioning the whole site to it while registration requests are still open. See ARCHITECTURE.md §8.38 for implementation detail.
+
+### 19.1 Prévisions
+
+Espace des chefs, role `chief`, **not** scoped by section, same "public year plus one" targeting as Passage. Read-only — nothing on this page writes anything.
+
+The projected headcount for next year combines, without counting anyone twice:
+1. Whatever is already re-imported from Desk for next year, if an import has happened — real, certain data.
+2. Minus animés marked "won't be back" (Départs).
+3. Plus passages, placed in their chosen destination section.
+4. Plus accepted-but-not-yet-encoded registrations, placed in their chosen "section prévue".
+
+A registration already encoded into Desk and reimported exists as a real member, not as a pending request any more — it is counted once, through source 1, never also through source 4.
+
+Every number on the page distinguishes what's **certain** (already in Desk) from what's a **hypothesis** (a passage or registration not yet encoded, even once a destination has been picked) — a small icon/label pair next to every count, not just a one-time notice at the top.
+
+A passage without a chosen destination, or a registration without a chosen section prévue, lands in a separate **"Non attribués"** card rather than any real section: still counted in the unit total and in the birth-year pyramid, counted in no real section, split by its two possible origins (passage / registration), with a direct link to the Passage page to resolve it. This card empties out as staff make decisions on Passage — an unintentional indicator of how trustworthy the rest of the page's numbers currently are.
+
+The page shows: four headline numbers (projected total, variation vs. the current year, announced departures, new entries); for each section, a segmented bar showing the split by year within branch (a section top-heavy with its oldest year is a section about to empty out) and a single divided bar for the girls/boys balance with percentages; and one population pyramid by birth year across the whole unit (a dip in a given birth year foretells a section thinning out two or three years from now).
+
+This page's charts are its own — it does not depend on, and works identically whether or not, the Statistiques module (§4.3) is installed or enabled.
+
+### 19.2 Veto on the year transition (Espace admin > Année scoute, §16.3)
+
+While the Inscriptions module is active:
+- **Step 4** (activate the public year for everyone) is **refused** — checked on the server, not just by disabling the button — as long as any registration request is still `pending` or `accepted`, whichever scout year it originally targeted. The error message states how many requests are blocking and links to the registration management page, which is where they're resolved individually or in bulk ("tout refuser"/"tout retirer", §17).
+- **Step 3** (activate the staff year) shows the same count as a plain, non-blocking warning — it happens much earlier in the season and staff need time to work through the backlog, so it never stops anything.
+
+If the Inscriptions module is disabled or not installed, both steps behave exactly as they did before this module existed — nothing is blocked, no warning appears.

@@ -47,6 +47,7 @@ class PassageService
     /**
      * @return array<int, array{
      *   request: \Modules\Registration\Repository\RegistrationRequest,
+     *   slot: ?array{age_branch_id: int, year_in_branch: int},
      *   slot_label: string,
      *   desired_section_label: ?string,
      *   siblings: array<int, array{name: string, section_label: ?string}>,
@@ -82,6 +83,7 @@ class PassageService
 
             $rows[] = [
                 'request' => $request,
+                'slot' => $slot,
                 'slot_label' => $this->slotLabel($brackets, $slot),
                 'desired_section_label' => $request->desiredSectionId !== null
                     ? ($sectionLabels[$request->desiredSectionId] ?? '—')
@@ -118,7 +120,7 @@ class PassageService
         $referenceYear = MemberYearService::referenceYearFromScoutYearLabel($currentPublicYearLabel);
         $memberYearService = new MemberYearService();
 
-        $candidates = $this->fetchAnimeMemberYears($currentPublicYearId);
+        $candidates = $this->getAnimeMemberYears($currentPublicYearId);
 
         $promoted = [];
         foreach ($candidates as $row) {
@@ -183,19 +185,26 @@ class PassageService
     }
 
     /**
-     * Every candidate for a branch change: active, non-leaving, non-staff
-     * (f.role NOT IN ('chief','admin') — the same trap Core\Member\
-     * SectionService::getSectionStaff() already guards against) member
-     * years for the current public year, one row per member (main
-     * function preferred when several non-staff functions exist).
+     * Every animé (active, non-leaving, non-staff — f.role NOT IN
+     * ('chief','admin'), the same trap Core\Member\SectionService::
+     * getSectionStaff() already guards against) for a given scout year,
+     * one row per member (main function preferred when several non-staff
+     * functions exist). Unit-wide, not scoped to one section.
+     *
+     * Public and reused by Service\ForecastService (module spec iteration
+     * 7): the "Prévisions" page's continuing-members projection needs the
+     * exact same roster this method already builds for branch-change
+     * detection, just for either scout year (current or target) rather
+     * than only the current public one — one query, two callers, never a
+     * second near-copy of this SQL.
      *
      * @return array<int, array<string, mixed>>
      */
-    private function fetchAnimeMemberYears(int $currentPublicYearId): array
+    public function getAnimeMemberYears(int $scoutYearId): array
     {
         $stmt = $this->pdo->prepare(
             "SELECT my.id AS member_year_id, my.member_id, my.first_name_encrypted, my.last_name_encrypted,
-                    my.birth_date_encrypted, my.scout_year_offset, mf.section_id
+                    my.birth_date_encrypted, my.gender_encrypted, my.scout_year_offset, mf.section_id
              FROM member_years my
              JOIN member_functions mf ON mf.member_year_id = my.id
              JOIN functions f ON mf.function_id = f.id
@@ -203,7 +212,7 @@ class PassageService
                AND f.role NOT IN ('chief', 'admin') AND mf.section_id IS NOT NULL
              ORDER BY mf.is_main_function DESC"
         );
-        $stmt->execute([$currentPublicYearId]);
+        $stmt->execute([$scoutYearId]);
 
         $byMemberYear = [];
         foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {

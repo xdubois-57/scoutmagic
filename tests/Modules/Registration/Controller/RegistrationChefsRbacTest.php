@@ -25,11 +25,13 @@ use Core\Security\AuthSession;
 use Core\Security\EncryptionService;
 use Core\View\TwigFactory;
 use Modules\Registration\Controller\DeparturesController;
+use Modules\Registration\Controller\ForecastController;
 use Modules\Registration\Controller\PassageController;
 use Modules\Registration\Repository\AgeBracketRepository;
 use Modules\Registration\Repository\RegistrationRequestRepository;
 use Modules\Registration\Repository\SectionTransferRepository;
 use Modules\Registration\Repository\SlotCapacityRepository;
+use Modules\Registration\Service\ForecastService;
 use Modules\Registration\Service\PassageService;
 use Modules\Registration\Service\SlotService;
 use PHPUnit\Framework\TestCase;
@@ -38,9 +40,9 @@ use Tests\Modules\Registration\RegistrationTestHelper;
 use Twig\Environment;
 
 /**
- * RBAC boundary for the "Départs"/"Passage" routes — role_min: chief (the
- * espace_chefs menu's own floor), one level below (intendant) must be
- * rejected.
+ * RBAC boundary for the "Départs"/"Passage"/"Prévisions" routes —
+ * role_min: chief (the espace_chefs menu's own floor), one level below
+ * (intendant) must be rejected.
  *
  * @group database
  */
@@ -50,6 +52,7 @@ class RegistrationChefsRbacTest extends TestCase
     private Environment $twig;
     private DeparturesController $departuresController;
     private PassageController $passageController;
+    private ForecastController $forecastController;
 
     protected function setUp(): void
     {
@@ -100,6 +103,8 @@ class RegistrationChefsRbacTest extends TestCase
             $twig, $passageService, $requestRepository, $transferRepository, $sectionService,
             $ageBracketRepository, $slotService, $scoutYearResolver, $scoutYearService
         );
+        $forecastService = new ForecastService($this->pdo, $encryption, $sectionService, $passageService);
+        $this->forecastController = new ForecastController($twig, $forecastService, $scoutYearResolver, $scoutYearService, $slotService);
 
         if (session_status() === PHP_SESSION_NONE) {
             session_start();
@@ -121,6 +126,7 @@ class RegistrationChefsRbacTest extends TestCase
         return [
             'departs' => ['/departs', 'DeparturesController', 'index'],
             'passage' => ['/passage', 'PassageController', 'index'],
+            'previsions' => ['/previsions', 'ForecastController', 'index'],
         ];
     }
 
@@ -158,10 +164,12 @@ class RegistrationChefsRbacTest extends TestCase
         $config = new AppConfig($configFile);
 
         $fc = new FrontController($router, $this->twig, $config);
-        $fc->registerController(
-            "Modules\\Registration\\Controller\\{$controllerName}",
-            $controllerName === 'DeparturesController' ? $this->departuresController : $this->passageController
-        );
+        $controller = match ($controllerName) {
+            'DeparturesController' => $this->departuresController,
+            'PassageController' => $this->passageController,
+            'ForecastController' => $this->forecastController,
+        };
+        $fc->registerController("Modules\\Registration\\Controller\\{$controllerName}", $controller);
 
         return $fc->handle(new Request('GET', $path, [], [], [], []));
     }
