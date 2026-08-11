@@ -171,22 +171,17 @@ CREATE TABLE registration_secondary_emails (
     INDEX idx_rse_blind (email_blind_index)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Per-branch age bracket: entry age (age reached at year_in_branch=1) and
--- how many years the branch spans. Deliberately module-owned settings, not
--- a reuse of Core\Member\MemberYearService::BRANCHES (that table is fixed
--- federation-wide constants used for EXISTING members' effective-age
--- computation — never touched by this module, per the "never recompute an
--- age by hand" rule); this module translates a SLOT to a birth-year range
--- for a visitor who isn't a member yet, and that translation must stay
--- fully configurable per the module spec (no unit-specific value in code).
-CREATE TABLE registration_age_brackets (
-    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    age_branch_id INT UNSIGNED NOT NULL,
-    entry_age TINYINT UNSIGNED NOT NULL,
-    duration_years TINYINT UNSIGNED NOT NULL,
-    UNIQUE INDEX idx_rab_branch (age_branch_id),
-    CONSTRAINT fk_rab_branch FOREIGN KEY (age_branch_id) REFERENCES age_branches(id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+-- Per-branch age bracket (entry age + duration) no longer lives here as of
+-- this module version — it's resolved directly from Core\Member\
+-- MemberYearService::BRANCHES (Repository\AgeBracketRepository), the same
+-- federation age ranges member_stats already uses, rather than a second,
+-- independently admin-configurable copy of the same numbers. An earlier
+-- version of this schema declared a registration_age_brackets table here;
+-- any install that already created it keeps that table, orphaned and
+-- unused (this codebase's migration system never auto-drops a table it
+-- finds but doesn't declare — Core\Database\SchemaComparator's own
+-- deliberate safety rule, and drops.sql only ever supports explicit
+-- column/foreign-key drops, not table drops).
 
 -- Capacity for one slot (branch × year-in-branch), all sections of that
 -- branch combined — the module's own unit of measure (see module docs),

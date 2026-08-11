@@ -414,8 +414,7 @@ class ForecastService
 
     private function totalYearsForBranchSortOrder(int $sortOrder): int
     {
-        $index = intdiv($sortOrder, 10) - 1;
-        $branch = MemberYearService::BRANCHES[$index] ?? null;
+        $branch = MemberYearService::branchForSortOrder($sortOrder);
 
         return $branch !== null ? $branch['age_max'] - $branch['age_min'] + 1 : 4;
     }

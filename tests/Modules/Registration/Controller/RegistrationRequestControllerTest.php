@@ -73,8 +73,6 @@ class RegistrationRequestControllerTest extends TestCase
         $this->baladinsId = RegistrationTestHelper::insertAgeBranch($this->pdo, 'BALA', 'Baladins', 10);
         $this->louveteauxId = RegistrationTestHelper::insertAgeBranch($this->pdo, 'LOUV', 'Louveteaux', 20);
         $ageBracketRepository = new AgeBracketRepository($this->pdo);
-        $ageBracketRepository->upsert($this->baladinsId, 6, 2);
-        $ageBracketRepository->upsert($this->louveteauxId, 8, 4);
 
         $stmt = $this->pdo->prepare('INSERT INTO sections (age_branch_id, desk_code, name) VALUES (?, ?, ?)');
         $stmt->execute([$this->baladinsId, 'BALA1', 'Baladins A']);

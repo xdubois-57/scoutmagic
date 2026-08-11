@@ -52,9 +52,6 @@ class PassageServiceTest extends TestCase
         $this->pionniersBranchId = RegistrationTestHelper::insertAgeBranch($this->pdo, 'PION', 'Pionniers', 40);
 
         $ageBracketRepository = new AgeBracketRepository($this->pdo);
-        $ageBracketRepository->upsert($this->louveteauxBranchId, 8, 4);
-        $ageBracketRepository->upsert($this->eclaireursBranchId, 12, 4);
-        $ageBracketRepository->upsert($this->pionniersBranchId, 16, 2);
 
         $this->louveteauxSectionId = $this->createSection('LOUV1', $this->louveteauxBranchId, 'Louveteaux A');
         $this->eclaireursSectionId = $this->createSection('ECLA1', $this->eclaireursBranchId, 'Éclaireurs A');

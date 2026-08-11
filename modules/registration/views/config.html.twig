@@ -44,34 +44,33 @@
 
         <form method="post" action="/config/inscriptions" class="card mb-4">
             <div class="card-body">
-                <h2 class="h5 mb-3">Tranches d'âge et capacités par branche</h2>
+                <h2 class="h5 mb-3">Capacités par branche</h2>
+                <p class="text-body-secondary small mb-3">
+                    Les âges par branche sont fixés par la fédération et communs à tout le site (déjà utilisés par
+                    exemple par le module Statistiques) — ils ne se configurent pas ici.
+                </p>
                 {{ csrf_field()|raw }}
                 <div class="table-responsive">
                     <table class="table align-middle">
                         <thead>
                             <tr>
                                 <th>Branche</th>
-                                <th>Âge d'entrée</th>
-                                <th>Nombre d'années</th>
+                                <th>Âge</th>
                                 {% for yearInBranch in 1..max_years_in_branch %}
                                     <th>Capacité {{ yearInBranch }}<sup>e</sup> année</th>
                                 {% endfor %}
                             </tr>
                         </thead>
                         <tbody>
-                            {% for branch in branches %}
-                                {% set bracket = brackets_by_branch[branch.id] ?? null %}
+                            {% for bracket in brackets %}
                                 <tr>
-                                    <td>{{ branch.label }}</td>
-                                    <td style="max-width:100px;">
-                                        <input type="number" min="0" max="30" class="form-control form-control-sm" name="entry_age[{{ branch.id }}]" value="{{ bracket ? bracket.entryAge : '' }}">
-                                    </td>
-                                    <td style="max-width:100px;">
-                                        <input type="number" min="0" max="{{ max_years_in_branch }}" class="form-control form-control-sm" name="duration_years[{{ branch.id }}]" value="{{ bracket ? bracket.durationYears : '' }}">
-                                    </td>
+                                    <td>{{ bracket.branchLabel }}</td>
+                                    <td class="text-body-secondary small text-nowrap">{{ bracket.entryAge }}–{{ bracket.entryAge + bracket.durationYears - 1 }} ans</td>
                                     {% for yearInBranch in 1..max_years_in_branch %}
                                         <td style="max-width:100px;">
-                                            <input type="number" min="0" class="form-control form-control-sm" name="capacity[{{ branch.id }}][{{ yearInBranch }}]" value="{{ capacities[branch.id][yearInBranch] ?? '' }}">
+                                            {% if yearInBranch <= bracket.durationYears %}
+                                                <input type="number" min="0" class="form-control form-control-sm" name="capacity[{{ bracket.ageBranchId }}][{{ yearInBranch }}]" value="{{ capacities[bracket.ageBranchId][yearInBranch] ?? '' }}">
+                                            {% endif %}
                                         </td>
                                     {% endfor %}
                                 </tr>
@@ -79,7 +78,6 @@
                         </tbody>
                     </table>
                 </div>
-                <div class="form-text mb-3">Laissez à 0 une case de capacité au-delà du nombre d'années configuré pour une branche — elle n'est pas utilisée.</div>
                 <button type="submit" class="btn btn-primary">Enregistrer</button>
             </div>
         </form>

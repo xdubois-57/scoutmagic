@@ -7,7 +7,6 @@ namespace Tests\Modules\Registration\Controller;
 use Core\Config\ScoutYearService;
 use Core\Config\SettingRepository;
 use Core\Config\SettingService;
-use Core\Import\AgeBranchRepository;
 use Core\Import\MemberYearRepository;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
@@ -59,7 +58,6 @@ class RegistrationConfigControllerTest extends TestCase
 
         $this->baladinsId = RegistrationTestHelper::insertAgeBranch($this->pdo, 'BALA', 'Baladins', 10);
         $ageBracketRepository = new AgeBracketRepository($this->pdo);
-        $ageBracketRepository->upsert($this->baladinsId, 6, 2);
         $slotCapacityRepository = new SlotCapacityRepository($this->pdo);
         $slotCapacityRepository->upsert($this->baladinsId, 1, 10);
         $slotCapacityRepository->upsert($this->baladinsId, 2, 10);
@@ -81,7 +79,6 @@ class RegistrationConfigControllerTest extends TestCase
 
         $this->requestRepository = new RegistrationRequestRepository($this->pdo, $encryption);
         $yearCodeRepository = new RegistrationYearCodeRepository($this->pdo);
-        $ageBranchRepository = new AgeBranchRepository($this->pdo);
         $slotService = new SlotService(
             $this->pdo, $encryption, $settingService, $ageBracketRepository, $slotCapacityRepository, $this->requestRepository
         );
@@ -104,7 +101,7 @@ class RegistrationConfigControllerTest extends TestCase
         $twig->addGlobal('csp_nonce', 'test-nonce');
 
         $this->controller = new RegistrationConfigController(
-            $twig, $ageBracketRepository, $slotCapacityRepository, $yearCodeRepository, $ageBranchRepository,
+            $twig, $ageBracketRepository, $slotCapacityRepository, $yearCodeRepository,
             $scoutYearResolver, $this->scoutYearService, $this->requestRepository, $slotService, $sectionService,
             $editableContentService, $statusService, $journalService
         );

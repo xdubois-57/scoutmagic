@@ -9,7 +9,6 @@ use Core\Http\Controller\AbstractController;
 use Core\Http\FlashMessage;
 use Core\Http\Request;
 use Core\Http\Response;
-use Core\Import\AgeBranchRepository;
 use Core\Journal\JournalService;
 use Core\Member\MemberYearService;
 use Core\Member\SectionService;
@@ -28,10 +27,12 @@ use Twig\Environment;
 
 /**
  * "Configuration > Inscriptions" — the module spec's "page de gestion":
- * brackets/capacities/year code (iteration 4) plus, since iteration 5, the
- * whole staff-facing overview of a scout year's requests — capacity
- * verification table, request list (searchable/filterable), the two
- * encarts ("non rapprochées" / "non clôturées"), and the two bulk actions.
+ * capacities/year code (iteration 4) plus, since iteration 5, the whole
+ * staff-facing overview of a scout year's requests — capacity verification
+ * table, request list (searchable/filterable), the two encarts ("non
+ * rapprochées" / "non clôturées"), and the two bulk actions. Age brackets
+ * are read-only here (federation-fixed, see AgeBracketRepository) — there
+ * is nothing to configure about them, only capacities per branch/year.
  * Row-level actions on a single request (accept/refuse/link/emails/notes...)
  * live in Controller\RegistrationRequestController's fiche instead.
  */
@@ -43,13 +44,6 @@ class RegistrationConfigController extends AbstractController
      * without JS row add/remove (module spec: "minimal" admin screen).
      */
     private const MAX_YEARS_IN_BRANCH = 4;
-
-    /**
-     * The four "animés" branches this module configures brackets/capacities
-     * for — age_branches also holds staff/route/IAMA rows (sort_order 50+),
-     * which this module has nothing to do with.
-     */
-    private const MAX_ANIME_SORT_ORDER = 40;
 
     /**
      * Content key for the page's own editable explanatory block (module
@@ -64,7 +58,6 @@ class RegistrationConfigController extends AbstractController
         private AgeBracketRepository $ageBracketRepository,
         private SlotCapacityRepository $slotCapacityRepository,
         private RegistrationYearCodeRepository $yearCodeRepository,
-        private AgeBranchRepository $ageBranchRepository,
         private ScoutYearResolver $scoutYearResolver,
         private ScoutYearService $scoutYearService,
         private RegistrationRequestRepository $requestRepository,
@@ -95,8 +88,12 @@ class RegistrationConfigController extends AbstractController
     }
 
     /**
-     * POST /config/inscriptions — saves both the age-bracket grid and the
-     * capacity grid in one submission (module spec: minimal screen).
+     * POST /config/inscriptions — saves the capacity grid (module spec:
+     * minimal screen). Age brackets (entry age/duration per branch) are no
+     * longer configured here — Repository\AgeBracketRepository resolves
+     * them directly from Core\Member\MemberYearService::BRANCHES, the same
+     * central federation age ranges member_stats already uses, so there is
+     * nothing to save for them.
      *
      * @param array<string, string> $params
      */
@@ -107,24 +104,12 @@ class RegistrationConfigController extends AbstractController
             return $this->redirect('/config/inscriptions');
         }
 
-        $entryAges = $request->getBody('entry_age', []);
-        $durations = $request->getBody('duration_years', []);
         $capacities = $request->getBody('capacity', []);
 
-        foreach ($this->animeBranches() as $branch) {
-            $branchId = $branch['id'];
-            $entryAge = (int) ($entryAges[$branchId] ?? 0);
-            $duration = (int) ($durations[$branchId] ?? 0);
-            if ($entryAge <= 0 || $duration <= 0) {
-                continue;
-            }
-            $duration = min($duration, self::MAX_YEARS_IN_BRANCH);
-
-            $this->ageBracketRepository->upsert($branchId, $entryAge, $duration);
-
-            for ($yearInBranch = 1; $yearInBranch <= $duration; $yearInBranch++) {
-                $capacity = (int) ($capacities[$branchId][$yearInBranch] ?? 0);
-                $this->slotCapacityRepository->upsert($branchId, $yearInBranch, max(0, $capacity));
+        foreach ($this->ageBracketRepository->findAllOrdered() as $bracket) {
+            for ($yearInBranch = 1; $yearInBranch <= $bracket->durationYears; $yearInBranch++) {
+                $capacity = (int) ($capacities[$bracket->ageBranchId][$yearInBranch] ?? 0);
+                $this->slotCapacityRepository->upsert($bracket->ageBranchId, $yearInBranch, max(0, $capacity));
             }
         }
 
@@ -244,10 +229,6 @@ class RegistrationConfigController extends AbstractController
     {
         $publicYear = $this->scoutYearResolver->getCurrentPublicYear();
         $brackets = $this->ageBracketRepository->findAllOrdered();
-        $bracketsByBranch = [];
-        foreach ($brackets as $bracket) {
-            $bracketsByBranch[$bracket->ageBranchId] = $bracket;
-        }
         $capacities = $this->slotCapacityRepository->findAllAsMap();
 
         $years = $this->resolveSelectableYears($publicYear);
@@ -272,8 +253,7 @@ class RegistrationConfigController extends AbstractController
         $requestRows = $this->filterRows($requestRows, $statusFilter, $search);
 
         return [
-            'branches' => $this->animeBranches(),
-            'brackets_by_branch' => $bracketsByBranch,
+            'brackets' => $brackets,
             'capacities' => $capacities,
             'max_years_in_branch' => self::MAX_YEARS_IN_BRANCH,
             'csrf_token' => CsrfGuard::generateToken(),
@@ -435,16 +415,5 @@ class RegistrationConfigController extends AbstractController
         }
 
         return 'Non déterminé';
-    }
-
-    /**
-     * @return array<int, array{id: int, desk_code: string, label: string, sort_order: int, logo_file_id: ?int, explanation_url: string}>
-     */
-    private function animeBranches(): array
-    {
-        return array_values(array_filter(
-            $this->ageBranchRepository->findAllOrdered(),
-            static fn(array $branch) => $branch['sort_order'] <= self::MAX_ANIME_SORT_ORDER
-        ));
     }
 }

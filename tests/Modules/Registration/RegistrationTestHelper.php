@@ -70,14 +70,6 @@ class RegistrationTestHelper
             FOREIGN KEY (registration_request_id) REFERENCES registration_requests(id)
         )');
 
-        $pdo->exec('CREATE TABLE registration_age_brackets (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            age_branch_id INTEGER NOT NULL UNIQUE,
-            entry_age INTEGER NOT NULL,
-            duration_years INTEGER NOT NULL,
-            FOREIGN KEY (age_branch_id) REFERENCES age_branches(id)
-        )');
-
         $pdo->exec('CREATE TABLE registration_slot_capacities (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             age_branch_id INTEGER NOT NULL,
