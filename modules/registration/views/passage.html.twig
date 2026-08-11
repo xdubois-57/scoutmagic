@@ -41,16 +41,15 @@
                                             {% endfor %}
                                         {% endif %}
                                     </td>
-                                    <td>
-                                        <form method="post" action="/passage/inscription/{{ r.id }}/section" class="d-flex gap-2">
+                                    <td style="min-width:200px;">
+                                        <form method="post" action="/passage/inscription/{{ r.id }}/section">
                                             {{ csrf_field()|raw }}
-                                            <select name="intended_section_id" class="form-select form-select-sm">
+                                            <select name="intended_section_id" class="form-select form-select-sm" onchange="this.form.submit()">
                                                 <option value="0">— Non défini —</option>
                                                 {% for section in row.sections_in_branch %}
                                                     <option value="{{ section.id }}" {{ r.intendedSectionId == section.id ? 'selected' : '' }}>{{ section.name ?? section.desk_code }}</option>
                                                 {% endfor %}
                                             </select>
-                                            <button type="submit" class="btn btn-sm btn-outline-primary text-nowrap">OK</button>
                                         </form>
                                     </td>
                                 </tr>
@@ -73,22 +72,22 @@
                 {% endif %}
 
                 {% for key, group in branch_changes %}
-                    <h3 class="h6 mt-4">{{ group.section_label }}</h3>
+                    <h3 class="h6 mt-4">Actuellement {{ group.section_label }}</h3>
                     <div class="table-responsive">
                         <table class="table table-sm align-middle">
                             <thead>
                                 <tr>
                                     <th>Nom</th>
-                                    <th>Année de parcours</th>
+                                    <th class="d-none d-md-table-cell">Année de parcours</th>
                                     <th>Même adresse</th>
-                                    <th>Destination</th>
+                                    <th style="min-width:200px;">Destination</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {% for member in group.members %}
                                     <tr>
                                         <td>{{ member.name }}</td>
-                                        <td>{{ member.branch_year_label }}</td>
+                                        <td class="d-none d-md-table-cell">{{ member.branch_year_label }}</td>
                                         <td>
                                             {% if member.household is empty %}
                                                 —
@@ -98,16 +97,15 @@
                                                 {% endfor %}
                                             {% endif %}
                                         </td>
-                                        <td>
-                                            <form method="post" action="/passage/membre/{{ member.member_id }}/destination" class="d-flex gap-2">
+                                        <td style="min-width:200px;">
+                                            <form method="post" action="/passage/membre/{{ member.member_id }}/destination">
                                                 {{ csrf_field()|raw }}
-                                                <select name="destination_section_id" class="form-select form-select-sm">
+                                                <select name="destination_section_id" class="form-select form-select-sm" onchange="this.form.submit()">
                                                     <option value="0">— Non défini —</option>
                                                     {% for section in member.destination_options %}
                                                         <option value="{{ section.id }}" {{ member.destination_section_id == section.id ? 'selected' : '' }}>{{ section.name ?? section.desk_code }}</option>
                                                     {% endfor %}
                                                 </select>
-                                                <button type="submit" class="btn btn-sm btn-outline-primary text-nowrap">OK</button>
                                             </form>
                                             {% if member.destination_options is empty %}
                                                 <div class="form-text">Aucune section configurée pour la branche d'arrivée.</div>

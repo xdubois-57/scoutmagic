@@ -22,10 +22,11 @@ use Modules\Registration\Service\SlotService;
 use Twig\Environment;
 
 /**
- * "Passage" (module spec iteration 6, Espace des chefs, role_min: chief):
+ * "Passage" (module spec iteration 6, Espace chefs d'U, role_min: admin):
  * splits arriving families between sections. Deliberately NOT scoped by
  * section (unlike "Départs") — spreading arrivals across sections
- * requires seeing the whole unit at once.
+ * requires seeing the whole unit at once, which is why this lives at the
+ * chef d'unité level rather than the same espace_chefs floor as Départs.
  *
  * Anchored on the PUBLIC year + 1, always — a deliberate, explicit
  * exception to Core\ScoutYear\ScoutYearResolver::getEffectiveYear(),
@@ -68,6 +69,7 @@ class PassageController extends AbstractController
         $branchChanges = $this->passageService->getBranchChanges(
             (int) $publicYear['id'], (string) $publicYear['label'], (int) $targetYear['id']
         );
+        $branchChanges = $this->passageService->autoAssignSingleOptionDestinations($branchChanges, (int) $targetYear['id']);
 
         return $this->render('@registration/passage.html.twig', [
             'target_year_label' => $targetYear['label'],

@@ -2271,7 +2271,7 @@ if (in_array('registration', $moduleManager->getEnabledModuleIds(), true)) {
         \Modules\Registration\Controller\RegistrationConfigController::class,
         new \Modules\Registration\Controller\RegistrationConfigController(
             $twig, $registrationAgeBracketRepo, $registrationSlotCapacityRepo, $registrationYearCodeRepo,
-            $ageBranchRepo, $scoutYearResolver, $scoutYearService, $registrationRequestRepo, $registrationSlotService,
+            $scoutYearResolver, $scoutYearService, $registrationRequestRepo, $registrationSlotService,
             $sectionService, $editableContentService, $registrationStatusService, $journalService
         )
     );

@@ -95,7 +95,6 @@ Site-wide settings, modules, functions.
 | Rétrospectives (module) | intendant | Create/manage post-activity retrospective boards |
 | Galerie (module) | chief | Manage photo/video albums |
 | Départs (module registration) | chief | Mark which of this year's animés won't be back next scout year, per section — see §18.1 |
-| Passage (module registration) | chief | Split arriving families and promoted animés between sections ahead of next scout year — see §18.2 |
 | Prévisions (module registration) | chief | Read-only projected headcount for next scout year, per section and unit-wide — see §19.1 |
 
 ### 4.4 Espace admin
@@ -110,6 +109,7 @@ Site-wide settings, modules, functions.
 | SOS Staff d'U (module) | admin | On-call duty roster (month grid), default forwarding number, live redirect status, scheduled redirection list |
 | Rétrospectives — Config (module) | admin | Per-board moderation/AI settings restricted to chef d'unité |
 | Inscriptions (module) | admin | See §17 — request management: capacities/year code (age brackets are read-only, federation-fixed, shared with the Statistiques module), year selector, capacity-verification table, request list (filter/search), "non rapprochées"/"non clôturées" encarts with bulk refuse/withdraw, and a per-request fiche (status transitions, section prévue, tarif, internal notes, acceptance/refusal emails, manual Desk linking) |
+| Passage (module registration) | admin | Split arriving families and promoted animés between sections ahead of next scout year — see §18.2. Chef d'unité only (not a per-section chief), since spreading arrivals across sections needs the whole unit at once |
 
 ### 4.5 Configuration
 
@@ -411,7 +411,7 @@ The mark applies to the current scout year only and resets itself automatically 
 
 ### 18.2 Passage
 
-Espace des chefs, role `chief`, **not** scoped by section (splitting arrivals across sections needs to see the whole unit). Always targets the current public scout year **plus one** — never whatever year an admin happens to be previewing, and never a staff year override. This is a deliberate exception to the rule that otherwise governs every page on the site.
+Espace chefs d'U, role `admin`, **not** scoped by section (splitting arrivals across sections needs to see the whole unit — the same reason it sits at the chef d'unité level rather than the same floor as Départs). Always targets the current public scout year **plus one** — never whatever year an admin happens to be previewing, and never a staff year override. This is a deliberate exception to the rule that otherwise governs every page on the site.
 
 Two independent blocks:
 - **New registrations**: accepted-but-not-yet-Desk-encoded requests for the target year, with the child's targeted slot, the section requested by the parent, any remarks, each declared sibling together with that sibling's own current section, and a "section prévue" picker — the exact same field shown on that request's own fiche (§17.6): editing it here edits it there, and vice versa.
