@@ -179,7 +179,7 @@
     },
     {
       "key": "event_default_end_time",
-      "default_value": "16:00",
+      "default_value": "17:45",
       "type": "text",
       "label": "Heure de fin par défaut",
       "description": "Heure de fin pré-remplie dans le formulaire de création d'un évènement."

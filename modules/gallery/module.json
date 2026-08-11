@@ -33,7 +33,8 @@
       "action": "create",
       "menu": "espace_chefs",
       "role_min": "chief",
-      "label": ""
+      "label": "",
+      "breadcrumb": { "label": "Nouvel album", "parents": ["Espace chefs"] }
     },
     {
       "path": "/gallery/{id}",
@@ -69,7 +70,8 @@
       "action": "store",
       "menu": "espace_chefs",
       "role_min": "chief",
-      "label": ""
+      "label": "",
+      "breadcrumb": { "label": "Nouvel album", "parents": ["Espace chefs"] }
     },
     {
       "path": "/gallery/{id}/edit",
@@ -78,7 +80,8 @@
       "action": "edit",
       "menu": "espace_chefs",
       "role_min": "chief",
-      "label": ""
+      "label": "",
+      "breadcrumb": { "label": "Modifier l'album", "parents": ["Espace chefs"] }
     },
     {
       "path": "/gallery/{id}",
@@ -87,7 +90,8 @@
       "action": "update",
       "menu": "espace_chefs",
       "role_min": "chief",
-      "label": ""
+      "label": "",
+      "breadcrumb": { "label": "Modifier l'album", "parents": ["Espace chefs"] }
     },
     {
       "path": "/gallery/{id}/delete",

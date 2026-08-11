@@ -33,6 +33,76 @@
         return parts.join('\n');
     }
 
+    // Client-side mirror of Core\Security\HtmlSanitizer's allowlist — the
+    // server re-sanitizes on save regardless, but the rich-text editor
+    // round-trips whatever the browser's contenteditable produces
+    // (paste, drag-drop) straight back into innerHTML on every re-render
+    // (see createRichTextEditor below), so this closes that DOM-to-DOM
+    // loop instead of relying solely on the server pass.
+    var HTML_SANITIZER_ALLOWED_TAGS = {
+        p: [], br: [], strong: [], b: [], em: [], i: [], u: [],
+        a: ['href', 'title', 'target', 'rel'],
+        ul: [], ol: [], li: [], h2: [], h3: [], h4: [], blockquote: []
+    };
+    var HTML_SANITIZER_STRIP_WITH_CONTENT = ['script', 'style', 'iframe', 'object', 'embed', 'form', 'textarea', 'select'];
+
+    function sanitizeHtmlAttributes(el, tagName) {
+        var allowed = HTML_SANITIZER_ALLOWED_TAGS[tagName] || [];
+        Array.prototype.slice.call(el.attributes).forEach(function (attr) {
+            var name = attr.name.toLowerCase();
+            if (name.indexOf('on') === 0 || allowed.indexOf(name) === -1) {
+                el.removeAttribute(attr.name);
+                return;
+            }
+            if (name === 'href') {
+                var value = attr.value.trim().toLowerCase();
+                if (value.indexOf('javascript:') === 0 || value.indexOf('data:') === 0) {
+                    el.removeAttribute(attr.name);
+                }
+            }
+        });
+        if (tagName === 'a' && el.getAttribute('target') === '_blank') {
+            el.setAttribute('rel', 'noopener noreferrer');
+        }
+    }
+
+    function sanitizeHtmlChildren(parent) {
+        var child = parent.firstChild;
+        while (child) {
+            var next = child.nextSibling;
+            if (child.nodeType === Node.ELEMENT_NODE) {
+                var tagName = child.tagName.toLowerCase();
+                if (HTML_SANITIZER_STRIP_WITH_CONTENT.indexOf(tagName) !== -1) {
+                    parent.removeChild(child);
+                } else if (!Object.prototype.hasOwnProperty.call(HTML_SANITIZER_ALLOWED_TAGS, tagName)) {
+                    // Not in the allowlist: drop the tag but keep its text/inline content.
+                    var firstMoved = child.firstChild;
+                    while (child.firstChild) {
+                        parent.insertBefore(child.firstChild, child);
+                    }
+                    parent.removeChild(child);
+                    next = firstMoved || next;
+                } else {
+                    sanitizeHtmlAttributes(child, tagName);
+                    sanitizeHtmlChildren(child);
+                }
+            } else if (child.nodeType === Node.COMMENT_NODE) {
+                parent.removeChild(child);
+            }
+            child = next;
+        }
+    }
+
+    // Parses into an inert <template> fragment (never attached to the
+    // live document, so no image load / script execution can fire while
+    // walking it) and returns the tag/attribute-allowlisted HTML.
+    function sanitizeHtml(html) {
+        var template = document.createElement('template');
+        template.innerHTML = html || '';
+        sanitizeHtmlChildren(template.content);
+        return template.innerHTML;
+    }
+
     // --- Shared rich-text editor (module spec §11.5 — no modal, unlike
     // partials/rich_text_editor.html.twig's editable() flow) — ONE
     // implementation (toolbar + contenteditable + image insertion) used
@@ -67,9 +137,9 @@
         editable.contentEditable = 'true';
         editable.className = 'form-control';
         editable.style.minHeight = '100px';
-        editable.innerHTML = initialHtml || '';
+        editable.innerHTML = sanitizeHtml(initialHtml);
         editable.addEventListener('input', function () {
-            if (onChange) onChange(editable.innerHTML);
+            if (onChange) onChange(sanitizeHtml(editable.innerHTML));
         });
 
         var imageInput = document.createElement('input');
@@ -140,7 +210,7 @@
                         sel.addRange(savedRange);
                     }
                     document.execCommand('insertImage', false, data.url);
-                    if (onChange) onChange(editable.innerHTML);
+                    if (onChange) onChange(sanitizeHtml(editable.innerHTML));
                 });
         });
 
@@ -645,8 +715,22 @@
             label.className = 'flex-grow-1';
             var isNonInput = NON_INPUT_TYPES.indexOf(field.field_type) !== -1;
             var labelText = field.field_type === 'confirmation' ? 'Bloc de confirmation' : (field.field_type === 'text' ? 'Bloc de texte' : (field.label || 'Sans libellé'));
-            label.innerHTML = labelText + (field.is_required && !isNonInput ? ' <span class="text-danger">*</span>' : '') +
-                (field.price_per_unit ? ' <span class="text-body-secondary small">· ' + field.price_per_unit + '€/unité</span>' : '');
+            // field.label is admin-entered free text (not HTML-sanitized server-side,
+            // since it's meant to stay plain text) — built with textContent/DOM nodes
+            // rather than innerHTML so it can never be reinterpreted as markup.
+            label.appendChild(document.createTextNode(labelText));
+            if (field.is_required && !isNonInput) {
+                var requiredMark = document.createElement('span');
+                requiredMark.className = 'text-danger';
+                requiredMark.textContent = ' *';
+                label.appendChild(requiredMark);
+            }
+            if (field.price_per_unit) {
+                var priceBadge = document.createElement('span');
+                priceBadge.className = 'text-body-secondary small';
+                priceBadge.textContent = ' · ' + field.price_per_unit + '€/unité';
+                label.appendChild(priceBadge);
+            }
             row.appendChild(label);
 
             var typeName = document.createElement('span');

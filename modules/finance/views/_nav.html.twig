@@ -1,15 +1,18 @@
 {#
   Shared across the three "Finances" chef-facing pages (dashboard,
   movements, receipts — only /finance carries the espace_chefs menu
-  label, the other two are sub-pages of it) — same visual/interaction
-  pattern as partials/section_picker.html.twig and
-  @calendar/partials/calendar_picker.html.twig: a row of pill buttons,
-  not a <select>.
+  label, the other two are sub-pages of it) — same component/style as
+  partials/section_picker.html.twig and
+  @calendar/partials/calendar_picker.html.twig: a thin mapping layer over
+  partials/chip_picker.html.twig (mode: single), replacing what used to
+  be a raw overflow-x-auto/flex-nowrap horizontal-scroll row (no scroll
+  affordance, poor mobile ergonomics — the exact pattern chip_picker
+  exists to replace, see ARCHITECTURE.md §8.30).
 
   Requires `accounts` and `current_path` in scope; `selected_account` is
-  optional (its absence just means no pill is highlighted/no account
+  optional (its absence just means no chip is highlighted/no account
   query param gets appended). Set `hide_account_picker` to suppress the
-  pill row below — every finance page now has its own account <select>
+  picker below — every finance page now has its own account <select>
   (dashboard/movements/receipts filter forms, import's own form field),
   so showing both would be redundant.
 #}
@@ -20,26 +23,43 @@
     {'url': '/finance/import', 'label': 'Importer'},
     {'url': '/finance/receivables', 'label': 'Paiements attendus'},
 ] %}
-<div class="d-flex flex-nowrap flex-lg-wrap gap-2 pb-2 mb-2 overflow-x-auto finance-page-picker" style="-webkit-overflow-scrolling:touch;">
-    {% for page in finance_pages %}
-        {% set is_active = current_path == page.url %}
-        <a href="{{ page.url }}{{ selected_account is defined and selected_account ? '?account_id=' ~ selected_account.id : '' }}"
-           class="btn btn-sm {{ is_active ? 'btn-primary' : 'btn-outline-secondary' }} text-nowrap text-decoration-none"
-           {{ is_active ? 'aria-current="page"' : '' }}>
-            {{ page.label }}
-        </a>
-    {% endfor %}
+{% set finance_page_items = [] %}
+{% for page in finance_pages %}
+    {% set finance_page_items = finance_page_items|merge([{
+        id: page.url,
+        label: page.label,
+        selected: current_path == page.url,
+    }]) %}
+{% endfor %}
+<div class="finance-page-picker mb-2">
+    {% include 'partials/chip_picker.html.twig' with {
+        picker_id: 'finance-page-picker',
+        items: finance_page_items,
+        mode: 'single',
+        base_url: '',
+        extra_query: selected_account is defined and selected_account ? '?account_id=' ~ selected_account.id : '',
+        sheet_title: 'Choisir une page',
+        empty_text: 'Aucune page disponible.',
+    } %}
 </div>
 
 {% if accounts and not (hide_account_picker is defined and hide_account_picker) %}
-    <div class="d-flex flex-nowrap flex-lg-wrap gap-2 pb-2 mb-4 overflow-x-auto finance-account-picker" style="-webkit-overflow-scrolling:touch;">
-        {% for account in accounts %}
-            {% set is_active = selected_account is defined and selected_account and account.id == selected_account.id %}
-            <a href="{{ current_path }}?account_id={{ account.id }}"
-               class="btn btn-sm {{ is_active ? 'btn-primary' : 'btn-outline-secondary' }} text-nowrap text-decoration-none"
-               {{ is_active ? 'aria-current="true"' : '' }}>
-                {{ account.name }}
-            </a>
-        {% endfor %}
+    {% set finance_account_items = [] %}
+    {% for account in accounts %}
+        {% set finance_account_items = finance_account_items|merge([{
+            id: account.id,
+            label: account.name,
+            selected: selected_account is defined and selected_account and account.id == selected_account.id,
+        }]) %}
+    {% endfor %}
+    <div class="finance-account-picker mb-4">
+        {% include 'partials/chip_picker.html.twig' with {
+            picker_id: 'finance-account-picker',
+            items: finance_account_items,
+            mode: 'single',
+            base_url: current_path ~ '?account_id=',
+            sheet_title: 'Choisir un compte',
+            empty_text: 'Aucun compte disponible.',
+        } %}
     </div>
 {% endif %}
