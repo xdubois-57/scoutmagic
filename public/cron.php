@@ -8,7 +8,14 @@
 
 declare(strict_types=1);
 
-require_once __DIR__ . '/../vendor/autoload.php';
+$composerAutoloader = require_once __DIR__ . '/../vendor/autoload.php';
+
+// Same safety net as public/index.php — see Core\System\ComposerAutoloadSync's
+// own docblock. Needed here too: a scheduled task from a module whose PSR-4
+// entry predates the last time vendor/ was regenerated would otherwise fail
+// with "Class not found" the moment cron runs it, even though every web
+// request already works fine.
+\Core\System\ComposerAutoloadSync::apply($composerAutoloader, __DIR__ . '/../composer.json');
 
 use Core\Config\SettingRepository;
 use Core\Config\SettingService;
