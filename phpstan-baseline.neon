@@ -1,0 +1,131 @@
+parameters:
+	ignoreErrors:
+		-
+			message: "#^Method Modules\\\\Registration\\\\Controller\\\\PublicRegistrationController\\:\\:buildPageContext\\(\\) has parameter \\$stickyValues with no value type specified in iterable type array\\.$#"
+			count: 1
+			path: modules/registration/src/Controller/PublicRegistrationController.php
+
+		-
+			message: "#^PHPDoc tag @param for parameter \\$stickyValues with type array\\<string, mixed\\>\\|null is not subtype of native type array\\.$#"
+			count: 1
+			path: modules/registration/src/Controller/PublicRegistrationController.php
+
+		-
+			message: "#^Method Modules\\\\Registration\\\\Service\\\\PassageService\\:\\:decryptName\\(\\) has parameter \\$firstNameEncrypted with no type specified\\.$#"
+			count: 1
+			path: modules/registration/src/Service/PassageService.php
+
+		-
+			message: "#^Method Modules\\\\Registration\\\\Service\\\\PassageService\\:\\:decryptName\\(\\) has parameter \\$lastNameEncrypted with no type specified\\.$#"
+			count: 1
+			path: modules/registration/src/Service/PassageService.php
+
+		-
+			message: "#^Offset 'url' on array\\{label\\: string, url\\: string, isDynamic\\: bool, subtitle\\: string\\|null\\} on left side of \\?\\? always exists and is not nullable\\.$#"
+			count: 1
+			path: public/index.php
+
+		-
+			message: "#^Variable \\$bannerService might not be defined\\.$#"
+			count: 1
+			path: public/index.php
+
+		-
+			message: "#^Variable \\$calendarEventRepo might not be defined\\.$#"
+			count: 4
+			path: public/index.php
+
+		-
+			message: "#^Variable \\$calendarEventService might not be defined\\.$#"
+			count: 1
+			path: public/index.php
+
+		-
+			message: "#^Variable \\$calendarIcsBuilder might not be defined\\.$#"
+			count: 1
+			path: public/index.php
+
+		-
+			message: "#^Variable \\$calendarNotificationService might not be defined\\.$#"
+			count: 1
+			path: public/index.php
+
+		-
+			message: "#^Variable \\$calendarPersonalTokenRepo might not be defined\\.$#"
+			count: 1
+			path: public/index.php
+
+		-
+			message: "#^Variable \\$calendarRepo might not be defined\\.$#"
+			count: 2
+			path: public/index.php
+
+		-
+			message: "#^Variable \\$calendarService might not be defined\\.$#"
+			count: 2
+			path: public/index.php
+
+		-
+			message: "#^Variable \\$calendarUnitFeedTokenRepo might not be defined\\.$#"
+			count: 1
+			path: public/index.php
+
+		-
+			message: "#^Variable \\$galleryAlbumRepo might not be defined\\.$#"
+			count: 1
+			path: public/index.php
+
+		-
+			message: "#^Variable \\$galleryMediaRepo might not be defined\\.$#"
+			count: 1
+			path: public/index.php
+
+		-
+			message: "#^Variable \\$galleryMediaService might not be defined\\.$#"
+			count: 1
+			path: public/index.php
+
+		-
+			message: "#^Variable \\$massMailAccessService might not be defined\\.$#"
+			count: 1
+			path: public/index.php
+
+		-
+			message: "#^Variable \\$massMailAttachmentRepo might not be defined\\.$#"
+			count: 1
+			path: public/index.php
+
+		-
+			message: "#^Variable \\$massMailEmailRepo might not be defined\\.$#"
+			count: 1
+			path: public/index.php
+
+		-
+			message: "#^Variable \\$massMailFunctionRepo might not be defined\\.$#"
+			count: 1
+			path: public/index.php
+
+		-
+			message: "#^Variable \\$massMailListRepo might not be defined\\.$#"
+			count: 1
+			path: public/index.php
+
+		-
+			message: "#^Variable \\$massMailRecipientRepo might not be defined\\.$#"
+			count: 2
+			path: public/index.php
+
+		-
+			message: "#^Variable \\$massMailResolutionRepo might not be defined\\.$#"
+			count: 1
+			path: public/index.php
+
+		-
+			message: "#^Variable \\$monthGridBuilder might not be defined\\.$#"
+			count: 2
+			path: public/index.php
+
+		-
+			message: "#^Variable \\$retroBoardService might not be defined\\.$#"
+			count: 1
+			path: public/index.php

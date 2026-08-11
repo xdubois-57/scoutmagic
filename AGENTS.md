@@ -85,6 +85,16 @@ Automated tests are **mandatory** for every feature, without exception.
 - RBAC guard: explicit test coverage on every role boundary.
 - Cookie consent: test that non-essential cookies are not set when consent is missing.
 
+## Static analysis — run before every commit that touches PHP
+
+`vendor/bin/phpstan analyse` (no path arguments — `phpstan.neon` already declares them) **must** be run and pass before committing any PHP change, not just before opening a PR. This is not optional, and it is not the same guarantee as `phpunit` passing.
+
+**Why this exists**: a production incident where a controller's constructor signature was changed (a parameter removed) as part of a refactor. Every direct instantiation in `tests/` was updated and passing. The one call site that was *not* updated was `public/index.php`'s composition root, where every controller is wired up with a long, hand-written argument list — nothing there is under test, because no test boots the app's full dependency-injection wiring. The result: a `TypeError` fatal on literally every request, caught only when a live server was actually exercised, well after the change had been committed, pushed, and merged. `phpstan.neon`'s `paths` used to be `core/` only, which is exactly why this slipped through: PHPStan compares every constructor call's argument types against the class's declared parameter types — it would have flagged this instantly — but the one file where the bug lived (`public/index.php`) was outside its scope. `paths` now covers `core/`, `modules/`, and both `public/` entry points (`index.php`, `cron.php`) for exactly this reason. Do not narrow it back down.
+
+**The takeaway that generalizes beyond this one bug**: whenever a class's constructor, a function's signature, or a method's parameters change, `grep` for every call site is not enough to trust by itself — a call site can be textually far from the class definition (a composition root, a factory, a DI container) and easy to miss by eye. Run PHPStan and read its output; do not assume "I updated everywhere I could find" is equivalent to "I updated everywhere."
+
+Pre-existing findings unrelated to your change are captured in `phpstan-baseline.neon` — a clean run means no *new* errors, not zero findings ever. Never add a new finding to the baseline to make a change "pass"; fix the finding or, if it is a genuine pre-existing issue you are not touching, leave it in the baseline as-is. Regenerating the baseline (`--generate-baseline`) is only for intentionally accepting new pre-existing debt you are not fixing right now — never to hide an error your own change just introduced.
+
 ## CSS / frontend
 
 - **Mobile-first**: write for mobile by default, add `min-width` breakpoints for larger screens.
