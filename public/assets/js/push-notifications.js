@@ -1,3 +1,8 @@
+/*!
+ * ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ * Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+ */
+
 // "Mon compte" push notification toggle (Core\Notification, Iteration 1).
 // The toggle always reflects THIS device's actual subscription state
 // (checked via PushManager.getSubscription() on load), never a stored

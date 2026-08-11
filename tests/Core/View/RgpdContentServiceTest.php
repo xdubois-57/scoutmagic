@@ -32,7 +32,7 @@ class RgpdContentServiceTest extends TestCase
         $llmConnector->method('isAvailable')->willReturn(true);
         $llmConnector->expects($this->once())->method('complete')
             ->with($this->callback(fn(LlmRequest $request) => $request->maxTokens === 8192))
-            ->willReturn(new LlmResponse(content: '<h2>Titre</h2><p>Contenu</p>', parsed: null, inputTokens: 10, outputTokens: 20, truncated: false));
+            ->willReturn(new LlmResponse(content: '<h2>Titre</h2><p>Contenu. Unité scoute est responsable du traitement.</p>', parsed: null, inputTokens: 10, outputTokens: 20, truncated: false));
 
         $service = new RgpdContentService($this->moduleManager, $this->settingService, $llmConnector);
 
@@ -48,7 +48,7 @@ class RgpdContentServiceTest extends TestCase
         $llmConnector->expects($this->exactly(2))->method('complete')
             ->willReturnOnConsecutiveCalls(
                 new LlmResponse(content: '<h2>Titre</h2><p>Début du contenu', parsed: null, inputTokens: 10, outputTokens: 8192, truncated: true),
-                new LlmResponse(content: ' et fin du contenu.</p>', parsed: null, inputTokens: 10, outputTokens: 50, truncated: false)
+                new LlmResponse(content: ' et fin du contenu. Unité scoute est responsable du traitement.</p>', parsed: null, inputTokens: 10, outputTokens: 50, truncated: false)
             );
 
         $service = new RgpdContentService($this->moduleManager, $this->settingService, $llmConnector);
@@ -70,7 +70,7 @@ class RgpdContentServiceTest extends TestCase
                     return new LlmResponse(content: '<h2>Titre</h2><p>Début du contenu', parsed: null, inputTokens: 10, outputTokens: 8192, truncated: true);
                 }
                 $capturedContinuationRequest = $request;
-                return new LlmResponse(content: ' et fin.</p>', parsed: null, inputTokens: 10, outputTokens: 50, truncated: false);
+                return new LlmResponse(content: ' et fin. Unité scoute est responsable du traitement.</p>', parsed: null, inputTokens: 10, outputTokens: 50, truncated: false);
             });
 
         $service = new RgpdContentService($this->moduleManager, $this->settingService, $llmConnector);
@@ -102,6 +102,26 @@ class RgpdContentServiceTest extends TestCase
         $service = new RgpdContentService($this->moduleManager, $this->settingService, null);
 
         $this->expectException(\RuntimeException::class);
+        $service->generateWithAi('Instructions');
+    }
+
+    public function testGenerateWithAiThrowsAndDoesNotReturnContentWhenNoControllerIsDesignated(): void
+    {
+        $settingService = $this->createMock(SettingService::class);
+        $settingService->method('get')->willReturnCallback(
+            fn(string $key) => $key === 'site_name' ? 'Unité Test' : ''
+        );
+
+        $llmConnector = $this->createMock(LlmConnectorInterface::class);
+        $llmConnector->method('isAvailable')->willReturn(true);
+        $llmConnector->method('complete')->willReturn(
+            new LlmResponse(content: '<h2>Titre</h2><p>Le site traite vos données.</p>', parsed: null, inputTokens: 10, outputTokens: 20, truncated: false)
+        );
+
+        $service = new RgpdContentService($this->moduleManager, $settingService, $llmConnector);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessageMatches('/responsable du traitement/');
         $service->generateWithAi('Instructions');
     }
 }

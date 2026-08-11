@@ -1,3 +1,8 @@
+/*!
+ * ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ * Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+ */
+
 // Offline navigation (Lot 3) — while offline, a link to a page outside
 // the offline whitelist is greyed out and inert rather than leading to a
 // dead end. The generic offline page (Lot 1) remains the safety net for

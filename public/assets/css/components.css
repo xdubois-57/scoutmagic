@@ -1,3 +1,8 @@
+/*!
+ * ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ * Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+ */
+
 /* Core member_photo() component (see Core\Photo, TwigFactory::create()).
    3:4 portrait format, same size wherever it's used (e.g. every photo on the
    trombinoscope, including the highlighted "responsable" card). */
