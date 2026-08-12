@@ -448,4 +448,25 @@ class PublicRegistrationControllerTest extends TestCase
         $this->assertStringNotContainsString('"capacity"', $body);
         $this->assertStringNotContainsString('"accepted"', $body);
     }
+
+    /**
+     * The "nés en..." grid shows each year's availability inline (one
+     * readable badge per year) instead of a separate "Disponibilité des
+     * places" summary section — the summary section must be gone entirely
+     * once the per-year info carries the same content.
+     */
+    public function testWaitlistInfoIsShownInlinePerYearNotAsASeparateSection(): void
+    {
+        $this->settingService->set('registration_waitlist_enabled', '1', 'registration');
+        $capacityRepository = new SlotCapacityRepository($this->pdo);
+        $capacityRepository->upsert($this->baladinsId, 1, 0);
+        $capacityRepository->upsert($this->louveteauxId, 1, 999);
+
+        $response = $this->controller->index(new Request('GET', '/inscriptions', [], [], [], []), []);
+        $body = $response->getBody();
+
+        $this->assertStringNotContainsString('Disponibilité des places', $body);
+        $this->assertStringContainsString('Attente importante', $body);
+        $this->assertStringContainsString('Places disponibles', $body);
+    }
 }

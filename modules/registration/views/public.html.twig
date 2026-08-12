@@ -22,29 +22,26 @@
                 <div class="row g-3">
                     {% for branch in birth_years_by_branch %}
                         <div class="col-6 col-sm-3">
-                            <div class="fw-semibold small mb-1">{{ branch.branch_label }}</div>
-                            <div class="text-body-secondary small">
-                                {% for year in branch.birth_years %}{{ year }}{% if waitlist_enabled %}{% if year in waitlist_tiers.limited|default([]) %}<span class="badge bg-warning text-dark ms-1" title="Attente limitée">!</span>{% elseif year in waitlist_tiers.heavy|default([]) %}<span class="badge bg-danger ms-1" title="Attente importante">!</span>{% endif %}{% endif %}{% if not loop.last %}, {% endif %}{% endfor %}
-                            </div>
+                            <div class="fw-semibold small mb-2">{{ branch.branch_label }}</div>
+                            <ul class="list-unstyled small mb-0">
+                                {% for year in branch.birth_years %}
+                                    <li class="mb-1">
+                                        {{ year }}
+                                        {% if waitlist_enabled %}
+                                            {% if year in waitlist_tiers.limited|default([]) %}
+                                                <span class="badge bg-warning text-dark ms-1">Attente limitée</span>
+                                            {% elseif year in waitlist_tiers.heavy|default([]) %}
+                                                <span class="badge bg-danger ms-1">Attente importante</span>
+                                            {% else %}
+                                                <span class="badge bg-success ms-1">Places disponibles</span>
+                                            {% endif %}
+                                        {% endif %}
+                                    </li>
+                                {% endfor %}
+                            </ul>
                         </div>
                     {% endfor %}
                 </div>
-
-                {% if waitlist_enabled %}
-                    <hr class="my-3">
-                    <h3 class="h6 mb-2">Disponibilité des places</h3>
-                    <div class="d-flex flex-column gap-2 small">
-                        {% if waitlist_tiers.available|default([]) is not empty %}
-                            <div><span class="badge bg-success me-1">Places disponibles</span> nés en {{ waitlist_tiers.available|join(', ') }}</div>
-                        {% endif %}
-                        {% if waitlist_tiers.limited|default([]) is not empty %}
-                            <div><span class="badge bg-warning text-dark me-1">Attente limitée</span> nés en {{ waitlist_tiers.limited|join(', ') }}</div>
-                        {% endif %}
-                        {% if waitlist_tiers.heavy|default([]) is not empty %}
-                            <div><span class="badge bg-danger me-1">Attente importante</span> nés en {{ waitlist_tiers.heavy|join(', ') }}</div>
-                        {% endif %}
-                    </div>
-                {% endif %}
             </div>
         </div>
 
