@@ -108,4 +108,54 @@ class SlotServiceTest extends TestCase
         $this->assertContains($birthYear1, $tiers[SlotMath::TIER_HEAVY]);
         $this->assertNotContains($birthYear1, $tiers[SlotMath::TIER_AVAILABLE]);
     }
+
+    public function testBirthYearSlotsForPublicListsYearInBranchWithoutTierWhenWaitlistDisabled(): void
+    {
+        $currentYearId = RegistrationTestHelper::insertScoutYear($this->pdo, '2026-2027', '2026-09-01', '2027-08-31');
+        $targetYearId = RegistrationTestHelper::insertScoutYear($this->pdo, '2027-2028', '2027-09-01', '2028-08-31');
+
+        $rows = $this->service->birthYearSlotsForPublic($targetYearId, '2027-2028', $currentYearId, false);
+
+        $bracket = $this->bracketRepository->findForBranch($this->baladinsId);
+        $birthYear1 = SlotMath::birthYearForSlot($bracket, 1, 2027);
+        $birthYear2 = SlotMath::birthYearForSlot($bracket, 2, 2027);
+
+        $row1 = current(array_filter($rows, fn($r) => $r['birth_year'] === $birthYear1));
+        $this->assertNotFalse($row1);
+        $this->assertSame('Baladins', $row1['branch_label']);
+        $this->assertSame(1, $row1['year_in_branch']);
+        $this->assertNull($row1['tier']);
+
+        $row2 = current(array_filter($rows, fn($r) => $r['birth_year'] === $birthYear2));
+        $this->assertNotFalse($row2);
+        $this->assertSame(2, $row2['year_in_branch']);
+    }
+
+    public function testBirthYearSlotsForPublicIncludesTierWhenWaitlistEnabled(): void
+    {
+        $this->capacityRepository->upsert($this->baladinsId, 1, 2);
+        $currentYearId = RegistrationTestHelper::insertScoutYear($this->pdo, '2026-2027', '2026-09-01', '2027-08-31');
+        $targetYearId = RegistrationTestHelper::insertScoutYear($this->pdo, '2027-2028', '2027-09-01', '2028-08-31');
+
+        $bracket = $this->bracketRepository->findForBranch($this->baladinsId);
+        $birthYear1 = SlotMath::birthYearForSlot($bracket, 1, 2027);
+
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $requestRepository = new RegistrationRequestRepository($this->pdo, $encryption);
+        for ($i = 0; $i < 2; $i++) {
+            $created = $requestRepository->create($targetYearId, [
+                'parent_name' => 'P', 'child_last_name' => 'L', 'child_first_name' => 'F' . $i,
+                'gender' => 'F', 'birth_date' => $birthYear1 . '-06-01', 'street' => 'S', 'number' => '1',
+                'postal_code' => '1000', 'city' => 'V', 'email' => 'p' . $i . '@example.com',
+                'phone1' => '000', 'phone2' => null, 'remarks' => null,
+            ], null, []);
+            $requestRepository->updateStatus($created['id'], 'accepted', null);
+        }
+
+        $rows = $this->service->birthYearSlotsForPublic($targetYearId, '2027-2028', $currentYearId, true);
+
+        $row1 = current(array_filter($rows, fn($r) => $r['birth_year'] === $birthYear1));
+        $this->assertNotFalse($row1);
+        $this->assertSame(SlotMath::TIER_HEAVY, $row1['tier']);
+    }
 }

@@ -102,6 +102,42 @@ class RegistrationServiceTest extends TestCase
         $this->assertTrue($this->service->isFormOpen());
     }
 
+    public function testCanSubmitTrueWhenFormOpenRegardlessOfCode(): void
+    {
+        $this->settingService->set('registration_form_open', '1', 'registration');
+
+        $this->assertTrue($this->service->canSubmit(null));
+        $this->assertTrue($this->service->canSubmit('anything'));
+    }
+
+    /**
+     * A valid in-year code is its own, independent open/close mechanism —
+     * a family a chief has given a code to must still be able to register
+     * while the general form is closed (module spec, §8.35).
+     */
+    public function testCanSubmitTrueWhenFormClosedButCodeIsValid(): void
+    {
+        $this->assertFalse($this->service->isFormOpen());
+        $code = $this->yearCodeRepository->regenerate($this->publicYearId);
+
+        $this->assertTrue($this->service->canSubmit($code));
+    }
+
+    public function testCanSubmitFalseWhenFormClosedAndNoCode(): void
+    {
+        $this->assertFalse($this->service->isFormOpen());
+
+        $this->assertFalse($this->service->canSubmit(null));
+        $this->assertFalse($this->service->canSubmit(''));
+    }
+
+    public function testCanSubmitFalseWhenFormClosedAndCodeInvalid(): void
+    {
+        $this->yearCodeRepository->regenerate($this->publicYearId);
+
+        $this->assertFalse($this->service->canSubmit('WRONG-CODE'));
+    }
+
     public function testResolveTargetYearWithoutCodeTargetsNextYear(): void
     {
         $target = $this->service->resolveTargetYear(null);
