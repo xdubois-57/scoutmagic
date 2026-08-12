@@ -21,6 +21,7 @@ use Core\Security\CsrfGuard;
 use Core\Security\HumanCheck\HumanCheckService;
 use Modules\Registration\Repository\AgeBracketRepository;
 use Modules\Registration\Service\RegistrationService;
+use Modules\Registration\Service\RegistrationYearCodeSession;
 use Modules\Registration\Service\SlotMath;
 use Modules\Registration\Service\SlotService;
 use Twig\Environment;
@@ -52,7 +53,38 @@ class PublicRegistrationController extends AbstractController
      */
     public function index(Request $request, array $params): Response
     {
-        return $this->render('@registration/public.html.twig', $this->buildPageContext(null, []));
+        return $this->render('@registration/public.html.twig', $this->buildPageContext(null, [], null));
+    }
+
+    /**
+     * POST /inscriptions/code — the closed-form gate: validates an in-year
+     * code and, only on success, unlocks the full form for the CURRENT
+     * public year for this browser session (Service\
+     * RegistrationYearCodeSession) — never globally, and never for the
+     * next scout year (that still requires the form to genuinely be
+     * open). A wrong code re-renders the same closed state with an error,
+     * never the form itself.
+     *
+     * @param array<string, string> $params
+     */
+    public function verifyCode(Request $request, array $params): Response
+    {
+        if (!CsrfGuard::validateToken((string) $request->getBody('_csrf_token', ''))) {
+            return new Response('Jeton CSRF invalide.', 403);
+        }
+
+        $code = (string) $request->getBody('year_code', '');
+        if (!$this->registrationService->isYearCodeValid($code)) {
+            return $this->render(
+                '@registration/public.html.twig',
+                $this->buildPageContext(null, [], 'Le code saisi n\'est pas valide.')
+            )->setStatusCode(422);
+        }
+
+        $publicYear = $this->scoutYearResolver->getCurrentPublicYear();
+        RegistrationYearCodeSession::unlock((int) $publicYear['id']);
+
+        return $this->render('@registration/public.html.twig', $this->buildPageContext(null, [], null));
     }
 
     /**
@@ -66,13 +98,11 @@ class PublicRegistrationController extends AbstractController
             return new Response('Jeton CSRF invalide.', 403);
         }
 
-        if (!$this->registrationService->canSubmit((string) $request->getBody('year_code', ''))) {
+        $availability = $this->resolveAvailability((string) $request->getBody('year_code', ''));
+        if (!$availability['form_available']) {
             return $this->render(
                 '@registration/public.html.twig',
-                $this->buildPageContext(
-                    'Les inscriptions ne sont pas ouvertes pour le moment, et le code saisi n\'est pas valide.',
-                    $request->getBodyAll()
-                )
+                $this->buildPageContext('Les inscriptions ne sont pas ouvertes pour le moment.', $request->getBodyAll(), null)
             )->setStatusCode(422);
         }
 
@@ -85,7 +115,7 @@ class PublicRegistrationController extends AbstractController
         if ($humanCheckResult !== null && !$humanCheckResult->accepted) {
             return $this->render(
                 '@registration/public.html.twig',
-                $this->buildPageContext('Une erreur est survenue. Veuillez réessayer.', $request->getBodyAll())
+                $this->buildPageContext('Une erreur est survenue. Veuillez réessayer.', $request->getBodyAll(), null)
             )->setStatusCode(422);
         }
 
@@ -94,11 +124,11 @@ class PublicRegistrationController extends AbstractController
         if ($errors !== []) {
             return $this->render(
                 '@registration/public.html.twig',
-                $this->buildPageContext(implode(' ', $errors), $request->getBodyAll())
+                $this->buildPageContext(implode(' ', $errors), $request->getBodyAll(), null)
             )->setStatusCode(422);
         }
 
-        $target = $this->registrationService->resolveTargetYear((string) $request->getBody('year_code', ''));
+        $target = $availability['target'];
         $referenceYear = SlotMath::referenceCalendarYear(
             MemberYearService::referenceYearFromScoutYearLabel((string) $target['label']),
             $this->slotService->referenceMonthDay()
@@ -127,19 +157,56 @@ class PublicRegistrationController extends AbstractController
     }
 
     /**
+     * Whether the form is actually reachable right now, and which scout
+     * year a submission would target — the one question both submit() and
+     * buildPageContext() need answered the same way, so it isn't computed
+     * twice with a risk of drifting apart.
+     *
+     * Genuinely open (`registration_form_open`) always wins and targets
+     * the *next* year, with the optional inline in-year code (still
+     * collapsed behind its own toggle in that case) able to redirect a
+     * single submission to the current year instead — the pre-existing
+     * behavior. A *closed* form is reachable only via Service\
+     * RegistrationYearCodeSession's per-session unlock, which — because
+     * it only exists at all once a code for the CURRENT public year was
+     * verified — always targets that current year, never the next one.
+     *
+     * @return array{form_open: bool, session_unlocked: bool, form_available: bool, target: array{id: int, label: string, start_date: string, end_date: string, used_code: bool}}
+     */
+    private function resolveAvailability(?string $submittedCode): array
+    {
+        $publicYear = $this->scoutYearResolver->getCurrentPublicYear();
+        $formOpen = $this->registrationService->isFormOpen();
+        $sessionUnlocked = RegistrationYearCodeSession::isUnlockedFor((int) $publicYear['id']);
+
+        $target = ($sessionUnlocked && !$formOpen)
+            ? $publicYear + ['used_code' => true]
+            : $this->registrationService->resolveTargetYear($submittedCode);
+
+        return [
+            'form_open' => $formOpen,
+            'session_unlocked' => $sessionUnlocked,
+            'form_available' => $formOpen || $sessionUnlocked,
+            'target' => $target,
+        ];
+    }
+
+    /**
      * @param array<string, mixed>|null $stickyValues values to redisplay in
      *   the form after a rejected submission (module spec: never lose the
      *   parent's entered data on an anti-robot rejection or validation error)
+     * @param string|null $codeError set only when the closed-form code
+     *   entry itself was just rejected (Controller::verifyCode())
      * @return array<string, mixed>
      */
-    private function buildPageContext(?string $submitError, array $stickyValues): array
+    private function buildPageContext(?string $submitError, array $stickyValues, ?string $codeError): array
     {
         $publicYear = $this->scoutYearResolver->getCurrentPublicYear();
-        $target = $this->registrationService->resolveTargetYear(null);
+        $availability = $this->resolveAvailability(null);
+        $target = $availability['target'];
         $targetLabel = (string) $target['label'];
 
         $waitlistEnabled = (bool) $this->settingService->get('registration_waitlist_enabled', 'registration', '0');
-        $formOpen = $this->registrationService->isFormOpen();
 
         $sections = $this->sectionService->getAllWithBranches();
 
@@ -175,7 +242,9 @@ class PublicRegistrationController extends AbstractController
                 (int) $publicYear['id'],
                 $waitlistEnabled
             ),
-            'form_open' => $formOpen,
+            'form_open' => $availability['form_open'],
+            'session_unlocked' => $availability['session_unlocked'],
+            'form_available' => $availability['form_available'],
             'sections' => $sections,
             'is_identified' => $identified,
             'sibling_candidates' => $siblingCandidates,
@@ -184,6 +253,7 @@ class PublicRegistrationController extends AbstractController
                 ? $this->humanCheck->generateChallenge(self::HUMAN_CHECK_FORM_KEY)
                 : null,
             'submit_error' => $submitError,
+            'code_error' => $codeError,
             'sticky' => $stickyValues,
         ];
     }

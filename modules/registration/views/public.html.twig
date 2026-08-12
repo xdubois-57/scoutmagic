@@ -55,11 +55,24 @@
                 <div class="alert alert-danger">{{ submit_error }}</div>
             {% endif %}
 
-            {% if not form_open %}
+            {% if not form_available %}
                 <div class="alert alert-secondary">
-                    Les inscriptions ne sont pas ouvertes pour le moment. Si vous disposez d'un code d'inscription en cours d'année, vous pouvez néanmoins vous inscrire ci-dessous.
+                    Les inscriptions ne sont pas ouvertes pour le moment. Si vous disposez d'un code d'inscription en cours d'année, vous pouvez le saisir ci-dessous pour vous inscrire.
                 </div>
-            {% endif %}
+                {% if code_error %}
+                    <div class="alert alert-danger">{{ code_error }}</div>
+                {% endif %}
+                <form method="POST" action="/inscriptions/code" class="row g-2 align-items-end" style="max-width: 480px;">
+                    <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+                    <div class="col-12 col-sm">
+                        <label class="form-label" for="unlock_year_code">Code d'inscription en cours d'année</label>
+                        <input type="text" class="form-control" id="unlock_year_code" name="year_code" maxlength="20" placeholder="ex. 4KX9-7QRM" required>
+                    </div>
+                    <div class="col-12 col-sm-auto">
+                        <button type="submit" class="btn btn-primary">Valider le code</button>
+                    </div>
+                </form>
+            {% else %}
                 <form method="POST" action="/inscriptions" id="registration-form">
                     <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
                     {% include 'partials/human_check_fields.html.twig' with { human_check: human_check } %}
@@ -161,11 +174,8 @@
                         <textarea class="form-control" id="remarks" name="remarks" rows="3" maxlength="2000">{{ sticky.remarks|default('') }}</textarea>
                     </div>
 
-                    <div class="mb-4">
-                        {% if not form_open %}
-                            <label class="form-label" for="year_code">Code d'inscription en cours d'année</label>
-                            <input type="text" class="form-control" id="year_code" name="year_code" maxlength="20" placeholder="ex. 4KX9-7QRM" value="{{ sticky.year_code|default('') }}">
-                        {% else %}
+                    {% if form_open %}
+                        <div class="mb-4">
                             <button class="btn btn-link p-0 small" type="button" data-bs-toggle="collapse" data-bs-target="#year-code-collapse">
                                 J'ai un code d'inscription en cours d'année
                             </button>
@@ -173,8 +183,8 @@
                                 <label class="form-label" for="year_code">Code d'inscription</label>
                                 <input type="text" class="form-control" id="year_code" name="year_code" maxlength="20" placeholder="ex. 4KX9-7QRM" value="{{ sticky.year_code|default('') }}">
                             </div>
-                        {% endif %}
-                    </div>
+                        </div>
+                    {% endif %}
 
                     <div class="form-check mb-4">
                         <input class="form-check-input" type="checkbox" name="rgpd_accepted" id="rgpd_accepted" required {{ sticky.rgpd_accepted|default('') ? 'checked' : '' }}>
@@ -185,6 +195,7 @@
 
                     <button type="submit" class="btn btn-primary w-100 w-sm-auto float-sm-end">Envoyer la demande</button>
                 </form>
+            {% endif %}
         </div>
     </div>
 {% endblock %}

@@ -52,7 +52,7 @@ class RegistrationService
     {
         $publicYear = $this->scoutYearResolver->getCurrentPublicYear();
 
-        if ($this->hasValidYearCode($submittedCode)) {
+        if ($this->isYearCodeValid($submittedCode)) {
             return $publicYear + ['used_code' => true];
         }
 
@@ -71,19 +71,18 @@ class RegistrationService
     }
 
     /**
-     * Whether a submission may proceed at all: the manually/scheduled-open
-     * flag, OR — even while closed — a valid in-year code for the current
-     * public year (module spec: an in-year code is its own, independent
-     * open/close mechanism, "ce n'est pas une barrière de sécurité",
-     * §8.35 — a family a chief has given a code to must still be able to
-     * register while the general form is shut for the next scout year).
+     * Whether a submitted code is a currently-active in-year code for the
+     * current public year — an in-year code is its own, independent
+     * open/close mechanism, "ce n'est pas une barrière de sécurité", §8.35
+     * — a family a chief has given a code to must still be able to
+     * register while the general form is shut for the next scout year.
+     * `Controller\PublicRegistrationController::verifyCode()` is the only
+     * gate that decides whether a *closed* form becomes reachable at all
+     * (via `Service\RegistrationYearCodeSession`, scoped to that visitor's
+     * session, never globally) — this method just answers "is this code
+     * real", nothing about who may use it or for how long.
      */
-    public function canSubmit(?string $submittedCode): bool
-    {
-        return $this->isFormOpen() || $this->hasValidYearCode($submittedCode);
-    }
-
-    private function hasValidYearCode(?string $submittedCode): bool
+    public function isYearCodeValid(?string $submittedCode): bool
     {
         if ($submittedCode === null || $submittedCode === '') {
             return false;
