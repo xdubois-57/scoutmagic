@@ -355,10 +355,10 @@
     },
     {
       "key": "registration_waitlist_enabled",
-      "default_value": "0",
+      "default_value": "1",
       "type": "boolean",
       "label": "Afficher la disponibilité des places",
-      "description": "Quand actif, la page publique affiche les places disponibles par créneau (disponible / attente limitée / attente importante) sous forme d'années de naissance. Quand inactif, cette section n'apparaît pas du tout."
+      "description": "Quand actif, la page publique affiche à côté de chaque année de naissance sa disponibilité (places disponibles / attente limitée / attente importante). Quand inactif, cette information n'apparaît pas du tout."
     },
     {
       "key": "registration_reference_date",
