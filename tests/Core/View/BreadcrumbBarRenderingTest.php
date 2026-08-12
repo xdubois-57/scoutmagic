@@ -186,15 +186,23 @@ class BreadcrumbBarRenderingTest extends TestCase
         $this->assertStringNotContainsString('>Membre<', $html);
     }
 
-    public function testHomePageHasNoBreadcrumbContentBeyondTheIcon(): void
+    /**
+     * The home route declares its own breadcrumb (label "Accueil", no
+     * parents) so the trail ends the same way every other page's does —
+     * an active, non-link current-page item after the icon — rather than
+     * stopping bare at the icon the way a route with no breadcrumb at all
+     * does (see testRouteWithoutBreadcrumbStopsAtHomeIconWithoutError).
+     */
+    public function testHomePageShowsAccueilAsTheActiveCurrentPage(): void
     {
         $html = $this->render(
             ['label' => 'Accueil', 'parents' => []],
             '/'
         );
 
-        $this->assertSame(1, substr_count($html, '<li class="breadcrumb-item'));
-        $this->assertStringNotContainsString('aria-current="page"', $html);
+        $this->assertSame(2, substr_count($html, '<li class="breadcrumb-item'));
+        $this->assertStringContainsString('aria-current="page"', $html);
+        $this->assertMatchesRegularExpression('/aria-current="page">\s*Accueil\s*<\/li>/', $html);
     }
 
     public function testMissingContextRendersHomeIconOnlyWithoutError(): void

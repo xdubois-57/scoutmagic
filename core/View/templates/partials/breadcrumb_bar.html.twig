@@ -33,7 +33,12 @@
    itself renders from); otherwise it stays plain text, exactly as before.
    `breadcrumb_current`, when the controller passes it, replaces the
    route's static `label` for a dynamic page title (a member's name, an
-   article title...); the current page is never itself a link. #}
+   article title...); the current page is never itself a link.
+
+   The home page itself declares its own breadcrumb too (label "Accueil",
+   no parents) so it ends the trail the same way every other page does —
+   an active, non-link "Accueil" item after the icon — rather than the
+   icon being the only thing rendered there. #}
 <nav class="breadcrumb-bar border-bottom bg-light px-3 py-2" aria-label="Fil d'Ariane">
     <ol class="breadcrumb mb-0 small align-items-center">
         <li class="breadcrumb-item">
@@ -42,7 +47,7 @@
             </a>
         </li>
         {% set breadcrumb = route_breadcrumb|default(null) %}
-        {% if breadcrumb is not null and current_path|default('/') != '/' %}
+        {% if breadcrumb is not null %}
             {% for parent in breadcrumb.parents %}
                 {% set parentMenuId = null %}
                 {% for menu in menus|default([]) %}

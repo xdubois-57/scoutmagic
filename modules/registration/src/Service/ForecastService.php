@@ -460,7 +460,8 @@ class ForecastService
      * Count of current-year animés marked leaving — unit-wide, non-staff.
      * A dedicated query (not a reuse of getAnimeMemberYears(), which
      * excludes leaving=1 rows by design) since this is the one place that
-     * needs exactly the opposite set.
+     * needs exactly the opposite set. Same non-staff role filter as
+     * getAnimeMemberYears() (chief/admin/intendant excluded).
      */
     public function countDeparturesForYear(int $scoutYearId): int
     {
@@ -470,7 +471,7 @@ class ForecastService
              JOIN member_functions mf ON mf.member_year_id = my.id
              JOIN functions f ON mf.function_id = f.id
              WHERE my.scout_year_id = ? AND my.is_active = 1 AND my.leaving = 1
-               AND f.role NOT IN ('chief', 'admin') AND mf.section_id IS NOT NULL"
+               AND f.role NOT IN ('chief', 'admin', 'intendant') AND mf.section_id IS NOT NULL"
         );
         $stmt->execute([$scoutYearId]);
 

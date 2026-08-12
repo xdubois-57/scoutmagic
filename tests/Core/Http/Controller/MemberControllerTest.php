@@ -7,6 +7,7 @@ namespace Tests\Core\Http\Controller;
 use Core\Http\Controller\MemberController;
 use Core\Http\Request;
 use Core\Journal\JournalService;
+use Core\Member\DepartureService;
 use Core\Member\MemberNotFoundException;
 use Core\Member\MemberPageService;
 use Core\Member\MemberProfile;
@@ -103,7 +104,8 @@ class MemberControllerTest extends TestCase
             $memberService,
             new MemberYearService(),
             $this->createMock(JournalService::class),
-            $memberPageService
+            $memberPageService,
+            $this->createMock(DepartureService::class)
         );
     }
 

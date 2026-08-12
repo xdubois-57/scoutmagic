@@ -10,6 +10,8 @@ use Core\Http\Request;
 use Core\Import\MemberYearRepository;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
+use Core\Member\DepartureRepository;
+use Core\Member\DepartureService;
 use Core\Member\MemberPageService;
 use Core\Member\MemberService;
 use Core\Member\MemberYearService;
@@ -51,7 +53,8 @@ class MemberControllerScoutYearOffsetTest extends TestCase
             $this->memberService,
             new MemberYearService(),
             $journalService,
-            $this->createMock(MemberPageService::class)
+            $this->createMock(MemberPageService::class),
+            new DepartureService(new DepartureRepository($this->pdo, $this->encryption), $journalService)
         );
 
         // Scout year 2025-2026 → reference year 2025.

@@ -13,6 +13,8 @@ use Core\Import\AgeBranchRepository;
 use Core\Import\MemberYearRepository;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
+use Core\Member\DepartureRepository;
+use Core\Member\DepartureService;
 use Core\Member\MemberDocumentRepository;
 use Core\Member\MemberDocumentService;
 use Core\Member\MemberEmailRepository;
@@ -142,7 +144,8 @@ class MemberControllerMassMailTest extends TestCase
             $this->memberService,
             new MemberYearService(),
             new JournalService(new JournalRepository($this->pdo)),
-            $this->buildMemberPageService($massMailQuery)
+            $this->buildMemberPageService($massMailQuery),
+            new DepartureService(new DepartureRepository($this->pdo, $this->encryption), new JournalService(new JournalRepository($this->pdo)))
         );
     }
 

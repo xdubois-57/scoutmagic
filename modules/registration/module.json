@@ -86,7 +86,7 @@
       "menu": "espace_admin",
       "role_min": "admin",
       "label": "Inscriptions",
-      "breadcrumb": { "label": "Inscriptions", "parents": ["Configuration"] }
+      "breadcrumb": { "label": "Inscriptions", "parents": ["Espace chefs d'U"] }
     },
     {
       "path": "/config/inscriptions",
@@ -258,7 +258,7 @@
       "menu": "espace_chefs",
       "role_min": "chief",
       "label": "Départs",
-      "breadcrumb": { "label": "Départs", "parents": ["Espace des chefs"] }
+      "breadcrumb": { "label": "Départs", "parents": ["Espace chefs"] }
     },
     {
       "path": "/departs/{member_year_id}",
@@ -305,7 +305,7 @@
       "menu": "espace_chefs",
       "role_min": "chief",
       "label": "Prévisions",
-      "breadcrumb": { "label": "Prévisions", "parents": ["Espace des chefs"] }
+      "breadcrumb": { "label": "Prévisions", "parents": ["Espace chefs"] }
     }
   ],
   "settings": [

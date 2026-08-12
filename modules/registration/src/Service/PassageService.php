@@ -239,8 +239,11 @@ class PassageService
 
     /**
      * Every animé (active, non-leaving, non-staff — f.role NOT IN
-     * ('chief','admin'), the same trap Core\Member\SectionService::
-     * getSectionStaff() already guards against) for a given scout year,
+     * ('chief','admin','intendant'), the same trap Core\Member\
+     * SectionService::getSectionStaff() already guards against — and the
+     * same 'intendant' omission Core\Member\SectionService::
+     * getSectionAnimes() itself once had, fixed there too) for a given
+     * scout year,
      * one row per member (main function preferred when several non-staff
      * functions exist). Unit-wide, not scoped to one section.
      *
@@ -262,7 +265,7 @@ class PassageService
              JOIN member_functions mf ON mf.member_year_id = my.id
              JOIN functions f ON mf.function_id = f.id
              WHERE my.scout_year_id = ? AND my.is_active = 1 AND my.leaving = 0
-               AND f.role NOT IN ('chief', 'admin') AND mf.section_id IS NOT NULL
+               AND f.role NOT IN ('chief', 'admin', 'intendant') AND mf.section_id IS NOT NULL
              ORDER BY mf.is_main_function DESC"
         );
         $stmt->execute([$scoutYearId]);

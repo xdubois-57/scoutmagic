@@ -236,9 +236,15 @@ class SectionService
      * exact complement of getSectionStaff() above, same trap it already
      * guards against: an animé's own member_functions row carries the
      * SAME section_id as that section's staff, so only the role filter
-     * (here, everyone NOT chief/admin) tells them apart. First consumer:
-     * the registration module's "Départs" and "Passage" pages
-     * (ARCHITECTURE.md §8.36), which list children, never leaders.
+     * (here, everyone NOT chief/admin/intendant) tells them apart. First
+     * consumer: the registration module's "Départs" and "Passage" pages
+     * (ARCHITECTURE.md §8.36), which list children, never leaders — an
+     * Intendant function was originally missing from this exclusion list
+     * (only chief/admin were), so a member tagged Intendant showed up
+     * counted as an animé on those pages; the exact same fix is mirrored
+     * in Modules\Registration\Service\PassageService::getAnimeMemberYears()
+     * and ForecastService::countDeparturesForYear(), which build their own
+     * copy of this same role filter rather than calling this method.
      *
      * @return MemberProfile[]
      */
@@ -252,7 +258,7 @@ class SectionService
              JOIN member_years my ON mf.member_year_id = my.id
              JOIN functions f ON mf.function_id = f.id
              WHERE mf.section_id = ? AND my.scout_year_id = ? AND my.is_active = 1
-               AND f.role NOT IN (\'chief\', \'admin\')'
+               AND f.role NOT IN (\'chief\', \'admin\', \'intendant\')'
         );
         $stmt->execute([$sectionId, $scoutYearId]);
         $memberYearIds = array_map(fn(array $row) => (int) $row['member_year_id'], $stmt->fetchAll(\PDO::FETCH_ASSOC));

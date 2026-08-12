@@ -80,6 +80,39 @@ document.getElementById('member-detail')?.scrollIntoView({ behavior: 'smooth', b
         });
     });
 })();
+
+(() => {
+    const card = document.getElementById('departure-card');
+    if (!card) return;
+
+    const memberYearId = card.dataset.memberYearId;
+    const csrf = document.querySelector('meta[name="csrf-token"]')?.content;
+    const checkbox = document.getElementById('departure-checkbox');
+    const commentRow = document.getElementById('departure-comment-row');
+    const comment = document.getElementById('departure-comment');
+
+    function save(payload) {
+        fetch(`/members/${memberYearId}/departure`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(Object.assign({ _csrf_token: csrf }, payload))
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (!data.success) alert(data.error || 'Erreur lors de l\'enregistrement.');
+        })
+        .catch(() => alert('Erreur réseau.'));
+    }
+
+    checkbox.addEventListener('change', () => {
+        commentRow.style.display = checkbox.checked ? '' : 'none';
+        save({ leaving: checkbox.checked });
+    });
+
+    comment.addEventListener('blur', () => {
+        save({ comment: comment.value });
+    });
+})();
 </script>
 {% endif %}
 {% endblock %}

@@ -91,5 +91,26 @@
                 </span>
             </div>
         </div>
+
+        {# Départ — exactly Core\Member\DepartureService, the same fact the
+           registration module's "Départs" page marks (ARCHITECTURE.md
+           §8.37), reachable here for any member found by search — staff
+           included — rather than only the animés of a section a chief
+           actually staffs. #}
+        <div class="mt-4" id="departure-card" data-member-year-id="{{ member.memberYearId }}">
+            <label class="form-label fw-semibold mb-1">Départ prévu l'année prochaine</label>
+            <p class="text-body-secondary small mb-2">
+                Indique que ce membre ne reviendra probablement pas l'année scoute prochaine.
+            </p>
+            <div class="form-check">
+                <input type="checkbox" class="form-check-input" id="departure-checkbox" {{ departure_leaving|default(false) ? 'checked' : '' }}>
+                <label class="form-check-label" for="departure-checkbox">Part l'année prochaine</label>
+            </div>
+            <div class="mt-2" id="departure-comment-row" style="{{ departure_leaving|default(false) ? '' : 'display:none;' }}">
+                <label class="form-label small mb-1" for="departure-comment">Commentaire</label>
+                <textarea class="form-control form-control-sm" id="departure-comment" rows="2" maxlength="1000"
+                    placeholder="Commentaire facultatif (motif du départ)">{{ departure_comment|default('') }}</textarea>
+            </div>
+        </div>
     </div>
 </div>
