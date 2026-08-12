@@ -25,6 +25,15 @@
       "label": ""
     },
     {
+      "path": "/inscriptions/code",
+      "method": "POST",
+      "controller": "Modules\\Registration\\Controller\\PublicRegistrationController",
+      "action": "verifyCode",
+      "menu": "notre_unite",
+      "role_min": "public",
+      "label": ""
+    },
+    {
       "path": "/inscriptions/suivi/demande/{id}",
       "method": "GET",
       "controller": "Modules\\Registration\\Controller\\TrackingController",

@@ -192,21 +192,96 @@ class PublicRegistrationControllerTest extends TestCase
 
         $this->assertSame(422, $response->getStatusCode());
         $this->assertStringContainsString('ne sont pas ouvertes', $response->getBody());
-        // Sticky values: the parent's entered data must not be lost.
-        $this->assertStringContainsString('Léa', $response->getBody());
         $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM registration_requests')->fetchColumn());
     }
 
-    public function testFormClosedWithValidInYearCodeStillSubmits(): void
+    /**
+     * A code attached directly to the main POST /inscriptions body no
+     * longer bypasses the closed gate — it must go through the dedicated
+     * POST /inscriptions/code verification step first (module spec: the
+     * closed page shows only the closed message and a code field, never
+     * the full form, until a valid code is verified server-side).
+     */
+    public function testFormClosedSubmitWithCodeInBodyIsIgnoredWithoutPriorVerification(): void
     {
         $this->settingService->set('registration_form_open', '0', 'registration');
         $code = (new RegistrationYearCodeRepository($this->pdo))->regenerate($this->publicYearId);
+
+        $response = $this->controller->submit(
+            new Request('POST', '/inscriptions', [], array_merge($this->baseFields(), ['year_code' => $code]), [], []),
+            []
+        );
+
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM registration_requests')->fetchColumn());
+    }
+
+    public function testFormClosedShowsClosedMessageAndCodeFieldOnlyNotTheFullForm(): void
+    {
+        $this->settingService->set('registration_form_open', '0', 'registration');
+
+        $response = $this->controller->index(new Request('GET', '/inscriptions', [], [], [], []), []);
+        $body = $response->getBody();
+
+        $this->assertStringContainsString('ne sont pas ouvertes', $body);
+        $this->assertStringContainsString('action="/inscriptions/code"', $body);
+        $this->assertStringNotContainsString('id="registration-form"', $body);
+    }
+
+    public function testVerifyCodeInvalidCsrfIsRejected(): void
+    {
+        $response = $this->controller->verifyCode(
+            new Request('POST', '/inscriptions/code', [], ['_csrf_token' => 'wrong', 'year_code' => 'X'], [], []),
+            []
+        );
+
+        $this->assertSame(403, $response->getStatusCode());
+    }
+
+    public function testVerifyCodeWithInvalidCodeShowsErrorAndKeepsFormClosed(): void
+    {
+        $this->settingService->set('registration_form_open', '0', 'registration');
+
+        $response = $this->controller->verifyCode(
+            new Request('POST', '/inscriptions/code', [], ['_csrf_token' => CsrfGuard::generateToken(), 'year_code' => 'NOPE-NOPE'], [], []),
+            []
+        );
+        $body = $response->getBody();
+
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertStringContainsString('code saisi', $body);
+        $this->assertStringNotContainsString('id="registration-form"', $body);
+    }
+
+    /**
+     * A valid in-year code, verified via POST /inscriptions/code, unlocks
+     * the full form for THIS SESSION only (Service\
+     * RegistrationYearCodeSession) — a later GET (simulating the browser
+     * reloading the page) sees the full form without resubmitting the
+     * code, and a submission through it targets the CURRENT public year.
+     */
+    public function testValidCodeUnlocksFormForSessionAndSubmissionTargetsCurrentYear(): void
+    {
+        $this->settingService->set('registration_form_open', '0', 'registration');
+        $code = (new RegistrationYearCodeRepository($this->pdo))->regenerate($this->publicYearId);
+
+        $verifyResponse = $this->controller->verifyCode(
+            new Request('POST', '/inscriptions/code', [], ['_csrf_token' => CsrfGuard::generateToken(), 'year_code' => $code], [], []),
+            []
+        );
+        $this->assertSame(200, $verifyResponse->getStatusCode());
+        $this->assertStringContainsString('id="registration-form"', $verifyResponse->getBody());
+
+        // A fresh GET (page reload) still shows the unlocked form, without
+        // the code having to be re-submitted.
+        $indexResponse = $this->controller->index(new Request('GET', '/inscriptions', [], [], [], []), []);
+        $this->assertStringContainsString('id="registration-form"', $indexResponse->getBody());
 
         $hcFields = $this->humanCheckFields();
         sleep(2);
 
         $response = $this->controller->submit(
-            new Request('POST', '/inscriptions', [], array_merge($this->baseFields(), $hcFields, ['year_code' => $code]), [], []),
+            new Request('POST', '/inscriptions', [], array_merge($this->baseFields(), $hcFields), [], []),
             []
         );
 
@@ -214,19 +289,6 @@ class PublicRegistrationControllerTest extends TestCase
         $this->assertSame(1, (int) $this->pdo->query('SELECT COUNT(*) FROM registration_requests')->fetchColumn());
         // Targets the CURRENT public year (in-year code), not next year.
         $this->assertSame($this->publicYearId, (int) $this->pdo->query('SELECT scout_year_id FROM registration_requests ORDER BY id DESC LIMIT 1')->fetchColumn());
-    }
-
-    public function testFormClosedWithInvalidCodeRejectsWithFriendlyError(): void
-    {
-        $this->settingService->set('registration_form_open', '0', 'registration');
-
-        $response = $this->controller->submit(
-            new Request('POST', '/inscriptions', [], array_merge($this->baseFields(), ['year_code' => 'NOPE-NOPE']), [], []),
-            []
-        );
-
-        $this->assertSame(422, $response->getStatusCode());
-        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM registration_requests')->fetchColumn());
     }
 
     public function testInvalidCsrfTokenIsRejected(): void
