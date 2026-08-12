@@ -7,6 +7,7 @@ namespace Tests\Core\Http;
 use Core\Http\Request;
 use Core\Http\ResolvedRoute;
 use Core\Http\Router;
+use Core\Module\ModuleManifest;
 use PHPUnit\Framework\TestCase;
 
 class RouterTest extends TestCase
@@ -107,6 +108,55 @@ class RouterTest extends TestCase
 
         $this->assertInstanceOf(ResolvedRoute::class, $resolved);
         $this->assertNull($resolved->breadcrumb);
+    }
+
+    /**
+     * Documents Router::resolve()'s actual matching semantics (first
+     * pattern match wins, no literal-vs-wildcard specificity preference) —
+     * the mechanism behind the real incident this test's sibling in
+     * Tests\Core\Module\ModuleManifestTest guards against at the module.json
+     * level. A wildcard segment matches a literal path segment just as
+     * happily as it matches a "real" id, so an earlier all-wildcard-tail
+     * route silently absorbs every request meant for a later, more
+     * specific route sharing the same segment count.
+     */
+    public function testAnEarlierWildcardRouteShadowsALaterLiteralRoute(): void
+    {
+        $router = new Router();
+        $router->addRoute('GET', '/x/{id}/{token}', 'App\\Controller\\ByTokenController', 'show');
+        $router->addRoute('GET', '/x/demande/{id}', 'App\\Controller\\LinkedController', 'show');
+
+        $resolved = $router->resolve(new Request('GET', '/x/demande/42', [], [], [], []));
+
+        $this->assertInstanceOf(ResolvedRoute::class, $resolved);
+        // The wrong controller wins, with "demande" bound to {id} instead
+        // of ever reaching LinkedController — exactly what a real visitor
+        // hit as a plain 404 with no clue why.
+        $this->assertSame('App\\Controller\\ByTokenController', $resolved->controllerClass);
+        $this->assertSame(['id' => 'demande', 'token' => '42'], $resolved->params);
+    }
+
+    /**
+     * The real incident, end to end, through the real module.json: a
+     * family clicking their pending request in "Espace animés" hit
+     * "/inscriptions/suivi/demande/{id}", and until module.json's routes
+     * were reordered, that request was silently swallowed by "/inscriptions/
+     * suivi/{id}/{token}" (declared earlier at the time) — bound to
+     * TrackingController::showByToken with id="demande", producing a plain
+     * 404 that gave no hint the actual route existed and was misrouted.
+     */
+    public function testRegistrationModuleDoesNotShadowItsOwnLinkedTrackingRoute(): void
+    {
+        $manifest = ModuleManifest::fromFile(dirname(__DIR__, 3) . '/modules/registration/module.json');
+        $router = new Router();
+        $router->registerModuleRoutes($manifest);
+
+        $resolved = $router->resolve(new Request('GET', '/inscriptions/suivi/demande/42', [], [], [], []));
+
+        $this->assertInstanceOf(ResolvedRoute::class, $resolved);
+        $this->assertSame('Modules\\Registration\\Controller\\TrackingController', $resolved->controllerClass);
+        $this->assertSame('showLinked', $resolved->action);
+        $this->assertSame(['id' => '42'], $resolved->params);
     }
 
     public function testBreadcrumbIsPreservedInResolvedRoute(): void

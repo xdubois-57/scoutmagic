@@ -25,21 +25,21 @@
       "label": ""
     },
     {
-      "path": "/inscriptions/suivi/{id}/{token}",
-      "method": "GET",
-      "controller": "Modules\\Registration\\Controller\\TrackingController",
-      "action": "showByToken",
-      "menu": "notre_unite",
-      "role_min": "public",
-      "label": ""
-    },
-    {
       "path": "/inscriptions/suivi/demande/{id}",
       "method": "GET",
       "controller": "Modules\\Registration\\Controller\\TrackingController",
       "action": "showLinked",
       "menu": "espace_animes",
       "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/inscriptions/suivi/{id}/{token}",
+      "method": "GET",
+      "controller": "Modules\\Registration\\Controller\\TrackingController",
+      "action": "showByToken",
+      "menu": "notre_unite",
+      "role_min": "public",
       "label": ""
     },
     {

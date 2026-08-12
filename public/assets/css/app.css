@@ -106,12 +106,21 @@
        Bootstrap lays it out) while vertically centering its text inside
        the taller box — the checkbox/label pair's own relative alignment
        (.form-check-input's margin-top:.25em against the label's first
-       line) is untouched by this, only the row's overall height changes. */
+       line) is untouched by this, only the row's overall height changes.
+       flex-wrap: wrap matters once the label's content isn't a single text
+       node — a multi-sentence label with a link in the middle (e.g. the
+       registration form's RGPD consent text) splits into several flex
+       items (the text before the link, the <a> itself, the text after);
+       flex's default nowrap then keeps every item on one row instead of
+       letting text flow onto the next line the way a normal paragraph
+       would, which reads as the sentence being torn into disconnected
+       column-like fragments rather than wrapping naturally. */
     .form-check {
         min-height: 44px;
     }
     .form-check-label {
         display: inline-flex;
+        flex-wrap: wrap;
         align-items: center;
         min-height: 44px;
     }

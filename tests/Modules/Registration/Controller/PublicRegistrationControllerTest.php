@@ -53,6 +53,7 @@ class PublicRegistrationControllerTest extends TestCase
     private int $louveteauxId;
     private int $baladinsSectionId;
     private int $louveteauxSectionId;
+    private int $publicYearId;
     private EncryptionService $encryption;
 
     protected function setUp(): void
@@ -87,6 +88,7 @@ class PublicRegistrationControllerTest extends TestCase
         $this->settingService->register(ScoutYearResolver::SETTING_STAFF_YEAR, '0', 'number', 'Staff', 'desc', null, '^[0-9]+$', null, false);
         $scoutYearService = new ScoutYearService($this->pdo);
         $publicYearId = $scoutYearService->ensureYear('2026-2027');
+        $this->publicYearId = $publicYearId;
         $this->settingService->setInternal(ScoutYearResolver::SETTING_PUBLIC_YEAR, (string) $publicYearId);
         $scoutYearResolver = new ScoutYearResolver($scoutYearService, $this->settingService, new MemberYearRepository($this->pdo));
 
@@ -276,5 +278,52 @@ class PublicRegistrationControllerTest extends TestCase
         $this->assertSame(200, $response->getStatusCode());
         $requestId = (int) $this->pdo->query('SELECT id FROM registration_requests ORDER BY id DESC LIMIT 1')->fetchColumn();
         $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM registration_request_siblings WHERE registration_request_id = ' . $requestId)->fetchColumn());
+    }
+
+    /**
+     * Desk-imported names are frequently stored ALL CAPS — every other
+     * screen in the app (trombinoscope, staffs...) shows them through
+     * |normalize_name (Core\Service\TextNormalizerService), and the
+     * sibling checkbox list on this form must match that same convention
+     * rather than exposing the raw stored casing.
+     */
+    public function testSiblingCandidateNamesAreDisplayedNormalized(): void
+    {
+        $email = 'parent@example.com';
+        $blindIndex = $this->encryption->blindIndex(strtolower($email));
+        $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('SIB1')");
+        $memberId = (int) $this->pdo->lastInsertId();
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted, email_encrypted, email_blind_index)
+             VALUES (?, ?, ?, ?, ?, ?)'
+        );
+        $stmt->execute([
+            $memberId, $this->publicYearId,
+            $this->encryption->encrypt('MARTIN'), $this->encryption->encrypt('VAN DEN BERG'),
+            $this->encryption->encrypt($email), $blindIndex,
+        ]);
+
+        AuthSession::login(1, $email, 'identified');
+
+        $response = $this->controller->index(new Request('GET', '/inscriptions', [], [], [], []), []);
+
+        $this->assertStringContainsString('Martin van den Berg', $response->getBody());
+        $this->assertStringNotContainsString('MARTIN VAN DEN BERG', $response->getBody());
+    }
+
+    /**
+     * The birth-date branch preview reuses birth_years_by_branch (the same
+     * data already rendered in the "nés en..." table above the form) —
+     * confirms the JS gets the same age-bracket data server-computed for
+     * this exact target year, rather than a stale or hardcoded copy.
+     */
+    public function testBirthDateFieldExposesBranchDataForTheDynamicPreview(): void
+    {
+        $response = $this->controller->index(new Request('GET', '/inscriptions', [], [], [], []), []);
+        $body = $response->getBody();
+
+        $this->assertStringContainsString('id="birth-date-branch-hint"', $body);
+        $this->assertStringContainsString('label: "Baladins"', $body);
+        $this->assertStringContainsString('label: "Louveteaux"', $body);
     }
 }
