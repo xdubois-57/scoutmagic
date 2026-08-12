@@ -101,4 +101,17 @@ class ForecastControllerTest extends TestCase
 
         $this->assertStringContainsString('/passage', $response->getBody());
     }
+
+    public function testIndexShowsRemainingCapacitySectionAboveUnassigned(): void
+    {
+        $response = $this->controller->index(new Request('GET', '/previsions', [], [], [], []), []);
+        $body = $response->getBody();
+
+        $this->assertStringContainsString('Places restantes par année du parcours scout', $body);
+        $capacityPos = strpos($body, 'Places restantes par année du parcours scout');
+        $unassignedPos = strpos($body, 'Non attribués');
+        $this->assertNotFalse($capacityPos);
+        $this->assertNotFalse($unassignedPos);
+        $this->assertLessThan($unassignedPos, $capacityPos);
+    }
 }

@@ -125,7 +125,7 @@ class SlotService
      * isn't a black box.
      *
      * @return array<int, array{
-     *   age_branch_id: int, branch_label: string, year_in_branch: int,
+     *   age_branch_id: int, branch_label: string, branch_sort_order: int, year_in_branch: int,
      *   capacity: int, projected: int, accepted: int, remaining: int, tier: string
      * }>
      */
@@ -156,6 +156,7 @@ class SlotService
                 $rows[] = [
                     'age_branch_id' => $bracket->ageBranchId,
                     'branch_label' => $bracket->branchLabel,
+                    'branch_sort_order' => $bracket->branchSortOrder,
                     'year_in_branch' => $yearInBranch,
                     'capacity' => $capacity,
                     'projected' => $projectedCount,

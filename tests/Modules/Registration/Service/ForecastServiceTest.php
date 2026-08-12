@@ -281,6 +281,50 @@ class ForecastServiceTest extends TestCase
      * has no constructor dependency on anything from that namespace, so a
      * disabled/absent module can never break it.
      */
+    /**
+     * groupCapacityByBranch() reshapes Service\SlotService::
+     * capacityBreakdownForYear()'s flat row list — never recomputes
+     * capacity/remaining itself — into per-branch groups in canonical
+     * order, each row keeping its own (possibly negative, over-capacity)
+     * remaining count and tier untouched.
+     */
+    public function testGroupCapacityByBranchGroupsRowsByBranchInOrder(): void
+    {
+        $rows = [
+            ['age_branch_id' => $this->louveteauxBranchId, 'branch_label' => 'Louveteaux', 'branch_sort_order' => 20, 'year_in_branch' => 1, 'capacity' => 10, 'projected' => 3, 'accepted' => 2, 'remaining' => 5, 'tier' => 'available'],
+            ['age_branch_id' => $this->louveteauxBranchId, 'branch_label' => 'Louveteaux', 'branch_sort_order' => 20, 'year_in_branch' => 2, 'capacity' => 10, 'projected' => 8, 'accepted' => 1, 'remaining' => 1, 'tier' => 'heavy'],
+            ['age_branch_id' => $this->eclaireursBranchId, 'branch_label' => 'Éclaireurs', 'branch_sort_order' => 30, 'year_in_branch' => 1, 'capacity' => 8, 'projected' => 8, 'accepted' => 2, 'remaining' => -2, 'tier' => 'heavy'],
+        ];
+
+        $grouped = $this->service->groupCapacityByBranch($rows);
+
+        $this->assertCount(2, $grouped);
+        $this->assertSame('Louveteaux', $grouped[0]['label']);
+        $this->assertCount(2, $grouped[0]['rows']);
+        $this->assertSame(['year_in_branch' => 1, 'capacity' => 10, 'remaining' => 5, 'tier' => 'available'], $grouped[0]['rows'][0]);
+        $this->assertSame(['year_in_branch' => 2, 'capacity' => 10, 'remaining' => 1, 'tier' => 'heavy'], $grouped[0]['rows'][1]);
+
+        $this->assertSame('Éclaireurs', $grouped[1]['label']);
+        // Over capacity — a real, negative remaining is never clamped away.
+        $this->assertSame(-2, $grouped[1]['rows'][0]['remaining']);
+    }
+
+    public function testGroupCapacityByBranchResolvesEachBranchsRepresentativeSectionColor(): void
+    {
+        $rows = [
+            ['age_branch_id' => $this->louveteauxBranchId, 'branch_label' => 'Louveteaux', 'branch_sort_order' => 20, 'year_in_branch' => 1, 'capacity' => 10, 'projected' => 3, 'accepted' => 2, 'remaining' => 5, 'tier' => 'available'],
+        ];
+
+        $grouped = $this->service->groupCapacityByBranch($rows);
+
+        $this->assertSame(\Core\Member\MemberYearService::colorForBranchSortOrder(20), $grouped[0]['color']);
+    }
+
+    public function testGroupCapacityByBranchReturnsEmptyForEmptyInput(): void
+    {
+        $this->assertSame([], $this->service->groupCapacityByBranch([]));
+    }
+
     public function testHasNoDependencyOnMemberStatsModule(): void
     {
         $reflection = new \ReflectionClass(ForecastService::class);

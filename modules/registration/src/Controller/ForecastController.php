@@ -61,10 +61,17 @@ class ForecastController extends AbstractController
             $this->slotService->referenceMonthDay()
         );
 
+        $capacityBreakdown = $this->slotService->capacityBreakdownForYear(
+            (int) $targetYear['id'],
+            (string) $targetYear['label'],
+            (int) $publicYear['id']
+        );
+
         return $this->render('@registration/forecast.html.twig', [
             'target_year_label' => $targetYear['label'],
             'current_year_label' => $publicYear['label'],
             'forecast' => $forecast,
+            'capacity_by_branch' => $this->forecastService->groupCapacityByBranch($capacityBreakdown),
         ]);
     }
 }
