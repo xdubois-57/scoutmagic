@@ -265,6 +265,39 @@ class ForecastServiceTest extends TestCase
         $this->assertSame(2, $forecast['summary']['departures_count']);
     }
 
+    /**
+     * countDeparturesForYear() must never count a leaving staff/intendant
+     * member as an animé departure — chief/admin were already excluded,
+     * but Intendant was missing from that filter.
+     */
+    public function testDeparturesCountExcludesLeavingIntendant(): void
+    {
+        $this->createMember($this->currentYearId, 'Partant', '2017-06-01', $this->louveteauxSectionId, leaving: true);
+
+        $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('DESK_" . uniqid() . "')");
+        $intendantMemberId = (int) $this->pdo->lastInsertId();
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted, birth_date_encrypted, gender_encrypted, leaving)
+             VALUES (?, ?, ?, ?, ?, ?, 1)'
+        );
+        $stmt->execute([
+            $intendantMemberId, $this->currentYearId,
+            $this->encryption->encrypt('Intendant'), $this->encryption->encrypt('Dupont'),
+            $this->encryption->encrypt('1990-01-01'), $this->encryption->encrypt('M'),
+        ]);
+        $intendantMemberYearId = (int) $this->pdo->lastInsertId();
+
+        $this->pdo->exec("INSERT OR IGNORE INTO functions (desk_code, label, role) VALUES ('intendant', 'Intendant', 'intendant')");
+        $functionId = (int) $this->pdo->query("SELECT id FROM functions WHERE desk_code = 'intendant'")->fetchColumn();
+        $branchId = (int) $this->pdo->query('SELECT age_branch_id FROM sections WHERE id = ' . $this->louveteauxSectionId)->fetchColumn();
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO member_functions (member_year_id, function_id, section_id, age_branch_id, is_main_function) VALUES (?, ?, ?, ?, 1)'
+        );
+        $stmt->execute([$intendantMemberYearId, $functionId, $this->louveteauxSectionId, $branchId]);
+
+        $this->assertSame(1, $this->service->countDeparturesForYear($this->currentYearId));
+    }
+
     public function testNewRegistrationsCountedInSummaryRegardlessOfPlacement(): void
     {
         $this->createRequest('Placee', '2019-06-01', $this->louveteauxSectionId);

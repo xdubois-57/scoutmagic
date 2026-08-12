@@ -172,6 +172,22 @@ class SectionServiceTest extends TestCase
         $this->assertSame(['Petit Loup'], $names);
     }
 
+    public function testGetSectionAnimesExcludesIntendantRoleMembers(): void
+    {
+        $stmt = $this->pdo->prepare('SELECT id FROM age_branches WHERE desk_code = ?');
+        $stmt->execute(['BAL']);
+        $balId = (int) $stmt->fetchColumn();
+
+        $sectionId = $this->createSection('BAL01', $balId);
+        $this->createMemberInSection($sectionId, 'Intendant Ivan', 'intendant');
+        $this->createMemberInSection($sectionId, 'Petit Loup', 'identified');
+
+        $animes = $this->service->getSectionAnimes($sectionId, $this->scoutYearId);
+
+        $names = array_map(fn($p) => $p->firstName, $animes);
+        $this->assertSame(['Petit Loup'], $names);
+    }
+
     public function testGetSectionAnimesIsScopedToOneSection(): void
     {
         $stmt = $this->pdo->prepare('SELECT id FROM age_branches WHERE desk_code = ?');

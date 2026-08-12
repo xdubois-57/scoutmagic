@@ -9,7 +9,11 @@ use Core\Config\SettingRepository;
 use Core\Config\SettingService;
 use Core\Database\Connection;
 use Core\Import\MemberYearRepository;
+use Core\Journal\JournalRepository;
+use Core\Journal\JournalService;
 use Core\Member\Controller\MemberSearchController;
+use Core\Member\DepartureRepository;
+use Core\Member\DepartureService;
 use Core\Member\MemberService;
 use Core\Member\MemberYearService;
 use Core\Member\Repository\MemberSearchRepository;
@@ -74,7 +78,8 @@ class MemberSearchControllerTest extends TestCase
         $twig->addFunction(new TwigFunction('param', fn(string $k) => 'Test'));
         $twig->addFilter(new TwigFilter('display_name', fn($m) => $m instanceof \Core\Member\MemberProfile ? $m->getDisplayName() : (string) $m));
 
-        $this->controller = new MemberSearchController($twig, $searchService, $memberService, $resolver, new MemberYearService());
+        $departureService = new DepartureService(new DepartureRepository($this->pdo, $this->enc), new JournalService(new JournalRepository($this->pdo)));
+        $this->controller = new MemberSearchController($twig, $searchService, $memberService, $resolver, new MemberYearService(), $departureService);
 
         if (session_status() !== PHP_SESSION_ACTIVE) {
             ini_set('session.use_cookies', '0');
@@ -184,6 +189,31 @@ class MemberSearchControllerTest extends TestCase
             '/offset-btn active"\s+style="min-height:44px;" data-offset="0"/',
             $body
         );
+    }
+
+    public function testDetailCardShowsDepartureControl(): void
+    {
+        $id = $this->seedMember();
+
+        $body = $this->controller->index($this->get(['q' => 'dupont', 'member' => (string) $id]), [])->getBody();
+
+        $this->assertStringContainsString('id="departure-card"', $body);
+        $this->assertStringContainsString('Départ prévu l\'année prochaine', $body);
+        // Not marked as leaving yet — checkbox unchecked, comment row hidden.
+        $this->assertDoesNotMatchRegularExpression('/id="departure-checkbox"[^>]*checked/', $body);
+        $this->assertMatchesRegularExpression('/id="departure-comment-row" style="display:none;"/', $body);
+    }
+
+    public function testDetailCardReflectsExistingDepartureMarking(): void
+    {
+        $id = $this->seedMember();
+        $departureService = new DepartureService(new DepartureRepository($this->pdo, $this->enc), new JournalService(new JournalRepository($this->pdo)));
+        $departureService->markLeaving($id, 'Déménagement');
+
+        $body = $this->controller->index($this->get(['q' => 'dupont', 'member' => (string) $id]), [])->getBody();
+
+        $this->assertMatchesRegularExpression('/id="departure-checkbox"[^>]*checked/', $body);
+        $this->assertStringContainsString('Déménagement', $body);
     }
 
     public function testNotFoundForInvalidMember(): void

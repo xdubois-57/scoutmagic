@@ -859,6 +859,13 @@ $notificationService = new NotificationService(
 $memberService = new MemberService($memberYearRepo, $encryptionService, $connection);
 $memberYearService = new MemberYearService();
 $memberSearchService = new MemberSearchService(new MemberSearchRepository($connection, $encryptionService));
+// "Won't be back next scout year" marking (ARCHITECTURE.md §8) — a plain
+// fact about a member_year, not inscriptions-specific, so it lives here at
+// core level even though the registration module's own "Départs" page
+// (below, once that module's block is reached) was its first consumer;
+// Core\Http\Controller\MemberController's "/members/{id}/departure" AJAX
+// endpoint (admin member-search page) is the other, always-available one.
+$departureService = new \Core\Member\DepartureService(new \Core\Member\DepartureRepository($pdo, $encryptionService), $journalService);
 // Badges — transversal roles assignable to chiefs (Core\Badge). Global
 // concept configured once (Configuration générale), assignment scoped per
 // member_year (Staffs page), displayed on the trombinoscope.
@@ -1184,7 +1191,7 @@ if (AuthSession::isAuthenticated()) {
 
 // Register core routes
 // Public pages
-$router->addRoute('GET', '/', PageController::class, 'home', 'public');
+$router->addRoute('GET', '/', PageController::class, 'home', 'public', ['label' => 'Accueil', 'parents' => []]);
 $router->addRoute('GET', '/contact', PageController::class, 'contact', 'public', ['label' => 'Contact', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_NOTRE_UNITE)]]);
 $router->addRoute('GET', '/sections', PageController::class, 'sections', 'public', ['label' => 'Sections', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_NOTRE_UNITE)]]);
 $router->addRoute('GET', '/rgpd', PageController::class, 'rgpd', 'public', ['label' => 'Protection des données', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_NOTRE_UNITE)]]);
@@ -1229,6 +1236,7 @@ $router->addRoute('POST', '/config/notifications/test', \Core\Http\Controller\No
 // Member pages
 $router->addRoute('GET', '/members/{id}', MemberController::class, 'show', 'identified', ['label' => 'Membre', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ANIMES)]]);
 $router->addRoute('POST', '/members/{id}/scout-year-offset', MemberController::class, 'updateScoutYearOffset', 'chief');
+$router->addRoute('POST', '/members/{id}/departure', MemberController::class, 'updateDeparture', 'admin');
 // Member page "Adresses email" — self-service only, no chief/admin route
 // exists for this (Core\Http\Controller\MemberEmailAddressController
 // re-verifies self access on every action regardless of role_min).
@@ -1558,7 +1566,7 @@ $frontController->registerController(\Core\Http\Controller\WebhookController::cl
 $frontController->registerController(PasswordResetController::class, new PasswordResetController($twig, $passwordResetService));
 $frontController->registerController(ShortUrlController::class, new ShortUrlController($twig, $shortUrlService));
 $frontController->registerController(ImportController::class, new ImportController($twig, $importService, $scoutYearResolver, $importJournalRepo, $functionRepo, $storagePath, $registrationReconciliation ?? null));
-$frontController->registerController(MemberController::class, new MemberController($twig, $memberService, $memberYearService, $journalService, $memberPageService));
+$frontController->registerController(MemberController::class, new MemberController($twig, $memberService, $memberYearService, $journalService, $memberPageService, $departureService));
 $frontController->registerController(
     \Core\Http\Controller\MemberEmailAddressController::class,
     new \Core\Http\Controller\MemberEmailAddressController($twig, $memberEmailService, $memberService)
@@ -1588,7 +1596,7 @@ $frontController->registerController(UploadController::class, $uploadController)
 $frontController->registerController(\Core\Http\Controller\PwaController::class, new \Core\Http\Controller\PwaController($twig, $settingService, $unitLogoService));
 $frontController->registerController(JournalController::class, new JournalController($twig, $journalRepo, $userAccountRepo));
 $frontController->registerController(ScoutYearController::class, new ScoutYearController($twig, $scoutYearResolver, $scoutYearAdminService, $scoutYearService, $journalService));
-$frontController->registerController(MemberSearchController::class, new MemberSearchController($twig, $memberSearchService, $memberService, $scoutYearResolver, $memberYearService));
+$frontController->registerController(MemberSearchController::class, new MemberSearchController($twig, $memberSearchService, $memberService, $scoutYearResolver, $memberYearService, $departureService));
 $frontController->registerController(SettingsController::class, new SettingsController($twig, $settingService, $journalService, $unitLogoService, $notificationService, $userAccountRepo));
 $frontController->registerController(ScheduledActionsController::class, new ScheduledActionsController($twig, $schedulerRepo));
 $frontController->registerController(ConfigGeneralController::class, new ConfigGeneralController($twig));
@@ -2284,17 +2292,17 @@ if (in_array('registration', $moduleManager->getEnabledModuleIds(), true)) {
         )
     );
 
-    // Iteration 6 — Départs (Core\Member\SectionStaffAuthorizationService/
-    // DepartureService are core, first actually consumed by this page) and
-    // Passage (own PassageService + SectionTransferRepository storage).
+    // Iteration 6 — Départs (Core\Member\SectionStaffAuthorizationService is
+    // core, first actually consumed by this page; DepartureService is also
+    // core but constructed once, up top, since Core\Http\Controller\
+    // MemberController's own departure endpoint needs it whether or not
+    // this module is even enabled) and Passage (own PassageService +
+    // SectionTransferRepository storage).
     $registrationSectionStaffAuth = new \Core\Member\SectionStaffAuthorizationService($connection, $encryptionService, $sectionService);
-    $registrationDepartureService = new \Core\Member\DepartureService(
-        new \Core\Member\DepartureRepository($pdo, $encryptionService), $journalService
-    );
     $frontController->registerController(
         \Modules\Registration\Controller\DeparturesController::class,
         new \Modules\Registration\Controller\DeparturesController(
-            $twig, $registrationSectionStaffAuth, $sectionService, $registrationDepartureService, $scoutYearResolver
+            $twig, $registrationSectionStaffAuth, $sectionService, $departureService, $scoutYearResolver
         )
     );
 
@@ -2478,7 +2486,7 @@ if (
 
     $frontController->registerController(
         MemberController::class,
-        new MemberController($twig, $memberService, $memberYearService, $journalService, $memberPageService)
+        new MemberController($twig, $memberService, $memberYearService, $journalService, $memberPageService, $departureService)
     );
 }
 

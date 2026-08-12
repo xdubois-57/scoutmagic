@@ -7,6 +7,7 @@ namespace Core\Http\Controller;
 use Core\Http\Request;
 use Core\Http\Response;
 use Core\Journal\JournalService;
+use Core\Member\DepartureService;
 use Core\Member\MemberNotFoundException;
 use Core\Member\MemberPageService;
 use Core\Member\MemberService;
@@ -23,7 +24,8 @@ class MemberController extends AbstractController
         private MemberService $memberService,
         private MemberYearService $memberYearService,
         private JournalService $journalService,
-        private MemberPageService $memberPageService
+        private MemberPageService $memberPageService,
+        private DepartureService $departureService
     ) {
     }
 
@@ -126,5 +128,56 @@ class MemberController extends AbstractController
             'branch_year_label' => $effectiveAge->getBranchYearLabel(),
             'branch_color' => $effectiveAge->branchColor,
         ]);
+    }
+
+    /**
+     * POST /members/{id}/departure — mark/unmark a member as leaving next
+     * scout year, or update the accompanying comment (AJAX, JSON,
+     * role_min: admin enforced by the router — this action currently only
+     * ever renders on the admin member-search page's detail card,
+     * Core\Member\Controller\MemberSearchController). Exactly the same
+     * Core\Member\DepartureService the registration module's own "Départs"
+     * page uses — this is the same fact about a member_year, just reachable
+     * by searching for *any* member (staff included) rather than only the
+     * animés of a section a chief actually staffs. One field at a time
+     * (`leaving` XOR `comment` present in the body), same concurrency
+     * reasoning as Modules\Registration\Controller\DeparturesController::
+     * update()'s own docblock.
+     *
+     * @param array<string, string> $params
+     */
+    public function updateDeparture(Request $request, array $params): Response
+    {
+        $memberYearId = (int) $params['id'];
+
+        $json = json_decode($request->getRawBody(), true);
+        if (!is_array($json)) {
+            return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
+        }
+
+        if (!CsrfGuard::validateToken((string) ($json['_csrf_token'] ?? ''))) {
+            return $this->json(['success' => false, 'error' => 'Jeton CSRF invalide.'], 403);
+        }
+
+        try {
+            $this->memberService->getMemberProfile($memberYearId);
+        } catch (MemberNotFoundException) {
+            return $this->json(['success' => false, 'error' => 'Membre introuvable.'], 404);
+        }
+
+        $userId = AuthSession::getUserAccountId();
+
+        if (array_key_exists('leaving', $json)) {
+            if ($json['leaving']) {
+                $this->departureService->markLeaving($memberYearId, null, $userId);
+            } else {
+                $this->departureService->unmarkLeaving($memberYearId, $userId);
+            }
+        }
+        if (array_key_exists('comment', $json)) {
+            $this->departureService->updateComment($memberYearId, (string) $json['comment']);
+        }
+
+        return $this->json(['success' => true]);
     }
 }

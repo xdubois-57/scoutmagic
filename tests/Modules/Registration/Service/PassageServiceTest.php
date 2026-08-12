@@ -121,6 +121,28 @@ class PassageServiceTest extends TestCase
         return ['member_id' => $memberId, 'member_year_id' => $memberYearId];
     }
 
+    /**
+     * getAnimeMemberYears() feeds Départs, Passage, and Prévisions —
+     * chief/admin were already excluded, but an Intendant function member
+     * was missing from that exclusion and showed up counted as an animé
+     * on all three pages.
+     */
+    public function testGetAnimeMemberYearsExcludesIntendantAsWellAsChiefAndAdmin(): void
+    {
+        $this->createMember('Anime', '2015-06-01', $this->louveteauxSectionId, false, 'identified');
+        $this->createMember('Chef', '1990-01-01', $this->louveteauxSectionId, false, 'chief');
+        $this->createMember('ChefU', '1990-01-01', $this->louveteauxSectionId, false, 'admin');
+        $this->createMember('Intendant', '1990-01-01', $this->louveteauxSectionId, false, 'intendant');
+
+        $animes = $this->service->getAnimeMemberYears($this->currentYearId);
+
+        $names = array_map(
+            fn(array $row) => $this->encryption->decrypt($row['first_name_encrypted']),
+            $animes
+        );
+        $this->assertSame(['Anime'], $names);
+    }
+
     // Reference year for '2026-2027' (default 12-31 reference date) is 2026.
     // Louveteaux: entry_age 8, duration 4 -> ages 8-11, last rank = age 11 -> birth year 2015.
     // Éclaireurs: entry_age 12, duration 4 -> ages 12-15.

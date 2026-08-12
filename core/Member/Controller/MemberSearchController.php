@@ -7,6 +7,7 @@ namespace Core\Member\Controller;
 use Core\Http\Controller\AbstractController;
 use Core\Http\Request;
 use Core\Http\Response;
+use Core\Member\DepartureService;
 use Core\Member\MemberNotFoundException;
 use Core\Member\MemberService;
 use Core\Member\MemberYearService;
@@ -27,7 +28,8 @@ class MemberSearchController extends AbstractController
         private MemberSearchService $searchService,
         private MemberService $memberService,
         private ScoutYearResolver $resolver,
-        private MemberYearService $memberYearService
+        private MemberYearService $memberYearService,
+        private DepartureService $departureService
     ) {
     }
 
@@ -45,6 +47,7 @@ class MemberSearchController extends AbstractController
 
         $detail = null;
         $effectiveAge = null;
+        $departureStatus = null;
         $memberId = (int) $request->getQuery('member', 0);
         if ($memberId > 0) {
             // The member must belong to the effective scout year.
@@ -62,6 +65,7 @@ class MemberSearchController extends AbstractController
                 $detail->scoutYearOffset,
                 MemberYearService::referenceYearFromScoutYearLabel($detail->scoutYearLabel)
             );
+            $departureStatus = $this->departureService->getStatus($detail->memberYearId);
         }
 
         return $this->render('admin/members/search.html.twig', [
@@ -69,6 +73,8 @@ class MemberSearchController extends AbstractController
             'results' => $results,
             'detail' => $detail,
             'effective_age' => $effectiveAge,
+            'departure_leaving' => $departureStatus?->leaving ?? false,
+            'departure_comment' => $departureStatus?->comment ?? '',
             'selected_member_id' => $memberId,
             'year_label' => $effective->label,
         ]);
