@@ -48,9 +48,7 @@ class RegistrationService
     {
         $publicYear = $this->scoutYearResolver->getCurrentPublicYear();
 
-        if ($submittedCode !== null && $submittedCode !== ''
-            && $this->yearCodeRepository->isValidActiveCode((int) $publicYear['id'], $submittedCode)
-        ) {
+        if ($this->hasValidYearCode($submittedCode)) {
             return $publicYear + ['used_code' => true];
         }
 
@@ -66,6 +64,30 @@ class RegistrationService
         $manuallyOpen = (bool) $this->settingService->get('registration_form_open', 'registration', '0');
 
         return $manuallyOpen;
+    }
+
+    /**
+     * Whether a submission may proceed at all: the manually/scheduled-open
+     * flag, OR — even while closed — a valid in-year code for the current
+     * public year (module spec: an in-year code is its own, independent
+     * open/close mechanism, "ce n'est pas une barrière de sécurité",
+     * §8.35 — a family a chief has given a code to must still be able to
+     * register while the general form is shut for the next scout year).
+     */
+    public function canSubmit(?string $submittedCode): bool
+    {
+        return $this->isFormOpen() || $this->hasValidYearCode($submittedCode);
+    }
+
+    private function hasValidYearCode(?string $submittedCode): bool
+    {
+        if ($submittedCode === null || $submittedCode === '') {
+            return false;
+        }
+
+        $publicYear = $this->scoutYearResolver->getCurrentPublicYear();
+
+        return $this->yearCodeRepository->isValidActiveCode((int) $publicYear['id'], $submittedCode);
     }
 
     /**

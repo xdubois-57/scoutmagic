@@ -62,8 +62,14 @@ class PublicRegistrationController extends AbstractController
             return new Response('Jeton CSRF invalide.', 403);
         }
 
-        if (!$this->registrationService->isFormOpen()) {
-            return new Response('Not Found', 404);
+        if (!$this->registrationService->canSubmit((string) $request->getBody('year_code', ''))) {
+            return $this->render(
+                '@registration/public.html.twig',
+                $this->buildPageContext(
+                    'Les inscriptions ne sont pas ouvertes pour le moment, et le code saisi n\'est pas valide.',
+                    $request->getBodyAll()
+                )
+            )->setStatusCode(422);
         }
 
         $humanCheckResult = $this->humanCheck?->verify(
@@ -159,6 +165,12 @@ class PublicRegistrationController extends AbstractController
                     (int) $publicYear['id']
                 )
                 : [],
+            'birth_year_slots' => $this->slotService->birthYearSlotsForPublic(
+                (int) $target['id'],
+                $targetLabel,
+                (int) $publicYear['id'],
+                $waitlistEnabled
+            ),
             'form_open' => $formOpen,
             'sections' => $sections,
             'is_identified' => $identified,

@@ -113,6 +113,53 @@ class SlotService
     }
 
     /**
+     * Per-birth-year slot info for the public page's birth-date preview:
+     * which (branch, year-in-branch) a birth year falls into, and its
+     * waitlist tier — reuses birthYearsByBranch()'s own bracket iteration
+     * and waitlistTiersByBirthYear()'s own tier computation rather than
+     * a third copy of either, and deliberately never exposes the raw
+     * capacity/projected/accepted counts capacityBreakdownForYear()
+     * itself carries (Controller\RegistrationConfigController's
+     * staff-only "Vérification des capacités" table) — a visitor gets
+     * only the same available/limited/heavy tier the "Disponibilité des
+     * places" section already shows, never the numbers behind it.
+     *
+     * @return array<int, array{birth_year: int, branch_label: string, year_in_branch: int, tier: ?string}>
+     */
+    public function birthYearSlotsForPublic(int $targetScoutYearId, string $targetScoutYearLabel, int $currentScoutYearId, bool $waitlistEnabled): array
+    {
+        $brackets = $this->ageBracketRepository->findAllOrdered();
+        $referenceYear = SlotMath::referenceCalendarYear(
+            MemberYearService::referenceYearFromScoutYearLabel($targetScoutYearLabel),
+            $this->referenceMonthDay()
+        );
+
+        $tierByBirthYear = [];
+        if ($waitlistEnabled) {
+            foreach ($this->waitlistTiersByBirthYear($targetScoutYearId, $targetScoutYearLabel, $currentScoutYearId) as $tier => $years) {
+                foreach ($years as $year) {
+                    $tierByBirthYear[$year] = $tier;
+                }
+            }
+        }
+
+        $rows = [];
+        foreach ($brackets as $bracket) {
+            for ($yearInBranch = 1; $yearInBranch <= $bracket->durationYears; $yearInBranch++) {
+                $birthYear = SlotMath::birthYearForSlot($bracket, $yearInBranch, $referenceYear);
+                $rows[] = [
+                    'birth_year' => $birthYear,
+                    'branch_label' => $bracket->branchLabel,
+                    'year_in_branch' => $yearInBranch,
+                    'tier' => $tierByBirthYear[$birthYear] ?? null,
+                ];
+            }
+        }
+
+        return $rows;
+    }
+
+    /**
      * The admin capacity table's own row set (module spec: "capacité,
      * effectif projeté, demandes acceptées, restant, et le niveau tel
      * qu'il apparaît au public") — same underlying numbers as

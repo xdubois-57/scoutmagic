@@ -24,7 +24,7 @@
                         <div class="col-6 col-sm-3">
                             <div class="fw-semibold small mb-1">{{ branch.branch_label }}</div>
                             <div class="text-body-secondary small">
-                                {% for year in branch.birth_years %}{{ year }}{% if not loop.last %}, {% endif %}{% endfor %}
+                                {% for year in branch.birth_years %}{{ year }}{% if waitlist_enabled %}{% if year in waitlist_tiers.limited|default([]) %}<span class="badge bg-warning text-dark ms-1" title="Attente limitée">!</span>{% elseif year in waitlist_tiers.heavy|default([]) %}<span class="badge bg-danger ms-1" title="Attente importante">!</span>{% endif %}{% endif %}{% if not loop.last %}, {% endif %}{% endfor %}
                             </div>
                         </div>
                     {% endfor %}
@@ -57,9 +57,9 @@
 
             {% if not form_open %}
                 <div class="alert alert-secondary">
-                    Les inscriptions ne sont pas ouvertes pour le moment. Revenez plus tard, ou contactez l'unité si vous disposez d'un code d'inscription en cours d'année.
+                    Les inscriptions ne sont pas ouvertes pour le moment. Si vous disposez d'un code d'inscription en cours d'année, vous pouvez néanmoins vous inscrire ci-dessous.
                 </div>
-            {% else %}
+            {% endif %}
                 <form method="POST" action="/inscriptions" id="registration-form">
                     <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
                     {% include 'partials/human_check_fields.html.twig' with { human_check: human_check } %}
@@ -141,7 +141,7 @@
                                 <option value="{{ section.id }}" data-branch-id="{{ section.age_branch_id }}">{{ section.branch_name }}{% if section.name %} — {{ section.name }}{% endif %}</option>
                             {% endfor %}
                         </select>
-                        <div class="form-text">La section n'est proposée qu'à titre indicatif : elle sera confirmée par l'unité en fonction de la date de naissance.</div>
+                        <div class="form-text">La section n'est proposée qu'à titre indicatif : elle sera confirmée par l'unité en fonction de plusieurs critères (âge, parité filles/garçons, taille des sections...).</div>
                     </div>
 
                     {% if is_identified and sibling_candidates is not empty %}
@@ -162,13 +162,18 @@
                     </div>
 
                     <div class="mb-4">
-                        <button class="btn btn-link p-0 small" type="button" data-bs-toggle="collapse" data-bs-target="#year-code-collapse">
-                            J'ai un code d'inscription en cours d'année
-                        </button>
-                        <div class="collapse mt-2" id="year-code-collapse">
-                            <label class="form-label" for="year_code">Code d'inscription</label>
+                        {% if not form_open %}
+                            <label class="form-label" for="year_code">Code d'inscription en cours d'année</label>
                             <input type="text" class="form-control" id="year_code" name="year_code" maxlength="20" placeholder="ex. 4KX9-7QRM" value="{{ sticky.year_code|default('') }}">
-                        </div>
+                        {% else %}
+                            <button class="btn btn-link p-0 small" type="button" data-bs-toggle="collapse" data-bs-target="#year-code-collapse">
+                                J'ai un code d'inscription en cours d'année
+                            </button>
+                            <div class="collapse mt-2" id="year-code-collapse">
+                                <label class="form-label" for="year_code">Code d'inscription</label>
+                                <input type="text" class="form-control" id="year_code" name="year_code" maxlength="20" placeholder="ex. 4KX9-7QRM" value="{{ sticky.year_code|default('') }}">
+                            </div>
+                        {% endif %}
                     </div>
 
                     <div class="form-check mb-4">
@@ -180,7 +185,6 @@
 
                     <button type="submit" class="btn btn-primary w-100 w-sm-auto float-sm-end">Envoyer la demande</button>
                 </form>
-            {% endif %}
         </div>
     </div>
 {% endblock %}
@@ -193,12 +197,14 @@
     // own docblock: a not-yet-registered child's exact birth day is unknown
     // ahead of the parent filling in the form) — reusing that exact data
     // client-side avoids a round trip and keeps this preview trivially in
-    // sync with the real branch capacities shown just above it.
-    var birthYearsByBranch = [
-        {% for branch in birth_years_by_branch %}
-        { label: {{ branch.branch_label|json_encode|raw }}, years: {{ branch.birth_years|json_encode|raw }} }{% if not loop.last %},{% endif %}
-        {% endfor %}
-    ];
+    // sync with the real branch capacities and waitlist tiers shown above it.
+    var birthYearSlots = {{ birth_year_slots|json_encode|raw }};
+    var waitlistEnabled = {{ waitlist_enabled ? 'true' : 'false' }};
+    var tierLabels = {
+        available: { text: 'Places disponibles', badge: 'bg-success' },
+        limited: { text: 'Attente limitée', badge: 'bg-warning text-dark' },
+        heavy: { text: 'Attente importante', badge: 'bg-danger' }
+    };
 
     var birthDateInput = document.getElementById('birth_date');
     var hint = document.getElementById('birth-date-branch-hint');
@@ -212,12 +218,18 @@
             hint.textContent = '';
             return;
         }
-        var match = birthYearsByBranch.find(function (branch) {
-            return branch.years.indexOf(year) !== -1;
+        var match = birthYearSlots.find(function (slot) {
+            return slot.birth_year === year;
         });
-        hint.textContent = match
-            ? 'Branche prévue : ' + match.label
-            : 'Hors des tranches d\'âge de l\'unité pour l\'année ' + {{ target_year_label|json_encode|raw }} + '.';
+        if (!match) {
+            hint.textContent = 'Hors des tranches d\'âge de l\'unité pour l\'année ' + {{ target_year_label|json_encode|raw }} + '.';
+            return;
+        }
+        var text = 'Branche prévue : ' + match.branch_label + ' — ' + match.year_in_branch + 'ᵉ année.';
+        if (waitlistEnabled && match.tier && tierLabels[match.tier]) {
+            text += ' ' + tierLabels[match.tier].text + '.';
+        }
+        hint.textContent = text;
     }
 
     birthDateInput.addEventListener('change', updateHint);

@@ -184,13 +184,49 @@ class PublicRegistrationControllerTest extends TestCase
         ], $overrides);
     }
 
-    public function testFormClosedReturns404(): void
+    public function testFormClosedWithoutCodeRejectsWithFriendlyError(): void
     {
         $this->settingService->set('registration_form_open', '0', 'registration');
 
         $response = $this->controller->submit(new Request('POST', '/inscriptions', [], $this->baseFields(), [], []), []);
 
-        $this->assertSame(404, $response->getStatusCode());
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertStringContainsString('ne sont pas ouvertes', $response->getBody());
+        // Sticky values: the parent's entered data must not be lost.
+        $this->assertStringContainsString('Léa', $response->getBody());
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM registration_requests')->fetchColumn());
+    }
+
+    public function testFormClosedWithValidInYearCodeStillSubmits(): void
+    {
+        $this->settingService->set('registration_form_open', '0', 'registration');
+        $code = (new RegistrationYearCodeRepository($this->pdo))->regenerate($this->publicYearId);
+
+        $hcFields = $this->humanCheckFields();
+        sleep(2);
+
+        $response = $this->controller->submit(
+            new Request('POST', '/inscriptions', [], array_merge($this->baseFields(), $hcFields, ['year_code' => $code]), [], []),
+            []
+        );
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame(1, (int) $this->pdo->query('SELECT COUNT(*) FROM registration_requests')->fetchColumn());
+        // Targets the CURRENT public year (in-year code), not next year.
+        $this->assertSame($this->publicYearId, (int) $this->pdo->query('SELECT scout_year_id FROM registration_requests ORDER BY id DESC LIMIT 1')->fetchColumn());
+    }
+
+    public function testFormClosedWithInvalidCodeRejectsWithFriendlyError(): void
+    {
+        $this->settingService->set('registration_form_open', '0', 'registration');
+
+        $response = $this->controller->submit(
+            new Request('POST', '/inscriptions', [], array_merge($this->baseFields(), ['year_code' => 'NOPE-NOPE']), [], []),
+            []
+        );
+
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM registration_requests')->fetchColumn());
     }
 
     public function testInvalidCsrfTokenIsRejected(): void
@@ -312,10 +348,12 @@ class PublicRegistrationControllerTest extends TestCase
     }
 
     /**
-     * The birth-date branch preview reuses birth_years_by_branch (the same
-     * data already rendered in the "nés en..." table above the form) —
-     * confirms the JS gets the same age-bracket data server-computed for
-     * this exact target year, rather than a stale or hardcoded copy.
+     * The birth-date branch preview reuses birth_year_slots (Service\
+     * SlotService::birthYearSlotsForPublic(), the same year-in-branch +
+     * waitlist-tier data derived from the same age-bracket configuration
+     * used elsewhere on the page) — confirms the JS gets real
+     * server-computed data for this exact target year, rather than a
+     * stale or hardcoded copy.
      */
     public function testBirthDateFieldExposesBranchDataForTheDynamicPreview(): void
     {
@@ -323,7 +361,29 @@ class PublicRegistrationControllerTest extends TestCase
         $body = $response->getBody();
 
         $this->assertStringContainsString('id="birth-date-branch-hint"', $body);
-        $this->assertStringContainsString('label: "Baladins"', $body);
-        $this->assertStringContainsString('label: "Louveteaux"', $body);
+        $this->assertStringContainsString('"branch_label":"Baladins"', $body);
+        $this->assertStringContainsString('"branch_label":"Louveteaux"', $body);
+        $this->assertStringContainsString('"year_in_branch"', $body);
+    }
+
+    /**
+     * When the waitlist display setting is on, the public page must expose
+     * each birth year's tier (available/limited/heavy) both in the static
+     * "nés en..." grid and in the JS data feeding the dynamic hint — but
+     * never the raw capacity/projected/accepted counts behind it (those
+     * are staff-only, shown on /config/inscriptions).
+     */
+    public function testBirthYearSlotsIncludeWaitlistTierWhenEnabled(): void
+    {
+        $this->settingService->set('registration_waitlist_enabled', '1', 'registration');
+        $capacityRepository = new SlotCapacityRepository($this->pdo);
+        $capacityRepository->upsert($this->baladinsId, 1, 0);
+
+        $response = $this->controller->index(new Request('GET', '/inscriptions', [], [], [], []), []);
+        $body = $response->getBody();
+
+        $this->assertStringContainsString('"tier":"heavy"', $body);
+        $this->assertStringNotContainsString('"capacity"', $body);
+        $this->assertStringNotContainsString('"accepted"', $body);
     }
 }
