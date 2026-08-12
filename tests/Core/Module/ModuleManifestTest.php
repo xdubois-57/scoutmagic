@@ -383,6 +383,101 @@ class ModuleManifestTest extends TestCase
         ]);
     }
 
+    public function testValidationRejectsAnEarlierWildcardRouteShadowingALaterLiteralRoute(): void
+    {
+        $this->expectException(ModuleException::class);
+        $this->expectExceptionMessage("shadows");
+
+        // Real incident: '/x/{id}/{token}' declared before '/x/demande/{id}'
+        // swallows every request meant for the second route — id="demande"
+        // casts to 0, the visitor gets a plain 404 with no clue why.
+        ModuleManifest::fromArray([
+            'id' => 'test',
+            'name' => 'Test',
+            'version' => '1.0.0',
+            'routes' => [
+                ['path' => '/x/{id}/{token}', 'method' => 'GET', 'controller' => 'C', 'action' => 'a', 'menu' => 'notre_unite', 'role_min' => 'public'],
+                ['path' => '/x/demande/{id}', 'method' => 'GET', 'controller' => 'C', 'action' => 'b', 'menu' => 'espace_animes', 'role_min' => 'identified'],
+            ],
+        ]);
+    }
+
+    public function testValidationAllowsALiteralRouteDeclaredBeforeAWildcardRoute(): void
+    {
+        // The safe, common direction: a literal action segment placed
+        // before a generic '{id}' catch-all so the literal isn't itself
+        // swallowed as an id — must never be rejected.
+        $manifest = ModuleManifest::fromArray([
+            'id' => 'test',
+            'name' => 'Test',
+            'version' => '1.0.0',
+            'routes' => [
+                ['path' => '/news/manage', 'method' => 'GET', 'controller' => 'C', 'action' => 'a', 'menu' => 'espace_admin', 'role_min' => 'admin'],
+                ['path' => '/news/{id}', 'method' => 'GET', 'controller' => 'C', 'action' => 'b', 'menu' => 'notre_unite', 'role_min' => 'public'],
+            ],
+        ]);
+
+        $this->assertCount(2, $manifest->routes);
+    }
+
+    public function testValidationAllowsDifferentLiteralsAtTheSamePosition(): void
+    {
+        // '/a/edit/{id}' and '/a/view/{id}' can never both match the same
+        // request path — not a shadowing risk regardless of order.
+        $manifest = ModuleManifest::fromArray([
+            'id' => 'test',
+            'name' => 'Test',
+            'version' => '1.0.0',
+            'routes' => [
+                ['path' => '/a/edit/{id}', 'method' => 'GET', 'controller' => 'C', 'action' => 'a', 'menu' => 'espace_admin', 'role_min' => 'admin'],
+                ['path' => '/a/view/{id}', 'method' => 'GET', 'controller' => 'C', 'action' => 'b', 'menu' => 'espace_admin', 'role_min' => 'admin'],
+            ],
+        ]);
+
+        $this->assertCount(2, $manifest->routes);
+    }
+
+    public function testValidationAllowsSameShapeRoutesOnDifferentHttpMethods(): void
+    {
+        // GET '/x/{id}/{token}' and POST '/x/demande/{id}' never actually
+        // compete for the same request — Core\Http\Router::resolve()
+        // filters by method first.
+        $manifest = ModuleManifest::fromArray([
+            'id' => 'test',
+            'name' => 'Test',
+            'version' => '1.0.0',
+            'routes' => [
+                ['path' => '/x/{id}/{token}', 'method' => 'GET', 'controller' => 'C', 'action' => 'a', 'menu' => 'notre_unite', 'role_min' => 'public'],
+                ['path' => '/x/demande/{id}', 'method' => 'POST', 'controller' => 'C', 'action' => 'b', 'menu' => 'espace_animes', 'role_min' => 'identified'],
+            ],
+        ]);
+
+        $this->assertCount(2, $manifest->routes);
+    }
+
+    /**
+     * Every real module.json in the repo, parsed for real — not just the
+     * fixtures above. Guards against the exact incident that motivated
+     * validateNoShadowedRoutes(): registration's own '/inscriptions/suivi/
+     * {id}/{token}' once shadowed '/inscriptions/suivi/demande/{id}',
+     * silently 404ing every "Espace animés" link to a family's own
+     * registration request. ModuleManifest::fromFile() already runs this
+     * check on every real request (Core\Module\ModuleManager::load()), so
+     * this test doesn't add new enforcement — it just fails fast, with a
+     * clear message, instead of only surfacing at boot or in production.
+     */
+    public function testEveryRealModuleManifestParsesWithoutShadowedRoutes(): void
+    {
+        $manifestPaths = glob(dirname(__DIR__, 3) . '/modules/*/module.json');
+        $this->assertNotEmpty($manifestPaths, 'Expected to find at least one real module.json');
+
+        foreach ($manifestPaths as $path) {
+            ModuleManifest::fromFile($path);
+        }
+
+        $this->addToAssertionCount(1);
+    }
+
     public function testFromFileThrowsForMissingFile(): void
     {
         $this->expectException(ModuleException::class);

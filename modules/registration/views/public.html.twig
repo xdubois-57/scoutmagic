@@ -120,6 +120,7 @@
                         <div class="col-12 col-sm-6">
                             <label class="form-label" for="birth_date">Date de naissance <span class="text-danger">*</span></label>
                             <input type="date" class="form-control" id="birth_date" name="birth_date" required value="{{ sticky.birth_date|default('') }}">
+                            <div class="form-text" id="birth-date-branch-hint"></div>
                         </div>
                         <div class="col-12 col-sm-6">
                             <label class="form-label" for="gender">Genre <span class="text-danger">*</span></label>
@@ -149,7 +150,7 @@
                             {% for candidate in sibling_candidates %}
                                 <div class="form-check">
                                     <input class="form-check-input" type="checkbox" name="sibling_member_ids[]" value="{{ candidate.member_id }}" id="sibling-{{ candidate.member_id }}">
-                                    <label class="form-check-label" for="sibling-{{ candidate.member_id }}">{{ candidate.name }}</label>
+                                    <label class="form-check-label" for="sibling-{{ candidate.member_id }}">{{ candidate.name|normalize_name }}</label>
                                 </div>
                             {% endfor %}
                         </div>
@@ -182,4 +183,45 @@
             {% endif %}
         </div>
     </div>
+{% endblock %}
+
+{% block scripts %}
+<script nonce="{{ csp_nonce }}">
+(function () {
+    // Same birth-year-only precision Service\SlotService::birthYearsByBranch()
+    // already commits to for the "nés en..." table above (Service\SlotMath's
+    // own docblock: a not-yet-registered child's exact birth day is unknown
+    // ahead of the parent filling in the form) — reusing that exact data
+    // client-side avoids a round trip and keeps this preview trivially in
+    // sync with the real branch capacities shown just above it.
+    var birthYearsByBranch = [
+        {% for branch in birth_years_by_branch %}
+        { label: {{ branch.branch_label|json_encode|raw }}, years: {{ branch.birth_years|json_encode|raw }} }{% if not loop.last %},{% endif %}
+        {% endfor %}
+    ];
+
+    var birthDateInput = document.getElementById('birth_date');
+    var hint = document.getElementById('birth-date-branch-hint');
+    if (!birthDateInput || !hint) {
+        return;
+    }
+
+    function updateHint() {
+        var year = parseInt((birthDateInput.value || '').slice(0, 4), 10);
+        if (!year) {
+            hint.textContent = '';
+            return;
+        }
+        var match = birthYearsByBranch.find(function (branch) {
+            return branch.years.indexOf(year) !== -1;
+        });
+        hint.textContent = match
+            ? 'Branche prévue : ' + match.label
+            : 'Hors des tranches d\'âge de l\'unité pour l\'année ' + {{ target_year_label|json_encode|raw }} + '.';
+    }
+
+    birthDateInput.addEventListener('change', updateHint);
+    updateHint();
+})();
+</script>
 {% endblock %}

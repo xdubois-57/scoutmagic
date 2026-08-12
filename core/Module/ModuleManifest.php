@@ -120,6 +120,7 @@ class ModuleManifest
             foreach ($data['routes'] as $i => $route) {
                 $routes[] = self::validateRoute($id, $route, $i);
             }
+            self::validateNoShadowedRoutes($id, $routes);
         }
 
         // Validate settings
@@ -264,6 +265,90 @@ class ModuleManifest
             'menu_order_explicit' => $menuOrderExplicit,
             'breadcrumb' => $breadcrumb,
         ];
+    }
+
+    /**
+     * Core\Http\Router::resolve() matches routes in registration order and
+     * stops at the first pattern match — a `{param}` segment matches ANY
+     * literal, including one that a later, differently-shaped route
+     * declares as a fixed word at that same position. This only rejects a
+     * genuine, always-triggered shadow: the earlier route's pattern must
+     * fully SUBSUME the later one's — wildcard (or an identical literal)
+     * at every single position, with a wildcard specifically where the
+     * later route has a fixed word — so that literally every real request
+     * meant for the later route matches the earlier one too, no matter
+     * what real value the later route's own wildcard segments carry (e.g.
+     * "/x/{id}/{token}" registered before "/x/demande/{id}" swallows
+     * "/x/demande/42" as id="demande", token="42" for ANY id — the real
+     * showLinked() route is never reached, the id cast to int becomes 0,
+     * and the visitor sees a plain 404 with no clue why).
+     *
+     * Deliberately NOT flagged: the earlier route having its OWN literal
+     * where the later route has a wildcard (e.g. "/mass-mail/unsubscribe/
+     * {id}" vs "/mass-mail/{id}/status" — colliding only for the
+     * essentially impossible case of a mass-mail id that is literally the
+     * string "unsubscribe", never a real auto-increment id) — that's a
+     * coincidental overlap for one contrived value, not a real one always
+     * hit by genuine traffic, and reordering can't remove it anyway (the
+     * same coincidental overlap just swaps which of the two routes it
+     * would hit). The reverse-shaped case is also fine and common on
+     * purpose (e.g. "/news/manage" declared before "/news/{id}" so the
+     * literal action isn't itself swallowed as an id). Different literals
+     * at the same position (e.g. "/a/edit/{id}" vs "/a/view/{id}") can
+     * never both match the same request path and are never flagged.
+     *
+     * @param array<int, array{path: string, method: string}> $routes
+     * @throws ModuleException
+     */
+    private static function validateNoShadowedRoutes(string $moduleId, array $routes): void
+    {
+        $count = count($routes);
+        for ($earlier = 0; $earlier < $count; $earlier++) {
+            for ($later = $earlier + 1; $later < $count; $later++) {
+                if ($routes[$earlier]['method'] !== $routes[$later]['method']) {
+                    continue;
+                }
+
+                $earlierSegments = explode('/', trim($routes[$earlier]['path'], '/'));
+                $laterSegments = explode('/', trim($routes[$later]['path'], '/'));
+                if (count($earlierSegments) !== count($laterSegments)) {
+                    continue;
+                }
+
+                $earlierSubsumesLater = true;
+                $hasAWildcardWhereLaterIsLiteral = false;
+                foreach ($earlierSegments as $index => $earlierSegment) {
+                    $laterSegment = $laterSegments[$index];
+                    $earlierIsWildcard = str_starts_with($earlierSegment, '{');
+                    $laterIsWildcard = str_starts_with($laterSegment, '{');
+
+                    if ($earlierIsWildcard) {
+                        if (!$laterIsWildcard) {
+                            $hasAWildcardWhereLaterIsLiteral = true;
+                        }
+                        continue;
+                    }
+                    // Earlier is literal here: only a genuine subsumption
+                    // if the later route has that exact same literal too —
+                    // a later wildcard, or a different literal, both mean
+                    // the earlier route does NOT match every real request
+                    // the later one would receive.
+                    if ($laterIsWildcard || $earlierSegment !== $laterSegment) {
+                        $earlierSubsumesLater = false;
+                        break;
+                    }
+                }
+
+                if ($earlierSubsumesLater && $hasAWildcardWhereLaterIsLiteral) {
+                    throw new ModuleException(
+                        "Module '{$moduleId}' route '{$routes[$earlier]['path']}' ({$routes[$earlier]['method']}, "
+                        . "declared first) shadows '{$routes[$later]['path']}' — a wildcard segment in the earlier "
+                        . "route matches anywhere the later route has a fixed word, so the later route can never "
+                        . "be reached. Declare the more specific (literal-segment) route first."
+                    );
+                }
+            }
+        }
     }
 
     /**
