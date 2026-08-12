@@ -229,6 +229,67 @@ class ForecastService
     }
 
     /**
+     * Reshapes Service\SlotService::capacityBreakdownForYear()'s flat,
+     * per-slot row list (already the source of the admin config page's
+     * "Vérification des capacités" table — same numbers, never a second
+     * computation) into the branch-grouped, colored shape the Prévisions
+     * page's remaining-capacity bars need, in the same visual language as
+     * Modules\MemberStats\Service\MemberStatsService::getStatistics()'s
+     * own branch/rows grouping (module_stats.color resolution duplicated
+     * here in miniature rather than shared, since that method is private
+     * and this module has its own dependencies for it already).
+     *
+     * @param array<int, array{age_branch_id: int, branch_label: string, branch_sort_order: int, year_in_branch: int, capacity: int, projected: int, accepted: int, remaining: int, tier: string}> $capacityBreakdown
+     * @return array<int, array{label: string, color: string, rows: array<int, array{year_in_branch: int, capacity: int, remaining: int, tier: string}>}>
+     */
+    public function groupCapacityByBranch(array $capacityBreakdown): array
+    {
+        $allSections = $this->sectionService->getAllWithBranches();
+
+        $byBranch = [];
+        foreach ($capacityBreakdown as $row) {
+            $branchId = $row['age_branch_id'];
+            if (!isset($byBranch[$branchId])) {
+                $byBranch[$branchId] = [
+                    'label' => $row['branch_label'],
+                    'color' => $this->resolveBranchColorBySortOrder($row['branch_sort_order'], $allSections),
+                    'rows' => [],
+                ];
+            }
+
+            $byBranch[$branchId]['rows'][] = [
+                'year_in_branch' => $row['year_in_branch'],
+                'capacity' => $row['capacity'],
+                'remaining' => $row['remaining'],
+                'tier' => $row['tier'],
+            ];
+        }
+
+        return array_values($byBranch);
+    }
+
+    /**
+     * Same rule Modules\MemberStats\Service\MemberStatsService::
+     * resolveBranchColor() uses: the color of this branch's own
+     * representative section (first by desk_code, when a branch has
+     * several — e.g. two Louveteaux packs), falling back to the plain
+     * federation default when the branch has no section at all.
+     *
+     * @param array<int, array{id: int, desk_code: string, branch_sort_order: int, color: ?string}> $allSections
+     */
+    private function resolveBranchColorBySortOrder(int $sortOrder, array $allSections): string
+    {
+        $branchSections = array_values(array_filter($allSections, static fn(array $s) => $s['branch_sort_order'] === $sortOrder));
+        if ($branchSections === []) {
+            return MemberYearService::colorForBranchSortOrder($sortOrder);
+        }
+
+        usort($branchSections, static fn(array $a, array $b) => $a['desk_code'] <=> $b['desk_code']);
+
+        return SectionService::colorForSection($branchSections[0]);
+    }
+
+    /**
      * Current-year animés whose effective age falls in one of the four
      * animés branches — the same population the projection itself is
      * built from (buckets a-d never include a Route/Iama-branch non-staff
