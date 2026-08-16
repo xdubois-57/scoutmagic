@@ -41,6 +41,8 @@ class ModuleManifest
 
     private const VALID_CHANNEL_VALUES = ['on', 'off', 'default_on', 'default_off'];
 
+    private const VALID_OFFLINE_MATCH_VALUES = ['exact', 'child'];
+
     /**
      * @param array<int, array{path: string, method: string, controller: string, action: string, menu: string, role_min: string, label: string, menu_order: int, menu_order_explicit: bool, breadcrumb: ?array{label: string, parents: array<string>}}> $routes
      * @param array<int, array{key: string, default_value: string, type: string, label: string, description: string}> $settings
@@ -48,6 +50,7 @@ class ModuleManifest
      * @param array<int, array{key: string, handler: string}> $scheduledTasks
      * @param array<string, array{role_min: string}> $storage
      * @param array<int, array{id: string, label: string, description: string, group: string, role_min: string, channels: array{in_app: string, push: string, email: string}}> $notifications
+     * @param array<int, array{path: string, label: string, match: string, role_min: string}> $offline
      */
     public function __construct(
         public readonly string $id,
@@ -60,7 +63,8 @@ class ModuleManifest
         public readonly array $storage,
         public readonly bool $enabledByDefault = false,
         public readonly string $description = '',
-        public readonly array $notifications = []
+        public readonly array $notifications = [],
+        public readonly array $offline = []
     ) {
     }
 
@@ -188,10 +192,21 @@ class ModuleManifest
             }
         }
 
+        // Validate offline (Core\Offline\OfflineWhitelist aggregation)
+        $offline = [];
+        if (isset($data['offline'])) {
+            if (!is_array($data['offline'])) {
+                throw new ModuleException("Module '{$id}' offline must be an array");
+            }
+            foreach ($data['offline'] as $i => $entry) {
+                $offline[] = self::validateOfflineEntry($id, $entry, $i);
+            }
+        }
+
         $enabledByDefault = (bool) ($data['enabled_by_default'] ?? false);
         $description = (string) ($data['description'] ?? '');
 
-        return new self($id, $data['name'], $data['version'], $routes, $settings, $cookies, $scheduledTasks, $storage, $enabledByDefault, $description, $notifications);
+        return new self($id, $data['name'], $data['version'], $routes, $settings, $cookies, $scheduledTasks, $storage, $enabledByDefault, $description, $notifications, $offline);
     }
 
     /**
@@ -496,6 +511,48 @@ class ModuleManifest
             'group' => $notification['group'],
             'role_min' => $notification['role_min'],
             'channels' => $channels,
+        ];
+    }
+
+    /**
+     * A module's own offline-cacheable page(s) — aggregated by
+     * Core\Module\ModuleManager into Core\Offline\OfflineWhitelist. See
+     * docs/module-development.md for the module-author-facing contract.
+     *
+     * @param array<string, mixed>|mixed $entry
+     * @return array{path: string, label: string, match: string, role_min: string}
+     */
+    private static function validateOfflineEntry(string $moduleId, mixed $entry, int $index): array
+    {
+        if (!is_array($entry)) {
+            throw new ModuleException("Module '{$moduleId}' offline[{$index}] must be an object");
+        }
+
+        $required = ['path', 'label', 'role_min'];
+        foreach ($required as $field) {
+            if (empty($entry[$field]) || !is_string($entry[$field])) {
+                throw new ModuleException("Module '{$moduleId}' offline[{$index}] missing or invalid '{$field}'");
+            }
+        }
+
+        if (!str_starts_with($entry['path'], '/')) {
+            throw new ModuleException("Module '{$moduleId}' offline[{$index}] path must start with '/'");
+        }
+
+        if (!in_array($entry['role_min'], self::VALID_ROLES, true)) {
+            throw new ModuleException("Module '{$moduleId}' offline[{$index}] invalid role_min '{$entry['role_min']}'");
+        }
+
+        $match = (string) ($entry['match'] ?? 'exact');
+        if (!in_array($match, self::VALID_OFFLINE_MATCH_VALUES, true)) {
+            throw new ModuleException("Module '{$moduleId}' offline[{$index}] invalid match '{$match}' — must be 'exact' or 'child'");
+        }
+
+        return [
+            'path' => $entry['path'],
+            'label' => $entry['label'],
+            'match' => $match,
+            'role_min' => $entry['role_min'],
         ];
     }
 

@@ -8,59 +8,46 @@ declare(strict_types=1);
 
 namespace Core\Http\Controller;
 
-use Core\Config\ScoutYearService;
 use Core\Http\Request;
 use Core\Http\Response;
-use Core\Module\StaffDirectoryProvider;
-use Core\Photo\MemberPhotoService;
+use Core\Offline\OfflineManifestService;
+use Core\Security\AuthSession;
+use Core\Security\Role;
 use Twig\Environment;
 
 /**
- * Offline mode (Lot 3) support surface. Used to also serve a bespoke
- * on-demand staff-photo derivative through a route deliberately outside
- * `/files/{id}` — that exception is retired: `GET /files/{id}/thumb`
- * (Core\Photo\ImageVariantService, Core\Http\Controller\FileController
- * ::variant()) now serves exactly the same square avatar through the
- * single, guarded download path, so photoManifest() below simply points
- * the offline pre-download at that URL instead of a route of its own.
+ * Offline mode pre-download support. `GET /api/offline/photo-manifest`
+ * (staff photos only) is superseded by the wider `/api/offline/manifest`
+ * below — see Core\Offline\OfflineManifestService's own docblock.
  */
 class OfflineController extends AbstractController
 {
     public function __construct(
         protected Environment $twig,
-        private MemberPhotoService $memberPhotoService,
-        private ScoutYearService $scoutYearService,
-        private ?StaffDirectoryProvider $staffDirectoryProvider = null
+        private OfflineManifestService $offlineManifestService
     ) {
     }
 
     /**
-     * GET /api/offline/photo-manifest — every thumbnail URL the caller is
-     * entitled to pre-download, across every section (module spec: "not
-     * only theirs"). Members with no current photo are simply omitted —
-     * nothing to fetch for them. Each URL still goes through the exact
-     * same FileAccessGuard check as any other `/files/{id}/thumb` request
-     * once the pre-download script fetches it — this manifest only lists
-     * candidates, it grants no access of its own.
+     * GET /api/offline/manifest — every whitelisted page URL and every
+     * image URL those pages render, filtered to what the caller's role
+     * (and, for `/members/{id}`, linked members) actually entitles them
+     * to. `role_min: public` on the route itself: the content returned is
+     * already self-limiting (a guest gets only public pages/images, and
+     * Core\Member\MemberService::getLinkedMembers() needs an email it
+     * never has), so there is no reason to float this above the floor its
+     * own content already enforces — same reasoning as `/calendar` itself
+     * being `role_min: public`. The pre-download script that actually
+     * calls this only ever runs for a signed-in, standalone-mode session
+     * regardless (public/assets/js/offline-prefetch.js).
      *
      * @param array<string, string> $params
      */
-    public function photoManifest(Request $request, array $params): Response
+    public function manifest(Request $request, array $params): Response
     {
-        if ($this->staffDirectoryProvider === null) {
-            return $this->json(['photos' => []]);
-        }
+        $role = Role::fromString(AuthSession::getRole());
+        $email = AuthSession::getEmail();
 
-        $scoutYearId = (int) $this->scoutYearService->getCurrentYear()['id'];
-
-        $photos = [];
-        foreach ($this->staffDirectoryProvider->getAllEligibleStaffMemberIds($scoutYearId) as $memberId) {
-            $fileId = $this->memberPhotoService->resolveFileId($memberId, $scoutYearId);
-            if ($fileId !== null) {
-                $photos[] = ['member_id' => $memberId, 'url' => '/files/' . $fileId . '/thumb'];
-            }
-        }
-
-        return $this->json(['photos' => $photos]);
+        return $this->json($this->offlineManifestService->buildManifest($role, $email));
     }
 }

@@ -34,6 +34,18 @@
         });
     }
 
+    // Personal data (Mon compte, member pages) is cacheable now that the
+    // whitelist covers them — the service worker's own page-cache WRITE
+    // is gated on this (public/sw.js's networkFirstWithCacheFallback())
+    // so a single visit from a normal browser tab never blinds the
+    // installed app with content it didn't ask to keep. READS stay
+    // unconditional regardless of this flag — see that function's own
+    // comment.
+    function isStandalone() {
+        return (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches)
+            || window.navigator.standalone === true;
+    }
+
     function sendConfig(consent) {
         postToServiceWorker({
             type: 'offline-config',
@@ -41,7 +53,8 @@
             consent: consent,
             whitelist: config.whitelist,
             account_scope: config.accountScope,
-            version: config.version
+            version: config.version,
+            standalone: isStandalone()
         });
     }
 

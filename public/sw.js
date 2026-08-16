@@ -65,7 +65,7 @@
 // ImageVariantService) get their own narrow, READ-ONLY branch further
 // down: network-first, falling back to whatever's already in Cache
 // Storage (written only by the pre-download script, public/assets/js/
-// offline-photos.js) on a network failure. This branch never writes —
+// offline-prefetch.js) on a network failure. This branch never writes —
 // see it for why.
 
 const params = new URLSearchParams(self.location.search);
@@ -130,7 +130,7 @@ const APP_SHELL_BASE_URLS = [
     '/assets/js/notification-badge.js',
     '/assets/js/offline-cache.js',
     '/assets/js/offline-nav.js',
-    '/assets/js/offline-photos.js',
+    '/assets/js/offline-prefetch.js',
     '/assets/js/offline-page.js',
     '/assets/img/lesscouts.png',
     '/assets/img/branches/logo_baladins.png',
@@ -270,7 +270,7 @@ self.addEventListener('fetch', function (event) {
     // GET /files/{id}/thumb|md) — read-only here: network-first, falling
     // back to Cache Storage on a network failure ONLY. This branch never
     // calls cache.put() — writing is entirely the pre-download script's job
-    // (public/assets/js/offline-photos.js), which owns the consent/
+    // (public/assets/js/offline-prefetch.js), which owns the consent/
     // standalone-mode policy for what gets written and where. A 403/404
     // from a live network response (a real access-guard decision) is
     // returned as-is, never masked by a stale cached copy — only an actual
@@ -335,8 +335,15 @@ function networkFirstWithCacheFallback(request, url, config) {
         // /login because the session had actually expired) must never be
         // cached under the original whitelisted URL — that would silently
         // serve the LOGIN page back as if it were the calendar the next
-        // time this is read from cache while offline.
-        if (response && response.ok && !response.redirected) {
+        // time this is read from cache while offline. config.standalone
+        // (delivered by the SAME page that made this navigation, via
+        // offline-cache.js) is the write gate: personal-data pages (Mon
+        // compte, a member's own page) are cacheable now, so a plain
+        // browser tab visiting one must never write it — only the
+        // installed app does. READS below stay unconditional regardless:
+        // a single tab visit must not blind the installed app's own
+        // already-cached copy until its next page load.
+        if (response && response.ok && !response.redirected && config.standalone) {
             const copy = response.clone();
             caches.open(cacheName).then(function (cache) { cache.put(request, copy); });
         }

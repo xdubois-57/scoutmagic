@@ -240,6 +240,102 @@ class FrontControllerTest extends TestCase
             session_start();
         }
     }
+
+    // --- ETag on whitelisted pages (Part 3.3) ---
+
+    public function testEtagHeaderIsSetOnAWhitelistedPath(): void
+    {
+        $router = new Router();
+        // '/' is a core OfflineWhitelist entry, role_min public.
+        $router->addRoute('GET', '/', StubController::class, 'index', 'public');
+
+        $fc = new FrontController($router, $this->twig, $this->config, new \Core\Offline\OfflineWhitelist());
+        $fc->registerController(StubController::class, new StubController($this->twig));
+
+        $response = $fc->handle(new Request('GET', '/', [], [], [], []));
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertArrayHasKey('ETag', $response->getHeaders());
+    }
+
+    public function testIfNoneMatchReturns304WhenEtagMatches(): void
+    {
+        $router = new Router();
+        $router->addRoute('GET', '/', StubController::class, 'index', 'public');
+
+        $fc = new FrontController($router, $this->twig, $this->config, new \Core\Offline\OfflineWhitelist());
+        $fc->registerController(StubController::class, new StubController($this->twig));
+
+        $first = $fc->handle(new Request('GET', '/', [], [], [], []));
+        $etag = $first->getHeaders()['ETag'];
+
+        $second = $fc->handle(new Request('GET', '/', [], [], [], ['HTTP_IF_NONE_MATCH' => $etag]));
+
+        $this->assertSame(304, $second->getStatusCode());
+        $this->assertSame('', $second->getBody());
+        $this->assertSame($etag, $second->getHeaders()['ETag']);
+    }
+
+    public function testNoEtagOnANonWhitelistedPath(): void
+    {
+        $router = new Router();
+        $router->addRoute('GET', '/admin/test', StubController::class, 'index', 'public');
+
+        $fc = new FrontController($router, $this->twig, $this->config, new \Core\Offline\OfflineWhitelist());
+        $fc->registerController(StubController::class, new StubController($this->twig));
+
+        $response = $fc->handle(new Request('GET', '/admin/test', [], [], [], []));
+
+        $this->assertArrayNotHasKey('ETag', $response->getHeaders());
+    }
+
+    public function testNoEtagOnAPostRequestEvenToAWhitelistedPath(): void
+    {
+        $router = new Router();
+        $router->addRoute('POST', '/', StubController::class, 'index', 'public');
+
+        $fc = new FrontController($router, $this->twig, $this->config, new \Core\Offline\OfflineWhitelist());
+        $fc->registerController(StubController::class, new StubController($this->twig));
+
+        $response = $fc->handle(new Request('POST', '/', [], [], [], []));
+
+        $this->assertArrayNotHasKey('ETag', $response->getHeaders());
+    }
+
+    public function testNoEtagInConfigurationMode(): void
+    {
+        $this->startTestSession();
+        AuthSession::login(1, 'admin@test.com', 'admin');
+        \Core\View\ConfigurationMode::activate('admin');
+
+        $router = new Router();
+        $router->addRoute('GET', '/', StubController::class, 'index', 'public');
+
+        $fc = new FrontController($router, $this->twig, $this->config, new \Core\Offline\OfflineWhitelist());
+        $fc->registerController(StubController::class, new StubController($this->twig));
+
+        $response = $fc->handle(new Request('GET', '/', [], [], [], []));
+
+        $this->assertArrayNotHasKey('ETag', $response->getHeaders());
+
+        \Core\View\ConfigurationMode::deactivate();
+    }
+
+    public function testNoEtagWhenOfflineWhitelistIsNotProvided(): void
+    {
+        $router = new Router();
+        $router->addRoute('GET', '/', StubController::class, 'index', 'public');
+
+        // Backward-compatible default — most FrontController call sites
+        // in this test suite never pass a 4th argument at all.
+        $fc = new FrontController($router, $this->twig, $this->config);
+        $fc->registerController(StubController::class, new StubController($this->twig));
+
+        $response = $fc->handle(new Request('GET', '/', [], [], [], []));
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertArrayNotHasKey('ETag', $response->getHeaders());
+    }
 }
 
 class StubController extends AbstractController

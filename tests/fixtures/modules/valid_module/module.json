@@ -49,5 +49,13 @@
     "uploads": {
       "role_min": "identified"
     }
-  }
+  },
+  "offline": [
+    {
+      "path": "/test-module",
+      "label": "Test Module",
+      "match": "exact",
+      "role_min": "identified"
+    }
+  ]
 }
