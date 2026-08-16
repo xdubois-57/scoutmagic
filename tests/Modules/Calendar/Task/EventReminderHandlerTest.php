@@ -115,6 +115,9 @@ class EventReminderHandlerTest extends TestCase
         $this->assertCount(1, $notifications);
         $this->assertSame('calendar.event_reminder', $notifications[0]->typeId);
         $this->assertStringContainsString('Camp', $notifications[0]->body);
+        // The event title alone is ambiguous — the body must name which
+        // calendar (here, the section) the reminder is about.
+        $this->assertStringContainsString('Éclaireurs', $notifications[0]->body);
 
         $stmt = $this->pdo->prepare('SELECT status FROM scheduled_actions WHERE reference = ?');
         $stmt->execute(['event-reminder-' . $eventId]);

@@ -88,6 +88,31 @@ class NotificationControllerTest extends TestCase
         $this->assertStringContainsString('Aucune notification', $response->getBody());
     }
 
+    /**
+     * A read row's indicator span and an unread row's must occupy the
+     * exact same box (same width/height/margin, only the unread one gets
+     * the bg-primary color class) — otherwise the two rows' text starts
+     * at different horizontal positions, which is what was reported.
+     */
+    public function testReadAndUnreadIndicatorSpansShareTheSameBoxSoTextAligns(): void
+    {
+        $unreadId = $this->notificationRepository->create($this->userId, null, 'core.system', 'Non lue', 'B', null);
+        $readId = $this->notificationRepository->create($this->userId, null, 'core.system', 'Lue', 'B', null);
+        $this->notificationRepository->markRead($readId);
+
+        $response = $this->controller->index(new Request('GET', '/notifications', [], [], [], []), []);
+        $body = $response->getBody();
+
+        $this->assertMatchesRegularExpression(
+            '/<span class="d-inline-block rounded-circle bg-primary" style="width:8px;height:8px;margin-top:6px;flex-shrink:0;"/',
+            $body
+        );
+        $this->assertMatchesRegularExpression(
+            '/<span class="d-inline-block rounded-circle" style="width:8px;height:8px;margin-top:6px;flex-shrink:0;"/',
+            $body
+        );
+    }
+
     public function testMarkReadMarksAndRedirectsToTheNotificationsOwnUrl(): void
     {
         $id = $this->notificationRepository->create($this->userId, null, 'core.system', 'T', 'B', '/gallery/42');

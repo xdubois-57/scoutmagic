@@ -23,11 +23,7 @@
                 <form method="post" action="/notifications/{{ notification.id }}/read" class="list-group-item list-group-item-action p-0 border-0 mb-2 rounded {% if not notification.isRead %}bg-primary-subtle{% else %}bg-white border{% endif %}">
                     {{ csrf_field() }}
                     <button type="submit" class="btn btn-link text-decoration-none text-start text-body w-100 p-3 d-flex gap-2 align-items-start">
-                        {% if not notification.isRead %}
-                            <span class="badge bg-primary rounded-circle p-1 mt-1" style="width:8px;height:8px;" aria-hidden="true"></span>
-                        {% else %}
-                            <span style="width:8px;" aria-hidden="true"></span>
-                        {% endif %}
+                        <span class="d-inline-block rounded-circle{% if not notification.isRead %} bg-primary{% endif %}" style="width:8px;height:8px;margin-top:6px;flex-shrink:0;" aria-hidden="true"></span>
                         <span class="flex-grow-1">
                             <span class="d-block fw-semibold">{{ notification.title }}</span>
                             <span class="d-block small text-body-secondary">{{ notification.body }}</span>
