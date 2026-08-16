@@ -28,6 +28,7 @@
                 { label: 'Effectif projeté', value: forecast.summary.projected_total, icon: 'bi-people-fill', tone: 'primary' },
                 { label: 'Variation', value: (forecast.summary.variation > 0 ? '+' : '') ~ forecast.summary.variation, icon: 'bi-arrow-left-right', tone: forecast.summary.variation < 0 ? 'danger' : 'success' },
                 { label: 'Départs annoncés', value: forecast.summary.departures_count, icon: 'bi-box-arrow-right', tone: 'secondary' },
+                { label: 'Fin de parcours', value: forecast.summary.aging_out_count, icon: 'bi-hourglass-bottom', tone: 'secondary' },
                 { label: 'Entrées', value: forecast.summary.new_registrations_count, icon: 'bi-box-arrow-in-right', tone: 'info' }
             ] %}
             {% for card in summary %}
@@ -116,7 +117,8 @@
                                 {{ forecast.unassigned.total }} personne(s) comptée(s) dans le total de l'unité et dans
                                 la pyramide, mais dans aucune section réelle tant qu'une décision n'est pas prise —
                                 {{ forecast.unassigned.from_passage }} passage(s) sans destination,
-                                {{ forecast.unassigned.from_registration }} inscription(s) sans section prévue.
+                                {{ forecast.unassigned.from_registration }} inscription(s) sans section prévue{% if forecast.unassigned.from_unknown_section > 0 %},
+                                {{ forecast.unassigned.from_unknown_section }} affectation(s) vers une section qui n'existe plus{% endif %}.
                             </p>
                         {% else %}
                             <p class="small text-body-secondary mb-0">

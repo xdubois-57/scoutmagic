@@ -114,4 +114,18 @@ class ForecastControllerTest extends TestCase
         $this->assertNotFalse($unassignedPos);
         $this->assertLessThan($unassignedPos, $capacityPos);
     }
+
+    /**
+     * The variation has to be explainable from the cards next to it, so
+     * "Fin de parcours" (members leaving the animés population by age —
+     * last-year Pionniers, mostly) sits alongside "Départs annoncés"
+     * rather than being an unexplained hole in the total.
+     */
+    public function testIndexShowsBothDepartureAndEndOfJourneyFigures(): void
+    {
+        $body = $this->controller->index(new Request('GET', '/previsions', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('Départs annoncés', $body);
+        $this->assertStringContainsString('Fin de parcours', $body);
+    }
 }
