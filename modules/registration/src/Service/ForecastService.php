@@ -63,6 +63,22 @@ use Core\Security\EncryptionService;
  * only bucket (a) ever counts as "certain" (module spec: "un passage non
  * validé ou une inscription non encodée est une hypothèse" — a *chosen*
  * destination is still just staff's plan, not yet a Desk fact).
+ *
+ * Two invariants this class is responsible for, both regression-tested:
+ *
+ *   1. `sum(sections[].total) + unassigned.total === summary.projected_total`.
+ *      buildViewModel() is the ONLY place that decides where a row lands,
+ *      so a row can never be counted twice or fall between two counters.
+ *   2. Everyone in `current_total` who is not in the projection is visible
+ *      in exactly one of `departures_count` (marked leaving) or
+ *      `aging_out_count` (their projected effective age leaves the four
+ *      animés branches — last-year Pionniers, mostly). The variation is
+ *      then genuinely explained by the figures shown next to it.
+ *
+ * Every age question — including for members a chief has advanced or held
+ * back a year (`member_years.scout_year_offset`) — goes through
+ * MemberYearService::getEffectiveAge() with the relevant year's reference
+ * year. Nothing in here adds or subtracts a year by hand.
  */
 class ForecastService
 {
@@ -77,9 +93,9 @@ class ForecastService
 
     /**
      * @return array{
-     *   summary: array{projected_total: int, current_total: int, variation: int, departures_count: int, new_registrations_count: int},
+     *   summary: array{projected_total: int, current_total: int, variation: int, departures_count: int, aging_out_count: int, new_registrations_count: int},
      *   sections: array<int, array{id: int, label: string, color: string, total_years_in_branch: int, year_segments: array<int, int>, gender: array{male: int, female: int, other: int, total: int}, total: int, certain_total: int, hypothesis_total: int}>,
-     *   unassigned: array{total: int, from_passage: int, from_registration: int},
+     *   unassigned: array{total: int, from_passage: int, from_registration: int, from_unknown_section: int},
      *   pyramid: array<int, array{male: int, female: int, other: int}>,
      *   pyramid_max: int
      * }
@@ -91,12 +107,21 @@ class ForecastService
         string $targetYearLabel,
         string $referenceMonthDay
     ): array {
-        $sections = $this->sectionService->getAllWithBranches();
+        // includeHidden: TRUE deliberately, and it must stay that way. The
+        // Passage page offers destinations (and the fiche offers a "section
+        // prévue") from getAllWithBranches(TRUE) — a hidden-but-active
+        // section is a perfectly ordinary, assignable destination. Building
+        // this map from the visible-only list instead made every such
+        // assignment fall through buildViewModel()'s unknown-section guard
+        // and disappear from the page entirely: counted in the unit total
+        // and the pyramid, shown in no section, and not "non attribué"
+        // either. buildViewModel() drops hidden sections that ended up with
+        // nobody, so this never adds empty clutter.
+        $sections = $this->sectionService->getAllWithBranches(true);
 
-        /** @var array<int, array{section_id: ?int, year_in_branch: ?int, gender: string, birth_year: ?int, certain: bool}> $projected */
+        /** @var array<int, array{section_id: ?int, year_in_branch: ?int, gender: ?string, birth_year: ?int, certain: bool, origin: string}> $projected */
         $projected = [];
-        $unassignedFromPassage = 0;
-        $unassignedFromRegistration = 0;
+        $agingOut = 0;
 
         // (a) Certain — real target-year Desk data.
         $targetMemberIds = [];
@@ -124,6 +149,7 @@ class ForecastService
                 ),
                 'birth_year' => $birthYear,
                 'certain' => true,
+                'origin' => 'desk',
             ];
         }
 
@@ -144,13 +170,23 @@ class ForecastService
                 $row['birth_date_encrypted'] !== null ? $this->encryption->decrypt($row['birth_date_encrypted']) : null
             );
             $currentAge = $this->memberYearService->getEffectiveAge($birthYear, (int) $row['scout_year_offset'], $currentReferenceYear);
-            if (!$currentAge->isInKnownBranch() || $currentAge->yearInBranch === $currentAge->totalYearsInBranch) {
-                continue; // last rank — a Service\PassageService::getBranchChanges() candidate instead, see (c)
-            }
-
             $projectedAge = $this->memberYearService->getEffectiveAge($birthYear, (int) $row['scout_year_offset'], $targetReferenceYear);
+
+            // The decisive question is where they land NEXT year, never
+            // where they sit today — a member held back by scout_year_offset
+            // can be below Baladins' entry age right now and still reach 1st
+            // year next year, and gating on the current age (as this once
+            // did) dropped exactly those from the projection. Anyone whose
+            // PROJECTED age leaves the four animés branches is counted as
+            // "aging out" instead: last-year Pionniers, mostly, who would
+            // otherwise shrink the unit total with nothing on the page to
+            // explain the drop.
             if (!$projectedAge->isInKnownBranch()) {
+                $agingOut++;
                 continue;
+            }
+            if ($currentAge->isInKnownBranch() && $currentAge->yearInBranch === $currentAge->totalYearsInBranch) {
+                continue; // last rank — a Service\PassageService::getBranchChanges() candidate instead, see (c)
             }
 
             $projected[] = [
@@ -161,6 +197,7 @@ class ForecastService
                 ),
                 'birth_year' => $birthYear,
                 'certain' => false,
+                'origin' => 'continuing',
             ];
         }
 
@@ -174,20 +211,24 @@ class ForecastService
                 }
 
                 $destinationSectionId = $member['destination_section_id'];
-                if ($destinationSectionId === null) {
-                    $unassignedFromPassage++;
-                }
 
                 $projected[] = [
                     // Still counted in the unit total and the pyramid when
                     // unassigned (null here) — module spec: "la pyramide et
                     // les totaux doivent inclure les non attribués". Only
-                    // the per-section breakdown skips them (buildViewModel).
+                    // the per-section breakdown skips them (buildViewModel),
+                    // which is also where the "non attribué" tallying now
+                    // happens, so every row is accounted for exactly once.
                     'section_id' => $destinationSectionId !== null ? (int) $destinationSectionId : null,
-                    'year_in_branch' => 1, // always the bottom rank of the arrival branch
-                    'gender' => null, // resolved separately below, keyed by member_id (see resolveGenderAndBirthYear)
+                    // year_in_branch/gender/birth_year all resolved below in
+                    // one pass, keyed by member_id — the rank is derived
+                    // from the member's own projected effective age (which
+                    // honours scout_year_offset), never hardcoded to 1.
+                    'year_in_branch' => null,
+                    'gender' => null,
                     'birth_year' => null,
                     'certain' => false,
+                    'origin' => 'passage',
                     'member_id' => (int) $member['member_id'],
                 ];
             }
@@ -200,34 +241,30 @@ class ForecastService
         $newRegistrations = $this->passageService->getNewRegistrations($targetYearId, $targetYearLabel, $referenceMonthDay, $currentYearId);
         foreach ($newRegistrations as $row) {
             $request = $row['request'];
-            $sectionId = $request->intendedSectionId;
-            if ($sectionId === null) {
-                $unassignedFromRegistration++;
-            }
 
             $projected[] = [
                 // Still counted in the unit total and the pyramid when
                 // unassigned (null here) — see the matching (c) comment above.
-                'section_id' => $sectionId,
+                'section_id' => $request->intendedSectionId,
                 'year_in_branch' => $row['slot']['year_in_branch'] ?? null,
                 'gender' => $this->classifyGender($request->gender),
                 'birth_year' => $request->birthYear(),
                 'certain' => false,
+                'origin' => 'registration',
             ];
         }
 
-        // (c)'s rows deferred their gender/birth year lookup (they share the
-        // exact address/name resolution PassageService already did — no
+        // (c)'s rows deferred their gender/birth year/rank lookup (they share
+        // the exact address/name resolution PassageService already did — no
         // point decrypting the same row twice); resolve them now in one pass.
-        $projected = $this->resolveDeferredGenderAndBirthYear($projected, $currentYearId);
+        $projected = $this->resolveDeferredMemberData($projected, $currentYearId, $targetReferenceYear);
 
         return $this->buildViewModel(
             $projected,
             $sections,
-            $unassignedFromPassage,
-            $unassignedFromRegistration,
-            $this->countKnownBranchAnimes($currentAnimes, $currentReferenceYear),
+            $this->countCurrentAnimes($currentYearId),
             $this->countDeparturesForYear($currentYearId),
+            $agingOut,
             count($newRegistrations)
         );
     }
@@ -248,7 +285,10 @@ class ForecastService
      */
     public function groupCapacityByBranch(array $capacityBreakdown): array
     {
-        $allSections = $this->sectionService->getAllWithBranches();
+        // includeHidden, same as getForecast(): this only picks a colour,
+        // but a branch whose sections are all hidden would otherwise lose
+        // its own colour and fall back to the federation default.
+        $allSections = $this->sectionService->getAllWithBranches(true);
 
         $byBranch = [];
         foreach ($capacityBreakdown as $row) {
@@ -294,38 +334,52 @@ class ForecastService
     }
 
     /**
-     * Current-year animés whose effective age falls in one of the four
-     * animés branches — the same population the projection itself is
-     * built from (buckets a-d never include a Route/Iama-branch non-staff
-     * member), so "current_total" and "projected_total" compare like with
-     * like.
+     * How many animés the unit actually has RIGHT NOW — active, non-staff,
+     * sectioned, and deliberately counting members marked leaving as well
+     * as those whose effective age sits outside the four animés branches.
      *
-     * @param array<int, array<string, mixed>> $currentAnimes
+     * This is the "before" side of the Variation card, so it has to be the
+     * real present-day headcount, not a filtered one. It previously reused
+     * Service\PassageService::getAnimeMemberYears() (which carries
+     * `leaving = 0`) and then dropped out-of-branch members on top, so a
+     * unit losing someone to an announced departure showed "Variation: 0" —
+     * the departure had already been subtracted from both sides of the
+     * subtraction and cancelled itself out. Everyone counted here who is
+     * gone next year now shows up in exactly one of departures_count or
+     * aging_out_count.
      */
-    private function countKnownBranchAnimes(array $currentAnimes, int $currentReferenceYear): int
+    private function countCurrentAnimes(int $scoutYearId): int
     {
-        $count = 0;
-        foreach ($currentAnimes as $row) {
-            $birthYear = MemberYearService::extractBirthYear(
-                $row['birth_date_encrypted'] !== null ? $this->encryption->decrypt($row['birth_date_encrypted']) : null
-            );
-            $age = $this->memberYearService->getEffectiveAge($birthYear, (int) $row['scout_year_offset'], $currentReferenceYear);
-            if ($age->isInKnownBranch()) {
-                $count++;
-            }
-        }
+        $stmt = $this->pdo->prepare(
+            "SELECT COUNT(DISTINCT my.id)
+             FROM member_years my
+             JOIN member_functions mf ON mf.member_year_id = my.id
+             JOIN functions f ON mf.function_id = f.id
+             WHERE my.scout_year_id = ? AND my.is_active = 1
+               AND f.role NOT IN ('chief', 'admin', 'intendant') AND mf.section_id IS NOT NULL"
+        );
+        $stmt->execute([$scoutYearId]);
 
-        return $count;
+        return (int) $stmt->fetchColumn();
     }
 
     /**
      * (c)'s branch-change rows only carry a member_id — this resolves their
-     * gender/birth year in one extra pass rather than re-querying per row.
+     * gender, birth year AND year-in-branch in one extra pass rather than
+     * re-querying per row.
+     *
+     * The rank is computed through MemberYearService::getEffectiveAge()
+     * against the TARGET year's reference year, honouring the member's own
+     * scout_year_offset. It used to be hardcoded to 1 ("always the bottom
+     * rank of the arrival branch"), which happens to be right whenever the
+     * branches are contiguous but is precisely the kind of hand-rolled age
+     * arithmetic this module forbids everywhere else — and it silently
+     * assumed an offset of 0.
      *
      * @param array<int, array<string, mixed>> $projected
      * @return array<int, array<string, mixed>>
      */
-    private function resolveDeferredGenderAndBirthYear(array $projected, int $currentYearId): array
+    private function resolveDeferredMemberData(array $projected, int $currentYearId, int $targetReferenceYear): array
     {
         $memberIds = [];
         foreach ($projected as $row) {
@@ -339,7 +393,7 @@ class ForecastService
 
         $placeholders = implode(',', array_fill(0, count($memberIds), '?'));
         $stmt = $this->pdo->prepare(
-            "SELECT member_id, gender_encrypted, birth_date_encrypted FROM member_years
+            "SELECT member_id, gender_encrypted, birth_date_encrypted, scout_year_offset FROM member_years
              WHERE scout_year_id = ? AND member_id IN ({$placeholders})"
         );
         $stmt->execute([$currentYearId, ...$memberIds]);
@@ -357,8 +411,14 @@ class ForecastService
             $row['gender'] = $this->classifyGender(
                 $source !== null && $source['gender_encrypted'] !== null ? $this->encryption->decrypt($source['gender_encrypted']) : null
             );
-            $row['birth_year'] = $source !== null
+            $birthYear = $source !== null
                 ? MemberYearService::extractBirthYear($source['birth_date_encrypted'] !== null ? $this->encryption->decrypt($source['birth_date_encrypted']) : null)
+                : null;
+            $row['birth_year'] = $birthYear;
+            $row['year_in_branch'] = $source !== null
+                ? $this->memberYearService
+                    ->getEffectiveAge($birthYear, (int) $source['scout_year_offset'], $targetReferenceYear)
+                    ->yearInBranch
                 : null;
             unset($row['member_id']);
         }
@@ -368,12 +428,12 @@ class ForecastService
     }
 
     /**
-     * @param array<int, array{section_id: ?int, year_in_branch: ?int, gender: ?string, birth_year: ?int, certain: bool}> $projected
-     * @param array<int, array{id: int, desk_code: string, name: ?string, age_branch_id: int, branch_name: string, branch_sort_order: int, color: ?string}> $sections
+     * @param array<int, array{section_id: ?int, year_in_branch: ?int, gender: ?string, birth_year: ?int, certain: bool, origin: string}> $projected
+     * @param array<int, array{id: int, desk_code: string, name: ?string, age_branch_id: int, branch_name: string, branch_sort_order: int, is_visible: bool, color: ?string}> $sections
      * @return array{
-     *   summary: array{projected_total: int, current_total: int, variation: int, departures_count: int, new_registrations_count: int},
+     *   summary: array{projected_total: int, current_total: int, variation: int, departures_count: int, aging_out_count: int, new_registrations_count: int},
      *   sections: array<int, array{id: int, label: string, color: string, total_years_in_branch: int, year_segments: array<int, int>, gender: array{male: int, female: int, other: int, total: int}, total: int, certain_total: int, hypothesis_total: int}>,
-     *   unassigned: array{total: int, from_passage: int, from_registration: int},
+     *   unassigned: array{total: int, from_passage: int, from_registration: int, from_unknown_section: int},
      *   pyramid: array<int, array{male: int, female: int, other: int}>,
      *   pyramid_max: int
      * }
@@ -381,10 +441,9 @@ class ForecastService
     private function buildViewModel(
         array $projected,
         array $sections,
-        int $unassignedFromPassage,
-        int $unassignedFromRegistration,
         int $currentTotal,
         int $departuresCount,
+        int $agingOutCount,
         int $newRegistrationsCount
     ): array {
         $sectionsById = [];
@@ -399,11 +458,15 @@ class ForecastService
                 'total' => 0,
                 'certain_total' => 0,
                 'hypothesis_total' => 0,
+                'is_visible' => (bool) $section['is_visible'],
             ];
         }
 
         $pyramid = [];
         $pyramidMax = 0;
+        $unassignedFromPassage = 0;
+        $unassignedFromRegistration = 0;
+        $unassignedFromUnknownSection = 0;
 
         foreach ($projected as $row) {
             if ($row['birth_year'] !== null) {
@@ -412,9 +475,25 @@ class ForecastService
                 $pyramidMax = max($pyramidMax, $pyramid[$row['birth_year']]['male'], $pyramid[$row['birth_year']]['female']);
             }
 
+            // Every row that cannot land in a real section row is tallied
+            // here, so `sum(sections) + unassigned === projected_total`
+            // holds by construction rather than by two counters happening
+            // to agree. A section id we don't recognise (deleted, or gone
+            // inactive since the pick was made) is its own bucket: it is
+            // NOT a "decision still to make" like the two below, and
+            // silently dropping it — which is what the old guard did,
+            // commented "shouldn't happen" — made people vanish from the
+            // page while still inflating the unit total.
             $sectionId = $row['section_id'];
             if ($sectionId === null || !isset($sectionsById[$sectionId])) {
-                continue; // shouldn't happen — a chosen destination/section prévue is always a real, active section
+                if ($sectionId !== null) {
+                    $unassignedFromUnknownSection++;
+                } elseif ($row['origin'] === 'registration') {
+                    $unassignedFromRegistration++;
+                } else {
+                    $unassignedFromPassage++;
+                }
+                continue;
             }
 
             $sectionsById[$sectionId]['total']++;
@@ -430,11 +509,23 @@ class ForecastService
 
         ksort($pyramid);
 
+        // Hidden sections are in the map so that an assignment to one is
+        // never lost (see getForecast()'s own note), but a hidden section
+        // nobody is projected into stays off the page — it is hidden for a
+        // reason and has nothing to say here.
+        $visibleSections = [];
+        foreach ($sectionsById as $section) {
+            if ($section['is_visible'] || $section['total'] > 0) {
+                unset($section['is_visible']);
+                $visibleSections[] = $section;
+            }
+        }
+
         // $projected already includes unassigned rows (section_id null) —
         // pushed unconditionally above so the pyramid picks them up too, so
         // count($projected) alone is the true unit total; adding
         // $unassignedTotal on top would double it.
-        $unassignedTotal = $unassignedFromPassage + $unassignedFromRegistration;
+        $unassignedTotal = $unassignedFromPassage + $unassignedFromRegistration + $unassignedFromUnknownSection;
         $projectedTotal = count($projected);
 
         return [
@@ -443,13 +534,15 @@ class ForecastService
                 'current_total' => $currentTotal,
                 'variation' => $projectedTotal - $currentTotal,
                 'departures_count' => $departuresCount,
+                'aging_out_count' => $agingOutCount,
                 'new_registrations_count' => $newRegistrationsCount,
             ],
-            'sections' => array_values($sectionsById),
+            'sections' => $visibleSections,
             'unassigned' => [
                 'total' => $unassignedTotal,
                 'from_passage' => $unassignedFromPassage,
                 'from_registration' => $unassignedFromRegistration,
+                'from_unknown_section' => $unassignedFromUnknownSection,
             ],
             'pyramid' => $pyramid,
             'pyramid_max' => $pyramidMax,

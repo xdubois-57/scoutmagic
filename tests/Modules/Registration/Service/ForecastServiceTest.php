@@ -40,6 +40,9 @@ class ForecastServiceTest extends TestCase
     private int $eclaireursBranchId;
     private int $louveteauxSectionId;
     private int $eclaireursSectionId;
+    private int $baladinsSectionId;
+    private int $pionniersSectionId;
+    private int $eclaireursHiddenSectionId;
 
     protected function setUp(): void
     {
@@ -50,13 +53,20 @@ class ForecastServiceTest extends TestCase
         $this->currentYearId = RegistrationTestHelper::insertScoutYear($this->pdo, '2026-2027', '2026-09-01', '2027-08-31');
         $this->targetYearId = RegistrationTestHelper::insertScoutYear($this->pdo, '2027-2028', '2027-09-01', '2028-08-31');
 
+        $baladinsBranchId = RegistrationTestHelper::insertAgeBranch($this->pdo, 'BALA', 'Baladins', 10);
         $this->louveteauxBranchId = RegistrationTestHelper::insertAgeBranch($this->pdo, 'LOUV', 'Louveteaux', 20);
         $this->eclaireursBranchId = RegistrationTestHelper::insertAgeBranch($this->pdo, 'ECLA', 'Éclaireurs', 30);
+        $pionniersBranchId = RegistrationTestHelper::insertAgeBranch($this->pdo, 'PION', 'Pionniers', 40);
 
         $ageBracketRepository = new AgeBracketRepository($this->pdo);
 
+        $this->baladinsSectionId = $this->createSection('BALA1', $baladinsBranchId, 'Baladins A');
         $this->louveteauxSectionId = $this->createSection('LOUV1', $this->louveteauxBranchId, 'Louveteaux A');
         $this->eclaireursSectionId = $this->createSection('ECLA1', $this->eclaireursBranchId, 'Éclaireurs A');
+        // Hidden but ACTIVE — the admin's own visibility toggle. Still a
+        // perfectly assignable Passage destination.
+        $this->eclaireursHiddenSectionId = $this->createSection('ECLA2', $this->eclaireursBranchId, 'Éclaireurs B', false);
+        $this->pionniersSectionId = $this->createSection('PION1', $pionniersBranchId, 'Pionniers A');
 
         $connection = Connection::withPdo($this->pdo);
         $sectionService = new SectionService($connection, $this->encryption, new MemberBadgeRepository($this->pdo));
@@ -70,10 +80,10 @@ class ForecastServiceTest extends TestCase
         $this->service = new ForecastService($this->pdo, $this->encryption, $sectionService, $passageService);
     }
 
-    private function createSection(string $deskCode, int $branchId, string $name): int
+    private function createSection(string $deskCode, int $branchId, string $name, bool $visible = true): int
     {
-        $stmt = $this->pdo->prepare('INSERT INTO sections (desk_code, age_branch_id, name) VALUES (?, ?, ?)');
-        $stmt->execute([$deskCode, $branchId, $name]);
+        $stmt = $this->pdo->prepare('INSERT INTO sections (desk_code, age_branch_id, name, is_visible) VALUES (?, ?, ?, ?)');
+        $stmt->execute([$deskCode, $branchId, $name, $visible ? 1 : 0]);
         return (int) $this->pdo->lastInsertId();
     }
 
@@ -89,7 +99,8 @@ class ForecastServiceTest extends TestCase
         string $gender = 'M',
         ?int $memberId = null,
         ?string $street = null,
-        ?string $postalCode = null
+        ?string $postalCode = null,
+        int $scoutYearOffset = 0
     ): array {
         if ($memberId === null) {
             $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('DESK_" . uniqid() . "')");
@@ -97,13 +108,14 @@ class ForecastServiceTest extends TestCase
         }
 
         $stmt = $this->pdo->prepare(
-            'INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted, birth_date_encrypted, gender_encrypted, leaving)
-             VALUES (?, ?, ?, ?, ?, ?, ?)'
+            'INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted, birth_date_encrypted, gender_encrypted, leaving, scout_year_offset)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([
             $memberId, $scoutYearId,
             $this->encryption->encrypt($firstName), $this->encryption->encrypt('Dupont'),
             $this->encryption->encrypt($birthDate), $this->encryption->encrypt($gender), $leaving ? 1 : 0,
+            $scoutYearOffset,
         ]);
         $memberYearId = (int) $this->pdo->lastInsertId();
 
@@ -356,6 +368,294 @@ class ForecastServiceTest extends TestCase
     public function testGroupCapacityByBranchReturnsEmptyForEmptyInput(): void
     {
         $this->assertSame([], $this->service->groupCapacityByBranch([]));
+    }
+
+    // --- Hidden-but-active destination sections (regression) ---
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function forecast(): array
+    {
+        return $this->service->getForecast($this->currentYearId, '2026-2027', $this->targetYearId, '2027-2028', '12-31');
+    }
+
+    /**
+     * @param array<string, mixed> $forecast
+     */
+    private function sectionTotal(array $forecast, int $sectionId): int
+    {
+        foreach ($forecast['sections'] as $section) {
+            if ($section['id'] === $sectionId) {
+                return $section['total'];
+            }
+        }
+
+        return 0;
+    }
+
+    /**
+     * @param array<string, mixed> $forecast
+     */
+    private function assertReconciles(array $forecast, string $message = ''): void
+    {
+        $this->assertSame(
+            $forecast['summary']['projected_total'],
+            array_sum(array_column($forecast['sections'], 'total')) + $forecast['unassigned']['total'],
+            $message !== '' ? $message : 'sum(sections) + unassigned must always equal projected_total'
+        );
+    }
+
+    /**
+     * The Passage page offers destinations from getAllWithBranches(TRUE),
+     * so a hidden-but-active section is assignable. ForecastService used
+     * getAllWithBranches() (visible only), so such a passage fell through
+     * the unknown-section guard: counted in the unit total, shown in no
+     * section, and not "non attribué" either — the reported "passages pas
+     * toutes prises en compte".
+     */
+    public function testPassageToAHiddenButActiveSectionIsStillCounted(): void
+    {
+        $sacha = $this->createMember($this->currentYearId, 'Sacha', '2015-06-01', $this->louveteauxSectionId);
+        $this->transferRepository->setDestination($sacha['member_id'], $this->targetYearId, $this->eclaireursHiddenSectionId);
+
+        $forecast = $this->forecast();
+
+        $this->assertSame(1, $forecast['summary']['projected_total']);
+        $this->assertSame(1, $this->sectionTotal($forecast, $this->eclaireursHiddenSectionId));
+        $this->assertSame(0, $forecast['unassigned']['total']);
+        $this->assertReconciles($forecast);
+    }
+
+    public function testAcceptedRegistrationIntoAHiddenButActiveSectionIsStillCounted(): void
+    {
+        $this->createRequest('Neo', '2019-06-01', $this->eclaireursHiddenSectionId);
+
+        $forecast = $this->forecast();
+
+        $this->assertSame(1, $this->sectionTotal($forecast, $this->eclaireursHiddenSectionId));
+        $this->assertReconciles($forecast);
+    }
+
+    /**
+     * A hidden section nobody is projected into stays off the page — it is
+     * hidden for a reason and has nothing to contribute.
+     */
+    public function testAnEmptyHiddenSectionIsNotRendered(): void
+    {
+        $ids = array_column($this->forecast()['sections'], 'id');
+
+        $this->assertNotContains($this->eclaireursHiddenSectionId, $ids);
+        $this->assertContains($this->louveteauxSectionId, $ids, 'an empty VISIBLE section is still shown');
+    }
+
+    /**
+     * A destination pointing at a section that has since disappeared must
+     * never silently vanish: it lands in its own "non attribué" bucket so
+     * the totals still reconcile and the page can say so.
+     */
+    public function testPassageToADeletedSectionFallsIntoTheUnknownSectionBucket(): void
+    {
+        $sacha = $this->createMember($this->currentYearId, 'Sacha', '2015-06-01', $this->louveteauxSectionId);
+        $this->transferRepository->setDestination($sacha['member_id'], $this->targetYearId, 999999);
+
+        $forecast = $this->forecast();
+
+        $this->assertSame(1, $forecast['summary']['projected_total']);
+        $this->assertSame(1, $forecast['unassigned']['from_unknown_section']);
+        $this->assertSame(0, $forecast['unassigned']['from_passage']);
+        $this->assertReconciles($forecast);
+    }
+
+    // --- Departures and end-of-journey must explain the variation ---
+
+    /**
+     * current_total used to come from a roster that already excluded
+     * members marked leaving, so a unit losing someone to an announced
+     * departure reported "Variation: 0" — the departure cancelled itself
+     * out on both sides of the subtraction.
+     */
+    public function testCurrentTotalCountsLeavingMembersSoTheVariationShowsTheDeparture(): void
+    {
+        $this->createMember($this->currentYearId, 'Reste', '2017-06-01', $this->louveteauxSectionId);
+        $this->createMember($this->currentYearId, 'Part', '2017-06-01', $this->louveteauxSectionId, leaving: true);
+
+        $forecast = $this->forecast();
+
+        $this->assertSame(2, $forecast['summary']['current_total'], 'the unit really has two members today');
+        $this->assertSame(1, $forecast['summary']['projected_total']);
+        $this->assertSame(1, $forecast['summary']['departures_count']);
+        $this->assertSame(-1, $forecast['summary']['variation']);
+    }
+
+    /**
+     * A last-year Pionnier leaves the animés population by age, not by a
+     * "leaving" flag — the unit total drops by one and nothing on the page
+     * used to account for it.
+     */
+    public function testLastYearPionnierIsCountedAsAgingOut(): void
+    {
+        // Pionniers 16-17: effective age 17 in 2026 => born 2009.
+        $this->createMember($this->currentYearId, 'Pio', '2009-06-01', $this->pionniersSectionId);
+
+        $forecast = $this->forecast();
+
+        $this->assertSame(1, $forecast['summary']['current_total']);
+        $this->assertSame(0, $forecast['summary']['projected_total']);
+        $this->assertSame(1, $forecast['summary']['aging_out_count']);
+        $this->assertSame(0, $forecast['summary']['departures_count'], 'aging out is not an announced departure');
+        $this->assertSame(-1, $forecast['summary']['variation']);
+    }
+
+    public function testAMidJourneyPionnierIsNotCountedAsAgingOut(): void
+    {
+        // Effective age 16 in 2026 => born 2010, still Pionniers next year.
+        $this->createMember($this->currentYearId, 'Pio', '2010-06-01', $this->pionniersSectionId);
+
+        $forecast = $this->forecast();
+
+        $this->assertSame(0, $forecast['summary']['aging_out_count']);
+        $this->assertSame(1, $forecast['summary']['projected_total']);
+    }
+
+    // --- Members a year ahead / a year behind (scout_year_offset) ---
+
+    /**
+     * Held back by a year: effective age 5 today (below Baladins' entry age
+     * 6) but effective 6 next year, i.e. Baladins 1st year. Gating the
+     * projection on the CURRENT age dropped exactly these members; the gate
+     * belongs on the projected age.
+     */
+    public function testMemberHeldBackBelowEntryAgeIsStillProjectedIntoNextYear(): void
+    {
+        $this->createMember(
+            $this->currentYearId, 'Retard', '2020-06-01', $this->baladinsSectionId, scoutYearOffset: -1
+        );
+
+        $forecast = $this->forecast();
+
+        $this->assertSame(1, $forecast['summary']['projected_total']);
+        $this->assertSame(1, $this->sectionTotal($forecast, $this->baladinsSectionId));
+        $this->assertSame(0, $forecast['summary']['aging_out_count']);
+        $this->assertReconciles($forecast);
+    }
+
+    /**
+     * Advanced by a year past the last animés branch: correctly absent from
+     * the projection, but they ARE a member today, so they must still be in
+     * current_total and be explained by aging_out_count.
+     */
+    public function testMemberAdvancedPastPionniersCountsTodayAndAsAgingOut(): void
+    {
+        // Effective age 18 in 2026 => born 2009 with offset +1.
+        $this->createMember(
+            $this->currentYearId, 'Avance', '2009-06-01', $this->pionniersSectionId, scoutYearOffset: 1
+        );
+
+        $forecast = $this->forecast();
+
+        $this->assertSame(1, $forecast['summary']['current_total']);
+        $this->assertSame(0, $forecast['summary']['projected_total']);
+        $this->assertSame(1, $forecast['summary']['aging_out_count']);
+        $this->assertSame(-1, $forecast['summary']['variation']);
+    }
+
+    /**
+     * A passage row's year-in-branch is derived from the member's own
+     * projected effective age (offset included), never hardcoded to 1.
+     * Effective age 11 in 2026 with offset +1 (born 2016) => last-rank
+     * Louveteau => Éclaireurs 1st year next year, and the segmented bar
+     * must say 1st year, not 4th.
+     */
+    public function testPassageRankHonoursScoutYearOffset(): void
+    {
+        $sacha = $this->createMember(
+            $this->currentYearId, 'Avance', '2016-06-01', $this->louveteauxSectionId, scoutYearOffset: 1
+        );
+        $this->transferRepository->setDestination($sacha['member_id'], $this->targetYearId, $this->eclaireursSectionId);
+
+        $forecast = $this->forecast();
+
+        foreach ($forecast['sections'] as $section) {
+            if ($section['id'] === $this->eclaireursSectionId) {
+                $this->assertSame([1 => 1], $section['year_segments'], 'arrives as a 1st-year Éclaireur');
+                return;
+            }
+        }
+        $this->fail('Éclaireurs A missing from the forecast');
+    }
+
+    /**
+     * The certain bucket reads the target year's own offset, so an
+     * advanced member re-imported by Desk is ranked by their real
+     * effective age rather than a stale one.
+     */
+    public function testCertainBucketRanksAnAdvancedMemberByTheirOwnOffset(): void
+    {
+        // Born 2016, offset +1 => effective 12 in 2027 = Éclaireurs 1st year.
+        $this->createMember(
+            $this->targetYearId, 'Avance', '2016-06-01', $this->eclaireursSectionId, scoutYearOffset: 1
+        );
+
+        $forecast = $this->forecast();
+
+        foreach ($forecast['sections'] as $section) {
+            if ($section['id'] === $this->eclaireursSectionId) {
+                $this->assertSame([1 => 1], $section['year_segments']);
+                $this->assertSame(1, $section['certain_total']);
+                return;
+            }
+        }
+        $this->fail('Éclaireurs A missing from the forecast');
+    }
+
+    /**
+     * The whole picture at once — departures, end-of-journey, passages
+     * (including into a hidden section), offsets and new registrations —
+     * with both invariants holding simultaneously.
+     */
+    public function testEveryoneIsAccountedForExactlyOnceAcrossAllSources(): void
+    {
+        // Stays: mid-branch Louveteau.
+        $this->createMember($this->currentYearId, 'Reste', '2017-06-01', $this->louveteauxSectionId);
+        // Announced departure.
+        $this->createMember($this->currentYearId, 'Part', '2017-06-01', $this->louveteauxSectionId, leaving: true);
+        // End of journey: last-year Pionnier.
+        $this->createMember($this->currentYearId, 'Pio', '2009-06-01', $this->pionniersSectionId);
+        // Passage into a hidden section.
+        $sacha = $this->createMember($this->currentYearId, 'Sacha', '2015-06-01', $this->louveteauxSectionId);
+        $this->transferRepository->setDestination($sacha['member_id'], $this->targetYearId, $this->eclaireursHiddenSectionId);
+        // Passage with no destination yet.
+        $this->createMember($this->currentYearId, 'SansDest', '2015-06-01', $this->louveteauxSectionId);
+        // Held back a year, joins Baladins next year.
+        $this->createMember($this->currentYearId, 'Retard', '2020-06-01', $this->baladinsSectionId, scoutYearOffset: -1);
+        // New registration, placed.
+        $this->createRequest('Neo', '2019-06-01', $this->louveteauxSectionId);
+
+        $forecast = $this->forecast();
+
+        // Today: 6 real members (the leaver included).
+        $this->assertSame(6, $forecast['summary']['current_total']);
+        // Next year: Reste, Sacha, SansDest, Retard, Neo = 5.
+        $this->assertSame(5, $forecast['summary']['projected_total']);
+        $this->assertSame(1, $forecast['summary']['departures_count']);
+        $this->assertSame(1, $forecast['summary']['aging_out_count']);
+        $this->assertSame(1, $forecast['summary']['new_registrations_count']);
+        $this->assertSame(-1, $forecast['summary']['variation']);
+
+        // Everyone leaving is explained: 6 - 1 departure - 1 aging out
+        // + 1 new registration = 5.
+        $this->assertSame(
+            $forecast['summary']['projected_total'],
+            $forecast['summary']['current_total']
+                - $forecast['summary']['departures_count']
+                - $forecast['summary']['aging_out_count']
+                + $forecast['summary']['new_registrations_count'],
+            'the variation is fully explained by the figures shown beside it'
+        );
+
+        $this->assertSame(1, $forecast['unassigned']['from_passage']);
+        $this->assertReconciles($forecast);
     }
 
     public function testHasNoDependencyOnMemberStatsModule(): void

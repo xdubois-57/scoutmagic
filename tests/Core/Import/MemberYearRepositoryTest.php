@@ -115,4 +115,124 @@ class MemberYearRepositoryTest extends TestCase
 
         $this->assertSame($oldBlindIndex, $this->repo->findMostRecentEmailBlindIndexForMember($memberId));
     }
+
+    // --- scout_year_offset must survive a Desk import into a new year ---
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function encryptedPayload(): array
+    {
+        return [
+            'first_name_encrypted' => $this->encryption->encrypt('Test'),
+            'last_name_encrypted' => $this->encryption->encrypt('User'),
+            'gender_encrypted' => $this->encryption->encrypt('M'),
+            'birth_date_encrypted' => $this->encryption->encrypt('2015-06-01'),
+            'phone_encrypted' => null,
+            'mobile_encrypted' => null,
+            'email_encrypted' => null,
+            'email_blind_index' => null,
+            'totem_encrypted' => null,
+            'quali_encrypted' => null,
+            'patrol_encrypted' => null,
+            'formation_level' => null,
+            'federation_mail_consent' => false,
+            'unit_mail_consent' => false,
+            'fee_category_id' => null,
+            'unit_code' => null,
+            'handicap_encrypted' => null,
+            'supplementary_insurance' => null,
+        ];
+    }
+
+    private function offsetOf(int $memberYearId): int
+    {
+        return (int) $this->pdo->query('SELECT scout_year_offset FROM member_years WHERE id = ' . $memberYearId)->fetchColumn();
+    }
+
+    /**
+     * scout_year_offset is ScoutMagic-local — Desk knows nothing about it,
+     * so the import's INSERT never supplied it and every new scout year
+     * silently reset an advanced/held-back member to 0, quietly moving
+     * them into the wrong branch and year-in-branch everywhere effective
+     * age is used (member page, member_stats, capacities, Prévisions).
+     */
+    public function testUpsertCarriesScoutYearOffsetForwardIntoANewScoutYear(): void
+    {
+        $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('d100')");
+        $memberId = (int) $this->pdo->lastInsertId();
+
+        $firstYearId = $this->repo->upsert($memberId, $this->scoutYearId, $this->encryptedPayload());
+        $this->repo->updateScoutYearOffset($firstYearId, 1);
+
+        $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES ('2026-2027', '2026-09-01', '2027-08-31', 0)");
+        $nextYearId = (int) $this->pdo->lastInsertId();
+
+        $newRowId = $this->repo->upsert($memberId, $nextYearId, $this->encryptedPayload());
+
+        $this->assertSame(1, $this->offsetOf($newRowId), 'the offset follows the member into the newly imported year');
+    }
+
+    public function testUpsertCarriesANegativeOffsetForwardToo(): void
+    {
+        $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('d101')");
+        $memberId = (int) $this->pdo->lastInsertId();
+
+        $firstYearId = $this->repo->upsert($memberId, $this->scoutYearId, $this->encryptedPayload());
+        $this->repo->updateScoutYearOffset($firstYearId, -1);
+
+        $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES ('2026-2027', '2026-09-01', '2027-08-31', 0)");
+        $nextYearId = (int) $this->pdo->lastInsertId();
+
+        $this->assertSame(-1, $this->offsetOf($this->repo->upsert($memberId, $nextYearId, $this->encryptedPayload())));
+    }
+
+    /**
+     * Only ever inherited on INSERT — re-importing a year the member
+     * already has must leave a chief's correction on that row alone.
+     */
+    public function testReimportingTheSameYearNeverOverwritesAnExistingOffset(): void
+    {
+        $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('d102')");
+        $memberId = (int) $this->pdo->lastInsertId();
+
+        $yearRowId = $this->repo->upsert($memberId, $this->scoutYearId, $this->encryptedPayload());
+        $this->repo->updateScoutYearOffset($yearRowId, 1);
+
+        $this->repo->upsert($memberId, $this->scoutYearId, $this->encryptedPayload());
+
+        $this->assertSame(1, $this->offsetOf($yearRowId));
+    }
+
+    /**
+     * Inheritance walks backwards by start_date, never by row id or scout
+     * year id — back-filling an older year afterwards must not become the
+     * source a *later* year inherits from.
+     */
+    public function testInheritanceIgnoresALaterYearAndPrefersTheMostRecentEarlierOne(): void
+    {
+        $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('d103')");
+        $memberId = (int) $this->pdo->lastInsertId();
+
+        // A much older year, inserted first, with a different offset.
+        $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES ('2023-2024', '2023-09-01', '2024-08-31', 0)");
+        $oldestYearId = (int) $this->pdo->lastInsertId();
+        $this->repo->updateScoutYearOffset($this->repo->upsert($memberId, $oldestYearId, $this->encryptedPayload()), -1);
+
+        // The immediately-preceding year carries the offset that should win.
+        $this->repo->updateScoutYearOffset($this->repo->upsert($memberId, $this->scoutYearId, $this->encryptedPayload()), 1);
+
+        $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES ('2026-2027', '2026-09-01', '2027-08-31', 0)");
+        $nextYearId = (int) $this->pdo->lastInsertId();
+
+        $this->assertSame(1, $this->offsetOf($this->repo->upsert($memberId, $nextYearId, $this->encryptedPayload())));
+    }
+
+    public function testAMemberWithNoEarlierYearSimplyStartsAtZero(): void
+    {
+        $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('d104')");
+        $memberId = (int) $this->pdo->lastInsertId();
+
+        $this->assertSame(0, $this->offsetOf($this->repo->upsert($memberId, $this->scoutYearId, $this->encryptedPayload())));
+    }
 }

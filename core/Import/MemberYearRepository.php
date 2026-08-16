@@ -73,8 +73,8 @@ class MemberYearRepository
                 patrol_encrypted, formation_level,
                 federation_mail_consent, unit_mail_consent,
                 fee_category_id, unit_code,
-                handicap_encrypted, supplementary_insurance, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                handicap_encrypted, supplementary_insurance, scout_year_offset, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([
             $memberId, $scoutYearId,
@@ -96,9 +96,47 @@ class MemberYearRepository
             $encryptedData['unit_code'],
             $encryptedData['handicap_encrypted'],
             $encryptedData['supplementary_insurance'],
+            $this->inheritedScoutYearOffset($memberId, $scoutYearId),
             $now,
         ]);
         return (int) $this->pdo->lastInsertId();
+    }
+
+    /**
+     * `scout_year_offset` is the one member_years column Desk knows nothing
+     * about — it is ScoutMagic-local, set by a chief on the member page for
+     * someone who skipped or repeated a year (Core\Member\MemberYearService
+     * ::getEffectiveAge()). Because the import's INSERT above never carried
+     * it, every new scout year silently reset it to the schema default 0,
+     * and an advanced/held-back member's branch and year-in-branch quietly
+     * became wrong the moment their new year was imported — visible on the
+     * member page, in member_stats, in the registration module's capacity
+     * projections, and most starkly on "Prévisions", where a member Desk
+     * had placed in Éclaireurs was still ranked by a Louveteaux-era age.
+     *
+     * A brand-new row therefore inherits the offset from the member's most
+     * recent EARLIER scout year (by start_date — never by row id or scout
+     * year id, neither of which is guaranteed chronological once a past
+     * year is back-filled). Deliberately only on INSERT: the UPDATE branch
+     * above must never touch the column, so a chief's correction to an
+     * existing row always survives a re-import of the same year.
+     */
+    private function inheritedScoutYearOffset(int $memberId, int $scoutYearId): int
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT my.scout_year_offset
+             FROM member_years my
+             JOIN scout_years sy ON sy.id = my.scout_year_id
+             WHERE my.member_id = ?
+               AND my.scout_year_id != ?
+               AND sy.start_date < (SELECT start_date FROM scout_years WHERE id = ?)
+             ORDER BY sy.start_date DESC
+             LIMIT 1'
+        );
+        $stmt->execute([$memberId, $scoutYearId, $scoutYearId]);
+        $value = $stmt->fetchColumn();
+
+        return $value !== false ? (int) $value : 0;
     }
 
     /**
