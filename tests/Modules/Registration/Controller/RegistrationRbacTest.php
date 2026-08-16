@@ -20,6 +20,7 @@ use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Member\FeeEstimationRepository;
 use Core\Member\FeeEstimationService;
+use Core\Member\MemberService;
 use Core\Member\SectionService;
 use Core\ScoutYear\ScoutYearResolver;
 use Core\Security\AuthSession;
@@ -118,7 +119,8 @@ class RegistrationRbacTest extends TestCase
             $twig, $requestRepository, $ageBracketRepository, $sectionService, $feeCategoryRepository, $feeEstimationService,
             $statusService, $this->createMock(\Modules\Registration\Service\RequestEmailService::class),
             $this->createMock(\Modules\Registration\Service\MigrationService::class),
-            new MemberRepository($this->pdo), new MemberYearRepository($this->pdo), $scoutYearResolver, $scoutYearService, $slotService
+            new MemberRepository($this->pdo), new MemberYearRepository($this->pdo), $scoutYearResolver, $scoutYearService, $slotService,
+            new MemberService(new MemberYearRepository($this->pdo), $encryption, $connection)
         );
 
         if (session_status() === PHP_SESSION_NONE) {

@@ -107,6 +107,13 @@ class TextNormalizerService
      * Title-case a street/city address, keeping numeric tokens (postal code,
      * house number) untouched and particles lowercase.
      * "RUE DE LA STATION" → "Rue de la Station".
+     *
+     * A house number typed at the FRONT of the street field ("12 Rue de la
+     * Station" instead of a separate number field) is moved to just after
+     * the street name before any other formatting — matching the "street,
+     * then number" order the rest of the app composes addresses in
+     * (Core\Member\MemberAddress::format()), regardless of which raw
+     * order the underlying data came in with.
      */
     public static function normalizeAddress(string $raw): string
     {
@@ -114,6 +121,8 @@ class TextNormalizerService
         if ($words === []) {
             return '';
         }
+
+        $words = self::moveLeadingNumberAfterStreet($words);
 
         $out = [];
         foreach ($words as $i => $word) {
@@ -131,6 +140,46 @@ class TextNormalizerService
         }
 
         return implode(' ', $out);
+    }
+
+    /**
+     * If the first word starts with a digit, relocate it to just after the
+     * street name: right after the word carrying MemberAddress::format()'s
+     * own comma (the boundary between the street/number/box segment and
+     * the postal code/city segment), or right before the next numeric
+     * token (a bare "12 Rue de la Station 1000 Ville" with no comma), or
+     * at the very end when neither is found (a street with no postal
+     * code/city attached at all). Words are otherwise untouched — casing
+     * happens in the caller's own loop afterwards.
+     *
+     * @param array<int, string> $words
+     * @return array<int, string>
+     */
+    private static function moveLeadingNumberAfterStreet(array $words): array
+    {
+        if (count($words) < 2 || preg_match('/^\d/', $words[0]) !== 1) {
+            return $words;
+        }
+
+        $leadingNumber = array_shift($words);
+        $insertAt = count($words);
+
+        foreach ($words as $i => $word) {
+            if (str_ends_with($word, ',')) {
+                $words[$i] = rtrim($word, ',');
+                $leadingNumber .= ',';
+                $insertAt = $i + 1;
+                break;
+            }
+            if (preg_match('/\d/', $word) === 1) {
+                $insertAt = $i;
+                break;
+            }
+        }
+
+        array_splice($words, $insertAt, 0, [$leadingNumber]);
+
+        return $words;
     }
 
     /**

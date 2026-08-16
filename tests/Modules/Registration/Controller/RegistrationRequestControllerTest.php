@@ -18,6 +18,7 @@ use Core\Mail\MailService;
 use Core\Member\FeeEstimationRepository;
 use Core\Member\FeeEstimationService;
 use Core\Member\MemberEmailRepository;
+use Core\Member\MemberService;
 use Core\Member\SectionService;
 use Core\ScoutYear\ScoutYearResolver;
 use Core\Security\CsrfGuard;
@@ -63,12 +64,15 @@ class RegistrationRequestControllerTest extends TestCase
     private int $baladinsSectionId;
     private int $louveteauxSectionId;
     private int $targetYearId;
+    private int $publicYearId;
+    private EncryptionService $encryption;
 
     protected function setUp(): void
     {
         $this->pdo = DatabaseTestHelper::createTestDatabase();
         RegistrationTestHelper::createTables($this->pdo);
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $this->encryption = $encryption;
 
         $this->baladinsId = RegistrationTestHelper::insertAgeBranch($this->pdo, 'BALA', 'Baladins', 10);
         $this->louveteauxId = RegistrationTestHelper::insertAgeBranch($this->pdo, 'LOUV', 'Louveteaux', 20);
@@ -93,6 +97,7 @@ class RegistrationRequestControllerTest extends TestCase
         $scoutYearService = new ScoutYearService($this->pdo);
         $currentYearId = $scoutYearService->ensureYear('2026-2027');
         $this->targetYearId = $scoutYearService->ensureYear('2027-2028');
+        $this->publicYearId = $currentYearId;
         $settingService->setInternal(ScoutYearResolver::SETTING_PUBLIC_YEAR, (string) $currentYearId);
         $scoutYearResolver = new ScoutYearResolver($scoutYearService, $settingService, new MemberYearRepository($this->pdo));
 
@@ -125,6 +130,7 @@ class RegistrationRequestControllerTest extends TestCase
 
         $memberRepository = new MemberRepository($this->pdo);
         $memberYearRepository = new MemberYearRepository($this->pdo);
+        $memberService = new MemberService($memberYearRepository, $encryption, $connection);
 
         $templateDir = dirname(__DIR__, 4) . '/core/View/templates';
         $moduleViews = dirname(__DIR__, 4) . '/modules/registration/views';
@@ -141,7 +147,7 @@ class RegistrationRequestControllerTest extends TestCase
         $this->controller = new RegistrationRequestController(
             $twig, $this->requestRepository, $ageBracketRepository, $sectionService, $feeCategoryRepository,
             $feeEstimationService, $statusService, $emailService, $migrationService, $memberRepository,
-            $memberYearRepository, $scoutYearResolver, $scoutYearService, $slotService
+            $memberYearRepository, $scoutYearResolver, $scoutYearService, $slotService, $memberService
         );
 
         if (session_status() === PHP_SESSION_NONE) {
@@ -177,6 +183,40 @@ class RegistrationRequestControllerTest extends TestCase
         $this->assertStringContainsString('Léa', $response->getBody());
         $this->assertStringContainsString('Dupont', $response->getBody());
         $this->assertStringContainsString('Baladins', $response->getBody());
+    }
+
+    /**
+     * A declared sibling shows by name and their projected section for the
+     * request's target scout year (Louveteaux born 2018 -> 9 years old in
+     * 2027 -> Louveteaux still, 2nd year), not just a bare count — staff
+     * need to know WHO the siblings are and where they'll sit, not just
+     * how many there are.
+     */
+    public function testShowDisplaysSiblingNameAndProjectedSection(): void
+    {
+        $memberId = RegistrationTestHelper::insertMember($this->pdo, 'SIB1');
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted, birth_date_encrypted, scout_year_offset)
+             VALUES (?, ?, ?, ?, ?, 0)'
+        );
+        $stmt->execute([
+            $memberId, $this->publicYearId,
+            $this->encryption->encrypt('MARIE'), $this->encryption->encrypt('DUPONT'),
+            $this->encryption->encrypt('2018-03-01'),
+        ]);
+
+        $created = $this->requestRepository->create($this->targetYearId, [
+            'parent_name' => 'Marie Dupont', 'child_last_name' => 'Dupont', 'child_first_name' => 'Léa',
+            'gender' => 'F', 'birth_date' => '2020-06-01', 'street' => 'Rue Test', 'number' => '1',
+            'postal_code' => '1000', 'city' => 'V', 'email' => 'marie@example.com',
+            'phone1' => '000', 'phone2' => null, 'remarks' => null,
+        ], null, [$memberId]);
+
+        $response = $this->controller->show(new Request('GET', "/config/inscriptions/demandes/{$created['id']}", [], [], [], []), ['id' => (string) $created['id']]);
+        $body = $response->getBody();
+
+        $this->assertStringContainsString('Marie Dupont', $body);
+        $this->assertStringContainsString('Louveteaux', $body);
     }
 
     public function testShowReturns404ForUnknownId(): void

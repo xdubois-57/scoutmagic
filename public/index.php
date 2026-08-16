@@ -2288,7 +2288,8 @@ if (in_array('registration', $moduleManager->getEnabledModuleIds(), true)) {
         new \Modules\Registration\Controller\RegistrationRequestController(
             $twig, $registrationRequestRepo, $registrationAgeBracketRepo, $sectionService, $feeCategoryRepo,
             $feeEstimationService, $registrationStatusService, $registrationEmailService, $registrationMigrationService,
-            $memberRepo, $memberYearRepo, $scoutYearResolver, $scoutYearService, $registrationSlotService
+            $memberRepo, $memberYearRepo, $scoutYearResolver, $scoutYearService, $registrationSlotService,
+            $memberService
         )
     );
 

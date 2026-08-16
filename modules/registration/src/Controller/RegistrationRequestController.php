@@ -17,6 +17,7 @@ use Core\Import\FeeCategoryRepository;
 use Core\Import\MemberRepository;
 use Core\Import\MemberYearRepository;
 use Core\Member\FeeEstimationService;
+use Core\Member\MemberService;
 use Core\Member\MemberYearService;
 use Core\Member\SectionService;
 use Core\ScoutYear\ScoutYearResolver;
@@ -57,7 +58,8 @@ class RegistrationRequestController extends AbstractController
         private MemberYearRepository $memberYearRepository,
         private ScoutYearResolver $scoutYearResolver,
         private ScoutYearService $scoutYearService,
-        private SlotService $slotService
+        private SlotService $slotService,
+        private MemberService $memberService
     ) {
     }
 
@@ -373,13 +375,60 @@ class RegistrationRequestController extends AbstractController
             'sections_in_branch' => $sectionsInBranch,
             'fee_categories' => $this->feeCategoryRepository->findAll(),
             'fee_estimate' => $feeEstimate,
-            'sibling_count' => count($this->requestRepository->findSiblingMemberIds($registrationRequest->id)),
+            'siblings' => $this->siblingDetails($registrationRequest, $scoutYearLabel),
             'visible_status' => $this->statusService->visibleStatus($registrationRequest),
             'accepted_email_ready' => $this->emailService->isAcceptedBodyReady(),
             'refused_email_ready' => $this->emailService->isRefusedBodyReady(),
             'linked_member_year_id' => $linkedMemberYearId,
             'csrf_token' => CsrfGuard::generateToken(),
         ];
+    }
+
+    /**
+     * A declared sibling's name and where they're projected to sit for
+     * THIS request's target scout year — same "never recompute an age by
+     * hand, always go through MemberYearService::getEffectiveAge()" rule
+     * as everywhere else (Service\SlotService::projectedHeadcountBySlot(),
+     * member_stats), fed with the sibling's real birth date and
+     * scout_year_offset from their current member_year row rather than a
+     * hardcoded assumption. A sibling with no member_year for the current
+     * public year (left the unit, data not yet imported...) still shows
+     * by name if findable at all, with a placeholder section — never
+     * silently dropped from the list, unlike the old bare count which
+     * gave staff no way to tell who these siblings even were.
+     *
+     * @return array<int, array{name: string, section_label: string}>
+     */
+    private function siblingDetails(\Modules\Registration\Repository\RegistrationRequest $registrationRequest, string $targetScoutYearLabel): array
+    {
+        $publicYear = $this->scoutYearResolver->getCurrentPublicYear();
+        $referenceYear = SlotMath::referenceCalendarYear(
+            MemberYearService::referenceYearFromScoutYearLabel($targetScoutYearLabel),
+            $this->slotService->referenceMonthDay()
+        );
+        $memberYearService = new MemberYearService();
+
+        $details = [];
+        foreach ($this->requestRepository->findSiblingMemberIds($registrationRequest->id) as $memberId) {
+            $profile = $this->memberService->findProfileByMemberAndYear($memberId, (int) $publicYear['id']);
+            if ($profile === null) {
+                $details[] = ['name' => "Membre #{$memberId}", 'section_label' => 'Section inconnue'];
+                continue;
+            }
+
+            $birthYear = MemberYearService::extractBirthYear($profile->birthDate);
+            $effective = $memberYearService->getEffectiveAge($birthYear, $profile->scoutYearOffset, $referenceYear);
+            $sectionLabel = $effective->branchName !== null
+                ? $effective->branchName . ' — ' . $effective->yearInBranch . 'ᵉ année'
+                : 'Hors tranche d\'âge';
+
+            $details[] = [
+                'name' => trim($profile->firstName . ' ' . $profile->lastName),
+                'section_label' => $sectionLabel,
+            ];
+        }
+
+        return $details;
     }
 
     /**

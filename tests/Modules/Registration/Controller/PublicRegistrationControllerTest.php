@@ -466,7 +466,24 @@ class PublicRegistrationControllerTest extends TestCase
         $body = $response->getBody();
 
         $this->assertStringNotContainsString('Disponibilité des places', $body);
-        $this->assertStringContainsString('Attente importante', $body);
-        $this->assertStringContainsString('Places disponibles', $body);
+        $this->assertStringContainsString('>Complet<', $body);
+        $this->assertStringContainsString('>Disponible<', $body);
+    }
+
+    /**
+     * The card's own title switches between the plain "Année scoute..."
+     * heading and "Disponibilités..." depending on whether the waitlist
+     * display is on — the "Disponibilités" framing only makes sense once
+     * there's actually a per-year availability badge to look at.
+     */
+    public function testCardTitleReflectsWaitlistSetting(): void
+    {
+        $responseDisabled = $this->controller->index(new Request('GET', '/inscriptions', [], [], [], []), []);
+        $this->assertStringContainsString('Année scoute 2027-2028</h2>', $responseDisabled->getBody());
+        $this->assertStringNotContainsString('Disponibilités', $responseDisabled->getBody());
+
+        $this->settingService->set('registration_waitlist_enabled', '1', 'registration');
+        $responseEnabled = $this->controller->index(new Request('GET', '/inscriptions', [], [], [], []), []);
+        $this->assertStringContainsString('Disponibilités 2027-2028</h2>', $responseEnabled->getBody());
     }
 }

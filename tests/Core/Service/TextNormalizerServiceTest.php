@@ -101,6 +101,11 @@ class TextNormalizerServiceTest extends TestCase
             'keeps house number' => ['RUE DU MOULIN 12', 'Rue du Moulin 12'],
             'keeps postal code and city' => ['PLACE VERTE 1000 BRUXELLES', 'Place Verte 1000 Bruxelles'],
             'alphanumeric number kept' => ['RUE HAUTE 12A', 'Rue Haute 12A'],
+            'leading number moved after street with postal/city' => ['12 RUE DE LA PAIX, 1000 BRUXELLES', 'Rue de la Paix 12, 1000 Bruxelles'],
+            'leading number moved after street with postal, no comma' => ['12 RUE DE LA PAIX 1000 BRUXELLES', 'Rue de la Paix 12 1000 Bruxelles'],
+            'leading number moved to the end when street stands alone' => ['12 RUE DE LA PAIX', 'Rue de la Paix 12'],
+            'leading alphanumeric number moved after street' => ['12A RUE HAUTE, 1000 BRUXELLES', 'Rue Haute 12A, 1000 Bruxelles'],
+            'bare leading number with no street left untouched' => ['12', '12'],
             'empty' => ['', ''],
         ];
     }
