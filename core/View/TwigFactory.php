@@ -61,12 +61,18 @@ class TwigFactory
             return CsrfGuard::generateToken();
         }));
 
-        // Register file_url() function
-        $environment->addFunction(new TwigFunction('file_url', function (int|string|null $id): string {
+        // Register file_url() function. $variant, when given, must be one
+        // of Core\Photo\ImageVariantService's fixed vocabulary ('thumb',
+        // 'md') — it's a plain string here (Twig call sites, not user
+        // input) rather than re-validated against the service, since the
+        // actual security boundary is FileController::variant()'s own
+        // check on the URL segment, not this URL-building helper.
+        $environment->addFunction(new TwigFunction('file_url', function (int|string|null $id, ?string $variant = null): string {
             if ($id === null || $id === '' || $id === 0) {
                 return '';
             }
-            return '/files/' . (int) $id;
+            $suffix = $variant !== null ? '/' . $variant : '';
+            return '/files/' . (int) $id . $suffix;
         }));
 
         // Register editable() function — renders editable content
@@ -105,7 +111,7 @@ class TwigFactory
 
             if ($configMode) {
                 $img = $hasImage
-                    ? '<img src="/files/' . (int) $fileId . '" alt="' . htmlspecialchars($alt, ENT_QUOTES) . '" class="' . htmlspecialchars($cssClass, ENT_QUOTES) . '">'
+                    ? '<img src="/files/' . (int) $fileId . '/md" alt="' . htmlspecialchars($alt, ENT_QUOTES) . '" class="' . htmlspecialchars($cssClass, ENT_QUOTES) . '">'
                     : '<div class="d-flex align-items-center justify-content-center bg-light rounded" style="min-height:200px;">'
                         . '<span class="text-muted"><i class="bi bi-image"></i> Cliquer pour ajouter une image</span>'
                         . '</div>';
@@ -118,7 +124,7 @@ class TwigFactory
             }
 
             if ($hasImage) {
-                return '<img src="/files/' . (int) $fileId . '" alt="' . htmlspecialchars($alt, ENT_QUOTES) . '" class="' . htmlspecialchars($cssClass, ENT_QUOTES) . '">';
+                return '<img src="/files/' . (int) $fileId . '/md" alt="' . htmlspecialchars($alt, ENT_QUOTES) . '" class="' . htmlspecialchars($cssClass, ENT_QUOTES) . '">';
             }
 
             return '';
@@ -147,7 +153,7 @@ class TwigFactory
             $fileId = ($service !== null && $scoutYearId > 0) ? $service->resolveFileId($memberId, $scoutYearId) : null;
 
             if ($fileId !== null) {
-                $img = '<img src="/files/' . $fileId . '" alt="' . htmlspecialchars($alt, ENT_QUOTES) . '" class="' . htmlspecialchars($cssClass, ENT_QUOTES) . '">';
+                $img = '<img src="/files/' . $fileId . '/thumb" alt="' . htmlspecialchars($alt, ENT_QUOTES) . '" class="' . htmlspecialchars($cssClass, ENT_QUOTES) . '">';
             } else {
                 $initials = mb_strtoupper(mb_substr(trim($alt), 0, 2));
                 $img = '<div class="' . htmlspecialchars($cssClass, ENT_QUOTES) . ' member-photo-placeholder" title="' . htmlspecialchars($alt, ENT_QUOTES) . '">'
@@ -192,7 +198,7 @@ class TwigFactory
             if ($configMode && $scoutYearId > 0) {
                 $key = $sectionId . ':' . $scoutYearId;
                 if ($fileId !== null) {
-                    $img = '<img src="/files/' . $fileId . '" alt="' . htmlspecialchars($alt, ENT_QUOTES) . '" class="' . htmlspecialchars($cssClass, ENT_QUOTES) . '" style="' . $imgStyle . '">';
+                    $img = '<img src="/files/' . $fileId . '/md" alt="' . htmlspecialchars($alt, ENT_QUOTES) . '" class="' . htmlspecialchars($cssClass, ENT_QUOTES) . '" style="' . $imgStyle . '">';
                 } else {
                     $img = '<div class="d-flex align-items-center justify-content-center bg-light rounded ' . htmlspecialchars($cssClass, ENT_QUOTES) . '" style="' . $imgStyle . '">'
                         . '<span class="text-muted"><i class="bi bi-image"></i> Cliquer pour ajouter la photo du staff</span></div>';
@@ -204,7 +210,7 @@ class TwigFactory
             }
 
             if ($fileId !== null) {
-                return '<img src="/files/' . $fileId . '" alt="' . htmlspecialchars($alt, ENT_QUOTES) . '" class="' . htmlspecialchars($cssClass, ENT_QUOTES) . '" style="' . $imgStyle . '">';
+                return '<img src="/files/' . $fileId . '/md" alt="' . htmlspecialchars($alt, ENT_QUOTES) . '" class="' . htmlspecialchars($cssClass, ENT_QUOTES) . '" style="' . $imgStyle . '">';
             }
 
             return '';

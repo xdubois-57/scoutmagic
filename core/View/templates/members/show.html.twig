@@ -398,7 +398,7 @@
                     <div class="card mb-3">
                         <div class="card-body text-center">
                             {% if branch_card.logo_file_id %}
-                                <img src="{{ file_url(branch_card.logo_file_id) }}" alt="{{ branch_card.label }}" class="img-fluid mb-2" style="max-height:120px;">
+                                <img src="{{ file_url(branch_card.logo_file_id, 'md') }}" alt="{{ branch_card.label }}" class="img-fluid mb-2" style="max-height:120px;">
                             {% elseif branch_card.default_logo %}
                                 <img src="/assets/img/branches/{{ branch_card.default_logo }}" alt="{{ branch_card.label }}" class="img-fluid mb-2" style="max-height:120px;">
                             {% endif %}

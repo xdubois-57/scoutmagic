@@ -14,6 +14,7 @@ use Core\File\PdfRasterizer;
 use Core\Http\Request;
 use Core\Http\Response;
 use Core\Journal\JournalService;
+use Core\Photo\ImageVariantService;
 use Core\Security\AuthSession;
 use Twig\Environment;
 
@@ -25,7 +26,8 @@ class FileController extends AbstractController
         protected Environment $twig,
         private FileAccessGuard $fileAccessGuard,
         private string $storagePath,
-        private EncryptedFileStorageService $encryptedFileStorageService
+        private EncryptedFileStorageService $encryptedFileStorageService,
+        private ImageVariantService $imageVariantService
     ) {
     }
 
@@ -157,5 +159,70 @@ class FileController extends AbstractController
             ->setHeader('Content-Type', 'image/jpeg')
             ->setHeader('Cache-Control', $cacheControl)
             ->setHeader('Content-Length', (string) strlen($thumbnail));
+    }
+
+    /**
+     * GET /files/{id}/{variant} — a pre-generated derivative (Core\Photo\
+     * ImageVariantService) of one of the core photo contexts, resolved
+     * through the exact same guard/owner-scoping/journal path as serve()
+     * — this is a rendition of the same file, not a second access path
+     * (SECURITY.md §6). {variant} is validated against the fixed
+     * vocabulary before it is ever used to build a filesystem path —
+     * anything else is 404, and the filesystem is never touched for it.
+     * No on-demand generation and no fallback to the original: a missing
+     * derivative is 404, exactly like a missing PDF thumbnail above.
+     *
+     * @param array<string, string> $params
+     */
+    public function variant(Request $request, array $params): Response
+    {
+        $id = (int) ($params['id'] ?? 0);
+        $variant = (string) ($params['variant'] ?? '');
+
+        if ($id <= 0 || !ImageVariantService::isValidVariant($variant)) {
+            return new Response('Not Found', 404);
+        }
+
+        $file = $this->fileAccessGuard->check($id);
+
+        if ($file === null) {
+            $this->journalService?->log(
+                'core', 'file_access_denied', 'security', 'Accès à un fichier refusé',
+                ['file_id' => $id, 'ip' => $_SERVER['REMOTE_ADDR'] ?? ''],
+                AuthSession::getUserAccountId()
+            );
+            return (new Response('Forbidden', 403));
+        }
+
+        if ($file->ownerMemberId !== null) {
+            $this->journalService?->log(
+                'core', 'owner_scoped_file_accessed', 'info', 'Document privé d\'un membre consulté',
+                ['file_id' => $id, 'owner_member_id' => $file->ownerMemberId],
+                AuthSession::getUserAccountId()
+            );
+        }
+
+        $path = $this->imageVariantService->resolvePath($file->relativePath, $variant);
+        if ($path === null) {
+            return new Response('Not Found', 404);
+        }
+
+        $content = file_get_contents($path);
+        if ($content === false) {
+            return new Response('Not Found', 404);
+        }
+
+        // Immutable: a given file id's derivative never changes in place —
+        // a re-upload always creates a new file id (see the module's own
+        // "no on-demand regeneration" rule), so the URL itself only ever
+        // serves one set of bytes.
+        $cacheControl = $file->roleMin === 'public'
+            ? 'public, max-age=31536000, immutable'
+            : 'private, max-age=31536000, immutable';
+
+        return (new Response($content))
+            ->setHeader('Content-Type', 'image/webp')
+            ->setHeader('Cache-Control', $cacheControl)
+            ->setHeader('Content-Length', (string) strlen($content));
     }
 }

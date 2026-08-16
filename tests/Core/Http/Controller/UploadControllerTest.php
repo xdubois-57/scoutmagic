@@ -14,6 +14,8 @@ use Core\Import\MemberYearRepository;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Member\MemberService;
+use Core\Photo\ImageVariantProcessor;
+use Core\Photo\ImageVariantService;
 use Core\Photo\LandscapeImageProcessor;
 use Core\Photo\MemberPhotoRepository;
 use Core\Photo\MemberPhotoService;
@@ -96,10 +98,11 @@ class UploadControllerTest extends TestCase
             $this->tmpDir . '/logo_defaults'
         );
 
+        $imageVariantService = new ImageVariantService($fileRepo, new ImageVariantProcessor(), $this->tmpDir);
         $this->controller = new UploadController(
             $twig, $uploadHandler, $editableContentService, $this->memberPhotoService,
             $this->sectionPhotoService, new SectionPhotoProcessor(), new LandscapeImageProcessor(),
-            $memberService, new AgeBranchRepository($this->pdo), $this->unitLogoService
+            $memberService, new AgeBranchRepository($this->pdo), $this->unitLogoService, $imageVariantService
         );
         $this->controller->setJournalService(new JournalService($this->journalRepo));
 
@@ -593,6 +596,41 @@ class UploadControllerTest extends TestCase
 
         $stmt = $this->pdo->query("SELECT COUNT(*) FROM event_log WHERE event_type = 'section_photo_updated'");
         $this->assertSame(1, (int) $stmt->fetchColumn());
+
+        unset($_FILES['file']);
+    }
+
+    /**
+     * The real bug this prompt fixes (ARCHITECTURE §8.21): section_photo
+     * is rendered on the public Contact and Sections pages, so its
+     * underlying file's role_min must be 'public', not 'intendant' —
+     * otherwise FileAccessGuard denies it to any logged-out visitor and
+     * those pages show nothing at all. Covers both ends: the stored
+     * role_min itself, and that a Role::PUBLIC FileAccessGuard actually
+     * allows reading it back.
+     */
+    public function testSectionPhotoContextStoresRoleMinPublicAndIsReadableByAPublicRoleGuard(): void
+    {
+        $tmpFile = $this->createTempImage();
+        $_FILES['file'] = ['tmp_name' => $tmpFile, 'name' => 'staff.jpg', 'size' => filesize($tmpFile), 'error' => UPLOAD_ERR_OK];
+
+        $request = new Request('POST', '/upload', [], [
+            '_csrf_token' => CsrfGuard::generateToken(),
+            'context' => 'section_photo',
+            'key' => $this->sectionId . ':' . $this->scoutYearId,
+            'return_url' => '/chefs/staffs',
+        ], [], []);
+        $this->controller->store($request, []);
+
+        $fileId = $this->sectionPhotoService->resolveFileId($this->sectionId, $this->scoutYearId);
+        $this->assertNotNull($fileId);
+
+        $stmt = $this->pdo->prepare('SELECT role_min FROM files WHERE id = ?');
+        $stmt->execute([$fileId]);
+        $this->assertSame('public', $stmt->fetchColumn());
+
+        $guard = new \Core\File\FileAccessGuard(new \Core\File\FileRepository($this->pdo), \Core\Security\Role::PUBLIC);
+        $this->assertNotNull($guard->check($fileId));
 
         unset($_FILES['file']);
     }

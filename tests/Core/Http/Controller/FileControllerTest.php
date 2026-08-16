@@ -11,6 +11,8 @@ use Core\Http\Controller\FileController;
 use Core\Http\Request;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
+use Core\Photo\ImageVariantProcessor;
+use Core\Photo\ImageVariantService;
 use Core\Security\EncryptionService;
 use Core\Security\Role;
 use PHPUnit\Framework\TestCase;
@@ -23,6 +25,7 @@ class FileControllerTest extends TestCase
     private FileRepository $fileRepository;
     private FileController $controller;
     private string $storagePath;
+    private ImageVariantService $imageVariantService;
 
     protected function setUp(): void
     {
@@ -60,8 +63,9 @@ class FileControllerTest extends TestCase
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $guard = new FileAccessGuard($this->fileRepository, Role::INTENDANT);
         $storage = new EncryptedFileStorageService($this->fileRepository, $encryption, $this->storagePath);
+        $this->imageVariantService = new ImageVariantService($this->fileRepository, new ImageVariantProcessor(), $this->storagePath);
 
-        $this->controller = new FileController(new Environment(new ArrayLoader([])), $guard, $this->storagePath, $storage);
+        $this->controller = new FileController(new Environment(new ArrayLoader([])), $guard, $this->storagePath, $storage, $this->imageVariantService);
     }
 
     public function testThumbnailReturns403WhenAccessDenied(): void
@@ -108,7 +112,7 @@ class FileControllerTest extends TestCase
     public function testServeJournalsAccessToAnOwnerScopedFile(): void
     {
         $guard = new FileAccessGuard($this->fileRepository, Role::IDENTIFIED, [42]);
-        $controller = new FileController(new Environment(new ArrayLoader([])), $guard, $this->storagePath, new EncryptedFileStorageService($this->fileRepository, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)), $this->storagePath));
+        $controller = new FileController(new Environment(new ArrayLoader([])), $guard, $this->storagePath, new EncryptedFileStorageService($this->fileRepository, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)), $this->storagePath), $this->imageVariantService);
         $journalRepo = new JournalRepository($this->pdo);
         $controller->setJournalService(new JournalService($journalRepo));
 
@@ -132,7 +136,7 @@ class FileControllerTest extends TestCase
     public function testServeDoesNotJournalAccessToAnOrdinaryFile(): void
     {
         $guard = new FileAccessGuard($this->fileRepository, Role::PUBLIC);
-        $controller = new FileController(new Environment(new ArrayLoader([])), $guard, $this->storagePath, new EncryptedFileStorageService($this->fileRepository, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)), $this->storagePath));
+        $controller = new FileController(new Environment(new ArrayLoader([])), $guard, $this->storagePath, new EncryptedFileStorageService($this->fileRepository, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)), $this->storagePath), $this->imageVariantService);
         $journalRepo = new JournalRepository($this->pdo);
         $controller->setJournalService(new JournalService($journalRepo));
 
@@ -147,5 +151,137 @@ class FileControllerTest extends TestCase
         $this->assertSame(200, $response->getStatusCode());
         $stmt = $this->pdo->query("SELECT COUNT(*) FROM event_log WHERE event_type = 'owner_scoped_file_accessed'");
         $this->assertSame(0, (int) $stmt->fetchColumn());
+    }
+
+    // --- variant() ---
+
+    private function jpegBytes(int $width, int $height): string
+    {
+        $image = imagecreatetruecolor($width, $height);
+        ob_start();
+        imagejpeg($image);
+        $bytes = (string) ob_get_clean();
+        imagedestroy($image);
+        return $bytes;
+    }
+
+    private function storeFileWithVariant(string $roleMin, ?int $ownerMemberId = null): int
+    {
+        $dir = $this->storagePath . '/core/member_photos';
+        if (!is_dir($dir)) {
+            mkdir($dir, 0755, true);
+        }
+        file_put_contents($dir . '/abc123.jpg', $this->jpegBytes(400, 400));
+
+        $stmt = $this->pdo->prepare('INSERT INTO files (relative_path, original_name, mime_type, size_bytes, role_min, owner_member_id) VALUES (?, ?, ?, ?, ?, ?)');
+        $stmt->execute(['core/member_photos/abc123.jpg', 'photo.jpg', 'image/jpeg', 100, $roleMin, $ownerMemberId]);
+        $id = (int) $this->pdo->lastInsertId();
+
+        $this->imageVariantService->generate($id, 'thumb');
+
+        return $id;
+    }
+
+    public function testVariantServesTheGeneratedDerivative(): void
+    {
+        $guard = new FileAccessGuard($this->fileRepository, Role::PUBLIC);
+        $controller = new FileController(new Environment(new ArrayLoader([])), $guard, $this->storagePath, new EncryptedFileStorageService($this->fileRepository, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)), $this->storagePath), $this->imageVariantService);
+        $id = $this->storeFileWithVariant('public');
+
+        $response = $controller->variant(new Request('GET', "/files/{$id}/thumb", [], [], [], []), ['id' => (string) $id, 'variant' => 'thumb']);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame('image/webp', $response->getHeaders()['Content-Type']);
+        $this->assertStringContainsString('immutable', $response->getHeaders()['Cache-Control']);
+    }
+
+    /**
+     * DoD boundary: a role below the file's role_min is denied — same
+     * 403 as serve().
+     */
+    public function testVariantReturns403ForARoleBelowRoleMin(): void
+    {
+        $guard = new FileAccessGuard($this->fileRepository, Role::IDENTIFIED);
+        $controller = new FileController(new Environment(new ArrayLoader([])), $guard, $this->storagePath, new EncryptedFileStorageService($this->fileRepository, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)), $this->storagePath), $this->imageVariantService);
+        $id = $this->storeFileWithVariant('admin');
+
+        $response = $controller->variant(new Request('GET', "/files/{$id}/thumb", [], [], [], []), ['id' => (string) $id, 'variant' => 'thumb']);
+
+        $this->assertSame(403, $response->getStatusCode());
+    }
+
+    /**
+     * DoD boundary: an owner-scoped file the session isn't linked to is
+     * denied even when the role floor alone would pass.
+     */
+    public function testVariantReturns403ForAnOwnerScopedFileTheSessionDoesNotOwn(): void
+    {
+        $guard = new FileAccessGuard($this->fileRepository, Role::IDENTIFIED, [999]);
+        $controller = new FileController(new Environment(new ArrayLoader([])), $guard, $this->storagePath, new EncryptedFileStorageService($this->fileRepository, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)), $this->storagePath), $this->imageVariantService);
+        $id = $this->storeFileWithVariant('identified', 42);
+
+        $response = $controller->variant(new Request('GET', "/files/{$id}/thumb", [], [], [], []), ['id' => (string) $id, 'variant' => 'thumb']);
+
+        $this->assertSame(403, $response->getStatusCode());
+    }
+
+    public function testVariantAllowsAnOwnerScopedFileTheSessionDoesOwn(): void
+    {
+        $guard = new FileAccessGuard($this->fileRepository, Role::IDENTIFIED, [42]);
+        $controller = new FileController(new Environment(new ArrayLoader([])), $guard, $this->storagePath, new EncryptedFileStorageService($this->fileRepository, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)), $this->storagePath), $this->imageVariantService);
+        $id = $this->storeFileWithVariant('identified', 42);
+
+        $response = $controller->variant(new Request('GET', "/files/{$id}/thumb", [], [], [], []), ['id' => (string) $id, 'variant' => 'thumb']);
+
+        $this->assertSame(200, $response->getStatusCode());
+    }
+
+    public function testVariantReturns404ForAnUnknownVariantNameAndNeverTouchesTheFilesystem(): void
+    {
+        $guard = new FileAccessGuard($this->fileRepository, Role::PUBLIC);
+        $controller = new FileController(new Environment(new ArrayLoader([])), $guard, $this->storagePath, new EncryptedFileStorageService($this->fileRepository, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)), $this->storagePath), $this->imageVariantService);
+        $id = $this->storeFileWithVariant('public');
+
+        $response = $controller->variant(new Request('GET', "/files/{$id}/original", [], [], [], []), ['id' => (string) $id, 'variant' => 'original']);
+
+        $this->assertSame(404, $response->getStatusCode());
+    }
+
+    /**
+     * A path-traversal attempt in {variant} must 404 without ever being
+     * used to build a filesystem path — the fixed-vocabulary check runs
+     * before FileAccessGuard is even consulted.
+     */
+    public function testVariantReturns404ForAPathTraversalAttempt(): void
+    {
+        $guard = new FileAccessGuard($this->fileRepository, Role::PUBLIC);
+        $controller = new FileController(new Environment(new ArrayLoader([])), $guard, $this->storagePath, new EncryptedFileStorageService($this->fileRepository, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)), $this->storagePath), $this->imageVariantService);
+        $id = $this->storeFileWithVariant('public');
+
+        $response = $controller->variant(
+            new Request('GET', "/files/{$id}/../../../etc/passwd", [], [], [], []),
+            ['id' => (string) $id, 'variant' => '../../../etc/passwd']
+        );
+
+        $this->assertSame(404, $response->getStatusCode());
+    }
+
+    public function testVariantReturns404WhenTheDerivativeWasNeverGenerated(): void
+    {
+        $guard = new FileAccessGuard($this->fileRepository, Role::PUBLIC);
+        $controller = new FileController(new Environment(new ArrayLoader([])), $guard, $this->storagePath, new EncryptedFileStorageService($this->fileRepository, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)), $this->storagePath), $this->imageVariantService);
+
+        $dir = $this->storagePath . '/core/member_photos';
+        if (!is_dir($dir)) {
+            mkdir($dir, 0755, true);
+        }
+        file_put_contents($dir . '/nogen.jpg', $this->jpegBytes(400, 400));
+        $stmt = $this->pdo->prepare('INSERT INTO files (relative_path, original_name, mime_type, size_bytes, role_min) VALUES (?, ?, ?, ?, ?)');
+        $stmt->execute(['core/member_photos/nogen.jpg', 'photo.jpg', 'image/jpeg', 100, 'public']);
+        $id = (int) $this->pdo->lastInsertId();
+
+        $response = $controller->variant(new Request('GET', "/files/{$id}/thumb", [], [], [], []), ['id' => (string) $id, 'variant' => 'thumb']);
+
+        $this->assertSame(404, $response->getStatusCode());
     }
 }

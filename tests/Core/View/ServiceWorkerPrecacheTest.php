@@ -122,4 +122,86 @@ class ServiceWorkerPrecacheTest extends TestCase
         $this->assertNotEmpty($m, 'Could not locate the APP_SHELL_BASE_URLS fetch-handler branch in public/sw.js');
         $this->assertStringContainsString('ignoreSearch', $m[1]);
     }
+
+    /**
+     * §2.1: activate() must only ever purge app-shell-* cache generations
+     * — never offline-config or content-* (Lot 3), which used to be wiped
+     * on every release or standalone logo upload because the old filter
+     * deleted every cache whose name simply differed from CACHE_NAME.
+     */
+    public function testActivateOnlyPurgesAppShellPrefixedCaches(): void
+    {
+        preg_match("/self\\.addEventListener\\('activate', function \\(event\\) \\{(.*?)\\n\\}\\);/s", $this->swJs, $m);
+        $this->assertNotEmpty($m, 'Could not locate the activate() handler in public/sw.js');
+
+        $this->assertStringContainsString('APP_SHELL_CACHE_PREFIX', $m[1]);
+        $this->assertStringNotContainsString("name !== CACHE_NAME }", $m[1]);
+    }
+
+    /**
+     * §2.2: bootstrap-icons.min.css was precached without its font files
+     * — every icon site-wide (including the whole menu) rendered as an
+     * empty box offline. components.css and the other listed scripts fix
+     * the same class of bug for Staffs/trombinoscope/calendar/member
+     * page/départs and the offline-page/offline-nav/offline-photos
+     * scripts themselves.
+     */
+    public function testAppShellIncludesBootstrapIconsFontFiles(): void
+    {
+        $block = $this->appShellBaseUrlsBlock();
+
+        $this->assertStringContainsString("'/assets/vendor/bootstrap-icons/fonts/bootstrap-icons.woff2'", $block);
+        $this->assertStringContainsString("'/assets/vendor/bootstrap-icons/fonts/bootstrap-icons.woff'", $block);
+    }
+
+    public function testAppShellIncludesComponentsCssAndTheOfflineSupportScripts(): void
+    {
+        $block = $this->appShellBaseUrlsBlock();
+
+        $this->assertStringContainsString("'/assets/css/components.css'", $block);
+        foreach ([
+            '/assets/js/breadcrumb.js',
+            '/assets/js/chip-picker.js',
+            '/assets/js/notification-badge.js',
+            '/assets/js/offline-cache.js',
+            '/assets/js/offline-nav.js',
+            '/assets/js/offline-photos.js',
+            '/assets/js/offline-page.js',
+        ] as $url) {
+            $this->assertStringContainsString("'{$url}'", $block);
+        }
+    }
+
+    public function testAppShellIncludesContactPageAndBranchCardImages(): void
+    {
+        $block = $this->appShellBaseUrlsBlock();
+
+        $this->assertStringContainsString("'/assets/img/lesscouts.png'", $block);
+        $this->assertStringContainsString("'/assets/img/branches/", $block);
+    }
+
+    /**
+     * §2.5: /files/{id}/{variant} must be answered network-first with a
+     * cache-match fallback, and this branch must never write to the
+     * cache itself — writing stays the pre-download script's job.
+     */
+    public function testFileVariantBranchIsNetworkFirstAndNeverWrites(): void
+    {
+        preg_match('/if \(\/\^\\\\\/files\\\\\/\\\\d\+\\\\\/\(thumb\|md\)\$\/\.test\(url\.pathname\)\) \{(.*?)\n    \}/s', $this->swJs, $m);
+        $this->assertNotEmpty($m, 'Could not locate the /files/{id}/{variant} fetch-handler branch in public/sw.js');
+
+        $this->assertStringContainsString('fetch(request)', $m[1]);
+        $this->assertStringContainsString('caches.match(request)', $m[1]);
+        $this->assertStringNotContainsString('cache.put', $m[1]);
+        $this->assertStringNotContainsString('.put(', $m[1]);
+    }
+
+    /**
+     * The old '/api/offline/photo/' exception route no longer exists
+     * anywhere in the service worker.
+     */
+    public function testNoLongerReferencesTheRetiredOfflinePhotoRoute(): void
+    {
+        $this->assertStringNotContainsString('/api/offline/photo/', $this->swJs);
+    }
 }

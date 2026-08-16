@@ -6,8 +6,6 @@ namespace Tests\Core\Http\Controller;
 
 use Core\Config\AppConfig;
 use Core\Config\ScoutYearService;
-use Core\File\EncryptedFileStorageService;
-use Core\File\FileAccessGuard;
 use Core\File\FileRepository;
 use Core\Http\Controller\OfflineController;
 use Core\Http\FrontController;
@@ -16,10 +14,7 @@ use Core\Http\Router;
 use Core\Module\StaffDirectoryProvider;
 use Core\Photo\MemberPhotoRepository;
 use Core\Photo\MemberPhotoService;
-use Core\Photo\StaffThumbnailProcessor;
 use Core\Security\AuthSession;
-use Core\Security\EncryptionService;
-use Core\Security\Role;
 use PHPUnit\Framework\TestCase;
 use Twig\Environment;
 use Twig\Loader\ArrayLoader;
@@ -30,7 +25,6 @@ class OfflineControllerTest extends TestCase
     private FileRepository $fileRepository;
     private MemberPhotoService $memberPhotoService;
     private ScoutYearService $scoutYearService;
-    private string $storagePath;
     private int $scoutYearId;
 
     protected function setUp(): void
@@ -75,19 +69,11 @@ class OfflineControllerTest extends TestCase
         $this->memberPhotoService = new MemberPhotoService(new MemberPhotoRepository($this->pdo));
         $this->scoutYearService = new ScoutYearService($this->pdo);
         $this->scoutYearId = (int) $this->scoutYearService->getCurrentYear()['id'];
-        $this->storagePath = sys_get_temp_dir() . '/offline_controller_test_' . uniqid();
-        mkdir($this->storagePath, 0755, true);
     }
 
     /** @param int[] $staffMemberIds */
-    private function buildController(array $staffMemberIds, Role $role = Role::IDENTIFIED): OfflineController
+    private function buildController(array $staffMemberIds): OfflineController
     {
-        $guard = new FileAccessGuard($this->fileRepository, $role);
-        $storage = new EncryptedFileStorageService(
-            $this->fileRepository,
-            new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)),
-            $this->storagePath
-        );
         $provider = new class ($staffMemberIds) implements StaffDirectoryProvider {
             public function __construct(private array $ids) {}
             public function getAllEligibleStaffMemberIds(int $scoutYearId): array { return $this->ids; }
@@ -96,18 +82,13 @@ class OfflineControllerTest extends TestCase
         return new OfflineController(
             new Environment(new ArrayLoader([])),
             $this->memberPhotoService,
-            $guard,
             $this->scoutYearService,
-            new StaffThumbnailProcessor(),
-            $this->storagePath,
-            $storage,
             $provider
         );
     }
 
     private function createPhotoFile(int $memberId, string $roleMin = 'identified'): int
     {
-        file_put_contents($this->storagePath . '/photo.jpg', $this->jpegBytes());
         $fileId = $this->fileRepository->create('photo.jpg', 'photo.jpg', 'image/jpeg', 100, $roleMin, null, null);
         $stmt = $this->pdo->prepare('INSERT INTO member_photos (member_id, scout_year_id, file_id) VALUES (?, ?, ?)');
         $stmt->execute([$memberId, $this->scoutYearId, $fileId]);
@@ -115,22 +96,11 @@ class OfflineControllerTest extends TestCase
         return $fileId;
     }
 
-    private function jpegBytes(): string
-    {
-        $image = imagecreatetruecolor(400, 300);
-        ob_start();
-        imagejpeg($image);
-        $bytes = (string) ob_get_clean();
-        imagedestroy($image);
-
-        return $bytes;
-    }
-
     // --- photoManifest() ---
 
     public function testPhotoManifestListsOnlyEligibleStaffWithAPhoto(): void
     {
-        $this->createPhotoFile(1);
+        $fileId = $this->createPhotoFile(1);
         // Member 2 is eligible staff but has no photo — must be omitted.
         $controller = $this->buildController([1, 2]);
 
@@ -139,81 +109,19 @@ class OfflineControllerTest extends TestCase
 
         $this->assertCount(1, $data['photos']);
         $this->assertSame(1, $data['photos'][0]['member_id']);
-        $this->assertSame('/api/offline/photo/1', $data['photos'][0]['url']);
+        $this->assertSame('/files/' . $fileId . '/thumb', $data['photos'][0]['url']);
     }
 
     public function testPhotoManifestIsEmptyWhenNoStaffDirectoryProvider(): void
     {
-        $guard = new FileAccessGuard($this->fileRepository, Role::IDENTIFIED);
-        $storage = new EncryptedFileStorageService($this->fileRepository, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)), $this->storagePath);
         $controller = new OfflineController(
-            new Environment(new ArrayLoader([])), $this->memberPhotoService, $guard, $this->scoutYearService,
-            new StaffThumbnailProcessor(), $this->storagePath, $storage, null
+            new Environment(new ArrayLoader([])), $this->memberPhotoService, $this->scoutYearService, null
         );
 
         $response = $controller->photoManifest(new Request('GET', '/api/offline/photo-manifest', [], [], [], []), []);
         $data = json_decode($response->getBody(), true);
 
         $this->assertSame([], $data['photos']);
-    }
-
-    // --- photo() ---
-
-    public function testPhotoReturnsWebpBytesForAnEligibleStaffMember(): void
-    {
-        $this->createPhotoFile(1);
-        $controller = $this->buildController([1]);
-
-        $response = $controller->photo(new Request('GET', '/api/offline/photo/1', [], [], [], []), ['member_id' => '1']);
-
-        $this->assertSame(200, $response->getStatusCode());
-        $this->assertSame('image/webp', $response->getHeaders()['Content-Type']);
-        $this->assertStringStartsWith('RIFF', $response->getBody());
-    }
-
-    public function testPhotoReturns404ForAMemberNotCurrentlyEligibleStaff(): void
-    {
-        $this->createPhotoFile(1);
-        // Requested member (1) has a photo, but is NOT in the eligible list.
-        $controller = $this->buildController([2]);
-
-        $response = $controller->photo(new Request('GET', '/api/offline/photo/1', [], [], [], []), ['member_id' => '1']);
-
-        $this->assertSame(404, $response->getStatusCode());
-    }
-
-    public function testPhotoReturns404WhenEligibleStaffMemberHasNoPhoto(): void
-    {
-        $controller = $this->buildController([1]);
-
-        $response = $controller->photo(new Request('GET', '/api/offline/photo/1', [], [], [], []), ['member_id' => '1']);
-
-        $this->assertSame(404, $response->getStatusCode());
-    }
-
-    public function testPhotoReturns404WhenFileAccessGuardDenies(): void
-    {
-        // The photo file itself requires a role above what the viewer has.
-        $this->createPhotoFile(1, 'admin');
-        $controller = $this->buildController([1], Role::IDENTIFIED);
-
-        $response = $controller->photo(new Request('GET', '/api/offline/photo/1', [], [], [], []), ['member_id' => '1']);
-
-        $this->assertSame(404, $response->getStatusCode());
-    }
-
-    public function testPhotoReturns404WhenNoStaffDirectoryProvider(): void
-    {
-        $guard = new FileAccessGuard($this->fileRepository, Role::IDENTIFIED);
-        $storage = new EncryptedFileStorageService($this->fileRepository, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)), $this->storagePath);
-        $controller = new OfflineController(
-            new Environment(new ArrayLoader([])), $this->memberPhotoService, $guard, $this->scoutYearService,
-            new StaffThumbnailProcessor(), $this->storagePath, $storage, null
-        );
-
-        $response = $controller->photo(new Request('GET', '/api/offline/photo/1', [], [], [], []), ['member_id' => '1']);
-
-        $this->assertSame(404, $response->getStatusCode());
     }
 
     // --- RBAC ---

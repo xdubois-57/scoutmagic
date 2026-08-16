@@ -14,10 +14,13 @@
 // localStorage marker below makes that "next launch after login" check
 // free, no separate login-hook needed.
 //
-// Thumbnails land in the SAME content-{accountScope}-{version} cache
-// public/sw.js's own fetch handler writes to for pages (see its
-// '/api/offline/photo/' branch) — one cache, one purge-on-logout/
-// consent-withdrawal path for everything this feature stores.
+// Thumbnails land in the SAME content-{accountScope}-{version} cache used
+// for pages — one cache, one purge-on-logout/consent-withdrawal path for
+// everything this feature stores. This script is the only writer: each
+// URL is a plain GET /files/{id}/thumb (Core\Photo\ImageVariantService),
+// guarded exactly like any other file request; public/sw.js's own fetch
+// handler only ever READS this cache back for that URL pattern, it never
+// writes to it (see sw.js's own comment on that branch).
 (function () {
     if (!('caches' in window)) {
         return;
