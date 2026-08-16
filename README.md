@@ -1,6 +1,6 @@
 # ScoutMagic
 
-Open-source website for Belgian scout units in the "Les Scouts" federation.
+Site web open source pour les unités scoutes belges de la fédération « Les Scouts ».
 
 ## Auteur
 
@@ -28,103 +28,103 @@ Une faille de sécurité découverte dans le code doit être signalée via
 [SECURITY.md](SECURITY.md). Les corrections sont apportées sur une base
 volontaire, sans garantie de délai.
 
-## Features
+## Fonctionnalités
 
-- Member management from Desk CSV import
-- Role-based access control (6 levels)
-- Passwordless authentication (magic link, password, passkey)
-- Mobile-first responsive design, installable as a home-screen app (PWA) with offline access to the public pages, calendar, notification centre, trombinoscope, staffs, member statistics, forecasts, and each member's own page and account — every image pre-downloaded, extensible by modules, with no configuration page or private/financial content ever cached
-- Configuration mode for inline content editing
-- Modular architecture for extensibility
-- Encrypted personal data at rest
-- DKIM-signed transactional emails
-- Cookie consent management (banner and preferences aligned with ePrivacy requirements)
-- Automated schema migration
-- Task scheduler (cron + poor man's cron)
-- Audit journal
-- Notification centre with Web Push, per-type preferences (in-app/push/email), quiet hours, and a discretion mode
-- On-demand and automatic encrypted backups, one-click update from GitHub releases, reset/restore
-- Optional modules: financial management (bank statement import, receipts, receivables), news/event articles with registration forms and payment, activity calendar with ICS feeds, photo/video gallery (local or S3 storage), post-activity retrospective boards, staff trombinoscope, mass email, homepage banners, member statistics, on-call phone forwarding for the unit's emergency number
-- Optional AI integration (receipt data extraction, RGPD text generation, retrospective moderation, article summaries)
+- Gestion des membres depuis l'import CSV Desk
+- Contrôle d'accès basé sur les rôles (6 niveaux)
+- Authentification sans mot de passe (lien magique, mot de passe, passkey)
+- Design responsive mobile-first, installable comme application sur l'écran d'accueil (PWA) avec accès hors ligne aux pages publiques, au calendrier, au centre de notifications, au trombinoscope, aux staffs, aux statistiques des membres, aux prévisions, et à la page et au compte propres de chaque membre — chaque image pré-téléchargée, extensible par des modules, sans qu'aucune page de configuration ni contenu privé/financier ne soit jamais mis en cache
+- Mode configuration pour l'édition de contenu en ligne
+- Architecture modulaire pour l'extensibilité
+- Données personnelles chiffrées au repos
+- Emails transactionnels signés DKIM
+- Gestion du consentement aux cookies (bannière et préférences alignées sur les exigences ePrivacy)
+- Migration de schéma automatisée
+- Planificateur de tâches (cron + pseudo-cron)
+- Journal d'audit
+- Centre de notifications avec Web Push, préférences par type (in-app/push/email), plages horaires de silence, et un mode discret
+- Sauvegardes chiffrées à la demande et automatiques, mise à jour en un clic depuis les releases GitHub, réinitialisation/restauration
+- Modules optionnels : gestion financière (import de relevés bancaires, reçus, créances), articles actualités/événements avec formulaires d'inscription et paiement, calendrier d'activités avec flux ICS, galerie photo/vidéo (stockage local ou S3), tableaux de rétrospective post-activité, trombinoscope du staff, envoi de mails groupés, bannières de la page d'accueil, statistiques des membres, transfert d'appel du numéro d'urgence de l'unité
+- Intégration IA optionnelle (extraction de données de reçus, génération de texte RGPD, modération des rétrospectives, résumés d'articles)
 
-## Requirements
+## Prérequis
 
 - PHP >= 8.4
 - MySQL >= 8.0
-- Composer (for development/build only — not needed on the server)
-- FTP access to the hosting server
+- Composer (pour le développement/build uniquement — non nécessaire sur le serveur)
+- Accès FTP au serveur d'hébergement
 
 ## Installation
 
-1. Clone the repository.
-2. Run `composer install`.
-3. Point your web server document root to `public/`.
-4. Access the site — the setup wizard will guide you through configuration.
+1. Cloner le dépôt.
+2. Exécuter `composer install`.
+3. Pointer la racine de votre serveur web vers `public/`.
+4. Accéder au site — l'assistant de configuration vous guidera.
 
-## Development
+## Développement
 
 ```bash
 composer install
-composer serve                     # local dev server (localhost:8000)
-vendor/bin/phpunit                 # run tests
-vendor/bin/phpstan analyse core/   # static analysis
+composer serve                     # serveur de dev local (localhost:8000)
+vendor/bin/phpunit                 # exécuter les tests
+vendor/bin/phpstan analyse core/   # analyse statique
 ```
 
-`composer serve` wraps `php -S` with raised `upload_max_filesize`/`post_max_size` (`public/.user.ini`, used in production, isn't honored by the built-in server) — if you run `php -S` directly instead, uploads over 8M will 413. Raise the values in `composer.json`'s `scripts.serve` if you need to test bigger uploads locally (e.g. gallery videos).
+`composer serve` encapsule `php -S` avec des valeurs `upload_max_filesize`/`post_max_size` relevées (`public/.user.ini`, utilisé en production, n'est pas pris en compte par le serveur intégré) — si vous lancez `php -S` directement à la place, les uploads de plus de 8 Mo échoueront avec une erreur 413. Augmentez les valeurs dans `scripts.serve` de `composer.json` si vous devez tester des uploads plus volumineux en local (ex. vidéos de galerie).
 
-## Deployment
+## Déploiement
 
-### Cutting a release (maintainers)
+### Créer une release (mainteneurs)
 
 ```bash
-./scripts/release.sh              # create a new release (patch by default)
-./scripts/release.sh --minor      # minor version bump
-./scripts/release.sh --major      # major version bump
+./scripts/release.sh              # créer une nouvelle release (patch par défaut)
+./scripts/release.sh --minor      # incrément de version mineure
+./scripts/release.sh --major      # incrément de version majeure
 ```
 
-Publishes a GitHub release with the install artifact and `bootstrap.php` as assets. Requires the GitHub CLI (`gh`).
+Publie une release GitHub avec l'artefact d'installation et `bootstrap.php` en tant qu'assets. Nécessite le CLI GitHub (`gh`).
 
-The script runs a **security gate first**: it refuses to create any commit, tag, or release while any CodeQL scanning finding or Dependabot alert is open in the repository (`gh api repos/{owner}/{repo}/code-scanning/alerts` and `.../dependabot/alerts`, filtered on `state == "open"`). Fix (or justify-dismiss) them before releasing — see `AGENTS.md` § Releases.
+Le script exécute d'abord un **verrou de sécurité** : il refuse de créer un commit, un tag ou une release tant qu'un signalement CodeQL ou une alerte Dependabot est ouvert dans le dépôt (`gh api repos/{owner}/{repo}/code-scanning/alerts` et `.../dependabot/alerts`, filtrés sur `state == "open"`). Corrigez-les (ou justifiez leur rejet) avant de publier — voir `AGENTS.md` § Releases.
 
-### Installation sur hébergement mutualisé (unit administrators)
+### Installation sur hébergement mutualisé (administrateurs d'unité)
 
-No SSH, Git, or Composer needed on the server — only FTP, and only once.
+Aucun SSH, Git ou Composer nécessaire sur le serveur — seulement le FTP, et une seule fois.
 
-1. Download `bootstrap.php` from the [latest release](https://github.com/xdubois-57/scoutmagic/releases/latest).
-2. Upload it via FTP to the empty web folder your host serves as the document root.
-3. Open it in a browser (e.g. `https://votre-domaine.be/bootstrap.php`). It downloads the latest release, installs it, and runs a full security check before showing you anything else — the confirmation screen explains which of the two installation layouts it picked for your host and why.
-4. Click **Installer**. It reports progress step by step, then a pass/fail table for every security check it ran (including checks your own browser performed by fetching URLs directly). Any failure rolls back cleanly and explains what to fix — nothing is left half-installed.
-5. Once every check passes, it writes a `token.php` file next to itself (or tells you to create it manually over FTP if it couldn't), deletes itself, and redirects you to the setup wizard.
-6. The setup wizard asks for the value in `token.php` before showing anything else — copy it from the file over FTP if you didn't note it down. It's deleted automatically once you finish the wizard.
-7. Complete the wizard: database credentials, unit settings, email configuration, and your admin account.
+1. Téléchargez `bootstrap.php` depuis la [dernière release](https://github.com/xdubois-57/scoutmagic/releases/latest).
+2. Envoyez-le par FTP dans le dossier web vide que votre hébergeur sert comme racine du document.
+3. Ouvrez-le dans un navigateur (ex. `https://votre-domaine.be/bootstrap.php`). Il télécharge la dernière release, l'installe, et exécute une vérification de sécurité complète avant de vous montrer quoi que ce soit d'autre — l'écran de confirmation explique lequel des deux types d'installation il a choisi pour votre hébergeur et pourquoi.
+4. Cliquez sur **Installer**. Il rapporte la progression étape par étape, puis un tableau succès/échec pour chaque vérification de sécurité effectuée (y compris des vérifications que votre propre navigateur a effectuées en récupérant des URLs directement). Tout échec annule proprement l'installation et explique quoi corriger — rien n'est laissé à moitié installé.
+5. Une fois toutes les vérifications passées, il écrit un fichier `token.php` à côté de lui-même (ou vous indique de le créer manuellement par FTP s'il n'a pas pu), se supprime lui-même, et vous redirige vers l'assistant de configuration.
+6. L'assistant de configuration demande la valeur du fichier `token.php` avant de montrer quoi que ce soit d'autre — copiez-la depuis le fichier par FTP si vous ne l'avez pas notée. Il est supprimé automatiquement une fois l'assistant terminé.
+7. Complétez l'assistant : identifiants de base de données, paramètres de l'unité, configuration email, et votre compte administrateur.
 
-**Enabling automatic updates**: once installed, go to *Configuration > Maintenance* and generate a GitHub webhook secret. In your GitHub repository's *Settings > Webhooks*, add a webhook with:
-- **Payload URL**: `https://votre-domaine.be/api/webhook/github`
-- **Content type**: `application/json`
-- **Secret**: the value generated on the Maintenance page
-- **Events**: select only *Releases*
+**Activer les mises à jour automatiques** : une fois installé, allez dans *Configuration > Maintenance* et générez un secret de webhook GitHub. Dans les *Settings > Webhooks* de votre dépôt GitHub, ajoutez un webhook avec :
+- **Payload URL** : `https://votre-domaine.be/api/webhook/github`
+- **Content type** : `application/json`
+- **Secret** : la valeur générée sur la page Maintenance
+- **Events** : sélectionnez uniquement *Releases*
 
-Without this, the site never learns a new release exists — see ARCHITECTURE.md §8.17 for how update installation itself works once notified.
+Sans cela, le site n'apprend jamais qu'une nouvelle release existe — voir ARCHITECTURE.md §8.17 pour le fonctionnement de l'installation des mises à jour une fois notifié.
 
 ## Architecture
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for the full architectural reference.
+Voir [ARCHITECTURE.md](ARCHITECTURE.md) pour la référence architecturale complète.
 
-## Security
+## Sécurité
 
-See [SECURITY.md](SECURITY.md) for security requirements.
+Voir [SECURITY.md](SECURITY.md) pour les exigences de sécurité.
 
-## Contributing
+## Contribuer
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines.
+Voir [CONTRIBUTING.md](CONTRIBUTING.md) pour les recommandations de contribution.
 
-## Module development
+## Développement de modules
 
-See [docs/module-development.md](docs/module-development.md) for how to create modules.
+Voir [docs/module-development.md](docs/module-development.md) pour savoir comment créer un module.
 
-## License
+## Licence
 
 [AGPL-3.0](LICENSE)
 
-This project is made available for scout units and the community, with the expectation
-that all usage remains open source.
+Ce projet est mis à disposition des unités scoutes et de la communauté, avec l'attente
+que tout usage reste open source.
