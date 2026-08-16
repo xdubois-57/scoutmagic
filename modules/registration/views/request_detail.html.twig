@@ -54,7 +54,7 @@
 
         <div class="card mb-4">
             <div class="card-body">
-                <h2 class="h5 mb-3">Informations (ordre d'encodage Desk)</h2>
+                <h2 class="h5 mb-3">Informations</h2>
                 <div class="row g-3">
                     <div class="col-6 col-sm-4">
                         <span class="text-body-secondary small">Nom</span><br><strong>{{ r.childLastName }}</strong>
@@ -130,7 +130,7 @@
                     <div class="col-12">
                         <hr class="my-2">
                         <span class="text-body-secondary small">Adresse postale</span><br>
-                        {{ r.number }} {{ r.street }}, {{ r.postalCode }} {{ r.city }}
+                        {{ r.street }} {{ r.number }}, {{ r.postalCode }} {{ r.city }}
                     </div>
 
                     {% if r.remarks %}
@@ -139,9 +139,15 @@
                             <span class="text-body-secondary small">Remarques (parent)</span><br>{{ r.remarks }}
                         </div>
                     {% endif %}
-                    {% if sibling_count > 0 %}
+                    {% if siblings is not empty %}
                         <div class="col-12">
-                            <span class="text-body-secondary small">{{ sibling_count }} frère(s)/sœur(s) déjà membre(s) déclaré(s)</span>
+                            <hr class="my-2">
+                            <span class="text-body-secondary small d-block mb-1">Frère(s)/sœur(s) déjà membre(s) déclaré(s)</span>
+                            <ul class="mb-0 ps-3">
+                                {% for sibling in siblings %}
+                                    <li>{{ sibling.name|normalize_name }} — {{ sibling.section_label }}</li>
+                                {% endfor %}
+                            </ul>
                         </div>
                     {% endif %}
                 </div>

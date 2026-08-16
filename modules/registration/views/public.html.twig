@@ -18,7 +18,10 @@
 
         <div class="card mb-4">
             <div class="card-body">
-                <h2 class="h5 mb-3">Année scoute {{ target_year_label }} — nés en...</h2>
+                <h2 class="h5 mb-3">{{ waitlist_enabled ? 'Disponibilités ' ~ target_year_label : 'Année scoute ' ~ target_year_label }}</h2>
+                {% if waitlist_enabled %}
+                    <p class="small text-body-secondary mb-3">Selon votre année de naissance ci-dessous : « Disponible » (inscription immédiate), « Limitée » (quelques places restantes) ou « Complet » (liste d'attente).</p>
+                {% endif %}
                 <div class="row g-3">
                     {% for branch in birth_years_by_branch %}
                         <div class="col-6 col-sm-3">
@@ -29,11 +32,11 @@
                                         {{ year }}
                                         {% if waitlist_enabled %}
                                             {% if year in waitlist_tiers.limited|default([]) %}
-                                                <span class="badge bg-warning text-dark ms-1">Attente limitée</span>
+                                                <span class="badge bg-warning text-dark ms-1">Limitée</span>
                                             {% elseif year in waitlist_tiers.heavy|default([]) %}
-                                                <span class="badge bg-danger ms-1">Attente importante</span>
+                                                <span class="badge bg-danger ms-1">Complet</span>
                                             {% else %}
-                                                <span class="badge bg-success ms-1">Places disponibles</span>
+                                                <span class="badge bg-success ms-1">Disponible</span>
                                             {% endif %}
                                         {% endif %}
                                     </li>
@@ -209,9 +212,9 @@
     var birthYearSlots = {{ birth_year_slots|json_encode|raw }};
     var waitlistEnabled = {{ waitlist_enabled ? 'true' : 'false' }};
     var tierLabels = {
-        available: { text: 'Places disponibles', badge: 'bg-success' },
-        limited: { text: 'Attente limitée', badge: 'bg-warning text-dark' },
-        heavy: { text: 'Attente importante', badge: 'bg-danger' }
+        available: { text: 'Disponible', badge: 'bg-success' },
+        limited: { text: 'Limitée', badge: 'bg-warning text-dark' },
+        heavy: { text: 'Complet', badge: 'bg-danger' }
     };
 
     var birthDateInput = document.getElementById('birth_date');
