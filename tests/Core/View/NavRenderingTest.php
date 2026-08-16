@@ -346,10 +346,18 @@ class NavRenderingTest extends TestCase
         $this->assertStringContainsString('Voir toutes les notifications', $html);
     }
 
+    /**
+     * The "Voir toutes les notifications" link must show up regardless of
+     * whether there are any unread notifications — a visitor with none
+     * should still be able to reach the full centre from here exactly
+     * like one with unread ones can.
+     */
     public function testNotificationDropdownShowsEmptyStateWhenNoneUnread(): void
     {
         $html = $this->renderNav(Role::ADMIN, true);
         $this->assertStringContainsString('Aucune notification', $html);
         $this->assertStringNotContainsString('action="/notifications/', $html);
+        $this->assertStringContainsString('href="/notifications"', $html);
+        $this->assertStringContainsString('Voir toutes les notifications', $html);
     }
 }

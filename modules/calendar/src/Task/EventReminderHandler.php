@@ -6,7 +6,9 @@ namespace Modules\Calendar\Task;
 
 use Core\Scheduler\TaskContext;
 use Core\Scheduler\TaskHandlerInterface;
+use Modules\Calendar\Repository\Calendar;
 use Modules\Calendar\Repository\CalendarEventRepository;
+use Modules\Calendar\Repository\CalendarRepository;
 
 /**
  * Sends the "your activity is tomorrow" notification-centre/push
@@ -44,10 +46,39 @@ class EventReminderHandler implements TaskHandlerInterface
             return;
         }
 
+        $calendarLabel = $this->resolveCalendarName((new CalendarRepository($pdo))->findById($event->calendarId), $pdo);
+
         $context->notifications->dispatch('calendar.event_reminder', $recipients, [
             'title' => 'Rappel d\'activité',
-            'body' => "L'activité « {$event->title} » a lieu demain.",
+            'body' => "{$calendarLabel} — l'activité « {$event->title} » a lieu demain.",
             'url' => '/calendar',
         ]);
+    }
+
+    /**
+     * Same resolution Task\AutoCreateRetroHandler::resolveCalendarName()
+     * already does (small tolerated duplication — task handlers get no
+     * persistent DI container, so sharing a helper isn't worth a new
+     * cross-handler dependency): a section calendar's name is its
+     * section's own name (falling back to its Desk code), a supplementary
+     * calendar's name is its own.
+     */
+    private function resolveCalendarName(?Calendar $calendar, \PDO $pdo): string
+    {
+        if ($calendar === null) {
+            return 'Calendrier';
+        }
+        if ($calendar->sectionId === null) {
+            return $calendar->name ?? 'Calendrier';
+        }
+
+        $stmt = $pdo->prepare('SELECT name, desk_code FROM sections WHERE id = ?');
+        $stmt->execute([$calendar->sectionId]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+        if ($row === false) {
+            return 'Section';
+        }
+
+        return $row['name'] !== null && $row['name'] !== '' ? (string) $row['name'] : (string) $row['desk_code'];
     }
 }

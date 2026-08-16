@@ -185,9 +185,17 @@ class CalendarNotificationService
             return;
         }
 
+        // The event's own title alone is frequently ambiguous — several
+        // sections often reuse the exact same generic title ("Réunion
+        // normale") — so every calendar notification names which calendar
+        // it's about, via CalendarService::labelsByCalendarId() (the
+        // single source of truth for "what do we call this calendar",
+        // same label the calendar picker and event bars themselves show).
+        $calendarLabel = $this->calendarService->labelsByCalendarId()[$event->calendarId] ?? 'Calendrier';
+
         $this->notificationService->dispatch($typeId, $recipients, [
             'title' => $title,
-            'body' => $event->title,
+            'body' => $calendarLabel . ' — ' . $event->title,
             'url' => '/calendar',
         ], $actorUserAccountId);
     }

@@ -312,7 +312,21 @@ class CalendarNotificationServiceTest extends TestCase
         $this->assertCount(1, $actorNotifications);
         $this->assertCount(1, $otherNotifications);
         $this->assertSame('calendar.event_published', $otherNotifications[0]->typeId);
-        $this->assertSame('Camp', $otherNotifications[0]->body);
+        // The event title alone is ambiguous (many sections reuse the same
+        // generic titles) — the body must name which calendar it's about.
+        $this->assertSame('Éclaireurs — Camp', $otherNotifications[0]->body);
+    }
+
+    public function testDispatchEventPublishedNamesASupplementaryCalendarByItsOwnName(): void
+    {
+        $other = $this->userAccountRepository->create('other3@test.com')->id;
+        $eventId = $this->createEvent($this->supplementaryCalendarId, (new \DateTimeImmutable('+5 days'))->format('Y-m-d'), null);
+        $event = $this->eventRepository->findById($eventId);
+
+        $this->serviceWithNotifications->dispatchEventPublished($event, null);
+
+        $notifications = $this->notificationRepository->findByUserAccountId($other);
+        $this->assertSame('Animateurs — Camp', $notifications[0]->body);
     }
 
     public function testDispatchEventChangedUsesItsOwnType(): void
