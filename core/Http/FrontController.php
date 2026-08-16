@@ -10,8 +10,10 @@ namespace Core\Http;
 
 use Core\Config\AppConfig;
 use Core\Http\Controller\AbstractController;
+use Core\Offline\OfflineWhitelist;
 use Core\Security\RbacGuard;
 use Core\Security\Role;
+use Core\View\ConfigurationMode;
 use Twig\Environment;
 
 class FrontController
@@ -25,7 +27,8 @@ class FrontController
     public function __construct(
         private Router $router,
         private Environment $twig,
-        private AppConfig $config // @phpstan-ignore property.onlyWritten
+        private AppConfig $config, // @phpstan-ignore property.onlyWritten
+        private ?OfflineWhitelist $offlineWhitelist = null
     ) {
         $this->rbacGuard = new RbacGuard();
     }
@@ -95,7 +98,40 @@ class FrontController
         /** @var Response $response */
         $response = $controller->$action($request, $resolvedRoute->params);
 
-        return $response;
+        return $this->applyEtagIfEligible($request, $response);
+    }
+
+    /**
+     * Part 3.3 of the offline-mode work (ARCHITECTURE §8.25): an ETag on
+     * a whitelisted page lets the pre-download script (public/assets/js/
+     * offline-prefetch.js) re-validate a cached copy with `If-None-Match`
+     * instead of re-downloading it wholesale on every app launch — a
+     * derivative-URL-style "cheap to confirm still current" story for
+     * HTML the way Core\Photo\ImageVariantService's `immutable`
+     * Cache-Control already is for image derivatives. Deliberately narrow:
+     * only 200 GET responses, only on a whitelisted path, never in
+     * configuration mode (its overlay markup is session-specific and must
+     * never be revalidated away), never on POST — nothing here makes
+     * `/files/{id}` or any other route cacheable.
+     */
+    private function applyEtagIfEligible(Request $request, Response $response): Response
+    {
+        if ($this->offlineWhitelist === null
+            || $request->getMethod() !== 'GET'
+            || $response->getStatusCode() !== 200
+            || ConfigurationMode::isActive()
+            || !$this->offlineWhitelist->isPathWhitelisted($request->getPath())
+        ) {
+            return $response;
+        }
+
+        $etag = '"' . md5($response->getBody()) . '"';
+        $ifNoneMatch = $request->getServer('HTTP_IF_NONE_MATCH');
+        if (is_string($ifNoneMatch) && $ifNoneMatch === $etag) {
+            return (new Response('', 304))->setHeader('ETag', $etag);
+        }
+
+        return $response->setHeader('ETag', $etag);
     }
 
     private function renderNotFound(): Response

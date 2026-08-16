@@ -85,7 +85,7 @@ class OfflineConfigBlobTest extends TestCase
     {
         $config = $this->extractConfig($this->render([]));
 
-        $this->assertSame(7, $config['stalenessDays']);
+        $this->assertSame(30, $config['stalenessDays']);
         $this->assertFalse($config['consent']);
         $this->assertSame([], $config['whitelist']);
         $this->assertSame('guest', $config['accountScope']);

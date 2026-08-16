@@ -143,7 +143,7 @@ class ServiceWorkerPrecacheTest extends TestCase
      * — every icon site-wide (including the whole menu) rendered as an
      * empty box offline. components.css and the other listed scripts fix
      * the same class of bug for Staffs/trombinoscope/calendar/member
-     * page/départs and the offline-page/offline-nav/offline-photos
+     * page/départs and the offline-page/offline-nav/offline-prefetch
      * scripts themselves.
      */
     public function testAppShellIncludesBootstrapIconsFontFiles(): void
@@ -165,7 +165,7 @@ class ServiceWorkerPrecacheTest extends TestCase
             '/assets/js/notification-badge.js',
             '/assets/js/offline-cache.js',
             '/assets/js/offline-nav.js',
-            '/assets/js/offline-photos.js',
+            '/assets/js/offline-prefetch.js',
             '/assets/js/offline-page.js',
         ] as $url) {
             $this->assertStringContainsString("'{$url}'", $block);
@@ -203,5 +203,37 @@ class ServiceWorkerPrecacheTest extends TestCase
     public function testNoLongerReferencesTheRetiredOfflinePhotoRoute(): void
     {
         $this->assertStringNotContainsString('/api/offline/photo/', $this->swJs);
+    }
+
+    /**
+     * Part 3.4: a normal browser tab's own navigation must never WRITE to
+     * the content cache now that it can hold personal data (Mon compte,
+     * the member's own page) — only the installed app does. Reads (the
+     * cache.match() fallback on a fetch failure) stay unconditional.
+     */
+    public function testNetworkFirstWithCacheFallbackGatesTheWriteOnStandalone(): void
+    {
+        preg_match('/function networkFirstWithCacheFallback\(request, url, config\) \{(.*?)\n\}/s', $this->swJs, $m);
+        $this->assertNotEmpty($m, 'Could not locate networkFirstWithCacheFallback() in public/sw.js');
+
+        $this->assertMatchesRegularExpression(
+            '/if \(response && response\.ok && !response\.redirected && config\.standalone\) \{/',
+            $m[1]
+        );
+    }
+
+    /**
+     * The read path (cache.match() inside the .catch() fallback) must NOT
+     * be gated on config.standalone — a plain tab must still be able to
+     * read whatever the installed app already cached.
+     */
+    public function testNetworkFirstWithCacheFallbackReadsAreUnconditional(): void
+    {
+        preg_match('/function networkFirstWithCacheFallback\(request, url, config\) \{(.*?)\n\}/s', $this->swJs, $m);
+        $this->assertNotEmpty($m, 'Could not locate networkFirstWithCacheFallback() in public/sw.js');
+
+        preg_match('/\.catch\(function \(\) \{(.*)/s', $m[1], $catchBlock);
+        $this->assertNotEmpty($catchBlock, 'Could not locate the .catch() fallback block');
+        $this->assertStringNotContainsString('config.standalone', $catchBlock[1]);
     }
 }

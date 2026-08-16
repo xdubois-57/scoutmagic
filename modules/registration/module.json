@@ -425,5 +425,13 @@
       "handler": "Modules\\Registration\\Task\\PurgeRegistrationRequestsHandler"
     }
   ],
-  "storage": {}
+  "storage": {},
+  "offline": [
+    {
+      "path": "/previsions",
+      "label": "Prévisions",
+      "match": "exact",
+      "role_min": "chief"
+    }
+  ]
 }

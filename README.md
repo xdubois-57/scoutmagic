@@ -33,7 +33,7 @@ volontaire, sans garantie de délai.
 - Member management from Desk CSV import
 - Role-based access control (6 levels)
 - Passwordless authentication (magic link, password, passkey)
-- Mobile-first responsive design, installable as a home-screen app (PWA) with offline access to the calendar, notification centre, trombinoscope (with pre-downloaded staff photos), and public pages
+- Mobile-first responsive design, installable as a home-screen app (PWA) with offline access to the public pages, calendar, notification centre, trombinoscope, staffs, member statistics, forecasts, and each member's own page and account — every image pre-downloaded, extensible by modules, with no configuration page or private/financial content ever cached
 - Configuration mode for inline content editing
 - Modular architecture for extensibility
 - Encrypted personal data at rest

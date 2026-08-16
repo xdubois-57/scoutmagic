@@ -254,5 +254,13 @@
       "role_min": "identified",
       "channels": { "in_app": "default_on", "push": "default_on", "email": "default_off" }
     }
+  ],
+  "offline": [
+    {
+      "path": "/calendar",
+      "label": "Calendrier",
+      "match": "exact",
+      "role_min": "public"
+    }
   ]
 }

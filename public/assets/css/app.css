@@ -250,13 +250,15 @@ td code,
     box-shadow: 0 0 0 0.25rem rgba(var(--bs-danger-rgb), 0.25);
 }
 
-/* Offline navigation (Lot 3, public/assets/js/offline-nav.js) — a link to
-   a page outside the offline whitelist, while offline. Greyed out and
-   inert rather than leading to a dead end; click is also prevented in JS
-   (belt and suspenders for touch/keyboard input). */
+/* Offline navigation (Lot 4, public/assets/js/offline-nav.js) — a link to
+   a page outside the offline whitelist, while offline. Greyed out only —
+   deliberately NOT pointer-events:none and no forced tabindex, so the
+   link stays reachable and operable by keyboard/assistive tech and can
+   announce its own aria-disabled state; a click is caught by the script's
+   own capture-phase listener instead, which opens the "unavailable
+   offline" dialog rather than silently swallowing the click. */
 .offline-link-disabled {
     opacity: .5;
-    pointer-events: none;
     cursor: not-allowed;
 }
 

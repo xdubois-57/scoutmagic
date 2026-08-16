@@ -606,7 +606,7 @@ $settingService->register('notifications_retention_days', '90', 'number', 'Conse
 // service worker refuses to serve it and falls back to the offline page
 // instead. Passed to public/sw.js via postMessage — never hardcoded
 // there (see base.html.twig).
-$settingService->register('offline_cache_staleness_days', '7', 'number', 'Péremption du contenu hors ligne (jours)',
+$settingService->register('offline_cache_staleness_days', '30', 'number', 'Péremption du contenu hors ligne (jours)',
     'Au-delà de ce délai, une page mise en cache pour la consultation hors ligne n\'est plus affichée — la page hors ligne générique est montrée à la place plutôt qu\'un contenu obsolète.',
     null, null, null, true, 261);
 
@@ -1032,9 +1032,11 @@ $twig->addGlobal('vapid_public_key', (string) ($secrets['vapid_public_key'] ?? '
 // the service worker via postMessage (base.html.twig) — never
 // hardcoded/duplicated client-side. accountScope is what the cache name
 // is namespaced by, so a different member logging in on the same device
-// never inherits the previous one's cache (offline-cache.js).
-$twig->addGlobal('offline_whitelist', OfflineWhitelist::getPaths());
-$twig->addGlobal('offline_cache_staleness_days', (int) $settingService->get('offline_cache_staleness_days', null, '7'));
+// never inherits the previous one's cache (offline-cache.js). The
+// 'offline_whitelist' global itself is set further below, once every
+// enabled module has had a chance to register its own offline pages
+// (loadEnabledModules()) — see that block's own comment for why.
+$twig->addGlobal('offline_cache_staleness_days', (int) $settingService->get('offline_cache_staleness_days', null, '30'));
 $twig->addGlobal('offline_functional_consent', $cookieConsentService->isAllowed('functional'));
 $twig->addGlobal(
     'offline_account_scope',
@@ -1082,6 +1084,12 @@ $menuBuilder->addPage(MenuBuilder::MENU_ESPACE_ANIMES, 'Notifications', '/notifi
 // Create router early so ModuleManager can register routes
 $router = new Router();
 
+// Offline whitelist (Core\Offline\OfflineWhitelist) — single shared
+// instance so module-declared pages (registered by ModuleManager below,
+// as modules load) are visible both to the Twig global built later and to
+// FrontController's ETag logic (§8.25).
+$offlineWhitelist = new OfflineWhitelist();
+
 // Create ModuleManager (modules loaded after core routes are registered)
 $modulesDir = __DIR__ . '/../modules';
 $moduleRegistryRepo = new ModuleRegistryRepository($pdo);
@@ -1094,7 +1102,8 @@ $moduleManager = new ModuleManager(
     $migrationRunner,
     $journalService,
     $router,
-    $notificationService
+    $notificationService,
+    $offlineWhitelist
 );
 
 // Set up SchedulerRunner with ModuleManager and the context task handlers run
@@ -1288,10 +1297,13 @@ $router->addRoute('GET', '/files/{id}/thumbnail', FileController::class, 'thumbn
 // same FileAccessGuard/journal path as serve() — see
 // Core\Http\Controller\FileController::variant()'s own docblock.
 $router->addRoute('GET', '/files/{id}/{variant}', FileController::class, 'variant', 'public');
-// Offline mode (Lot 3) pre-download manifest — every URL it lists is a
-// plain /files/{id}/thumb, guarded exactly like any other request to that
-// route once fetched; this endpoint itself only lists candidates.
-$router->addRoute('GET', '/api/offline/photo-manifest', OfflineController::class, 'photoManifest', 'identified');
+// Offline mode pre-download manifest — every page/image URL it lists is
+// guarded exactly like any other request once actually fetched; this
+// endpoint itself only lists candidates. role_min: public — see
+// Core\Http\Controller\OfflineController::manifest()'s own docblock for
+// why floating this above the content's own self-limiting role filter
+// would add nothing.
+$router->addRoute('GET', '/api/offline/manifest', OfflineController::class, 'manifest', 'public');
 
 // Generic short-URL redirector (Core\Url)
 $router->addRoute('GET', '/s/{code}', ShortUrlController::class, 'resolve', 'public');
@@ -1436,6 +1448,14 @@ if ($twigLoader instanceof \Twig\Loader\FilesystemLoader) {
 $menus = $menuBuilder->build();
 $twig->addGlobal('menus', $menus);
 
+// Offline whitelist (Core\Offline\OfflineWhitelist) — built only now, once
+// every enabled module has registered its own offline pages via
+// loadEnabledModules() above, and filtered by the current viewer's
+// effective role so a logged-out visitor is never handed a chief-only
+// path like /previsions or /chiefs/stats (and the client never tries to
+// cache a page it will only ever get a 403 for).
+$twig->addGlobal('offline_whitelist', $offlineWhitelist->getEntriesForRole(Role::fromString($currentRole)));
+
 // Determine the active menu section AND which specific page button should
 // be highlighted from the current path. A page's own sub-routes (e.g.
 // finance's /finance/movements, /finance/receipts — registered with an
@@ -1481,7 +1501,7 @@ if (in_array('llm_connector', $moduleManager->getEnabledModuleIds(), true)) {
 $rgpdContentService = new RgpdContentService($moduleManager, $settingService, $llmConnectorForRgpd, $llmProviderRepoForRgpd, $llmModelRepoForRgpd);
 
 // Handle the request
-$frontController = new FrontController($router, $twig, $config);
+$frontController = new FrontController($router, $twig, $config, $offlineWhitelist);
 
 // Optional dependency on the trombinoscope module (ARCHITECTURE.md §7.4)
 // for the Sections page's "responsable" name — set below only when
@@ -1596,9 +1616,13 @@ $fileController->setJournalService($journalService);
 $frontController->registerController(FileController::class, $fileController);
 // staffDirectoryProvider is wired for real inside the trombinoscope block
 // below (re-registered there, same Core\Module\SectionResponsableProvider
-// precedent as PageController) — null here degrades to an empty manifest
-// when that module is disabled.
-$offlineController = new OfflineController($twig, $memberPhotoService, $scoutYearService, null);
+// precedent as PageController) — null here degrades to "no trombinoscope
+// photos in the manifest" when that module is disabled.
+$offlineManifestService = new \Core\Offline\OfflineManifestService(
+    $offlineWhitelist, $memberService, $memberPhotoService, $sectionPhotoService, $sectionService,
+    $unitStaffSectionService, $scoutYearService, $editableContentService, $ageBranchRepo, null
+);
+$offlineController = new OfflineController($twig, $offlineManifestService);
 $frontController->registerController(OfflineController::class, $offlineController);
 $uploadController = new UploadController($twig, $uploadHandler, $editableContentService, $memberPhotoService, $sectionPhotoService, $sectionPhotoProcessor, $landscapeImageProcessor, $memberService, $ageBranchRepo, $unitLogoService, $imageVariantService);
 $uploadController->setJournalService($journalService);
@@ -1664,7 +1688,10 @@ if (in_array('trombinoscope', $moduleManager->getEnabledModuleIds(), true)) {
     // $sectionResponsableProvider just above.
     $frontController->registerController(
         OfflineController::class,
-        new OfflineController($twig, $memberPhotoService, $scoutYearService, $trombinoscopeService)
+        new OfflineController($twig, new \Core\Offline\OfflineManifestService(
+            $offlineWhitelist, $memberService, $memberPhotoService, $sectionPhotoService, $sectionService,
+            $unitStaffSectionService, $scoutYearService, $editableContentService, $ageBranchRepo, $trombinoscopeService
+        ))
     );
 }
 

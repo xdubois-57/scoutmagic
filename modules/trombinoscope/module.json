@@ -20,5 +20,13 @@
   "settings": [],
   "cookies": [],
   "scheduled_tasks": [],
-  "storage": {}
+  "storage": {},
+  "offline": [
+    {
+      "path": "/trombinoscope",
+      "label": "Trombinoscope",
+      "match": "exact",
+      "role_min": "identified"
+    }
+  ]
 }

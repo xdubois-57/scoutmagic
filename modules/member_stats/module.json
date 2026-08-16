@@ -18,5 +18,13 @@
   "settings": [],
   "cookies": [],
   "scheduled_tasks": [],
-  "storage": {}
+  "storage": {},
+  "offline": [
+    {
+      "path": "/chiefs/stats",
+      "label": "Statistiques",
+      "match": "exact",
+      "role_min": "chief"
+    }
+  ]
 }

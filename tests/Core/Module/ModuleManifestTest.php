@@ -493,4 +493,105 @@ class ModuleManifestTest extends TestCase
         // The invalid_module fixture is missing the 'id' field
         ModuleManifest::fromFile($this->fixturesDir . '/invalid_module/module.json');
     }
+
+    // --- offline (Core\Offline\OfflineWhitelist aggregation) ---
+
+    private function baseManifestData(array $offline): array
+    {
+        return [
+            'id' => 'test',
+            'name' => 'Test',
+            'version' => '1.0.0',
+            'offline' => $offline,
+        ];
+    }
+
+    public function testOfflineEntryParsesWithDefaultMatchExact(): void
+    {
+        $manifest = ModuleManifest::fromArray($this->baseManifestData([
+            ['path' => '/my-module', 'label' => 'Mon module', 'role_min' => 'public'],
+        ]));
+
+        $this->assertCount(1, $manifest->offline);
+        $this->assertSame('/my-module', $manifest->offline[0]['path']);
+        $this->assertSame('Mon module', $manifest->offline[0]['label']);
+        $this->assertSame('exact', $manifest->offline[0]['match']);
+        $this->assertSame('public', $manifest->offline[0]['role_min']);
+    }
+
+    public function testOfflineEntryAcceptsExplicitChildMatch(): void
+    {
+        $manifest = ModuleManifest::fromArray($this->baseManifestData([
+            ['path' => '/my-module/items/', 'label' => 'Items', 'match' => 'child', 'role_min' => 'identified'],
+        ]));
+
+        $this->assertSame('child', $manifest->offline[0]['match']);
+    }
+
+    public function testOfflineEntryRejectsMissingPath(): void
+    {
+        $this->expectException(ModuleException::class);
+        $this->expectExceptionMessage("missing or invalid 'path'");
+
+        ModuleManifest::fromArray($this->baseManifestData([
+            ['label' => 'Mon module', 'role_min' => 'public'],
+        ]));
+    }
+
+    public function testOfflineEntryRejectsPathNotStartingWithSlash(): void
+    {
+        $this->expectException(ModuleException::class);
+        $this->expectExceptionMessage("path must start with '/'");
+
+        ModuleManifest::fromArray($this->baseManifestData([
+            ['path' => 'my-module', 'label' => 'Mon module', 'role_min' => 'public'],
+        ]));
+    }
+
+    public function testOfflineEntryRejectsMissingLabel(): void
+    {
+        $this->expectException(ModuleException::class);
+        $this->expectExceptionMessage("missing or invalid 'label'");
+
+        ModuleManifest::fromArray($this->baseManifestData([
+            ['path' => '/my-module', 'role_min' => 'public'],
+        ]));
+    }
+
+    public function testOfflineEntryRejectsMissingRoleMin(): void
+    {
+        $this->expectException(ModuleException::class);
+        $this->expectExceptionMessage("missing or invalid 'role_min'");
+
+        ModuleManifest::fromArray($this->baseManifestData([
+            ['path' => '/my-module', 'label' => 'Mon module'],
+        ]));
+    }
+
+    public function testOfflineEntryRejectsInvalidRoleMin(): void
+    {
+        $this->expectException(ModuleException::class);
+        $this->expectExceptionMessage("invalid role_min");
+
+        ModuleManifest::fromArray($this->baseManifestData([
+            ['path' => '/my-module', 'label' => 'Mon module', 'role_min' => 'not-a-role'],
+        ]));
+    }
+
+    public function testOfflineEntryRejectsInvalidMatchValue(): void
+    {
+        $this->expectException(ModuleException::class);
+        $this->expectExceptionMessage("invalid match");
+
+        ModuleManifest::fromArray($this->baseManifestData([
+            ['path' => '/my-module', 'label' => 'Mon module', 'match' => 'prefix', 'role_min' => 'public'],
+        ]));
+    }
+
+    public function testManifestWithNoOfflineSectionDefaultsToEmptyArray(): void
+    {
+        $manifest = ModuleManifest::fromArray(['id' => 'test', 'name' => 'Test', 'version' => '1.0.0']);
+
+        $this->assertSame([], $manifest->offline);
+    }
 }

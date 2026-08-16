@@ -107,6 +107,14 @@ The directory name **must** match the `id` field in `module.json`.
       "role_min": "identified",
       "channels": { "in_app": "default_on", "push": "default_on", "email": "default_off" }
     }
+  ],
+  "offline": [
+    {
+      "path": "/calendar",
+      "label": "Calendrier",
+      "match": "exact",
+      "role_min": "public"
+    }
   ]
 }
 ```
@@ -134,6 +142,7 @@ The directory name **must** match the `id` field in `module.json`.
   - `id`: must be prefixed `"{module_id}."` (e.g. `calendar.event_published`).
   - `role_min`: same role list as routes — the minimum role a recipient must currently hold to actually receive it (re-checked at send time, not at whatever moment the caller built the recipient list).
   - `channels`: an object with exactly the keys `in_app`, `push`, `email`, each one of `on` (always sent, member can't opt out), `off` (never sent, member can't opt in), `default_on`/`default_off` (member can override on the preferences page). See the Notifications section below.
+- **offline**: optional, each entry must have `path`, `label`, `role_min`. See the Offline pages section below.
 - **enabled_by_default**: optional boolean, defaults to `false`. When `true`, the module is activated automatically the very first time it is discovered on disk (no `module_registry` row yet) — no admin action needed. An admin's later explicit deactivation always sticks; this never re-activates a module that already has a registry row.
 
 ## Controller conventions
@@ -353,6 +362,27 @@ $notificationService->dispatch(
 - Push is never sent synchronously in the request that calls `dispatch()` — it schedules a `core/send_notifications` task (grouped by the recipient's quiet-hours-adjusted send time), which `Core\Notification\Task\SendNotificationsHandler` later batches out via Web Push. Never call anything push-related directly from a controller.
 - Never pass personal data as the `title`/`body` beyond what the recipient is already meant to see — both are encrypted at rest, but the type `id` itself is what appears in the journal (`notification_sent`), never the text.
 - A handful of pre-existing, out-of-scope Maintenance task types (reset/restore/update) use the older, simpler `notify($userAccountId, $title, $body, $url)` instead — single recipient, immediate, no role/channel/quiet-hours resolution. New module types should use `dispatch()`.
+
+## Offline pages (`Core\Offline\OfflineWhitelist`)
+
+A module can make one or more of its own GET pages available for offline viewing in the installed app (ARCHITECTURE.md §8.25) by declaring them under `module.json`'s `offline` section — same aggregation shape as `cookies`/`notifications`: core never hardcodes a module's path, the module declares it, `Core\Module\ModuleManager` registers it into the single shared `Core\Offline\OfflineWhitelist` while loading the module, and a disabled module's page simply never gets registered.
+
+```json
+"offline": [
+  {
+    "path": "/calendar",
+    "label": "Calendrier",
+    "match": "exact",
+    "role_min": "public"
+  }
+]
+```
+
+- Each entry must have `path`, `label` (French — shown nowhere in the UI today, but kept for parity with the rest of the manifest shapes and any future surface that lists whitelisted pages), and `role_min` (same role list as routes — the minimum role a viewer must currently hold for the page to be offered offline; re-checked against the viewer's *current* role every time the list is built, never cached across a role change).
+- `match`: optional, defaults to `"exact"` (the literal path only). `"child"` means the path plus **exactly one** additional URL segment — e.g. a hypothetical `/my-module/items/` with `match: "child"` covers `/my-module/items/42` but not `/my-module/items/42/comments/7`. Use this only for a genuine "one page per id" pattern; anything else should be a separate `exact` entry per concrete path.
+- **Only declare a page that is actually safe to keep offline.** The whole point of this mechanism is that a module never needs core's permission to add a page — but that also means a module author is the one who has to apply the same judgment ARCHITECTURE.md §8.25 already applies to core pages: never a page carrying financial data, private documents, or content meant for one specific recipient only (mass-mail bodies, anything owner-scoped via `Core\File\FileAccessGuard`). If in doubt, don't declare it — an un-whitelisted page is never a bug, it just isn't cacheable, and falls back to the generic "unavailable offline" dialog/page like any other page a visitor tries to reach without a connection.
+- If your page renders any image through `member_photo()`/`section_photo()`/`editable_image()` (§8.39) and you want it to actually show a photo (not just render offline with everything missing), you need a way for `Core\Offline\OfflineManifestService` to know which image URLs to include in `GET /api/offline/manifest`'s response — today this is done ad hoc per core page inside that service (it has no generic per-module hook for this yet). If your module's whitelisted page shows a photo, either reuse an existing image source that service already resolves (e.g. staff photos via `Core\Module\StaffDirectoryProvider`, the same hook that already backs the trombinoscope's offline photos) or raise it with a maintainer — don't grow that service by guessing at conventions ad hoc.
+- Whitelisting a page doesn't change its `role_min`, its route, or anything about how it's served online — it only makes it eligible for the service worker's network-first-with-cache-fallback treatment and the pre-download script's proactive warming while offline.
 
 ## Protecting a public form (`Core\Security\HumanCheck`)
 

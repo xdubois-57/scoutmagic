@@ -169,17 +169,18 @@
         });
     }
     </script>
-    {# Offline content caching (Lot 3) — the single server-side source of
+    {# Offline content caching (Lot 3/4) — the single server-side source of
        truth (Core\Offline\OfflineWhitelist + the offline_cache_staleness_days
        setting), handed to both public/assets/js/offline-cache.js (which
        relays it to the service worker via postMessage — see public/sw.js's
        own 'message' handler, never hardcoded there) and offline-nav.js
-       (greys out unavailable links while offline). type="application/json"
-       so this never executes and needs no CSP nonce. Rendered
-       unconditionally — public pages are cacheable for a logged-out
-       visitor too (offline_account_scope is 'guest' in that case). #}
+       (greys out unavailable links while offline, opens the unavailability
+       dialog below). type="application/json" so this never executes and
+       needs no CSP nonce. Rendered unconditionally — public pages are
+       cacheable for a logged-out visitor too (offline_account_scope is
+       'guest' in that case). #}
     <script type="application/json" id="offline-config-data">{{ {
-        stalenessDays: offline_cache_staleness_days|default(7),
+        stalenessDays: offline_cache_staleness_days|default(30),
         consent: offline_functional_consent|default(false),
         whitelist: offline_whitelist|default([]),
         accountScope: offline_account_scope|default('guest'),
@@ -187,7 +188,29 @@
     }|json_encode|raw }}</script>
     <script src="/assets/js/offline-cache.js" defer></script>
     <script src="/assets/js/offline-nav.js" defer></script>
-    <script src="/assets/js/offline-photos.js" defer></script>
+    <script src="/assets/js/offline-prefetch.js" defer></script>
+    {# Generic "unavailable offline" dialog (Lot 4, offline-nav.js) — one
+       modal for the whole site, no per-page wiring: a click on a
+       non-whitelisted link, any form submission, or any non-GET fetch()
+       call opens this with the matching French message, while leaving
+       the underlying page (and any filled-in form fields) untouched.
+       Dismissing it is the only way out — never a navigation. #}
+    <div class="modal fade" id="offline-dialog" tabindex="-1" aria-labelledby="offline-dialog-label" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="offline-dialog-label"><i class="bi bi-wifi-off"></i> Hors ligne</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fermer"></button>
+                </div>
+                <div class="modal-body">
+                    <p id="offline-dialog-message" class="mb-0"></p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-primary" data-bs-dismiss="modal">Compris</button>
+                </div>
+            </div>
+        </div>
+    </div>
     {% block scripts %}{% endblock %}
 
     {% if cookie_consent_given is defined and not cookie_consent_given %}

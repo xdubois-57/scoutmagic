@@ -14,6 +14,7 @@ use Core\Database\MigrationRunner;
 use Core\Http\Router;
 use Core\Journal\JournalService;
 use Core\Notification\NotificationService;
+use Core\Offline\OfflineWhitelist;
 use Core\View\MenuBuilder;
 
 class ModuleManager
@@ -44,7 +45,8 @@ class ModuleManager
         private MigrationRunner $migrationRunner,
         private JournalService $journalService,
         private Router $router,
-        private ?NotificationService $notificationService = null
+        private ?NotificationService $notificationService = null,
+        private OfflineWhitelist $offlineWhitelist = new OfflineWhitelist()
     ) {
     }
 
@@ -355,6 +357,11 @@ class ModuleManager
         // Register notification types
         if (!empty($manifest->notifications)) {
             $this->notificationService?->registerModuleTypes($manifest->id, $manifest->notifications);
+        }
+
+        // Register offline-cacheable pages (Core\Offline\OfflineWhitelist)
+        if (!empty($manifest->offline)) {
+            $this->offlineWhitelist->registerModuleEntries($manifest->id, $manifest->offline);
         }
 
         // Register scheduled task handlers

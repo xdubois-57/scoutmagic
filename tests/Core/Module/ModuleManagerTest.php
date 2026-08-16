@@ -14,6 +14,7 @@ use Core\Journal\JournalService;
 use Core\Module\ModuleException;
 use Core\Module\ModuleManager;
 use Core\Module\ModuleRegistryRepository;
+use Core\Offline\OfflineWhitelist;
 use Core\Security\Role;
 use Core\View\MenuBuilder;
 use PHPUnit\Framework\TestCase;
@@ -28,6 +29,7 @@ class ModuleManagerTest extends TestCase
     private ModuleRegistryRepository $registryRepo;
     private SettingService $settingService;
     private CookieConsentService $cookieConsentService;
+    private OfflineWhitelist $offlineWhitelist;
     private MenuBuilder $menuBuilder;
     private Router $router;
     private string $fixturesDir;
@@ -41,6 +43,7 @@ class ModuleManagerTest extends TestCase
         $settingRepo = new SettingRepository($this->pdo);
         $this->settingService = new SettingService($settingRepo);
         $this->cookieConsentService = new CookieConsentService([]);
+        $this->offlineWhitelist = new OfflineWhitelist();
         $this->menuBuilder = new MenuBuilder(Role::fromString('admin'));
         $this->registryRepo = new ModuleRegistryRepository($this->pdo);
         $this->router = new Router();
@@ -57,7 +60,9 @@ class ModuleManagerTest extends TestCase
             $this->registryRepo,
             $migrationRunner,
             $journalService,
-            $this->router
+            $this->router,
+            null,
+            $this->offlineWhitelist
         );
     }
 
@@ -181,6 +186,26 @@ class ModuleManagerTest extends TestCase
         $declared = $this->cookieConsentService->getAllDeclaredCookies();
         $functionalNames = array_map(fn($c) => $c['name'], $declared['functional']['cookies']);
         $this->assertContains('test_pref', $functionalNames);
+    }
+
+    public function testLoadEnabledModulesRegistersOfflineEntries(): void
+    {
+        $this->registryRepo->upsert('valid_module', true, '1.0.0', null);
+
+        $this->manager->loadEnabledModules();
+
+        $paths = array_column($this->offlineWhitelist->getAllEntries(), 'path');
+        $this->assertContains('/test-module', $paths);
+    }
+
+    public function testADisabledModuleNeverRegistersItsOfflineEntry(): void
+    {
+        // valid_module is discovered on disk but never enabled here — no
+        // registry row, so loadEnabledModules() skips it entirely.
+        $this->manager->loadEnabledModules();
+
+        $paths = array_column($this->offlineWhitelist->getAllEntries(), 'path');
+        $this->assertNotContains('/test-module', $paths);
     }
 
     public function testLoadEnabledModulesRegistersMenuPages(): void
