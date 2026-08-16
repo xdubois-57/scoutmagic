@@ -31,6 +31,8 @@ use Core\Database\SqlParser;
 use Core\File\FileAccessGuard;
 use Core\File\FileRepository;
 use Core\File\UploadHandler;
+use Core\Photo\ImageVariantProcessor;
+use Core\Photo\ImageVariantService;
 use Core\Photo\LandscapeImageProcessor;
 use Core\Photo\MemberPhotoRepository;
 use Core\Photo\MemberPhotoService;
@@ -896,6 +898,12 @@ $storagePath = dirname(__DIR__) . '/storage';
 $fileRepository = new FileRepository($pdo);
 $uploadHandler = new UploadHandler($fileRepository, $storagePath);
 $encryptedFileStorageService = new \Core\File\EncryptedFileStorageService($fileRepository, $encryptionService, $storagePath);
+
+// Image variant pipeline (thumb/md derivatives of the core photo contexts
+// — member_photo, section_photo, editable_image, age_branch_logo). Siblings
+// of the stored original on disk, no `files` row of their own — see
+// Core\Photo\ImageVariantService's own docblock.
+$imageVariantService = new ImageVariantService($fileRepository, new ImageVariantProcessor(), $storagePath);
 $sectionDocumentService = new \Core\Member\SectionDocumentService(
     $sectionDocumentRepository, $sectionMembershipRepository, $encryptedFileStorageService, $fileRepository,
     $sectionService, $scoutYearService, $journalService, $schedulerService, $settingService,
@@ -1273,11 +1281,17 @@ $router->addRoute('POST', '/cookies/reject-all', CookieController::class, 'rejec
 // File serving
 $router->addRoute('GET', '/files/{id}', FileController::class, 'serve', 'public');
 $router->addRoute('GET', '/files/{id}/thumbnail', FileController::class, 'thumbnail', 'public');
-// Offline mode (Lot 3) — distinct, narrower routes than /files/{id}; see
-// Core\Http\Controller\OfflineController's class docblock for why this
-// is not a precedent for bypassing FileAccessGuard elsewhere.
+// Registered after the literal /thumbnail route above so that path stays
+// reachable — Router::resolve() matches in registration order and a
+// {variant} wildcard would otherwise happily swallow it too. Serves a
+// pre-generated derivative (Core\Photo\ImageVariantService) through the
+// same FileAccessGuard/journal path as serve() — see
+// Core\Http\Controller\FileController::variant()'s own docblock.
+$router->addRoute('GET', '/files/{id}/{variant}', FileController::class, 'variant', 'public');
+// Offline mode (Lot 3) pre-download manifest — every URL it lists is a
+// plain /files/{id}/thumb, guarded exactly like any other request to that
+// route once fetched; this endpoint itself only lists candidates.
 $router->addRoute('GET', '/api/offline/photo-manifest', OfflineController::class, 'photoManifest', 'identified');
-$router->addRoute('GET', '/api/offline/photo/{member_id}', OfflineController::class, 'photo', 'identified');
 
 // Generic short-URL redirector (Core\Url)
 $router->addRoute('GET', '/s/{code}', ShortUrlController::class, 'resolve', 'public');
@@ -1577,20 +1591,16 @@ $frontController->registerController(ConfigModeController::class, new ConfigMode
 $editableContentController = new EditableContentController($twig, $editableContentService);
 $editableContentController->setJournalService($journalService);
 $frontController->registerController(EditableContentController::class, $editableContentController);
-$fileController = new FileController($twig, $fileAccessGuard, $storagePath, $encryptedFileStorageService);
+$fileController = new FileController($twig, $fileAccessGuard, $storagePath, $encryptedFileStorageService, $imageVariantService);
 $fileController->setJournalService($journalService);
 $frontController->registerController(FileController::class, $fileController);
 // staffDirectoryProvider is wired for real inside the trombinoscope block
 // below (re-registered there, same Core\Module\SectionResponsableProvider
 // precedent as PageController) — null here degrades to an empty manifest
 // when that module is disabled.
-$staffThumbnailProcessor = new \Core\Photo\StaffThumbnailProcessor();
-$offlineController = new OfflineController(
-    $twig, $memberPhotoService, $fileAccessGuard, $scoutYearService, $staffThumbnailProcessor,
-    $storagePath, $encryptedFileStorageService, null
-);
+$offlineController = new OfflineController($twig, $memberPhotoService, $scoutYearService, null);
 $frontController->registerController(OfflineController::class, $offlineController);
-$uploadController = new UploadController($twig, $uploadHandler, $editableContentService, $memberPhotoService, $sectionPhotoService, $sectionPhotoProcessor, $landscapeImageProcessor, $memberService, $ageBranchRepo, $unitLogoService);
+$uploadController = new UploadController($twig, $uploadHandler, $editableContentService, $memberPhotoService, $sectionPhotoService, $sectionPhotoProcessor, $landscapeImageProcessor, $memberService, $ageBranchRepo, $unitLogoService, $imageVariantService);
 $uploadController->setJournalService($journalService);
 $frontController->registerController(UploadController::class, $uploadController);
 $frontController->registerController(\Core\Http\Controller\PwaController::class, new \Core\Http\Controller\PwaController($twig, $settingService, $unitLogoService));
@@ -1654,10 +1664,7 @@ if (in_array('trombinoscope', $moduleManager->getEnabledModuleIds(), true)) {
     // $sectionResponsableProvider just above.
     $frontController->registerController(
         OfflineController::class,
-        new OfflineController(
-            $twig, $memberPhotoService, $fileAccessGuard, $scoutYearService, $staffThumbnailProcessor,
-            $storagePath, $encryptedFileStorageService, $trombinoscopeService
-        )
+        new OfflineController($twig, $memberPhotoService, $scoutYearService, $trombinoscopeService)
     );
 }
 

@@ -176,7 +176,7 @@
                 <div class="d-flex flex-wrap align-items-center gap-2 gap-md-3 p-3 border-bottom branch-row" data-id="{{ branch.id }}">
                     <div class="d-flex align-items-center gap-2" style="min-width:64px;">
                         {% if branch.logo_file_id %}
-                            <img src="{{ file_url(branch.logo_file_id) }}" alt="{{ branch.label }}" class="rounded" style="width:48px;height:48px;object-fit:contain;">
+                            <img src="{{ file_url(branch.logo_file_id, 'md') }}" alt="{{ branch.label }}" class="rounded" style="width:48px;height:48px;object-fit:contain;">
                         {% elseif branch.default_logo %}
                             <img src="/assets/img/branches/{{ branch.default_logo }}" alt="{{ branch.label }}" class="rounded" style="width:48px;height:48px;object-fit:contain;">
                         {% else %}

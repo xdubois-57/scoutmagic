@@ -16,6 +16,7 @@ use Core\Http\Response;
 use Core\Import\AgeBranchRepository;
 use Core\Journal\JournalService;
 use Core\Member\MemberService;
+use Core\Photo\ImageVariantService;
 use Core\Photo\LandscapeImageProcessor;
 use Core\Photo\MemberPhotoService;
 use Core\Photo\SectionPhotoProcessor;
@@ -42,7 +43,8 @@ class UploadController extends AbstractController
         private LandscapeImageProcessor $landscapeImageProcessor,
         private MemberService $memberService,
         private AgeBranchRepository $ageBranchRepository,
-        private UnitLogoService $unitLogoService
+        private UnitLogoService $unitLogoService,
+        private ImageVariantService $imageVariantService
     ) {
     }
 
@@ -102,7 +104,12 @@ class UploadController extends AbstractController
 
         try {
             $allowedMimes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
-            $maxSize = 5 * 1024 * 1024; // 5 MB
+            // 10 MB — raised from 5 MB now that the five core photo
+            // contexts downscale to WebP/2400px client-side before POSTing
+            // (public/assets/js/upload.js); this remains the server-side
+            // floor for anything the client-side step skips (already-small
+            // files) or can't run (JS disabled, non-browser client).
+            $maxSize = 10 * 1024 * 1024;
 
             // unit_logo (Configuration avancée's "Paramètres généraux"
             // logo upload — feeds the favicon, the installed-app icons,
@@ -163,11 +170,13 @@ class UploadController extends AbstractController
                 $uploadedFile = $this->processLandscapeImage($uploadedFile, $allowedMimes);
             }
 
-            // member_photo/section_photo uploads are scoped to a member or
-            // section (not public site content) — see Core\Photo\
-            // MemberPhotoService / SectionPhotoService. The Staffs page
-            // itself requires at least 'intendant' to view, so a section
-            // photo's own access floor matches that.
+            // member_photo is scoped to a member (not public site content)
+            // — see Core\Photo\MemberPhotoService. section_photo is
+            // 'public': it's rendered on the public Contact and Sections
+            // pages (ARCHITECTURE §8.21) — a stricter floor here would
+            // make FileAccessGuard deny it to any non-identified visitor,
+            // which is exactly what those two pages already assume never
+            // happens.
             $subDirectory = match ($context) {
                 'member_photo' => 'core/member_photos',
                 'section_photo' => 'core/section_photos',
@@ -176,7 +185,6 @@ class UploadController extends AbstractController
             };
             $roleMin = match ($context) {
                 'member_photo' => 'identified',
-                'section_photo' => 'intendant',
                 default => 'public',
             };
 
@@ -189,6 +197,20 @@ class UploadController extends AbstractController
                 null,
                 AuthSession::getUserAccountId()
             );
+
+            // Derivative pipeline (Core\Photo\ImageVariantService) — exactly
+            // one variant per core photo context, generated once here and
+            // never regenerated on demand. Contexts outside this map
+            // (unit_logo never reaches this point at all — see the
+            // short-circuit above) get no derivative.
+            $variant = match ($context) {
+                'member_photo' => 'thumb',
+                'section_photo', 'editable_image', 'age_branch_logo' => 'md',
+                default => null,
+            };
+            if ($variant !== null) {
+                $this->imageVariantService->generate($fileId, $variant);
+            }
 
             // For editable_image context, update the editable content record
             if ($context === 'editable_image' && $key !== '') {

@@ -26,13 +26,15 @@
 // invalidate: a release bump OR a standalone logo upload (which never
 // touches appVersion) each make the browser treat this as a new worker
 // (a byte-different script), which installs, precaches fresh copies
-// under a new cache name, and activate() below deletes every cache that
-// doesn't match it.
+// under a new cache name, and activate() below deletes every cache whose
+// name starts with the app-shell prefix and doesn't match it — NEVER any
+// other cache (offline-config, content-*): see activate() itself for the
+// real bug this used to cause.
 //
 // Scope of the app-shell cache (Lot 1): the shell ONLY (Bootstrap, the
 // site's own CSS/JS, the icons, /offline). Cache-first for exactly those;
-// everything else — including every authenticated page and every
-// /files/{id} download — is network-only. No content caching.
+// everything else — including every authenticated page and the plain
+// /files/{id} original — is network-only. No content caching here.
 //
 // Scope of push (Lot 2): receive a push, show a real, visible
 // notification for it — Chrome silently substitutes "this site was
@@ -47,16 +49,24 @@
 // Scope of content caching (Lot 3): network-first, cache-fallback, for
 // exactly the server-declared whitelist (Core\Offline\OfflineWhitelist —
 // public pages, the calendar, the notification centre, the
-// trombinoscope). `/files/{id}` is NEVER in that whitelist and is never
-// reachable through this path — nothing here changes the "network-only"
-// rule above for it. Cache name is `content-{accountScope}-{version}`:
-// scoped to the signed-in account (or 'guest') so a different member on
-// the same device never inherits the previous one's cache, and to the
-// app version like the shell cache above. Config (staleness threshold,
-// consent, the whitelist itself, account scope) arrives via postMessage
-// from base.html.twig on every page load — never hardcoded here — and is
-// persisted in its own small Cache Storage entry so it survives this
-// worker being terminated and restarted between messages and fetches.
+// trombinoscope). The plain, un-suffixed `/files/{id}` is NEVER in that
+// whitelist and is never reachable through this path — nothing here
+// changes the "network-only" rule above for it. Cache name is
+// `content-{accountScope}-{version}`: scoped to the signed-in account (or
+// 'guest') so a different member on the same device never inherits the
+// previous one's cache, and to the app version like the shell cache
+// above. Config (staleness threshold, consent, the whitelist itself,
+// account scope) arrives via postMessage from base.html.twig on every
+// page load — never hardcoded here — and is persisted in its own small
+// Cache Storage entry so it survives this worker being terminated and
+// restarted between messages and fetches.
+//
+// Image-variant derivatives (GET /files/{id}/thumb|md — Core\Photo\
+// ImageVariantService) get their own narrow, READ-ONLY branch further
+// down: network-first, falling back to whatever's already in Cache
+// Storage (written only by the pre-download script, public/assets/js/
+// offline-photos.js) on a network failure. This branch never writes —
+// see it for why.
 
 const params = new URLSearchParams(self.location.search);
 const VERSION = params.get('v') || 'dev';
@@ -69,6 +79,7 @@ const VERSION = params.get('v') || 'dev';
 // manual cache wipe (see the real bug this closes: ARCHITECTURE §8.23).
 const ICON_VERSION = params.get('iv') || '1';
 const CACHE_NAME = 'app-shell-' + VERSION + '-icons-' + ICON_VERSION;
+const APP_SHELL_CACHE_PREFIX = 'app-shell-';
 
 // Icon URLs carry their own server-issued `?v=` cache-buster
 // (pwa_icon_version) baked into the precached Request's URL below, and
@@ -105,12 +116,30 @@ const VERSIONED_ICON_URLS = ICON_URLS.map(function (path) { return path + '?v=' 
 const APP_SHELL_BASE_URLS = [
     '/assets/vendor/bootstrap/css/bootstrap.min.css',
     '/assets/vendor/bootstrap-icons/bootstrap-icons.min.css',
+    '/assets/vendor/bootstrap-icons/fonts/bootstrap-icons.woff2',
+    '/assets/vendor/bootstrap-icons/fonts/bootstrap-icons.woff',
     '/assets/vendor/bootstrap/js/bootstrap.bundle.min.js',
     '/assets/css/app.css',
     '/assets/css/editable.css',
+    '/assets/css/components.css',
     '/assets/js/nav.js',
     '/assets/js/editable.js',
     '/assets/js/cookie-consent.js',
+    '/assets/js/breadcrumb.js',
+    '/assets/js/chip-picker.js',
+    '/assets/js/notification-badge.js',
+    '/assets/js/offline-cache.js',
+    '/assets/js/offline-nav.js',
+    '/assets/js/offline-photos.js',
+    '/assets/js/offline-page.js',
+    '/assets/img/lesscouts.png',
+    '/assets/img/branches/logo_baladins.png',
+    '/assets/img/branches/logo_louveteaux.png',
+    '/assets/img/branches/logo_eclaireurs.png',
+    '/assets/img/branches/logo_pionniers.png',
+    '/assets/img/branches/logo_route.png',
+    '/assets/img/branches/logo_iama.png',
+    '/assets/img/branches/logo_staffdu.png',
     '/favicon.ico',
     '/offline',
 ];
@@ -181,11 +210,19 @@ self.addEventListener('install', function (event) {
 });
 
 self.addEventListener('activate', function (event) {
+    // Only ever purges the app shell's OWN cache generations — a release
+    // (VERSION bump) or a standalone unit-logo upload (ICON_VERSION bump)
+    // must retire the shell cache it superseded, but NEVER offline-config
+    // or any content-* cache (Lot 3): those have their own lifecycle
+    // (per-account naming, purged on logout/consent-withdrawal only, see
+    // purgeAllContentCaches()) and activate() wiping every cache whose name
+    // differed from CACHE_NAME used to silently empty them on every
+    // release or logo upload — a real bug, fixed here.
     event.waitUntil(
         caches.keys().then(function (names) {
             return Promise.all(
                 names
-                    .filter(function (name) { return name !== CACHE_NAME; })
+                    .filter(function (name) { return name.indexOf(APP_SHELL_CACHE_PREFIX) === 0 && name !== CACHE_NAME; })
                     .map(function (name) { return caches.delete(name); })
             );
         })
@@ -229,15 +266,30 @@ self.addEventListener('fetch', function (event) {
         return;
     }
 
-    // Staff photo thumbnails (trombinoscope pre-download) — a narrow,
-    // separate cacheable exception, same as the route itself
-    // (Core\Http\Controller\OfflineController — never /files/{id}).
-    if (url.pathname.indexOf('/api/offline/photo/') === 0) {
-        event.respondWith(getOfflineConfig().then(function (config) { return handlePhotoFetch(request, config); }));
+    // Pre-generated image-variant derivatives (Core\Photo\ImageVariantService,
+    // GET /files/{id}/thumb|md) — read-only here: network-first, falling
+    // back to Cache Storage on a network failure ONLY. This branch never
+    // calls cache.put() — writing is entirely the pre-download script's job
+    // (public/assets/js/offline-photos.js), which owns the consent/
+    // standalone-mode policy for what gets written and where. A 403/404
+    // from a live network response (a real access-guard decision) is
+    // returned as-is, never masked by a stale cached copy — only an actual
+    // network failure (offline) falls through to the cache. Every OTHER
+    // /files/{id} request — the original itself, /thumbnail, anything not
+    // matching this exact pattern — falls through unmatched below and
+    // stays strictly network-only, same as before: this is the one
+    // regex that's allowed to touch Cache Storage for a /files/{id} URL,
+    // and even it never writes.
+    if (/^\/files\/\d+\/(thumb|md)$/.test(url.pathname)) {
+        event.respondWith(
+            fetch(request).catch(function () {
+                return caches.match(request);
+            })
+        );
         return;
     }
 
-    // Every other GET (including every /files/{id} download) stays
+    // Every other GET (including every plain /files/{id} download) stays
     // strictly network-only — no exception, this is the one line that
     // keeps SECURITY.md's file-access rule true for the service worker.
     // Navigations get the one exception below.
@@ -245,24 +297,6 @@ self.addEventListener('fetch', function (event) {
         event.respondWith(handleNavigate(request, url));
     }
 });
-
-function handlePhotoFetch(request, config) {
-    if (!config || !config.consent) {
-        return fetch(request);
-    }
-
-    const cacheName = CONTENT_CACHE_PREFIX + config.account_scope + '-' + config.version;
-
-    return fetch(request).then(function (response) {
-        if (response && response.ok) {
-            const copy = response.clone();
-            caches.open(cacheName).then(function (cache) { cache.put(request, copy); });
-        }
-        return response;
-    }).catch(function () {
-        return caches.open(cacheName).then(function (cache) { return cache.match(request); });
-    });
-}
 
 function handleNavigate(request, url) {
     return getOfflineConfig().then(function (config) {

@@ -10,8 +10,13 @@
        this page is precached once by the service worker and can be
        served back much later with no network at all, so nothing dynamic
        or personal must ever end up baked into that cached snapshot. Only
-       app.css (already precached as part of the app shell) is used. #}
+       already-precached assets are linked (app.css, Bootstrap Icons —
+       see APP_SHELL_BASE_URLS in public/sw.js), and offline-page.js is a
+       plain external script: no inline handler, no CSP nonce, since a
+       nonce baked into a precached response would go stale the moment
+       the server issues a new one on the next request. #}
     <link rel="stylesheet" href="/assets/vendor/bootstrap/css/bootstrap.min.css">
+    <link rel="stylesheet" href="/assets/vendor/bootstrap-icons/bootstrap-icons.min.css">
     <link rel="stylesheet" href="/assets/css/app.css">
 </head>
 <body>
@@ -21,7 +26,12 @@
         <p class="text-body-secondary">
             Cette page n'est pas disponible hors ligne. Vérifiez votre connexion puis réessayez.
         </p>
-        <button type="button" class="btn btn-primary mt-2" onclick="window.location.reload()">Réessayer</button>
+        <div class="d-flex flex-column flex-sm-row gap-2 mt-2">
+            <button type="button" id="offline-retry-btn" class="btn btn-primary">Réessayer</button>
+            <button type="button" id="offline-back-btn" class="btn btn-outline-secondary">Retour</button>
+            <a href="/" class="btn btn-outline-secondary">Accueil</a>
+        </div>
     </div>
+    <script src="/assets/js/offline-page.js"></script>
 </body>
 </html>
