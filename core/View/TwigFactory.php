@@ -294,6 +294,13 @@ class TwigFactory
             return (int) $dateTime->format('j') . ' ' . $months[(int) $dateTime->format('n')] . ' ' . $dateTime->format('Y');
         }));
 
+        // Register markdown filter — renders release/commit notes (see
+        // Core\View\MarkdownRenderer) as safe HTML instead of raw Markdown
+        // syntax.
+        $environment->addFilter(new TwigFilter('markdown', function (?string $text): string {
+            return MarkdownRenderer::toHtml((string) $text);
+        }, ['is_safe' => ['html']]));
+
         return $environment;
     }
 
