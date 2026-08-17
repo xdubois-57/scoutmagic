@@ -177,15 +177,16 @@ class GitHubWebhookServiceTest extends TestCase
     }
 
     /**
-     * A dev build installed from the branch is always ahead of any stable
-     * release, so a release event must be treated as "not newer" (never a
-     * downgrade) even though PHP's version_compare would call it newer.
+     * While the configured channel is still 'dev', a dev build installed
+     * from the branch is always ahead of any stable release, so a release
+     * event must be treated as "not newer" (never a downgrade) even though
+     * PHP's version_compare would call it newer.
      */
-    public function testHandleReleaseEventDoesNotScheduleAStableReleaseOverAnInstalledDevBuild(): void
+    public function testHandleReleaseEventDoesNotScheduleAStableReleaseOverAnInstalledDevBuildWhileStayingOnDevChannel(): void
     {
         file_put_contents($this->basePath . '/VERSION', "dev-a1b2c3d\n");
         $this->settings->set('auto_update_enabled', '1');
-        $this->settings->set('auto_update_level', 'major');
+        $this->settings->set('auto_update_level', 'dev');
         $this->settings->clearCache();
 
         $result = $this->service()->handleReleaseEvent($this->releasePayload('v3.0.0'));
@@ -195,6 +196,27 @@ class GitHubWebhookServiceTest extends TestCase
         $this->assertSame(0, $count);
         $historyCount = (int) $this->pdo->query("SELECT COUNT(*) FROM update_history")->fetchColumn();
         $this->assertSame(0, $historyCount);
+    }
+
+    /**
+     * Once the admin has switched the configured channel away from 'dev'
+     * to a numbered level (e.g. deliberately moving off a leftover dev
+     * build back to stable), an installed dev build must no longer mask a
+     * genuinely newer release — it must be detected and scheduled exactly
+     * like any other stable update.
+     */
+    public function testHandleReleaseEventSchedulesAStableReleaseOverAnInstalledDevBuildWhenChannelIsNoLongerDev(): void
+    {
+        file_put_contents($this->basePath . '/VERSION', "dev-a1b2c3d\n");
+        $this->settings->set('auto_update_enabled', '1');
+        $this->settings->set('auto_update_level', 'major');
+        $this->settings->clearCache();
+
+        $result = $this->service()->handleReleaseEvent($this->releasePayload('v3.0.0'));
+
+        $this->assertSame(['status' => 'ok'], $result);
+        $count = (int) $this->pdo->query("SELECT COUNT(*) FROM scheduled_actions WHERE task_key = 'install_update'")->fetchColumn();
+        $this->assertSame(1, $count);
     }
 
     public function testHandleReleaseEventIgnoredWhenAutoUpdateDisabled(): void

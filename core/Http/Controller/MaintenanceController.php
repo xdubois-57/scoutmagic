@@ -91,10 +91,10 @@ class MaintenanceController extends AbstractController
     {
         $latestVersion = (string) ($this->settingService->get('update_latest_version') ?: '');
         $installedVersion = VersionFile::read(dirname($this->storagePath));
-        $updateAvailable = $latestVersion !== '' && VersionFile::isNewerThan($latestVersion, $installedVersion);
+        $level = (string) ($this->settingService->get('auto_update_level') ?: 'minor');
+        $updateAvailable = $latestVersion !== '' && VersionFile::isNewerThan($latestVersion, $installedVersion, $level === 'dev');
 
         $autoUpdateEnabled = (bool) ((int) ($this->settingService->get('auto_update_enabled') ?: '0'));
-        $level = (string) ($this->settingService->get('auto_update_level') ?: 'minor');
         $webhookConfigured = $this->webhookSecret() !== '';
         [$installedVersionDisplay, $installedVersionCommit] = self::splitInstalledVersion($installedVersion);
         $installedNotes = $this->installedVersionNotes($installedVersion, $installedVersionCommit);

@@ -427,17 +427,21 @@ class MaintenanceControllerTest extends TestCase
     }
 
     /**
-     * A dev build tracks the branch's latest commit, so it is always newer
-     * than any stable release — the "Une nouvelle version est disponible"
-     * banner must not appear for a cached release while a dev build is
-     * installed (version_compare would wrongly rank "dev" below it).
+     * While the configured channel is still 'dev', a dev build tracks the
+     * branch's latest commit and is treated as always newer than any
+     * stable release — the "Une nouvelle version est disponible" banner
+     * must not appear for a cached release while a dev build is installed
+     * and the channel remains 'dev' (version_compare would wrongly rank
+     * "dev" below it).
      */
-    public function testIndexDoesNotShowUpdateAvailableWhenADevBuildIsInstalled(): void
+    public function testIndexDoesNotShowUpdateAvailableWhenADevBuildIsInstalledAndChannelStaysDev(): void
     {
         $versionFile = sys_get_temp_dir() . '/VERSION';
         $original = is_file($versionFile) ? file_get_contents($versionFile) : null;
         file_put_contents($versionFile, "dev-a1b2c3d\n");
         $this->settingService->setInternal('update_latest_version', '1.0.22');
+        $this->settingService->set('auto_update_level', 'dev');
+        $this->settingService->clearCache();
 
         try {
             $response = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), []);
@@ -446,6 +450,35 @@ class MaintenanceControllerTest extends TestCase
             $this->assertStringNotContainsString('Une nouvelle version est disponible', $body);
             $this->assertStringNotContainsString('Installer la mise à jour', $body);
             $this->assertStringContainsString('Le site est à jour', $body);
+        } finally {
+            if ($original !== null) {
+                file_put_contents($versionFile, $original);
+            } else {
+                @unlink($versionFile);
+            }
+        }
+    }
+
+    /**
+     * Once the admin has switched the configured channel away from 'dev'
+     * back to a numbered level, a leftover installed dev build must no
+     * longer mask a genuinely newer stable release — the admin explicitly
+     * asked to move off dev, so the update must be detected and offered.
+     */
+    public function testIndexShowsUpdateAvailableWhenADevBuildIsInstalledButChannelIsNoLongerDev(): void
+    {
+        $versionFile = sys_get_temp_dir() . '/VERSION';
+        $original = is_file($versionFile) ? file_get_contents($versionFile) : null;
+        file_put_contents($versionFile, "dev-a1b2c3d\n");
+        $this->settingService->setInternal('update_latest_version', '1.0.22');
+        $this->settingService->set('auto_update_level', 'minor');
+        $this->settingService->clearCache();
+
+        try {
+            $response = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), []);
+            $body = $response->getBody();
+
+            $this->assertStringContainsString('Une nouvelle version est disponible', $body);
         } finally {
             if ($original !== null) {
                 file_put_contents($versionFile, $original);
@@ -848,7 +881,14 @@ class MaintenanceControllerTest extends TestCase
         $this->assertFalse($decoded['update_available']);
     }
 
-    public function testCheckForUpdatesNowDoesNotReportAReleaseAsNewerThanAnInstalledDevBuild(): void
+    /**
+     * "Vérifier maintenant" always checks the currently configured channel
+     * (this test's setUp defaults auto_update_level to 'patch', a stable
+     * channel), so a leftover installed dev build must not mask a
+     * genuinely newer release — the admin's configured level is stable,
+     * not dev, so the check must report the release as available.
+     */
+    public function testCheckForUpdatesNowReportsAReleaseAsAvailableOverAnInstalledDevBuildWhenChannelIsStable(): void
     {
         $versionFile = sys_get_temp_dir() . '/VERSION';
         $original = is_file($versionFile) ? file_get_contents($versionFile) : null;
@@ -862,7 +902,7 @@ class MaintenanceControllerTest extends TestCase
             $decoded = json_decode($response->getBody(), true);
             $this->assertTrue($decoded['success']);
             $this->assertSame('release', $decoded['channel']);
-            $this->assertFalse($decoded['update_available']);
+            $this->assertTrue($decoded['update_available']);
         } finally {
             if ($original !== null) {
                 file_put_contents($versionFile, $original);

@@ -40,18 +40,24 @@ final class VersionFile
 
     /**
      * Whether $candidate is a genuinely newer version than the installed
-     * one. A dev/branch build (VERSION content "dev-{sha}", see
-     * CommitInfo::shortVersion()) tracks the branch's latest commit and is
-     * therefore always more recent than any stable release tag — but
-     * PHP's version_compare() ranks "dev" as its lowest special version
-     * form, so it would wrongly report a stable release as an upgrade
-     * over an installed dev build. All "is there a newer release"
+     * one. While the site is configured to stay on the development channel
+     * ($installedTracksDevChannel), an installed dev/branch build (VERSION
+     * content "dev-{sha}", see CommitInfo::shortVersion()) tracks the
+     * branch's latest commit and is treated as always more recent than any
+     * stable release tag — PHP's version_compare() would otherwise rank
+     * "dev" as its lowest special version form and wrongly report a stable
+     * release as an upgrade. That guard only makes sense while the channel
+     * is still 'dev', though: once an admin switches the configured
+     * channel to patch/minor/major (deliberately moving off a leftover dev
+     * build back to a numbered release), a real newer release must be
+     * detected normally instead of being permanently masked by the
+     * previously installed dev build. All "is there a newer release"
      * comparisons go through this instead of calling version_compare()
      * directly.
      */
-    public static function isNewerThan(string $candidate, string $installed): bool
+    public static function isNewerThan(string $candidate, string $installed, bool $installedTracksDevChannel = false): bool
     {
-        if (self::isDevBuild($installed)) {
+        if ($installedTracksDevChannel && self::isDevBuild($installed)) {
             return false;
         }
 
