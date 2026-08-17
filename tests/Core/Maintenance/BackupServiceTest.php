@@ -143,6 +143,56 @@ class BackupServiceTest extends TestCase
     }
 
     /**
+     * End-to-end proof that restoreDatabase() (Core\Database\
+     * DatabaseRestorer, pure PHP — see its own docblock for why this
+     * replaced shelling out to a `mysql` binary) actually round-trips a
+     * real dump: insert a row with content designed to break a naive
+     * statement splitter (a semicolon and a quote in the same string),
+     * dump the whole database, delete the row, restore, and confirm the
+     * exact row is back.
+     *
+     * @group database
+     */
+    #[\PHPUnit\Framework\Attributes\Group('database')]
+    public function testRestoreDatabaseRoundTripsARealDumpIncludingTrickyContent(): void
+    {
+        $connection = $this->realDbConnection();
+        $service = new BackupService($connection, $this->storagePath, $this->basePath);
+        $pdo = $connection->getPdo();
+
+        $trickyValue = "rendez-vous à 14h; n'oublie pas!";
+        $settingKey = 'backup_restore_test_' . bin2hex(random_bytes(4));
+
+        $pdo->prepare(
+            'INSERT INTO settings (module_id, setting_key, setting_value, setting_type, label, description)
+             VALUES (NULL, ?, ?, \'text\', \'test\', \'test\')'
+        )->execute([$settingKey, $trickyValue]);
+
+        $dumpPath = $service->createDatabaseDump();
+
+        $pdo->prepare('DELETE FROM settings WHERE setting_key = ?')->execute([$settingKey]);
+        $this->assertFalse(
+            $this->fetchSettingValue($pdo, $settingKey),
+            'row should be gone before restore — otherwise the assertion below proves nothing'
+        );
+
+        $service->restoreDatabase($dumpPath);
+
+        $this->assertSame($trickyValue, $this->fetchSettingValue($pdo, $settingKey));
+
+        $pdo->prepare('DELETE FROM settings WHERE setting_key = ?')->execute([$settingKey]);
+        unlink($dumpPath);
+    }
+
+    private function fetchSettingValue(\PDO $pdo, string $settingKey): string|false
+    {
+        $stmt = $pdo->prepare('SELECT setting_value FROM settings WHERE setting_key = ?');
+        $stmt->execute([$settingKey]);
+        $value = $stmt->fetchColumn();
+        return $value === null ? false : $value;
+    }
+
+    /**
      * @group database
      */
     #[\PHPUnit\Framework\Attributes\Group('database')]
@@ -189,6 +239,11 @@ class BackupServiceTest extends TestCase
      */
     private function realDbService(): BackupService
     {
+        return new BackupService($this->realDbConnection(), $this->storagePath, $this->basePath);
+    }
+
+    private function realDbConnection(): Connection
+    {
         $host = getenv('TEST_DB_HOST') ?: '127.0.0.1';
         $port = (int) (getenv('TEST_DB_PORT') ?: '3306');
         $dbName = getenv('TEST_DB_NAME') ?: 'test_db';
@@ -205,7 +260,7 @@ class BackupServiceTest extends TestCase
         $runner = new MigrationRunner($connection, $introspector, new SchemaComparator(), new SqlParser());
         $runner->migrate([dirname(__DIR__, 3) . '/schema/core.sql']);
 
-        return new BackupService($connection, $this->storagePath, $this->basePath);
+        return $connection;
     }
 
     /**
