@@ -423,6 +423,10 @@
     {
       "key": "purge_registration_requests",
       "handler": "Modules\\Registration\\Task\\PurgeRegistrationRequestsHandler"
+    },
+    {
+      "key": "auto_assign_passage",
+      "handler": "Modules\\Registration\\Task\\AutoAssignPassageHandler"
     }
   ],
   "storage": {},

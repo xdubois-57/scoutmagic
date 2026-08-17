@@ -42,6 +42,7 @@ class PassageControllerTest extends TestCase
     private PassageController $controller;
     private RegistrationRequestRepository $requestRepository;
     private SectionTransferRepository $transferRepository;
+    private PassageService $passageService;
     private int $currentYearId;
     private int $targetYearId;
     private int $louveteauxSectionId;
@@ -92,6 +93,7 @@ class PassageControllerTest extends TestCase
         $passageService = new PassageService(
             $this->pdo, $encryption, $sectionService, $this->transferRepository, $this->requestRepository, $ageBracketRepository
         );
+        $this->passageService = $passageService;
 
         $templateDir = dirname(__DIR__, 4) . '/core/View/templates';
         $moduleViews = dirname(__DIR__, 4) . '/modules/registration/views';
@@ -181,14 +183,35 @@ class PassageControllerTest extends TestCase
         $this->assertStringContainsString('2027-2028', $response->getBody());
     }
 
-    public function testIndexAutoAssignsTheOnlyPossibleDestination(): void
+    /**
+     * Displaying the page must not write anything: assigning the obvious
+     * single-option destinations moved to Task\AutoAssignPassageHandler, so
+     * a GET (a link prefetch, a crawler, a plain refresh) no longer touches
+     * the database. The picker still offers that single option meanwhile,
+     * so nothing is blocked on the task having run.
+     */
+    public function testIndexDoesNotWriteDestinations(): void
     {
-        // setUp only ever creates one Éclaireurs section — a last-rank
-        // Louveteau therefore has exactly one destination_options entry,
-        // so index() should persist it without staff picking anything.
         $member = $this->createLouveteauLastRank();
 
         $this->controller->index(new Request('GET', '/passage', [], [], [], []), []);
+
+        $this->assertNull($this->transferRepository->findDestinationSectionId($member['member_id'], $this->targetYearId));
+    }
+
+    /**
+     * setUp only ever creates one Éclaireurs section — a last-rank Louveteau
+     * therefore has exactly one possible destination, and there is no
+     * decision for staff to make (module spec).
+     */
+    public function testAutoAssignPersistsTheOnlyPossibleDestination(): void
+    {
+        $member = $this->createLouveteauLastRank();
+
+        $branchChanges = $this->passageService->getBranchChanges($this->currentYearId, '2026-2027', $this->targetYearId);
+        $this->assertSame(1, $this->passageService->countSingleOptionDestinationsToAssign($branchChanges));
+
+        $this->passageService->autoAssignSingleOptionDestinations($branchChanges, $this->targetYearId);
 
         $destinations = $this->transferRepository->findDestinationsForMembers([$member['member_id']], $this->targetYearId);
         $this->assertSame($this->eclaireursSectionId, $destinations[$member['member_id']] ?? null);

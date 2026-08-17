@@ -439,6 +439,12 @@ class RegistrationConfigController extends AbstractController
      */
     private function buildRequestRows(array $requests, array $brackets, int $referenceYear, array $sectionLabels): array
     {
+        // One grouped count for the whole year rather than a query per row —
+        // this list routinely carries a couple of hundred requests.
+        $siblingCounts = $this->requestRepository->countSiblingsForRequests(
+            array_map(static fn($r) => $r->id, $requests)
+        );
+
         $rows = [];
         foreach ($requests as $registrationRequest) {
             $slot = SlotMath::slotForBirthDate($brackets, $registrationRequest->birthDate, $referenceYear);
@@ -449,7 +455,7 @@ class RegistrationConfigController extends AbstractController
                 'intended_section_label' => $registrationRequest->intendedSectionId !== null
                     ? ($sectionLabels[$registrationRequest->intendedSectionId] ?? '—')
                     : null,
-                'sibling_count' => count($this->requestRepository->findSiblingMemberIds($registrationRequest->id)),
+                'sibling_count' => $siblingCounts[$registrationRequest->id] ?? 0,
             ];
         }
 

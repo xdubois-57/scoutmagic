@@ -328,6 +328,49 @@ class RegistrationRequestRepository
     }
 
     /**
+     * Declared siblings for a whole batch of requests, one query — the
+     * per-request lookup below issued one query per row of the Passage page
+     * and of the management list.
+     *
+     * @param array<int> $requestIds
+     * @return array<int, array<int>> request id => member ids (requests with
+     *         no declared sibling are simply absent)
+     */
+    public function findSiblingMemberIdsForRequests(array $requestIds): array
+    {
+        $requestIds = array_values(array_unique($requestIds));
+        if ($requestIds === []) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($requestIds), '?'));
+        $stmt = $this->pdo->prepare(
+            "SELECT registration_request_id, member_id FROM registration_request_siblings
+             WHERE registration_request_id IN ({$placeholders})"
+        );
+        $stmt->execute($requestIds);
+
+        $result = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $result[(int) $row['registration_request_id']][] = (int) $row['member_id'];
+        }
+
+        return $result;
+    }
+
+    /**
+     * How many siblings each request declares — the management list only
+     * ever shows the count, so it has no business fetching the ids.
+     *
+     * @param array<int> $requestIds
+     * @return array<int, int> request id => count
+     */
+    public function countSiblingsForRequests(array $requestIds): array
+    {
+        return array_map('count', $this->findSiblingMemberIdsForRequests($requestIds));
+    }
+
+    /**
      * @return array<int> member ids declared as siblings on this request
      */
     public function findSiblingMemberIds(int $requestId): array

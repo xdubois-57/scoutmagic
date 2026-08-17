@@ -69,10 +69,12 @@ class PassageController extends AbstractController
         $newRegistrations = $this->passageService->getNewRegistrations(
             (int) $targetYear['id'], (string) $targetYear['label'], $referenceMonthDay, (int) $publicYear['id']
         );
+        // Read-only: assigning the obvious single-option destinations is
+        // Task\AutoAssignPassageHandler's job now. Doing it here meant a
+        // plain GET wrote to the database on every display of the page.
         $branchChanges = $this->passageService->getBranchChanges(
             (int) $publicYear['id'], (string) $publicYear['label'], (int) $targetYear['id']
         );
-        $branchChanges = $this->passageService->autoAssignSingleOptionDestinations($branchChanges, (int) $targetYear['id']);
 
         return $this->render('@registration/passage.html.twig', [
             'target_year_label' => $targetYear['label'],
@@ -233,18 +235,19 @@ class PassageController extends AbstractController
     }
 
     /**
+     * Delegates to Service\PassageService::arrivalSectionsForMember(),
+     * which resolves one single member's arrival branch. This used to run
+     * getBranchChanges() in full — decrypting every animé of the year and
+     * resolving every household — just to read one row's options back out,
+     * on every save.
+     *
      * @return array<int>
      */
     private function arrivalSectionIdsForMember(int $memberId, int $publicYearId, string $publicYearLabel): array
     {
-        foreach ($this->passageService->getBranchChanges($publicYearId, $publicYearLabel, 0) as $group) {
-            foreach ($group['members'] as $member) {
-                if ($member['member_id'] === $memberId) {
-                    return array_column($member['destination_options'], 'id');
-                }
-            }
-        }
-
-        return [];
+        return array_column(
+            $this->passageService->arrivalSectionsForMember($memberId, $publicYearId, $publicYearLabel),
+            'id'
+        );
     }
 }

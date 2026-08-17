@@ -391,14 +391,14 @@ class PublicRegistrationControllerTest extends TestCase
         $ownMemberId = $this->insertLinkedMember($email, 'OWN1', 'Ana', 'Dupont');
         $strangerMemberId = RegistrationTestHelper::insertMember($this->pdo, 'STRANGER1');
 
+        // No human-check fields: HumanCheckService::verify() short-circuits
+        // for an identified session ("aucune des trois barrières ne
+        // s'applique"), and the form doesn't render them for one either.
         AuthSession::login(1, $email, 'identified');
-        $hcFields = $this->humanCheckFields();
-        sleep(2);
 
         $this->controller->submit(
             new Request('POST', '/inscriptions', [], array_merge(
                 $this->baseFields(),
-                $hcFields,
                 ['sibling_member_ids' => [(string) $ownMemberId, (string) $strangerMemberId]]
             ), [], []),
             []
@@ -421,13 +421,10 @@ class PublicRegistrationControllerTest extends TestCase
     public function testUnknownSiblingIdDoesNotBreakTheSubmission(): void
     {
         AuthSession::login(1, 'parent@example.com', 'identified');
-        $hcFields = $this->humanCheckFields();
-        sleep(2);
 
         $response = $this->controller->submit(
             new Request('POST', '/inscriptions', [], array_merge(
                 $this->baseFields(),
-                $hcFields,
                 ['sibling_member_ids' => ['999999']]
             ), [], []),
             []
