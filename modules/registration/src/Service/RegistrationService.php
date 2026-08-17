@@ -122,10 +122,18 @@ class RegistrationService
             ['request_id' => $requestId]
         );
 
+        // Two DIFFERENT urls on purpose. The tracking url carries the raw
+        // token that grants unauthenticated access to the request's own
+        // follow-up page (Service\TrackingService::findByToken()) — it
+        // belongs to the family and to nobody else. The unit alert used to
+        // receive that same url under the name {{lien_fiche}}, which both
+        // leaked the secret into a shared staff mailbox and sent the chief
+        // to the parent view instead of the fiche the placeholder promises.
         $trackingUrl = rtrim($this->baseUrl, '/') . "/inscriptions/suivi/{$requestId}/{$trackingToken}";
+        $ficheUrl = rtrim($this->baseUrl, '/') . "/config/inscriptions/demandes/{$requestId}";
 
         $this->sendReceiptEmail($fields['email'], $fields['child_first_name'], $targetScoutYearLabel, $trackingUrl);
-        $this->sendUnitAlertEmail($fields['child_first_name'], $targetScoutYearLabel, $slotLabel, $trackingUrl);
+        $this->sendUnitAlertEmail($fields['child_first_name'], $targetScoutYearLabel, $slotLabel, $ficheUrl);
 
         return $requestId;
     }
@@ -162,7 +170,13 @@ class RegistrationService
         }
     }
 
-    private function sendUnitAlertEmail(string $childFirstName, string $targetYearLabel, string $slotLabel, string $trackingUrl): void
+    /**
+     * $ficheUrl is the STAFF fiche (/config/inscriptions/demandes/{id}),
+     * never the family's tracking url — see submit()'s own note. Only the
+     * child's first name and the slot ever appear here, never contact
+     * details (module spec).
+     */
+    private function sendUnitAlertEmail(string $childFirstName, string $targetYearLabel, string $slotLabel, string $ficheUrl): void
     {
         $alertEmail = (string) $this->settingService->get('registration_unit_alert_email', 'registration', '');
         if ($alertEmail === '') {
@@ -176,7 +190,7 @@ class RegistrationService
             'annee_scoute' => $targetYearLabel,
             'creneau' => $slotLabel,
             'date_reception' => (new \DateTimeImmutable())->format('d/m/Y'),
-            'lien_fiche' => $trackingUrl,
+            'lien_fiche' => $ficheUrl,
         ]);
 
         try {

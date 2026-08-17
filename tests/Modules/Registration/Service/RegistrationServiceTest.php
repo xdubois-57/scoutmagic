@@ -215,6 +215,13 @@ class RegistrationServiceTest extends TestCase
         $this->assertStringNotContainsString('Dupont', $toUnit[0]['bodyHtml']);
         $this->assertStringNotContainsString('marie.dupont@example.com', $toUnit[0]['bodyHtml']);
         $this->assertStringNotContainsString('Rue de la Paix', $toUnit[0]['bodyHtml']);
+
+        // The tracking token grants unauthenticated access to the family's
+        // follow-up page — it belongs in the parent's email only. The unit
+        // alert links to the staff fiche instead.
+        $this->assertStringContainsString('/inscriptions/suivi/', $toParent[0]['bodyHtml']);
+        $this->assertStringNotContainsString('/inscriptions/suivi/', $toUnit[0]['bodyHtml']);
+        $this->assertStringContainsString('/config/inscriptions/demandes/', $toUnit[0]['bodyHtml']);
     }
 
     public function testSubmitSkipsUnitAlertWhenNoAlertEmailConfigured(): void

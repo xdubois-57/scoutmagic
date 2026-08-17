@@ -36,11 +36,7 @@
                     </div>
                     <div class="col-12 col-sm-6">
                         <span class="text-body-secondary small">Statut</span><br>
-                        {% if registration_request.status == 'pending' %}
-                            <span class="badge bg-info text-dark">En attente d'examen</span>
-                        {% else %}
-                            <span class="badge bg-secondary">{{ registration_request.status }}</span>
-                        {% endif %}
+                        {% include '@registration/_status_badge.html.twig' with { status: visible_status } only %}
                     </div>
                 </div>
                 {% if registration_request.remarks %}

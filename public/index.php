@@ -2305,7 +2305,8 @@ if (in_array('registration', $moduleManager->getEnabledModuleIds(), true)) {
     $frontController->registerController(
         \Modules\Registration\Controller\TrackingController::class,
         new \Modules\Registration\Controller\TrackingController(
-            $twig, $registrationTrackingService, $registrationSecondaryEmailService, $registrationRequestRepo
+            $twig, $registrationTrackingService, $registrationSecondaryEmailService, $registrationRequestRepo,
+            $registrationStatusService
         )
     );
     $frontController->registerController(
