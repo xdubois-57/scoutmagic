@@ -176,4 +176,93 @@ class FileAccessGuardTest extends TestCase
         $guard = new FileAccessGuard($this->repo, Role::IDENTIFIED, [], [$this->fakeChecker('section_document', true)]);
         $this->assertNull($guard->check($id));
     }
+
+    /**
+     * The registry is fail-closed with no bypass at any role: a file whose
+     * owner_type has no checker registered at all — the exact state when
+     * the module that provides it is disabled, uninstalled, or simply not
+     * wired — is denied even to a superadmin. An empty registry must never
+     * degrade to "nothing to check, therefore allowed".
+     */
+    public function testOwnerTypeFileWithNoCheckerRegisteredAtAllIsDeniedEvenForSuperadmin(): void
+    {
+        $id = $this->repo->create('f.pdf', 'f.pdf', 'application/pdf', 100, 'public', null, null, false, null, 'group_document', 7);
+
+        $guard = new FileAccessGuard($this->repo, Role::SUPERADMIN, [], []);
+        $this->assertNull($guard->check($id));
+    }
+
+    /**
+     * isAllowedByRegistry() returns on the first checker whose supports()
+     * is true, so a checker must be consulted for its own owner_type and
+     * for no other — two owner_types claimed by the same checker, or one
+     * checker answering for another's type, would silently hand a file to
+     * the wrong access rule.
+     */
+    public function testEachCheckerIsConsultedOnlyForItsOwnOwnerType(): void
+    {
+        $sectionFileId = $this->repo->create('s.pdf', 's.pdf', 'application/pdf', 100, 'public', null, null, false, null, 'section_document', 5);
+        $otherFileId = $this->repo->create('o.pdf', 'o.pdf', 'application/pdf', 100, 'public', null, null, false, null, 'other_document', 6);
+
+        $sectionChecker = $this->recordingChecker('section_document', true);
+        $otherChecker = $this->recordingChecker('other_document', false);
+        $guard = new FileAccessGuard($this->repo, Role::IDENTIFIED, [], [$sectionChecker, $otherChecker]);
+
+        $this->assertNotNull($guard->check($sectionFileId));
+        $this->assertSame([5], $sectionChecker->consultedOwnerIds);
+        $this->assertSame([], $otherChecker->consultedOwnerIds, 'the other type\'s checker must not be consulted');
+
+        $this->assertNull($guard->check($otherFileId));
+        $this->assertSame([5], $sectionChecker->consultedOwnerIds, 'section checker must not be consulted for another type');
+        $this->assertSame([6], $otherChecker->consultedOwnerIds);
+    }
+
+    /**
+     * Mirrors what the composition root now does: core registers its own
+     * checker early (public/index.php, where $linkedMembers exists), a
+     * module appends its own later from inside its own enabled-module
+     * block, and only then is the guard constructed. A checker added to
+     * the array after the first one must be consulted just the same —
+     * FileAccessGuard is immutable, so the array is what carries it.
+     */
+    public function testACheckerAppendedAfterTheFirstOneIsStillConsulted(): void
+    {
+        $id = $this->repo->create('m.pdf', 'm.pdf', 'application/pdf', 100, 'public', null, null, false, null, 'module_document', 9);
+
+        $checkers = [$this->recordingChecker('section_document', true)];
+        $moduleChecker = $this->recordingChecker('module_document', true);
+        $checkers[] = $moduleChecker;
+
+        $guard = new FileAccessGuard($this->repo, Role::IDENTIFIED, [], $checkers);
+
+        $this->assertNotNull($guard->check($id));
+        $this->assertSame([9], $moduleChecker->consultedOwnerIds);
+    }
+
+    /**
+     * @return FileOwnershipCheckerInterface&object{consultedOwnerIds: int[]}
+     */
+    private function recordingChecker(string $ownerType, bool $allowed): FileOwnershipCheckerInterface
+    {
+        return new class ($ownerType, $allowed) implements FileOwnershipCheckerInterface {
+            /** @var int[] */
+            public array $consultedOwnerIds = [];
+
+            public function __construct(private string $ownerType, private bool $allowed)
+            {
+            }
+
+            public function supports(string $ownerType): bool
+            {
+                return $ownerType === $this->ownerType;
+            }
+
+            public function isAllowed(int $ownerId, Role $currentRole, array $linkedMemberIds): bool
+            {
+                $this->consultedOwnerIds[] = $ownerId;
+
+                return $this->allowed;
+            }
+        };
+    }
 }
