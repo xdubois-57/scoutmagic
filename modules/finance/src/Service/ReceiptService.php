@@ -68,6 +68,7 @@ class ReceiptService
             throw new FinanceException('Compte introuvable.');
         }
         $this->assertMimeTypeAllowed($mimeType);
+        $content = $this->correctOrientation($content, $mimeType);
 
         $fileId = $this->fileStorage->store(
             $content, $mimeType, $originalFilename, self::STORAGE_SUBDIRECTORY, $account->roleMinView, 'finance', $uploadedBy
@@ -103,6 +104,7 @@ class ReceiptService
             throw new FinanceException('Compte introuvable.');
         }
         $this->assertMimeTypeAllowed($mimeType);
+        $content = $this->correctOrientation($content, $mimeType);
 
         $fileId = $this->fileStorage->store(
             $content, $mimeType, $originalFilename, self::STORAGE_SUBDIRECTORY, $account->roleMinView, 'finance', $uploadedBy
@@ -184,5 +186,54 @@ class ReceiptService
         if (!in_array($mimeType, self::ALLOWED_MIME_TYPES, true)) {
             throw new FinanceException("Type de fichier non autorisé : {$mimeType}.");
         }
+    }
+
+    /**
+     * Bakes EXIF orientation into the pixels for a phone-photographed
+     * receipt, same reason and same rotation mapping as
+     * Core\File\UploadHandler::correctOrientation() and the dedicated
+     * Core\Photo\*Processor classes — a receipt is explicitly documented
+     * above as "always a scan/photo", so it hits this exact phone-camera
+     * case, but it's stored via EncryptedFileStorageService rather than
+     * UploadHandler::handle(), so it never went through that shared fix.
+     * Unlike those classes this only re-encodes when an actual rotation is
+     * applied (orientation 3/6/8) — a receipt with no orientation tag, or
+     * PNG/PDF, passes through byte-for-byte, since re-encoding a JPEG that
+     * needs no fix would cost OCR-relevant quality for nothing.
+     */
+    private function correctOrientation(string $content, string $mimeType): string
+    {
+        if ($mimeType !== 'image/jpeg' || !function_exists('exif_read_data')) {
+            return $content;
+        }
+
+        $exif = @exif_read_data('data://image/jpeg;base64,' . base64_encode($content));
+        $orientation = $exif['Orientation'] ?? 1;
+        if (!in_array($orientation, [3, 6, 8], true)) {
+            return $content;
+        }
+
+        $image = @imagecreatefromstring($content);
+        if ($image === false) {
+            return $content;
+        }
+
+        $rotated = match ($orientation) {
+            3 => imagerotate($image, 180, 0),
+            6 => imagerotate($image, -90, 0),
+            8 => imagerotate($image, 90, 0),
+        };
+        if ($rotated === false) {
+            imagedestroy($image);
+            return $content;
+        }
+        imagedestroy($image);
+
+        ob_start();
+        imagejpeg($rotated, null, 92);
+        $encoded = (string) ob_get_clean();
+        imagedestroy($rotated);
+
+        return $encoded;
     }
 }
