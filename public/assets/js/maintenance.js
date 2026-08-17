@@ -252,7 +252,10 @@
                 }
 
                 messageEl.textContent = 'Nouvelle version disponible : ' + data.version;
-                notesEl.textContent = (data.notes || '').slice(0, 500);
+                // notes_html is server-rendered from Markdown by
+                // Core\View\MarkdownRenderer (already HTML-escaped there),
+                // never built from data.notes client-side.
+                notesEl.innerHTML = data.notes_html || '';
                 dialog.classList.remove('d-none');
             })
             .catch(function () {

@@ -27,7 +27,7 @@
                 {% endif %}
             </p>
             {% if installed_version_notes %}
-                <p class="small text-body-secondary mb-1" style="white-space: pre-line;">{{ installed_version_notes|slice(0, 500) }}{% if installed_version_notes|length > 500 %}…{% endif %}</p>
+                <div class="small text-body-secondary mb-1">{{ installed_version_notes|markdown }}</div>
             {% endif %}
             <p class="small text-body-secondary">
                 Dernière vérification :
@@ -49,7 +49,7 @@
                endpoint and is polled the same way (see maintenance.js). #}
             <div class="alert alert-primary d-none" id="update-check-now-dialog">
                 <p class="mb-2" id="update-check-now-message"></p>
-                <p class="small mb-3" style="white-space: pre-line;" id="update-check-now-notes"></p>
+                <div class="small mb-3" id="update-check-now-notes"></div>
                 <form id="update-check-now-install-form">
                     {{ csrf_field()|raw }}
                     <button type="submit" class="btn btn-primary btn-sm" id="update-check-now-install-submit">
@@ -72,7 +72,7 @@
                         {% endif %}
                     </p>
                     {% if update_release_notes %}
-                        <p class="small mb-2" style="white-space: pre-line;">{{ update_release_notes|slice(0, 500) }}{% if update_release_notes|length > 500 %}…{% endif %}</p>
+                        <div class="small mb-2">{{ update_release_notes|markdown }}</div>
                     {% endif %}
                     {% if update_dependencies_changed %}
                         <div class="alert alert-warning small mb-2">

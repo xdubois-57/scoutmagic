@@ -28,6 +28,7 @@ use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\Security\EncryptionService;
 use Core\Security\SecretManager;
+use Core\View\MarkdownRenderer;
 use Twig\Environment;
 
 /**
@@ -263,6 +264,8 @@ class MaintenanceController extends AbstractController
                     return $this->json(['success' => false, 'error' => "Branche « {$branch} » introuvable sur le dépôt GitHub."], 404);
                 }
 
+                $commitMessage = trim($commit->message);
+
                 return $this->json([
                     'success' => true,
                     'channel' => 'dev',
@@ -272,7 +275,8 @@ class MaintenanceController extends AbstractController
                     // commits carry their real rationale in the body (see
                     // any recent `git log`), which is exactly what an admin
                     // deciding whether to install needs to read.
-                    'notes' => trim($commit->message),
+                    'notes' => $commitMessage,
+                    'notes_html' => MarkdownRenderer::toHtml($commitMessage),
                     'url' => $commit->htmlUrl,
                 ]);
             }
@@ -297,6 +301,7 @@ class MaintenanceController extends AbstractController
                 'update_available' => VersionFile::isNewerThan($release->version(), $installedVersion),
                 'version' => $release->version(),
                 'notes' => $release->body,
+                'notes_html' => MarkdownRenderer::toHtml($release->body),
                 'url' => $release->htmlUrl,
             ]);
         } catch (UpdateException $e) {
