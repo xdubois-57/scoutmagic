@@ -157,7 +157,7 @@ class RegistrationService
                 to: $to,
                 subject: "Demande d'inscription reçue",
                 bodyHtml: $body,
-                bodyText: strip_tags($body)
+                bodyText: RequestEmailService::toPlainText($body)
             );
         } catch (MailException $e) {
             $this->journalService->log(
@@ -198,7 +198,7 @@ class RegistrationService
                 to: $alertEmail,
                 subject: "Nouvelle demande d'inscription — {$childFirstName}",
                 bodyHtml: $body,
-                bodyText: strip_tags($body)
+                bodyText: RequestEmailService::toPlainText($body)
             );
         } catch (MailException $e) {
             $this->journalService->log(

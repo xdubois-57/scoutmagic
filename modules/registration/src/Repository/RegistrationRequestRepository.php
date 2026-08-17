@@ -376,20 +376,24 @@ class RegistrationRequestRepository
     }
 
     /**
-     * A fresh tracking token for a request whose original (shown once, at
-     * submission) is long gone — password_hash() overwrites the stored
-     * hash in place, same "previous value stops matching immediately"
+     * Stores the hash of a freshly minted tracking token, replacing the
+     * previous one — same "previous value stops matching immediately"
      * precedent as RegistrationYearCodeRepository::regenerate(). Used
-     * whenever a later email (acceptance/refusal) needs to embed a
-     * tracking link again.
+     * whenever a later email (acceptance/refusal) embeds a tracking link
+     * again.
+     *
+     * The caller generates the raw token and calls this only ONCE THE EMAIL
+     * HAS ACTUALLY BEEN SENT (Service\RequestEmailService::send()). This
+     * used to be a single rotateTrackingToken() that minted and persisted in
+     * one go, before the send: a delivery failure then left the family's
+     * existing link dead while the replacement had never reached them —
+     * which is precisely the retry the service's own docblock promises is
+     * always safe.
      */
-    public function rotateTrackingToken(int $id): string
+    public function storeTrackingTokenHash(int $id, string $rawToken): void
     {
-        $trackingToken = bin2hex(random_bytes(32));
         $stmt = $this->pdo->prepare('UPDATE registration_requests SET tracking_token_hash = ? WHERE id = ?');
-        $stmt->execute([password_hash($trackingToken, PASSWORD_DEFAULT), $id]);
-
-        return $trackingToken;
+        $stmt->execute([password_hash($rawToken, PASSWORD_DEFAULT), $id]);
     }
 
     public function markAcceptedEmailSent(int $id): void
