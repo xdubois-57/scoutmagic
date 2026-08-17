@@ -356,6 +356,13 @@
       "description": "Jour et mois (MM-JJ) auxquels le formulaire se ferme automatiquement, chaque année (par défaut le 31 août, 08-31) — jamais d'année à indiquer. Laisser vide pour piloter la fermeture manuellement uniquement (voir Configuration > Inscriptions)."
     },
     {
+      "key": "registration_scheduled_catch_up_days",
+      "default_value": "7",
+      "type": "number",
+      "label": "Fenêtre de rattrapage de la programmation (jours)",
+      "description": "Nombre de jours après la date programmée pendant lesquels une ouverture ou une fermeture manquée peut encore se déclencher — utile quand la tâche planifiée n'a pas tourné le jour même (serveur éteint, cron en pause). 0 désactive le rattrapage : la bascule ne se fait alors que le jour exact, et est perdue pour l'année si elle est ratée. Une valeur trop grande ferait qu'une date configurée longtemps après coup — ou l'activation du module en cours d'année — déclencherait rétroactivement la bascule. Maximum 30."
+    },
+    {
       "key": "registration_scheduled_open_applied_on",
       "default_value": "",
       "type": "text",

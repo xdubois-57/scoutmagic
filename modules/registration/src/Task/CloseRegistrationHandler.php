@@ -33,7 +33,11 @@ class CloseRegistrationHandler implements TaskHandlerInterface
     {
         $monthDay = trim((string) ($context->settings->get('registration_scheduled_close_at', 'registration') ?: ''));
         if (preg_match('/^\d{2}-\d{2}$/', $monthDay) === 1) {
-            $dueOn = OpenRegistrationHandler::dueDateForYear($monthDay, new \DateTimeImmutable());
+            $dueOn = OpenRegistrationHandler::dueDateForYear(
+                $monthDay,
+                new \DateTimeImmutable(),
+                OpenRegistrationHandler::catchUpDays($context->settings)
+            );
             $appliedOn = (string) ($context->settings->get('registration_scheduled_close_applied_on', 'registration') ?: '');
 
             if ($dueOn !== null && $appliedOn < $dueOn) {

@@ -42,7 +42,18 @@
                         <input type="text" class="form-control form-control-sm" id="scheduled_close_at" name="scheduled_close_at" value="{{ scheduled_close_at }}" placeholder="08-31" pattern="\d{2}-\d{2}" style="max-width:120px;">
                     </div>
                     <div class="col-auto">
+                        <label class="form-label small mb-1" for="scheduled_catch_up_days">Rattrapage (jours)</label>
+                        <input type="number" class="form-control form-control-sm" id="scheduled_catch_up_days" name="scheduled_catch_up_days" value="{{ scheduled_catch_up_days }}" min="0" max="{{ max_catch_up_days }}" style="max-width:100px;">
+                    </div>
+                    <div class="col-auto">
                         <button type="submit" class="btn btn-outline-primary btn-sm">Enregistrer la programmation</button>
+                    </div>
+                    <div class="col-12">
+                        <div class="form-text">
+                            Rattrapage : nombre de jours pendant lesquels une bascule manquée peut encore se déclencher, si la tâche
+                            planifiée n'a pas tourné le jour même (serveur éteint, cron en pause). 0 = uniquement le jour exact, la
+                            bascule étant alors perdue pour l'année si elle est ratée. Maximum {{ max_catch_up_days }}.
+                        </div>
                     </div>
                 </form>
             </div>
