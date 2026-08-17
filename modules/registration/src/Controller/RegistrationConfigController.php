@@ -28,7 +28,6 @@ use Modules\Registration\Service\RegistrationException;
 use Modules\Registration\Service\RequestStatusService;
 use Modules\Registration\Service\SlotMath;
 use Modules\Registration\Service\SlotService;
-use Modules\Registration\Task\OpenRegistrationHandler;
 use Twig\Environment;
 
 /**
@@ -225,7 +224,6 @@ class RegistrationConfigController extends AbstractController
 
         $openAt = trim((string) $request->getBody('scheduled_open_at', ''));
         $closeAt = trim((string) $request->getBody('scheduled_close_at', ''));
-        $catchUpRaw = trim((string) $request->getBody('scheduled_catch_up_days', ''));
 
         if (!$this->isValidMonthDayOrEmpty($openAt) || !$this->isValidMonthDayOrEmpty($closeAt)) {
             FlashMessage::set(
@@ -236,22 +234,8 @@ class RegistrationConfigController extends AbstractController
             return $this->redirect('/config/inscriptions');
         }
 
-        if ($catchUpRaw !== ''
-            && (preg_match('/^\d+$/', $catchUpRaw) !== 1 || (int) $catchUpRaw > OpenRegistrationHandler::MAX_CATCH_UP_DAYS)
-        ) {
-            FlashMessage::set(
-                'error',
-                'Fenêtre de rattrapage invalide : indiquez un nombre de jours entre 0 et '
-                . OpenRegistrationHandler::MAX_CATCH_UP_DAYS . '.'
-            );
-            return $this->redirect('/config/inscriptions');
-        }
-
         $this->settingService->set('registration_scheduled_open_at', $openAt, 'registration');
         $this->settingService->set('registration_scheduled_close_at', $closeAt, 'registration');
-        if ($catchUpRaw !== '') {
-            $this->settingService->set(OpenRegistrationHandler::CATCH_UP_SETTING, $catchUpRaw, 'registration');
-        }
 
         FlashMessage::set('success', 'Programmation enregistrée.');
         return $this->redirect('/config/inscriptions');
@@ -386,8 +370,6 @@ class RegistrationConfigController extends AbstractController
             'registration_form_open' => $this->settingService->get('registration_form_open', 'registration', '0') === '1',
             'scheduled_open_at' => (string) $this->settingService->get('registration_scheduled_open_at', 'registration', ''),
             'scheduled_close_at' => (string) $this->settingService->get('registration_scheduled_close_at', 'registration', ''),
-            'scheduled_catch_up_days' => OpenRegistrationHandler::catchUpDays($this->settingService),
-            'max_catch_up_days' => OpenRegistrationHandler::MAX_CATCH_UP_DAYS,
 
             'selectable_years' => $years['selectable'],
             'target_year_id' => (int) $years['target']['id'],

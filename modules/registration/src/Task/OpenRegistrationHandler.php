@@ -56,10 +56,15 @@ class OpenRegistrationHandler implements TaskHandlerInterface
     public const DEFAULT_CATCH_UP_DAYS = 7;
 
     /**
-     * Upper bound, enforced both here and at input (Controller\
-     * RegistrationConfigController::saveSchedule()). Beyond a month, "a
-     * missed run" stops being a plausible explanation and the window starts
-     * resurrecting dates configured long after the fact.
+     * Upper bound. Enforced at READ time (catchUpDays()) rather than at
+     * input: the setting is edited on the generic Configuration >
+     * Paramètres page, and module.json-declared settings carry no
+     * validation regex (Module\ModuleManager::load()'s registration loop
+     * only passes key/default/type/label/description/moduleId to
+     * SettingService::register()), so nothing would stop a larger number
+     * from being stored. Beyond a month, "a missed run" stops being a
+     * plausible explanation and the window starts resurrecting dates
+     * configured long after the fact.
      */
     public const MAX_CATCH_UP_DAYS = 30;
 
