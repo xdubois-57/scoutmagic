@@ -252,6 +252,48 @@ generic item format and includes `chip_picker.html.twig`.
 
 Module controllers receive whatever services they need via constructor injection — there is no fixed list. The composition root (`public/index.php`) is where every controller is actually built and registered: inside the module's `if (in_array('my_module', $moduleManager->getEnabledModuleIds(), true)) { ... }` block, construct the module's repositories/services (passing `$pdo`/`$connection`, `$encryptionService`, `$mailService`, `$schedulerService`, `$sectionService`, or any other already-built core service the module needs), then `$frontController->registerController(MyModuleController::class, new MyModuleController($twig, ...))`. See any existing module block in `public/index.php` for the pattern.
 
+## Scoping a file to your module's own access rule
+
+A module that stores files whose access can't be expressed as a flat `role_min` — readable only by the members of the thing the file belongs to, say — doesn't get a second file route and never bypasses `Core\File\FileAccessGuard`. It plugs into the guard's generic ownership registry (`ARCHITECTURE.md` §8.3). Three steps:
+
+**1. Implement `Core\File\FileOwnershipCheckerInterface`** in your module (e.g. `Modules\MyModule\Service\MyThingOwnershipChecker`):
+
+```php
+public function supports(string $ownerType): bool
+{
+    return $ownerType === 'my_module_thing';
+}
+
+public function isAllowed(int $ownerId, Role $currentRole, array $linkedMemberIds): bool
+{
+    // $ownerId is your own row's id; $linkedMemberIds are the persistent
+    // members.id values the current session is linked to.
+    return $this->repository->isReadableBy($ownerId, $linkedMemberIds);
+}
+```
+
+Pick an `owner_type` value prefixed with your module id: the first checker whose `supports()` returns true wins, so two modules claiming the same string would make access depend on registration order. A checker is a pure decision function — never journal from it (`FileController::serve()` already journals denials and owner-scoped accesses) and never pass personal data through it.
+
+**2. Store the pair when you create the file** — the last two parameters of `Core\File\FileRepository::create()`:
+
+```php
+$fileId = $fileRepository->create(
+    $relativePath, $originalName, $mimeType, $sizeBytes,
+    'identified',            // role_min: still the floor, always checked first
+    'my_module', $createdBy, false, null,
+    'my_module_thing',       // owner_type
+    $thing->id               // owner_id
+);
+```
+
+**3. Get wired in the composition root.** Inside your module's existing `if (in_array('my_module', $moduleManager->getEnabledModuleIds(), true))` block in `public/index.php`, append your checker to the shared array:
+
+```php
+$fileOwnershipCheckers[] = new \Modules\MyModule\Service\MyThingOwnershipChecker($myRepository);
+```
+
+`FileAccessGuard` is constructed after every module block, so appending there is enough — there is no setter to call and nothing else to register. Two consequences worth knowing: your files are denied to everyone while your module is disabled (the registry is fail-closed — no checker for an `owner_type` means no access, not free access), and your checker can only ever **narrow** access, never widen it, since `role_min` is enforced first and independently. There is no chief/admin bypass either: if you want staff to reach the file, grant it explicitly in your own `isAllowed()`.
+
 ## Hard dependencies between modules (`requires`)
 
 A module that genuinely cannot work at all without another one declares it in `module.json`:

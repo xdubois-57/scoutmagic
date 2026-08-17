@@ -1000,12 +1000,22 @@ if (AuthSession::isAuthenticated()) {
 $sectionDocumentOwnershipChecker = new \Core\Member\SectionDocumentOwnershipChecker(
     $sectionDocumentRepository, $sectionMembershipRepository, $scoutYearService, $settingService
 );
-$fileAccessGuard = new FileAccessGuard(
-    $fileRepository,
-    Role::fromString($currentRole),
-    array_map(fn($m) => $m->memberId, $linkedMembers),
-    [$sectionDocumentOwnershipChecker]
-);
+
+// The registry FileAccessGuard consults for a file carrying owner_type.
+// Core's own checker is registered here, where its dependencies (and
+// $linkedMembers) exist; a module contributes its own by appending to
+// this array from inside its own getEnabledModuleIds() block further down
+// (ARCHITECTURE.md §7.4). The guard itself is therefore NOT built here —
+// it is immutable by design, so its registry has to be complete first,
+// and module blocks only run after loadEnabledModules(). See where
+// FileController is wired, at the end of this file.
+$fileOwnershipCheckers = [$sectionDocumentOwnershipChecker];
+
+// Snapshot taken here rather than at the guard's construction site:
+// $linkedMembers is re-resolved further down for the Espace animés menu,
+// and the guard's owner-scoping must not depend on which of the two
+// resolutions happens to be the current one by the time it is built.
+$linkedMemberIds = array_map(fn($m) => $m->memberId, $linkedMembers);
 
 $twig->addGlobal('current_user_display_name', $displayName);
 $twig->addGlobal('current_user_member_count', $memberCount);
@@ -1627,9 +1637,8 @@ $frontController->registerController(ConfigModeController::class, new ConfigMode
 $editableContentController = new EditableContentController($twig, $editableContentService);
 $editableContentController->setJournalService($journalService);
 $frontController->registerController(EditableContentController::class, $editableContentController);
-$fileController = new FileController($twig, $fileAccessGuard, $storagePath, $encryptedFileStorageService, $imageVariantService);
-$fileController->setJournalService($journalService);
-$frontController->registerController(FileController::class, $fileController);
+// FileController (and the FileAccessGuard it consumes) is registered at
+// the end of this file instead of here — see the comment there.
 // staffDirectoryProvider is wired for real inside the trombinoscope block
 // below (re-registered there, same Core\Module\SectionResponsableProvider
 // precedent as PageController) — null here degrades to "no trombinoscope
@@ -2547,6 +2556,25 @@ if (
         new MemberController($twig, $memberService, $memberYearService, $journalService, $memberPageService, $departureService)
     );
 }
+
+// File access (/files/{id}) — built here, deliberately last, because
+// FileAccessGuard's ownership-checker registry must be complete before it
+// is constructed: it is immutable (no setter, no addOwnershipChecker())
+// and a module contributes its own checker by appending to
+// $fileOwnershipCheckers from inside its own getEnabledModuleIds() block,
+// every one of which runs above this point. FileController is the only
+// consumer of the guard, so nothing earlier needs it. $linkedMemberIds was
+// snapshotted where $linkedMembers is first resolved, well before the menu
+// re-resolves it.
+$fileAccessGuard = new FileAccessGuard(
+    $fileRepository,
+    Role::fromString($currentRole),
+    $linkedMemberIds,
+    $fileOwnershipCheckers
+);
+$fileController = new FileController($twig, $fileAccessGuard, $storagePath, $encryptedFileStorageService, $imageVariantService);
+$fileController->setJournalService($journalService);
+$frontController->registerController(FileController::class, $fileController);
 
 // RGPD configuration controller
 $frontController->registerController(RgpdConfigController::class, new RgpdConfigController($twig, $editableContentService, $rgpdContentService, $settingService, $moduleManager, $journalService));
