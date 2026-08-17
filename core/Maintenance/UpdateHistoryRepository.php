@@ -45,6 +45,28 @@ class UpdateHistoryRepository
         return array_map(fn(array $row) => $this->hydrate($row), $stmt->fetchAll(\PDO::FETCH_ASSOC));
     }
 
+    /**
+     * The most recent update actively running (backing_up/downloading/
+     * installing/migrating) — 'pending' is deliberately excluded, since a
+     * scheduled-but-not-yet-started task hasn't touched the live site at
+     * all yet, so there's nothing to gate. Used by Core\Maintenance\
+     * MaintenanceGate to decide whether to show visitors the "update in
+     * progress" page instead of the normal site.
+     */
+    public function findInProgress(): ?UpdateHistory
+    {
+        $stmt = $this->pdo->prepare(
+            "SELECT * FROM update_history
+             WHERE status IN ('backing_up', 'downloading', 'installing', 'migrating')
+             ORDER BY started_at DESC, id DESC
+             LIMIT 1"
+        );
+        $stmt->execute();
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+        return $row !== false ? $this->hydrate($row) : null;
+    }
+
     public function setStatus(int $id, string $status): void
     {
         $stmt = $this->pdo->prepare('UPDATE update_history SET status = ? WHERE id = ?');

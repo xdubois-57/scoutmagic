@@ -1506,7 +1506,8 @@ if (in_array('llm_connector', $moduleManager->getEnabledModuleIds(), true)) {
 $rgpdContentService = new RgpdContentService($moduleManager, $settingService, $llmConnectorForRgpd, $llmProviderRepoForRgpd, $llmModelRepoForRgpd);
 
 // Handle the request
-$frontController = new FrontController($router, $twig, $config, $offlineWhitelist);
+$maintenanceGate = new \Core\Maintenance\MaintenanceGate($updateHistoryRepository);
+$frontController = new FrontController($router, $twig, $config, $offlineWhitelist, $maintenanceGate);
 
 // Optional dependency on the trombinoscope module (ARCHITECTURE.md §7.4)
 // for the Sections page's "responsable" name — set below only when
