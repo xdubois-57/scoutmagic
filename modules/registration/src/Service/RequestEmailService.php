@@ -103,7 +103,11 @@ class RequestEmailService
      */
     private function send(RegistrationRequest $request, string $contentKey, string $subject, string $targetYearLabel): void
     {
-        $trackingToken = $this->repository->rotateTrackingToken($request->id);
+        // The token is minted here but only PERSISTED once the mail is
+        // actually out (below). Persisting first — what this method used to
+        // do — meant a delivery failure killed the link the family already
+        // had while never handing them the replacement.
+        $trackingToken = bin2hex(random_bytes(32));
         $trackingUrl = rtrim($this->baseUrl, '/') . "/inscriptions/suivi/{$request->id}/{$trackingToken}";
 
         $body = $this->substitute((string) $this->editableContentService->get($contentKey), [
@@ -114,10 +118,36 @@ class RequestEmailService
         ]);
 
         try {
-            $this->mailService->send(to: $request->email, subject: $subject, bodyHtml: $body, bodyText: strip_tags($body));
+            $this->mailService->send(to: $request->email, subject: $subject, bodyHtml: $body, bodyText: self::toPlainText($body));
         } catch (MailException $e) {
+            // Nothing was written: the previous tracking link still works and
+            // *_email_sent_at is untouched, so retrying really is free. Worth
+            // a journal entry all the same — a flash message disappears with
+            // the page, and a unit whose SMTP is broken has otherwise no
+            // trace that a parent was never told anything.
+            $this->journalService->log(
+                'registration',
+                'registration_status_email_failed',
+                'info',
+                "Échec de l'envoi d'un email de décision — lien de suivi inchangé, réessai possible",
+                ['request_id' => $request->id, 'content_key' => $contentKey]
+            );
+
             throw new RegistrationException("Échec de l'envoi de l'email : {$e->getMessage()}");
         }
+
+        $this->repository->storeTrackingTokenHash($request->id, $trackingToken);
+    }
+
+    /**
+     * The plain-text alternative of an HTML body. strip_tags() alone left
+     * the entities substitute() introduced (a first name with an apostrophe
+     * arrived as "Ma&#039;lo", an url's & as "&amp;"), so the decode pass
+     * is what actually makes this readable.
+     */
+    public static function toPlainText(string $html): string
+    {
+        return trim(html_entity_decode(strip_tags($html), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
     }
 
     /**

@@ -218,10 +218,11 @@ class SlotService
     }
 
     /**
-     * Members currently one rank below each slot (or at the last rank of
+     * ANIMÉS currently one rank below each slot (or at the last rank of
      * the previous branch, for a branch's first slot) in the CURRENT scout
      * year, excluding anyone marked leaving (Core\Member\DepartureService)
-     * — the animés who will occupy that slot next year if nothing changes.
+     * and anyone on the staff — the animés who will occupy that slot next
+     * year if nothing changes.
      * Ages are computed exclusively via Core\Member\MemberYearService::
      * getEffectiveAge() (never a parallel calculation, per the module's
      * own "never recompute an age by hand" rule).
@@ -234,16 +235,36 @@ class SlotService
         $memberYearService = new MemberYearService();
         $referenceYear = MemberYearService::referenceYearFromScoutYearLabel($this->scoutYearLabel($currentScoutYearId));
 
+        // Non-staff only — the same role filter every other aggregation in
+        // this module applies (Service\PassageService::getAnimeMemberYears(),
+        // Service\ForecastService::countCurrentAnimes()/
+        // countDeparturesForYear(), Core\Member\SectionService::
+        // getSectionAnimes()). Without it, a leader whose effective age
+        // still falls inside the 6-17 range was counted as a projected
+        // animé, which shrank "restant" and could push the availability
+        // tier shown TO THE PUBLIC down a level.
+        //
+        // The join can multiply rows (one per function), so the result is
+        // deduplicated by member_year id in PHP — replacing one over-count
+        // by another would defeat the purpose.
         $stmt = $this->pdo->prepare(
-            'SELECT birth_date_encrypted, scout_year_offset
-             FROM member_years
-             WHERE scout_year_id = ? AND is_active = 1 AND leaving = 0'
+            "SELECT my.id, my.birth_date_encrypted, my.scout_year_offset
+             FROM member_years my
+             JOIN member_functions mf ON mf.member_year_id = my.id
+             JOIN functions f ON mf.function_id = f.id
+             WHERE my.scout_year_id = ? AND my.is_active = 1 AND my.leaving = 0
+               AND f.role NOT IN ('chief', 'admin', 'intendant') AND mf.section_id IS NOT NULL"
         );
         $stmt->execute([$currentScoutYearId]);
 
+        $uniqueRows = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $uniqueRows[(int) $row['id']] = $row;
+        }
+
         // Feeder slot => headcount currently sitting there.
         $currentBySlot = [];
-        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+        foreach ($uniqueRows as $row) {
             if ($row['birth_date_encrypted'] === null) {
                 continue;
             }

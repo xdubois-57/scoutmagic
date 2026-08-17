@@ -44,6 +44,7 @@ class OpenRegistrationHandlerTest extends TestCase
         $this->settingService->register('registration_form_open', '0', 'boolean', 'Ouvert', 'desc', 'registration');
         $this->settingService->register('registration_scheduled_open_at', '', 'text', 'Ouverture', 'desc', 'registration');
         $this->settingService->register('registration_scheduled_open_applied_on', '', 'text', 'Appliqué', 'desc', 'registration');
+        $this->settingService->register(OpenRegistrationHandler::CATCH_UP_SETTING, '7', 'number', 'Rattrapage', 'desc', 'registration');
 
         $this->context = new TaskContext(
             Connection::withPdo($this->pdo),
@@ -74,6 +75,97 @@ class OpenRegistrationHandlerTest extends TestCase
         (new OpenRegistrationHandler())->handle([], $this->context);
 
         $this->assertSame('0', $this->settingService->get('registration_form_open', 'registration'));
+    }
+
+    /**
+     * A poll that didn't run ON the day itself used to lose the transition
+     * for a whole year. It now catches up, but only within
+     * the configured catch-up window (7 days by default) — see
+     * testNeverCatchesUpAMonthDayThatAlreadyPassedThisYear
+     * below for the other half of that contract.
+     */
+    public function testCatchesUpAMissedPollWithinTheGraceWindow(): void
+    {
+        $yesterday = (new \DateTimeImmutable('-1 day'))->format('m-d');
+        $this->settingService->set('registration_scheduled_open_at', $yesterday, 'registration');
+
+        (new OpenRegistrationHandler())->handle([], $this->context);
+
+        $this->assertSame('1', $this->settingService->get('registration_form_open', 'registration'));
+    }
+
+    public function testDoesNotFireTwiceForTheSameOccurrenceInsideTheWindow(): void
+    {
+        $yesterday = (new \DateTimeImmutable('-1 day'))->format('m-d');
+        $this->settingService->set('registration_scheduled_open_at', $yesterday, 'registration');
+
+        (new OpenRegistrationHandler())->handle([], $this->context);
+        // A chief closes it again by hand, then the hourly poll runs again:
+        // the occurrence has already been applied, so it must stay closed.
+        $this->settingService->set('registration_form_open', '0', 'registration');
+        (new OpenRegistrationHandler())->handle([], $this->context);
+
+        $this->assertSame('0', $this->settingService->get('registration_form_open', 'registration'));
+    }
+
+    public function testDueDateIsNullForFebruary29OnANonLeapYear(): void
+    {
+        $this->assertNull(
+            OpenRegistrationHandler::dueDateForYear('02-29', new \DateTimeImmutable('2027-03-01'), 7)
+        );
+    }
+
+    public function testCatchUpWindowIsConfigurable(): void
+    {
+        // 10 days back is outside the 7-day default, but inside a 14-day
+        // window a unit chose for itself.
+        $past = (new \DateTimeImmutable('-10 days'))->format('m-d');
+        $this->settingService->set('registration_scheduled_open_at', $past, 'registration');
+        $this->settingService->set(OpenRegistrationHandler::CATCH_UP_SETTING, '14', 'registration');
+
+        (new OpenRegistrationHandler())->handle([], $this->context);
+
+        $this->assertSame('1', $this->settingService->get('registration_form_open', 'registration'));
+    }
+
+    public function testCatchUpWindowOfZeroRestoresSameDayOnly(): void
+    {
+        $yesterday = (new \DateTimeImmutable('-1 day'))->format('m-d');
+        $this->settingService->set('registration_scheduled_open_at', $yesterday, 'registration');
+        $this->settingService->set(OpenRegistrationHandler::CATCH_UP_SETTING, '0', 'registration');
+
+        (new OpenRegistrationHandler())->handle([], $this->context);
+
+        $this->assertSame('0', $this->settingService->get('registration_form_open', 'registration'));
+    }
+
+    public function testCatchUpWindowIsClampedToItsMaximum(): void
+    {
+        $this->settingService->set(
+            OpenRegistrationHandler::CATCH_UP_SETTING,
+            (string) (OpenRegistrationHandler::MAX_CATCH_UP_DAYS + 500),
+            'registration'
+        );
+
+        $this->assertSame(
+            OpenRegistrationHandler::MAX_CATCH_UP_DAYS,
+            OpenRegistrationHandler::catchUpDays($this->settingService)
+        );
+    }
+
+    /**
+     * An install predating this setting has no row for it at all. It must
+     * keep a working catch-up rather than silently degrade to same-day-only,
+     * which a bare (int) cast of null would have produced.
+     */
+    public function testUnregisteredCatchUpSettingFallsBackToTheDefault(): void
+    {
+        $freshSettings = new SettingService(new SettingRepository(DatabaseTestHelper::createTestDatabase()));
+
+        $this->assertSame(
+            OpenRegistrationHandler::DEFAULT_CATCH_UP_DAYS,
+            OpenRegistrationHandler::catchUpDays($freshSettings)
+        );
     }
 
     public function testNeverCatchesUpAMonthDayThatAlreadyPassedThisYear(): void

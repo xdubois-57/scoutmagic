@@ -84,29 +84,6 @@ class SecondaryEmailService
     }
 
     /**
-     * @throws RegistrationException when the address doesn't belong to
-     *         this request or isn't currently inactive
-     */
-    public function reactivateEmail(int $requestId, int $emailId): RegistrationSecondaryEmail
-    {
-        $row = $this->requireOwnRow($requestId, $emailId);
-        if (!$row->isInactive()) {
-            throw new RegistrationException("Cette adresse n'est pas désactivée.");
-        }
-
-        $this->repository->reactivate($emailId);
-
-        $this->journalService->log(
-            'registration', 'registration_secondary_email_reactivated', 'info', 'Adresse email secondaire réactivée',
-            ['request_id' => $requestId, 'secondary_email_id' => $emailId]
-        );
-
-        $updated = $this->repository->findById($emailId);
-        \assert($updated !== null);
-        return $updated;
-    }
-
-    /**
      * @throws RegistrationException when the address doesn't belong to this request
      */
     public function removeEmail(int $requestId, int $emailId): void

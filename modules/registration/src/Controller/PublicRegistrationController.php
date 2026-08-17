@@ -33,6 +33,29 @@ class PublicRegistrationController extends AbstractController
      */
     private const HUMAN_CHECK_FORM_KEY = 'registration_form';
 
+    /**
+     * Server-side length ceilings, matching the form's own `maxlength`
+     * attributes. The columns are encrypted BLOBs, so nothing truncates on
+     * the SQL side either: without this, a POST carrying hundreds of
+     * kilobytes of "remarques" was accepted and encrypted as-is. The
+     * browser attribute is a convenience, never the boundary.
+     *
+     * @var array<string, int>
+     */
+    private const MAX_LENGTHS = [
+        'parent_name' => 150,
+        'child_last_name' => 100,
+        'child_first_name' => 100,
+        'street' => 200,
+        'number' => 20,
+        'postal_code' => 20,
+        'city' => 100,
+        'email' => 254, // RFC 5321's maximum path length
+        'phone1' => 30,
+        'phone2' => 30,
+        'remarks' => 2000,
+    ];
+
     public function __construct(
         protected Environment $twig,
         private RegistrationService $registrationService,
@@ -321,6 +344,16 @@ class PublicRegistrationController extends AbstractController
             $errors[] = 'Merci d\'accepter la politique de confidentialité.';
         }
 
+        foreach (self::MAX_LENGTHS as $key => $max) {
+            if ($fields[$key] !== null && mb_strlen((string) $fields[$key]) > $max) {
+                // One generic message, same style as the errors above — the
+                // form marks the limits, so naming the field adds nothing a
+                // legitimate visitor needs.
+                $errors[] = 'Un des champs dépasse la longueur autorisée.';
+                break;
+            }
+        }
+
         return array_values(array_unique($errors));
     }
 
@@ -348,6 +381,23 @@ class PublicRegistrationController extends AbstractController
     }
 
     /**
+     * The declared siblings, restricted to members the submitting session is
+     * ACTUALLY linked to — the very same list buildPageContext() offered as
+     * checkboxes (Core\Member\MemberService::getLinkedMembers() against the
+     * session's own email), never the raw submitted ids.
+     *
+     * Without this the ids went straight into registration_request_siblings:
+     * an id that doesn't exist violated fk_rrs_member and surfaced as a 500
+     * *after* the request row had already been inserted, and a real id
+     * belonging to someone else let an identified visitor attach any member
+     * of the unit as a "sibling" — a fabricated parental declaration that
+     * then showed up, name and section included, on the Passage page and on
+     * the staff fiche.
+     *
+     * An unauthorized id is dropped silently rather than failing the whole
+     * submission: it can only come from a forged or stale POST, and losing a
+     * parent's entire form over it would be worse than ignoring the link.
+     *
      * @return array<int>
      */
     private function extractSiblingIds(Request $request): array
@@ -357,7 +407,23 @@ class PublicRegistrationController extends AbstractController
             return [];
         }
 
-        return array_values(array_filter(array_map('intval', $raw), static fn(int $id) => $id > 0));
+        $submitted = array_values(array_filter(array_map('intval', $raw), static fn(int $id) => $id > 0));
+        if ($submitted === []) {
+            return [];
+        }
+
+        $email = AuthSession::getEmail();
+        if ($email === null) {
+            return [];
+        }
+
+        $publicYear = $this->scoutYearResolver->getCurrentPublicYear();
+        $allowed = [];
+        foreach ($this->memberService->getLinkedMembers($email, (int) $publicYear['id']) as $member) {
+            $allowed[] = $member->memberId;
+        }
+
+        return array_values(array_intersect($submitted, $allowed));
     }
 
     /**

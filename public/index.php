@@ -2305,7 +2305,8 @@ if (in_array('registration', $moduleManager->getEnabledModuleIds(), true)) {
     $frontController->registerController(
         \Modules\Registration\Controller\TrackingController::class,
         new \Modules\Registration\Controller\TrackingController(
-            $twig, $registrationTrackingService, $registrationSecondaryEmailService, $registrationRequestRepo
+            $twig, $registrationTrackingService, $registrationSecondaryEmailService, $registrationRequestRepo,
+            $registrationStatusService
         )
     );
     $frontController->registerController(
@@ -2444,6 +2445,12 @@ if (in_array('registration', $moduleManager->getEnabledModuleIds(), true)) {
     // via ModuleManager::getTaskHandler()), only this one-time nudge.
     if ($schedulerService->find('registration', 'purge_registration_requests', 'daily') === null) {
         $schedulerService->schedule('registration', 'purge_registration_requests', new DateTimeImmutable(), [], 'daily');
+    }
+    // Same again for the Passage auto-assignment (Task\
+    // AutoAssignPassageHandler) — it used to run inside PassageController::
+    // index(), i.e. a write on every GET of the page.
+    if ($schedulerService->find('registration', 'auto_assign_passage', 'hourly') === null) {
+        $schedulerService->schedule('registration', 'auto_assign_passage', new DateTimeImmutable(), [], 'hourly');
     }
 
     // Espace animés menu hook (Core\Module\EspaceAnimesEntryProvider,

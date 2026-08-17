@@ -17,6 +17,7 @@ use Core\Member\DepartureRepository;
 use Core\Member\SectionService;
 use Core\Member\SectionStaffAuthorizationService;
 use Core\ScoutYear\ScoutYearResolver;
+use Core\ScoutYear\ScoutYearSession;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\Security\EncryptionService;
@@ -160,6 +161,32 @@ class DeparturesControllerTest extends TestCase
         $request->method('getRawBody')->willReturn(json_encode($data));
 
         return $request;
+    }
+
+    /**
+     * Départs anchors on the PUBLIC year, like Passage and Prévisions —
+     * never on a session preview or a staff year. It used to follow
+     * getEffectiveYear(), so a chief previewing next year marked departures
+     * on that year's member_years rows, which PassageService (filtering
+     * `leaving = 0` on the public year) would never see.
+     */
+    public function testPublicYearWinsOverASessionPreviewAndAStaffYear(): void
+    {
+        $scoutYearService = new ScoutYearService($this->pdo);
+        $farYearId = $scoutYearService->ensureYear('2028-2029');
+
+        $settingService = new SettingService(new SettingRepository($this->pdo));
+        $settingService->setInternal(ScoutYearResolver::SETTING_STAFF_YEAR, (string) $farYearId);
+        ScoutYearSession::setPreview($farYearId);
+
+        AuthSession::login(1, 'chief@example.com', 'chief');
+
+        $response = $this->controller->index(new Request('GET', '/departs', [], [], [], []), []);
+
+        $this->assertStringContainsString('2026-2027', $response->getBody());
+        $this->assertStringNotContainsString('2028-2029', $response->getBody());
+        // The roster still resolves against the public year, so Léa is there.
+        $this->assertStringContainsString('Léa', $response->getBody());
     }
 
     public function testChiefSeesOnlyOwnSection(): void

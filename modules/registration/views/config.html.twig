@@ -42,7 +42,18 @@
                         <input type="text" class="form-control form-control-sm" id="scheduled_close_at" name="scheduled_close_at" value="{{ scheduled_close_at }}" placeholder="08-31" pattern="\d{2}-\d{2}" style="max-width:120px;">
                     </div>
                     <div class="col-auto">
+                        <label class="form-label small mb-1" for="scheduled_catch_up_days">Rattrapage (jours)</label>
+                        <input type="number" class="form-control form-control-sm" id="scheduled_catch_up_days" name="scheduled_catch_up_days" value="{{ scheduled_catch_up_days }}" min="0" max="{{ max_catch_up_days }}" style="max-width:100px;">
+                    </div>
+                    <div class="col-auto">
                         <button type="submit" class="btn btn-outline-primary btn-sm">Enregistrer la programmation</button>
+                    </div>
+                    <div class="col-12">
+                        <div class="form-text">
+                            Rattrapage : nombre de jours pendant lesquels une bascule manquée peut encore se déclencher, si la tâche
+                            planifiée n'a pas tourné le jour même (serveur éteint, cron en pause). 0 = uniquement le jour exact, la
+                            bascule étant alors perdue pour l'année si elle est ratée. Maximum {{ max_catch_up_days }}.
+                        </div>
                     </div>
                 </form>
             </div>
@@ -242,6 +253,18 @@
         <div class="card mb-4">
             <div class="card-body">
                 <h2 class="h5 mb-3">Vérification des capacités — année {{ selected_year.label }}</h2>
+                {# L'effectif projeté (et donc le restant et le niveau public
+                   qui en découlent) se calcule sur les membres d'AUJOURD'HUI :
+                   ces trois colonnes n'ont de sens que pour une année à venir.
+                   Sur une année passée, elles afficheraient une projection
+                   d'aujourd'hui présentée comme un chiffre d'époque. #}
+                {% if is_past_year %}
+                    <p class="small text-body-secondary">
+                        Année passée (consultation) : l'effectif projeté, le restant et le niveau public ne sont pas
+                        affichés — ce sont des projections, elles n'ont de sens que pour une année à venir. La capacité
+                        et les demandes acceptées, elles, sont bien historiques.
+                    </p>
+                {% endif %}
                 <div class="table-responsive">
                     <table class="table table-sm align-middle">
                         <thead>
@@ -249,10 +272,12 @@
                                 <th>Branche</th>
                                 <th>Année</th>
                                 <th>Capacité</th>
-                                <th>Effectif projeté</th>
+                                {% if not is_past_year %}<th>Effectif projeté</th>{% endif %}
                                 <th>Demandes acceptées</th>
-                                <th>Restant</th>
-                                <th>Niveau public</th>
+                                {% if not is_past_year %}
+                                    <th>Restant</th>
+                                    <th>Niveau public</th>
+                                {% endif %}
                             </tr>
                         </thead>
                         <tbody>
@@ -261,18 +286,20 @@
                                     <td>{{ row.branch_label }}</td>
                                     <td>{{ row.year_in_branch }}<sup>e</sup></td>
                                     <td>{{ row.capacity }}</td>
-                                    <td>{{ row.projected }}</td>
+                                    {% if not is_past_year %}<td>{{ row.projected }}</td>{% endif %}
                                     <td>{{ row.accepted }}</td>
-                                    <td>{{ row.remaining }}</td>
-                                    <td>
-                                        {% if row.tier == 'available' %}
-                                            <span class="badge bg-success">Disponible</span>
-                                        {% elseif row.tier == 'limited' %}
-                                            <span class="badge bg-warning text-dark">Attente limitée</span>
-                                        {% else %}
-                                            <span class="badge bg-danger">Attente importante</span>
-                                        {% endif %}
-                                    </td>
+                                    {% if not is_past_year %}
+                                        <td>{{ row.remaining }}</td>
+                                        <td>
+                                            {% if row.tier == 'available' %}
+                                                <span class="badge bg-success">Disponible</span>
+                                            {% elseif row.tier == 'limited' %}
+                                                <span class="badge bg-warning text-dark">Attente limitée</span>
+                                            {% else %}
+                                                <span class="badge bg-danger">Attente importante</span>
+                                            {% endif %}
+                                        </td>
+                                    {% endif %}
                                 </tr>
                             {% endfor %}
                         </tbody>
@@ -331,13 +358,4 @@
 
 {% block scripts %}
 <script src="/assets/js/rich-text-field.js" defer></script>
-<script nonce="{{ csp_nonce }}">
-document.querySelectorAll('form[data-confirm]').forEach(function (form) {
-    form.addEventListener('submit', function (e) {
-        if (!confirm(form.dataset.confirm)) {
-            e.preventDefault();
-        }
-    });
-});
-</script>
 {% endblock %}

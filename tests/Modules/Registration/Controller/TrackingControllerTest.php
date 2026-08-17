@@ -14,6 +14,7 @@ use Core\View\TwigFactory;
 use Modules\Registration\Controller\TrackingController;
 use Modules\Registration\Repository\RegistrationRequestRepository;
 use Modules\Registration\Repository\RegistrationSecondaryEmailRepository;
+use Modules\Registration\Service\RequestStatusService;
 use Modules\Registration\Service\SecondaryEmailService;
 use Modules\Registration\Service\TrackingService;
 use Core\Http\Request;
@@ -30,6 +31,7 @@ class TrackingControllerTest extends TestCase
     private TrackingController $controller;
     private array $created;
     private EncryptionService $encryption;
+    private RegistrationRequestRepository $requestRepository;
 
     protected function setUp(): void
     {
@@ -38,6 +40,7 @@ class TrackingControllerTest extends TestCase
         $this->encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
 
         $requestRepository = new RegistrationRequestRepository($this->pdo, $this->encryption);
+        $this->requestRepository = $requestRepository;
         $secondaryEmailRepository = new RegistrationSecondaryEmailRepository($this->pdo, $this->encryption);
         $trackingService = new TrackingService($requestRepository, $secondaryEmailRepository, $this->encryption);
 
@@ -54,7 +57,11 @@ class TrackingControllerTest extends TestCase
         $journalService = new JournalService(new JournalRepository($this->pdo));
         $secondaryEmailService = new SecondaryEmailService($secondaryEmailRepository, $mailService, $twig, $journalService, 'https://example.com', 'Unité Test');
 
-        $this->controller = new TrackingController($twig, $trackingService, $secondaryEmailService, $requestRepository);
+        $statusService = new RequestStatusService($requestRepository, $journalService);
+
+        $this->controller = new TrackingController(
+            $twig, $trackingService, $secondaryEmailService, $requestRepository, $statusService
+        );
 
         $scoutYearId = RegistrationTestHelper::insertScoutYear($this->pdo, '2026-2027', '2026-09-01', '2027-08-31');
         $this->created = $requestRepository->create($scoutYearId, [
@@ -97,6 +104,55 @@ class TrackingControllerTest extends TestCase
         );
 
         $this->assertSame(404, $response->getStatusCode());
+    }
+
+    /**
+     * The module spec's own rule: a parent must not discover an acceptance
+     * before the acceptance email has actually been sent (a chief deciding
+     * on Friday and sending on Monday). Both tracking views used to render
+     * the raw `status` column, which bypassed
+     * Service\RequestStatusService::visibleStatus() entirely.
+     */
+    public function testTokenViewHidesAnAcceptanceUntilItsEmailIsSent(): void
+    {
+        $this->requestRepository->updateStatus($this->created['id'], 'accepted', null);
+
+        $body = $this->controller->showByToken(
+            new Request('GET', '/inscriptions/suivi/' . $this->created['id'] . '/' . $this->created['tracking_token'], [], [], [], []),
+            ['id' => (string) $this->created['id'], 'token' => $this->created['tracking_token']]
+        )->getBody();
+
+        $this->assertStringContainsString("En attente d'examen", $body);
+        $this->assertStringNotContainsString('Acceptée', $body);
+        // The raw enum must never reach a parent-facing surface either.
+        $this->assertStringNotContainsString('accepted', $body);
+    }
+
+    public function testTokenViewShowsTheAcceptanceOnceItsEmailWentOut(): void
+    {
+        $this->requestRepository->updateStatus($this->created['id'], 'accepted', null);
+        $this->requestRepository->markAcceptedEmailSent($this->created['id']);
+
+        $body = $this->controller->showByToken(
+            new Request('GET', '/inscriptions/suivi/' . $this->created['id'] . '/' . $this->created['tracking_token'], [], [], [], []),
+            ['id' => (string) $this->created['id'], 'token' => $this->created['tracking_token']]
+        )->getBody();
+
+        $this->assertStringContainsString('Acceptée', $body);
+    }
+
+    public function testFullViewHidesARefusalUntilItsEmailIsSent(): void
+    {
+        AuthSession::login(1, 'marie@example.com', 'identified');
+        $this->requestRepository->updateStatus($this->created['id'], 'refused', new \DateTimeImmutable());
+
+        $body = $this->controller->showLinked(
+            new Request('GET', '/inscriptions/suivi/demande/' . $this->created['id'], [], [], [], []),
+            ['id' => (string) $this->created['id']]
+        )->getBody();
+
+        $this->assertStringContainsString("En attente d'examen", $body);
+        $this->assertStringNotContainsString('Refusée', $body);
     }
 
     public function testShowLinkedRejectsAnUnauthenticatedVisitor(): void
