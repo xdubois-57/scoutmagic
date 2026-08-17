@@ -67,6 +67,7 @@ use Core\Http\Controller\SetupController;
 use Core\Http\Controller\ShortUrlController;
 use Core\Http\Controller\StaffsController;
 use Core\Http\Controller\UploadController;
+use Core\Http\Controller\VersionController;
 use Core\Pdf\PosterPdfService;
 use Core\Url\ShortUrlRepository;
 use Core\Url\ShortUrlService;
@@ -1305,6 +1306,10 @@ $router->addRoute('GET', '/files/{id}/{variant}', FileController::class, 'varian
 // would add nothing.
 $router->addRoute('GET', '/api/offline/manifest', OfflineController::class, 'manifest', 'public');
 
+// Deployment/version check — see Core\Http\Controller\VersionController's
+// own docblock for why role_min is deliberately public here.
+$router->addRoute('GET', '/api/version', VersionController::class, 'index', 'public');
+
 // Generic short-URL redirector (Core\Url)
 $router->addRoute('GET', '/s/{code}', ShortUrlController::class, 'resolve', 'public');
 
@@ -1591,6 +1596,7 @@ $frontController->registerController(
 $frontController->registerController(MaintenanceController::class, new MaintenanceController(
     $twig, $backupService, $backupRepository, $fileRepository, $updateHistoryRepository, $schedulerService, $moduleManager, $encryptionService, $journalService, $settingService, $storagePath, $secretManager
 ));
+$frontController->registerController(VersionController::class, new VersionController($twig, $storagePath));
 $githubWebhookService = new \Core\Maintenance\GitHubWebhookService(
     $settingService, $schedulerService, $updateHistoryRepository, $journalService, dirname($storagePath)
 );
