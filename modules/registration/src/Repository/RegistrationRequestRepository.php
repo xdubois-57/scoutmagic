@@ -60,6 +60,53 @@ class RegistrationRequestRepository
         $addressNormalized = AddressNormalizer::normalize($fields['street'], $fields['number'], null, $fields['postal_code']);
         $addressBlind = $addressNormalized !== '' ? $this->encryption->blindIndex($addressNormalized) : null;
 
+        // The request row and its sibling links are one single unit of work:
+        // a failing link (a member id that vanished between the form being
+        // rendered and submitted, a full disk...) used to leave a request
+        // created but link-less, with the exception escaping before Service\
+        // RegistrationService::submit() could send the receipt email — so the
+        // family got nothing at all for a request that did exist. Same
+        // begin/commit/rollBack shape as Service\MigrationService::migrate().
+        $this->pdo->beginTransaction();
+        try {
+            $id = $this->insertRequestAndSiblings([
+                $scoutYearId,
+                $this->encryption->encrypt($fields['parent_name']),
+                $this->encryption->encrypt($fields['child_last_name']),
+                $this->encryption->encrypt($fields['child_first_name']),
+                $this->encryption->encrypt($fields['gender']),
+                $this->encryption->encrypt($fields['birth_date']),
+                $this->encryption->encrypt($fields['street']),
+                $this->encryption->encrypt($fields['number']),
+                $this->encryption->encrypt($fields['postal_code']),
+                $this->encryption->encrypt($fields['city']),
+                $this->encryption->encrypt($fields['email']),
+                $this->encryption->blindIndex(self::normalizeEmail($fields['email'])),
+                $this->encryption->encrypt($fields['phone1']),
+                $fields['phone2'] !== null ? $this->encryption->encrypt($fields['phone2']) : null,
+                $fields['remarks'] !== null && $fields['remarks'] !== '' ? $this->encryption->encrypt($fields['remarks']) : null,
+                $nameDobBlind,
+                $desiredSectionId,
+                RegistrationRequest::STATUS_PENDING,
+                $trackingTokenHash,
+                $addressBlind,
+            ], $siblingMemberIds);
+
+            $this->pdo->commit();
+        } catch (\Throwable $e) {
+            $this->pdo->rollBack();
+            throw $e;
+        }
+
+        return ['id' => $id, 'tracking_token' => $trackingToken];
+    }
+
+    /**
+     * @param array<int, mixed> $requestParams
+     * @param array<int> $siblingMemberIds
+     */
+    private function insertRequestAndSiblings(array $requestParams, array $siblingMemberIds): int
+    {
         $stmt = $this->pdo->prepare(
             'INSERT INTO registration_requests (
                 scout_year_id, parent_name_encrypted, child_last_name_encrypted, child_first_name_encrypted,
@@ -69,28 +116,7 @@ class RegistrationRequestRepository
                 desired_section_id, status, tracking_token_hash, address_normalized_blind_index
              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
-        $stmt->execute([
-            $scoutYearId,
-            $this->encryption->encrypt($fields['parent_name']),
-            $this->encryption->encrypt($fields['child_last_name']),
-            $this->encryption->encrypt($fields['child_first_name']),
-            $this->encryption->encrypt($fields['gender']),
-            $this->encryption->encrypt($fields['birth_date']),
-            $this->encryption->encrypt($fields['street']),
-            $this->encryption->encrypt($fields['number']),
-            $this->encryption->encrypt($fields['postal_code']),
-            $this->encryption->encrypt($fields['city']),
-            $this->encryption->encrypt($fields['email']),
-            $this->encryption->blindIndex(self::normalizeEmail($fields['email'])),
-            $this->encryption->encrypt($fields['phone1']),
-            $fields['phone2'] !== null ? $this->encryption->encrypt($fields['phone2']) : null,
-            $fields['remarks'] !== null && $fields['remarks'] !== '' ? $this->encryption->encrypt($fields['remarks']) : null,
-            $nameDobBlind,
-            $desiredSectionId,
-            RegistrationRequest::STATUS_PENDING,
-            $trackingTokenHash,
-            $addressBlind,
-        ]);
+        $stmt->execute($requestParams);
 
         $id = (int) $this->pdo->lastInsertId();
 
@@ -103,7 +129,7 @@ class RegistrationRequestRepository
             }
         }
 
-        return ['id' => $id, 'tracking_token' => $trackingToken];
+        return $id;
     }
 
     public function findById(int $id): ?RegistrationRequest

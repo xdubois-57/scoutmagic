@@ -379,6 +379,82 @@ class PublicRegistrationControllerTest extends TestCase
     }
 
     /**
+     * An identified visitor may only declare members their OWN email is
+     * linked to — the very list the form offered as checkboxes. A forged id
+     * pointing at somebody else's child used to be inserted as-is, turning
+     * into a fabricated "fratrie" shown with name and section to the staff
+     * on the Passage page and on the fiche.
+     */
+    public function testSiblingIdsOutsideTheVisitorsOwnMembersAreDropped(): void
+    {
+        $email = 'parent@example.com';
+        $ownMemberId = $this->insertLinkedMember($email, 'OWN1', 'Ana', 'Dupont');
+        $strangerMemberId = RegistrationTestHelper::insertMember($this->pdo, 'STRANGER1');
+
+        AuthSession::login(1, $email, 'identified');
+        $hcFields = $this->humanCheckFields();
+        sleep(2);
+
+        $this->controller->submit(
+            new Request('POST', '/inscriptions', [], array_merge(
+                $this->baseFields(),
+                $hcFields,
+                ['sibling_member_ids' => [(string) $ownMemberId, (string) $strangerMemberId]]
+            ), [], []),
+            []
+        );
+
+        $requestId = (int) $this->pdo->query('SELECT id FROM registration_requests ORDER BY id DESC LIMIT 1')->fetchColumn();
+        $linked = $this->pdo->query(
+            'SELECT member_id FROM registration_request_siblings WHERE registration_request_id = ' . $requestId
+        )->fetchAll(\PDO::FETCH_COLUMN);
+
+        $this->assertSame([$ownMemberId], array_map('intval', $linked));
+    }
+
+    /**
+     * A sibling id that no longer matches any member must not take the whole
+     * submission down with it: it used to violate fk_rrs_member and surface
+     * as a 500 *after* the request row had been inserted, leaving a request
+     * in base whose family never received the receipt email.
+     */
+    public function testUnknownSiblingIdDoesNotBreakTheSubmission(): void
+    {
+        AuthSession::login(1, 'parent@example.com', 'identified');
+        $hcFields = $this->humanCheckFields();
+        sleep(2);
+
+        $response = $this->controller->submit(
+            new Request('POST', '/inscriptions', [], array_merge(
+                $this->baseFields(),
+                $hcFields,
+                ['sibling_member_ids' => ['999999']]
+            ), [], []),
+            []
+        );
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame(1, (int) $this->pdo->query('SELECT COUNT(*) FROM registration_requests')->fetchColumn());
+    }
+
+    private function insertLinkedMember(string $email, string $deskId, string $firstName, string $lastName): int
+    {
+        $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('{$deskId}')");
+        $memberId = (int) $this->pdo->lastInsertId();
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted, email_encrypted, email_blind_index)
+             VALUES (?, ?, ?, ?, ?, ?)'
+        );
+        $stmt->execute([
+            $memberId, $this->publicYearId,
+            $this->encryption->encrypt($firstName), $this->encryption->encrypt($lastName),
+            $this->encryption->encrypt($email), $this->encryption->blindIndex(strtolower($email)),
+        ]);
+
+        return $memberId;
+    }
+
+    /**
      * Desk-imported names are frequently stored ALL CAPS — every other
      * screen in the app (trombinoscope, staffs...) shows them through
      * |normalize_name (Core\Service\TextNormalizerService), and the

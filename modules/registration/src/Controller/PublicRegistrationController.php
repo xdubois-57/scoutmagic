@@ -348,6 +348,23 @@ class PublicRegistrationController extends AbstractController
     }
 
     /**
+     * The declared siblings, restricted to members the submitting session is
+     * ACTUALLY linked to — the very same list buildPageContext() offered as
+     * checkboxes (Core\Member\MemberService::getLinkedMembers() against the
+     * session's own email), never the raw submitted ids.
+     *
+     * Without this the ids went straight into registration_request_siblings:
+     * an id that doesn't exist violated fk_rrs_member and surfaced as a 500
+     * *after* the request row had already been inserted, and a real id
+     * belonging to someone else let an identified visitor attach any member
+     * of the unit as a "sibling" — a fabricated parental declaration that
+     * then showed up, name and section included, on the Passage page and on
+     * the staff fiche.
+     *
+     * An unauthorized id is dropped silently rather than failing the whole
+     * submission: it can only come from a forged or stale POST, and losing a
+     * parent's entire form over it would be worse than ignoring the link.
+     *
      * @return array<int>
      */
     private function extractSiblingIds(Request $request): array
@@ -357,7 +374,23 @@ class PublicRegistrationController extends AbstractController
             return [];
         }
 
-        return array_values(array_filter(array_map('intval', $raw), static fn(int $id) => $id > 0));
+        $submitted = array_values(array_filter(array_map('intval', $raw), static fn(int $id) => $id > 0));
+        if ($submitted === []) {
+            return [];
+        }
+
+        $email = AuthSession::getEmail();
+        if ($email === null) {
+            return [];
+        }
+
+        $publicYear = $this->scoutYearResolver->getCurrentPublicYear();
+        $allowed = [];
+        foreach ($this->memberService->getLinkedMembers($email, (int) $publicYear['id']) as $member) {
+            $allowed[] = $member->memberId;
+        }
+
+        return array_values(array_intersect($submitted, $allowed));
     }
 
     /**
