@@ -16,10 +16,8 @@ use Core\Member\MemberYearService;
 use Core\Member\SectionService;
 use Core\Member\SectionStaffAuthorizationService;
 use Core\ScoutYear\ScoutYearResolver;
-use Core\ScoutYear\ScoutYearSession;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
-use Core\Security\Role;
 use Twig\Environment;
 
 /**
@@ -30,6 +28,10 @@ use Twig\Environment;
  * act on all of them. Scoping is entirely delegated to Core\Member\
  * SectionStaffAuthorizationService (ARCHITECTURE.md §8.33) — never
  * recomputed here — and re-checked on every write, not just at display.
+ *
+ * Anchored on the PUBLIC year, always — see publicYear() below for why this
+ * page must not follow ScoutYearResolver::getEffectiveYear() the way most
+ * of the site does.
  */
 class DeparturesController extends AbstractController
 {
@@ -49,9 +51,8 @@ class DeparturesController extends AbstractController
      */
     public function index(Request $request, array $params): Response
     {
-        $role = Role::fromString(AuthSession::getRole());
         $email = AuthSession::getEmail() ?? '';
-        $effectiveYear = $this->scoutYearResolver->getEffectiveYear(ScoutYearSession::getPreviewId(), $role);
+        $effectiveYear = $this->publicYear();
 
         $staffedSections = $this->sectionStaffAuthorizationService->getStaffedSections($email, AuthSession::getRole(), $effectiveYear->id);
 
@@ -121,9 +122,8 @@ class DeparturesController extends AbstractController
             return $this->json(['success' => false, 'error' => 'Membre introuvable.'], 404);
         }
 
-        $role = Role::fromString(AuthSession::getRole());
         $email = AuthSession::getEmail() ?? '';
-        $effectiveYear = $this->scoutYearResolver->getEffectiveYear(ScoutYearSession::getPreviewId(), $role);
+        $effectiveYear = $this->publicYear();
 
         if (!$this->accountStaffsMemberYear($email, AuthSession::getRole(), $effectiveYear->id, $memberYearId)) {
             return $this->json(['success' => false, 'error' => "Cette section n'est pas la vôtre."], 403);
@@ -163,6 +163,28 @@ class DeparturesController extends AbstractController
         }
 
         return false;
+    }
+
+    /**
+     * The PUBLIC scout year, always — never getEffectiveYear(). "Départs"
+     * is the first of the three pages preparing next year (with Passage and
+     * Prévisions, which already anchor here), and they must all agree on
+     * which year they are talking about.
+     *
+     * This page used to follow the effective year, so a chief previewing
+     * next year wrote departure marks onto THAT year's member_years rows —
+     * where Service\PassageService::getBranchChanges(), which filters
+     * `leaving = 0` on the public year, would never see them: the member
+     * kept showing up as a branch-change candidate and the Prévisions
+     * departure count ignored them too.
+     *
+     * @return \Core\ScoutYear\EffectiveScoutYear
+     */
+    private function publicYear(): \Core\ScoutYear\EffectiveScoutYear
+    {
+        $publicYear = $this->scoutYearResolver->getCurrentPublicYear();
+
+        return new \Core\ScoutYear\EffectiveScoutYear((int) $publicYear['id'], (string) $publicYear['label'], null);
     }
 
     /**
