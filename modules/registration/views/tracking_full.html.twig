@@ -74,17 +74,10 @@
                             {% endif %}
                         </div>
                         <div class="d-flex flex-wrap gap-2">
-                            {% if row.isInactive() %}
-                                <form method="post" action="/inscriptions/suivi/demande/{{ registration_request.id }}/emails/{{ row.id }}/reactivate">
-                                    {{ csrf_field()|raw }}
-                                    <button type="submit" class="btn btn-sm btn-outline-primary">Réactiver</button>
-                                </form>
-                            {% else %}
-                                <form method="post" action="/inscriptions/suivi/demande/{{ registration_request.id }}/emails/{{ row.id }}/remove" data-confirm="Supprimer cette adresse email ?">
-                                    {{ csrf_field()|raw }}
-                                    <button type="submit" class="btn btn-sm btn-outline-danger">Supprimer</button>
-                                </form>
-                            {% endif %}
+                            <form method="post" action="/inscriptions/suivi/demande/{{ registration_request.id }}/emails/{{ row.id }}/remove" data-confirm="Supprimer cette adresse email ?">
+                                {{ csrf_field()|raw }}
+                                <button type="submit" class="btn btn-sm btn-outline-danger">Supprimer</button>
+                            </form>
                         </div>
                     </div>
                 {% endfor %}

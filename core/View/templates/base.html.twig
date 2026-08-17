@@ -213,6 +213,24 @@
     </div>
     {% block scripts %}{% endblock %}
 
+    {# Confirmation prompt for any form carrying data-confirm, delegated once
+       for the whole site. Inline onsubmit="return confirm(...)" is blocked by
+       the CSP (script-src has no 'unsafe-inline', and a nonce never covers an
+       on* attribute — see core/Http/Response.php), so this handler is what
+       makes data-confirm work at all. It lived as an identical copy in three
+       page templates and was simply missing from a fourth, where the
+       confirmation therefore never appeared; one place instead of four also
+       means the next page to use data-confirm gets it for free. #}
+    <script nonce="{{ csp_nonce }}">
+    document.querySelectorAll('form[data-confirm]').forEach(function (form) {
+        form.addEventListener('submit', function (e) {
+            if (!confirm(form.dataset.confirm)) {
+                e.preventDefault();
+            }
+        });
+    });
+    </script>
+
     {% if cookie_consent_given is defined and not cookie_consent_given %}
         {% include 'partials/cookie_banner.html.twig' %}
     {% endif %}

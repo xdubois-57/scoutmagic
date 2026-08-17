@@ -33,6 +33,29 @@ class PublicRegistrationController extends AbstractController
      */
     private const HUMAN_CHECK_FORM_KEY = 'registration_form';
 
+    /**
+     * Server-side length ceilings, matching the form's own `maxlength`
+     * attributes. The columns are encrypted BLOBs, so nothing truncates on
+     * the SQL side either: without this, a POST carrying hundreds of
+     * kilobytes of "remarques" was accepted and encrypted as-is. The
+     * browser attribute is a convenience, never the boundary.
+     *
+     * @var array<string, int>
+     */
+    private const MAX_LENGTHS = [
+        'parent_name' => 150,
+        'child_last_name' => 100,
+        'child_first_name' => 100,
+        'street' => 200,
+        'number' => 20,
+        'postal_code' => 20,
+        'city' => 100,
+        'email' => 254, // RFC 5321's maximum path length
+        'phone1' => 30,
+        'phone2' => 30,
+        'remarks' => 2000,
+    ];
+
     public function __construct(
         protected Environment $twig,
         private RegistrationService $registrationService,
@@ -319,6 +342,16 @@ class PublicRegistrationController extends AbstractController
 
         if ($request->getBody('rgpd_accepted') === null) {
             $errors[] = 'Merci d\'accepter la politique de confidentialité.';
+        }
+
+        foreach (self::MAX_LENGTHS as $key => $max) {
+            if ($fields[$key] !== null && mb_strlen((string) $fields[$key]) > $max) {
+                // One generic message, same style as the errors above — the
+                // form marks the limits, so naming the field adds nothing a
+                // legitimate visitor needs.
+                $errors[] = 'Un des champs dépasse la longueur autorisée.';
+                break;
+            }
         }
 
         return array_values(array_unique($errors));

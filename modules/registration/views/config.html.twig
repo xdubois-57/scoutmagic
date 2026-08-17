@@ -347,13 +347,4 @@
 
 {% block scripts %}
 <script src="/assets/js/rich-text-field.js" defer></script>
-<script nonce="{{ csp_nonce }}">
-document.querySelectorAll('form[data-confirm]').forEach(function (form) {
-    form.addEventListener('submit', function (e) {
-        if (!confirm(form.dataset.confirm)) {
-            e.preventDefault();
-        }
-    });
-});
-</script>
 {% endblock %}

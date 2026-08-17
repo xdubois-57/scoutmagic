@@ -425,19 +425,3 @@
         {% endif %}
     </div>
 {% endblock %}
-{# Inline onsubmit="confirm(...)" is blocked by the site's CSP
-   (script-src has no 'unsafe-inline' — see core/Http/Response.php) — same
-   nonce-carrying-inline-<script> pattern as config/general.html.twig and
-   config/rgpd.html.twig, delegated to every data-confirm form on this
-   page rather than one listener per form. #}
-{% block scripts %}
-<script nonce="{{ csp_nonce }}">
-document.querySelectorAll('form[data-confirm]').forEach(function (form) {
-    form.addEventListener('submit', function (e) {
-        if (!confirm(form.dataset.confirm)) {
-            e.preventDefault();
-        }
-    });
-});
-</script>
-{% endblock %}

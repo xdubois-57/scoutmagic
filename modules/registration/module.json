@@ -13,7 +13,12 @@
       "menu": "notre_unite",
       "role_min": "public",
       "label": "Inscriptions",
-      "breadcrumb": { "label": "Inscriptions", "parents": ["Notre unité"] }
+      "breadcrumb": {
+        "label": "Inscriptions",
+        "parents": [
+          "Notre unité"
+        ]
+      }
     },
     {
       "path": "/inscriptions",
@@ -61,15 +66,6 @@
       "label": ""
     },
     {
-      "path": "/inscriptions/suivi/demande/{id}/emails/{email_id}/reactivate",
-      "method": "POST",
-      "controller": "Modules\\Registration\\Controller\\TrackingController",
-      "action": "reactivateEmail",
-      "menu": "espace_animes",
-      "role_min": "identified",
-      "label": ""
-    },
-    {
       "path": "/inscriptions/suivi/demande/{id}/emails/{email_id}/remove",
       "method": "POST",
       "controller": "Modules\\Registration\\Controller\\TrackingController",
@@ -95,7 +91,12 @@
       "menu": "espace_admin",
       "role_min": "admin",
       "label": "Inscriptions",
-      "breadcrumb": { "label": "Inscriptions", "parents": ["Espace chefs d'U"] }
+      "breadcrumb": {
+        "label": "Inscriptions",
+        "parents": [
+          "Espace chefs d'U"
+        ]
+      }
     },
     {
       "path": "/config/inscriptions",
@@ -267,7 +268,12 @@
       "menu": "espace_chefs",
       "role_min": "chief",
       "label": "Départs",
-      "breadcrumb": { "label": "Départs", "parents": ["Espace chefs"] }
+      "breadcrumb": {
+        "label": "Départs",
+        "parents": [
+          "Espace chefs"
+        ]
+      }
     },
     {
       "path": "/departs/{member_year_id}",
@@ -286,7 +292,12 @@
       "menu": "espace_admin",
       "role_min": "admin",
       "label": "Passage",
-      "breadcrumb": { "label": "Passage", "parents": ["Espace chefs d'U"] }
+      "breadcrumb": {
+        "label": "Passage",
+        "parents": [
+          "Espace chefs d'U"
+        ]
+      }
     },
     {
       "path": "/passage/inscription/{id}/section",
@@ -314,7 +325,12 @@
       "menu": "espace_chefs",
       "role_min": "chief",
       "label": "Prévisions",
-      "breadcrumb": { "label": "Prévisions", "parents": ["Espace chefs"] }
+      "breadcrumb": {
+        "label": "Prévisions",
+        "parents": [
+          "Espace chefs"
+        ]
+      }
     }
   ],
   "settings": [

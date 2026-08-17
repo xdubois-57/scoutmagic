@@ -121,33 +121,6 @@ class TrackingController extends AbstractController
     }
 
     /**
-     * POST /inscriptions/suivi/demande/{id}/emails/{email_id}/reactivate
-     *
-     * @param array<string, string> $params
-     */
-    public function reactivateEmail(Request $request, array $params): Response
-    {
-        $registrationRequest = $this->requireLinkedRequest($params);
-        if ($registrationRequest === null) {
-            return new Response('Forbidden', 403);
-        }
-
-        if (!CsrfGuard::validateToken((string) $request->getBody('_csrf_token', ''))) {
-            FlashMessage::set('error', 'Jeton CSRF invalide.');
-            return $this->redirect('/inscriptions/suivi/demande/' . $registrationRequest->id);
-        }
-
-        try {
-            $this->secondaryEmailService->reactivateEmail($registrationRequest->id, (int) ($params['email_id'] ?? 0));
-            FlashMessage::set('success', 'Adresse réactivée.');
-        } catch (RegistrationException $e) {
-            FlashMessage::set('error', $e->getMessage());
-        }
-
-        return $this->redirect('/inscriptions/suivi/demande/' . $registrationRequest->id);
-    }
-
-    /**
      * POST /inscriptions/suivi/demande/{id}/emails/{email_id}/remove
      *
      * @param array<string, string> $params
