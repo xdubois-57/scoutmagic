@@ -504,6 +504,15 @@ $settingService->register('update_download_url', '', 'url', 'URL de télécharge
 $settingService->register('update_dependencies_changed', '0', 'boolean', 'Dépendances modifiées (dernière release)',
     'Indique si composer.lock a changé entre la version installée et la dernière release connue. Géré automatiquement.',
     null, null, null, false, 117);
+$settingService->register('installed_version_notes', '', 'textarea', 'Notes de version (version installée)',
+    'Notes de version (ou message de commit en mode développement) de la version actuellement installée. Mis en cache et rafraîchi automatiquement lorsque la version installée change. Géré automatiquement.',
+    null, null, null, false, 999);
+$settingService->register('installed_version_notes_url', '', 'url', 'URL des notes de version (version installée)',
+    'Lien vers la page GitHub (release ou commit) correspondant à la version installée. Géré automatiquement.',
+    null, null, null, false, 999);
+$settingService->register('installed_version_notes_for', '', 'text', 'Version des notes ci-dessus',
+    'Version pour laquelle installed_version_notes a été mis en cache — sert uniquement à détecter qu\'un rafraîchissement est nécessaire après une mise à jour. Géré automatiquement.',
+    null, null, null, false, 999);
 $settingService->register('backup_auto_frequency', 'monthly', 'select', 'Fréquence des sauvegardes automatiques',
     'Fréquence à laquelle une sauvegarde complète du site (base de données et fichiers, sans la galerie photo) est générée automatiquement en arrière-plan. « Aucune » désactive la sauvegarde automatique.',
     null, null, ['none', 'daily', 'weekly', 'biweekly', 'monthly'], true, 118);

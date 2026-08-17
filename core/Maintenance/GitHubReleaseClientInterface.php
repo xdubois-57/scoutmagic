@@ -20,6 +20,17 @@ interface GitHubReleaseClientInterface
     public function getLatestRelease(): ?ReleaseInfo;
 
     /**
+     * A specific published release by its tag name (GET /repos/{owner}/
+     * {repo}/releases/tags/{tag}) — used to fetch the release notes of the
+     * currently INSTALLED version (Core\Http\Controller\
+     * MaintenanceController::index()), as opposed to getLatestRelease()'s
+     * "what's newest". Null when no release has that exact tag.
+     *
+     * @throws UpdateException on a network/API error
+     */
+    public function getReleaseByTag(string $tag): ?ReleaseInfo;
+
+    /**
      * Whether composer.lock is among the files changed between two tags
      * (GET /repos/{owner}/{repo}/compare/{base}...{head}).
      *
@@ -35,4 +46,14 @@ interface GitHubReleaseClientInterface
      * @throws UpdateException on a network/API error
      */
     public function getLatestCommit(string $branch): ?CommitInfo;
+
+    /**
+     * A specific commit by its sha (GET /repos/{owner}/{repo}/commits/
+     * {sha}) — the development-channel equivalent of getReleaseByTag():
+     * used to fetch the commit message of the currently INSTALLED dev
+     * build. Null when no commit has that sha.
+     *
+     * @throws UpdateException on a network/API error
+     */
+    public function getCommit(string $sha): ?CommitInfo;
 }

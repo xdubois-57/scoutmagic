@@ -64,6 +64,11 @@ class GitHubWebhookServiceTest extends TestCase
                 return $this->latestRelease;
             }
 
+            public function getReleaseByTag(string $tag): ?ReleaseInfo
+            {
+                return null;
+            }
+
             public function composerLockChanged(string $base, string $head): bool
             {
                 if ($this->throws !== null) {
@@ -73,6 +78,11 @@ class GitHubWebhookServiceTest extends TestCase
             }
 
             public function getLatestCommit(string $branch): ?\Core\Maintenance\CommitInfo
+            {
+                return null;
+            }
+
+            public function getCommit(string $sha): ?\Core\Maintenance\CommitInfo
             {
                 return null;
             }
