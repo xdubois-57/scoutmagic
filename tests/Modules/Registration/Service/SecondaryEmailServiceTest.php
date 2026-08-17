@@ -18,6 +18,7 @@ use Tests\Modules\Registration\RegistrationTestHelper;
 /**
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class SecondaryEmailServiceTest extends TestCase
 {
     private \PDO $pdo;
@@ -102,16 +103,6 @@ class SecondaryEmailServiceTest extends TestCase
         $id = $this->repository->create($this->requestId, 'secondary@example.com', password_hash($rawToken, PASSWORD_DEFAULT), new \DateTimeImmutable('-1 hour'));
 
         $this->assertFalse($this->service->confirmEmail($id, $rawToken));
-    }
-
-    public function testReactivateOnlyWorksOnInactiveRows(): void
-    {
-        $rawToken = bin2hex(random_bytes(32));
-        $id = $this->repository->create($this->requestId, 'secondary@example.com', password_hash($rawToken, PASSWORD_DEFAULT), new \DateTimeImmutable('+48 hours'));
-        $this->service->confirmEmail($id, $rawToken);
-
-        $this->expectException(RegistrationException::class);
-        $this->service->reactivateEmail($this->requestId, $id);
     }
 
     public function testRemoveEmailRejectsRowFromAnotherRequest(): void

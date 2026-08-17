@@ -32,6 +32,7 @@ use Tests\Modules\SosStaff\SosStaffTestHelper;
 /**
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class CalendarSyncServiceTest extends TestCase
 {
     private \PDO $pdo;

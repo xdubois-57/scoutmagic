@@ -20,6 +20,7 @@ use Tests\Modules\MassMail\MassMailTestHelper;
 /**
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class MailingListServiceTest extends TestCase
 {
     private \PDO $pdo;

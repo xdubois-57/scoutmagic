@@ -71,6 +71,9 @@
             var height = img.naturalHeight || img.height;
 
             if (file.size < SKIP_THRESHOLD_BYTES && Math.max(width, height) <= MAX_DIMENSION) {
+                if (typeof ImageBitmap !== 'undefined' && img instanceof ImageBitmap) {
+                    img.close();
+                }
                 return file;
             }
 
@@ -86,6 +89,9 @@
                 throw new Error('2D canvas context unavailable');
             }
             ctx.drawImage(img, 0, 0, targetWidth, targetHeight);
+            if (typeof ImageBitmap !== 'undefined' && img instanceof ImageBitmap) {
+                img.close();
+            }
 
             return new Promise(function (resolve, reject) {
                 canvas.toBlob(function (blob) {
@@ -100,7 +106,32 @@
         });
     }
 
+    /**
+     * Decodes the file into whatever drawImage()-compatible source
+     * explicitly guarantees EXIF orientation is applied. createImageBitmap
+     * with imageOrientation:'from-image' is preferred (its default is
+     * actually 'none' — unlike an <img> element, an unconfigured
+     * createImageBitmap call would silently draw a sideways phone photo)
+     * because it makes that guarantee explicit rather than relying on a
+     * given browser/WebView's own <img>-decode default, which is where a
+     * real inconsistency would otherwise hide: most engines apply EXIF
+     * orientation by default today, but this downscale path is the one
+     * place a phone photo's pixels get baked into a final file before the
+     * server ever sees them, so it shouldn't depend on that. Falls back to
+     * the plain <img> element for engines without createImageBitmap (or
+     * without this option) — same as those engines were already doing
+     * before this function existed.
+     */
     function loadImage(file) {
+        if (typeof createImageBitmap === 'function') {
+            return createImageBitmap(file, { imageOrientation: 'from-image' }).catch(function () {
+                return loadImageElement(file);
+            });
+        }
+        return loadImageElement(file);
+    }
+
+    function loadImageElement(file) {
         return new Promise(function (resolve, reject) {
             var url = URL.createObjectURL(file);
             var img = new Image();

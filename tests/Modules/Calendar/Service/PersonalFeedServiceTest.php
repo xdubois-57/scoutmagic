@@ -27,6 +27,7 @@ use Tests\Modules\Calendar\CalendarTestHelper;
 /**
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class PersonalFeedServiceTest extends TestCase
 {
     private \PDO $pdo;

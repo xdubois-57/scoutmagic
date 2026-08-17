@@ -12,6 +12,7 @@ use Tests\Modules\Retro\RetroTestHelper;
 /**
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class BoardRepositoryTest extends TestCase
 {
     private \PDO $pdo;

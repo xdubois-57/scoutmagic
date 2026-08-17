@@ -30,6 +30,7 @@ use Twig\Loader\FilesystemLoader;
  *
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class AuthControllerHumanCheckTest extends TestCase
 {
     private AuthController $controller;

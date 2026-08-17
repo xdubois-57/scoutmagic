@@ -15,6 +15,7 @@ use Tests\DatabaseTestHelper;
 /**
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class MappingResolverTest extends TestCase
 {
     private \PDO $pdo;

@@ -26,6 +26,7 @@ use Twig\Loader\FilesystemLoader;
 /**
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class ConfigModulesControllerTest extends TestCase
 {
     private ConfigModulesController $controller;

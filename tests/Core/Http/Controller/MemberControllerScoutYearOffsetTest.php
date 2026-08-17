@@ -27,6 +27,7 @@ use Twig\Environment;
  *
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class MemberControllerScoutYearOffsetTest extends TestCase
 {
     private \PDO $pdo;

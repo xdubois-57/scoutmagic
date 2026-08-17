@@ -26,6 +26,7 @@ use Tests\Modules\Finance\FinanceTestHelper;
 /**
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class ReceiptMatchingServiceTest extends TestCase
 {
     private \PDO $pdo;

@@ -38,6 +38,7 @@ use Twig\Loader\ArrayLoader;
 /**
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class ResponseServiceTest extends TestCase
 {
     private \PDO $pdo;

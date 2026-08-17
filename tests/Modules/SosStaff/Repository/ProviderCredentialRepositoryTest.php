@@ -13,6 +13,7 @@ use Tests\Modules\SosStaff\SosStaffTestHelper;
 /**
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class ProviderCredentialRepositoryTest extends TestCase
 {
     private \PDO $pdo;

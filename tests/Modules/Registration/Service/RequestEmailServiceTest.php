@@ -27,6 +27,7 @@ use Tests\Modules\Registration\RegistrationTestHelper;
  *
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class RequestEmailServiceTest extends TestCase
 {
     private \PDO $pdo;
@@ -135,5 +136,65 @@ class RequestEmailServiceTest extends TestCase
 
         // *_email_sent_at stays unset so a retry is always possible.
         $this->assertNull($this->requestRepository->findById($requestId)->refusedEmailSentAt);
+    }
+
+    /**
+     * A failed send must leave the family's EXISTING tracking link alive:
+     * the token used to be rotated and persisted before the send, so an SMTP
+     * outage killed the link the parent already had while the replacement
+     * never reached them.
+     */
+    public function testFailedSendLeavesThePreviousTrackingLinkUsable(): void
+    {
+        $this->editableContentService->set('registration_email_refused_body', '<p>Désolé.</p>', 'rich_text', 1);
+        $mailService = $this->createMock(MailService::class);
+        $mailService->method('send')->willThrowException(new MailException('SMTP down'));
+        $service = $this->buildService($mailService);
+
+        $created = $this->requestRepository->create($this->scoutYearId, [
+            'parent_name' => 'P', 'child_last_name' => 'D', 'child_first_name' => 'Léa',
+            'gender' => 'F', 'birth_date' => '2019-01-01', 'street' => 'S', 'number' => '1',
+            'postal_code' => '1000', 'city' => 'V', 'email' => 'p@example.com',
+            'phone1' => '000', 'phone2' => null, 'remarks' => null,
+        ], null, []);
+
+        try {
+            $service->sendRefused($this->requestRepository->findById($created['id']), '2026-2027');
+        } catch (RegistrationException) {
+            // expected
+        }
+
+        $this->assertTrue($this->requestRepository->verifyTrackingToken($created['id'], $created['tracking_token']));
+    }
+
+    public function testSuccessfulSendRotatesTheTrackingToken(): void
+    {
+        $this->editableContentService->set('registration_email_accepted_body', '<p>Bienvenue !</p>', 'rich_text', 1);
+        $mailService = $this->createMock(MailService::class);
+        $mailService->method('send');
+        $service = $this->buildService($mailService);
+
+        $created = $this->requestRepository->create($this->scoutYearId, [
+            'parent_name' => 'P', 'child_last_name' => 'D', 'child_first_name' => 'Léa',
+            'gender' => 'F', 'birth_date' => '2019-01-01', 'street' => 'S', 'number' => '1',
+            'postal_code' => '1000', 'city' => 'V', 'email' => 'p@example.com',
+            'phone1' => '000', 'phone2' => null, 'remarks' => null,
+        ], null, []);
+
+        $service->sendAccepted($this->requestRepository->findById($created['id']), '2026-2027');
+
+        $this->assertFalse($this->requestRepository->verifyTrackingToken($created['id'], $created['tracking_token']));
+    }
+
+    /**
+     * substitute() html-escapes the values it injects; strip_tags() alone
+     * left those entities in the plain-text alternative.
+     */
+    public function testPlainTextAlternativeDecodesEntities(): void
+    {
+        $this->assertSame(
+            "Bonjour Ma'lo & bienvenue",
+            RequestEmailService::toPlainText('<p>Bonjour Ma&#039;lo &amp; bienvenue</p>')
+        );
     }
 }

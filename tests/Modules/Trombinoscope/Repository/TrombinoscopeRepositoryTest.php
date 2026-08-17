@@ -12,6 +12,7 @@ use Tests\DatabaseTestHelper;
 /**
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class TrombinoscopeRepositoryTest extends TestCase
 {
     private \PDO $pdo;

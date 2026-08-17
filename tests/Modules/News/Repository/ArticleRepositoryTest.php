@@ -13,6 +13,7 @@ use Tests\Modules\News\NewsTestHelper;
 /**
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class ArticleRepositoryTest extends TestCase
 {
     private \PDO $pdo;

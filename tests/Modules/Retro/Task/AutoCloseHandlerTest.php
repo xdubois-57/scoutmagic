@@ -23,6 +23,7 @@ use Tests\Modules\Retro\RetroTestHelper;
 /**
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class AutoCloseHandlerTest extends TestCase
 {
     private \PDO $pdo;

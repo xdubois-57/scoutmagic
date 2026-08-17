@@ -187,6 +187,7 @@ class PwaControllerTest extends TestCase
     /**
      * @dataProvider faviconAndFooterLogoSizesProvider
      */
+    #[\PHPUnit\Framework\Attributes\DataProvider('faviconAndFooterLogoSizesProvider')]
     public function testIconServesTheNewFaviconAndFooterLogoSizes(string $size, string $filename): void
     {
         file_put_contents($this->defaultIconPath . '/' . $filename, 'default-bytes-for-' . $size);

@@ -23,6 +23,7 @@ use Twig\Loader\ArrayLoader;
  *
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class PasswordResetServiceTest extends TestCase
 {
     private \PDO $pdo;

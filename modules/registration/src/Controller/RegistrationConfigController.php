@@ -110,11 +110,24 @@ class RegistrationConfigController extends AbstractController
             return $this->redirect('/config/inscriptions');
         }
 
+        // A body that isn't shaped like the grid must never be interpreted:
+        // `capacity=x` used to produce string-offset access (PHP warnings)
+        // and then silently reset every configured capacity to 0. A
+        // malformed submission is refused instead of destroying the
+        // existing configuration.
         $capacities = $request->getBody('capacity', []);
+        if (!is_array($capacities)) {
+            FlashMessage::set('error', 'Données de capacité invalides.');
+            return $this->redirect('/config/inscriptions');
+        }
 
         foreach ($this->ageBracketRepository->findAllOrdered() as $bracket) {
+            $branchCapacities = $capacities[$bracket->ageBranchId] ?? null;
+            if (!is_array($branchCapacities)) {
+                continue;
+            }
             for ($yearInBranch = 1; $yearInBranch <= $bracket->durationYears; $yearInBranch++) {
-                $capacity = (int) ($capacities[$bracket->ageBranchId][$yearInBranch] ?? 0);
+                $capacity = (int) ($branchCapacities[$yearInBranch] ?? 0);
                 $this->slotCapacityRepository->upsert($bracket->ageBranchId, $yearInBranch, max(0, $capacity));
             }
         }
@@ -213,7 +226,11 @@ class RegistrationConfigController extends AbstractController
         $closeAt = trim((string) $request->getBody('scheduled_close_at', ''));
 
         if (!$this->isValidMonthDayOrEmpty($openAt) || !$this->isValidMonthDayOrEmpty($closeAt)) {
-            FlashMessage::set('error', 'Date invalide : utilisez le format MM-JJ (ex. 09-30), ou laissez vide.');
+            FlashMessage::set(
+                'error',
+                'Date invalide : utilisez le format MM-JJ (ex. 09-30), ou laissez vide. '
+                . 'Le 29 février n\'est pas accepté — il n\'existe pas chaque année ; choisissez le 28.'
+            );
             return $this->redirect('/config/inscriptions');
         }
 
@@ -233,10 +250,15 @@ class RegistrationConfigController extends AbstractController
             return false;
         }
 
-        // Leap-agnostic reference year — 02-29 is always accepted as a
-        // valid recurring date, exactly as SlotMath::referenceCalendarYear()
-        // treats this same MM-DD convention leap-agnostically elsewhere.
-        return checkdate((int) $matches[1], (int) $matches[2], 2024);
+        // 02-29 is refused outright: this is a RECURRING date, and the day
+        // simply doesn't exist three years out of four. It used to be
+        // accepted (checkdate against a leap reference year), so a schedule
+        // set on it silently never fired on a non-leap year.
+        if ($matches[1] === '02' && $matches[2] === '29') {
+            return false;
+        }
+
+        return checkdate((int) $matches[1], (int) $matches[2], 2023);
     }
 
     /**
@@ -439,6 +461,12 @@ class RegistrationConfigController extends AbstractController
      */
     private function buildRequestRows(array $requests, array $brackets, int $referenceYear, array $sectionLabels): array
     {
+        // One grouped count for the whole year rather than a query per row —
+        // this list routinely carries a couple of hundred requests.
+        $siblingCounts = $this->requestRepository->countSiblingsForRequests(
+            array_map(static fn($r) => $r->id, $requests)
+        );
+
         $rows = [];
         foreach ($requests as $registrationRequest) {
             $slot = SlotMath::slotForBirthDate($brackets, $registrationRequest->birthDate, $referenceYear);
@@ -449,7 +477,7 @@ class RegistrationConfigController extends AbstractController
                 'intended_section_label' => $registrationRequest->intendedSectionId !== null
                     ? ($sectionLabels[$registrationRequest->intendedSectionId] ?? '—')
                     : null,
-                'sibling_count' => count($this->requestRepository->findSiblingMemberIds($registrationRequest->id)),
+                'sibling_count' => $siblingCounts[$registrationRequest->id] ?? 0,
             ];
         }
 

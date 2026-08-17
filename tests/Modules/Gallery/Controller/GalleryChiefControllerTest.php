@@ -42,6 +42,7 @@ use Twig\TwigFunction;
 /**
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class GalleryChiefControllerTest extends TestCase
 {
     private \PDO $pdo;

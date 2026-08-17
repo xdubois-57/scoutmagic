@@ -57,6 +57,7 @@ use Twig\Environment;
  *
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class NewsIntegrationTest extends TestCase
 {
     private \PDO $pdo;
@@ -641,6 +642,7 @@ class NewsIntegrationTest extends TestCase
     /**
      * @dataProvider visibilityAccessProvider
      */
+    #[\PHPUnit\Framework\Attributes\DataProvider('visibilityAccessProvider')]
     public function testStoreDerivesFormAccessFromVisibilityNotFromRequest(string $visibility, string $expectedAccess): void
     {
         AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');

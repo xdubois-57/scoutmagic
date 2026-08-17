@@ -67,6 +67,7 @@ use Core\Http\Controller\SetupController;
 use Core\Http\Controller\ShortUrlController;
 use Core\Http\Controller\StaffsController;
 use Core\Http\Controller\UploadController;
+use Core\Http\Controller\VersionController;
 use Core\Pdf\PosterPdfService;
 use Core\Url\ShortUrlRepository;
 use Core\Url\ShortUrlService;
@@ -1305,6 +1306,10 @@ $router->addRoute('GET', '/files/{id}/{variant}', FileController::class, 'varian
 // would add nothing.
 $router->addRoute('GET', '/api/offline/manifest', OfflineController::class, 'manifest', 'public');
 
+// Deployment/version check — see Core\Http\Controller\VersionController's
+// own docblock for why role_min is deliberately public here.
+$router->addRoute('GET', '/api/version', VersionController::class, 'index', 'public');
+
 // Generic short-URL redirector (Core\Url)
 $router->addRoute('GET', '/s/{code}', ShortUrlController::class, 'resolve', 'public');
 
@@ -1501,7 +1506,8 @@ if (in_array('llm_connector', $moduleManager->getEnabledModuleIds(), true)) {
 $rgpdContentService = new RgpdContentService($moduleManager, $settingService, $llmConnectorForRgpd, $llmProviderRepoForRgpd, $llmModelRepoForRgpd);
 
 // Handle the request
-$frontController = new FrontController($router, $twig, $config, $offlineWhitelist);
+$maintenanceGate = new \Core\Maintenance\MaintenanceGate($updateHistoryRepository);
+$frontController = new FrontController($router, $twig, $config, $offlineWhitelist, $maintenanceGate);
 
 // Optional dependency on the trombinoscope module (ARCHITECTURE.md §7.4)
 // for the Sections page's "responsable" name — set below only when
@@ -1591,6 +1597,7 @@ $frontController->registerController(
 $frontController->registerController(MaintenanceController::class, new MaintenanceController(
     $twig, $backupService, $backupRepository, $fileRepository, $updateHistoryRepository, $schedulerService, $moduleManager, $encryptionService, $journalService, $settingService, $storagePath, $secretManager
 ));
+$frontController->registerController(VersionController::class, new VersionController($twig, $storagePath));
 $githubWebhookService = new \Core\Maintenance\GitHubWebhookService(
     $settingService, $schedulerService, $updateHistoryRepository, $journalService, dirname($storagePath)
 );
@@ -2305,7 +2312,8 @@ if (in_array('registration', $moduleManager->getEnabledModuleIds(), true)) {
     $frontController->registerController(
         \Modules\Registration\Controller\TrackingController::class,
         new \Modules\Registration\Controller\TrackingController(
-            $twig, $registrationTrackingService, $registrationSecondaryEmailService, $registrationRequestRepo
+            $twig, $registrationTrackingService, $registrationSecondaryEmailService, $registrationRequestRepo,
+            $registrationStatusService
         )
     );
     $frontController->registerController(
@@ -2444,6 +2452,12 @@ if (in_array('registration', $moduleManager->getEnabledModuleIds(), true)) {
     // via ModuleManager::getTaskHandler()), only this one-time nudge.
     if ($schedulerService->find('registration', 'purge_registration_requests', 'daily') === null) {
         $schedulerService->schedule('registration', 'purge_registration_requests', new DateTimeImmutable(), [], 'daily');
+    }
+    // Same again for the Passage auto-assignment (Task\
+    // AutoAssignPassageHandler) — it used to run inside PassageController::
+    // index(), i.e. a write on every GET of the page.
+    if ($schedulerService->find('registration', 'auto_assign_passage', 'hourly') === null) {
+        $schedulerService->schedule('registration', 'auto_assign_passage', new DateTimeImmutable(), [], 'hourly');
     }
 
     // Espace animés menu hook (Core\Module\EspaceAnimesEntryProvider,

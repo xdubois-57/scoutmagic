@@ -33,6 +33,7 @@ use Twig\TwigFunction;
 /**
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class MemberSearchControllerTest extends TestCase
 {
     private \PDO $pdo;

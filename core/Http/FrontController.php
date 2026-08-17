@@ -10,6 +10,8 @@ namespace Core\Http;
 
 use Core\Config\AppConfig;
 use Core\Http\Controller\AbstractController;
+use Core\Maintenance\MaintenanceGate;
+use Core\Maintenance\UpdateHistory;
 use Core\Offline\OfflineWhitelist;
 use Core\Security\RbacGuard;
 use Core\Security\Role;
@@ -28,7 +30,8 @@ class FrontController
         private Router $router,
         private Environment $twig,
         private AppConfig $config, // @phpstan-ignore property.onlyWritten
-        private ?OfflineWhitelist $offlineWhitelist = null
+        private ?OfflineWhitelist $offlineWhitelist = null,
+        private ?MaintenanceGate $maintenanceGate = null
     ) {
         $this->rbacGuard = new RbacGuard();
     }
@@ -56,6 +59,19 @@ class FrontController
 
     public function handle(Request $request): Response
     {
+        // Checked before route resolution, deliberately covering every
+        // path (including ones that would otherwise 404) — see
+        // Core\Maintenance\MaintenanceGate's own docblock for why. Null
+        // means no gate was wired up for this entry point (tests, or any
+        // future non-web entry point) — never blocking in that case.
+        if ($this->maintenanceGate !== null) {
+            $bypassRequested = $request->getQuery(MaintenanceGate::BYPASS_QUERY_PARAM) !== null;
+            $blockingUpdate = $this->maintenanceGate->checkBlocking($bypassRequested);
+            if ($blockingUpdate !== null) {
+                return $this->renderMaintenanceInProgress($blockingUpdate);
+            }
+        }
+
         $resolvedRoute = $this->router->resolve($request);
 
         if ($resolvedRoute === null) {
@@ -146,5 +162,54 @@ class FrontController
         $html = $this->twig->render('errors/403.html.twig');
 
         return (new Response($html))->setStatusCode(403);
+    }
+
+    private function renderMaintenanceInProgress(UpdateHistory $history): Response
+    {
+        $html = $this->twig->render('maintenance/in_progress.html.twig', [
+            'status_label' => self::STATUS_LABELS[$history->status] ?? ('Étape : ' . $history->status),
+            'elapsed_label' => $this->elapsedLabel($history->startedAt),
+        ]);
+
+        // 503 (not 200): a search engine or uptime monitor hitting the
+        // site mid-update must not index or treat this page as the real
+        // one. Retry-After is a hint, not a promise — an update's total
+        // duration depends on database size (MigrationRunner can span
+        // several invocations on a large one) — but 60s is a reasonable
+        // "check back soon" for the common case.
+        return (new Response($html))
+            ->setStatusCode(503)
+            ->setHeader('Retry-After', '60');
+    }
+
+    /** @var array<string, string> */
+    private const STATUS_LABELS = [
+        'backing_up' => 'Sauvegarde de sécurité en cours…',
+        'downloading' => 'Téléchargement de la mise à jour…',
+        'installing' => 'Installation des fichiers…',
+        'migrating' => 'Mise à jour de la base de données…',
+    ];
+
+    private function elapsedLabel(string $startedAt): string
+    {
+        try {
+            // Naive DATETIME, same convention as Core\Security\
+            // MagicLinkRepository etc. — compared directly against the
+            // current time in PHP's own default timezone, no explicit UTC
+            // conversion (MySQL's CURRENT_TIMESTAMP and PHP's `now` are
+            // assumed to agree, as they already are everywhere else this
+            // app diffs a DB timestamp).
+            $started = new \DateTimeImmutable($startedAt);
+        } catch (\Exception) {
+            return '';
+        }
+
+        $elapsedSeconds = max(0, (new \DateTimeImmutable())->getTimestamp() - $started->getTimestamp());
+        if ($elapsedSeconds < 60) {
+            return 'En cours depuis moins d\'une minute.';
+        }
+
+        $minutes = intdiv($elapsedSeconds, 60);
+        return 'En cours depuis ' . $minutes . ' minute' . ($minutes > 1 ? 's' : '') . '.';
     }
 }

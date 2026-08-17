@@ -60,6 +60,53 @@ class RegistrationRequestRepository
         $addressNormalized = AddressNormalizer::normalize($fields['street'], $fields['number'], null, $fields['postal_code']);
         $addressBlind = $addressNormalized !== '' ? $this->encryption->blindIndex($addressNormalized) : null;
 
+        // The request row and its sibling links are one single unit of work:
+        // a failing link (a member id that vanished between the form being
+        // rendered and submitted, a full disk...) used to leave a request
+        // created but link-less, with the exception escaping before Service\
+        // RegistrationService::submit() could send the receipt email — so the
+        // family got nothing at all for a request that did exist. Same
+        // begin/commit/rollBack shape as Service\MigrationService::migrate().
+        $this->pdo->beginTransaction();
+        try {
+            $id = $this->insertRequestAndSiblings([
+                $scoutYearId,
+                $this->encryption->encrypt($fields['parent_name']),
+                $this->encryption->encrypt($fields['child_last_name']),
+                $this->encryption->encrypt($fields['child_first_name']),
+                $this->encryption->encrypt($fields['gender']),
+                $this->encryption->encrypt($fields['birth_date']),
+                $this->encryption->encrypt($fields['street']),
+                $this->encryption->encrypt($fields['number']),
+                $this->encryption->encrypt($fields['postal_code']),
+                $this->encryption->encrypt($fields['city']),
+                $this->encryption->encrypt($fields['email']),
+                $this->encryption->blindIndex(self::normalizeEmail($fields['email'])),
+                $this->encryption->encrypt($fields['phone1']),
+                $fields['phone2'] !== null ? $this->encryption->encrypt($fields['phone2']) : null,
+                $fields['remarks'] !== null && $fields['remarks'] !== '' ? $this->encryption->encrypt($fields['remarks']) : null,
+                $nameDobBlind,
+                $desiredSectionId,
+                RegistrationRequest::STATUS_PENDING,
+                $trackingTokenHash,
+                $addressBlind,
+            ], $siblingMemberIds);
+
+            $this->pdo->commit();
+        } catch (\Throwable $e) {
+            $this->pdo->rollBack();
+            throw $e;
+        }
+
+        return ['id' => $id, 'tracking_token' => $trackingToken];
+    }
+
+    /**
+     * @param array<int, mixed> $requestParams
+     * @param array<int> $siblingMemberIds
+     */
+    private function insertRequestAndSiblings(array $requestParams, array $siblingMemberIds): int
+    {
         $stmt = $this->pdo->prepare(
             'INSERT INTO registration_requests (
                 scout_year_id, parent_name_encrypted, child_last_name_encrypted, child_first_name_encrypted,
@@ -69,28 +116,7 @@ class RegistrationRequestRepository
                 desired_section_id, status, tracking_token_hash, address_normalized_blind_index
              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
-        $stmt->execute([
-            $scoutYearId,
-            $this->encryption->encrypt($fields['parent_name']),
-            $this->encryption->encrypt($fields['child_last_name']),
-            $this->encryption->encrypt($fields['child_first_name']),
-            $this->encryption->encrypt($fields['gender']),
-            $this->encryption->encrypt($fields['birth_date']),
-            $this->encryption->encrypt($fields['street']),
-            $this->encryption->encrypt($fields['number']),
-            $this->encryption->encrypt($fields['postal_code']),
-            $this->encryption->encrypt($fields['city']),
-            $this->encryption->encrypt($fields['email']),
-            $this->encryption->blindIndex(self::normalizeEmail($fields['email'])),
-            $this->encryption->encrypt($fields['phone1']),
-            $fields['phone2'] !== null ? $this->encryption->encrypt($fields['phone2']) : null,
-            $fields['remarks'] !== null && $fields['remarks'] !== '' ? $this->encryption->encrypt($fields['remarks']) : null,
-            $nameDobBlind,
-            $desiredSectionId,
-            RegistrationRequest::STATUS_PENDING,
-            $trackingTokenHash,
-            $addressBlind,
-        ]);
+        $stmt->execute($requestParams);
 
         $id = (int) $this->pdo->lastInsertId();
 
@@ -103,7 +129,7 @@ class RegistrationRequestRepository
             }
         }
 
-        return ['id' => $id, 'tracking_token' => $trackingToken];
+        return $id;
     }
 
     public function findById(int $id): ?RegistrationRequest
@@ -302,6 +328,49 @@ class RegistrationRequestRepository
     }
 
     /**
+     * Declared siblings for a whole batch of requests, one query — the
+     * per-request lookup below issued one query per row of the Passage page
+     * and of the management list.
+     *
+     * @param array<int> $requestIds
+     * @return array<int, array<int>> request id => member ids (requests with
+     *         no declared sibling are simply absent)
+     */
+    public function findSiblingMemberIdsForRequests(array $requestIds): array
+    {
+        $requestIds = array_values(array_unique($requestIds));
+        if ($requestIds === []) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($requestIds), '?'));
+        $stmt = $this->pdo->prepare(
+            "SELECT registration_request_id, member_id FROM registration_request_siblings
+             WHERE registration_request_id IN ({$placeholders})"
+        );
+        $stmt->execute($requestIds);
+
+        $result = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $result[(int) $row['registration_request_id']][] = (int) $row['member_id'];
+        }
+
+        return $result;
+    }
+
+    /**
+     * How many siblings each request declares — the management list only
+     * ever shows the count, so it has no business fetching the ids.
+     *
+     * @param array<int> $requestIds
+     * @return array<int, int> request id => count
+     */
+    public function countSiblingsForRequests(array $requestIds): array
+    {
+        return array_map('count', $this->findSiblingMemberIdsForRequests($requestIds));
+    }
+
+    /**
      * @return array<int> member ids declared as siblings on this request
      */
     public function findSiblingMemberIds(int $requestId): array
@@ -350,20 +419,24 @@ class RegistrationRequestRepository
     }
 
     /**
-     * A fresh tracking token for a request whose original (shown once, at
-     * submission) is long gone — password_hash() overwrites the stored
-     * hash in place, same "previous value stops matching immediately"
+     * Stores the hash of a freshly minted tracking token, replacing the
+     * previous one — same "previous value stops matching immediately"
      * precedent as RegistrationYearCodeRepository::regenerate(). Used
-     * whenever a later email (acceptance/refusal) needs to embed a
-     * tracking link again.
+     * whenever a later email (acceptance/refusal) embeds a tracking link
+     * again.
+     *
+     * The caller generates the raw token and calls this only ONCE THE EMAIL
+     * HAS ACTUALLY BEEN SENT (Service\RequestEmailService::send()). This
+     * used to be a single rotateTrackingToken() that minted and persisted in
+     * one go, before the send: a delivery failure then left the family's
+     * existing link dead while the replacement had never reached them —
+     * which is precisely the retry the service's own docblock promises is
+     * always safe.
      */
-    public function rotateTrackingToken(int $id): string
+    public function storeTrackingTokenHash(int $id, string $rawToken): void
     {
-        $trackingToken = bin2hex(random_bytes(32));
         $stmt = $this->pdo->prepare('UPDATE registration_requests SET tracking_token_hash = ? WHERE id = ?');
-        $stmt->execute([password_hash($trackingToken, PASSWORD_DEFAULT), $id]);
-
-        return $trackingToken;
+        $stmt->execute([password_hash($rawToken, PASSWORD_DEFAULT), $id]);
     }
 
     public function markAcceptedEmailSent(int $id): void

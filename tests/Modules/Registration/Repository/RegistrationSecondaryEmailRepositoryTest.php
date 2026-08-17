@@ -15,6 +15,7 @@ use Tests\Modules\Registration\RegistrationTestHelper;
 /**
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class RegistrationSecondaryEmailRepositoryTest extends TestCase
 {
     private \PDO $pdo;
@@ -75,22 +76,6 @@ class RegistrationSecondaryEmailRepositoryTest extends TestCase
 
         $this->repository->markValid($pendingId);
         $this->assertSame([$this->requestId], $this->repository->findRequestIdsByValidBlindIndex($blindIndex));
-    }
-
-    public function testReactivateAndMarkInactiveRoundTrip(): void
-    {
-        $id = $this->repository->create($this->requestId, 'secondary@example.com', 'hash', new \DateTimeImmutable('+48 hours'));
-        $this->repository->markValid($id);
-
-        $this->repository->markInactive($id);
-        $inactive = $this->repository->findById($id);
-        $this->assertTrue($inactive->isInactive());
-        $this->assertNotNull($inactive->deactivatedAt);
-
-        $this->repository->reactivate($id);
-        $reactivated = $this->repository->findById($id);
-        $this->assertTrue($reactivated->isValid());
-        $this->assertNull($reactivated->deactivatedAt);
     }
 
     public function testRefreshConfirmationKeepsSameRowId(): void

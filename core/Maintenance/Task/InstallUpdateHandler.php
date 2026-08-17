@@ -100,6 +100,16 @@ class InstallUpdateHandler implements TaskHandlerInterface
             return;
         }
 
+        // This update is genuinely about to start — the clearest possible
+        // signal that any OTHER still-non-terminal row is abandoned, not
+        // actually running (see UpdateHistoryRepository::
+        // markOtherInProgressAsFailed()'s own docblock for why). Without
+        // this, a row a crashed/superseded attempt left stuck in
+        // 'downloading' etc. would keep matching findInProgress() and
+        // block every visitor behind Core\Maintenance\MaintenanceGate
+        // until its own 15-minute staleness fallback finally caught it.
+        $updateHistoryRepository->markOtherInProgressAsFailed($historyId);
+
         $basePath = dirname($context->storagePath);
         $backupService = new BackupService($context->connection, $context->storagePath, $basePath);
         $tempDir = $context->storagePath . '/temp/update_' . $historyId;
@@ -415,7 +425,50 @@ class InstallUpdateHandler implements TaskHandlerInterface
         }
     }
 
+    /**
+     * The zipball URL (release asset or branch archive, both served from
+     * api.github.com) is fetched unauthenticated, so it's subject to
+     * GitHub's 60-requests/hour-per-IP anonymous rate limit — a burst of
+     * webhook-triggered installs (several pushes close together) can hit
+     * this. `ignore_errors: true` means a 403/5xx response still "succeeds"
+     * as far as copy() is concerned, just with a JSON error body instead of
+     * zip bytes — extract() would otherwise report that as a generic
+     * "archive invalide" with no indication it was really a rate limit or
+     * a transient GitHub outage. The HTTP status is checked explicitly so
+     * only genuinely transient statuses (429/403/5xx, or no response at
+     * all) are retried, for up to DOWNLOAD_RETRY_WINDOW_SECONDS total
+     * before giving up.
+     */
+    private const DOWNLOAD_RETRY_WINDOW_SECONDS = 60;
+
     private function download(string $url, string $destPath): void
+    {
+        $deadline = microtime(true) + self::DOWNLOAD_RETRY_WINDOW_SECONDS;
+        $lastError = 'raison inconnue';
+
+        while (true) {
+            [$ok, $statusCode, $lastError] = $this->attemptDownload($url, $destPath);
+            if ($ok) {
+                return;
+            }
+
+            $remaining = $deadline - microtime(true);
+            if (!$this->isTransientDownloadFailure($statusCode) || $remaining <= 0) {
+                break;
+            }
+
+            usleep((int) (min(5.0, max(1.0, $remaining)) * 1_000_000));
+        }
+
+        throw new UpdateException("Le téléchargement de la mise à jour a échoué ({$lastError}).");
+    }
+
+    /**
+     * @return array{0: bool, 1: int|null, 2: string} success, HTTP status
+     *         (null if the connection itself never got a response), and a
+     *         short human-readable reason for a failed attempt
+     */
+    private function attemptDownload(string $url, string $destPath): array
     {
         $context = stream_context_create([
             'http' => [
@@ -427,17 +480,59 @@ class InstallUpdateHandler implements TaskHandlerInterface
             ],
         ]);
 
-        $ok = @copy($url, $destPath, $context);
-        if (!$ok || !is_file($destPath) || filesize($destPath) === 0) {
-            throw new UpdateException('Le téléchargement de la mise à jour a échoué.');
+        // file_get_contents() rather than copy(): both reach the same
+        // stream wrapper, but $http_response_header is only reliably
+        // populated after the former — same convention as Core\Maintenance\
+        // GitHubReleaseClient::httpGet(), including checking $body === false
+        // and returning before ever touching $http_response_header: when
+        // the connection itself never gets a response at all (DNS failure,
+        // connection refused), PHP never assigns that variable, and reading
+        // it in that branch would be genuinely undefined.
+        $body = @file_get_contents($url, false, $context);
+        if ($body === false) {
+            return [false, null, 'connexion impossible'];
         }
+
+        $statusCode = $this->parseHttpStatus($http_response_header);
+        if ($statusCode !== null && $statusCode >= 400) {
+            return [false, $statusCode, "HTTP {$statusCode}"];
+        }
+
+        if (@file_put_contents($destPath, $body) === false || !is_file($destPath) || filesize($destPath) === 0) {
+            @unlink($destPath);
+            return [false, $statusCode, 'écriture du fichier temporaire impossible'];
+        }
+
+        return [true, $statusCode, ''];
+    }
+
+    private function isTransientDownloadFailure(?int $statusCode): bool
+    {
+        return $statusCode === null || $statusCode === 403 || $statusCode === 429 || $statusCode >= 500;
+    }
+
+    /**
+     * @param array<int, string> $headers
+     */
+    private function parseHttpStatus(array $headers): ?int
+    {
+        $status = null;
+        foreach ($headers as $header) {
+            if (preg_match('#^HTTP/\S+\s+(\d+)#', $header, $m)) {
+                // The last status line wins (follow_location can leave
+                // several in $http_response_header after a redirect).
+                $status = (int) $m[1];
+            }
+        }
+        return $status;
     }
 
     private function extract(string $zipPath, string $destDir): void
     {
         $zip = new \ZipArchive();
-        if ($zip->open($zipPath) !== true) {
-            throw new UpdateException('L\'archive de mise à jour est invalide.');
+        $openResult = $zip->open($zipPath);
+        if ($openResult !== true) {
+            throw new UpdateException("L'archive de mise à jour est invalide (code {$openResult}).");
         }
         $extracted = $zip->extractTo($destDir);
         $zip->close();

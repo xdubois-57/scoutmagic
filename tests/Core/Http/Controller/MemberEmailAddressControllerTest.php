@@ -24,6 +24,7 @@ use Twig\Environment;
  *
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class MemberEmailAddressControllerTest extends TestCase
 {
     private MemberService&\PHPUnit\Framework\MockObject\MockObject $memberService;

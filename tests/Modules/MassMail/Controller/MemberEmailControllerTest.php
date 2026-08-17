@@ -28,6 +28,7 @@ use Tests\DatabaseTestHelper;
  *
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class MemberEmailControllerTest extends TestCase
 {
     private \PDO $pdo;

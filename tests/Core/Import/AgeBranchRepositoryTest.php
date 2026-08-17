@@ -11,6 +11,7 @@ use Tests\DatabaseTestHelper;
 /**
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class AgeBranchRepositoryTest extends TestCase
 {
     private \PDO $pdo;
@@ -79,6 +80,7 @@ class AgeBranchRepositoryTest extends TestCase
     /**
      * @dataProvider defaultLogoFilenameProvider
      */
+    #[\PHPUnit\Framework\Attributes\DataProvider('defaultLogoFilenameProvider')]
     public function testDefaultLogoFilename(int $sortOrder, ?string $expected): void
     {
         $this->assertSame($expected, AgeBranchRepository::defaultLogoFilename($sortOrder));

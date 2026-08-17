@@ -28,6 +28,7 @@ class UnitLogoDefaultAssetsTest extends TestCase
     /**
      * @dataProvider expectedFilesProvider
      */
+    #[\PHPUnit\Framework\Attributes\DataProvider('expectedFilesProvider')]
     public function testExpectedDefaultFileExistsAtTheRightSize(string $filename, int $expectedSize): void
     {
         $path = $this->dir . '/' . $filename;

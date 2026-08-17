@@ -10,8 +10,8 @@ namespace Core\Maintenance;
 
 use Core\Database\Connection;
 use Core\Database\DatabaseDumper;
+use Core\Database\DatabaseRestorer;
 use Core\Database\SchemaIntrospector;
-use Core\System\ExecutableLocator;
 
 /**
  * Mechanical backup/restore operations (Configuration > Maintenance,
@@ -33,41 +33,11 @@ class BackupService implements BackupServiceInterface
     /** @var string[] */
     private const CONFIG_ONLY_TABLES = ['settings', 'module_registry'];
 
-    /**
-     * Some hosts silently drop the outbound TCP connection a shell-exec'd
-     * `mysql` restore process opens (observed hanging for minutes on
-     * shared hosting) even though PHP's own PDO connection to the same
-     * database is instant — this bounds that specific failure mode so a
-     * stuck restore fails fast instead of hanging the request (and, via
-     * poor man's cron, every other request sharing its session). Dumping
-     * no longer shells out at all (Core\Database\DatabaseDumper, backed by
-     * ifsnop/mysqldump-php), so this only guards restoreDatabase()'s
-     * `mysql` invocation now.
-     */
-    private const SHELL_TIMEOUT_SECONDS = 30;
-
     public function __construct(
         private Connection $connection,
         private string $storagePath,
         private string $basePath
     ) {
-    }
-
-    /**
-     * `timeout` is standard GNU coreutils on Linux (the only place this
-     * runs in production) but doesn't exist on macOS/BSD dev machines —
-     * degrades to no timeout there rather than failing every dump/restore
-     * outright.
-     */
-    private function timeoutPrefix(): string
-    {
-        foreach (['timeout', 'gtimeout'] as $bin) {
-            $path = ExecutableLocator::find($bin);
-            if ($path !== null) {
-                return escapeshellarg($path) . ' ' . self::SHELL_TIMEOUT_SECONDS . ' ';
-            }
-        }
-        return '';
     }
 
     /**
@@ -226,7 +196,13 @@ class BackupService implements BackupServiceInterface
     /**
      * Restores the database from a plain (unencrypted) .sql dump, such as
      * one produced by createDatabaseDump()/createConfigOnlyDump(). Used by
-     * the "Réinitialisation"/"Mise à jour" iterations.
+     * the "Réinitialisation"/"Mise à jour" iterations. Goes through
+     * Core\Database\DatabaseRestorer (pure PHP, over the same PDO
+     * connection the rest of the app already uses) rather than shelling
+     * out to a `mysql` binary — the exact same reasoning as
+     * DatabaseDumper's own docblock, and the gap that made an automatic
+     * rollback fail outright ("mysql n'est pas disponible sur ce serveur")
+     * on a host where the CLI simply isn't installed.
      *
      * @throws BackupException
      */
@@ -236,38 +212,12 @@ class BackupService implements BackupServiceInterface
             throw new BackupException('Fichier de sauvegarde introuvable.');
         }
 
-        if (!ExecutableLocator::isExecAvailable()) {
-            throw new BackupException('Aucune fonction PHP d\'exécution de commande externe (exec, shell_exec, system, passthru) n\'est disponible sur ce serveur (disable_functions).');
-        }
-        $mysqlBin = ExecutableLocator::find('mysql');
-        if ($mysqlBin === null) {
-            throw new BackupException('mysql n\'est pas disponible sur ce serveur.');
-        }
-
         [$host, $port, $dbName, $user, $password] = $this->connectionCredentials();
 
-        $command = sprintf(
-            '%s%s -h %s -P %s -u %s %s %s < %s 2>&1',
-            $this->timeoutPrefix(),
-            escapeshellarg($mysqlBin),
-            escapeshellarg($host),
-            escapeshellarg((string) $port),
-            escapeshellarg($user),
-            $password !== '' ? '-p' . escapeshellarg($password) : '',
-            escapeshellarg($dbName),
-            escapeshellarg($dumpPath)
-        );
-
-        $result = \Core\System\ShellExecutor::run($command);
-        $returnCode = $result['returnCode'];
-
-        if ($returnCode !== 0) {
-            throw new BackupException($this->shellFailureMessage(
-                $returnCode === 124
-                    ? 'La restauration de la base de données a expiré (délai réseau dépassé).'
-                    : 'La restauration de la base de données a échoué.',
-                $result['output']
-            ));
+        try {
+            DatabaseRestorer::restore($host, $port, $dbName, $user, $password, $dumpPath);
+        } catch (\Throwable $e) {
+            throw new BackupException('La restauration de la base de données a échoué. (' . $e->getMessage() . ')');
         }
     }
 
@@ -337,12 +287,6 @@ class BackupService implements BackupServiceInterface
         }
 
         return $path;
-    }
-
-    private function shellFailureMessage(string $baseMessage, string $shellOutput): string
-    {
-        $detail = trim($shellOutput);
-        return $detail === '' ? $baseMessage : $baseMessage . ' (' . $detail . ')';
     }
 
     private function addEncryptedFile(\ZipArchive $zip, string $sourcePath, string $entryName, string $password): void

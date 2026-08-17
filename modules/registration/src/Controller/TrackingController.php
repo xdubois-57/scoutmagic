@@ -17,6 +17,7 @@ use Core\Security\CsrfGuard;
 use Modules\Registration\Repository\RegistrationRequest;
 use Modules\Registration\Repository\RegistrationRequestRepository;
 use Modules\Registration\Service\RegistrationException;
+use Modules\Registration\Service\RequestStatusService;
 use Modules\Registration\Service\SecondaryEmailService;
 use Modules\Registration\Service\TrackingService;
 use Twig\Environment;
@@ -28,6 +29,14 @@ use Twig\Environment;
  * name + received date, showLinked() adds contact fields, siblings, and
  * secondary-email management (Service\SecondaryEmailService) — data the
  * token alone was never meant to expose.
+ *
+ * BOTH modes show Service\RequestStatusService::visibleStatus(), never the
+ * raw `status` column: the module spec's own rule is that a parent must not
+ * discover an acceptance or a refusal before the corresponding email has
+ * actually gone out (a chief deciding on Friday and sending on Monday). The
+ * two templates used to render `registration_request.status` directly,
+ * which bypassed that rule entirely — the staff fiche was the only surface
+ * calling visibleStatus() at all.
  */
 class TrackingController extends AbstractController
 {
@@ -35,7 +44,8 @@ class TrackingController extends AbstractController
         protected Environment $twig,
         private TrackingService $trackingService,
         private SecondaryEmailService $secondaryEmailService,
-        private RegistrationRequestRepository $requestRepository
+        private RegistrationRequestRepository $requestRepository,
+        private RequestStatusService $statusService
     ) {
     }
 
@@ -56,6 +66,7 @@ class TrackingController extends AbstractController
 
         return $this->render('@registration/tracking_minimal.html.twig', [
             'registration_request' => $registrationRequest,
+            'visible_status' => $this->statusService->visibleStatus($registrationRequest),
         ]);
     }
 
@@ -75,6 +86,7 @@ class TrackingController extends AbstractController
 
         return $this->render('@registration/tracking_full.html.twig', [
             'registration_request' => $registrationRequest,
+            'visible_status' => $this->statusService->visibleStatus($registrationRequest),
             'sibling_member_ids' => $this->requestRepository->findSiblingMemberIds($registrationRequest->id),
             'secondary_emails' => $this->secondaryEmailService->listForRequest($registrationRequest->id),
             'csrf_token' => CsrfGuard::generateToken(),
@@ -101,33 +113,6 @@ class TrackingController extends AbstractController
         try {
             $this->secondaryEmailService->addEmail($registrationRequest->id, (string) $request->getBody('email', ''));
             FlashMessage::set('success', 'Adresse ajoutée — un email de confirmation vient d\'être envoyé.');
-        } catch (RegistrationException $e) {
-            FlashMessage::set('error', $e->getMessage());
-        }
-
-        return $this->redirect('/inscriptions/suivi/demande/' . $registrationRequest->id);
-    }
-
-    /**
-     * POST /inscriptions/suivi/demande/{id}/emails/{email_id}/reactivate
-     *
-     * @param array<string, string> $params
-     */
-    public function reactivateEmail(Request $request, array $params): Response
-    {
-        $registrationRequest = $this->requireLinkedRequest($params);
-        if ($registrationRequest === null) {
-            return new Response('Forbidden', 403);
-        }
-
-        if (!CsrfGuard::validateToken((string) $request->getBody('_csrf_token', ''))) {
-            FlashMessage::set('error', 'Jeton CSRF invalide.');
-            return $this->redirect('/inscriptions/suivi/demande/' . $registrationRequest->id);
-        }
-
-        try {
-            $this->secondaryEmailService->reactivateEmail($registrationRequest->id, (int) ($params['email_id'] ?? 0));
-            FlashMessage::set('success', 'Adresse réactivée.');
         } catch (RegistrationException $e) {
             FlashMessage::set('error', $e->getMessage());
         }

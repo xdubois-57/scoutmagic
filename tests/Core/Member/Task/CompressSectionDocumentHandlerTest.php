@@ -25,6 +25,7 @@ use Tests\DatabaseTestHelper;
 /**
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class CompressSectionDocumentHandlerTest extends TestCase
 {
     private \PDO $pdo;

@@ -84,7 +84,14 @@ vendor/bin/phpstan analyse core/   # analyse statique
 
 Publie une release GitHub avec l'artefact d'installation et `bootstrap.php` en tant qu'assets. Nécessite le CLI GitHub (`gh`).
 
-Le script exécute d'abord un **verrou de sécurité** : il refuse de créer un commit, un tag ou une release tant qu'un signalement CodeQL ou une alerte Dependabot est ouvert dans le dépôt (`gh api repos/{owner}/{repo}/code-scanning/alerts` et `.../dependabot/alerts`, filtrés sur `state == "open"`). Corrigez-les (ou justifiez leur rejet) avant de publier — voir `AGENTS.md` § Releases.
+Avant de créer un commit, un tag ou une release, le script exécute quatre verrous, dans cet ordre — chacun bloque la release en cas d'échec :
+
+1. **Déploiement** : `www.scoutmagic.be` doit déjà avoir installé la release précédente (comparé via `GET /api/version`, exposé publiquement par `Core\Http\Controller\VersionController`) et répondre normalement (code 200, pas d'erreur visible sur la page d'accueil).
+2. **Sécurité** : aucun signalement CodeQL ni alerte Dependabot ouvert dans le dépôt (`gh api repos/{owner}/{repo}/code-scanning/alerts` et `.../dependabot/alerts`, filtrés sur `state == "open"`).
+3. **Tests** : `vendor/bin/phpstan analyse` et `vendor/bin/phpunit` doivent passer.
+4. **Fraîcheur des dépendances** : aucune dépendance Composer directe (`composer outdated --direct`) ni aucune bibliothèque front-end vendorisée (`public/assets/vendor/` — Bootstrap, Bootstrap Icons, Chart.js) ne doit être en retard sur sa dernière version publiée.
+
+Corrigez le problème signalé (ou justifiez son rejet) avant de publier — voir `AGENTS.md` § Releases. Chaque verrou peut être contourné individuellement en cas d'urgence (`--skip-deployment-check`, `--skip-security-gate`, `--skip-tests-gate`, `--skip-dependency-check` ; un avertissement est affiché) — voir l'en-tête de `scripts/release.sh` pour le détail de chaque option.
 
 ### Installation sur hébergement mutualisé (administrateurs d'unité)
 

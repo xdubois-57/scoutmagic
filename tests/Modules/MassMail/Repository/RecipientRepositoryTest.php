@@ -14,6 +14,7 @@ use Tests\Modules\MassMail\MassMailTestHelper;
 /**
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class RecipientRepositoryTest extends TestCase
 {
     private \PDO $pdo;

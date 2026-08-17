@@ -23,6 +23,7 @@ use Tests\DatabaseTestHelper;
 /**
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class DeskImportServiceTest extends TestCase
 {
     private \PDO $pdo;

@@ -32,6 +32,7 @@ use Tests\Modules\Gallery\GalleryTestHelper;
 /**
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class GalleryMemberQueryServiceTest extends TestCase
 {
     private \PDO $pdo;

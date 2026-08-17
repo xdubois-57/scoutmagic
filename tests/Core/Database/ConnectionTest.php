@@ -39,6 +39,7 @@ class ConnectionTest extends TestCase
     /**
      * @group database
      */
+    #[\PHPUnit\Framework\Attributes\Group('database')]
     public function testTestConnectionReturnsTrueWithValidCredentials(): void
     {
         $host = getenv('TEST_DB_HOST') ?: '127.0.0.1';
@@ -56,6 +57,7 @@ class ConnectionTest extends TestCase
     /**
      * @group database
      */
+    #[\PHPUnit\Framework\Attributes\Group('database')]
     public function testGetPdoReturnsConfiguredInstance(): void
     {
         $host = getenv('TEST_DB_HOST') ?: '127.0.0.1';

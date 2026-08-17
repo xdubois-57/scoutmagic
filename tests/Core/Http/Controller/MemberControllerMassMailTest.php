@@ -39,6 +39,7 @@ use Twig\Environment;
  *
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class MemberControllerMassMailTest extends TestCase
 {
     private \PDO $pdo;

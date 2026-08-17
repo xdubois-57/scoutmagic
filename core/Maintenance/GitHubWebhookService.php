@@ -218,6 +218,29 @@ class GitHubWebhookService
             return ['status' => 'ignored', 'reason' => 'invalid_payload'];
         }
 
+        // Never start a second automatic install while one is already
+        // running — two pushes close together used to both schedule an
+        // immediate install (cancelPending() below only dedupes a still-
+        // *queued* one, never one already claimed and executing), and
+        // running two installs at once has, in practice, corrupted an
+        // in-progress one. Only a manual "Installer maintenant"
+        // (MaintenanceController::installUpdate()/installDevBranchUpdate())
+        // is allowed to force a new attempt regardless — that path never
+        // calls this method. The superseded push's commit isn't lost: the
+        // next push (or a manual install) picks up whatever is then
+        // current, and Task\InstallUpdateHandler::markOtherInProgressAsFailed()
+        // cleans up this row the moment that next attempt actually starts.
+        if ($this->updateHistoryRepository->findInProgress() !== null) {
+            $this->journalService->log(
+                'core',
+                'auto_update_skipped',
+                'info',
+                'Push ignoré : une mise à jour est déjà en cours d\'installation',
+                ['branch' => $pushedBranch, 'sha' => $sha]
+            );
+            return ['status' => 'ignored', 'reason' => 'update_in_progress'];
+        }
+
         $shortSha = substr($sha, 0, 7);
         $versionTo = 'dev-' . $shortSha;
         $downloadUrl = "https://api.github.com/repos/{$repoFullName}/zipball/{$sha}";

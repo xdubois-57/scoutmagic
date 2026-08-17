@@ -1,131 +1,397 @@
 parameters:
 	ignoreErrors:
 		-
-			message: "#^Method Modules\\\\Registration\\\\Controller\\\\PublicRegistrationController\\:\\:buildPageContext\\(\\) has parameter \\$stickyValues with no value type specified in iterable type array\\.$#"
+			message: '#^Strict comparison using \!\=\= between non\-falsy\-string and '''' will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 2
+			path: core/Database/SqlParser.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>email" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 2
+			path: core/Http/Controller/NotificationPreferenceController.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>notificationDiscretion" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: core/Http/Controller/NotificationPreferenceController.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between mixed and null will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 1
+			path: core/Maintenance/Task/ResetSettingsHandler.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between mixed and null will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 1
+			path: core/Maintenance/Task/RestoreBackupHandler.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>comment" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: core/Member/Controller/MemberSearchController.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>leaving" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: core/Member/Controller/MemberSearchController.php
+
+		-
+			message: '#^Parameter \#1 \$array \(list\<Core\\Member\\Service\\MemberSearchResult\>\) of array_values is already a list, call has no effect\.$#'
+			identifier: arrayValues.list
+			count: 1
+			path: core/Member/Service/MemberSearchService.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between int and null will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 1
+			path: core/Notification/NotificationService.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>notificationDiscretion" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: core/Notification/NotificationService.php
+
+		-
+			message: '#^Parameter \#1 \$icons of method Core\\Photo\\UnitLogoService\:\:writeDerivatives\(\) expects array\<string, string\>, array\<int\|string, string\> given\.$#'
+			identifier: argument.type
+			count: 2
+			path: core/Photo/UnitLogoService.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between mixed and null will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 1
+			path: core/Scheduler/SchedulerRunner.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between DOMNodeList\<DOMNode\> and null will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 3
+			path: core/Security/HtmlSanitizer.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between non\-empty\-string and '''' will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 1
+			path: core/System/ExecutableLocator.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>title" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: modules/calendar/src/Service/CalendarService.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>url" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: modules/calendar/src/Service/CalendarService.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>name" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: modules/finance/src/Controller/MovementController.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>id" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: modules/finance/src/Service/AccountTransferCategoryService.php
+
+		-
+			message: '#^If condition is always false\.$#'
+			identifier: if.alwaysFalse
+			count: 1
+			path: modules/gallery/src/Repository/StorageLocationRepository.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between non\-empty\-string and null will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 2
+			path: modules/gallery/src/Service/AlbumService.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>originalName" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: modules/mass_mail/src/Controller/MassMailController.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between mixed and null will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 3
+			path: modules/news/src/Controller/NewsController.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>closesAt" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: modules/news/src/Controller/NewsController.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>firstName" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 2
+			path: modules/news/src/Controller/NewsController.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>isIndexed" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: modules/news/src/Controller/NewsController.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>opensAt" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: modules/news/src/Controller/NewsController.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>seoKeywords" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: modules/news/src/Controller/NewsController.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>seoStopDate" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: modules/news/src/Controller/NewsController.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>summary" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: modules/news/src/Controller/NewsController.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>title" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: modules/news/src/Controller/NewsController.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>visibility" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: modules/news/src/Controller/NewsController.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>comment" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: modules/registration/src/Controller/DeparturesController.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>leaving" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: modules/registration/src/Controller/DeparturesController.php
+
+		-
+			message: '#^PHPDoc tag @param for parameter \$stickyValues with type array\<string, mixed\>\|null is not subtype of native type array\.$#'
+			identifier: parameter.phpDocType
 			count: 1
 			path: modules/registration/src/Controller/PublicRegistrationController.php
 
 		-
-			message: "#^PHPDoc tag @param for parameter \\$stickyValues with type array\\<string, mixed\\>\\|null is not subtype of native type array\\.$#"
-			count: 1
-			path: modules/registration/src/Controller/PublicRegistrationController.php
-
-		-
-			message: "#^Method Modules\\\\Registration\\\\Service\\\\PassageService\\:\\:decryptName\\(\\) has parameter \\$firstNameEncrypted with no type specified\\.$#"
+			message: '#^Method Modules\\Registration\\Service\\PassageService\:\:decryptName\(\) has parameter \$firstNameEncrypted with no type specified\.$#'
+			identifier: missingType.parameter
 			count: 1
 			path: modules/registration/src/Service/PassageService.php
 
 		-
-			message: "#^Method Modules\\\\Registration\\\\Service\\\\PassageService\\:\\:decryptName\\(\\) has parameter \\$lastNameEncrypted with no type specified\\.$#"
+			message: '#^Method Modules\\Registration\\Service\\PassageService\:\:decryptName\(\) has parameter \$lastNameEncrypted with no type specified\.$#'
+			identifier: missingType.parameter
 			count: 1
 			path: modules/registration/src/Service/PassageService.php
 
 		-
-			message: "#^Offset 'url' on array\\{label\\: string, url\\: string, isDynamic\\: bool, subtitle\\: string\\|null\\} on left side of \\?\\? always exists and is not nullable\\.$#"
+			message: '#^Using nullsafe property access "\?\-\>votes" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 2
+			path: modules/retro/src/Controller/RetroBoardController.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>endDate" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: modules/retro/src/Service/BoardService.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>config" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: modules/sos_staff/src/Controller/SosConfigController.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>isActive" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: modules/sos_staff/src/Controller/SosConfigController.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between array\<string, mixed\> and null will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 1
+			path: modules/sos_staff/src/Provider/Ovh/OvhApiClient.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>config" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 2
+			path: modules/sos_staff/src/Service/ProviderConfigService.php
+
+		-
+			message: '#^Using nullsafe property access "\?\-\>mobile" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
+			identifier: nullsafe.neverNull
+			count: 1
+			path: modules/sos_staff/src/Service/RedirectService.php
+
+		-
+			message: '#^Strict comparison using \!\=\= between mixed and null will always evaluate to true\.$#'
+			identifier: notIdentical.alwaysTrue
+			count: 2
+			path: modules/sos_staff/src/Task/ApplyRedirectHandler.php
+
+		-
+			message: '#^Offset ''url'' on array\{label\: string, url\: string, isDynamic\: bool, subtitle\: string\|null\} on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.offset
 			count: 1
 			path: public/index.php
 
 		-
-			message: "#^Variable \\$bannerService might not be defined\\.$#"
+			message: '#^Variable \$bannerService might not be defined\.$#'
+			identifier: variable.undefined
 			count: 1
 			path: public/index.php
 
 		-
-			message: "#^Variable \\$calendarEventRepo might not be defined\\.$#"
+			message: '#^Variable \$calendarEventRepo might not be defined\.$#'
+			identifier: variable.undefined
 			count: 4
 			path: public/index.php
 
 		-
-			message: "#^Variable \\$calendarEventService might not be defined\\.$#"
+			message: '#^Variable \$calendarEventService might not be defined\.$#'
+			identifier: variable.undefined
 			count: 1
 			path: public/index.php
 
 		-
-			message: "#^Variable \\$calendarIcsBuilder might not be defined\\.$#"
+			message: '#^Variable \$calendarIcsBuilder might not be defined\.$#'
+			identifier: variable.undefined
 			count: 1
 			path: public/index.php
 
 		-
-			message: "#^Variable \\$calendarNotificationService might not be defined\\.$#"
+			message: '#^Variable \$calendarNotificationService might not be defined\.$#'
+			identifier: variable.undefined
 			count: 1
 			path: public/index.php
 
 		-
-			message: "#^Variable \\$calendarPersonalTokenRepo might not be defined\\.$#"
+			message: '#^Variable \$calendarPersonalTokenRepo might not be defined\.$#'
+			identifier: variable.undefined
 			count: 1
 			path: public/index.php
 
 		-
-			message: "#^Variable \\$calendarRepo might not be defined\\.$#"
+			message: '#^Variable \$calendarRepo might not be defined\.$#'
+			identifier: variable.undefined
 			count: 2
 			path: public/index.php
 
 		-
-			message: "#^Variable \\$calendarService might not be defined\\.$#"
+			message: '#^Variable \$calendarService might not be defined\.$#'
+			identifier: variable.undefined
 			count: 2
 			path: public/index.php
 
 		-
-			message: "#^Variable \\$calendarUnitFeedTokenRepo might not be defined\\.$#"
+			message: '#^Variable \$calendarUnitFeedTokenRepo might not be defined\.$#'
+			identifier: variable.undefined
 			count: 1
 			path: public/index.php
 
 		-
-			message: "#^Variable \\$galleryAlbumRepo might not be defined\\.$#"
+			message: '#^Variable \$galleryAlbumRepo might not be defined\.$#'
+			identifier: variable.undefined
 			count: 1
 			path: public/index.php
 
 		-
-			message: "#^Variable \\$galleryMediaRepo might not be defined\\.$#"
+			message: '#^Variable \$galleryMediaRepo might not be defined\.$#'
+			identifier: variable.undefined
 			count: 1
 			path: public/index.php
 
 		-
-			message: "#^Variable \\$galleryMediaService might not be defined\\.$#"
+			message: '#^Variable \$galleryMediaService might not be defined\.$#'
+			identifier: variable.undefined
 			count: 1
 			path: public/index.php
 
 		-
-			message: "#^Variable \\$massMailAccessService might not be defined\\.$#"
+			message: '#^Variable \$massMailAccessService might not be defined\.$#'
+			identifier: variable.undefined
 			count: 1
 			path: public/index.php
 
 		-
-			message: "#^Variable \\$massMailAttachmentRepo might not be defined\\.$#"
+			message: '#^Variable \$massMailAttachmentRepo might not be defined\.$#'
+			identifier: variable.undefined
 			count: 1
 			path: public/index.php
 
 		-
-			message: "#^Variable \\$massMailEmailRepo might not be defined\\.$#"
+			message: '#^Variable \$massMailEmailRepo might not be defined\.$#'
+			identifier: variable.undefined
 			count: 1
 			path: public/index.php
 
 		-
-			message: "#^Variable \\$massMailFunctionRepo might not be defined\\.$#"
+			message: '#^Variable \$massMailFunctionRepo might not be defined\.$#'
+			identifier: variable.undefined
 			count: 1
 			path: public/index.php
 
 		-
-			message: "#^Variable \\$massMailListRepo might not be defined\\.$#"
+			message: '#^Variable \$massMailListRepo might not be defined\.$#'
+			identifier: variable.undefined
 			count: 1
 			path: public/index.php
 
 		-
-			message: "#^Variable \\$massMailRecipientRepo might not be defined\\.$#"
+			message: '#^Variable \$massMailRecipientRepo might not be defined\.$#'
+			identifier: variable.undefined
 			count: 2
 			path: public/index.php
 
 		-
-			message: "#^Variable \\$massMailResolutionRepo might not be defined\\.$#"
+			message: '#^Variable \$massMailResolutionRepo might not be defined\.$#'
+			identifier: variable.undefined
 			count: 1
 			path: public/index.php
 
 		-
-			message: "#^Variable \\$monthGridBuilder might not be defined\\.$#"
+			message: '#^Variable \$monthGridBuilder might not be defined\.$#'
+			identifier: variable.undefined
 			count: 2
 			path: public/index.php
 
 		-
-			message: "#^Variable \\$retroBoardService might not be defined\\.$#"
+			message: '#^Variable \$retroBoardService might not be defined\.$#'
+			identifier: variable.undefined
 			count: 1
 			path: public/index.php

@@ -35,6 +35,7 @@ use Twig\TwigFunction;
 /**
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class CalendarConfigControllerTest extends TestCase
 {
     private \PDO $pdo;

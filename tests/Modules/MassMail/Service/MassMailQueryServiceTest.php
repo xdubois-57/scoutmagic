@@ -22,6 +22,7 @@ use Tests\Modules\MassMail\MassMailTestHelper;
  *
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class MassMailQueryServiceTest extends TestCase
 {
     public function testReturnsOnlySentEmailsForTheGivenMember(): void

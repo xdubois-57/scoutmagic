@@ -16,6 +16,7 @@ use Tests\DatabaseTestHelper;
 /**
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class FeeEstimationServiceTest extends TestCase
 {
     private \PDO $pdo;

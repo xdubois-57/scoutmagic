@@ -123,23 +123,6 @@ class RegistrationSecondaryEmailRepository
         $stmt->execute([$now, $id]);
     }
 
-    public function reactivate(int $id): void
-    {
-        $stmt = $this->pdo->prepare(
-            "UPDATE registration_secondary_emails SET status = 'valid', deactivated_at = NULL WHERE id = ?"
-        );
-        $stmt->execute([$id]);
-    }
-
-    public function markInactive(int $id): void
-    {
-        $now = (new \DateTimeImmutable())->format('Y-m-d H:i:s');
-        $stmt = $this->pdo->prepare(
-            "UPDATE registration_secondary_emails SET status = 'inactive', deactivated_at = ? WHERE id = ?"
-        );
-        $stmt->execute([$now, $id]);
-    }
-
     public function delete(int $id): void
     {
         $stmt = $this->pdo->prepare('DELETE FROM registration_secondary_emails WHERE id = ?');

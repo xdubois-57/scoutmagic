@@ -40,6 +40,7 @@ use Tests\Modules\Gallery\GalleryTestHelper;
 /**
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class AlbumServiceTest extends TestCase
 {
     private \PDO $pdo;

@@ -32,6 +32,7 @@ use Tests\Modules\MassMail\MassMailTestHelper;
 /**
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class SendBatchHandlerTest extends TestCase
 {
     private \PDO $pdo;

@@ -26,6 +26,7 @@ use Tests\Modules\Calendar\CalendarTestHelper;
 /**
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class CalendarPickerServiceTest extends TestCase
 {
     private \PDO $pdo;

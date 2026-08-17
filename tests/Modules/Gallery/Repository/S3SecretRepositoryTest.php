@@ -13,6 +13,7 @@ use Tests\Modules\Gallery\GalleryTestHelper;
 /**
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class S3SecretRepositoryTest extends TestCase
 {
     private S3SecretRepository $repository;

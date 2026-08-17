@@ -24,6 +24,7 @@ use Twig\Loader\FilesystemLoader;
 /**
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class ScoutYearControllerTest extends TestCase
 {
     private \PDO $pdo;

@@ -68,6 +68,7 @@ class ConfigBreadcrumbRoutesTest extends TestCase
     /**
      * @dataProvider configurationSpacePages
      */
+    #[\PHPUnit\Framework\Attributes\DataProvider('configurationSpacePages')]
     public function testConfigurationSpacePageBreadcrumbParentsConfiguration(string $path, string $expectedLabel): void
     {
         $breadcrumb = $this->breadcrumbForGetRoute($path);

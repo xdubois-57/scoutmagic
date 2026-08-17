@@ -10,6 +10,9 @@ use Core\Http\FrontController;
 use Core\Http\Request;
 use Core\Http\Response;
 use Core\Http\Router;
+use Core\Maintenance\MaintenanceGate;
+use Core\Maintenance\UpdateHistory;
+use Core\Maintenance\UpdateHistoryRepository;
 use Core\Security\AuthSession;
 use PHPUnit\Framework\TestCase;
 use Twig\Environment;
@@ -335,6 +338,117 @@ class FrontControllerTest extends TestCase
 
         $this->assertSame(200, $response->getStatusCode());
         $this->assertArrayNotHasKey('ETag', $response->getHeaders());
+    }
+
+    // --- Maintenance gate (update in progress) ---
+
+    private function inProgressHistory(): UpdateHistory
+    {
+        return new UpdateHistory(
+            id: 1,
+            versionFrom: '1.0.0',
+            versionTo: 'dev-abc1234',
+            status: 'installing',
+            dependenciesChanged: false,
+            errorMessage: null,
+            backupId: null,
+            requestedBy: null,
+            startedAt: date('Y-m-d H:i:s'),
+            completedAt: null
+        );
+    }
+
+    private function gateReturning(?UpdateHistory $history): MaintenanceGate
+    {
+        $repository = $this->createMock(UpdateHistoryRepository::class);
+        $repository->method('findInProgress')->willReturn($history);
+        return new MaintenanceGate($repository);
+    }
+
+    public function testServesTheNormalSiteWhenNoUpdateIsInProgress(): void
+    {
+        $router = new Router();
+        $router->addRoute('GET', '/', StubController::class, 'index', 'public');
+
+        $fc = new FrontController($router, $this->twig, $this->config, null, $this->gateReturning(null));
+        $fc->registerController(StubController::class, new StubController($this->twig));
+
+        $response = $fc->handle(new Request('GET', '/', [], [], [], []));
+
+        $this->assertSame(200, $response->getStatusCode());
+    }
+
+    public function testServesTheMaintenancePageInsteadOfTheNormalSiteDuringAnUpdate(): void
+    {
+        $router = new Router();
+        $router->addRoute('GET', '/', StubController::class, 'index', 'public');
+
+        $fc = new FrontController($router, $this->twig, $this->config, null, $this->gateReturning($this->inProgressHistory()));
+        $fc->registerController(StubController::class, new StubController($this->twig));
+
+        $response = $fc->handle(new Request('GET', '/', [], [], [], []));
+
+        $this->assertSame(503, $response->getStatusCode());
+        $this->assertStringContainsString('Mise à jour en cours', $response->getBody());
+        $this->assertSame('60', $response->getHeaders()['Retry-After']);
+    }
+
+    public function testMaintenancePageIsServedEvenForAnOtherwiseUnknownRoute(): void
+    {
+        // Deliberately checked before route resolution — an update in
+        // progress must gate everything, not just routes that exist.
+        $router = new Router();
+
+        $fc = new FrontController($router, $this->twig, $this->config, null, $this->gateReturning($this->inProgressHistory()));
+
+        $response = $fc->handle(new Request('GET', '/this-route-does-not-exist', [], [], [], []));
+
+        $this->assertSame(503, $response->getStatusCode());
+    }
+
+    public function testTheBypassQueryParamServesTheNormalSiteDuringAnUpdate(): void
+    {
+        $router = new Router();
+        $router->addRoute('GET', '/', StubController::class, 'index', 'public');
+
+        $fc = new FrontController($router, $this->twig, $this->config, null, $this->gateReturning($this->inProgressHistory()));
+        $fc->registerController(StubController::class, new StubController($this->twig));
+
+        $request = new Request('GET', '/', [MaintenanceGate::BYPASS_QUERY_PARAM => '1'], [], [], []);
+        $response = $fc->handle($request);
+
+        $this->assertSame(200, $response->getStatusCode());
+    }
+
+    public function testAnAlreadyLoggedInSuperadminSeesTheNormalSiteDuringAnUpdate(): void
+    {
+        $this->startTestSession();
+        AuthSession::login(1, 'root@test.com', 'superadmin');
+
+        $router = new Router();
+        $router->addRoute('GET', '/', StubController::class, 'index', 'public');
+
+        $fc = new FrontController($router, $this->twig, $this->config, null, $this->gateReturning($this->inProgressHistory()));
+        $fc->registerController(StubController::class, new StubController($this->twig));
+
+        $response = $fc->handle(new Request('GET', '/', [], [], [], []));
+
+        $this->assertSame(200, $response->getStatusCode());
+    }
+
+    public function testNoMaintenanceGateMeansNeverBlocking(): void
+    {
+        // Backward-compatible default — most FrontController call sites in
+        // this test suite never pass a 5th argument at all.
+        $router = new Router();
+        $router->addRoute('GET', '/', StubController::class, 'index', 'public');
+
+        $fc = new FrontController($router, $this->twig, $this->config);
+        $fc->registerController(StubController::class, new StubController($this->twig));
+
+        $response = $fc->handle(new Request('GET', '/', [], [], [], []));
+
+        $this->assertSame(200, $response->getStatusCode());
     }
 }
 

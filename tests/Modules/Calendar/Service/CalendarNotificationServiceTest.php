@@ -34,6 +34,7 @@ use Tests\Modules\Calendar\CalendarTestHelper;
 /**
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class CalendarNotificationServiceTest extends TestCase
 {
     private \PDO $pdo;

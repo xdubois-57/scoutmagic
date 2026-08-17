@@ -27,6 +27,7 @@ use Tests\DatabaseTestHelper;
 /**
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class NotificationServiceTest extends TestCase
 {
     private \PDO $pdo;

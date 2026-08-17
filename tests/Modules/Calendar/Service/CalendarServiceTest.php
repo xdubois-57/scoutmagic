@@ -23,6 +23,7 @@ use Tests\Modules\Calendar\CalendarTestHelper;
 /**
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class CalendarServiceTest extends TestCase
 {
     private \PDO $pdo;
@@ -115,6 +116,7 @@ class CalendarServiceTest extends TestCase
     /**
      * @dataProvider coreBranchSortOrderProvider
      */
+    #[\PHPUnit\Framework\Attributes\DataProvider('coreBranchSortOrderProvider')]
     public function testEnsureSectionCalendarsDefaultsCoreBranchesToPublicVisibility(int $branchSortOrder): void
     {
         $this->createRegularSection('SEC01', 'Section', $branchSortOrder);
@@ -140,6 +142,7 @@ class CalendarServiceTest extends TestCase
     /**
      * @dataProvider nonCoreBranchSortOrderProvider
      */
+    #[\PHPUnit\Framework\Attributes\DataProvider('nonCoreBranchSortOrderProvider')]
     public function testEnsureSectionCalendarsDefaultsNonCoreBranchesToChiefVisibility(int $branchSortOrder): void
     {
         $this->createRegularSection('SEC01', 'Section', $branchSortOrder);

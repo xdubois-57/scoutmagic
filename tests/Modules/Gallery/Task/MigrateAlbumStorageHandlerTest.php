@@ -30,6 +30,7 @@ use Tests\Modules\Gallery\GalleryTestHelper;
 /**
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class MigrateAlbumStorageHandlerTest extends TestCase
 {
     private \PDO $pdo;

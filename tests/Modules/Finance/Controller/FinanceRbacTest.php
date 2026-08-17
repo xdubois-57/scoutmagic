@@ -63,6 +63,7 @@ use Twig\TwigFunction;
  *
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class FinanceRbacTest extends TestCase
 {
     private \PDO $pdo;
@@ -205,6 +206,7 @@ class FinanceRbacTest extends TestCase
     /**
      * @dataProvider routeProvider
      */
+    #[\PHPUnit\Framework\Attributes\DataProvider('routeProvider')]
     public function testAllowedRoleGetsPage(string $path, string $controllerName, string $action, string $allowedRole, string $deniedRole): void
     {
         AuthSession::login(1, 'allowed@test.be', $allowedRole);
@@ -217,6 +219,7 @@ class FinanceRbacTest extends TestCase
     /**
      * @dataProvider routeProvider
      */
+    #[\PHPUnit\Framework\Attributes\DataProvider('routeProvider')]
     public function testDeniedRoleIsRejected(string $path, string $controllerName, string $action, string $allowedRole, string $deniedRole): void
     {
         AuthSession::login(1, 'denied@test.be', $deniedRole);

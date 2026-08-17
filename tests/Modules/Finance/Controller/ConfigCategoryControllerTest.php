@@ -39,6 +39,7 @@ use Twig\TwigFunction;
 /**
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class ConfigCategoryControllerTest extends TestCase
 {
     private \PDO $pdo;

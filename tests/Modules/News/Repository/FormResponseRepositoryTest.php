@@ -19,6 +19,7 @@ use Tests\Modules\News\NewsTestHelper;
 /**
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class FormResponseRepositoryTest extends TestCase
 {
     private \PDO $pdo;

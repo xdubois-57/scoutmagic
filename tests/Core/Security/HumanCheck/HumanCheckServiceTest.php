@@ -17,6 +17,7 @@ use Tests\DatabaseTestHelper;
 /**
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class HumanCheckServiceTest extends TestCase
 {
     private const FORM_KEY = 'test_form';
@@ -159,6 +160,7 @@ class HumanCheckServiceTest extends TestCase
     /**
      * @dataProvider identifiedSessionCases
      */
+    #[\PHPUnit\Framework\Attributes\DataProvider('identifiedSessionCases')]
     public function testIdentifiedSessionAlwaysAcceptsRegardlessOfBarrier(array $formData, ?string $ip): void
     {
         $result = $this->service->verify(self::FORM_KEY, true, $formData, $ip);
@@ -169,13 +171,13 @@ class HumanCheckServiceTest extends TestCase
     /**
      * @return array<string, array{0: array<string, string>, 1: ?string}>
      */
-    public function identifiedSessionCases(): array
+    public static function identifiedSessionCases(): array
     {
         return [
-            'honeypot filled' => [$this->buildFormDataStatic(time() - 10, 'bot'), '198.51.100.1'],
-            'submitted too fast' => [$this->buildFormDataStatic(time()), '198.51.100.2'],
-            'expired' => [$this->buildFormDataStatic(time() - 1000), '198.51.100.3'],
-            'forged signature' => [$this->buildFormDataStatic(time() - 10, '', str_repeat('0', 64)), '198.51.100.4'],
+            'honeypot filled' => [self::buildFormDataStatic(time() - 10, 'bot'), '198.51.100.1'],
+            'submitted too fast' => [self::buildFormDataStatic(time()), '198.51.100.2'],
+            'expired' => [self::buildFormDataStatic(time() - 1000), '198.51.100.3'],
+            'forged signature' => [self::buildFormDataStatic(time() - 10, '', str_repeat('0', 64)), '198.51.100.4'],
             'no token at all' => [[], '198.51.100.5'],
         ];
     }
@@ -188,7 +190,7 @@ class HumanCheckServiceTest extends TestCase
      *
      * @return array<string, string>
      */
-    private function buildFormDataStatic(int $timestamp, string $trapValue = '', ?string $signatureOverride = null): array
+    private static function buildFormDataStatic(int $timestamp, string $trapValue = '', ?string $signatureOverride = null): array
     {
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $trapField = 'hc_test_trap';

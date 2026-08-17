@@ -17,6 +17,7 @@ use Tests\DatabaseTestHelper;
  *
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class MemberStatsRepositoryTest extends TestCase
 {
     private \PDO $pdo;

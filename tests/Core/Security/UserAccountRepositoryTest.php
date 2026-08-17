@@ -11,6 +11,7 @@ use PHPUnit\Framework\TestCase;
 /**
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class UserAccountRepositoryTest extends TestCase
 {
     private \PDO $pdo;

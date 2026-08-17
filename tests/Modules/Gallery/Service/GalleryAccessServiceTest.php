@@ -19,6 +19,7 @@ use Tests\DatabaseTestHelper;
 /**
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class GalleryAccessServiceTest extends TestCase
 {
     private \PDO $pdo;

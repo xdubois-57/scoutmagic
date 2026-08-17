@@ -20,6 +20,7 @@ use Tests\DatabaseTestHelper;
 /**
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class RefreshModelsHandlerTest extends TestCase
 {
     private \PDO $pdo;

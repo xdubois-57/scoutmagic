@@ -23,6 +23,7 @@ use Tests\DatabaseTestHelper;
 /**
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class PurgeHumanCheckRateLimitsHandlerTest extends TestCase
 {
     private \PDO $pdo;

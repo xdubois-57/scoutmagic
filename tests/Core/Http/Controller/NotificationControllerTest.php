@@ -21,6 +21,7 @@ use Twig\Loader\FilesystemLoader;
 /**
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class NotificationControllerTest extends TestCase
 {
     private \PDO $pdo;

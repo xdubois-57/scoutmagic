@@ -100,7 +100,7 @@ Pre-existing findings unrelated to your change are captured in `phpstan-baseline
 - **Mobile-first**: write for mobile by default, add `min-width` breakpoints for larger screens.
 - Use Bootstrap 5 components before writing custom CSS.
 - Never duplicate a Bootstrap component in custom CSS.
-- No frontend build tools (Sass, webpack, npm).
+- No frontend build tools (Sass, webpack, npm). Any new vendored front-end library goes under `public/assets/vendor/<name>/` and must be added to `scripts/release.sh`'s dependency freshness gate (a new `check_vendored_asset_freshness` call — see that function's docblock) in the same change.
 - Minimum 44px touch targets on interactive elements.
 - HTML5 input types (`tel`, `date`, `email`) for appropriate keyboard on mobile.
 
@@ -132,6 +132,30 @@ When the user asks to release a new version (`scripts/release.sh`), do this **in
 1. **Fix first, release later.** Before running the script, query, fix (or dismiss, only when truly not applicable) every open GitHub security item in the `xdubois-57/scoutmagic` repository:
    - open CodeQL scanning findings (`gh api "repos/{owner}/{repo}/code-scanning/alerts" --paginate --jq '.[] | select(.state == "open")'`)
    - open Dependabot alerts (`gh api "repos/{owner}/{repo}/dependabot/alerts" --paginate --jq '.[] | select(.state == "open")'`)
-2. Only after all of them are resolved, run the release script. The script's **security gate** is the final check, not the fix: if it still finds any open finding or alert, it aborts before creating any commit or tag. Do not bypass or disable the gate.
+2. Only after all of them are resolved, run the release script. The script's **deployment gate** (www.scoutmagic.be is on the previous release and responds normally — via the public `GET /api/version`, `Core\Http\Controller\VersionController`), **security gate**, **tests gate** (`vendor/bin/phpstan analyse` + `vendor/bin/phpunit`), and **dependency freshness gate** (`composer outdated --direct` + every vendored front-end library — Bootstrap, Bootstrap Icons, Chart.js — each vs. its latest upstream GitHub release) are the final checks, not the fix: if any of them still finds a problem, the script aborts before creating any commit or tag. Do not bypass or disable any gate to make a release "pass" — `--skip-deployment-check`, `--skip-security-gate`, `--skip-tests-gate`, and `--skip-dependency-check` (see below) exist only for genuine emergencies, not to route around a real finding, a real test failure, a real outdated dependency, or a real production problem.
 
 Fix upgrades/dependency alerts as code changes in the normal flow (with tests), not by blindly dismissing them — but for alerts with demonstrably no fix or clear false positives, dismissing with a justification is acceptable so the gate can pass.
+
+### Release notes — mandatory when releasing from Claude
+
+`scripts/release.sh` accepts `--notes-file <path>`. Every time a release is started from Claude, you **must** write a release-notes file and pass it via `--notes-file` — never rely on the auto-generated commit-list notes (the default when the flag is omitted, intended for manual/human-triggered releases only). Write the file to a temp path (e.g. `mktemp`) since the notes are multi-line Markdown; do not attempt to pass this inline.
+
+The notes file must be a human-readable Markdown document, in French, covering (omit a section if genuinely empty, but check first):
+
+- A short summary of the release in plain language.
+- The complete list of new features.
+- The complete list of bug fixes.
+- The complete list of security fixes.
+- Any updated open-source dependency (name, old → new version), including transitive bumps pulled in by `composer update`.
+- Any backward-compatibility issue or warning (schema changes requiring manual action, config changes, deprecated behavior, etc.). State explicitly if there are none.
+
+Derive this from the actual diff/commit list since the last tag — do not guess or copy the commit subjects verbatim; summarize what changed and why it matters to someone deciding whether to update.
+
+### Bypass flags — emergency use only
+
+- `--skip-deployment-check`: skips checking that www.scoutmagic.be already has the previous release installed and responds normally. Only use this if the user explicitly asks for an urgent release despite production not being confirmed healthy/up to date; the script prints a warning, and you must tell the user the same and follow up to verify production right after.
+- `--skip-security-gate`: skips the CodeQL/Dependabot check. Only use this if the user explicitly asks for an urgent release despite open findings/alerts; the script prints a warning, and you must tell the user the same and follow up to resolve them right after.
+- `--skip-tests-gate`: skips PHPStan/PHPUnit. Only use this if the user explicitly asks for an urgent release despite failing tests/analysis; the script prints a warning, and you must tell the user the same and follow up to fix them right after.
+- `--skip-dependency-check`: skips the dependency freshness gate (outdated direct Composer packages, outdated vendored front-end libraries — Bootstrap, Bootstrap Icons, Chart.js). Only use this if the user explicitly asks for an urgent release despite outdated dependencies; the script prints a warning, and you must tell the user the same and follow up to update them right after.
+
+Never pass any of these flags on your own initiative to work around a genuine failure — fix the underlying issue instead (update the outdated package/vendored library, fix the test, resolve the finding, wait for/investigate the production deployment). These flags are for the user's explicit, informed decision only.

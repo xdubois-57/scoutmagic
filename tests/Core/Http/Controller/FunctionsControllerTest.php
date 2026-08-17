@@ -31,6 +31,7 @@ use Twig\Loader\FilesystemLoader;
 /**
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class FunctionsControllerTest extends TestCase
 {
     private FunctionsController $controller;

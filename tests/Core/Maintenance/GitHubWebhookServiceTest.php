@@ -20,6 +20,7 @@ use Tests\DatabaseTestHelper;
 /**
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class GitHubWebhookServiceTest extends TestCase
 {
     private \PDO $pdo;
@@ -457,6 +458,23 @@ class GitHubWebhookServiceTest extends TestCase
         $pending = array_values(array_filter($all, static fn(array $row) => $row['status'] === 'pending'))[0];
         $payload = json_decode((string) $pending['payload'], true);
         $this->assertSame('https://api.github.com/repos/owner/repo/zipball/bbbbbbbbbbbb', $payload['download_url']);
+    }
+
+    public function testHandlePushEventIgnoresAPushWhileAnotherUpdateIsActivelyInstalling(): void
+    {
+        $this->settings->set('auto_update_enabled', '1');
+        $this->settings->set('auto_update_level', 'dev');
+        $this->settings->set('dev_update_branch', 'main');
+        $this->settings->clearCache();
+
+        $runningId = $this->updateHistoryRepository->create('1.0.0', 'dev-running', false, null);
+        $this->updateHistoryRepository->setStatus($runningId, 'downloading');
+
+        $result = $this->service()->handlePushEvent($this->pushPayload('main', 'cccccccccccc'));
+
+        $this->assertSame(['status' => 'ignored', 'reason' => 'update_in_progress'], $result);
+        $all = $this->schedulerRepository->findByModuleAndTaskKey('core', 'install_update', 10);
+        $this->assertCount(0, $all);
     }
 
     public function testHandlePushEventIgnoresAPushWithNoCommitSha(): void

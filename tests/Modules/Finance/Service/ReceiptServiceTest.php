@@ -21,6 +21,7 @@ use Tests\Modules\Finance\FinanceTestHelper;
 /**
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class ReceiptServiceTest extends TestCase
 {
     private \PDO $pdo;
@@ -28,6 +29,7 @@ class ReceiptServiceTest extends TestCase
     private AccountRepository $accountRepository;
     private AttachmentRepository $attachmentRepository;
     private TransactionAttachmentRepository $transactionAttachmentRepository;
+    private EncryptedFileStorageService $fileStorage;
     private string $storagePath;
     private ?int $sharedFiscalYearId = null;
     private int $accountId;
@@ -42,9 +44,9 @@ class ReceiptServiceTest extends TestCase
         $this->attachmentRepository = new AttachmentRepository($this->pdo, $encryption);
         $this->transactionAttachmentRepository = new TransactionAttachmentRepository($this->pdo);
         $this->storagePath = sys_get_temp_dir() . '/finance_receipt_service_test_' . uniqid();
-        $fileStorage = new EncryptedFileStorageService(new FileRepository($this->pdo), $encryption, $this->storagePath);
+        $this->fileStorage = new EncryptedFileStorageService(new FileRepository($this->pdo), $encryption, $this->storagePath);
 
-        $this->service = new ReceiptService($this->attachmentRepository, $this->accountRepository, $this->transactionAttachmentRepository, $fileStorage);
+        $this->service = new ReceiptService($this->attachmentRepository, $this->accountRepository, $this->transactionAttachmentRepository, $this->fileStorage);
 
         $this->accountId = $this->accountRepository->create('Compte', Account::TYPE_BANK, null, null, null, 'intendant');
     }
@@ -239,5 +241,72 @@ class ReceiptServiceTest extends TestCase
 
         $this->assertCount(1, $result);
         $this->assertSame($this->accountId, $result[0]->accountId);
+    }
+
+    public function testUploadCorrectsExifOrientationForJpegReceipt(): void
+    {
+        // Same phone-camera case as Tests\Core\File\UploadHandlerTest::
+        // testExifOrientationIsAppliedBeforeStripping — a receipt is
+        // explicitly documented as "always a scan/photo", but it's stored
+        // via EncryptedFileStorageService rather than UploadHandler, so it
+        // needs its own coverage of the same fix.
+        $jpeg = $this->createJpegWithOrientation(20, 10, 6);
+
+        $attachment = $this->service->upload($jpeg, 'image/jpeg', 'ticket.jpg', $this->accountId, null, null, 1);
+
+        $stored = imagecreatefromstring($this->fileStorage->retrieve($attachment->fileId));
+        $this->assertNotFalse($stored);
+        // A 90° rotation swaps the dimensions: 20x10 becomes 10x20.
+        $this->assertSame(10, imagesx($stored));
+        $this->assertSame(20, imagesy($stored));
+    }
+
+    public function testReplaceCorrectsExifOrientationForJpegReceipt(): void
+    {
+        $original = $this->service->upload('%PDF v1', 'application/pdf', 'v1.pdf', $this->accountId, null, null, 1);
+        $jpeg = $this->createJpegWithOrientation(20, 10, 8);
+
+        $replacement = $this->service->replace($original->id, $jpeg, 'image/jpeg', 'v2.jpg', 1);
+
+        $stored = imagecreatefromstring($this->fileStorage->retrieve($replacement->fileId));
+        $this->assertNotFalse($stored);
+        $this->assertSame(10, imagesx($stored));
+        $this->assertSame(20, imagesy($stored));
+    }
+
+    public function testUploadLeavesJpegWithoutOrientationTagUntouched(): void
+    {
+        $img = imagecreatetruecolor(20, 10);
+        ob_start();
+        imagejpeg($img, null, 90);
+        $jpeg = (string) ob_get_clean();
+        imagedestroy($img);
+
+        $attachment = $this->service->upload($jpeg, 'image/jpeg', 'ticket.jpg', $this->accountId, null, null, 1);
+
+        $this->assertSame($jpeg, $this->fileStorage->retrieve($attachment->fileId));
+    }
+
+    /**
+     * Builds a JPEG of the given pixel dimensions with a hand-packed EXIF
+     * APP1 segment declaring the given Orientation tag — see
+     * Tests\Core\File\UploadHandlerTest::createJpegWithOrientation() for
+     * the byte-layout explanation.
+     */
+    private function createJpegWithOrientation(int $width, int $height, int $orientation): string
+    {
+        $img = imagecreatetruecolor($width, $height);
+        ob_start();
+        imagejpeg($img, null, 90);
+        $jpegData = (string) ob_get_clean();
+        imagedestroy($img);
+
+        $tiffHeader = 'II' . pack('v', 0x002A) . pack('V', 8);
+        $entry = pack('v', 0x0112) . pack('v', 3) . pack('V', 1) . pack('v', $orientation) . pack('v', 0);
+        $ifd = pack('v', 1) . $entry . pack('V', 0);
+        $exifPayload = "Exif\x00\x00" . $tiffHeader . $ifd;
+        $app1 = "\xFF\xE1" . pack('n', strlen($exifPayload) + 2) . $exifPayload;
+
+        return substr($jpegData, 0, 2) . $app1 . substr($jpegData, 2);
     }
 }
