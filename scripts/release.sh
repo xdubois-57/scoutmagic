@@ -219,7 +219,15 @@ check_tests_gate() {
     # code through the pipeline, so a failure still aborts the script via
     # set -e exactly as a direct `vendor/bin/phpunit` call would.
     phpunit_output="$(vendor/bin/phpunit 2>&1 | tee /dev/stderr)"
-    phpunit_summary="$(grep -E '^(OK \(|Tests: )' <<< "${phpunit_output}" | tail -1)"
+    # PHPUnit 13 colorizes its summary line (e.g. "\e[30;43mTests: …\e[0m")
+    # even when piped through tee here, so the ANSI codes are stripped
+    # before matching — otherwise the line no longer starts with "OK (" or
+    # "Tests: " and grep's no-match exit 1 would abort the whole release
+    # via pipefail below. `|| true` on the grep itself is a second guard:
+    # if PHPUnit's summary format ever changes again, this degrades to the
+    # "résumé non trouvé" fallback instead of aborting a release that
+    # otherwise passed.
+    phpunit_summary="$(sed -E $'s/\x1b\\[[0-9;]*m//g' <<< "${phpunit_output}" | { grep -E '^(OK \(|Tests: )' || true; } | tail -1)"
     [[ -n "${phpunit_summary}" ]] || phpunit_summary="résumé PHPUnit non trouvé dans la sortie"
 
     TESTS_GATE_REPORT_LINE="vérifié — PHPStan sans erreur ; PHPUnit : ${phpunit_summary}"
