@@ -141,6 +141,25 @@ class InstallUpdateHandlerTest extends TestCase
         $this->assertSame('Échec de la mise à jour', $notifications[0]->title);
     }
 
+    /**
+     * A row left stuck in a non-terminal status by a crashed/superseded
+     * attempt must be cleaned up the moment a NEW update genuinely starts
+     * — even though this test's own attempt then immediately fails too
+     * (fake DB creds, see class docblock), that failure happens strictly
+     * AFTER the stuck sibling row is already marked failed, so this
+     * assertion holds regardless.
+     */
+    public function testHandleMarksAnyOtherStuckUpdateAsFailedBeforeStartingItsOwnWork(): void
+    {
+        $stuckId = $this->updateHistoryRepository->create('1.0.0', 'dev-stuck', false, null);
+        $this->updateHistoryRepository->setStatus($stuckId, 'downloading');
+
+        $id = $this->updateHistoryRepository->create('1.0.0', '1.1.0', false, $this->userId);
+        $this->handler->handle(['history_id' => $id, 'download_url' => 'https://example.test/artifact.zip'], $this->context);
+
+        $this->assertSame('failed', $this->updateHistoryRepository->findById($stuckId)->status);
+    }
+
     public function testHandleRemovesLeftoverTempDirectoryEvenOnFailure(): void
     {
         $id = $this->updateHistoryRepository->create('1.0.0', '1.1.0', false, $this->userId);

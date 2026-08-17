@@ -10,6 +10,22 @@ namespace Core\Maintenance;
 
 class UpdateHistoryRepository
 {
+    /**
+     * Safety-net fallback for findInProgress() — normally a stuck row gets
+     * cleaned up immediately when the NEXT update actually starts
+     * (markOtherInProgressAsFailed(), called from Task\InstallUpdateHandler
+     * right before it begins real work). This threshold only matters if
+     * nothing new ever comes along to trigger that: a process that died
+     * mid-'downloading'/'installing'/'migrating' with no successor would
+     * otherwise leave Core\Maintenance\MaintenanceGate blocking every
+     * visitor indefinitely. 15 minutes comfortably covers this app's real
+     * scale — a full backup+download+install+migrate normally finishes in
+     * well under a minute — while still being generous enough to never cut
+     * off a genuinely still-progressing attempt (each MigrationRunner
+     * invocation alone budgets only ~20s, see its own docblock).
+     */
+    private const STALE_AFTER_MINUTES = 15;
+
     public function __construct(private \PDO $pdo)
     {
     }
@@ -63,8 +79,57 @@ class UpdateHistoryRepository
         );
         $stmt->execute();
         $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+        if ($row === false) {
+            return null;
+        }
 
-        return $row !== false ? $this->hydrate($row) : null;
+        $history = $this->hydrate($row);
+        if ($this->isStale($history)) {
+            $this->markFailed(
+                $history->id,
+                "Mise à jour abandonnée : bloquée à l'étape « {$history->status} » depuis plus de "
+                    . self::STALE_AFTER_MINUTES . ' minutes sans qu\'une nouvelle tentative ne l\'ait supplantée.'
+            );
+            return null;
+        }
+
+        return $history;
+    }
+
+    private function isStale(UpdateHistory $history): bool
+    {
+        try {
+            $started = new \DateTimeImmutable($history->startedAt);
+        } catch (\Exception) {
+            return false;
+        }
+
+        $elapsedSeconds = (new \DateTimeImmutable())->getTimestamp() - $started->getTimestamp();
+        return $elapsedSeconds > self::STALE_AFTER_MINUTES * 60;
+    }
+
+    /**
+     * Marks every OTHER still-non-terminal row as failed. Called by
+     * Task\InstallUpdateHandler right before a new update begins real
+     * work — a new update actually starting is the clearest possible
+     * signal that any other non-terminal row is abandoned, since this app
+     * never intentionally runs two updates at once (Core\Maintenance\
+     * GitHubWebhookService::handlePushEvent() refuses to schedule a new
+     * automatic install while one is already active; only this — a new
+     * attempt, automatic or a superadmin's manual "Installer maintenant",
+     * actually beginning — supersedes a stuck one, rather than waiting on
+     * findInProgress()'s own STALE_AFTER_MINUTES fallback above).
+     */
+    public function markOtherInProgressAsFailed(int $exceptId): void
+    {
+        $stmt = $this->pdo->prepare(
+            "UPDATE update_history
+             SET status = 'failed',
+                 error_message = 'Mise à jour abandonnée : une nouvelle mise à jour a démarré avant que celle-ci ne se termine.',
+                 completed_at = CURRENT_TIMESTAMP
+             WHERE id != ? AND status IN ('backing_up', 'downloading', 'installing', 'migrating')"
+        );
+        $stmt->execute([$exceptId]);
     }
 
     public function setStatus(int $id, string $status): void

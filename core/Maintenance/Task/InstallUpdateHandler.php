@@ -100,6 +100,16 @@ class InstallUpdateHandler implements TaskHandlerInterface
             return;
         }
 
+        // This update is genuinely about to start — the clearest possible
+        // signal that any OTHER still-non-terminal row is abandoned, not
+        // actually running (see UpdateHistoryRepository::
+        // markOtherInProgressAsFailed()'s own docblock for why). Without
+        // this, a row a crashed/superseded attempt left stuck in
+        // 'downloading' etc. would keep matching findInProgress() and
+        // block every visitor behind Core\Maintenance\MaintenanceGate
+        // until its own 15-minute staleness fallback finally caught it.
+        $updateHistoryRepository->markOtherInProgressAsFailed($historyId);
+
         $basePath = dirname($context->storagePath);
         $backupService = new BackupService($context->connection, $context->storagePath, $basePath);
         $tempDir = $context->storagePath . '/temp/update_' . $historyId;
