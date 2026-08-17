@@ -36,6 +36,7 @@ use Tests\DatabaseTestHelper;
  * with no real database, which makes the safety-backup step itself fail
  * fast — the same trade-off already made in CreateBackupHandlerTest.
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class InstallUpdateHandlerTest extends TestCase
 {
     private \PDO $pdo;

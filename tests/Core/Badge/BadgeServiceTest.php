@@ -18,6 +18,7 @@ use Tests\DatabaseTestHelper;
 /**
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class BadgeServiceTest extends TestCase
 {
     private \PDO $pdo;

@@ -24,6 +24,7 @@ use Tests\DatabaseTestHelper;
 /**
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class CheckStableUpdateHandlerTest extends TestCase
 {
     private \PDO $pdo;

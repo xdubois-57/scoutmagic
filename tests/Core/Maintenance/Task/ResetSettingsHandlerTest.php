@@ -35,6 +35,7 @@ use Tests\DatabaseTestHelper;
  * handler's own orchestration: it must NOT reset any setting when the
  * safety backup fails, and must notify the requester of the failure.
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class ResetSettingsHandlerTest extends TestCase
 {
     private \PDO $pdo;

@@ -55,6 +55,7 @@ use Twig\Environment;
  *
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class NewsRbacTest extends TestCase
 {
     private \PDO $pdo;
@@ -160,6 +161,7 @@ class NewsRbacTest extends TestCase
     /**
      * @dataProvider routeProvider
      */
+    #[\PHPUnit\Framework\Attributes\DataProvider('routeProvider')]
     public function testAllowedRoleGetsThroughTheGuard(string $path, string $controllerName, string $action, string $allowedRole, string $deniedRole): void
     {
         AuthSession::login($this->chiefAccountId, 'allowed@test.com', $allowedRole);
@@ -173,6 +175,7 @@ class NewsRbacTest extends TestCase
     /**
      * @dataProvider routeProvider
      */
+    #[\PHPUnit\Framework\Attributes\DataProvider('routeProvider')]
     public function testRoleBelowFloorIsRejectedByTheGuard(string $path, string $controllerName, string $action, string $allowedRole, string $deniedRole): void
     {
         AuthSession::login($this->chiefAccountId, 'denied@test.com', $deniedRole);

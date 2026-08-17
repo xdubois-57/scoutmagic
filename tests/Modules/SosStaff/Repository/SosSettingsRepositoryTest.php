@@ -12,6 +12,7 @@ use Tests\Modules\SosStaff\SosStaffTestHelper;
 /**
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class SosSettingsRepositoryTest extends TestCase
 {
     private \PDO $pdo;

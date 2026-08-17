@@ -31,6 +31,7 @@ use Twig\Loader\FilesystemLoader;
 /**
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class PushSubscriptionControllerTest extends TestCase
 {
     private \PDO $pdo;

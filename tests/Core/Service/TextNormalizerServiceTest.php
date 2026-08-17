@@ -12,6 +12,7 @@ class TextNormalizerServiceTest extends TestCase
     /**
      * @dataProvider nameProvider
      */
+    #[\PHPUnit\Framework\Attributes\DataProvider('nameProvider')]
     public function testNormalizeName(string $input, string $expected): void
     {
         $this->assertSame($expected, TextNormalizerService::normalizeName($input));
@@ -40,6 +41,7 @@ class TextNormalizerServiceTest extends TestCase
     /**
      * @dataProvider totemProvider
      */
+    #[\PHPUnit\Framework\Attributes\DataProvider('totemProvider')]
     public function testNormalizeTotem(string $input, string $expected): void
     {
         $this->assertSame($expected, TextNormalizerService::normalizeTotem($input));
@@ -60,6 +62,7 @@ class TextNormalizerServiceTest extends TestCase
     /**
      * @dataProvider phoneProvider
      */
+    #[\PHPUnit\Framework\Attributes\DataProvider('phoneProvider')]
     public function testNormalizePhone(string $input, string $expected): void
     {
         $this->assertSame($expected, TextNormalizerService::normalizePhone($input));
@@ -86,6 +89,7 @@ class TextNormalizerServiceTest extends TestCase
     /**
      * @dataProvider addressProvider
      */
+    #[\PHPUnit\Framework\Attributes\DataProvider('addressProvider')]
     public function testNormalizeAddress(string $input, string $expected): void
     {
         $this->assertSame($expected, TextNormalizerService::normalizeAddress($input));

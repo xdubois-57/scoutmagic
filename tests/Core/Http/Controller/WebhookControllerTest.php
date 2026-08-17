@@ -18,6 +18,7 @@ use Twig\Loader\FilesystemLoader;
 /**
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class WebhookControllerTest extends TestCase
 {
     private \PDO $pdo;

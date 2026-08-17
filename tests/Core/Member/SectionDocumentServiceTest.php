@@ -28,6 +28,7 @@ use Tests\DatabaseTestHelper;
 /**
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class SectionDocumentServiceTest extends TestCase
 {
     private \PDO $pdo;

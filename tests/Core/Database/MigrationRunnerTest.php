@@ -14,6 +14,7 @@ use PHPUnit\Framework\TestCase;
 /**
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class MigrationRunnerTest extends TestCase
 {
     private ?Connection $connection = null;

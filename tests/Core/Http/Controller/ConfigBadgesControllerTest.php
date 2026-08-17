@@ -23,6 +23,7 @@ use Twig\Loader\FilesystemLoader;
 /**
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class ConfigBadgesControllerTest extends TestCase
 {
     private ConfigBadgesController $controller;

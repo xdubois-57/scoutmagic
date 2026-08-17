@@ -36,6 +36,7 @@ use Tests\DatabaseTestHelper;
  * succeeds, so they are not exercised without a live MySQL server — same
  * accepted trade-off as CreateBackupHandlerTest/InstallUpdateHandlerTest.
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class RestoreBackupHandlerTest extends TestCase
 {
     private \PDO $pdo;

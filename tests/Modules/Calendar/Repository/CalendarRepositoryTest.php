@@ -13,6 +13,7 @@ use Tests\Modules\Calendar\CalendarTestHelper;
 /**
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class CalendarRepositoryTest extends TestCase
 {
     private \PDO $pdo;

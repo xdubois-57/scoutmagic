@@ -25,6 +25,7 @@ use Tests\Modules\Registration\RegistrationTestHelper;
 /**
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class TrackingControllerTest extends TestCase
 {
     private \PDO $pdo;

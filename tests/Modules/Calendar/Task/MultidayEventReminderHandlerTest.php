@@ -25,6 +25,7 @@ use Tests\Modules\Calendar\CalendarTestHelper;
 /**
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class MultidayEventReminderHandlerTest extends TestCase
 {
     private \PDO $pdo;

@@ -19,6 +19,7 @@ use Twig\Loader\ArrayLoader;
 /**
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class PasswordResetControllerTest extends TestCase
 {
     private PasswordResetController $controller;

@@ -35,6 +35,7 @@ use Twig\Loader\ArrayLoader;
 /**
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class OfflineControllerTest extends TestCase
 {
     private \PDO $pdo;

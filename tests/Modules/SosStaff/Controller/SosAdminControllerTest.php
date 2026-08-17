@@ -44,6 +44,7 @@ use Twig\TwigFunction;
 /**
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class SosAdminControllerTest extends TestCase
 {
     private \PDO $pdo;

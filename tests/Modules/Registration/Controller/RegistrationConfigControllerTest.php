@@ -39,6 +39,7 @@ use Tests\Modules\Registration\RegistrationTestHelper;
  *
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class RegistrationConfigControllerTest extends TestCase
 {
     private \PDO $pdo;

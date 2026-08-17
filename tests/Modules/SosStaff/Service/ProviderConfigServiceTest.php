@@ -16,6 +16,7 @@ use Tests\Modules\SosStaff\SosStaffTestHelper;
 /**
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class ProviderConfigServiceTest extends TestCase
 {
     private \PDO $pdo;

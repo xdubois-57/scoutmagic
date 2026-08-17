@@ -22,6 +22,7 @@ use Twig\Loader\ArrayLoader;
 /**
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class DigestServiceTest extends TestCase
 {
     private \PDO $pdo;

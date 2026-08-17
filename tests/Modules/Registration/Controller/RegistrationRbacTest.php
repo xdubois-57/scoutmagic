@@ -49,6 +49,7 @@ use Twig\Environment;
  *
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class RegistrationRbacTest extends TestCase
 {
     private \PDO $pdo;
@@ -147,6 +148,7 @@ class RegistrationRbacTest extends TestCase
     /**
      * @dataProvider routeProvider
      */
+    #[\PHPUnit\Framework\Attributes\DataProvider('routeProvider')]
     public function testAdminGetsPage(string $path, string $controllerName, string $action): void
     {
         AuthSession::login(1, 'admin@test.be', 'admin');
@@ -159,6 +161,7 @@ class RegistrationRbacTest extends TestCase
     /**
      * @dataProvider routeProvider
      */
+    #[\PHPUnit\Framework\Attributes\DataProvider('routeProvider')]
     public function testOneRoleBelowIsRejected(string $path, string $controllerName, string $action): void
     {
         AuthSession::login(1, 'chief@test.be', 'chief');

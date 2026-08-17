@@ -10,6 +10,7 @@ use PHPUnit\Framework\TestCase;
 /**
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class SchemaIntrospectorTest extends TestCase
 {
     private ?\PDO $pdo = null;

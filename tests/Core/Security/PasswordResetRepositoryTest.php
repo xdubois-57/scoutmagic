@@ -15,6 +15,7 @@ use PHPUnit\Framework\TestCase;
  *
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class PasswordResetRepositoryTest extends TestCase
 {
     private \PDO $pdo;

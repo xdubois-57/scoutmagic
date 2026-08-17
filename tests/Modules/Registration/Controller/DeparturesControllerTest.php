@@ -35,6 +35,7 @@ use Tests\DatabaseTestHelper;
  *
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class DeparturesControllerTest extends TestCase
 {
     private \PDO $pdo;

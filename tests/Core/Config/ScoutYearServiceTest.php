@@ -11,6 +11,7 @@ use Tests\DatabaseTestHelper;
 /**
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class ScoutYearServiceTest extends TestCase
 {
     private \PDO $pdo;

@@ -19,6 +19,7 @@ use Tests\Modules\Registration\RegistrationTestHelper;
 /**
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class SlotServiceTest extends TestCase
 {
     private \PDO $pdo;

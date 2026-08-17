@@ -44,6 +44,7 @@ use Core\View\TwigFactory;
  *
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class PublicRegistrationControllerTest extends TestCase
 {
     private \PDO $pdo;

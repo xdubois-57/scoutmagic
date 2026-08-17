@@ -17,6 +17,7 @@ use Tests\Modules\Gallery\GalleryTestHelper;
 /**
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class StorageLocationRepositoryTest extends TestCase
 {
     private \PDO $pdo;

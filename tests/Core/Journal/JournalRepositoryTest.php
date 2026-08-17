@@ -16,6 +16,7 @@ use Tests\DatabaseTestHelper;
 /**
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class JournalRepositoryTest extends TestCase
 {
     private \PDO $pdo;
@@ -80,6 +81,7 @@ class JournalRepositoryTest extends TestCase
      *
      * @group database
      */
+    #[\PHPUnit\Framework\Attributes\Group('database')]
     public function testInsertSurvivesAForeignKeyViolationOnAStaleUserAccountId(): void
     {
         $host = getenv('TEST_DB_HOST') ?: '127.0.0.1';

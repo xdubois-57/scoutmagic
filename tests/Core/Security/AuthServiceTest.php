@@ -17,6 +17,7 @@ use Twig\Loader\ArrayLoader;
 /**
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class AuthServiceTest extends TestCase
 {
     private \PDO $pdo;

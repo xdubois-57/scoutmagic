@@ -22,6 +22,7 @@ use Twig\Loader\ArrayLoader;
 /**
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class MemberControllerTest extends TestCase
 {
     private MemberController $controller;

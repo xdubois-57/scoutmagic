@@ -13,6 +13,7 @@ use Tests\Modules\Registration\RegistrationTestHelper;
 /**
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class RegistrationRequestRepositoryTest extends TestCase
 {
     private \PDO $pdo;

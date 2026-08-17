@@ -37,6 +37,7 @@ use Twig\Environment;
  *
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class CsrfTest extends TestCase
 {
     private \PDO $pdo;

@@ -130,6 +130,7 @@ class BackupServiceTest extends TestCase
     /**
      * @group database
      */
+    #[\PHPUnit\Framework\Attributes\Group('database')]
     public function testCreateDatabaseDumpProducesANonEmptySqlFile(): void
     {
         $service = $this->realDbService();
@@ -144,6 +145,7 @@ class BackupServiceTest extends TestCase
     /**
      * @group database
      */
+    #[\PHPUnit\Framework\Attributes\Group('database')]
     public function testCreateFullBackupProducesAZipWhoseDatabaseEntryNeedsThePassword(): void
     {
         $service = $this->realDbService();

@@ -21,6 +21,7 @@ use Tests\Modules\SosStaff\SosStaffTestHelper;
 /**
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class OnCallServiceTest extends TestCase
 {
     private \PDO $pdo;

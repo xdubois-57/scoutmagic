@@ -15,6 +15,7 @@ use Tests\Modules\Retro\RetroTestHelper;
 /**
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class RateLimitServiceTest extends TestCase
 {
     private RateLimitService $service;

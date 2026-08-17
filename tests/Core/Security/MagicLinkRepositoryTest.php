@@ -10,6 +10,7 @@ use PHPUnit\Framework\TestCase;
 /**
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class MagicLinkRepositoryTest extends TestCase
 {
     private \PDO $pdo;

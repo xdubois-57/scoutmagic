@@ -13,6 +13,7 @@ use Tests\DatabaseTestHelper;
 /**
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class SectionMembershipServiceTest extends TestCase
 {
     private \PDO $pdo;

@@ -34,6 +34,7 @@ use Tests\Modules\Gallery\GalleryTestHelper;
  * transcode pipeline needs a real server with ffmpeg/ffprobe to verify
  * end-to-end.
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class ProcessVideoHandlerTest extends TestCase
 {
     private \PDO $pdo;

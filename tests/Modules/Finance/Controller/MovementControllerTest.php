@@ -35,6 +35,7 @@ use Twig\TwigFunction;
 /**
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class MovementControllerTest extends TestCase
 {
     private \PDO $pdo;

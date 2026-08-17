@@ -23,6 +23,7 @@ use Tests\DatabaseTestHelper;
 /**
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class ModuleManagerTest extends TestCase
 {
     private ModuleManager $manager;

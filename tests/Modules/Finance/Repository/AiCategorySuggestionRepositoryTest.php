@@ -12,6 +12,7 @@ use Tests\Modules\Finance\FinanceTestHelper;
 /**
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class AiCategorySuggestionRepositoryTest extends TestCase
 {
     private \PDO $pdo;

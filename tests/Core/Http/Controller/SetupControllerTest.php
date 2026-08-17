@@ -394,6 +394,7 @@ class SetupControllerTest extends TestCase
      *
      * @group database
      */
+    #[\PHPUnit\Framework\Attributes\Group('database')]
     public function testTestDatabaseReportsExistingTablesOnAFreshSetup(): void
     {
         [$pdo, $params] = $this->connectToTestDatabase();
@@ -415,6 +416,7 @@ class SetupControllerTest extends TestCase
     /**
      * @group database
      */
+    #[\PHPUnit\Framework\Attributes\Group('database')]
     public function testTestDatabaseReportsNoExistingTablesOnAnEmptyDatabase(): void
     {
         [$pdo, $params] = $this->connectToTestDatabase();
@@ -460,6 +462,7 @@ class SetupControllerTest extends TestCase
     /**
      * @group database
      */
+    #[\PHPUnit\Framework\Attributes\Group('database')]
     public function testInstallDatabaseMigratesAGenuinelyEmptyDatabase(): void
     {
         [$pdo, $params] = $this->connectToTestDatabase();
@@ -488,6 +491,7 @@ class SetupControllerTest extends TestCase
      *
      * @group database
      */
+    #[\PHPUnit\Framework\Attributes\Group('database')]
     public function testInstallDatabaseReportsExistingTablesWithoutMigrating(): void
     {
         [$pdo, $params] = $this->connectToTestDatabase();
@@ -528,6 +532,7 @@ class SetupControllerTest extends TestCase
     /**
      * @group database
      */
+    #[\PHPUnit\Framework\Attributes\Group('database')]
     public function testBackupAndEmptyDatabaseDumpsThenDropsEveryTable(): void
     {
         [$pdo, $params] = $this->connectToTestDatabase();
@@ -564,6 +569,7 @@ class SetupControllerTest extends TestCase
      *
      * @group database
      */
+    #[\PHPUnit\Framework\Attributes\Group('database')]
     public function testBackupAndEmptyDatabaseBundlesTheEncryptionKeyWhenPresent(): void
     {
         [$pdo, $params] = $this->connectToTestDatabase();
@@ -603,6 +609,7 @@ class SetupControllerTest extends TestCase
      *
      * @group database
      */
+    #[\PHPUnit\Framework\Attributes\Group('database')]
     public function testBackupAndEmptyDatabaseWithForceAlwaysEmptiesRegardlessOfBackupOutcome(): void
     {
         [$pdo, $params] = $this->connectToTestDatabase();
@@ -643,6 +650,7 @@ class SetupControllerTest extends TestCase
     /**
      * @group database
      */
+    #[\PHPUnit\Framework\Attributes\Group('database')]
     public function testDownloadBackupServesTheDumpThenDeletesIt(): void
     {
         [$pdo, $params] = $this->connectToTestDatabase();
@@ -754,6 +762,7 @@ class SetupControllerTest extends TestCase
     /**
      * @group database
      */
+    #[\PHPUnit\Framework\Attributes\Group('database')]
     public function testSaveWithValidDataCreatesAllFiles(): void
     {
         $host = getenv('TEST_DB_HOST') ?: '127.0.0.1';
@@ -840,6 +849,7 @@ class SetupControllerTest extends TestCase
      *
      * @group database
      */
+    #[\PHPUnit\Framework\Attributes\Group('database')]
     public function testSaveSucceedsWhenDkimKeyWasAlreadyGeneratedAheadOfTime(): void
     {
         $host = getenv('TEST_DB_HOST') ?: '127.0.0.1';

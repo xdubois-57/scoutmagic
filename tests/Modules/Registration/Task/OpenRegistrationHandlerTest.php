@@ -29,6 +29,7 @@ use Tests\DatabaseTestHelper;
  *
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class OpenRegistrationHandlerTest extends TestCase
 {
     private \PDO $pdo;

@@ -15,6 +15,7 @@ use Tests\Modules\Registration\RegistrationTestHelper;
 /**
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class RegistrationSecondaryEmailRepositoryTest extends TestCase
 {
     private \PDO $pdo;

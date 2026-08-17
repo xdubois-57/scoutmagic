@@ -30,6 +30,7 @@ use Tests\DatabaseTestHelper;
 /**
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class MemberPageServiceTest extends TestCase
 {
     private \PDO $pdo;

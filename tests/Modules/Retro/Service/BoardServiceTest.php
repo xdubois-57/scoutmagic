@@ -29,6 +29,7 @@ use Twig\Loader\FilesystemLoader;
 /**
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class BoardServiceTest extends TestCase
 {
     private \PDO $pdo;
@@ -652,6 +653,7 @@ class BoardServiceTest extends TestCase
     /**
      * @dataProvider linkVisibilityCases
      */
+    #[\PHPUnit\Framework\Attributes\DataProvider('linkVisibilityCases')]
     public function testFindLinkedBoardLinkRespectsEachSimpleAudienceLevel(string $linkVisibility, Role $viewerRole, bool $shouldQualify): void
     {
         $service = $this->service();

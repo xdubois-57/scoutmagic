@@ -29,6 +29,7 @@ use Tests\Modules\Finance\FinanceTestHelper;
 /**
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class FinanceServiceTest extends TestCase
 {
     private \PDO $pdo;

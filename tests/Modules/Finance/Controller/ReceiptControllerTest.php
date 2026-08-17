@@ -40,6 +40,7 @@ use Twig\TwigFunction;
 /**
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class ReceiptControllerTest extends TestCase
 {
     private \PDO $pdo;

@@ -36,6 +36,7 @@ use Twig\Loader\FilesystemLoader;
 /**
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class UploadControllerTest extends TestCase
 {
     private \PDO $pdo;

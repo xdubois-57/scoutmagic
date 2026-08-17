@@ -24,6 +24,7 @@ use Twig\TwigFunction;
 /**
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class RetroConfigControllerTest extends TestCase
 {
     private \PDO $pdo;
