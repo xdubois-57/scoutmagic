@@ -10,6 +10,7 @@ use Core\Database\Connection;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Maintenance\Task\InstallUpdateHandler;
+use Core\Maintenance\UpdateException;
 use Core\Maintenance\UpdateHistoryRepository;
 use Core\Mail\MailService;
 use Core\Notification\NotificationPreferenceRepository;
@@ -306,5 +307,86 @@ class InstallUpdateHandlerTest extends TestCase
         // twig_cache directory at all — must not throw.
         $this->invokeClearCompiledTemplateCache($this->storagePath);
         $this->addToAssertionCount(1);
+    }
+
+    /**
+     * Same reflection pattern as the two groups above — installFiles() and
+     * its copyRecursive() are pure filesystem logic the full pipeline
+     * can't reach here (the safety-backup step fails first on fake DB
+     * credentials).
+     */
+    private function invokeInstallFiles(string $sourceDir, string $destDir): void
+    {
+        $method = new \ReflectionMethod(InstallUpdateHandler::class, 'installFiles');
+        $method->setAccessible(true);
+
+        $method->invoke($this->handler, $sourceDir, $destDir);
+    }
+
+    public function testInstallFilesCopiesTheWholeTreeExceptStorageAndVersion(): void
+    {
+        $source = $this->storagePath . '/src';
+        $dest = $this->storagePath . '/dest';
+        mkdir($source . '/core/View', 0755, true);
+        mkdir($source . '/storage', 0755, true);
+        mkdir($dest, 0755, true);
+        file_put_contents($source . '/core/View/TwigFactory.php', '<?php // new');
+        file_put_contents($source . '/VERSION', '9.9.9');
+        file_put_contents($source . '/storage/keep.txt', 'live data');
+
+        $this->invokeInstallFiles($source, $dest);
+
+        $this->assertSame('<?php // new', file_get_contents($dest . '/core/View/TwigFactory.php'));
+        $this->assertFileDoesNotExist($dest . '/VERSION', 'VERSION is written separately, once the rest succeeded');
+        $this->assertFileDoesNotExist($dest . '/storage/keep.txt', 'storage/ holds live data an update never touches');
+    }
+
+    public function testInstallFilesThrowsWhenAFileCannotBeWritten(): void
+    {
+        // The regression this guards: copy()'s return value used to be
+        // discarded, so one unwritable file was skipped silently, the
+        // install "succeeded", nothing rolled back, and VERSION was
+        // written over a half-updated tree — which took the Maintenance
+        // page down with "Unknown 'markdown' filter" (new template
+        // installed, previous TwigFactory left behind).
+        $source = $this->storagePath . '/src';
+        $dest = $this->storagePath . '/dest';
+        mkdir($source . '/core', 0755, true);
+        mkdir($dest, 0755, true);
+        file_put_contents($source . '/core/TwigFactory.php', '<?php // new');
+        // Destination parent is a regular file, so copy() into it fails —
+        // a failure mode that holds even when the test runs as root, which
+        // a chmod-based one would not.
+        file_put_contents($dest . '/core', 'not a directory');
+
+        $this->expectException(UpdateException::class);
+        $this->expectExceptionMessage('partiellement appliquée');
+
+        $this->invokeInstallFiles($source, $dest);
+    }
+
+    public function testInstallFilesStopsAtTheFirstFailureInsteadOfContinuingSilently(): void
+    {
+        $source = $this->storagePath . '/src';
+        $dest = $this->storagePath . '/dest';
+        mkdir($source, 0755, true);
+        mkdir($dest, 0755, true);
+        file_put_contents($source . '/a.php', '<?php // a');
+        mkdir($source . '/b', 0755, true);
+        file_put_contents($source . '/b/inner.php', '<?php // inner');
+        // Blocks the b/ directory from being created at the destination.
+        file_put_contents($dest . '/b', 'not a directory');
+
+        try {
+            $this->invokeInstallFiles($source, $dest);
+            $this->fail('installFiles() should have thrown on the unwritable directory');
+        } catch (UpdateException $e) {
+            $this->assertStringContainsString('partiellement appliquée', $e->getMessage());
+        }
+
+        // The throw is what hands control to rollbackToSafetyBackup(); the
+        // point is that it happens at all, not that nothing was copied
+        // before it (scandir order decides that).
+        $this->assertFileDoesNotExist($dest . '/b/inner.php');
     }
 }

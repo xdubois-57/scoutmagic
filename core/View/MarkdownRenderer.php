@@ -44,11 +44,17 @@ final class MarkdownRenderer
             $html .= '<p>' . self::inline(implode(' ', $paragraph)) . '</p>';
             $paragraph = [];
         };
-        $closeList = static function () use (&$listOpen, &$html): void {
+        // Takes and returns the flag rather than capturing it by
+        // reference: a by-ref bool captured before it is ever set to true
+        // reads as permanently false to static analysis, which flagged the
+        // `if` below as dead code. Passing it through keeps the same
+        // behaviour and stays honest about the state being threaded.
+        $closeList = static function (bool $listOpen) use (&$html): bool {
             if ($listOpen) {
                 $html .= '</ul>';
-                $listOpen = false;
             }
+
+            return false;
         };
 
         foreach ($lines as $line) {
@@ -61,14 +67,14 @@ final class MarkdownRenderer
 
             if (preg_match('/^-{3,}$/', $trimmed) === 1) {
                 $flushParagraph();
-                $closeList();
+                $listOpen = $closeList($listOpen);
                 $html .= '<hr>';
                 continue;
             }
 
             if (preg_match('/^#{1,6}\s+(.+)$/', $trimmed, $m) === 1) {
                 $flushParagraph();
-                $closeList();
+                $listOpen = $closeList($listOpen);
                 $html .= '<h6 class="fw-semibold mt-2 mb-1">' . self::inline($m[1]) . '</h6>';
                 continue;
             }
@@ -83,12 +89,12 @@ final class MarkdownRenderer
                 continue;
             }
 
-            $closeList();
+            $listOpen = $closeList($listOpen);
             $paragraph[] = $trimmed;
         }
 
         $flushParagraph();
-        $closeList();
+        $listOpen = $closeList($listOpen);
 
         return $html;
     }

@@ -29,8 +29,8 @@ use Core\Security\EncryptionService;
 use Core\Security\SecretManager;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
+use Core\View\TwigFactory;
 use Twig\Environment;
-use Twig\Loader\FilesystemLoader;
 
 /**
  * @group database
@@ -95,7 +95,14 @@ class MaintenanceControllerTest extends TestCase
         $moduleManager->method('getEnabledModuleIds')->willReturn([]);
 
         $templateDir = dirname(__DIR__, 4) . '/core/View/templates';
-        $this->twig = new Environment(new FilesystemLoader($templateDir), ['cache' => false, 'autoescape' => 'html']);
+        // Built through the real factory, not a bare Environment: this page
+        // uses filters that only Core\View\TwigFactory registers (|markdown,
+        // for the release notes). A hand-rolled environment silently lacks
+        // them, so every test here passed while the live page died with
+        // Twig\Error\SyntaxError: Unknown "markdown" filter — a compile-time
+        // error no unit test could see. debug: true keeps the compiled-
+        // template cache off, as this test needs.
+        $this->twig = TwigFactory::create($templateDir, true);
         $this->twig->addGlobal('site_name', 'Test');
         $this->twig->addGlobal('is_authenticated', true);
         $this->twig->addGlobal('current_user_role', 'admin');
@@ -103,9 +110,10 @@ class MaintenanceControllerTest extends TestCase
         $this->twig->addGlobal('cookie_consent_given', true);
         $this->twig->addGlobal('menus', null);
         $this->twig->addGlobal('csp_nonce', 'test-nonce');
-        $this->twig->addFunction(new \Twig\TwigFunction('csrf_field', fn() => '<input type="hidden" name="_csrf_token" value="test">', ['is_safe' => ['html']]));
-        $this->twig->addFunction(new \Twig\TwigFunction('get_flash', fn() => null));
-        $this->twig->addFunction(new \Twig\TwigFunction('csrf_token', fn() => 'test'));
+        // csrf_field/csrf_token/get_flash now come from the factory (their
+        // real implementations work fine against this test's session).
+        // param() is not a factory function — public/index.php registers it
+        // over a SettingService — so it still needs a stub here.
         $this->twig->addFunction(new \Twig\TwigFunction('param', fn(...$a) => ''));
 
         $this->fakeReleaseClient = new class implements GitHubReleaseClientInterface {

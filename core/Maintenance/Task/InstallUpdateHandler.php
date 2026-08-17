@@ -606,11 +606,33 @@ class InstallUpdateHandler implements TaskHandlerInterface
         return $extractedDir;
     }
 
+    /**
+     * Every copy() and mkdir() here is checked, and a failure aborts the
+     * whole install by throwing — which is what hands control to
+     * rollbackToSafetyBackup() and leaves the site on a consistent tree.
+     *
+     * These return values used to be discarded. A single file that could
+     * not be written (a permission or ownership quirk, an open_basedir
+     * restriction, a quota, a locked file — the kind of "hosting gap"
+     * shared hosting produces routinely) was therefore skipped silently:
+     * the install ran to completion, no rollback was triggered, and
+     * VERSION was written for the new version over a tree that was only
+     * partly updated. That is not a theoretical failure — it took the
+     * Maintenance page down with "Unknown 'markdown' filter in
+     * config/maintenance.html.twig" after an update landed the new
+     * template but left the previous Core\View\TwigFactory (which
+     * registers that filter) in place. A half-applied update must fail
+     * loudly and roll back, never report success.
+     *
+     * @throws UpdateException on the first file or directory that cannot be written
+     */
     private function copyRecursive(string $source, string $dest): void
     {
         if (is_dir($source)) {
-            if (!is_dir($dest)) {
-                mkdir($dest, 0755, true);
+            // The is_dir() re-check covers the harmless race where a
+            // concurrent mkdir() of the same path won.
+            if (!is_dir($dest) && !@mkdir($dest, 0755, true) && !is_dir($dest)) {
+                throw new UpdateException(self::writeFailureMessage('créer le répertoire', $dest));
             }
             foreach (scandir($source) ?: [] as $entry) {
                 if ($entry === '.' || $entry === '..') {
@@ -618,9 +640,26 @@ class InstallUpdateHandler implements TaskHandlerInterface
                 }
                 $this->copyRecursive($source . '/' . $entry, $dest . '/' . $entry);
             }
-        } else {
-            copy($source, $dest);
+        } elseif (!@copy($source, $dest)) {
+            throw new UpdateException(self::writeFailureMessage('remplacer le fichier', $dest));
         }
+    }
+
+    /**
+     * The PHP-level diagnostic is suppressed at the call site and folded
+     * into the exception instead: mid-update, a raw warning can end up in
+     * the response body on a host with display_errors on, and the reason
+     * ("Permission denied", "Disk quota exceeded", …) is exactly what the
+     * admin needs in the journal entry to fix their hosting.
+     */
+    private static function writeFailureMessage(string $action, string $path): string
+    {
+        $reason = error_get_last()['message'] ?? '';
+
+        return "La mise à jour n'a pas pu {$action} « {$path} »"
+            . ($reason !== '' ? " ({$reason})" : '')
+            . ' — installation interrompue pour ne pas laisser le site avec une mise à jour '
+            . 'partiellement appliquée.';
     }
 
     private function removeDirectory(string $dir): void
