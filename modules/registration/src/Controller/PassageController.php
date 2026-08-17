@@ -10,7 +10,6 @@ namespace Modules\Registration\Controller;
 
 use Core\Config\ScoutYearService;
 use Core\Http\Controller\AbstractController;
-use Core\Http\FlashMessage;
 use Core\Http\Request;
 use Core\Http\Response;
 use Core\Member\MemberYearService;
@@ -90,28 +89,38 @@ class PassageController extends AbstractController
      * deux surfaces"), restricted to the request's own slot branch just
      * like Controller\RegistrationRequestController::saveIntendedSection().
      *
+     * JSON in, JSON out — same contract as Controller\DeparturesController
+     * ::update(), the module's other in-place editor: the page saves
+     * without reloading, so it never answers with a redirect + flash the
+     * way the fiche (a full page submit) does.
+     *
      * @param array<string, string> $params
      */
     public function saveIntendedSection(Request $request, array $params): Response
     {
-        if (!CsrfGuard::validateToken((string) $request->getBody('_csrf_token', ''))) {
-            FlashMessage::set('error', 'Jeton CSRF invalide.');
-            return $this->redirect('/passage');
+        $data = $this->decodeJsonBody($request);
+        if ($data === null) {
+            return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
+        }
+        if (!CsrfGuard::validateToken((string) ($data['_csrf_token'] ?? ''))) {
+            return $this->json(['success' => false, 'error' => 'Session expirée.'], 403);
         }
 
         $requestId = (int) ($params['id'] ?? 0);
         $registrationRequest = $requestId > 0 ? $this->requestRepository->findById($requestId) : null;
         if ($registrationRequest === null) {
-            return new Response('Not Found', 404);
+            return $this->json(['success' => false, 'error' => 'Demande introuvable.'], 404);
         }
 
-        $submitted = (int) $request->getBody('intended_section_id', '0');
+        $submitted = (int) ($data['intended_section_id'] ?? 0);
+        // 0 ("— Non défini —") clears the field, exactly like the fiche's
+        // own picker; anything else must belong to the request's own slot
+        // branch or it is treated as "no section" rather than trusted.
         $sectionId = $submitted > 0 && $this->sectionBelongsToRequestSlot($registrationRequest, $submitted) ? $submitted : null;
 
         $this->requestRepository->updateIntendedSection($registrationRequest->id, $sectionId);
-        FlashMessage::set('success', 'Section prévue mise à jour.');
 
-        return $this->redirect('/passage');
+        return $this->json(['success' => true, 'intended_section_id' => $sectionId]);
     }
 
     /**
@@ -123,34 +132,63 @@ class PassageController extends AbstractController
      * trusting the submitted section directly, so a request can never
      * assign a destination outside the member's own arrival branch.
      *
+     * A submitted 0 ("— Non défini —") clears the destination instead of
+     * being refused as an invalid selection: without it a pick — including
+     * one made automatically by Service\PassageService::
+     * autoAssignSingleOptionDestinations() — could never be taken back.
+     *
      * @param array<string, string> $params
      */
     public function saveDestination(Request $request, array $params): Response
     {
-        if (!CsrfGuard::validateToken((string) $request->getBody('_csrf_token', ''))) {
-            FlashMessage::set('error', 'Jeton CSRF invalide.');
-            return $this->redirect('/passage');
+        $data = $this->decodeJsonBody($request);
+        if ($data === null) {
+            return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
+        }
+        if (!CsrfGuard::validateToken((string) ($data['_csrf_token'] ?? ''))) {
+            return $this->json(['success' => false, 'error' => 'Session expirée.'], 403);
         }
 
         $memberId = (int) ($params['id'] ?? 0);
-        $submittedSectionId = (int) $request->getBody('destination_section_id', '0');
-        if ($memberId <= 0 || $submittedSectionId <= 0) {
-            FlashMessage::set('error', 'Sélection invalide.');
-            return $this->redirect('/passage');
+        $submittedSectionId = (int) ($data['destination_section_id'] ?? 0);
+        if ($memberId <= 0) {
+            return $this->json(['success' => false, 'error' => 'Membre introuvable.'], 404);
         }
 
         [$publicYear, $targetYear] = $this->resolveYears();
 
+        if ($submittedSectionId === 0) {
+            $this->transferRepository->clearDestination($memberId, (int) $targetYear['id']);
+
+            return $this->json(['success' => true, 'destination_section_id' => null]);
+        }
+
         $allowedSectionIds = $this->arrivalSectionIdsForMember($memberId, (int) $publicYear['id'], (string) $publicYear['label']);
         if (!in_array($submittedSectionId, $allowedSectionIds, true)) {
-            FlashMessage::set('error', "Cette section n'appartient pas à la branche d'arrivée de ce membre.");
-            return $this->redirect('/passage');
+            return $this->json(
+                ['success' => false, 'error' => "Cette section n'appartient pas à la branche d'arrivée de ce membre."],
+                422
+            );
         }
 
         $this->transferRepository->setDestination($memberId, (int) $targetYear['id'], $submittedSectionId);
-        FlashMessage::set('success', 'Destination enregistrée.');
 
-        return $this->redirect('/passage');
+        return $this->json(['success' => true, 'destination_section_id' => $submittedSectionId]);
+    }
+
+    /**
+     * The JSON request body as an array, or null when the body isn't a
+     * JSON object at all — same shape check as Controller\
+     * DeparturesController::update(), so a malformed body is refused
+     * before anything reads a field out of it.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function decodeJsonBody(Request $request): ?array
+    {
+        $data = json_decode($request->getRawBody(), true);
+
+        return is_array($data) ? $data : null;
     }
 
     /**

@@ -153,9 +153,25 @@ class PassageControllerTest extends TestCase
         return ['member_id' => $memberId, 'member_year_id' => $memberYearId];
     }
 
+    /**
+     * Both save actions read a JSON body and answer in JSON (the page saves
+     * in place, without reloading) — same contract, and same mocking, as
+     * Controller\DeparturesControllerTest's own helper.
+     */
     private function jsonBodyRequest(string $method, string $path, array $body): Request
     {
-        return new Request($method, $path, [], array_merge($body, ['_csrf_token' => CsrfGuard::generateToken()]), [], []);
+        return $this->rawJsonRequest($method, $path, array_merge($body, ['_csrf_token' => CsrfGuard::generateToken()]));
+    }
+
+    private function rawJsonRequest(string $method, string $path, array $body): Request
+    {
+        $request = $this->getMockBuilder(Request::class)
+            ->setConstructorArgs([$method, $path, [], [], [], []])
+            ->onlyMethods(['getRawBody'])
+            ->getMock();
+        $request->method('getRawBody')->willReturn(json_encode($body));
+
+        return $request;
     }
 
     public function testTargetYearIsPublicYearPlusOneDespiteStaffYearAndPreview(): void
@@ -194,7 +210,7 @@ class PassageControllerTest extends TestCase
             ['id' => (string) $created['id']]
         );
 
-        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame(200, $response->getStatusCode());
         $this->assertSame($this->louveteauxSectionId, $this->requestRepository->findById($created['id'])->intendedSectionId);
     }
 
@@ -230,11 +246,72 @@ class PassageControllerTest extends TestCase
     {
         $member = $this->createLouveteauLastRank();
 
-        $request = new Request('POST', "/passage/membre/{$member['member_id']}/destination", [], [
-            'destination_section_id' => (string) $this->eclaireursSectionId, '_csrf_token' => 'bad',
-        ], [], []);
+        $request = $this->rawJsonRequest('POST', "/passage/membre/{$member['member_id']}/destination", [
+            'destination_section_id' => $this->eclaireursSectionId, '_csrf_token' => 'bad',
+        ]);
         $this->controller->saveDestination($request, ['id' => (string) $member['member_id']]);
 
         $this->assertNull($this->transferRepository->findDestinationSectionId($member['member_id'], $this->targetYearId));
+    }
+
+    /**
+     * "— Non défini —" (value 0) must take a destination back off, not be
+     * refused as an invalid selection — otherwise a pick, including one
+     * autoAssignSingleOptionDestinations() made on its own, could never be
+     * undone.
+     */
+    public function testSaveDestinationClearsOnZero(): void
+    {
+        $member = $this->createLouveteauLastRank();
+        $this->transferRepository->setDestination($member['member_id'], $this->targetYearId, $this->eclaireursSectionId);
+
+        $response = $this->controller->saveDestination(
+            $this->jsonBodyRequest('POST', "/passage/membre/{$member['member_id']}/destination", ['destination_section_id' => 0]),
+            ['id' => (string) $member['member_id']]
+        );
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertNull($this->transferRepository->findDestinationSectionId($member['member_id'], $this->targetYearId));
+    }
+
+    public function testSaveIntendedSectionClearsOnZero(): void
+    {
+        $created = $this->requestRepository->create($this->targetYearId, [
+            'parent_name' => 'P', 'child_last_name' => 'Nouveau', 'child_first_name' => 'Enfant',
+            'gender' => 'M', 'birth_date' => '2019-06-01', 'street' => 'S', 'number' => '1',
+            'postal_code' => '1000', 'city' => 'V', 'email' => 'enfant@example.com',
+            'phone1' => '000', 'phone2' => null, 'remarks' => null,
+        ], null, []);
+        $this->requestRepository->updateStatus($created['id'], 'accepted', null);
+        $this->requestRepository->updateIntendedSection($created['id'], $this->louveteauxSectionId);
+
+        $this->controller->saveIntendedSection(
+            $this->jsonBodyRequest('POST', "/passage/inscription/{$created['id']}/section", ['intended_section_id' => 0]),
+            ['id' => (string) $created['id']]
+        );
+
+        $this->assertNull($this->requestRepository->findById($created['id'])->intendedSectionId);
+    }
+
+    /**
+     * Regression guard for the bug that made this whole page read-only: the
+     * selects used to carry onchange="this.form.submit()", which the site's
+     * CSP (script-src without 'unsafe-inline' — a nonce never covers an on*
+     * attribute) blocks outright, and the forms had no submit button. Any
+     * inline event handler reintroduced here would break saving again
+     * without failing a single controller test.
+     */
+    public function testRenderedPageCarriesNoInlineEventHandler(): void
+    {
+        $this->createLouveteauLastRank();
+
+        $html = $this->controller->index(new Request('GET', '/passage', [], [], [], []), [])->getBody();
+
+        $this->assertSame(
+            0,
+            preg_match('/\son[a-z]+\s*=\s*["\']/i', $html),
+            'La page Passage ne doit contenir aucun gestionnaire d\'événement inline (bloqué par la CSP).'
+        );
+        $this->assertStringContainsString('passage-save', $html);
     }
 }

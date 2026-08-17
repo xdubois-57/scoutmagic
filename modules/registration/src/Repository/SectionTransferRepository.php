@@ -60,6 +60,31 @@ class SectionTransferRepository
     }
 
     /**
+     * Removes the destination a chief had picked, back to "not decided
+     * yet" — the counterpart of setDestination(), reached from the
+     * Passage page's own "— Non défini —" option (value 0, exactly like
+     * Repository\RegistrationRequestRepository::updateIntendedSection()'s
+     * own null case, so the two pickers behave the same way).
+     *
+     * A DELETE rather than a nullable column: `destination_section_id` is
+     * NOT NULL by design (schema.sql) — the absence of a row IS the
+     * "undecided" state, and everything that reads this table already
+     * treats a missing row that way.
+     *
+     * Note that Service\PassageService::autoAssignSingleOptionDestinations()
+     * will re-assign a member whose arrival branch holds exactly one
+     * section on the next page load: there is no decision to preserve
+     * there, so clearing only ever sticks where a real choice exists.
+     */
+    public function clearDestination(int $memberId, int $targetScoutYearId): void
+    {
+        $stmt = $this->pdo->prepare(
+            'DELETE FROM registration_section_transfers WHERE member_id = ? AND target_scout_year_id = ?'
+        );
+        $stmt->execute([$memberId, $targetScoutYearId]);
+    }
+
+    /**
      * SELECT-then-branch UPDATE/INSERT — never `ON DUPLICATE KEY UPDATE`,
      * same portability rule as the rest of this module (SQLite, used by
      * the test suite, doesn't support it). `updated_at` is PHP-computed
