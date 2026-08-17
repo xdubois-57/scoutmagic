@@ -22,7 +22,13 @@
 
             <p class="small text-body-secondary mb-1">
                 Version installée : <strong>{{ installed_version }}</strong>{% if installed_version_commit %} <span class="text-body-secondary">({{ installed_version_commit }})</span>{% endif %}
+                {% if installed_version_notes_url %}
+                    (<a href="{{ installed_version_notes_url }}" target="_blank" rel="noopener">notes de version</a>)
+                {% endif %}
             </p>
+            {% if installed_version_notes %}
+                <p class="small text-body-secondary mb-1" style="white-space: pre-line;">{{ installed_version_notes|slice(0, 500) }}{% if installed_version_notes|length > 500 %}…{% endif %}</p>
+            {% endif %}
             <p class="small text-body-secondary">
                 Dernière vérification :
                 {% if update_checked_at %}{{ update_checked_at }}{% else %}jamais{% endif %}

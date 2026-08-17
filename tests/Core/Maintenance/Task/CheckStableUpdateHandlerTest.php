@@ -84,12 +84,22 @@ class CheckStableUpdateHandlerTest extends TestCase
                 return $this->release;
             }
 
+            public function getReleaseByTag(string $tag): ?ReleaseInfo
+            {
+                return null;
+            }
+
             public function composerLockChanged(string $base, string $head): bool
             {
                 return false;
             }
 
             public function getLatestCommit(string $branch): ?CommitInfo
+            {
+                return null;
+            }
+
+            public function getCommit(string $sha): ?CommitInfo
             {
                 return null;
             }
@@ -144,12 +154,22 @@ class CheckStableUpdateHandlerTest extends TestCase
                 throw new \RuntimeException('GitHub unavailable');
             }
 
+            public function getReleaseByTag(string $tag): ?ReleaseInfo
+            {
+                return null;
+            }
+
             public function composerLockChanged(string $base, string $head): bool
             {
                 return false;
             }
 
             public function getLatestCommit(string $branch): ?CommitInfo
+            {
+                return null;
+            }
+
+            public function getCommit(string $sha): ?CommitInfo
             {
                 return null;
             }

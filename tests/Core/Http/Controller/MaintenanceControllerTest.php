@@ -67,7 +67,7 @@ class MaintenanceControllerTest extends TestCase
         $schedulerService = new SchedulerService($this->schedulerRepository);
         $journalService = new JournalService(new JournalRepository($this->pdo));
         $this->settingService = new SettingService(new SettingRepository($this->pdo));
-        foreach (['update_latest_version', 'update_checked_at', 'update_release_notes', 'update_release_html_url', 'update_download_url'] as $key) {
+        foreach (['update_latest_version', 'update_checked_at', 'update_release_notes', 'update_release_html_url', 'update_download_url', 'installed_version_notes', 'installed_version_notes_url', 'installed_version_notes_for'] as $key) {
             $this->settingService->register($key, '', 'text', $key, $key);
         }
         $this->settingService->register('update_dependencies_changed', '0', 'boolean', 'update_dependencies_changed', 'update_dependencies_changed');
@@ -111,10 +111,17 @@ class MaintenanceControllerTest extends TestCase
         $this->fakeReleaseClient = new class implements GitHubReleaseClientInterface {
             public ?ReleaseInfo $release = null;
             public ?CommitInfo $commit = null;
+            public ?ReleaseInfo $releaseByTag = null;
+            public ?CommitInfo $commitBySha = null;
 
             public function getLatestRelease(): ?ReleaseInfo
             {
                 return $this->release;
+            }
+
+            public function getReleaseByTag(string $tag): ?ReleaseInfo
+            {
+                return $this->releaseByTag;
             }
 
             public function composerLockChanged(string $base, string $head): bool
@@ -125,6 +132,11 @@ class MaintenanceControllerTest extends TestCase
             public function getLatestCommit(string $branch): ?CommitInfo
             {
                 return $this->commit;
+            }
+
+            public function getCommit(string $sha): ?CommitInfo
+            {
+                return $this->commitBySha;
             }
         };
 
@@ -355,18 +367,81 @@ class MaintenanceControllerTest extends TestCase
         $this->assertStringNotContainsString('<span class="text-body-secondary">(', $response->getBody());
     }
 
+    public function testIndexShowsTheInstalledVersionsOwnReleaseNotesForAStableRelease(): void
+    {
+        $this->fakeReleaseClient->releaseByTag = new ReleaseInfo(
+            'v0.0.0',
+            'Corrige un bug important dans le module Finances.',
+            'https://github.com/x/y/releases/tag/v0.0.0',
+            null
+        );
+
+        $response = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), []);
+
+        $this->assertStringContainsString('Corrige un bug important dans le module Finances.', $response->getBody());
+        $this->assertStringContainsString('https://github.com/x/y/releases/tag/v0.0.0', $response->getBody());
+    }
+
+    public function testIndexShowsTheInstalledCommitMessageForADevBuild(): void
+    {
+        $versionFile = sys_get_temp_dir() . '/VERSION';
+        $original = is_file($versionFile) ? file_get_contents($versionFile) : null;
+        file_put_contents($versionFile, "dev-a1b2c3d\n");
+        $this->fakeReleaseClient->commitBySha = new CommitInfo(
+            'a1b2c3d0000000000000000000000000000000',
+            "Corrige la pagination du Trombinoscope\n\nDétails de la correction.",
+            'https://github.com/x/y/commit/a1b2c3d'
+        );
+
+        try {
+            $response = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), []);
+            $body = $response->getBody();
+
+            $this->assertStringContainsString('Corrige la pagination du Trombinoscope', $body);
+            $this->assertStringContainsString('Détails de la correction.', $body);
+            $this->assertStringContainsString('https://github.com/x/y/commit/a1b2c3d', $body);
+        } finally {
+            if ($original !== null) {
+                file_put_contents($versionFile, $original);
+            } else {
+                @unlink($versionFile);
+            }
+        }
+    }
+
+    public function testIndexCachesTheInstalledVersionNotesAndDoesNotRefetchOnASecondLoad(): void
+    {
+        $this->fakeReleaseClient->releaseByTag = new ReleaseInfo('v0.0.0', 'Notes originales.', 'https://example.test/1', null);
+
+        $first = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), []);
+        $this->assertStringContainsString('Notes originales.', $first->getBody());
+
+        // Same installed version, different fake response — a second load
+        // must still show the CACHED notes, proving the controller reused
+        // the setting instead of calling the GitHub client again.
+        $this->fakeReleaseClient->releaseByTag = new ReleaseInfo('v0.0.0', 'Notes remplacees.', 'https://example.test/2', null);
+
+        $second = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), []);
+        $this->assertStringContainsString('Notes originales.', $second->getBody());
+        $this->assertStringNotContainsString('Notes remplacees.', $second->getBody());
+    }
+
     /**
-     * A dev build tracks the branch's latest commit, so it is always newer
-     * than any stable release — the "Une nouvelle version est disponible"
-     * banner must not appear for a cached release while a dev build is
-     * installed (version_compare would wrongly rank "dev" below it).
+     * While the configured channel is still 'dev', a dev build tracks the
+     * branch's latest commit and is treated as always newer than any
+     * stable release — the "Une nouvelle version est disponible" banner
+     * must not appear for a cached release while a dev build is installed
+     * and the channel remains 'dev' (version_compare would wrongly rank
+     * "dev" below it).
      */
-    public function testIndexDoesNotShowUpdateAvailableWhenADevBuildIsInstalled(): void
+    public function testIndexDoesNotShowUpdateAvailableWhenADevBuildIsInstalledAndChannelStaysDev(): void
     {
         $versionFile = sys_get_temp_dir() . '/VERSION';
         $original = is_file($versionFile) ? file_get_contents($versionFile) : null;
         file_put_contents($versionFile, "dev-a1b2c3d\n");
         $this->settingService->setInternal('update_latest_version', '1.0.22');
+        $this->settingService->set('auto_update_level', 'dev');
+        $this->settingService->clearCache();
 
         try {
             $response = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), []);
@@ -375,6 +450,35 @@ class MaintenanceControllerTest extends TestCase
             $this->assertStringNotContainsString('Une nouvelle version est disponible', $body);
             $this->assertStringNotContainsString('Installer la mise à jour', $body);
             $this->assertStringContainsString('Le site est à jour', $body);
+        } finally {
+            if ($original !== null) {
+                file_put_contents($versionFile, $original);
+            } else {
+                @unlink($versionFile);
+            }
+        }
+    }
+
+    /**
+     * Once the admin has switched the configured channel away from 'dev'
+     * back to a numbered level, a leftover installed dev build must no
+     * longer mask a genuinely newer stable release — the admin explicitly
+     * asked to move off dev, so the update must be detected and offered.
+     */
+    public function testIndexShowsUpdateAvailableWhenADevBuildIsInstalledButChannelIsNoLongerDev(): void
+    {
+        $versionFile = sys_get_temp_dir() . '/VERSION';
+        $original = is_file($versionFile) ? file_get_contents($versionFile) : null;
+        file_put_contents($versionFile, "dev-a1b2c3d\n");
+        $this->settingService->setInternal('update_latest_version', '1.0.22');
+        $this->settingService->set('auto_update_level', 'minor');
+        $this->settingService->clearCache();
+
+        try {
+            $response = $this->controller->index(new Request('GET', '/config/maintenance', [], [], [], []), []);
+            $body = $response->getBody();
+
+            $this->assertStringContainsString('Une nouvelle version est disponible', $body);
         } finally {
             if ($original !== null) {
                 file_put_contents($versionFile, $original);
@@ -777,7 +881,14 @@ class MaintenanceControllerTest extends TestCase
         $this->assertFalse($decoded['update_available']);
     }
 
-    public function testCheckForUpdatesNowDoesNotReportAReleaseAsNewerThanAnInstalledDevBuild(): void
+    /**
+     * "Vérifier maintenant" always checks the currently configured channel
+     * (this test's setUp defaults auto_update_level to 'patch', a stable
+     * channel), so a leftover installed dev build must not mask a
+     * genuinely newer release — the admin's configured level is stable,
+     * not dev, so the check must report the release as available.
+     */
+    public function testCheckForUpdatesNowReportsAReleaseAsAvailableOverAnInstalledDevBuildWhenChannelIsStable(): void
     {
         $versionFile = sys_get_temp_dir() . '/VERSION';
         $original = is_file($versionFile) ? file_get_contents($versionFile) : null;
@@ -791,7 +902,7 @@ class MaintenanceControllerTest extends TestCase
             $decoded = json_decode($response->getBody(), true);
             $this->assertTrue($decoded['success']);
             $this->assertSame('release', $decoded['channel']);
-            $this->assertFalse($decoded['update_available']);
+            $this->assertTrue($decoded['update_available']);
         } finally {
             if ($original !== null) {
                 file_put_contents($versionFile, $original);

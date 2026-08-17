@@ -17,10 +17,22 @@ class VersionFileTest extends TestCase
         $this->assertFalse(VersionFile::isNewerThan('1.0.21', '1.0.21'));
     }
 
-    public function testIsNewerThanNeverReportsAStableReleaseAsNewerThanAnInstalledDevBuild(): void
+    public function testIsNewerThanNeverReportsAStableReleaseAsNewerThanAnInstalledDevBuildWhileStayingOnTheDevChannel(): void
     {
-        $this->assertFalse(VersionFile::isNewerThan('1.0.22', 'dev-a1b2c3d'));
-        $this->assertFalse(VersionFile::isNewerThan('99.0.0', 'dev-8f3a2c1'));
+        $this->assertFalse(VersionFile::isNewerThan('1.0.22', 'dev-a1b2c3d', true));
+        $this->assertFalse(VersionFile::isNewerThan('99.0.0', 'dev-8f3a2c1', true));
+    }
+
+    /**
+     * Once the admin switches the configured channel away from 'dev' back
+     * to a numbered level, an installed dev build must no longer mask a
+     * genuinely newer stable release — otherwise switching channels could
+     * never detect (or offer) the release meant to replace it.
+     */
+    public function testIsNewerThanDetectsAStableReleaseOverAnInstalledDevBuildWhenNotStayingOnTheDevChannel(): void
+    {
+        $this->assertTrue(VersionFile::isNewerThan('1.0.22', 'dev-a1b2c3d'));
+        $this->assertTrue(VersionFile::isNewerThan('99.0.0', 'dev-8f3a2c1', false));
     }
 
     public function testIsDevBuildRecognizesTheDevFormat(): void

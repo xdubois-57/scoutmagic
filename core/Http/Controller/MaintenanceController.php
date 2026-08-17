@@ -91,16 +91,19 @@ class MaintenanceController extends AbstractController
     {
         $latestVersion = (string) ($this->settingService->get('update_latest_version') ?: '');
         $installedVersion = VersionFile::read(dirname($this->storagePath));
-        $updateAvailable = $latestVersion !== '' && VersionFile::isNewerThan($latestVersion, $installedVersion);
+        $level = (string) ($this->settingService->get('auto_update_level') ?: 'minor');
+        $updateAvailable = $latestVersion !== '' && VersionFile::isNewerThan($latestVersion, $installedVersion, $level === 'dev');
 
         $autoUpdateEnabled = (bool) ((int) ($this->settingService->get('auto_update_enabled') ?: '0'));
-        $level = (string) ($this->settingService->get('auto_update_level') ?: 'minor');
         $webhookConfigured = $this->webhookSecret() !== '';
         [$installedVersionDisplay, $installedVersionCommit] = self::splitInstalledVersion($installedVersion);
+        $installedNotes = $this->installedVersionNotes($installedVersion, $installedVersionCommit);
 
         return $this->render('config/maintenance.html.twig', [
             'installed_version' => $installedVersionDisplay,
             'installed_version_commit' => $installedVersionCommit,
+            'installed_version_notes' => $installedNotes['notes'],
+            'installed_version_notes_url' => $installedNotes['url'],
             'update_checked_at' => (string) ($this->settingService->get('update_checked_at') ?: ''),
             'update_available' => $updateAvailable,
             'update_latest_version' => $latestVersion,
@@ -265,7 +268,11 @@ class MaintenanceController extends AbstractController
                     'channel' => 'dev',
                     'update_available' => $installedVersion !== $commit->shortVersion(),
                     'version' => $commit->shortVersion(),
-                    'notes' => trim(explode("\n", $commit->message)[0]),
+                    // Full message, not just the first line — this team's
+                    // commits carry their real rationale in the body (see
+                    // any recent `git log`), which is exactly what an admin
+                    // deciding whether to install needs to read.
+                    'notes' => trim($commit->message),
                     'url' => $commit->htmlUrl,
                 ]);
             }
@@ -738,6 +745,52 @@ class MaintenanceController extends AbstractController
         );
 
         return $this->json(['success' => true, 'secret' => $newSecret]);
+    }
+
+    /**
+     * Release notes (stable channel) or commit message (dev channel) for
+     * the currently INSTALLED version — so an admin looking at the
+     * Maintenance page can see what they're actually running, not just its
+     * number/sha. Cached in settings, keyed by the exact installed-version
+     * string ($raw): a page view after an update naturally lands on a
+     * cache miss (the key no longer matches) and refetches once; every
+     * view in between reuses the cache instead of hitting the GitHub API
+     * on every single page load. Best-effort — a network hiccup here must
+     * never break the page, it just leaves the notes blank for this view
+     * and retries on the next one (nothing is cached on failure).
+     *
+     * @return array{notes: string, url: string}
+     */
+    private function installedVersionNotes(string $installedVersionRaw, ?string $installedVersionCommit): array
+    {
+        $cachedFor = (string) ($this->settingService->get('installed_version_notes_for') ?: '');
+        if ($cachedFor === $installedVersionRaw) {
+            return [
+                'notes' => (string) ($this->settingService->get('installed_version_notes') ?: ''),
+                'url' => (string) ($this->settingService->get('installed_version_notes_url') ?: ''),
+            ];
+        }
+
+        try {
+            $client = $this->releaseClient();
+            if ($installedVersionCommit !== null) {
+                $commit = $client->getCommit($installedVersionCommit);
+                $notes = $commit !== null ? trim($commit->message) : '';
+                $url = $commit !== null ? $commit->htmlUrl : '';
+            } else {
+                $release = $client->getReleaseByTag($installedVersionRaw);
+                $notes = $release !== null ? $release->body : '';
+                $url = $release !== null ? $release->htmlUrl : '';
+            }
+        } catch (UpdateException) {
+            return ['notes' => '', 'url' => ''];
+        }
+
+        $this->settingService->setInternal('installed_version_notes', $notes);
+        $this->settingService->setInternal('installed_version_notes_url', $url);
+        $this->settingService->setInternal('installed_version_notes_for', $installedVersionRaw);
+
+        return ['notes' => $notes, 'url' => $url];
     }
 
     /**

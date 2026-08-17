@@ -32,8 +32,18 @@ final class GitHubReleaseClient implements GitHubReleaseClientInterface
 
     public function getLatestRelease(): ?ReleaseInfo
     {
+        return $this->fetchRelease('releases/latest');
+    }
+
+    public function getReleaseByTag(string $tag): ?ReleaseInfo
+    {
+        return $this->fetchRelease('releases/tags/' . rawurlencode($tag));
+    }
+
+    private function fetchRelease(string $path): ?ReleaseInfo
+    {
         [$status, $body] = $this->httpGet(
-            "https://api.github.com/repos/{$this->owner}/{$this->repo}/releases/latest"
+            "https://api.github.com/repos/{$this->owner}/{$this->repo}/{$path}"
         );
 
         if ($status === 404) {
@@ -45,7 +55,7 @@ final class GitHubReleaseClient implements GitHubReleaseClientInterface
 
         $decoded = json_decode($body, true);
         if (!is_array($decoded) || !isset($decoded['tag_name'])) {
-            throw new UpdateException('Réponse GitHub invalide (releases/latest).');
+            throw new UpdateException('Réponse GitHub invalide (' . $path . ').');
         }
 
         $assets = is_array($decoded['assets'] ?? null) ? $decoded['assets'] : [];
@@ -88,8 +98,23 @@ final class GitHubReleaseClient implements GitHubReleaseClientInterface
 
     public function getLatestCommit(string $branch): ?CommitInfo
     {
+        return $this->fetchCommit($branch);
+    }
+
+    public function getCommit(string $sha): ?CommitInfo
+    {
+        return $this->fetchCommit($sha);
+    }
+
+    /**
+     * GitHub's commits endpoint accepts any git ref — a branch name or a
+     * sha — as the same {ref} path segment, so getLatestCommit(branch) and
+     * getCommit(sha) are really the same request shape.
+     */
+    private function fetchCommit(string $ref): ?CommitInfo
+    {
         [$status, $body] = $this->httpGet(
-            "https://api.github.com/repos/{$this->owner}/{$this->repo}/commits/" . rawurlencode($branch)
+            "https://api.github.com/repos/{$this->owner}/{$this->repo}/commits/" . rawurlencode($ref)
         );
 
         if ($status === 404) {

@@ -370,7 +370,22 @@ if command -v gh &> /dev/null; then
     # cleanly (per bootstrap.php's own artifact verification) but yields a
     # dead site. bootstrap/ is excluded: it's the installer, not something
     # an install/update should ever re-plant into a live site.
+    #
+    # This runs `composer install` directly against THIS checkout's own
+    # vendor/ (there's no separate build directory) — --no-dev strips
+    # phpstan/phpunit/etc. from it, which would silently break every
+    # subsequent `vendor/bin/phpstan`/`vendor/bin/phpunit` call in this
+    # same working tree until someone thought to run `composer install`
+    # again. The trap below restores dev dependencies unconditionally on
+    # any exit from here on (success, a later gate failure, Ctrl-C —
+    # doesn't matter which), registered before LISTING_FILE/
+    # FINAL_NOTES_FILE even exist so an early failure (e.g. `zip -r`
+    # itself) still triggers it; single-quoted so bash expands the
+    # variables at trap-fire time, by which point both are set.
     composer install --no-dev --optimize-autoloader --no-interaction --quiet
+    LISTING_FILE=""
+    FINAL_NOTES_FILE=""
+    trap 'rm -f "${LISTING_FILE}" "${FINAL_NOTES_FILE}"; echo "Restoring dev dependencies (composer install)..."; composer install --no-interaction --quiet || echo "WARNING: failed to restore dev dependencies — run \`composer install\` manually." >&2' EXIT
     ARTIFACT="release-${TAG}.zip"
     # storage/* is excluded WHOLESALE, not just keys/config/temp: it's
     # where every module keeps real uploaded content (gallery photos and
@@ -401,9 +416,11 @@ if command -v gh &> /dev/null; then
     # there's enough left to write that the race reliably loses — this bit
     # both checks below in the wild despite the artifact being correct
     # both times. Grepping a file has no live writer to kill, so no race.
+    # Trap already registered above (before these existed, as empty
+    # strings) — assigning the real paths here is enough, no need to
+    # re-register it.
     LISTING_FILE="$(mktemp)"
     FINAL_NOTES_FILE="$(mktemp)"
-    trap 'rm -f "${LISTING_FILE}" "${FINAL_NOTES_FILE}"' EXIT
     unzip -l "${ARTIFACT}" > "${LISTING_FILE}"
 
     # bootstrap.php protects a Layout B (single-tree) install with exactly
