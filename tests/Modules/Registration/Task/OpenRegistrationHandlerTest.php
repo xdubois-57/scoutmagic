@@ -76,6 +76,43 @@ class OpenRegistrationHandlerTest extends TestCase
         $this->assertSame('0', $this->settingService->get('registration_form_open', 'registration'));
     }
 
+    /**
+     * A poll that didn't run ON the day itself used to lose the transition
+     * for a whole year. It now catches up, but only within
+     * CATCH_UP_DAYS — see testNeverCatchesUpAMonthDayThatAlreadyPassedThisYear
+     * below for the other half of that contract.
+     */
+    public function testCatchesUpAMissedPollWithinTheGraceWindow(): void
+    {
+        $yesterday = (new \DateTimeImmutable('-1 day'))->format('m-d');
+        $this->settingService->set('registration_scheduled_open_at', $yesterday, 'registration');
+
+        (new OpenRegistrationHandler())->handle([], $this->context);
+
+        $this->assertSame('1', $this->settingService->get('registration_form_open', 'registration'));
+    }
+
+    public function testDoesNotFireTwiceForTheSameOccurrenceInsideTheWindow(): void
+    {
+        $yesterday = (new \DateTimeImmutable('-1 day'))->format('m-d');
+        $this->settingService->set('registration_scheduled_open_at', $yesterday, 'registration');
+
+        (new OpenRegistrationHandler())->handle([], $this->context);
+        // A chief closes it again by hand, then the hourly poll runs again:
+        // the occurrence has already been applied, so it must stay closed.
+        $this->settingService->set('registration_form_open', '0', 'registration');
+        (new OpenRegistrationHandler())->handle([], $this->context);
+
+        $this->assertSame('0', $this->settingService->get('registration_form_open', 'registration'));
+    }
+
+    public function testDueDateIsNullForFebruary29OnANonLeapYear(): void
+    {
+        $this->assertNull(
+            OpenRegistrationHandler::dueDateForYear('02-29', new \DateTimeImmutable('2027-03-01'))
+        );
+    }
+
     public function testNeverCatchesUpAMonthDayThatAlreadyPassedThisYear(): void
     {
         // A date already behind us this year must wait for NEXT year's
