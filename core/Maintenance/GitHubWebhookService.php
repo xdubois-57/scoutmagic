@@ -133,7 +133,8 @@ class GitHubWebhookService
         $this->settings->setInternal('update_download_url', (string) $downloadUrl);
 
         $installedVersion = VersionFile::read($this->basePath);
-        if (!VersionFile::isNewerThan($latestVersion, $installedVersion)) {
+        $level = (string) ($this->settings->get('auto_update_level') ?: 'minor');
+        if (!VersionFile::isNewerThan($latestVersion, $installedVersion, $level === 'dev')) {
             $this->settings->setInternal('update_dependencies_changed', '0');
             return ['status' => 'ignored', 'reason' => 'not_newer'];
         }
@@ -145,7 +146,6 @@ class GitHubWebhookService
             return ['status' => 'ignored', 'reason' => 'auto_update_disabled'];
         }
 
-        $level = (string) ($this->settings->get('auto_update_level') ?: 'minor');
         if ($level === 'dev') {
             // Development mode takes over the install path entirely — a
             // stable release arriving while it's active is deliberately
