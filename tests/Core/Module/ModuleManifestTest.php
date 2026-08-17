@@ -594,4 +594,98 @@ class ModuleManifestTest extends TestCase
 
         $this->assertSame([], $manifest->offline);
     }
+
+    public function testFromFileParsesHardDependencies(): void
+    {
+        $manifest = ModuleManifest::fromFile($this->fixturesDir . '/dependent_module/module.json');
+
+        $this->assertSame(['valid_module'], $manifest->requires);
+    }
+
+    public function testManifestWithNoRequiresSectionDefaultsToEmptyArray(): void
+    {
+        $manifest = ModuleManifest::fromArray(['id' => 'test', 'name' => 'Test', 'version' => '1.0.0']);
+
+        $this->assertSame([], $manifest->requires);
+    }
+
+    public function testRequiresRejectsNonArray(): void
+    {
+        $this->expectException(ModuleException::class);
+        $this->expectExceptionMessage('requires must be an array');
+
+        ModuleManifest::fromArray([
+            'id' => 'test',
+            'name' => 'Test',
+            'version' => '1.0.0',
+            'requires' => 'other_module',
+        ]);
+    }
+
+    public function testRequiresRejectsEmptyStringElement(): void
+    {
+        $this->expectException(ModuleException::class);
+        $this->expectExceptionMessage('requires[1] must be a non-empty string');
+
+        ModuleManifest::fromArray([
+            'id' => 'test',
+            'name' => 'Test',
+            'version' => '1.0.0',
+            'requires' => ['other_module', ''],
+        ]);
+    }
+
+    public function testRequiresRejectsNonStringElement(): void
+    {
+        $this->expectException(ModuleException::class);
+        $this->expectExceptionMessage('requires[0] must be a non-empty string');
+
+        ModuleManifest::fromArray([
+            'id' => 'test',
+            'name' => 'Test',
+            'version' => '1.0.0',
+            'requires' => [42],
+        ]);
+    }
+
+    public function testRequiresRejectsDuplicate(): void
+    {
+        $this->expectException(ModuleException::class);
+        $this->expectExceptionMessage("duplicates module 'other_module'");
+
+        ModuleManifest::fromArray([
+            'id' => 'test',
+            'name' => 'Test',
+            'version' => '1.0.0',
+            'requires' => ['other_module', 'other_module'],
+        ]);
+    }
+
+    public function testRequiresRejectsSelfReference(): void
+    {
+        $this->expectException(ModuleException::class);
+        $this->expectExceptionMessage("Module 'test' requires itself");
+
+        ModuleManifest::fromArray([
+            'id' => 'test',
+            'name' => 'Test',
+            'version' => '1.0.0',
+            'requires' => ['test'],
+        ]);
+    }
+
+    public function testPositionalConstructionWithoutRequiresStillWorks(): void
+    {
+        // Core\Module\ModuleManager::discoverModules() builds placeholder
+        // manifests exactly like this, positionally, in two places — a new
+        // constructor parameter inserted anywhere but last would silently
+        // land in the wrong slot there.
+        $manifest = new ModuleManifest('ghost', 'ghost', '0.0.0', [], [], [], [], []);
+
+        $this->assertSame('ghost', $manifest->id);
+        $this->assertSame('0.0.0', $manifest->version);
+        $this->assertSame([], $manifest->storage);
+        $this->assertFalse($manifest->enabledByDefault);
+        $this->assertSame([], $manifest->requires);
+    }
 }

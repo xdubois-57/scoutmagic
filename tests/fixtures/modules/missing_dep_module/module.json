@@ -1,0 +1,21 @@
+{
+  "id": "missing_dep_module",
+  "name": "Module à dépendance absente",
+  "version": "1.0.0",
+  "requires": ["not_on_disk_module"],
+  "routes": [
+    {
+      "path": "/missing-dep-module",
+      "method": "GET",
+      "controller": "Modules\\MissingDepModule\\Controller\\TestController",
+      "action": "index",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": "Missing Dep Module"
+    }
+  ],
+  "settings": [],
+  "cookies": [],
+  "scheduled_tasks": [],
+  "storage": {}
+}

@@ -1,0 +1,22 @@
+{
+  "id": "auto_dependent_module",
+  "name": "Module auto-activé dépendant",
+  "version": "1.0.0",
+  "enabled_by_default": true,
+  "requires": ["valid_module"],
+  "routes": [
+    {
+      "path": "/auto-dependent",
+      "method": "GET",
+      "controller": "Modules\\AutoDependentModule\\Controller\\TestController",
+      "action": "index",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": "Auto Dependent"
+    }
+  ],
+  "settings": [],
+  "cookies": [],
+  "scheduled_tasks": [],
+  "storage": {}
+}

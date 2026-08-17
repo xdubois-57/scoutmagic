@@ -35,6 +35,7 @@ class ModuleManagerTest extends TestCase
     private Router $router;
     private string $fixturesDir;
     private \PDO $pdo;
+    private MigrationRunner&\PHPUnit\Framework\MockObject\MockObject $migrationRunner;
 
     protected function setUp(): void
     {
@@ -49,7 +50,7 @@ class ModuleManagerTest extends TestCase
         $this->registryRepo = new ModuleRegistryRepository($this->pdo);
         $this->router = new Router();
 
-        $migrationRunner = $this->createMock(MigrationRunner::class);
+        $this->migrationRunner = $this->createMock(MigrationRunner::class);
         $journalRepo = new JournalRepository($this->pdo);
         $journalService = new JournalService($journalRepo);
 
@@ -59,7 +60,7 @@ class ModuleManagerTest extends TestCase
             $this->cookieConsentService,
             $this->menuBuilder,
             $this->registryRepo,
-            $migrationRunner,
+            $this->migrationRunner,
             $journalService,
             $this->router,
             null,
@@ -374,6 +375,189 @@ class ModuleManagerTest extends TestCase
         $this->assertLessThan(
             array_search('Test Module Config', $labelsAfter, true),
             array_search('Second Module Config', $labelsAfter, true)
+        );
+    }
+
+    public function testLoadEnabledModulesLoadsAModuleWhoseHardDependencyIsEnabled(): void
+    {
+        $this->registryRepo->upsert('valid_module', true, '1.0.0', null);
+        $this->registryRepo->upsert('dependent_module', true, '1.0.0', null);
+
+        $this->manager->loadEnabledModules();
+
+        $this->assertContains('dependent_module', $this->manager->getEnabledModuleIds());
+        $this->assertNotNull($this->router->resolve(new \Core\Http\Request('GET', '/dependent-module', [], [], [], [])));
+    }
+
+    public function testLoadEnabledModulesSkipsAModuleWhoseHardDependencyIsDisabled(): void
+    {
+        $this->registryRepo->upsert('valid_module', false, '1.0.0', null);
+        $this->registryRepo->upsert('dependent_module', true, '1.0.0', null);
+
+        $this->manager->loadEnabledModules();
+
+        $this->assertNotContains('dependent_module', $this->manager->getEnabledModuleIds());
+        $this->assertNull($this->router->resolve(new \Core\Http\Request('GET', '/dependent-module', [], [], [], [])));
+    }
+
+    public function testLoadEnabledModulesSkipsAModuleWhoseHardDependencyIsAbsentFromDisk(): void
+    {
+        // missing_dep_module requires a module id that no directory in the
+        // fixtures provides — the registry entry stays enabled, the module
+        // simply degrades to "not loaded" and the site keeps working.
+        $this->registryRepo->upsert('missing_dep_module', true, '1.0.0', null);
+
+        $this->manager->loadEnabledModules();
+
+        $this->assertNotContains('missing_dep_module', $this->manager->getEnabledModuleIds());
+        $this->assertNull($this->router->resolve(new \Core\Http\Request('GET', '/missing-dep-module', [], [], [], [])));
+        $this->assertTrue($this->registryRepo->findByModuleId('missing_dep_module')['enabled']);
+    }
+
+    public function testLoadEnabledModulesLoadsADependentSortedBeforeItsDependency(): void
+    {
+        $this->registryRepo->upsert('valid_module', true, '1.0.0', null);
+        $this->registryRepo->upsert('dependent_module', true, '1.0.0', null);
+        // The admin dragged the dependent module above the one it requires:
+        // resolution must look at the whole discovered set, not at whatever
+        // has already been loaded by this point in the loop.
+        $this->manager->reorder(['dependent_module', 'valid_module']);
+
+        $this->manager->loadEnabledModules();
+
+        $this->assertSame(
+            ['dependent_module', 'valid_module'],
+            array_values(array_intersect($this->manager->getEnabledModuleIds(), ['dependent_module', 'valid_module']))
+        );
+    }
+
+    public function testLoadEnabledModulesSkipsEveryModuleInADependencyCycle(): void
+    {
+        $this->registryRepo->upsert('cycle_a_module', true, '1.0.0', null);
+        $this->registryRepo->upsert('cycle_b_module', true, '1.0.0', null);
+
+        $this->manager->loadEnabledModules();
+
+        $enabled = $this->manager->getEnabledModuleIds();
+        $this->assertNotContains('cycle_a_module', $enabled);
+        $this->assertNotContains('cycle_b_module', $enabled);
+        $this->assertNull($this->router->resolve(new \Core\Http\Request('GET', '/cycle-a', [], [], [], [])));
+        $this->assertNull($this->router->resolve(new \Core\Http\Request('GET', '/cycle-b', [], [], [], [])));
+    }
+
+    public function testLoadEnabledModulesSkipsAModuleWhoseDependencyIsItselfUnsatisfied(): void
+    {
+        // A dependency that cannot function itself satisfies nobody:
+        // dependent_module requires valid_module, which is disabled here.
+        $this->registryRepo->upsert('dependent_module', true, '1.0.0', null);
+
+        $this->manager->loadEnabledModules();
+
+        $this->assertNotContains('dependent_module', $this->manager->getEnabledModuleIds());
+    }
+
+    public function testLoadEnabledModulesDoesNotAutoActivateAModuleWithUnmetRequirements(): void
+    {
+        // auto_dependent_module is enabled_by_default but requires
+        // valid_module, which has no registry row here.
+        $this->manager->loadEnabledModules();
+
+        $this->assertNull($this->registryRepo->findByModuleId('auto_dependent_module'));
+        $this->assertNotContains('auto_dependent_module', $this->manager->getEnabledModuleIds());
+    }
+
+    public function testLoadEnabledModulesAutoActivatesADefaultModuleOnceItsRequirementIsMet(): void
+    {
+        $this->registryRepo->upsert('valid_module', true, '1.0.0', null);
+
+        $this->manager->loadEnabledModules();
+
+        $entry = $this->registryRepo->findByModuleId('auto_dependent_module');
+        $this->assertNotNull($entry);
+        $this->assertTrue($entry['enabled']);
+        $this->assertContains('auto_dependent_module', $this->manager->getEnabledModuleIds());
+    }
+
+    public function testActivateRefusesAnUnmetRequirementBeforeMigratingTheSchema(): void
+    {
+        // dependent_module ships a schema.sql precisely so this ordering is
+        // observable: the refusal must happen before any migration runs.
+        $this->migrationRunner->expects($this->never())->method('migrate');
+
+        $this->expectException(ModuleException::class);
+        $this->expectExceptionMessage('nécessite le module « Module de test valide »');
+
+        $this->manager->activate('dependent_module', 1);
+    }
+
+    public function testActivateRefusalLeavesNoRegistryRow(): void
+    {
+        try {
+            $this->manager->activate('dependent_module', 1);
+            $this->fail('activate() should have refused an unmet requirement');
+        } catch (ModuleException) {
+            // expected
+        }
+
+        $this->assertNull($this->registryRepo->findByModuleId('dependent_module'));
+    }
+
+    public function testActivateSucceedsOnceTheRequirementIsEnabled(): void
+    {
+        $this->migrationRunner->method('migrate')->willReturn(
+            new \Core\Database\MigrationResult([], [], false)
+        );
+        $this->manager->activate('valid_module', 1);
+
+        $this->manager->activate('dependent_module', 1);
+
+        $entry = $this->registryRepo->findByModuleId('dependent_module');
+        $this->assertNotNull($entry);
+        $this->assertTrue($entry['enabled']);
+    }
+
+    public function testDeactivateRefusesWhileAnEnabledModuleRequiresIt(): void
+    {
+        $this->migrationRunner->method('migrate')->willReturn(
+            new \Core\Database\MigrationResult([], [], false)
+        );
+        $this->manager->activate('valid_module', 1);
+        $this->manager->activate('dependent_module', 1);
+
+        $this->expectException(ModuleException::class);
+        $this->expectExceptionMessage('requis par le module « Module dépendant »');
+
+        $this->manager->deactivate('valid_module', 1);
+    }
+
+    public function testDeactivateSucceedsOnceTheDependentIsDisabled(): void
+    {
+        $this->migrationRunner->method('migrate')->willReturn(
+            new \Core\Database\MigrationResult([], [], false)
+        );
+        $this->manager->activate('valid_module', 1);
+        $this->manager->activate('dependent_module', 1);
+
+        $this->manager->deactivate('dependent_module', 1);
+        $this->manager->deactivate('valid_module', 1);
+
+        $this->assertFalse($this->registryRepo->findByModuleId('valid_module')['enabled']);
+    }
+
+    public function testFindEnabledDependentsIgnoresDisabledModules(): void
+    {
+        $this->registryRepo->upsert('valid_module', true, '1.0.0', null);
+        $this->registryRepo->upsert('dependent_module', false, '1.0.0', null);
+
+        $dependents = $this->manager->findEnabledDependents('valid_module', $this->manager->discoverModules());
+
+        $this->assertSame([], array_map(fn($m) => $m->manifest->id, $dependents));
+    }
+
+    public function testAreRequirementsSatisfiedIsTrueForAModuleDeclaringNone(): void
+    {
+        $this->assertTrue(
+            $this->manager->areRequirementsSatisfied('valid_module', $this->manager->discoverModules())
         );
     }
 

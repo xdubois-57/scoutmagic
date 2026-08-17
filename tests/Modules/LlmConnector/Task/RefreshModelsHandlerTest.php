@@ -62,7 +62,7 @@ class RefreshModelsHandlerTest extends TestCase
                 'models_refresh_failed',
                 'info',
                 $this->stringContains('Unreachable'),
-                $this->isType('array'),
+                $this->isArray(),
                 null
             );
 

@@ -159,11 +159,94 @@ class ModuleManager
     }
 
     /**
+     * Is every hard dependency declared in this module's manifest
+     * ("requires") present on disk, free of validation errors, and enabled?
+     *
+     * The check is transitive: a dependency that is itself missing one of
+     * its own dependencies cannot function, so it cannot satisfy anyone
+     * either. A dependency cycle makes every module in it unsatisfiable
+     * (rather than recursing forever) — a module in a cycle can never be
+     * reached from a fully-satisfied root anyway.
+     *
+     * $modules is the already-discovered set (discoverModules()), so the
+     * answer never depends on the order modules are visited in, and
+     * resolution costs no database query of its own.
+     *
+     * @param ModuleInfo[] $modules
+     */
+    public function areRequirementsSatisfied(string $moduleId, array $modules): bool
+    {
+        $byId = self::indexById($modules);
+        $resolved = [];
+
+        return self::resolveRequirements($moduleId, $byId, [], $resolved);
+    }
+
+    /**
+     * Which currently-enabled modules declare $moduleId as a hard
+     * dependency — i.e. which ones would stop working if it were
+     * deactivated. Direct dependents only: an indirect dependent is always
+     * held back by its own direct dependency, so there is never anything to
+     * cascade.
+     *
+     * A dependent that is enabled but missing from disk or carrying a
+     * validation error is ignored: it is not loaded on any request, so it
+     * has nothing to lose here and must not wedge the registry page.
+     *
+     * @param ModuleInfo[] $modules
+     * @return ModuleInfo[]
+     */
+    public function findEnabledDependents(string $moduleId, array $modules): array
+    {
+        $dependents = [];
+        foreach ($modules as $module) {
+            if (!$module->enabled || !$module->presentOnDisk || $module->validationError !== null) {
+                continue;
+            }
+            if (in_array($moduleId, $module->manifest->requires, true)) {
+                $dependents[] = $module;
+            }
+        }
+
+        return $dependents;
+    }
+
+    /**
      * Load all enabled modules: register routes, settings, cookies, menu pages, task handlers.
      */
     public function loadEnabledModules(): void
     {
         $modules = $this->discoverModules();
+
+        // A module declaring "enabled_by_default" is auto-activated the
+        // very first time it is discovered (no registry row yet). An
+        // admin's later explicit deactivation is always respected — this
+        // never re-activates a module that already has a registry row.
+        //
+        // Done in its own pass, before anything is loaded, so the
+        // dependency resolution below sees the final enabled set whatever
+        // the admin's sort order is. (Within this pass itself an
+        // auto-activated module only satisfies a dependent that is
+        // discovered after it; a dependent discovered earlier is simply
+        // auto-activated on the next request instead — never a broken load.)
+        foreach ($modules as $index => $module) {
+            if (!$module->presentOnDisk || $module->validationError !== null) {
+                continue;
+            }
+            if ($module->enabled || !$module->manifest->enabledByDefault) {
+                continue;
+            }
+            if ($this->registryRepo->findByModuleId($module->manifest->id) !== null) {
+                continue;
+            }
+            if (!$this->areRequirementsSatisfied($module->manifest->id, $modules)) {
+                continue;
+            }
+
+            $this->activate($module->manifest->id, null);
+            $modules[$index] = new ModuleInfo($module->manifest, true, $module->manifest->version, true, null);
+        }
+
         $modulePosition = 0;
 
         foreach ($modules as $module) {
@@ -171,17 +254,31 @@ class ModuleManager
                 continue;
             }
 
-            // A module declaring "enabled_by_default" is auto-activated the
-            // very first time it is discovered (no registry row yet). An
-            // admin's later explicit deactivation is always respected — this
-            // never re-activates a module that already has a registry row.
-            if (!$module->enabled && $module->manifest->enabledByDefault
-                && $this->registryRepo->findByModuleId($module->manifest->id) === null) {
-                $this->activate($module->manifest->id, null);
-                $module = new ModuleInfo($module->manifest, true, $module->manifest->version, true, null);
+            if (!$module->enabled) {
+                continue;
             }
 
-            if (!$module->enabled) {
+            // A module whose hard dependencies are not all present, valid
+            // and enabled is simply not loaded — no routes, no settings, no
+            // menu entries, no task handlers, and never a fatal error. The
+            // check runs against the full discovered set rather than
+            // $this->enabledModuleIds, which only fills progressively inside
+            // this loop and would report a dependency sorted after its
+            // dependent as absent.
+            if (!$this->areRequirementsSatisfied($module->manifest->id, $modules)) {
+                $this->journalService->log(
+                    'core',
+                    'module_requirements_unmet',
+                    // event_log.level is a MySQL ENUM('info', 'security') —
+                    // any other value makes the INSERT itself throw, which
+                    // would turn "this module is quietly skipped" into a
+                    // fatal on every request. Same reason every other
+                    // non-security failure log in the codebase uses 'info'
+                    // (see Core\Http\Controller\RgpdConfigController).
+                    'info',
+                    "Module « {$module->manifest->id} » non chargé : un module requis est absent, invalide ou désactivé",
+                    ['module_id' => $module->manifest->id, 'requires' => $module->manifest->requires]
+                );
                 continue;
             }
 
@@ -229,6 +326,17 @@ class ModuleManager
             throw new ModuleException("Module id '{$manifest->id}' does not match directory name '{$moduleId}'");
         }
 
+        // Hard dependencies are checked here, before anything else this
+        // method does — the schema migration below is not something to run
+        // for a module that is then refused activation.
+        $unmet = $this->unmetRequirementNames($manifest, $this->discoverModules());
+        if ($unmet !== []) {
+            $quoted = implode(', ', array_map(fn(string $name) => "« {$name} »", $unmet));
+            throw new ModuleException(count($unmet) > 1
+                ? "Le module « {$manifest->name} » nécessite les modules {$quoted}. Activez-les d'abord."
+                : "Le module « {$manifest->name} » nécessite le module {$quoted}. Activez-le d'abord.");
+        }
+
         // Run schema migration if schema.sql exists. A caller retrying
         // after this exception resumes automatically — MigrationRunner
         // persists its own progress, keyed by the schema file, independent
@@ -268,9 +376,21 @@ class ModuleManager
 
     /**
      * Deactivate a module. Never drops tables or deletes data.
+     *
+     * @throws ModuleException when another enabled module hard-depends on it
      */
     public function deactivate(string $moduleId, int $deactivatedBy): void
     {
+        // Refused rather than cascaded: which of the dependent modules the
+        // admin is willing to lose is their decision, never ours.
+        $dependents = $this->findEnabledDependents($moduleId, $this->discoverModules());
+        if ($dependents !== []) {
+            $quoted = implode(', ', array_map(fn(ModuleInfo $m) => "« {$m->manifest->name} »", $dependents));
+            throw new ModuleException(count($dependents) > 1
+                ? "Ce module est requis par les modules {$quoted}. Désactivez-les d'abord."
+                : "Ce module est requis par le module {$quoted}. Désactivez-le d'abord.");
+        }
+
         $this->registryRepo->setEnabled($moduleId, false);
 
         $this->journalService->log(
@@ -368,5 +488,100 @@ class ModuleManager
         foreach ($manifest->scheduledTasks as $task) {
             $this->taskHandlers[$manifest->id . '::' . $task['key']] = $task['handler'];
         }
+    }
+
+    /**
+     * Display names of the hard dependencies this manifest declares that
+     * cannot currently satisfy it — used to tell the admin, in French,
+     * which module(s) to install or activate first. A dependency missing
+     * from disk has no manifest to read a name from, so its id is the only
+     * thing left to name it by.
+     *
+     * @param ModuleInfo[] $modules
+     * @return string[]
+     */
+    private function unmetRequirementNames(ModuleManifest $manifest, array $modules): array
+    {
+        $byId = self::indexById($modules);
+        $resolved = [];
+        $names = [];
+
+        foreach ($manifest->requires as $requiredId) {
+            $required = $byId[$requiredId] ?? null;
+            if (self::canSatisfy($required)
+                && self::resolveRequirements($requiredId, $byId, [$manifest->id => true], $resolved)
+            ) {
+                continue;
+            }
+
+            $names[] = $required !== null && $required->presentOnDisk ? $required->manifest->name : $requiredId;
+        }
+
+        return $names;
+    }
+
+    /**
+     * Recursive core of areRequirementsSatisfied(). $visiting carries the
+     * current resolution path so a cycle is answered "unsatisfiable"
+     * instead of recursing until the stack blows; $resolved memoizes
+     * already-answered modules so a diamond-shaped dependency graph stays
+     * linear in the number of modules.
+     *
+     * @param array<string, ModuleInfo> $byId
+     * @param array<string, bool> $visiting
+     * @param array<string, bool> $resolved
+     */
+    private static function resolveRequirements(string $moduleId, array $byId, array $visiting, array &$resolved): bool
+    {
+        if (isset($resolved[$moduleId])) {
+            return $resolved[$moduleId];
+        }
+        if (isset($visiting[$moduleId])) {
+            return false;
+        }
+
+        $module = $byId[$moduleId] ?? null;
+        if ($module === null) {
+            return false;
+        }
+
+        $visiting[$moduleId] = true;
+        foreach ($module->manifest->requires as $requiredId) {
+            $required = $byId[$requiredId] ?? null;
+            if (!self::canSatisfy($required)
+                || !self::resolveRequirements($requiredId, $byId, $visiting, $resolved)
+            ) {
+                return $resolved[$moduleId] = false;
+            }
+        }
+
+        return $resolved[$moduleId] = true;
+    }
+
+    /**
+     * A module can only satisfy someone else's requirement when it is
+     * actually usable: on disk, with a manifest that parses and validates,
+     * and enabled in the registry.
+     */
+    private static function canSatisfy(?ModuleInfo $module): bool
+    {
+        return $module !== null
+            && $module->presentOnDisk
+            && $module->validationError === null
+            && $module->enabled;
+    }
+
+    /**
+     * @param ModuleInfo[] $modules
+     * @return array<string, ModuleInfo>
+     */
+    private static function indexById(array $modules): array
+    {
+        $byId = [];
+        foreach ($modules as $module) {
+            $byId[$module->manifest->id] = $module;
+        }
+
+        return $byId;
     }
 }
