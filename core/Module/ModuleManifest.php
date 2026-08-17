@@ -51,6 +51,7 @@ class ModuleManifest
      * @param array<string, array{role_min: string}> $storage
      * @param array<int, array{id: string, label: string, description: string, group: string, role_min: string, channels: array{in_app: string, push: string, email: string}}> $notifications
      * @param array<int, array{path: string, label: string, match: string, role_min: string}> $offline
+     * @param array<int, string> $requires
      */
     public function __construct(
         public readonly string $id,
@@ -64,7 +65,14 @@ class ModuleManifest
         public readonly bool $enabledByDefault = false,
         public readonly string $description = '',
         public readonly array $notifications = [],
-        public readonly array $offline = []
+        public readonly array $offline = [],
+        // Hard dependencies: module ids this module cannot function
+        // without (Core\Module\ModuleManager resolves them). Deliberately
+        // the LAST parameter with a default — ModuleManager::discoverModules()
+        // builds placeholder manifests positionally (new ModuleManifest($dir,
+        // $dir, '0.0.0', [], [], [], [], [])), so inserting a parameter
+        // anywhere earlier would silently shift those arguments.
+        public readonly array $requires = []
     ) {
     }
 
@@ -203,10 +211,30 @@ class ModuleManifest
             }
         }
 
+        // Validate requires (hard dependencies, Core\Module\ModuleManager)
+        $requires = [];
+        if (isset($data['requires'])) {
+            if (!is_array($data['requires'])) {
+                throw new ModuleException("Module '{$id}' requires must be an array");
+            }
+            foreach (array_values($data['requires']) as $i => $requiredId) {
+                if (!is_string($requiredId) || $requiredId === '') {
+                    throw new ModuleException("Module '{$id}' requires[{$i}] must be a non-empty string");
+                }
+                if ($requiredId === $id) {
+                    throw new ModuleException("Module '{$id}' requires itself");
+                }
+                if (in_array($requiredId, $requires, true)) {
+                    throw new ModuleException("Module '{$id}' requires[{$i}] duplicates module '{$requiredId}'");
+                }
+                $requires[] = $requiredId;
+            }
+        }
+
         $enabledByDefault = (bool) ($data['enabled_by_default'] ?? false);
         $description = (string) ($data['description'] ?? '');
 
-        return new self($id, $data['name'], $data['version'], $routes, $settings, $cookies, $scheduledTasks, $storage, $enabledByDefault, $description, $notifications, $offline);
+        return new self($id, $data['name'], $data['version'], $routes, $settings, $cookies, $scheduledTasks, $storage, $enabledByDefault, $description, $notifications, $offline, $requires);
     }
 
     /**

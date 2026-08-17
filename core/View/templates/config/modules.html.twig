@@ -40,13 +40,37 @@
             {% if item.info.manifest.description %}
                 <p class="text-body-secondary small mb-0 mt-1">{{ item.info.manifest.description }}</p>
             {% endif %}
+            {% if item.info.manifest.requires is not empty %}
+                {% set required_names = [] %}
+                {% for required_id in item.info.manifest.requires %}
+                    {% set required_names = required_names|merge([module_names[required_id]|default(required_id)]) %}
+                {% endfor %}
+                <p class="text-body-secondary small mb-0 mt-1">
+                    Nécessite : {{ required_names|join(', ') }}
+                </p>
+                {% if not item.requirements_met %}
+                    <p class="text-warning-emphasis small mb-0 mt-1">
+                        {% if item.info.enabled %}
+                            Ce module n'est pas chargé : un module requis est absent, invalide ou désactivé.
+                        {% else %}
+                            Activation impossible : activez d'abord le ou les modules requis.
+                        {% endif %}
+                    </p>
+                {% endif %}
+            {% endif %}
         {% endblock %}
         {% block item_edit %}
             {% if item.info.presentOnDisk and not item.info.validationError %}
+                {# A module whose requirements are unmet cannot be activated
+                   (ModuleManager::activate() refuses it anyway), but one that
+                   is already enabled must always stay deactivatable. #}
                 <div class="form-check form-switch">
                     <input class="form-check-input module-toggle"
                            type="checkbox" data-module="{{ item.info.manifest.id }}"
-                           {{ item.info.enabled ? 'checked' : '' }}>
+                           {{ item.info.enabled ? 'checked' : '' }}
+                           {% if not item.info.enabled and not item.requirements_met %}
+                               disabled title="Activez d'abord le ou les modules requis."
+                           {% endif %}>
                 </div>
             {% endif %}
         {% endblock %}

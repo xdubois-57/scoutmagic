@@ -240,6 +240,108 @@ class ConfigModulesControllerTest extends TestCase
         $this->assertSame(403, $response->getStatusCode());
     }
 
+    public function testIndexListsAModulesHardDependenciesByName(): void
+    {
+        $request = new Request('GET', '/config/modules', [], [], [], []);
+        $body = $this->controller->index($request, [])->getBody();
+
+        // dependent_module requires valid_module — the page names the
+        // dependency by its manifest name, never by its id.
+        $this->assertStringContainsString('Nécessite : Module de test valide', $body);
+    }
+
+    public function testIndexNamesAnUninstallableDependencyByIdWhenItIsNotOnDisk(): void
+    {
+        $request = new Request('GET', '/config/modules', [], [], [], []);
+        $body = $this->controller->index($request, [])->getBody();
+
+        $this->assertStringContainsString('Nécessite : not_on_disk_module', $body);
+    }
+
+    public function testIndexBlocksTheToggleOfAModuleWithUnmetRequirements(): void
+    {
+        $request = new Request('GET', '/config/modules', [], [], [], []);
+        $body = $this->controller->index($request, [])->getBody();
+
+        $this->assertStringContainsString('disabled', $this->toggleTagFor($body, 'dependent_module'));
+        $this->assertStringContainsString('Activation impossible', $body);
+    }
+
+    public function testIndexLeavesTheToggleUsableOnceRequirementsAreMet(): void
+    {
+        $this->registryRepo->upsert('valid_module', true, '1.0.0', 1);
+
+        $request = new Request('GET', '/config/modules', [], [], [], []);
+        $body = $this->controller->index($request, [])->getBody();
+
+        $this->assertStringNotContainsString('disabled', $this->toggleTagFor($body, 'dependent_module'));
+    }
+
+    public function testIndexKeepsTheToggleAndReorderChromeIntactForAModuleWithoutRequires(): void
+    {
+        $request = new Request('GET', '/config/modules', [], [], [], []);
+        $body = $this->controller->index($request, [])->getBody();
+
+        $this->assertStringNotContainsString('disabled', $this->toggleTagFor($body, 'valid_module'));
+        // The drag-and-drop reorder chrome is untouched by any of this.
+        $this->assertStringContainsString('data-reorder-url="/config/modules/reorder"', $body);
+    }
+
+    public function testToggleModuleReturnsTheRefusalMessageForAnUnmetRequirement(): void
+    {
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+        $token = bin2hex(random_bytes(32));
+        $_SESSION['_csrf_token'] = $token;
+        AuthSession::login(1, 'admin@test.com', 'admin');
+
+        $request = $this->createJsonRequest([
+            'module_id' => 'dependent_module',
+            'enabled' => true,
+            '_csrf_token' => $token,
+        ]);
+        $response = $this->controller->toggleModule($request, []);
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertFalse($decoded['success']);
+        $this->assertStringContainsString('Module de test valide', $decoded['error']);
+        $this->assertNull($this->registryRepo->findByModuleId('dependent_module'));
+    }
+
+    public function testToggleModuleReturnsTheRefusalMessageWhenADependentIsStillEnabled(): void
+    {
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+        $token = bin2hex(random_bytes(32));
+        $_SESSION['_csrf_token'] = $token;
+        AuthSession::login(1, 'admin@test.com', 'admin');
+
+        $this->registryRepo->upsert('valid_module', true, '1.0.0', 1);
+        $this->registryRepo->upsert('dependent_module', true, '1.0.0', 1);
+
+        $request = $this->createJsonRequest([
+            'module_id' => 'valid_module',
+            'enabled' => false,
+            '_csrf_token' => $token,
+        ]);
+        $response = $this->controller->toggleModule($request, []);
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertFalse($decoded['success']);
+        $this->assertStringContainsString('Module dépendant', $decoded['error']);
+        $this->assertTrue($this->registryRepo->findByModuleId('valid_module')['enabled']);
+    }
+
+    private function toggleTagFor(string $body, string $moduleId): string
+    {
+        $matched = preg_match('/<input[^>]*data-module="' . preg_quote($moduleId, '/') . '"[^>]*>/', $body, $matches);
+        $this->assertSame(1, $matched, "No toggle rendered for module '{$moduleId}'");
+
+        return $matches[0];
+    }
+
     /**
      * @param array<string, mixed> $data
      */

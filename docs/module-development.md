@@ -143,6 +143,7 @@ The directory name **must** match the `id` field in `module.json`.
   - `role_min`: same role list as routes — the minimum role a recipient must currently hold to actually receive it (re-checked at send time, not at whatever moment the caller built the recipient list).
   - `channels`: an object with exactly the keys `in_app`, `push`, `email`, each one of `on` (always sent, member can't opt out), `off` (never sent, member can't opt in), `default_on`/`default_off` (member can override on the preferences page). See the Notifications section below.
 - **offline**: optional, each entry must have `path`, `label`, `role_min`. See the Offline pages section below.
+- **requires**: optional array of module ids this module cannot function without (hard dependencies). Must be non-empty strings, without duplicates, and never the module's own id. See the Hard dependencies section below.
 - **enabled_by_default**: optional boolean, defaults to `false`. When `true`, the module is activated automatically the very first time it is discovered on disk (no `module_registry` row yet) — no admin action needed. An admin's later explicit deactivation always sticks; this never re-activates a module that already has a registry row.
 
 ## Controller conventions
@@ -250,6 +251,27 @@ generic item format and includes `chip_picker.html.twig`.
 ## Accessing core services
 
 Module controllers receive whatever services they need via constructor injection — there is no fixed list. The composition root (`public/index.php`) is where every controller is actually built and registered: inside the module's `if (in_array('my_module', $moduleManager->getEnabledModuleIds(), true)) { ... }` block, construct the module's repositories/services (passing `$pdo`/`$connection`, `$encryptionService`, `$mailService`, `$schedulerService`, `$sectionService`, or any other already-built core service the module needs), then `$frontController->registerController(MyModuleController::class, new MyModuleController($twig, ...))`. See any existing module block in `public/index.php` for the pattern.
+
+## Hard dependencies between modules (`requires`)
+
+A module that genuinely cannot work at all without another one declares it in `module.json`:
+
+```json
+"requires": ["trombinoscope"]
+```
+
+This is the opposite of the optional dependency described in the next section — use it only when there is nothing to degrade to. If your module can still offer *something* without the other one, it has an optional dependency, not a hard one.
+
+What `Core\Module\ModuleManager` does with it:
+
+- **Loading**: on every request, a module is loaded only when every id in `requires` is present on disk, free of manifest validation errors, and enabled — recursively (a dependency that is itself unsatisfied satisfies nobody, and every module in a dependency cycle is treated as unsatisfiable). An unsatisfied module is simply not loaded: no routes, no settings, no menu entries, no task handlers, never a fatal error. The skip is journaled (`module_requirements_unmet`). A dependency deleted from disk on a live site therefore degrades the dependent module to "not loaded" on the next request, and the site keeps working.
+- **Activation**: `activate()` refuses, before running the module's schema migration, with a French message naming the missing module(s).
+- **Deactivation**: `deactivate()` refuses while at least one enabled module requires the one being deactivated, naming those modules. Nothing is ever cascaded and no dependency is ever auto-enabled on the admin's behalf — the admin decides, in the order they choose, on `/config/modules`.
+- **`enabled_by_default`**: a module with unmet requirements is not auto-activated; it is picked up on the first request where its requirements are satisfied.
+
+The Modules configuration page shows each module's declared dependencies by name and disables the activation toggle while they are unmet.
+
+Nothing about this lives in the database: `requires` is manifest-only, so removing the declaration is enough to remove the dependency.
 
 ## Optional dependencies between modules
 

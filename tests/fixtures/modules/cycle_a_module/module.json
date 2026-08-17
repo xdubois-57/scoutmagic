@@ -1,0 +1,21 @@
+{
+  "id": "cycle_a_module",
+  "name": "Module cyclique A",
+  "version": "1.0.0",
+  "requires": ["cycle_b_module"],
+  "routes": [
+    {
+      "path": "/cycle-a",
+      "method": "GET",
+      "controller": "Modules\\CycleAModule\\Controller\\TestController",
+      "action": "index",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": "Cycle A"
+    }
+  ],
+  "settings": [],
+  "cookies": [],
+  "scheduled_tasks": [],
+  "storage": {}
+}

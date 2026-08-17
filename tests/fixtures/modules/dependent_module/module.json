@@ -1,0 +1,21 @@
+{
+  "id": "dependent_module",
+  "name": "Module dépendant",
+  "version": "1.0.0",
+  "requires": ["valid_module"],
+  "routes": [
+    {
+      "path": "/dependent-module",
+      "method": "GET",
+      "controller": "Modules\\DependentModule\\Controller\\TestController",
+      "action": "index",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": "Dependent Module"
+    }
+  ],
+  "settings": [],
+  "cookies": [],
+  "scheduled_tasks": [],
+  "storage": {}
+}
