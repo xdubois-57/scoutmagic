@@ -24,7 +24,7 @@
 
     buttons.forEach(function (btn) {
         btn.addEventListener('click', function () {
-            var menuId = btn.getAttribute('data-open-menu');
+            var menuId = btn.dataset.openMenu;
             if (!menuId) {
                 return;
             }

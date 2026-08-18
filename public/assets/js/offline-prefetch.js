@@ -84,6 +84,20 @@
             // next launch tries again from scratch.
         });
 
+    // Extracted out of prefetchImages() (rather than nested inline in its
+    // already-deep .then/.map/.then chain) purely to keep function nesting
+    // shallow — same fetch/put/catch behavior either way.
+    function fetchAndCacheImage(cache, url) {
+        return fetch(url).then(function (response) {
+            if (response.ok) {
+                return cache.put(url, response);
+            }
+        }).catch(function () {
+            // Best-effort per image — one bad fetch must
+            // never stop the rest of the pre-download.
+        });
+    }
+
     function prefetchImages(cache, imageUrls) {
         var wanted = {};
         imageUrls.forEach(function (url) { wanted[url] = true; });
@@ -103,14 +117,7 @@
                     if (cached) {
                         return undefined;
                     }
-                    return fetch(url).then(function (response) {
-                        if (response.ok) {
-                            return cache.put(url, response);
-                        }
-                    }).catch(function () {
-                        // Best-effort per image — one bad fetch must
-                        // never stop the rest of the pre-download.
-                    });
+                    return fetchAndCacheImage(cache, url);
                 });
             }));
         });

@@ -10,14 +10,14 @@
 // no 'unsafe-inline' (Core\Http\Response::buildCsp()), and this page is
 // precached once with no per-request nonce to attach anyway.
 (function () {
-    var retryBtn = document.getElementById('offline-retry-btn');
+    const retryBtn = document.getElementById('offline-retry-btn');
     if (retryBtn) {
         retryBtn.addEventListener('click', function () {
             window.location.reload();
         });
     }
 
-    var backBtn = document.getElementById('offline-back-btn');
+    const backBtn = document.getElementById('offline-back-btn');
     if (backBtn) {
         backBtn.addEventListener('click', function () {
             window.history.back();

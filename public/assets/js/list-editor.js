@@ -74,7 +74,7 @@
                 var item = btn.closest('.list-editor-item');
                 var prev = item.previousElementSibling;
                 if (prev && prev.classList.contains('list-editor-item')) {
-                    itemsEl.insertBefore(item, prev);
+                    prev.before(item);
                     persistOrder();
                     updateMoveButtons();
                 }
@@ -85,7 +85,7 @@
                 var item = btn.closest('.list-editor-item');
                 var next = item.nextElementSibling;
                 if (next && next.classList.contains('list-editor-item')) {
-                    itemsEl.insertBefore(next, item);
+                    item.before(next);
                     persistOrder();
                     updateMoveButtons();
                 }

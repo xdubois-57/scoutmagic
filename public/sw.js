@@ -410,7 +410,7 @@ function formatOfflineTimestamp(dateHeader) {
 }
 
 self.addEventListener('push', function (event) {
-    var data = {};
+    let data = {};
     if (event.data) {
         try {
             data = event.data.json();
@@ -419,15 +419,15 @@ self.addEventListener('push', function (event) {
         }
     }
 
-    var title = data.title || 'Notification';
-    var options = {
+    const title = data.title || 'Notification';
+    const options = {
         body: data.body || '',
         data: { url: data.url || null }
     };
 
     event.waitUntil(
         self.registration.showNotification(title, options).then(function () {
-            var tasks = [];
+            const tasks = [];
 
             // Progressive enhancement only — works on installed iOS >= 16.4
             // and desktop Chrome, does nothing on Android (the launcher
@@ -457,14 +457,14 @@ self.addEventListener('push', function (event) {
 self.addEventListener('notificationclick', function (event) {
     event.notification.close();
 
-    var url = event.notification.data && event.notification.data.url;
+    const url = event.notification.data && event.notification.data.url;
     if (!url) {
         return;
     }
 
     event.waitUntil(
         self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function (clientList) {
-            for (var i = 0; i < clientList.length; i++) {
+            for (let i = 0; i < clientList.length; i++) {
                 if (clientList[i].url === url && 'focus' in clientList[i]) {
                     return clientList[i].focus();
                 }

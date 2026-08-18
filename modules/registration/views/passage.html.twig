@@ -43,10 +43,10 @@
                                     </td>
                                     <td style="min-width:240px;">
                                         <div class="d-flex gap-2 align-items-center">
-                                            <select class="form-select form-select-sm passage-select"
+                                            <label for="passage-section-{{ r.id }}" class="visually-hidden">Section prévue pour {{ r.childFirstName }} {{ r.childLastName }}</label>
+                                            <select id="passage-section-{{ r.id }}" class="form-select form-select-sm passage-select"
                                                     data-endpoint="/passage/inscription/{{ r.id }}/section"
-                                                    data-field="intended_section_id"
-                                                    aria-label="Section prévue pour {{ r.childFirstName }} {{ r.childLastName }}">
+                                                    data-field="intended_section_id">
                                                 <option value="0">— Non défini —</option>
                                                 {% for section in row.sections_in_branch %}
                                                     <option value="{{ section.id }}" {{ r.intendedSectionId == section.id ? 'selected' : '' }}>{{ section.name ?? section.desk_code }}</option>
@@ -103,10 +103,10 @@
                                         </td>
                                         <td style="min-width:240px;">
                                             <div class="d-flex gap-2 align-items-center">
-                                                <select class="form-select form-select-sm passage-select"
+                                                <label for="passage-destination-{{ member.member_id }}" class="visually-hidden">Destination pour {{ member.name }}</label>
+                                                <select id="passage-destination-{{ member.member_id }}" class="form-select form-select-sm passage-select"
                                                         data-endpoint="/passage/membre/{{ member.member_id }}/destination"
-                                                        data-field="destination_section_id"
-                                                        aria-label="Destination pour {{ member.name }}">
+                                                        data-field="destination_section_id">
                                                     <option value="0">— Non défini —</option>
                                                     {% for section in member.destination_options %}
                                                         <option value="{{ section.id }}" {{ member.destination_section_id == section.id ? 'selected' : '' }}>{{ section.name ?? section.desk_code }}</option>

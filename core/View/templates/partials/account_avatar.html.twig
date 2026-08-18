@@ -5,6 +5,6 @@
    compte", never to the notification centre — the unread-notifications
    indication lives entirely in partials/notification_dropdown.html.twig
    instead, a separate element. #}
-<span class="d-inline-flex align-items-center justify-content-center rounded-circle bg-primary text-white fw-bold" style="width:{{ size|default(40) }}px;height:{{ size|default(40) }}px;font-size:{{ font_size|default('.9rem') }};">
+<span class="d-inline-flex align-items-center justify-content-center rounded-circle bg-primary text-white fw-bold" style="width:{{ size|default(40) }}px;height:{{ size|default(40) }}px;font-size:{{ font_size|default('.9rem') }};" aria-hidden="true">
     {{ current_user_display_name[:2]|upper }}
 </span>

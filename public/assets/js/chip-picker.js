@@ -105,8 +105,8 @@
             overflowChip.type = 'button';
             overflowChip.className = 'chip-picker-overflow btn btn-sm btn-outline-secondary text-nowrap';
             overflowChip.style.minHeight = '44px';
-            overflowChip.setAttribute('data-bs-toggle', 'offcanvas');
-            overflowChip.setAttribute('data-bs-target', container.dataset.sheetTarget);
+            overflowChip.dataset.bsToggle = 'offcanvas';
+            overflowChip.dataset.bsTarget = container.dataset.sheetTarget;
             overflowChip.textContent = '+' + hiddenCount;
             wrap.appendChild(overflowChip);
         }

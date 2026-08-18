@@ -21,7 +21,7 @@
 // gap: it runs on every page load, including the one right after a
 // mark-read redirect lands.
 (function () {
-    var badges = document.querySelectorAll('.notification-badge');
+    const badges = document.querySelectorAll('.notification-badge');
 
     function syncAppBadge(count) {
         if (!('setAppBadge' in navigator)) return;

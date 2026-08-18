@@ -58,6 +58,33 @@
     // votes, hidden} — vote-mode/is-unit-chief/can-vote/board-status come from
     // this container's own data-* attributes, not from the comment itself.
     // ------------------------------------------------------------------
+    // Extracted out of commentHtml() (rather than inline `if`/ternary blocks
+    // there) purely to keep its own cognitive complexity down — same
+    // generated markup either way.
+    function buildVoteButtonsHtml(comment) {
+        if (!(status === 'open' && canVote)) {
+            return '';
+        }
+        if (voteMode === 'unlimited') {
+            var likeClass = comment.youVoted ? 'btn-danger' : 'btn-outline-danger';
+            var heartIcon = comment.youVoted ? 'heart-fill' : 'heart';
+            return '<button type="button" class="btn btn-sm py-0 px-2 retro-vote-like ' + likeClass + '" data-comment-id="' + comment.id + '" title="J’aime"><i class="bi bi-' + heartIcon + '"></i></button>';
+        }
+        return '<button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2 retro-vote-remove" data-comment-id="' + comment.id + '" title="Retirer un point">−</button>'
+            + '<button type="button" class="btn btn-sm btn-outline-success py-0 px-2 retro-vote-add" data-comment-id="' + comment.id + '" title="Ajouter un point">+</button>';
+    }
+
+    // Same reasoning as buildVoteButtonsHtml() above.
+    function buildHideButtonHtml(comment) {
+        if (!isUnitChief) {
+            return '';
+        }
+        var hideClass = comment.hidden ? 'btn-outline-success retro-unhide' : 'btn-outline-warning retro-hide';
+        var hideIcon = comment.hidden ? 'eye' : 'eye-slash';
+        var hideLabel = comment.hidden ? 'Réafficher' : 'Masquer';
+        return '<button type="button" class="btn btn-sm ' + hideClass + '" data-comment-id="' + comment.id + '"><i class="bi bi-' + hideIcon + '"></i> ' + hideLabel + '</button>';
+    }
+
     function commentHtml(comment) {
         if (comment.body === null) {
             return '<div class="border rounded p-2 retro-comment" data-comment-id="' + comment.id + '" data-hidden="1">'
@@ -67,26 +94,8 @@
         var hiddenBadge = comment.hidden ? '<span class="badge text-bg-warning mb-1">Masqué — visible par le chef d\'unité uniquement</span>' : '';
         var bodyClass = comment.hidden ? 'mb-1 small text-decoration-line-through text-body-secondary' : 'mb-1 small';
         var votesLabel = comment.votes === null || comment.votes === undefined ? '—' : comment.votes;
-
-        var voteButtons = '';
-        if (status === 'open' && canVote) {
-            if (voteMode === 'unlimited') {
-                var likeClass = comment.youVoted ? 'btn-danger' : 'btn-outline-danger';
-                var heartIcon = comment.youVoted ? 'heart-fill' : 'heart';
-                voteButtons = '<button type="button" class="btn btn-sm py-0 px-2 retro-vote-like ' + likeClass + '" data-comment-id="' + comment.id + '" title="J’aime"><i class="bi bi-' + heartIcon + '"></i></button>';
-            } else {
-                voteButtons = '<button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2 retro-vote-remove" data-comment-id="' + comment.id + '" title="Retirer un point">−</button>'
-                    + '<button type="button" class="btn btn-sm btn-outline-success py-0 px-2 retro-vote-add" data-comment-id="' + comment.id + '" title="Ajouter un point">+</button>';
-            }
-        }
-
-        var hideButton = '';
-        if (isUnitChief) {
-            var hideClass = comment.hidden ? 'btn-outline-success retro-unhide' : 'btn-outline-warning retro-hide';
-            var hideIcon = comment.hidden ? 'eye' : 'eye-slash';
-            var hideLabel = comment.hidden ? 'Réafficher' : 'Masquer';
-            hideButton = '<button type="button" class="btn btn-sm ' + hideClass + '" data-comment-id="' + comment.id + '"><i class="bi bi-' + hideIcon + '"></i> ' + hideLabel + '</button>';
-        }
+        var voteButtons = buildVoteButtonsHtml(comment);
+        var hideButton = buildHideButtonHtml(comment);
 
         return '<div class="border rounded p-2 retro-comment" data-comment-id="' + comment.id + '" data-hidden="' + (comment.hidden ? '1' : '0') + '">'
             + hiddenBadge

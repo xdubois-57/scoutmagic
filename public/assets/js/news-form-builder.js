@@ -675,6 +675,29 @@
             updateAiButtonsState();
         }
 
+        // Extracted out of buildFieldRow() to keep its own cognitive
+        // complexity down — same drag-and-drop wiring either way.
+        function attachDragHandlers(wrapper, field) {
+            wrapper.draggable = true;
+            wrapper.addEventListener('dragstart', function () {
+                draggedFieldKey = field._key;
+                wrapper.classList.add('opacity-50');
+            });
+            wrapper.addEventListener('dragend', function () {
+                wrapper.classList.remove('opacity-50');
+                draggedFieldKey = null;
+            });
+            wrapper.addEventListener('dragover', function (e) {
+                e.preventDefault();
+            });
+            wrapper.addEventListener('drop', function (e) {
+                e.preventDefault();
+                if (draggedFieldKey !== null && draggedFieldKey !== field._key) {
+                    moveFieldToKey(draggedFieldKey, field._key);
+                }
+            });
+        }
+
         function buildFieldRow(field, index) {
             var isPinned = index === 0;
 
@@ -687,24 +710,7 @@
             // rejects fromIndex/toIndex 0 regardless, this just avoids
             // the visual drag affordance for a no-op).
             if (!isPinned) {
-                wrapper.draggable = true;
-                wrapper.addEventListener('dragstart', function () {
-                    draggedFieldKey = field._key;
-                    wrapper.classList.add('opacity-50');
-                });
-                wrapper.addEventListener('dragend', function () {
-                    wrapper.classList.remove('opacity-50');
-                    draggedFieldKey = null;
-                });
-                wrapper.addEventListener('dragover', function (e) {
-                    e.preventDefault();
-                });
-                wrapper.addEventListener('drop', function (e) {
-                    e.preventDefault();
-                    if (draggedFieldKey !== null && draggedFieldKey !== field._key) {
-                        moveFieldToKey(draggedFieldKey, field._key);
-                    }
-                });
+                attachDragHandlers(wrapper, field);
             }
 
             var row = document.createElement('div');
@@ -802,137 +808,153 @@
             return wrapper;
         }
 
+        function addFieldEditRow(panel, html) {
+            var div = document.createElement('div');
+            div.className = 'mb-2';
+            div.innerHTML = html;
+            panel.appendChild(div);
+            return div;
+        }
+
+        // Each of the following builds one self-contained, field-type-specific
+        // section of the edit panel — extracted out of buildFieldEditPanel()
+        // itself (rather than left as inline `if` blocks there) purely to keep
+        // its own cognitive complexity down. Same DOM/behavior either way.
+        function buildLabelAndRequiredRow(panel, field) {
+            var labelRow = addFieldEditRow(panel, '<label class="form-label small">Libellé du champ</label>');
+            var labelInput = document.createElement('input');
+            labelInput.type = 'text';
+            labelInput.className = 'form-control news-field-label-input';
+            labelInput.value = field.label || '';
+            labelInput.addEventListener('input', function () {
+                field.label = labelInput.value;
+                var rowLabel = fieldsListEl.querySelector('[data-key="' + field._key + '"] .flex-grow-1');
+                if (rowLabel) rowLabel.textContent = labelInput.value || 'Sans libellé';
+            });
+            labelRow.appendChild(labelInput);
+
+            var reqRow = addFieldEditRow(panel, '');
+            var reqCheck = document.createElement('div');
+            reqCheck.className = 'form-check';
+            reqCheck.innerHTML = '<input class="form-check-input" type="checkbox"' + (field.is_required ? ' checked' : '') + '><label class="form-check-label">Obligatoire</label>';
+            reqCheck.querySelector('input').addEventListener('change', function (e) {
+                field.is_required = e.target.checked;
+            });
+            reqRow.appendChild(reqCheck);
+        }
+
+        function buildNumberCapacityRow(panel, field) {
+            var capRow = addFieldEditRow(panel, '');
+            var capCheck = document.createElement('div');
+            capCheck.className = 'form-check mb-1';
+            capCheck.innerHTML = '<input class="form-check-input" type="checkbox"' + (field.capacity_max !== null ? ' checked' : '') + '><label class="form-check-label">Limiter la capacité</label>';
+            var capInput = document.createElement('input');
+            capInput.type = 'number';
+            capInput.min = '1';
+            capInput.step = '1';
+            capInput.className = 'form-control form-control-sm mt-1' + (field.capacity_max === null ? ' d-none' : '');
+            capInput.value = field.capacity_max || '';
+            capCheck.querySelector('input').addEventListener('change', function (e) {
+                capInput.classList.toggle('d-none', !e.target.checked);
+                field.capacity_max = e.target.checked ? (parseInt(capInput.value, 10) || 0) : null;
+            });
+            capInput.addEventListener('input', function () {
+                field.capacity_max = parseInt(capInput.value, 10) || 0;
+            });
+            capRow.appendChild(capCheck);
+            capRow.appendChild(capInput);
+            addFieldEditRow(panel, '<span class="form-text">Le nombre maximum est le cumul de toutes les réponses. Exemple : si la limite est 50 et que 48 ont déjà été réservés, le prochain répondant verra « Il reste 2 places ».</span>');
+
+            if (window.NEWS_EDITOR_DATA.financeAvailable) {
+                var priceRow = addFieldEditRow(panel, '<label class="form-label small">Prix unitaire (€)</label>');
+                var priceInput = document.createElement('input');
+                priceInput.type = 'number';
+                priceInput.step = '0.50';
+                priceInput.min = '0';
+                priceInput.className = 'form-control';
+                priceInput.value = field.price_per_unit || '';
+                priceInput.addEventListener('input', function () {
+                    field.price_per_unit = priceInput.value !== '' ? parseFloat(priceInput.value) : null;
+                    renderFieldList();
+                });
+                priceRow.appendChild(priceInput);
+                addFieldEditRow(panel, '<span class="form-text">Laisser vide si ce champ n\'est pas payant.</span>');
+            }
+        }
+
+        function buildOptionsSourceRow(panel, field) {
+            var sourceRow = addFieldEditRow(panel, '<label class="form-label small d-block">Source des options</label>');
+            var sourceGroup = document.createElement('div');
+            sourceGroup.className = 'btn-group';
+            var manualBtn = document.createElement('button');
+            manualBtn.type = 'button';
+            manualBtn.className = 'btn btn-sm ' + (field.options_source !== 'members' ? 'btn-primary' : 'btn-outline-primary');
+            manualBtn.textContent = 'Liste manuelle';
+            var membersBtn = document.createElement('button');
+            membersBtn.type = 'button';
+            membersBtn.className = 'btn btn-sm ' + (field.options_source === 'members' ? 'btn-primary' : 'btn-outline-primary');
+            membersBtn.textContent = 'Membres liés au compte';
+            if (isPublicAccess()) {
+                membersBtn.disabled = true;
+                membersBtn.title = 'Indisponible en visibilité Public/Lien direct — les répondants ne sont pas connectés.';
+            }
+            sourceGroup.appendChild(manualBtn);
+            sourceGroup.appendChild(membersBtn);
+            sourceRow.appendChild(sourceGroup);
+
+            var manualRow = addFieldEditRow(panel, '');
+            manualRow.classList.toggle('d-none', field.options_source === 'members');
+            var manualTextarea = document.createElement('textarea');
+            manualTextarea.className = 'form-control';
+            manualTextarea.rows = 4;
+            manualTextarea.placeholder = 'Une option par ligne';
+            manualTextarea.value = field.options_manual || '';
+            manualTextarea.addEventListener('input', function () {
+                field.options_manual = manualTextarea.value;
+            });
+            manualRow.appendChild(manualTextarea);
+
+            var membersHelp = addFieldEditRow(panel, '<span class="form-text">Les options seront les membres (enfants/animés) rattachés au compte de la personne qui remplit le formulaire. Résolu dynamiquement au moment du remplissage.</span>');
+            membersHelp.classList.toggle('d-none', field.options_source !== 'members');
+
+            manualBtn.addEventListener('click', function () {
+                field.options_source = 'manual';
+                manualBtn.className = 'btn btn-sm btn-primary';
+                membersBtn.className = 'btn btn-sm btn-outline-primary';
+                manualRow.classList.remove('d-none');
+                membersHelp.classList.add('d-none');
+                updateAccessUi();
+            });
+            membersBtn.addEventListener('click', function () {
+                if (membersBtn.disabled) return;
+                field.options_source = 'members';
+                membersBtn.className = 'btn btn-sm btn-primary';
+                manualBtn.className = 'btn btn-sm btn-outline-primary';
+                manualRow.classList.add('d-none');
+                membersHelp.classList.remove('d-none');
+                updateAccessUi();
+            });
+        }
+
         function buildFieldEditPanel(field) {
             var panel = document.createElement('div');
             panel.className = 'mt-2 pt-2 border-top';
             panel.addEventListener('click', function (e) { e.stopPropagation(); });
 
-            function addRow(html) {
-                var div = document.createElement('div');
-                div.className = 'mb-2';
-                div.innerHTML = html;
-                panel.appendChild(div);
-                return div;
-            }
-
             if (NON_INPUT_TYPES.indexOf(field.field_type) === -1) {
-                var labelRow = addRow('<label class="form-label small">Libellé du champ</label>');
-                var labelInput = document.createElement('input');
-                labelInput.type = 'text';
-                labelInput.className = 'form-control news-field-label-input';
-                labelInput.value = field.label || '';
-                labelInput.addEventListener('input', function () {
-                    field.label = labelInput.value;
-                    var rowLabel = fieldsListEl.querySelector('[data-key="' + field._key + '"] .flex-grow-1');
-                    if (rowLabel) rowLabel.textContent = labelInput.value || 'Sans libellé';
-                });
-                labelRow.appendChild(labelInput);
-
-                var reqRow = addRow('');
-                var reqCheck = document.createElement('div');
-                reqCheck.className = 'form-check';
-                reqCheck.innerHTML = '<input class="form-check-input" type="checkbox"' + (field.is_required ? ' checked' : '') + '><label class="form-check-label">Obligatoire</label>';
-                reqCheck.querySelector('input').addEventListener('change', function (e) {
-                    field.is_required = e.target.checked;
-                });
-                reqRow.appendChild(reqCheck);
+                buildLabelAndRequiredRow(panel, field);
             }
 
             if (field.field_type === 'number') {
-                var capRow = addRow('');
-                var capCheck = document.createElement('div');
-                capCheck.className = 'form-check mb-1';
-                capCheck.innerHTML = '<input class="form-check-input" type="checkbox"' + (field.capacity_max !== null ? ' checked' : '') + '><label class="form-check-label">Limiter la capacité</label>';
-                var capInput = document.createElement('input');
-                capInput.type = 'number';
-                capInput.min = '1';
-                capInput.step = '1';
-                capInput.className = 'form-control form-control-sm mt-1' + (field.capacity_max === null ? ' d-none' : '');
-                capInput.value = field.capacity_max || '';
-                capCheck.querySelector('input').addEventListener('change', function (e) {
-                    capInput.classList.toggle('d-none', !e.target.checked);
-                    field.capacity_max = e.target.checked ? (parseInt(capInput.value, 10) || 0) : null;
-                });
-                capInput.addEventListener('input', function () {
-                    field.capacity_max = parseInt(capInput.value, 10) || 0;
-                });
-                capRow.appendChild(capCheck);
-                capRow.appendChild(capInput);
-                addRow('<span class="form-text">Le nombre maximum est le cumul de toutes les réponses. Exemple : si la limite est 50 et que 48 ont déjà été réservés, le prochain répondant verra « Il reste 2 places ».</span>');
-
-                if (window.NEWS_EDITOR_DATA.financeAvailable) {
-                    var priceRow = addRow('<label class="form-label small">Prix unitaire (€)</label>');
-                    var priceInput = document.createElement('input');
-                    priceInput.type = 'number';
-                    priceInput.step = '0.50';
-                    priceInput.min = '0';
-                    priceInput.className = 'form-control';
-                    priceInput.value = field.price_per_unit || '';
-                    priceInput.addEventListener('input', function () {
-                        field.price_per_unit = priceInput.value !== '' ? parseFloat(priceInput.value) : null;
-                        renderFieldList();
-                    });
-                    priceRow.appendChild(priceInput);
-                    addRow('<span class="form-text">Laisser vide si ce champ n\'est pas payant.</span>');
-                }
+                buildNumberCapacityRow(panel, field);
             }
 
             if (['dropdown', 'radio', 'checkbox'].indexOf(field.field_type) !== -1) {
-                var sourceRow = addRow('<label class="form-label small d-block">Source des options</label>');
-                var sourceGroup = document.createElement('div');
-                sourceGroup.className = 'btn-group';
-                var manualBtn = document.createElement('button');
-                manualBtn.type = 'button';
-                manualBtn.className = 'btn btn-sm ' + (field.options_source !== 'members' ? 'btn-primary' : 'btn-outline-primary');
-                manualBtn.textContent = 'Liste manuelle';
-                var membersBtn = document.createElement('button');
-                membersBtn.type = 'button';
-                membersBtn.className = 'btn btn-sm ' + (field.options_source === 'members' ? 'btn-primary' : 'btn-outline-primary');
-                membersBtn.textContent = 'Membres liés au compte';
-                if (isPublicAccess()) {
-                    membersBtn.disabled = true;
-                    membersBtn.title = 'Indisponible en visibilité Public/Lien direct — les répondants ne sont pas connectés.';
-                }
-                sourceGroup.appendChild(manualBtn);
-                sourceGroup.appendChild(membersBtn);
-                sourceRow.appendChild(sourceGroup);
-
-                var manualRow = addRow('');
-                manualRow.classList.toggle('d-none', field.options_source === 'members');
-                var manualTextarea = document.createElement('textarea');
-                manualTextarea.className = 'form-control';
-                manualTextarea.rows = 4;
-                manualTextarea.placeholder = 'Une option par ligne';
-                manualTextarea.value = field.options_manual || '';
-                manualTextarea.addEventListener('input', function () {
-                    field.options_manual = manualTextarea.value;
-                });
-                manualRow.appendChild(manualTextarea);
-
-                var membersHelp = addRow('<span class="form-text">Les options seront les membres (enfants/animés) rattachés au compte de la personne qui remplit le formulaire. Résolu dynamiquement au moment du remplissage.</span>');
-                membersHelp.classList.toggle('d-none', field.options_source !== 'members');
-
-                manualBtn.addEventListener('click', function () {
-                    field.options_source = 'manual';
-                    manualBtn.className = 'btn btn-sm btn-primary';
-                    membersBtn.className = 'btn btn-sm btn-outline-primary';
-                    manualRow.classList.remove('d-none');
-                    membersHelp.classList.add('d-none');
-                    updateAccessUi();
-                });
-                membersBtn.addEventListener('click', function () {
-                    if (membersBtn.disabled) return;
-                    field.options_source = 'members';
-                    membersBtn.className = 'btn btn-sm btn-primary';
-                    manualBtn.className = 'btn btn-sm btn-outline-primary';
-                    manualRow.classList.add('d-none');
-                    membersHelp.classList.remove('d-none');
-                    updateAccessUi();
-                });
+                buildOptionsSourceRow(panel, field);
             }
 
             if (field.field_type === 'confirmation') {
-                var textRow = addRow('<label class="form-label small">Texte affiché avant l\'envoi</label>');
+                var textRow = addFieldEditRow(panel, '<label class="form-label small">Texte affiché avant l\'envoi</label>');
                 var textarea = document.createElement('textarea');
                 textarea.className = 'form-control';
                 textarea.rows = 5;
@@ -944,7 +966,7 @@
             }
 
             if (field.field_type === 'text') {
-                addRow('<label class="form-label small d-block">Contenu</label>');
+                addFieldEditRow(panel, '<label class="form-label small d-block">Contenu</label>');
                 buildRichTextEditor(panel, field);
             }
 

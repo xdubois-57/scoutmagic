@@ -142,8 +142,8 @@
                             {{ movement.amount|number_format(2, ',', ' ') }} €
                         </td>
                         <td class="text-center">
-                            <button type="button" class="btn btn-sm btn-link p-0 attachment-btn" data-id="{{ movement.id }}" title="Reçus" aria-label="Reçus">
-                                📎{% if row.attachment_count > 0 %} <span class="badge text-bg-secondary">{{ row.attachment_count }}</span>{% endif %}
+                            <button type="button" class="btn btn-sm btn-link p-0 attachment-btn" data-id="{{ movement.id }}" title="Reçus">
+                                <span aria-hidden="true">📎</span><span class="visually-hidden">Reçus</span>{% if row.attachment_count > 0 %} <span class="badge text-bg-secondary">{{ row.attachment_count }}</span>{% endif %}
                             </button>
                             {% if row.suggested_receipt %}
                                 <button type="button" class="btn btn-sm btn-outline-primary d-block mt-1 suggest-associate-btn"
