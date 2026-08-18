@@ -80,4 +80,14 @@ interface DelegatedAlbumManager
      * own Service\AlbumService::delete().
      */
     public function deleteAlbum(int $albumId): void;
+
+    /**
+     * Whether a video may currently be added to a delegated album —
+     * addMedia() already refuses one server-side when this is false
+     * (Service\MediaService::upload()'s own rule: the gallery_allow_video
+     * setting AND ffmpeg/ffprobe both present), so this exists purely so
+     * an owning module's own composer can hide the option proactively
+     * instead of only ever finding out from a rejected upload.
+     */
+    public function videoUploadAllowed(): bool;
 }

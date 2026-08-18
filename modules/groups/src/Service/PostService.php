@@ -120,8 +120,14 @@ class PostService
         return mb_substr(trim($body), 0, self::MAX_BODY_LENGTH);
     }
 
-    public function isPostable(string $body): bool
+    /**
+     * A media-only post is valid (module spec); a post with neither text
+     * nor media is not. $mediaCount is trusted as-is — the caller
+     * (Controller\PostController::create()) is the one that already
+     * capped it against Service\PostMediaService::MAX_MEDIA_PER_POST.
+     */
+    public function isPostable(string $body, int $mediaCount = 0): bool
     {
-        return $this->normalize($body) !== '';
+        return $this->normalize($body) !== '' || $mediaCount > 0;
     }
 }

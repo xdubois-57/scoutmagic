@@ -15,10 +15,13 @@ use Core\Security\AuthSession;
 use Core\Security\UserAccount;
 use Core\Security\UserAccountRepository;
 use Core\View\TwigFactory;
+use Modules\Gallery\Api\DelegatedAlbumManager;
+use Modules\Gallery\Api\DelegatedMedia;
 use Modules\Groups\Controller\GroupController;
 use Modules\Groups\Repository\GroupMemberRepository;
 use Modules\Groups\Repository\GroupRepository;
 use Modules\Groups\Repository\GroupSectionRepository;
+use Modules\Groups\Repository\PostMediaRepository;
 use Modules\Groups\Repository\PostRepository;
 use Modules\Groups\Service\GroupAccessService;
 use Modules\Groups\Service\GroupActivityService;
@@ -27,6 +30,7 @@ use Modules\Groups\Service\GroupListService;
 use Modules\Groups\Service\GroupService;
 use Modules\Groups\Service\GroupSessionContextFactory;
 use Modules\Groups\Service\PostAuthorResolver;
+use Modules\Groups\Service\PostMediaService;
 use Modules\Groups\Service\PostService;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
@@ -78,8 +82,12 @@ class GroupControllerTest extends TestCase
     /**
      * @param int[] $linkedMemberIds
      */
-    private function controller(array $linkedMemberIds, string $role = 'identified', bool $completeProfile = true): GroupController
-    {
+    private function controller(
+        array $linkedMemberIds,
+        string $role = 'identified',
+        bool $completeProfile = true,
+        ?DelegatedAlbumManager $delegatedAlbumManager = null
+    ): GroupController {
         AuthSession::login(1, 'parent@test.be', $role);
 
         $sectionRepo = new GroupSectionRepository($this->pdo);
@@ -131,7 +139,13 @@ class GroupControllerTest extends TestCase
 
         $postRepo = new PostRepository($this->pdo);
         $postService = new PostService($postRepo, new GroupActivityService($this->groupRepo, $postRepo));
-        $feedService = new GroupFeedService($postRepo, new PostAuthorResolver($this->memberService, $accountRepo), $postService);
+        $postMediaService = new PostMediaService(
+            $delegatedAlbumManager ?? $this->createMock(DelegatedAlbumManager::class),
+            new PostMediaRepository($this->pdo), $this->groupRepo
+        );
+        $feedService = new GroupFeedService(
+            $postRepo, new PostAuthorResolver($this->memberService, $accountRepo), $postService, $postMediaService
+        );
 
         return new GroupController(
             $twig,
@@ -142,7 +156,8 @@ class GroupControllerTest extends TestCase
             new GroupSessionContextFactory($this->memberService, $accountRepo, $resolver),
             $sectionService,
             $feedService,
-            $this->memberService
+            $this->memberService,
+            $postMediaService
         );
     }
 
@@ -313,5 +328,70 @@ class GroupControllerTest extends TestCase
 
         $this->assertStringContainsString('Louveteaux 24-25', $body);
         $this->assertStringNotContainsString('Louveteaux 25-26', $body);
+    }
+
+    // --- media -----------------------------------------------------------
+
+    public function testGalleryReturns404ForANonMemberRatherThan403(): void
+    {
+        $creator = GroupsTestHelper::createMember($this->pdo, 'CG1');
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator);
+        $outsider = GroupsTestHelper::createMember($this->pdo, 'OUTG1');
+
+        $response = $this->controller([$outsider])
+            ->gallery(new Request('GET', '/groups/' . $groupId . '/gallery', [], [], [], []), ['id' => (string) $groupId]);
+
+        $this->assertSame(404, $response->getStatusCode());
+    }
+
+    public function testGalleryRendersEveryMediaForAMember(): void
+    {
+        $creator = GroupsTestHelper::createMember($this->pdo, 'CG2');
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator);
+        $this->groupRepo->setGalleryAlbumId($groupId, 42);
+        $member = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'MG2', $this->sectionId, $this->currentYearId);
+
+        $manager = $this->createMock(DelegatedAlbumManager::class);
+        $manager->expects($this->once())->method('listMedia')->with(42)->willReturn([
+            new DelegatedMedia(1, 'photo', 'done', 0, 'a.jpg', '2026-01-01 10:00:00'),
+            new DelegatedMedia(2, 'video', 'done', 1, 'b.mp4', '2026-01-02 10:00:00'),
+        ]);
+
+        $body = $this->controller([$member], 'identified', true, $manager)
+            ->gallery(new Request('GET', '/groups/' . $groupId . '/gallery', [], [], [], []), ['id' => (string) $groupId])
+            ->getBody();
+
+        $this->assertStringContainsString('/gallery/media/1/thumb', $body);
+        $this->assertStringContainsString('/gallery/media/2/thumb', $body);
+    }
+
+    /**
+     * DoD: "'pending' and 'failed' media render without breaking the
+     * feed, tested." — a media in either state must never produce a
+     * broken <img> or crash the page.
+     */
+    public function testShowRendersPendingAndFailedMediaWithoutBreakingThePage(): void
+    {
+        $creator = GroupsTestHelper::createMember($this->pdo, 'CG3');
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator);
+        $this->groupRepo->setGalleryAlbumId($groupId, 42);
+        $member = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'MG3', $this->sectionId, $this->currentYearId);
+        $postId = GroupsTestHelper::createPostAt($this->pdo, $groupId, 'Photos en cours', '2026-01-01 10:00:00', 1, $creator);
+        (new \Modules\Groups\Repository\PostMediaRepository($this->pdo))->attach($postId, 1, 0);
+        (new \Modules\Groups\Repository\PostMediaRepository($this->pdo))->attach($postId, 2, 1);
+
+        $manager = $this->createMock(DelegatedAlbumManager::class);
+        $manager->method('listMedia')->willReturn([
+            new DelegatedMedia(1, 'photo', 'pending', 0, 'a.jpg', '2026-01-01 10:00:00'),
+            new DelegatedMedia(2, 'photo', 'failed', 1, 'b.jpg', '2026-01-01 10:00:00'),
+        ]);
+
+        $response = $this->controller([$member], 'identified', true, $manager)
+            ->show(new Request('GET', '/groups/' . $groupId, [], [], [], []), ['id' => (string) $groupId]);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertStringNotContainsString('/gallery/media/1/thumb', $response->getBody(), 'a pending media never renders an <img>');
+        $this->assertStringContainsString('spinner-border', $response->getBody());
+        $this->assertStringContainsString('Échec du traitement', $response->getBody());
     }
 }

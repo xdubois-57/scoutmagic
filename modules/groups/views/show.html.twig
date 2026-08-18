@@ -2,15 +2,19 @@
 
 {% block title %}{{ group.name }} — {{ site_name }}{% endblock %}
 
+{% block stylesheets %}
+<link rel="stylesheet" href="/assets/css/components.css">
+{% endblock %}
+
 {% block content %}
     {% include '@groups/partials/group_header.html.twig' %}
 
     {% if post_permission.allowed %}
-        <form method="post" action="/groups/{{ group.id }}/posts" class="card mb-3">
+        <form method="post" action="/groups/{{ group.id }}/posts" enctype="multipart/form-data" class="card mb-3" id="groups-post-form">
             <div class="card-body">
                 <label class="form-label small mb-1" for="post-body">Écrire un message</label>
                 {{ csrf_field()|raw }}
-                <textarea class="form-control mb-2" id="post-body" name="body" rows="3" required
+                <textarea class="form-control mb-2" id="post-body" name="body" rows="3"
                           maxlength="{{ max_body_length }}" placeholder="Votre message…"></textarea>
 
                 {% if author_options is not empty %}
@@ -22,7 +26,32 @@
                     </select>
                 {% endif %}
 
-                <button type="submit" class="btn btn-primary" style="min-height:44px;">Publier</button>
+                <div id="groups-media-previews" class="d-flex flex-wrap gap-2 mb-2"></div>
+                <input type="file" name="media[]" id="groups-media-hidden" class="d-none" multiple>
+
+                <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+                    <div class="d-flex gap-2">
+                        <label class="btn btn-outline-secondary d-flex align-items-center mb-0" style="min-height:44px;">
+                            <i class="bi bi-image me-1"></i> Photos{{ video_upload_allowed ? '/vidéos' : '' }}
+                            <input type="file" id="groups-media-input" class="visually-hidden"
+                                   accept="{{ video_upload_allowed ? 'image/*,video/*' : 'image/*' }}" multiple>
+                        </label>
+                        <label class="btn btn-outline-secondary d-flex align-items-center mb-0" style="min-height:44px;">
+                            <i class="bi bi-camera me-1"></i> Appareil photo
+                            <input type="file" id="groups-media-capture" class="visually-hidden"
+                                   accept="image/*" capture="environment">
+                        </label>
+                    </div>
+                    <span class="small text-body-secondary" id="groups-media-count">0 / {{ max_media_per_post }} médias</span>
+                </div>
+                <p class="small text-danger mt-1 mb-0 d-none" id="groups-media-limit-warning">
+                    Maximum {{ max_media_per_post }} médias par message — les fichiers en trop n'ont pas été ajoutés.
+                </p>
+                {% if not video_upload_allowed %}
+                    <p class="small text-body-secondary mt-1 mb-0">L'envoi de vidéos est désactivé sur ce site.</p>
+                {% endif %}
+
+                <button type="submit" class="btn btn-primary mt-2" style="min-height:44px;">Publier</button>
             </div>
         </form>
     {% endif %}
@@ -45,6 +74,95 @@
 
 {% block scripts %}
 <script nonce="{{ csp_nonce }}">
+// Composer media picker: both visible <input type="file"> elements (the
+// gallery/camera pickers) are UI-only sources of File objects — never
+// submitted themselves. Selected files accumulate in selectedFiles[],
+// capped client-side at max_media_per_post (a convenience: the server
+// enforces the real ceiling and rejects the whole post over it, never
+// truncating — Service\PostMediaService::MAX_MEDIA_PER_POST). Before
+// submit, they're copied onto the one hidden <input name="media[]">
+// that actually gets posted, via the DataTransfer API (the only way to
+// programmatically set an <input>'s .files).
+(() => {
+    const maxMedia = {{ max_media_per_post|default(4) }};
+    const previews = document.getElementById('groups-media-previews');
+    const hiddenInput = document.getElementById('groups-media-hidden');
+    const countLabel = document.getElementById('groups-media-count');
+    const limitWarning = document.getElementById('groups-media-limit-warning');
+    const form = document.getElementById('groups-post-form');
+    if (!previews || !hiddenInput || !form) {
+        return;
+    }
+
+    let selectedFiles = [];
+
+    function render() {
+        previews.innerHTML = '';
+        selectedFiles.forEach((file, index) => {
+            const cell = document.createElement('div');
+            cell.className = 'position-relative';
+            cell.style.cssText = 'width:72px;height:72px;border-radius:.375rem;overflow:hidden;background:#eee;';
+
+            if (file.type.startsWith('image/')) {
+                const img = document.createElement('img');
+                img.src = URL.createObjectURL(file);
+                img.className = 'w-100 h-100';
+                img.style.objectFit = 'cover';
+                cell.appendChild(img);
+            } else {
+                const icon = document.createElement('div');
+                icon.className = 'd-flex align-items-center justify-content-center h-100 text-body-secondary';
+                icon.innerHTML = '<i class="bi bi-camera-video fs-4"></i>';
+                cell.appendChild(icon);
+            }
+
+            const remove = document.createElement('button');
+            remove.type = 'button';
+            remove.className = 'btn btn-sm btn-dark position-absolute top-0 end-0 p-0 d-flex align-items-center justify-content-center';
+            remove.style.cssText = 'width:22px;height:22px;border-radius:50%;opacity:.85;';
+            remove.setAttribute('aria-label', 'Retirer ce média');
+            remove.innerHTML = '<i class="bi bi-x" style="font-size:.9rem;"></i>';
+            remove.addEventListener('click', () => {
+                selectedFiles.splice(index, 1);
+                sync();
+            });
+            cell.appendChild(remove);
+
+            previews.appendChild(cell);
+        });
+    }
+
+    function sync() {
+        const dataTransfer = new DataTransfer();
+        selectedFiles.forEach((file) => dataTransfer.items.add(file));
+        hiddenInput.files = dataTransfer.files;
+        countLabel.textContent = selectedFiles.length + ' / ' + maxMedia + ' médias';
+        render();
+    }
+
+    function addFiles(fileList) {
+        let overflowed = false;
+        Array.from(fileList).forEach((file) => {
+            if (selectedFiles.length >= maxMedia) {
+                overflowed = true;
+                return;
+            }
+            selectedFiles.push(file);
+        });
+        limitWarning.classList.toggle('d-none', !overflowed);
+        sync();
+    }
+
+    ['groups-media-input', 'groups-media-capture'].forEach((id) => {
+        const input = document.getElementById(id);
+        if (!input) return;
+        input.addEventListener('change', () => {
+            if (input.files) addFiles(input.files);
+            input.value = '';
+        });
+    });
+})();
+
 // "Charger plus" appends the next keyset page in place, and the inline
 // edit form toggles without leaving the feed. Both degrade to a plain
 // page reload if this script never runs: the button is a real link target

@@ -22,7 +22,14 @@ class DiscussionGroup
         public readonly ?string $closedAt,
         public readonly string $lastActivityAt,
         public readonly int $createdByMemberId,
-        public readonly string $createdAt
+        public readonly string $createdAt,
+        // Last, nullable, so every existing positional construction of
+        // this DTO (tests included) keeps working unchanged — same
+        // append-only discipline as Modules\Gallery\Repository\Album's
+        // own trailing owner_type/owner_id pair. Set once, lazily, by
+        // Service\PostMediaService::ensureAlbumId() on the group's first
+        // media post.
+        public readonly ?int $galleryAlbumId = null
     ) {
     }
 

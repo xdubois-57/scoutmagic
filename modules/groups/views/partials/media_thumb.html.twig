@@ -1,0 +1,25 @@
+{#
+  One media cell's inner content — the caller wraps this in a
+  .groups-media-cell (position:relative, sized by its own grid). `media`
+  is a Modules\Gallery\Api\DelegatedMedia.
+
+  Never a broken image: 'pending'/'processing' shows a spinner, 'failed'
+  a discreet notice, and only 'done' actually renders the thumbnail —
+  matching modules/gallery's own album grid (album.html.twig).
+#}
+{% if media.processingStatus == 'done' %}
+    <img src="/gallery/media/{{ media.id }}/thumb" alt="" class="w-100 h-100" style="object-fit:cover;" loading="lazy">
+    {% if media.mediaType == 'video' %}
+        <span class="position-absolute top-50 start-50 translate-middle text-white" style="font-size:1.75rem;text-shadow:0 0 6px rgba(0,0,0,.6);">
+            <i class="bi bi-play-circle-fill"></i>
+        </span>
+    {% endif %}
+{% elseif media.processingStatus == 'failed' %}
+    <span class="d-flex align-items-center justify-content-center h-100 text-danger" title="Échec du traitement de ce média">
+        <i class="bi bi-exclamation-triangle"></i>
+    </span>
+{% else %}
+    <span class="d-flex align-items-center justify-content-center h-100 text-body-secondary" title="Traitement en cours">
+        <span class="spinner-border spinner-border-sm"></span>
+    </span>
+{% endif %}

@@ -9,11 +9,13 @@ declare(strict_types=1);
 namespace Modules\Groups\Controller;
 
 use Core\Http\Controller\AbstractController;
+use Core\Http\FlashMessage;
 use Core\Http\Request;
 use Core\Http\Response;
 use Core\ScoutYear\ScoutYearSession;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
+use Modules\Gallery\Service\GalleryException;
 use Modules\Groups\Repository\DiscussionGroup;
 use Modules\Groups\Repository\GroupRepository;
 use Modules\Groups\Repository\Post;
@@ -22,6 +24,7 @@ use Modules\Groups\Service\GroupAccessService;
 use Modules\Groups\Service\GroupFeedService;
 use Modules\Groups\Service\GroupSessionContext;
 use Modules\Groups\Service\GroupSessionContextFactory;
+use Modules\Groups\Service\PostMediaService;
 use Modules\Groups\Service\PostService;
 use Twig\Environment;
 
@@ -44,7 +47,8 @@ class PostController extends AbstractController
         private GroupAccessService $accessService,
         private GroupFeedService $feedService,
         private PostService $postService,
-        private GroupSessionContextFactory $contextFactory
+        private GroupSessionContextFactory $contextFactory,
+        private PostMediaService $postMediaService
     ) {
     }
 
@@ -97,7 +101,20 @@ class PostController extends AbstractController
         }
 
         $body = (string) $request->getBody('body', '');
-        if (!$this->postService->isPostable($body)) {
+        $files = $request->getFiles('media');
+
+        // The ceiling is checked before anything is written — a post over
+        // it is rejected whole, never silently truncated to the first
+        // four (module spec).
+        if (count($files) > PostMediaService::MAX_MEDIA_PER_POST) {
+            FlashMessage::set(
+                'error',
+                'Vous ne pouvez joindre que ' . PostMediaService::MAX_MEDIA_PER_POST . ' médias au maximum par message.'
+            );
+            return $this->redirect('/groups/' . $group->id);
+        }
+
+        if (!$this->postService->isPostable($body, count($files))) {
             return $this->redirect('/groups/' . $group->id);
         }
 
@@ -111,7 +128,21 @@ class PostController extends AbstractController
             return new Response('Aucun membre de ce groupe n\'est associé à votre compte.', 403);
         }
 
-        $this->postService->create($group, $context->userAccountId, $authorMemberId, $body);
+        $postId = $this->postService->create($group, $context->userAccountId, $authorMemberId, $body);
+
+        if ($files !== []) {
+            try {
+                $this->postMediaService->addMedia($group, $postId, $files, $context->userAccountId);
+            } catch (GalleryException $e) {
+                // The whole post is rejected, never left half-saved: undo
+                // whatever media did make it in before the failing file,
+                // then the post itself.
+                $this->postMediaService->deleteAllForPost($group, $postId);
+                $this->postRepository->delete($postId);
+                FlashMessage::set('error', $e->getMessage());
+                return $this->redirect('/groups/' . $group->id);
+            }
+        }
 
         return $this->redirect('/groups/' . $group->id);
     }
@@ -157,6 +188,10 @@ class PostController extends AbstractController
                 return new Response('Vous ne pouvez pas supprimer ce message.', 403);
             }
 
+            // Media first: it must be resolved from the still-existing
+            // discussion_group_post_media join rows, which the post's own
+            // deletion below cascades away.
+            $this->postMediaService->deleteAllForPost($group, $post->id);
             $this->postService->delete($post);
 
             return $this->redirect('/groups/' . $group->id);

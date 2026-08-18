@@ -1,0 +1,21 @@
+{#
+  A post's attached media (1 to 4) — module spec layout: 1 wide, 2 side
+  by side, 3 with one tall on the left, 4 in a 2x2 (public/assets/css/
+  components.css' .groups-media-grid-{count} rules). `media` is a
+  Modules\Gallery\Api\DelegatedMedia[], already in attachment order.
+
+  Not a lightbox: each cell opens the media's own large/original
+  rendition in a new tab — the simplest thing that actually works,
+  degrading to nothing (a dead link) only if JS never loads doesn't
+  apply here since there is no JS in the loop at all.
+#}
+{% if media is not empty %}
+    <div class="groups-media-grid groups-media-grid-{{ media|length }} mt-2">
+        {% for m in media %}
+            <a href="/gallery/media/{{ m.id }}/{{ m.mediaType == 'video' ? 'original' : 'large' }}"
+               target="_blank" rel="noopener" class="groups-media-cell text-decoration-none">
+                {% include '@groups/partials/media_thumb.html.twig' with { media: m } %}
+            </a>
+        {% endfor %}
+    </div>
+{% endif %}

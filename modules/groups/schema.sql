@@ -39,6 +39,26 @@ CREATE TABLE discussion_groups (
     created_by_member_id INT UNSIGNED NOT NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    -- The group's delegated gallery album (Modules\Gallery\Api\
+    -- DelegatedAlbumManager, owner_type 'discussion_group' — see
+    -- File\GroupFileOwnershipChecker::OWNER_TYPE — owner_id = this
+    -- group's id), created lazily on the group's first media post
+    -- (Service\PostMediaService::ensureAlbumId()), never at group
+    -- creation. NULL until then.
+    --
+    -- No FK: gallery_albums lives in a different module's schema.sql,
+    -- applied independently and in no guaranteed order relative to this
+    -- one (each module's schema is migrated on its own, whenever that
+    -- module happens to load — there is no cross-module migration
+    -- ordering guarantee to declare a FK against). Same reasoning as
+    -- gallery_albums.cover_media_id's own comment one file over, applied
+    -- across a module boundary instead of within one file. This column
+    -- is not the source of truth for uniqueness either — gallery's own
+    -- UNIQUE(owner_type, owner_id) index is (see that column's comment in
+    -- modules/gallery/schema.sql) — it is only a cache of the id
+    -- Service\PostMediaService already resolved, to avoid re-resolving it
+    -- from gallery on every read.
+    gallery_album_id INT UNSIGNED NULL,
     INDEX idx_dg_scout_year (scout_year_id),
     INDEX idx_dg_section (section_id),
     INDEX idx_dg_last_activity (last_activity_at),
@@ -83,10 +103,11 @@ CREATE TABLE discussion_group_members (
     CONSTRAINT fk_dgm_invited_by FOREIGN KEY (invited_by_member_id) REFERENCES members(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Text posts. Replies, reactions, media and link previews arrive later:
--- their tables will hang off this one with ON DELETE CASCADE, which is
--- why post deletion needs no cleanup of its own here and must not grow
--- any later (deleting a post is a real DELETE — this module does not
+-- Text posts, and (see discussion_group_post_media below) up to four
+-- media each. Replies, reactions and link previews arrive later: their
+-- tables will hang off this one with ON DELETE CASCADE, which is why
+-- post deletion needs no cleanup of its own here and must not grow any
+-- later (deleting a post is a real DELETE — this module does not
 -- soft-delete).
 CREATE TABLE discussion_group_posts (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -124,4 +145,29 @@ CREATE TABLE discussion_group_posts (
     CONSTRAINT fk_dgp_group FOREIGN KEY (group_id) REFERENCES discussion_groups(id) ON DELETE CASCADE,
     CONSTRAINT fk_dgp_author_account FOREIGN KEY (author_user_account_id) REFERENCES user_accounts(id) ON DELETE CASCADE,
     CONSTRAINT fk_dgp_author_member FOREIGN KEY (author_member_id) REFERENCES members(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- One row per media attached to a post, in display order. The media
+-- itself is a Modules\Gallery\Repository\Media row inside the group's
+-- own delegated album (discussion_groups.gallery_album_id) — this table
+-- only records which post it belongs to and where.
+--
+-- No FK to gallery_media: it lives in a different module's schema.sql,
+-- same cross-module reasoning as discussion_groups.gallery_album_id's
+-- own comment. Service\PostMediaService deletes the gallery media itself
+-- (row and stored object, through Api\DelegatedAlbumManager::
+-- deleteMedia()) BEFORE the post row is deleted — the ON DELETE CASCADE
+-- below only ever cleans up this join row afterward, never the media it
+-- pointed at.
+CREATE TABLE discussion_group_post_media (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    post_id INT UNSIGNED NOT NULL,
+    gallery_media_id INT UNSIGNED NOT NULL,
+    -- 0 to 3 (module spec: 1 to 4 media per post) — the composer's own
+    -- attachment order, preserved on display.
+    sort_order TINYINT UNSIGNED NOT NULL DEFAULT 0,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE INDEX idx_dgpm_post_media (post_id, gallery_media_id),
+    INDEX idx_dgpm_post (post_id, sort_order),
+    CONSTRAINT fk_dgpm_post FOREIGN KEY (post_id) REFERENCES discussion_group_posts(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

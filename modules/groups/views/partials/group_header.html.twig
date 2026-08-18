@@ -24,9 +24,14 @@
             {% endif %}
         </div>
     </div>
-    <a class="btn btn-outline-secondary d-flex align-items-center" style="min-height:44px;" href="/groups/{{ group.id }}/members">
-        <i class="bi bi-people me-1"></i> Membres
-    </a>
+    <div class="d-flex gap-2">
+        <a class="btn btn-outline-secondary d-flex align-items-center" style="min-height:44px;" href="/groups/{{ group.id }}/gallery">
+            <i class="bi bi-images me-1"></i> Galerie
+        </a>
+        <a class="btn btn-outline-secondary d-flex align-items-center" style="min-height:44px;" href="/groups/{{ group.id }}/members">
+            <i class="bi bi-people me-1"></i> Membres
+        </a>
+    </div>
 </div>
 
 {% if post_permission is defined and not post_permission.allowed %}

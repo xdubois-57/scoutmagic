@@ -149,6 +149,11 @@ class DelegatedAlbumService implements DelegatedAlbumManager
         $this->albumRepository->delete($albumId);
     }
 
+    public function videoUploadAllowed(): bool
+    {
+        return $this->mediaService->videoUploadAllowed();
+    }
+
     /**
      * @throws GalleryException when $albumId doesn't exist or isn't delegated
      */
