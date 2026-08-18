@@ -237,6 +237,36 @@ class MediaServiceTest extends TestCase
         $this->assertNotNull($this->mediaRepository->findById($media->id));
     }
 
+    public function testAddWithoutAuthorisationCheckPropagatesTheAlbumsOwnerOntoTheUploadedFile(): void
+    {
+        // So Core\File\FileAccessGuard's ownership registry — not just
+        // 'identified' — governs /files/{id} for a delegated album's raw
+        // original too, closing the same gap /gallery/media/{id}/{size}
+        // already closes for its renditions.
+        $album = $this->albumRepository->findById($this->createDelegatedAlbum());
+
+        $media = $this->service->addWithoutAuthorisationCheck($album, $this->fakeUploadedImage(), $this->authorId);
+
+        $stmt = $this->pdo->prepare('SELECT owner_type, owner_id FROM files WHERE id = ?');
+        $stmt->execute([$media->fileId]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+        $this->assertSame('some_owner_type', $row['owner_type']);
+        $this->assertSame(42, (int) $row['owner_id']);
+    }
+
+    public function testUploadLeavesTheFilesOwnerColumnsNullForAnOrdinaryAlbum(): void
+    {
+        $album = $this->albumRepository->findById($this->albumId);
+
+        $media = $this->service->upload($album, $this->fakeUploadedImage(), Role::CHIEF, 'chief@test.com', $this->authorId);
+
+        $stmt = $this->pdo->prepare('SELECT owner_type, owner_id FROM files WHERE id = ?');
+        $stmt->execute([$media->fileId]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+        $this->assertNull($row['owner_type']);
+        $this->assertNull($row['owner_id']);
+    }
+
     public function testDeleteThrowsForADelegatedAlbum(): void
     {
         $albumId = $this->createDelegatedAlbum();

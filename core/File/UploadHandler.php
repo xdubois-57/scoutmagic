@@ -26,6 +26,12 @@ class UploadHandler
      * @param string $roleMin Access role for the file
      * @param string|null $moduleId Owning module
      * @param int|null $createdBy User account ID
+     * @param string|null $ownerType Generic ownership-registry scoping
+     *        (Core\File\FileOwnershipCheckerInterface, ARCHITECTURE.md
+     *        §8.3) — narrows role_min further, never widens it. Both this
+     *        and $ownerId are trailing/optional so every existing caller
+     *        keeps behaving exactly as before.
+     * @param int|null $ownerId
      * @return int File ID in the files table
      * @throws UploadException On validation failure
      */
@@ -36,7 +42,9 @@ class UploadHandler
         int $maxSizeBytes,
         string $roleMin,
         ?string $moduleId = null,
-        ?int $createdBy = null
+        ?int $createdBy = null,
+        ?string $ownerType = null,
+        ?int $ownerId = null
     ): int {
         // Validate file exists and no upload error
         if (empty($uploadedFile['tmp_name']) || !is_string($uploadedFile['tmp_name'])) {
@@ -97,7 +105,11 @@ class UploadHandler
             $finalSize,
             $roleMin,
             $moduleId,
-            $createdBy
+            $createdBy,
+            false,
+            null,
+            $ownerType,
+            $ownerId
         );
     }
 

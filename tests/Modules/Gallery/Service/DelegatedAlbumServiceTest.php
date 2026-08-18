@@ -176,4 +176,55 @@ class DelegatedAlbumServiceTest extends TestCase
         $this->expectException(GalleryException::class);
         $this->service->deleteAlbum(999999);
     }
+
+    /**
+     * Simulates two requests racing to create the same owner's first
+     * album: findByOwner() misses (the competitor's row isn't there yet),
+     * then the competitor's INSERT lands first, so this call's own
+     * INSERT hits gallery_albums' UNIQUE(owner_type, owner_id) index and
+     * must recover by returning the competitor's album instead of
+     * throwing or creating a second one.
+     */
+    public function testEnsureAlbumIsSafeUnderAConcurrentRaceForTheSameOwner(): void
+    {
+        $racingRepository = new class ($this->pdo) extends AlbumRepository {
+            public ?int $competitorAlbumId = null;
+
+            public function create(
+                string $type, string $title, ?string $subtitle, string $albumDate, ?int $sectionId,
+                int $scoutYearId, ?string $externalUrl, ?int $storageLocationId, int $createdBy,
+                ?string $ownerType = null, ?int $ownerId = null
+            ): int {
+                // The "other request" wins the race, committing its own
+                // album for the same owner right before this call's INSERT
+                // runs — parent::create() below must now collide with it.
+                $this->competitorAlbumId = parent::create(
+                    $type, 'Compétiteur', $subtitle, $albumDate, $sectionId, $scoutYearId,
+                    $externalUrl, $storageLocationId, $createdBy, $ownerType, $ownerId
+                );
+
+                return parent::create(
+                    $type, $title, $subtitle, $albumDate, $sectionId, $scoutYearId,
+                    $externalUrl, $storageLocationId, $createdBy, $ownerType, $ownerId
+                );
+            }
+        };
+
+        $service = new DelegatedAlbumService(
+            $racingRepository, $this->mediaRepository, $this->createMock(MediaService::class),
+            $this->storageLocationRepository,
+            new StorageLocationService(
+                $this->storageLocationRepository, $racingRepository, $this->storageBackendFactory,
+                $this->createMock(SettingService::class), new S3SecretRepository($this->pdo, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32))),
+                sys_get_temp_dir()
+            ),
+            $this->storageBackendFactory, new ScoutYearService($this->pdo)
+        );
+
+        $album = $service->ensureAlbum('some_owner_type', 42, 'Titre', '2026-01-01', $this->authorId);
+
+        $this->assertNotNull($racingRepository->competitorAlbumId);
+        $this->assertSame($racingRepository->competitorAlbumId, $album->id, 'the competitor\'s album must win, never a second one');
+        $this->assertSame(1, (int) $this->pdo->query('SELECT COUNT(*) FROM gallery_albums')->fetchColumn());
+    }
 }

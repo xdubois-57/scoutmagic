@@ -54,7 +54,8 @@ class GalleryTestHelper
             FOREIGN KEY (created_by) REFERENCES user_accounts(id),
             FOREIGN KEY (storage_location_id) REFERENCES gallery_storage_locations(id),
             FOREIGN KEY (migration_target_location_id) REFERENCES gallery_storage_locations(id),
-            FOREIGN KEY (og_image_file_id) REFERENCES files(id)
+            FOREIGN KEY (og_image_file_id) REFERENCES files(id),
+            UNIQUE (owner_type, owner_id)
         )');
 
         $pdo->exec('CREATE TABLE gallery_media (

@@ -187,6 +187,39 @@ class UploadHandlerTest extends TestCase
         $this->assertSame(20, imagesy($stored));
     }
 
+    public function testOwnerTypeAndOwnerIdArePropagatedToTheFileRow(): void
+    {
+        $tmpFile = $this->createTempImage();
+
+        $fileId = $this->handler->handle(
+            ['tmp_name' => $tmpFile, 'name' => 'photo.jpg', 'size' => filesize($tmpFile), 'error' => UPLOAD_ERR_OK],
+            'test', ['image/jpeg'], 10 * 1024 * 1024, 'identified', 'gallery', 1,
+            'discussion_group', 42
+        );
+
+        $stmt = $this->pdo->prepare('SELECT owner_type, owner_id FROM files WHERE id = ?');
+        $stmt->execute([$fileId]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+        $this->assertSame('discussion_group', $row['owner_type']);
+        $this->assertSame(42, (int) $row['owner_id']);
+    }
+
+    public function testOwnerTypeAndOwnerIdDefaultToNull(): void
+    {
+        $tmpFile = $this->createTempImage();
+
+        $fileId = $this->handler->handle(
+            ['tmp_name' => $tmpFile, 'name' => 'photo.jpg', 'size' => filesize($tmpFile), 'error' => UPLOAD_ERR_OK],
+            'test', ['image/jpeg'], 10 * 1024 * 1024, 'public'
+        );
+
+        $stmt = $this->pdo->prepare('SELECT owner_type, owner_id FROM files WHERE id = ?');
+        $stmt->execute([$fileId]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+        $this->assertNull($row['owner_type']);
+        $this->assertNull($row['owner_id']);
+    }
+
     public function testUploadErrorThrowsException(): void
     {
         $this->expectException(UploadException::class);
