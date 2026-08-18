@@ -244,13 +244,7 @@ class GalleryController extends AbstractController
             return new Response('Album en cours de migration.', 503);
         }
 
-        $path = match ($size) {
-            'thumb' => $media->thumbPath,
-            'medium' => $media->mediumPath,
-            'large' => $media->largePath,
-            'original' => $media->originalPath,
-            default => null,
-        };
+        $path = $this->pathForSize($media, $size);
         if ($path === null) {
             return new Response('Not Found', 404);
         }
@@ -274,10 +268,8 @@ class GalleryController extends AbstractController
             return new Response('Not Found', 404);
         }
 
-        $mimeType = $media->isVideo() && $size !== 'thumb' ? 'video/mp4' : 'image/jpeg';
-
         return (new Response($contents))
-            ->setHeader('Content-Type', $mimeType)
+            ->setHeader('Content-Type', $this->mimeTypeFor($media, $size))
             ->setHeader('Content-Length', (string) strlen($contents))
             ->setHeader('Cache-Control', 'private, max-age=31536000')
             ->setHeader('ETag', $etag);
@@ -311,17 +303,11 @@ class GalleryController extends AbstractController
             return new Response('Album en cours de migration.', 503);
         }
 
-        $path = match ($size) {
-            'thumb' => $media->thumbPath,
-            'medium' => $media->mediumPath,
-            'large' => $media->largePath,
-            'original' => $media->originalPath,
-            default => null,
-        };
+        // Covers both an unknown $size and a still-pending/failed media
+        // (Repository\Media's derived paths are null until processing
+        // marks it done) — never a 500 either way.
+        $path = $this->pathForSize($media, $size);
         if ($path === null) {
-            // Covers both an unknown $size and a still-pending/failed
-            // media (Repository\Media's derived paths are null until
-            // processing marks it done) — never a 500 either way.
             return new Response('Not Found', 404);
         }
 
@@ -348,12 +334,38 @@ class GalleryController extends AbstractController
             return new Response('Not Found', 404);
         }
 
-        $mimeType = $media->isVideo() && $size !== 'thumb' ? 'video/mp4' : 'image/jpeg';
-
         return (new Response($contents))
-            ->setHeader('Content-Type', $mimeType)
+            ->setHeader('Content-Type', $this->mimeTypeFor($media, $size))
             ->setHeader('Content-Length', (string) strlen($contents))
             ->setHeader('Cache-Control', 'private, no-store');
+    }
+
+    /**
+     * The stored rendition path for a given size — null for an unknown
+     * $size or one that hasn't finished processing yet
+     * (Repository\Media's thumb/medium/large/original paths stay null
+     * until Task\ProcessPhotoHandler/ProcessVideoHandler mark it done).
+     * Shared by both the ordinary and the delegated serving path above.
+     */
+    private function pathForSize(Media $media, string $size): ?string
+    {
+        return match ($size) {
+            'thumb' => $media->thumbPath,
+            'medium' => $media->mediumPath,
+            'large' => $media->largePath,
+            'original' => $media->originalPath,
+            default => null,
+        };
+    }
+
+    /**
+     * Thumbs are always a JPEG (even for a video, whose thumb is an
+     * extracted frame) — every other rendition follows the media's own
+     * type. Shared by both the ordinary and the delegated serving path.
+     */
+    private function mimeTypeFor(Media $media, string $size): string
+    {
+        return $media->isVideo() && $size !== 'thumb' ? 'video/mp4' : 'image/jpeg';
     }
 
     /**

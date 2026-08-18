@@ -1019,8 +1019,9 @@ $fileOwnershipCheckers = [$sectionDocumentOwnershipChecker];
 // Api\DelegatedAlbumManager appends its own checker from inside its own
 // getEnabledModuleIds() block. Consumed only by
 // Controller\GalleryController::serveMedia(), constructed at the end of
-// this file for the exact same reason $fileAccessGuard is: every module
-// block that might append to this array runs before that point.
+// this file for the exact same ordering reason as Core\File\FileAccessGuard
+// above: every module block that might append to this array runs before
+// that point.
 $galleryDelegatedAlbumAccessCheckers = [];
 
 // Snapshot taken here rather than at the guard's construction site:
