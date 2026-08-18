@@ -21,8 +21,9 @@ set -euo pipefail
 #   --skip-security-gate       Bypass the CodeQL/Dependabot check.
 #                               Emergency use only — prints a warning. See
 #                               check_security_gate.
-#   --skip-tests-gate          Bypass phpstan/phpunit. Emergency use
-#                               only — prints a warning. See
+#   --skip-tests-gate          Bypass phpstan/phpunit AND the JavaScript
+#                               unit tests (npm run test:coverage).
+#                               Emergency use only — prints a warning. See
 #                               check_tests_gate.
 #   --skip-dependency-check    Bypass the outdated-dependency check
 #                               (direct Composer packages + every
@@ -208,12 +209,20 @@ check_security_gate() {
 }
 
 # ---------------------------------------------------------------
-# Tests gate — mirrors CI's `test` job (PHPStan + non-database PHPUnit
-# suites). Runs BEFORE any git commit/tag, same reasoning as the security
-# gate above. Database-group tests are excluded here too, exactly as
-# phpunit.xml's default <groups><exclude> does — they need a live MySQL
-# test instance that CI provisions as a service container but a local/
-# release environment does not.
+# Tests gate — mirrors CI's `test` (PHPStan + non-database PHPUnit suites)
+# AND `javascript-tests` (Vitest) jobs. Runs BEFORE any git commit/tag,
+# same reasoning as the security gate above. Database-group tests are
+# excluded here too, exactly as phpunit.xml's default <groups><exclude>
+# does — they need a live MySQL test instance that CI provisions as a
+# service container but a local/release environment does not.
+#
+# The JavaScript portion fails closed on a missing `npm`/`node_modules`
+# rather than running `npm ci` on the releaser's behalf: silently
+# installing dependencies here would mask an improperly prepared release
+# environment (e.g. the wrong Node version, or a lockfile that was never
+# actually validated) instead of surfacing it — same fail-closed
+# philosophy as every other gate in this script. Run `npm ci` yourself
+# first (see README.md § Développement) if this fails.
 # ---------------------------------------------------------------
 check_tests_gate() {
     local phpunit_output phpunit_summary
@@ -239,8 +248,13 @@ check_tests_gate() {
     phpunit_summary="$(sed -E $'s/\x1b\\[[0-9;]*m//g' <<< "${phpunit_output}" | { grep -E '^(OK \(|Tests: )' || true; } | tail -1)"
     [[ -n "${phpunit_summary}" ]] || phpunit_summary="résumé PHPUnit non trouvé dans la sortie"
 
-    TESTS_GATE_REPORT_LINE="vérifié — PHPStan sans erreur ; PHPUnit : ${phpunit_summary}"
-    echo "Tests gate OK: PHPStan and PHPUnit passed."
+    echo "Running JavaScript unit tests (npm run test:coverage)..."
+    command -v npm &> /dev/null || { echo "ERROR: npm is required for the JavaScript portion of the tests gate (see package.json/README.md § Développement) — install Node.js LTS, or re-run with --skip-tests-gate (emergency use only)." >&2; exit 1; }
+    [[ -d node_modules ]] || { echo "ERROR: node_modules/ not found — run 'npm ci' first (see README.md § Développement), or re-run with --skip-tests-gate (emergency use only)." >&2; exit 1; }
+    npm run test:coverage
+
+    TESTS_GATE_REPORT_LINE="vérifié — PHPStan sans erreur ; PHPUnit : ${phpunit_summary} ; tests JavaScript (Vitest) : OK."
+    echo "Tests gate OK: PHPStan, PHPUnit, and JavaScript unit tests passed."
 }
 
 # Checks one vendored front-end library's committed file against its
@@ -342,8 +356,8 @@ GATE_REPORT="${GATE_REPORT}- **Sécurité** : ${SECURITY_GATE_REPORT_LINE}
 "
 
 if [[ "${SKIP_TESTS_GATE}" -eq 1 ]]; then
-    echo "WARNING: --skip-tests-gate used — PHPStan and PHPUnit were NOT run for this release. Emergency use only: run them immediately after publishing and fix any failure." >&2
-    TESTS_GATE_REPORT_LINE="ignoré (\`--skip-tests-gate\`) — à vérifier manuellement."
+    echo "WARNING: --skip-tests-gate used — PHPStan, PHPUnit, AND the JavaScript unit tests (npm run test:coverage) were NOT run for this release. Emergency use only: run them immediately after publishing and fix any failure." >&2
+    TESTS_GATE_REPORT_LINE="ignoré (\`--skip-tests-gate\`) — PHPStan, PHPUnit et les tests JavaScript non exécutés, à vérifier manuellement."
 else
     check_tests_gate
 fi
@@ -441,10 +455,20 @@ if command -v gh &> /dev/null; then
     # reason: it can hold worktrees (each a full nested checkout,
     # .claude/worktrees/<name>/), which would otherwise get zipped into
     # the artifact wholesale.
+    #
+    # node_modules/, coverage/, package.json, and package-lock.json are
+    # development/test-only (Vitest — see AGENTS.md § CSS / frontend and
+    # package.json's own description): production ScoutMagic runs plain,
+    # unbundled browser JavaScript and needs neither Node nor npm, so none
+    # of these belong in the release artifact — same reasoning as
+    # excluding vendor/ dev dependencies would if Composer's --no-dev
+    # (already run above) didn't handle that side on its own.
     zip -r "${ARTIFACT}" . \
         -x ".git/*" ".github/*" "tests/*" "storage/*" \
            "config/app.php" ".gitignore" ".env" "*.zip" \
-           "bootstrap/*" ".claude/*" ".idea/*" ".vscode/*" "*.DS_Store"
+           "bootstrap/*" ".claude/*" ".idea/*" ".vscode/*" "*.DS_Store" \
+           "node_modules/*" "coverage/*" "package.json" "package-lock.json" \
+           "vitest.config.js"
 
     # Listed to a real file rather than piped live into grep -q: with
     # `set -o pipefail` (line 2), a `grep -q` that matches early closes its
@@ -477,6 +501,15 @@ if command -v gh &> /dev/null; then
 
     if ! grep -q 'vendor/autoload.php' "${LISTING_FILE}"; then
         echo "ERROR: release artifact is missing vendor/autoload.php — aborting release." >&2
+        rm -f "${ARTIFACT}"
+        exit 1
+    fi
+
+    # node_modules/ and coverage/ are development/test-only (Vitest — see
+    # the -x list above); a leftover local install of either must never
+    # reach a release artifact regardless of how it got there.
+    if grep -qE '[[:space:]](node_modules|coverage)/' "${LISTING_FILE}"; then
+        echo "ERROR: release artifact contains node_modules/ or coverage/ — aborting release." >&2
         rm -f "${ARTIFACT}"
         exit 1
     fi

@@ -57,6 +57,35 @@ jobs:
             phpunit-report.xml
           retention-days: 1
 
+  javascript-tests:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run JavaScript unit tests with coverage
+        # Isolated jsdom-simulated DOM tests for first-party public/assets/js/
+        # — no PHP server, no MySQL, no network (see vitest.config.js and
+        # tests/js/). Produces coverage/js/lcov.info for the sonarqube job
+        # below (sonar.javascript.lcov.reportPaths in sonar-project.properties).
+        run: npm run test:coverage
+
+      - name: Upload JavaScript coverage for SonarQube
+        uses: actions/upload-artifact@v4
+        with:
+          name: javascript-coverage
+          path: coverage/js/lcov.info
+          retention-days: 1
+
   database-tests:
     runs-on: ubuntu-latest
     services:
@@ -117,7 +146,7 @@ jobs:
   sonarqube:
     name: SonarQube Cloud
     runs-on: ubuntu-latest
-    needs: test
+    needs: [test, javascript-tests]
     # Secrets aren't exposed to pull_request runs triggered from a fork, so
     # SONAR_TOKEN wouldn't be available there — skip cleanly instead of
     # failing the check for external contributors. Same-repo pushes and PRs
@@ -131,10 +160,21 @@ jobs:
           # detection and pull request analysis.
           fetch-depth: 0
 
-      - name: Download coverage and test reports
+      - name: Download PHP coverage and test reports
         uses: actions/download-artifact@v4
         with:
           name: phpunit-reports
+
+      - name: Download JavaScript coverage report
+        uses: actions/download-artifact@v4
+        with:
+          name: javascript-coverage
+          # javascript-tests uploaded a single file (coverage/js/lcov.info),
+          # so actions/upload-artifact placed it at the artifact's root —
+          # this "path" is where it lands on download, reconstructing
+          # coverage/js/lcov.info exactly as sonar-project.properties'
+          # sonar.javascript.lcov.reportPaths expects.
+          path: coverage/js
 
       - name: SonarQube Cloud Scan
         uses: SonarSource/sonarqube-scan-action@22918119ff8e1ca75a623e15c8296b6ea4fbe28f # v8

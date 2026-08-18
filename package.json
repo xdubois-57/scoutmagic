@@ -1,0 +1,20 @@
+{
+    "name": "scoutmagic-js-tests",
+    "private": true,
+    "version": "0.0.0",
+    "description": "Development-only Node/npm tooling for ScoutMagic's first-party browser JavaScript unit tests (Vitest + jsdom). Not required to run, build, or deploy ScoutMagic itself — production JavaScript stays plain, unbundled, and Node-free. See AGENTS.md and ARCHITECTURE.md.",
+    "license": "AGPL-3.0-or-later",
+    "type": "module",
+    "scripts": {
+        "test": "vitest run",
+        "test:coverage": "vitest run --coverage"
+    },
+    "engines": {
+        "node": ">=22"
+    },
+    "devDependencies": {
+        "@vitest/coverage-v8": "^3.2.0",
+        "jsdom": "^25.0.1",
+        "vitest": "^3.2.0"
+    }
+}

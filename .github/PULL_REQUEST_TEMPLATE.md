@@ -10,3 +10,4 @@
 - [ ] Automated tests are written/updated for this change
 - [ ] Tests pass locally (`vendor/bin/phpunit`)
 - [ ] PHPStan passes (`vendor/bin/phpstan analyse` — covers `core/`, `modules/`, and `public/`)
+- [ ] If this PR changes `public/assets/js/` behavior: a Vitest spec was added/updated in `tests/js/` where practical, and `npm test` passes locally

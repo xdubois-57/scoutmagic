@@ -19,11 +19,12 @@ Thank you for considering contributing to this project.
 ## Submitting a pull request
 
 1. Create a feature branch from `main`.
-2. Write your code and tests.
-3. Ensure all tests pass: `vendor/bin/phpunit`
+2. Write your code and tests. If your change touches `public/assets/js/` behavior that is deterministic and reasonably decoupled from the DOM it ships with, add/update a Vitest spec in `tests/js/` — see AGENTS.md § Tests for when this does (and doesn't) apply.
+3. Ensure all PHP tests pass: `vendor/bin/phpunit`
 4. Ensure static analysis passes: `vendor/bin/phpstan analyse` (covers `core/`, `modules/`, and `public/index.php`/`public/cron.php` — the composition roots where controllers are wired up are in scope specifically because a wiring bug there only ever surfaces at runtime, never in an IDE or a unit test)
-5. Open a PR against `main` and fill in the PR template checklist.
-6. CI additionally runs [SonarQube Cloud](https://sonarcloud.io/project/overview?id=xdubois-57_scoutmagic) analysis on the PR, alongside PHPStan/PHPUnit/`composer audit`/CodeQL — see README.md § Intégration continue. Its Quality Gate must pass before merge.
+5. If you touched `public/assets/js/` or `tests/js/`, ensure the JavaScript tests pass: `npm ci` then `npm test` (or `npm run test:coverage` — see README.md § Développement).
+6. Open a PR against `main` and fill in the PR template checklist.
+7. CI additionally runs [SonarQube Cloud](https://sonarcloud.io/project/overview?id=xdubois-57_scoutmagic) analysis on the PR, alongside PHPStan/PHPUnit/Vitest/`composer audit`/CodeQL — see README.md § Intégration continue. Its Quality Gate must pass before merge.
 
 ## License and attribution
 
@@ -46,6 +47,8 @@ Report security vulnerabilities privately — not via public issues. Contact the
 composer install
 cp config/app.php.dist config/app.php
 composer serve
+
+npm ci     # only needed if you're running/adding JavaScript unit tests — see README.md
 ```
 
 (`composer serve` runs `php -S` with raised upload limits — see README.md. If your IDE runs its own built-in PHP server instead, add `-d upload_max_filesize=100M -d post_max_size=110M` to its PHP interpreter's CLI options, or uploads over 8M will 413.)

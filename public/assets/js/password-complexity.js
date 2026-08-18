@@ -44,3 +44,12 @@ function initPasswordComplexityChecklist(inputId, listId) {
 
     return { isValid: function () { return isValid(input.value); } };
 }
+
+// A classic (non-module) <script src="password-complexity.js"> already
+// attaches this top-level `function` declaration to `window`/`globalThis`
+// on its own — this line changes nothing for the browser. It exists so
+// tests/js/password-complexity.test.js can `import` this exact file (an ES
+// module, where top-level declarations are module-scoped, not global) and
+// call the real implementation directly, rather than reimplementing its
+// logic in a test-only copy.
+globalThis.initPasswordComplexityChecklist = initPasswordComplexityChecklist;

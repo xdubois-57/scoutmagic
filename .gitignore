@@ -1,6 +1,7 @@
 # Dependencies
 vendor/
 !public/assets/vendor/
+node_modules/
 
 # Environment and secrets
 .env
@@ -36,6 +37,11 @@ Thumbs.db
 coverage.xml
 phpunit-report.xml
 .scannerwork/
+
+# Vitest JavaScript coverage output (coverage/js/lcov.info — generated
+# locally and in CI, never committed, see sonar-project.properties)
+coverage/
+*.vitest-temp/
 
 # PHPStan cache
 storage/temp/phpstan/

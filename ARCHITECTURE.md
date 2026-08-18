@@ -27,7 +27,7 @@ Only a small, explicitly justified set of external dependencies is allowed:
 
 Everything else is written in-house. Composer is used for autoloading and dependency resolution during CI build — `vendor/` is built by CI and deployed via FTP; Composer is never required on the hosting server.
 
-No frontend build tools (Sass, webpack, npm). Bootstrap is loaded from compiled files (CDN or `public/assets/vendor/bootstrap/` fallback).
+No frontend build tools for production (Sass, webpack, an application bundler, a transpiler). Bootstrap is loaded from compiled files (CDN or `public/assets/vendor/bootstrap/` fallback). npm/Node are used, strictly as development/test tooling, to run Vitest unit tests against first-party browser JavaScript (§15) — they are never a runtime or build requirement for a deployed ScoutMagic installation, and no build step is required to run, deploy, or serve `public/assets/js/`.
 
 ### License
 
@@ -900,4 +900,11 @@ LICENSE (AGPL-3.0)
 
 ## 15. Tests
 
-`tests/` mirrors the structure of `core/` and `modules/`. Automated tests are mandatory for every feature and must be kept up to date as the codebase evolves. The RBAC guard must have explicit test coverage on every role boundary. Every page/component must be visually verified at mobile (~375px) and desktop (~1280px) widths.
+Two complementary, independently-runnable automated test stacks:
+
+- **PHPUnit** (`tests/`, mirroring the structure of `core/` and `modules/`) — the server-side test suite: Services, Repositories (against a test database), Controllers/routes (including the RBAC boundary at every `role_min`), and the rest of the PHP application.
+- **Vitest + jsdom** (`tests/js/`) — isolated unit tests for first-party browser JavaScript (`public/assets/js/`), run under Node with a simulated DOM (jsdom): no PHP server, no MySQL, no real network. `fetch`, the Service Worker, WebAuthn, etc. are mocked where a script under test touches them. These are development/test tooling only (§1) — they exercise the real production `.js` files directly, never a reimplementation of their logic, and exist to catch regressions in deterministic, DOM-adjacent frontend logic (form validation, client-side computed state) fast and without a browser.
+
+Frontend unit tests are a complement to, never a replacement for, PHPUnit's integration tests or the manual mobile (~375px) and desktop (~1280px) visual verification every page/component still requires — they mock the server/browser boundary precisely so they can run in isolation, which is also exactly why they can't substitute for either of those two.
+
+Automated tests are mandatory for every feature and must be kept up to date as the codebase evolves. The RBAC guard must have explicit test coverage on every role boundary.

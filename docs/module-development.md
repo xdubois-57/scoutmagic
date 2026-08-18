@@ -515,4 +515,4 @@ If your form has its own, differently-scoped rate limiting already (e.g. a per-e
 - All SQL must use prepared statements (no concatenation).
 - Every route must have `role_min`.
 - All code and comments in English; all UI text in French.
-- Automated tests are mandatory for every feature.
+- Automated tests are mandatory for every feature. If your module ships its own `public/assets/js/` behavior that is deterministic and reasonably decoupled from the DOM (not just wiring existing core components like the chip picker together), add a Vitest spec under `tests/js/` exercising it — see `AGENTS.md` § Tests and `ARCHITECTURE.md` § 15. Your module's own PHP-side JavaScript never needs a Node/build dependency to ship — the test tooling stays dev-only.
