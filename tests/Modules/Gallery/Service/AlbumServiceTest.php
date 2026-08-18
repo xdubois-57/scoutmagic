@@ -413,6 +413,58 @@ class AlbumServiceTest extends TestCase
         $this->service->delete($id, Role::CHIEF, 'chief@test.com');
     }
 
+    public function testUpdateThrowsForADelegatedAlbum(): void
+    {
+        $id = $this->albumRepository->create(
+            Album::TYPE_LOCAL, 'Titre', null, '2026-01-01', null, $this->scoutYearId, null, $this->locationId,
+            $this->authorId, 'some_owner_type', 42
+        );
+
+        $this->expectException(GalleryException::class);
+        $this->service->update($id, 'Nouveau titre', null, '2026-01-01', null, null, Role::CHIEF, 'chief@test.com');
+    }
+
+    public function testDeleteThrowsForADelegatedAlbum(): void
+    {
+        $id = $this->albumRepository->create(
+            Album::TYPE_LOCAL, 'Titre', null, '2026-01-01', null, $this->scoutYearId, null, $this->locationId,
+            $this->authorId, 'some_owner_type', 42
+        );
+
+        $this->expectException(GalleryException::class);
+        $this->service->delete($id, Role::CHIEF, 'chief@test.com');
+    }
+
+    public function testSetCoverThrowsForADelegatedAlbum(): void
+    {
+        $id = $this->albumRepository->create(
+            Album::TYPE_LOCAL, 'Titre', null, '2026-01-01', null, $this->scoutYearId, null, $this->locationId,
+            $this->authorId, 'some_owner_type', 42
+        );
+        $stmt = $this->pdo->prepare("INSERT INTO files (relative_path, original_name, mime_type, size_bytes, role_min) VALUES ('a', 'a', 'image/jpeg', 1, 'identified')");
+        $stmt->execute();
+        $fileId = (int) $this->pdo->lastInsertId();
+        $mediaId = (new MediaRepository($this->pdo))->create($id, 'photo', $fileId, 0, null);
+
+        $this->expectException(GalleryException::class);
+        $this->service->setCover($id, $mediaId, Role::CHIEF, 'chief@test.com');
+    }
+
+    public function testStartMigrationThrowsForADelegatedAlbum(): void
+    {
+        $id = $this->albumRepository->create(
+            Album::TYPE_LOCAL, 'Titre', null, '2026-01-01', null, $this->scoutYearId, null, $this->locationId,
+            $this->authorId, 'some_owner_type', 42
+        );
+        $targetId = $this->storageLocationRepository->create(
+            StorageLocation::TYPE_LOCAL, 'Autre emplacement', 'gallery2', null, null, null, null, null, null, null
+        );
+        $this->storageLocationRepository->recordCheckResult($targetId, true, null);
+
+        $this->expectException(GalleryException::class);
+        $this->service->startMigration($id, $targetId, Role::CHIEF, 'chief@test.com');
+    }
+
     private function settingServiceAllowingEverything(): SettingService
     {
         $settingService = $this->createMock(SettingService::class);

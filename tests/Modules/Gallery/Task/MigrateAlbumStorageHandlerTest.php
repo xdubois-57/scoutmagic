@@ -297,9 +297,9 @@ class MigrateAlbumStorageHandlerTest extends TestCase
                 {
                     $this->real->deletePrefix($prefix);
                 }
-                public function url(string $key): string
+                public function url(string $key, string $ttl = '+1 hour'): string
                 {
-                    return $this->real->url($key);
+                    return $this->real->url($key, $ttl);
                 }
                 public function exists(string $key): bool
                 {
@@ -346,9 +346,9 @@ class MigrateAlbumStorageHandlerTest extends TestCase
                 {
                     $this->real->deletePrefix($prefix);
                 }
-                public function url(string $key): string
+                public function url(string $key, string $ttl = '+1 hour'): string
                 {
-                    return $this->real->url($key);
+                    return $this->real->url($key, $ttl);
                 }
                 public function exists(string $key): bool
                 {

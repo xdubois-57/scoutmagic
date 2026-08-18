@@ -26,7 +26,9 @@ use Modules\Gallery\Repository\MediaRepository;
 use Modules\Gallery\Repository\S3SecretRepository;
 use Modules\Gallery\Repository\StorageLocation;
 use Modules\Gallery\Repository\StorageLocationRepository;
+use Modules\Gallery\Api\DelegatedAlbumAccessChecker;
 use Modules\Gallery\Service\AlbumService;
+use Modules\Gallery\Service\DelegatedAlbumAccessRegistry;
 use Modules\Gallery\Service\FfmpegAvailability;
 use Modules\Gallery\Service\GalleryAccessService;
 use Modules\Gallery\Service\MediaService;
@@ -51,7 +53,14 @@ class GalleryControllerTest extends TestCase
     private AlbumRepository $albumRepository;
     private MediaRepository $mediaRepository;
     private MediaService $mediaService;
+    private AlbumService $albumService;
     private StorageBackendFactory $storageBackendFactory;
+    private StorageLocationService $storageLocationService;
+    private StorageLocationRepository $storageLocationRepository;
+    private Environment $twig;
+    private MemberService $memberService;
+    private SectionService $sectionService;
+    private ScoutYearService $scoutYearService;
     private int $authorId;
     private int $scoutYearId;
     private int $sectionId;
@@ -67,33 +76,33 @@ class GalleryControllerTest extends TestCase
         $this->albumRepository = new AlbumRepository($this->pdo);
         $this->mediaRepository = new MediaRepository($this->pdo);
         $memberBadgeRepository = new MemberBadgeRepository($this->pdo);
-        $sectionService = new SectionService($connection, $encryption, $memberBadgeRepository);
+        $this->sectionService = new SectionService($connection, $encryption, $memberBadgeRepository);
         $memberYearRepo = new MemberYearRepository($this->pdo);
-        $memberService = new MemberService($memberYearRepo, $encryption, $connection);
-        $scoutYearService = new ScoutYearService($this->pdo);
+        $this->memberService = new MemberService($memberYearRepo, $encryption, $connection);
+        $this->scoutYearService = new ScoutYearService($this->pdo);
         $settingService = $this->createMock(SettingService::class);
         $settingService->method('get')->willReturnCallback(fn($key, $module, $default) => $default);
 
-        $accessService = new GalleryAccessService($memberService, $sectionService, $scoutYearService);
-        $storageLocationRepository = new StorageLocationRepository($this->pdo, $encryption);
+        $accessService = new GalleryAccessService($this->memberService, $this->sectionService, $this->scoutYearService);
+        $this->storageLocationRepository = new StorageLocationRepository($this->pdo, $encryption);
         $this->storageBackendFactory = $this->createMock(StorageBackendFactory::class);
-        $storageLocationService = new StorageLocationService(
-            $storageLocationRepository, $this->albumRepository, $this->storageBackendFactory, $settingService,
+        $this->storageLocationService = new StorageLocationService(
+            $this->storageLocationRepository, $this->albumRepository, $this->storageBackendFactory, $settingService,
             new S3SecretRepository($this->pdo, $encryption), sys_get_temp_dir()
         );
 
         $uploadHandler = new UploadHandler(new FileRepository($this->pdo), sys_get_temp_dir());
-        $albumService = new AlbumService(
+        $this->albumService = new AlbumService(
             $this->albumRepository, $this->mediaRepository, $accessService, $this->createMock(OgScraperService::class),
-            $this->storageBackendFactory, $storageLocationRepository, $storageLocationService, $scoutYearService, $settingService,
+            $this->storageBackendFactory, $this->storageLocationRepository, $this->storageLocationService, $this->scoutYearService, $settingService,
             $this->createMock(SchedulerService::class), $uploadHandler
         );
         $this->mediaService = new MediaService(
             $this->mediaRepository, $this->albumRepository, $uploadHandler, new SchedulerService(new SchedulerRepository($this->pdo)),
-            $settingService, $accessService, $this->storageBackendFactory, $storageLocationService, $this->createMock(FfmpegAvailability::class)
+            $settingService, $accessService, $this->storageBackendFactory, $this->storageLocationService, $this->createMock(FfmpegAvailability::class)
         );
 
-        $this->locationId = $storageLocationRepository->create(
+        $this->locationId = $this->storageLocationRepository->create(
             StorageLocation::TYPE_LOCAL, 'Stockage local', 'gallery', null, null, null, null, null, null, null
         );
 
@@ -114,23 +123,23 @@ class GalleryControllerTest extends TestCase
         $moduleViews = dirname(__DIR__, 4) . '/modules/gallery/views';
         $loader = new FilesystemLoader($templateDir);
         $loader->addPath($moduleViews, 'gallery');
-        $twig = new Environment($loader, ['cache' => false, 'autoescape' => 'html']);
-        $twig->addGlobal('site_name', 'Test');
-        $twig->addGlobal('is_authenticated', true);
-        $twig->addGlobal('current_user_role', 'identified');
-        $twig->addGlobal('config_mode', false);
-        $twig->addGlobal('cookie_consent_given', true);
-        $twig->addGlobal('menus', null);
-        $twig->addGlobal('csp_nonce', 'test-nonce');
-        $twig->addFunction(new TwigFunction('csrf_field', fn() => '<input type="hidden" name="_csrf_token" value="test">', ['is_safe' => ['html']]));
-        $twig->addFunction(new TwigFunction('get_flash', fn() => null));
-        $twig->addFunction(new TwigFunction('csrf_token', fn() => 'test'));
-        $twig->addFunction(new TwigFunction('file_url', fn() => ''));
-        $twig->addFilter(new \Twig\TwigFilter('french_date', fn($d) => (string) $d));
+        $this->twig = new Environment($loader, ['cache' => false, 'autoescape' => 'html']);
+        $this->twig->addGlobal('site_name', 'Test');
+        $this->twig->addGlobal('is_authenticated', true);
+        $this->twig->addGlobal('current_user_role', 'identified');
+        $this->twig->addGlobal('config_mode', false);
+        $this->twig->addGlobal('cookie_consent_given', true);
+        $this->twig->addGlobal('menus', null);
+        $this->twig->addGlobal('csp_nonce', 'test-nonce');
+        $this->twig->addFunction(new TwigFunction('csrf_field', fn() => '<input type="hidden" name="_csrf_token" value="test">', ['is_safe' => ['html']]));
+        $this->twig->addFunction(new TwigFunction('get_flash', fn() => null));
+        $this->twig->addFunction(new TwigFunction('csrf_token', fn() => 'test'));
+        $this->twig->addFunction(new TwigFunction('file_url', fn() => ''));
+        $this->twig->addFilter(new \Twig\TwigFilter('french_date', fn($d) => (string) $d));
 
         $this->controller = new GalleryController(
-            $twig, $albumService, $this->mediaService, $this->mediaRepository, $memberService,
-            $sectionService, $scoutYearService, $this->storageBackendFactory, $storageLocationService
+            $this->twig, $this->albumService, $this->mediaService, $this->mediaRepository, $this->memberService,
+            $this->sectionService, $this->scoutYearService, $this->storageBackendFactory, $this->storageLocationService
         );
 
         if (session_status() === PHP_SESSION_NONE) {
@@ -147,6 +156,289 @@ class GalleryControllerTest extends TestCase
     private function createLocalAlbum(?int $sectionId = null): int
     {
         return $this->albumRepository->create(Album::TYPE_LOCAL, 'Camp', null, '2026-01-01', $sectionId, $this->scoutYearId, null, $this->locationId, $this->authorId);
+    }
+
+    private function createDelegatedAlbum(int $locationId): int
+    {
+        return $this->albumRepository->create(
+            Album::TYPE_LOCAL, 'Album délégué', null, '2026-01-01', null, $this->scoutYearId, null, $locationId,
+            $this->authorId, 'some_owner_type', 42
+        );
+    }
+
+    private function controllerWithRegistry(DelegatedAlbumAccessRegistry $registry): GalleryController
+    {
+        return new GalleryController(
+            $this->twig, $this->albumService, $this->mediaService, $this->mediaRepository, $this->memberService,
+            $this->sectionService, $this->scoutYearService, $this->storageBackendFactory, $this->storageLocationService,
+            $registry
+        );
+    }
+
+    private function allowingRegistry(): DelegatedAlbumAccessRegistry
+    {
+        $checker = $this->createMock(DelegatedAlbumAccessChecker::class);
+        $checker->method('supports')->willReturn(true);
+        $checker->method('isAllowed')->willReturn(true);
+        return new DelegatedAlbumAccessRegistry([$checker]);
+    }
+
+    private function denyingRegistry(): DelegatedAlbumAccessRegistry
+    {
+        $checker = $this->createMock(DelegatedAlbumAccessChecker::class);
+        $checker->method('supports')->willReturn(true);
+        $checker->method('isAllowed')->willReturn(false);
+        return new DelegatedAlbumAccessRegistry([$checker]);
+    }
+
+    public function testShowReturns404ForADelegatedAlbum(): void
+    {
+        $id = $this->createDelegatedAlbum($this->locationId);
+
+        $response = $this->controller->show(new Request('GET', '/gallery/' . $id, [], [], [], []), ['id' => (string) $id]);
+
+        $this->assertSame(404, $response->getStatusCode());
+    }
+
+    public function testDownloadZipReturns404ForADelegatedAlbum(): void
+    {
+        $id = $this->createDelegatedAlbum($this->locationId);
+
+        $response = $this->controller->downloadZip(new Request('GET', '/gallery/' . $id . '/download', [], [], [], []), ['id' => (string) $id]);
+
+        $this->assertSame(404, $response->getStatusCode());
+    }
+
+    /**
+     * Photo renditions only — a photo media never gets an original_path
+     * (Repository\MediaRepository::markPhotoDone() sets thumb/medium/large
+     * only; only markVideoDone() also sets original), so "original" is
+     * covered separately below with a video-typed media.
+     *
+     * @return array<string, string[]>
+     */
+    public static function mediaSizeProvider(): array
+    {
+        return [
+            'thumb' => ['thumb'],
+            'medium' => ['medium'],
+            'large' => ['large'],
+        ];
+    }
+
+    private function createDoneVideoMedia(int $albumId): int
+    {
+        $stmt = $this->pdo->prepare("INSERT INTO files (relative_path, original_name, mime_type, size_bytes, role_min) VALUES ('a', 'a', 'video/mp4', 1, 'identified')");
+        $stmt->execute();
+        $fileId = (int) $this->pdo->lastInsertId();
+        $mediaId = $this->mediaRepository->create($albumId, 'video', $fileId, 0, null);
+        $this->mediaRepository->markVideoDone($mediaId, 'thumb.jpg', 'med.mp4', 'lg.mp4', 'orig.mp4', 100, 100, 30);
+        return $mediaId;
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('mediaSizeProvider')]
+    public function testServeMediaOnLocalStorageStreamsForAnAllowedMemberOfADelegatedAlbum(string $size): void
+    {
+        $albumId = $this->createDelegatedAlbum($this->locationId);
+        $mediaId = $this->createDoneMedia($albumId);
+        $backend = $this->createMock(\Modules\Gallery\Service\Storage\StorageBackendInterface::class);
+        $backend->method('get')->willReturn('fake-delegated-bytes');
+        $this->storageBackendFactory->method('create')->willReturn($backend);
+        $controller = $this->controllerWithRegistry($this->allowingRegistry());
+
+        $response = $controller->serveMedia(
+            new Request('GET', '/gallery/media/' . $mediaId . '/' . $size, [], [], [], []),
+            ['media_id' => (string) $mediaId, 'size' => $size]
+        );
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame('fake-delegated-bytes', $response->getBody());
+        $this->assertSame('private, no-store', $response->getHeaders()['Cache-Control']);
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('mediaSizeProvider')]
+    public function testServeMediaOnLocalStorageReturns404ForANonMemberOfADelegatedAlbum(string $size): void
+    {
+        $albumId = $this->createDelegatedAlbum($this->locationId);
+        $mediaId = $this->createDoneMedia($albumId);
+        $backend = $this->createMock(\Modules\Gallery\Service\Storage\StorageBackendInterface::class);
+        $backend->expects($this->never())->method('get');
+        $this->storageBackendFactory->method('create')->willReturn($backend);
+        $controller = $this->controllerWithRegistry($this->denyingRegistry());
+
+        $response = $controller->serveMedia(
+            new Request('GET', '/gallery/media/' . $mediaId . '/' . $size, [], [], [], []),
+            ['media_id' => (string) $mediaId, 'size' => $size]
+        );
+
+        $this->assertSame(404, $response->getStatusCode());
+    }
+
+    public function testServeMediaReturns404ForADelegatedAlbumWithAnUnregisteredOwnerType(): void
+    {
+        $albumId = $this->createDelegatedAlbum($this->locationId);
+        $mediaId = $this->createDoneMedia($albumId);
+        // No checker at all in the registry — same fail-closed contract as
+        // a checker that actively denies (Service\DelegatedAlbumAccessRegistryTest).
+        $controller = $this->controllerWithRegistry(new DelegatedAlbumAccessRegistry([]));
+
+        $response = $controller->serveMedia(
+            new Request('GET', '/gallery/media/' . $mediaId . '/thumb', [], [], [], []),
+            ['media_id' => (string) $mediaId, 'size' => 'thumb']
+        );
+
+        $this->assertSame(404, $response->getStatusCode());
+    }
+
+    private function createPrivateS3Location(): int
+    {
+        return $this->storageLocationRepository->create(
+            StorageLocation::TYPE_S3, 'Bucket privé', null, 'custom', 'https://s3.example.com', 'eu',
+            'bucket', 'ak', null, 'sk'
+        );
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('mediaSizeProvider')]
+    public function testServeMediaOnS3RedirectsToAFreshPresignedUrlForAnAllowedMemberOfADelegatedAlbum(string $size): void
+    {
+        $locationId = $this->createPrivateS3Location();
+        $albumId = $this->createDelegatedAlbum($locationId);
+        $mediaId = $this->createDoneMedia($albumId);
+        $backend = $this->createMock(\Modules\Gallery\Service\Storage\StorageBackendInterface::class);
+        $backend->expects($this->once())->method('url')
+            ->with($this->anything(), '+5 minutes')
+            ->willReturn('https://s3.example.com/bucket/presigned?sig=abc');
+        $this->storageBackendFactory->method('create')->willReturn($backend);
+        $controller = $this->controllerWithRegistry($this->allowingRegistry());
+
+        $response = $controller->serveMedia(
+            new Request('GET', '/gallery/media/' . $mediaId . '/' . $size, [], [], [], []),
+            ['media_id' => (string) $mediaId, 'size' => $size]
+        );
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('https://s3.example.com/bucket/presigned?sig=abc', $response->getHeaders()['Location']);
+        $this->assertSame('private, no-store', $response->getHeaders()['Cache-Control']);
+    }
+
+    public function testServeMediaOnLocalStorageStreamsTheOriginalRenditionForAnAllowedMemberOfADelegatedAlbum(): void
+    {
+        $albumId = $this->createDelegatedAlbum($this->locationId);
+        $mediaId = $this->createDoneVideoMedia($albumId);
+        $backend = $this->createMock(\Modules\Gallery\Service\Storage\StorageBackendInterface::class);
+        $backend->method('get')->willReturn('fake-delegated-original-bytes');
+        $this->storageBackendFactory->method('create')->willReturn($backend);
+        $controller = $this->controllerWithRegistry($this->allowingRegistry());
+
+        $response = $controller->serveMedia(
+            new Request('GET', '/gallery/media/' . $mediaId . '/original', [], [], [], []),
+            ['media_id' => (string) $mediaId, 'size' => 'original']
+        );
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame('fake-delegated-original-bytes', $response->getBody());
+        $this->assertSame('private, no-store', $response->getHeaders()['Cache-Control']);
+    }
+
+    public function testServeMediaOnLocalStorageReturns404ForANonMemberRequestingTheOriginalRendition(): void
+    {
+        $albumId = $this->createDelegatedAlbum($this->locationId);
+        $mediaId = $this->createDoneVideoMedia($albumId);
+        $backend = $this->createMock(\Modules\Gallery\Service\Storage\StorageBackendInterface::class);
+        $backend->expects($this->never())->method('get');
+        $this->storageBackendFactory->method('create')->willReturn($backend);
+        $controller = $this->controllerWithRegistry($this->denyingRegistry());
+
+        $response = $controller->serveMedia(
+            new Request('GET', '/gallery/media/' . $mediaId . '/original', [], [], [], []),
+            ['media_id' => (string) $mediaId, 'size' => 'original']
+        );
+
+        $this->assertSame(404, $response->getStatusCode());
+    }
+
+    public function testServeMediaOnS3RedirectsToAPresignedUrlForTheOriginalRenditionForAnAllowedMember(): void
+    {
+        $locationId = $this->createPrivateS3Location();
+        $albumId = $this->createDelegatedAlbum($locationId);
+        $mediaId = $this->createDoneVideoMedia($albumId);
+        $backend = $this->createMock(\Modules\Gallery\Service\Storage\StorageBackendInterface::class);
+        $backend->expects($this->once())->method('url')
+            ->with($this->anything(), '+5 minutes')
+            ->willReturn('https://s3.example.com/bucket/presigned-original?sig=abc');
+        $this->storageBackendFactory->method('create')->willReturn($backend);
+        $controller = $this->controllerWithRegistry($this->allowingRegistry());
+
+        $response = $controller->serveMedia(
+            new Request('GET', '/gallery/media/' . $mediaId . '/original', [], [], [], []),
+            ['media_id' => (string) $mediaId, 'size' => 'original']
+        );
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('https://s3.example.com/bucket/presigned-original?sig=abc', $response->getHeaders()['Location']);
+    }
+
+    public function testServeMediaOnS3Returns404ForANonMemberRequestingTheOriginalRendition(): void
+    {
+        $locationId = $this->createPrivateS3Location();
+        $albumId = $this->createDelegatedAlbum($locationId);
+        $mediaId = $this->createDoneVideoMedia($albumId);
+        $backend = $this->createMock(\Modules\Gallery\Service\Storage\StorageBackendInterface::class);
+        $backend->expects($this->never())->method('url');
+        $this->storageBackendFactory->method('create')->willReturn($backend);
+        $controller = $this->controllerWithRegistry($this->denyingRegistry());
+
+        $response = $controller->serveMedia(
+            new Request('GET', '/gallery/media/' . $mediaId . '/original', [], [], [], []),
+            ['media_id' => (string) $mediaId, 'size' => 'original']
+        );
+
+        $this->assertSame(404, $response->getStatusCode());
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('mediaSizeProvider')]
+    public function testServeMediaOnS3Returns404ForANonMemberOfADelegatedAlbum(string $size): void
+    {
+        $locationId = $this->createPrivateS3Location();
+        $albumId = $this->createDelegatedAlbum($locationId);
+        $mediaId = $this->createDoneMedia($albumId);
+        $backend = $this->createMock(\Modules\Gallery\Service\Storage\StorageBackendInterface::class);
+        $backend->expects($this->never())->method('url');
+        $this->storageBackendFactory->method('create')->willReturn($backend);
+        $controller = $this->controllerWithRegistry($this->denyingRegistry());
+
+        $response = $controller->serveMedia(
+            new Request('GET', '/gallery/media/' . $mediaId . '/' . $size, [], [], [], []),
+            ['media_id' => (string) $mediaId, 'size' => $size]
+        );
+
+        $this->assertSame(404, $response->getStatusCode());
+    }
+
+    public function testServeMediaOnDelegatedAlbumUsesAShorterPresignTtlThanTheOrdinaryDefault(): void
+    {
+        // Module spec: the delegated TTL must be short — distinct from and
+        // shorter than S3StorageBackend::url()'s ordinary +1 hour default.
+        $locationId = $this->createPrivateS3Location();
+        $albumId = $this->createDelegatedAlbum($locationId);
+        $mediaId = $this->createDoneMedia($albumId);
+        $usedTtl = null;
+        $backend = $this->createMock(\Modules\Gallery\Service\Storage\StorageBackendInterface::class);
+        $backend->method('url')->willReturnCallback(function (string $key, string $ttl = '+1 hour') use (&$usedTtl) {
+            $usedTtl = $ttl;
+            return 'https://s3.example.com/x';
+        });
+        $this->storageBackendFactory->method('create')->willReturn($backend);
+        $controller = $this->controllerWithRegistry($this->allowingRegistry());
+
+        $controller->serveMedia(
+            new Request('GET', '/gallery/media/' . $mediaId . '/thumb', [], [], [], []),
+            ['media_id' => (string) $mediaId, 'size' => 'thumb']
+        );
+
+        $this->assertNotNull($usedTtl);
+        $this->assertNotSame('+1 hour', $usedTtl);
+        $this->assertSame('+5 minutes', $usedTtl);
     }
 
     public function testIndexShowsUnitWideAlbum(): void

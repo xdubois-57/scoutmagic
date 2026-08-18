@@ -42,6 +42,8 @@ class GalleryTestHelper
             og_image_url TEXT NULL,
             og_image_file_id INTEGER NULL,
             storage_location_id INTEGER NULL,
+            owner_type TEXT NULL,
+            owner_id INTEGER NULL,
             migration_status TEXT NOT NULL DEFAULT "none",
             migration_target_location_id INTEGER NULL,
             migration_error TEXT NULL,

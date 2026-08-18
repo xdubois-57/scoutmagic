@@ -149,7 +149,7 @@ class S3StorageBackend implements StorageBackendInterface
         ]);
     }
 
-    public function url(string $key): string
+    public function url(string $key, string $ttl = '+1 hour'): string
     {
         if ($this->publicUrl !== null && $this->publicUrl !== '') {
             return rtrim($this->publicUrl, '/') . '/' . ltrim($key, '/');
@@ -159,7 +159,12 @@ class S3StorageBackend implements StorageBackendInterface
             'Bucket' => $this->bucket,
             'Key' => $key,
         ]);
-        $request = $this->client->createPresignedRequest($command, '+1 hour');
+        // Minted fresh on every call, per $ttl — a presigned URL remains
+        // valid for the whole of its expiry once handed out, so callers
+        // that need a short-lived grant (Controller\GalleryController::
+        // serveMedia() for a delegated album) pass a short one; nothing
+        // here ever caches or reuses a previously minted URL.
+        $request = $this->client->createPresignedRequest($command, $ttl);
         return (string) $request->getUri();
     }
 

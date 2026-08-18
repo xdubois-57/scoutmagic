@@ -67,8 +67,10 @@ class LocalStorageBackend implements StorageBackendInterface
         rmdir($dir);
     }
 
-    public function url(string $key): string
+    public function url(string $key, string $ttl = '+1 hour'): string
     {
+        // $ttl is meaningless for local storage — this "URL" is this
+        // app's own access-controlled route, not a time-limited grant.
         return '/gallery/media/' . rawurlencode($key);
     }
 

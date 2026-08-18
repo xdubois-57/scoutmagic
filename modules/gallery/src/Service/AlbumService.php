@@ -182,7 +182,9 @@ class AlbumService
         string $email
     ): Album {
         $existing = $this->albumRepository->findById($id);
-        if ($existing === null) {
+        if ($existing === null || $existing->isDelegated()) {
+            // A delegated album is reachable only through its owning
+            // module — indistinguishable here from a nonexistent one.
             throw new GalleryException('Album introuvable.');
         }
         $this->assertValidTitle($title);
@@ -217,7 +219,7 @@ class AlbumService
     public function delete(int $id, Role $role, string $email): void
     {
         $album = $this->albumRepository->findById($id);
-        if ($album === null) {
+        if ($album === null || $album->isDelegated()) {
             throw new GalleryException('Album introuvable.');
         }
         if (!$this->accessService->canManageAlbum($role, $album->sectionId, $email)) {
@@ -244,7 +246,7 @@ class AlbumService
     public function setCover(int $albumId, int $mediaId, Role $role, string $email): void
     {
         $album = $this->albumRepository->findById($albumId);
-        if ($album === null) {
+        if ($album === null || $album->isDelegated()) {
             throw new GalleryException('Album introuvable.');
         }
         if (!$this->accessService->canManageAlbum($role, $album->sectionId, $email)) {
@@ -265,7 +267,7 @@ class AlbumService
     public function refreshOg(int $albumId, Role $role, string $email): Album
     {
         $album = $this->albumRepository->findById($albumId);
-        if ($album === null) {
+        if ($album === null || $album->isDelegated()) {
             throw new GalleryException('Album introuvable.');
         }
         if (!$this->accessService->canManageAlbum($role, $album->sectionId, $email)) {
@@ -294,7 +296,7 @@ class AlbumService
     public function startMigration(int $albumId, int $targetLocationId, Role $role, string $email): void
     {
         $album = $this->albumRepository->findById($albumId);
-        if ($album === null) {
+        if ($album === null || $album->isDelegated()) {
             throw new GalleryException('Album introuvable.');
         }
         if (!$this->accessService->canManageAlbum($role, $album->sectionId, $email)) {

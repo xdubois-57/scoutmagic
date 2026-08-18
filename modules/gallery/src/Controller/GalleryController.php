@@ -20,6 +20,7 @@ use Modules\Gallery\Repository\Album;
 use Modules\Gallery\Repository\Media;
 use Modules\Gallery\Repository\MediaRepository;
 use Modules\Gallery\Service\AlbumService;
+use Modules\Gallery\Service\DelegatedAlbumAccessRegistry;
 use Modules\Gallery\Service\MediaService;
 use Modules\Gallery\Service\Storage\StorageBackendFactory;
 use Modules\Gallery\Service\StorageLocationService;
@@ -27,6 +28,17 @@ use Twig\Environment;
 
 class GalleryController extends AbstractController
 {
+    /**
+     * A delegated album's presigned S3 URL is a bearer credential for as
+     * long as it stays valid — kept deliberately short, unlike the 1-hour
+     * default S3StorageBackend::url() uses for an ordinary album's <img
+     * src> (module spec: "a few minutes").
+     */
+    private const DELEGATED_PRESIGN_TTL = '+5 minutes';
+
+    /**
+     * @param int[] $linkedMemberIds
+     */
     public function __construct(
         protected Environment $twig,
         private AlbumService $albumService,
@@ -36,7 +48,16 @@ class GalleryController extends AbstractController
         private SectionService $sectionService,
         private ScoutYearService $scoutYearService,
         private StorageBackendFactory $storageBackendFactory,
-        private StorageLocationService $storageLocationService
+        private StorageLocationService $storageLocationService,
+        // Both last, with safe defaults, so every existing positional
+        // construction of this controller (tests included) keeps working
+        // unchanged — same "append-only" discipline as
+        // Core\Module\ModuleManifest's `requires` addition. An empty
+        // registry and an empty linked-member list mean every delegated
+        // album is denied, never accidentally allowed, until both are
+        // actually wired.
+        private DelegatedAlbumAccessRegistry $delegatedAlbumAccessRegistry = new DelegatedAlbumAccessRegistry(),
+        private array $linkedMemberIds = []
     ) {
     }
 
@@ -80,7 +101,11 @@ class GalleryController extends AbstractController
     public function show(Request $request, array $params): Response
     {
         $album = $this->albumService->findById((int) $params['id']);
-        if ($album === null) {
+        if ($album === null || $album->isDelegated()) {
+            // A delegated album is reachable only through its owning
+            // module — never gallery's own pages, direct id or not. Same
+            // 404 (not 403) as an unknown id: this must not confirm the
+            // album exists.
             return new Response('Not Found', 404);
         }
         if (!$this->isVisible($album)) {
@@ -125,7 +150,7 @@ class GalleryController extends AbstractController
     public function downloadZip(Request $request, array $params): Response
     {
         $album = $this->albumService->findById((int) $params['id']);
-        if ($album === null || !$album->isLocal()) {
+        if ($album === null || !$album->isLocal() || $album->isDelegated()) {
             return new Response('Not Found', 404);
         }
         if (!$this->isVisible($album)) {
@@ -210,6 +235,11 @@ class GalleryController extends AbstractController
         if ($album === null) {
             return new Response('Not Found', 404);
         }
+
+        if ($album->isDelegated()) {
+            return $this->serveDelegatedMedia($album, $media, $size);
+        }
+
         if ($album->isMigrating()) {
             return new Response('Album en cours de migration.', 503);
         }
@@ -251,6 +281,79 @@ class GalleryController extends AbstractController
             ->setHeader('Content-Length', (string) strlen($contents))
             ->setHeader('Cache-Control', 'private, max-age=31536000')
             ->setHeader('ETag', $etag);
+    }
+
+    /**
+     * The delegated-album path of serveMedia() above: the ownership
+     * checker registry is consulted before anything else — before the
+     * migration check, before resolving a size to a stored path, before
+     * touching the storage backend at all — so a denial never depends on
+     * (and never leaks through timing on) any of that. Fail-closed: an
+     * owner_type with no registered checker is denied exactly like a
+     * checker that actively refuses (Service\DelegatedAlbumAccessRegistry).
+     *
+     * No ETag/max-age caching here, unlike the ordinary path above — every
+     * response, including the S3 redirect, carries
+     * `Cache-Control: private, no-store` (module spec) so no shared cache
+     * or service worker ever retains a delegated media response or the
+     * presigned URL it points to.
+     */
+    private function serveDelegatedMedia(Album $album, Media $media, string $size): Response
+    {
+        \assert($album->ownerType !== null && $album->ownerId !== null);
+
+        $role = Role::fromString(AuthSession::getRole());
+        if (!$this->delegatedAlbumAccessRegistry->isAllowed($album->ownerType, $album->ownerId, $role, $this->linkedMemberIds)) {
+            return new Response('Not Found', 404);
+        }
+
+        if ($album->isMigrating()) {
+            return new Response('Album en cours de migration.', 503);
+        }
+
+        $path = match ($size) {
+            'thumb' => $media->thumbPath,
+            'medium' => $media->mediumPath,
+            'large' => $media->largePath,
+            'original' => $media->originalPath,
+            default => null,
+        };
+        if ($path === null) {
+            // Covers both an unknown $size and a still-pending/failed
+            // media (Repository\Media's derived paths are null until
+            // processing marks it done) — never a 500 either way.
+            return new Response('Not Found', 404);
+        }
+
+        $location = $this->storageLocationService->resolveLocationForAlbum($album);
+        if ($location === null) {
+            return new Response('Not Found', 404);
+        }
+
+        if ($location->isS3()) {
+            // Minted fresh for this one request, never stored or logged —
+            // a presigned URL is a bearer credential for as long as it
+            // stays valid, hence the short TTL (self::DELEGATED_PRESIGN_TTL)
+            // instead of the 1-hour default an ordinary album's own
+            // <img src> uses.
+            $url = $this->storageBackendFactory->create($location)->url($path, self::DELEGATED_PRESIGN_TTL);
+            return (new Response('', 302))
+                ->setHeader('Location', $url)
+                ->setHeader('Cache-Control', 'private, no-store');
+        }
+
+        try {
+            $contents = $this->storageBackendFactory->create($location)->get($path);
+        } catch (\RuntimeException) {
+            return new Response('Not Found', 404);
+        }
+
+        $mimeType = $media->isVideo() && $size !== 'thumb' ? 'video/mp4' : 'image/jpeg';
+
+        return (new Response($contents))
+            ->setHeader('Content-Type', $mimeType)
+            ->setHeader('Content-Length', (string) strlen($contents))
+            ->setHeader('Cache-Control', 'private, no-store');
     }
 
     /**

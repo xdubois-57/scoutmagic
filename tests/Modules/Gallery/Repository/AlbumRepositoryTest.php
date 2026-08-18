@@ -159,4 +159,90 @@ class AlbumRepositoryTest extends TestCase
 
         $this->assertSame([], $this->repository->findVisible([], []));
     }
+
+    // --- Delegated albums (owner_type/owner_id) -------------------------
+
+    public function testCreateWithOwnerMarksTheAlbumDelegated(): void
+    {
+        $id = $this->repository->create(
+            Album::TYPE_LOCAL, 'Groupe Louveteaux', null, '2026-01-01', null, $this->scoutYearId, null, null,
+            $this->authorId, 'discussion_group', 42
+        );
+
+        $album = $this->repository->findById($id);
+
+        $this->assertTrue($album->isDelegated());
+        $this->assertSame('discussion_group', $album->ownerType);
+        $this->assertSame(42, $album->ownerId);
+    }
+
+    public function testAnOrdinaryAlbumIsNeverDelegated(): void
+    {
+        $id = $this->repository->create(Album::TYPE_LOCAL, 'Camp', null, '2026-01-01', null, $this->scoutYearId, null, null, $this->authorId);
+
+        $album = $this->repository->findById($id);
+
+        $this->assertFalse($album->isDelegated());
+        $this->assertNull($album->ownerType);
+        $this->assertNull($album->ownerId);
+    }
+
+    public function testFindByOwnerFindsTheDelegatedAlbum(): void
+    {
+        $id = $this->repository->create(
+            Album::TYPE_LOCAL, 'Groupe Louveteaux', null, '2026-01-01', null, $this->scoutYearId, null, null,
+            $this->authorId, 'discussion_group', 42
+        );
+
+        $found = $this->repository->findByOwner('discussion_group', 42);
+
+        $this->assertNotNull($found);
+        $this->assertSame($id, $found->id);
+    }
+
+    public function testFindByOwnerReturnsNullWhenNoAlbumMatches(): void
+    {
+        $this->assertNull($this->repository->findByOwner('discussion_group', 999));
+    }
+
+    public function testFindByOwnerNeverMatchesADifferentOwnerType(): void
+    {
+        $this->repository->create(
+            Album::TYPE_LOCAL, 'Groupe Louveteaux', null, '2026-01-01', null, $this->scoutYearId, null, null,
+            $this->authorId, 'discussion_group', 42
+        );
+
+        $this->assertNull($this->repository->findByOwner('some_other_type', 42));
+    }
+
+    public function testFindAllExcludesDelegatedAlbums(): void
+    {
+        $ordinaryId = $this->repository->create(Album::TYPE_LOCAL, 'Camp', null, '2026-01-01', null, $this->scoutYearId, null, null, $this->authorId);
+        $this->repository->create(
+            Album::TYPE_LOCAL, 'Délégué', null, '2026-01-01', null, $this->scoutYearId, null, null,
+            $this->authorId, 'discussion_group', 42
+        );
+
+        $ids = array_map(fn(Album $a) => $a->id, $this->repository->findAll());
+
+        $this->assertContains($ordinaryId, $ids);
+        $this->assertCount(1, $ids);
+    }
+
+    public function testFindVisibleExcludesDelegatedAlbumsEvenUnitWide(): void
+    {
+        $ordinaryId = $this->repository->create(Album::TYPE_LOCAL, 'Camp', null, '2026-01-01', null, $this->scoutYearId, null, null, $this->authorId);
+        // A delegated album with no section (unit-wide by gallery's own
+        // reasoning) must still never surface here.
+        $this->repository->create(
+            Album::TYPE_LOCAL, 'Délégué', null, '2026-01-01', null, $this->scoutYearId, null, null,
+            $this->authorId, 'discussion_group', 42
+        );
+
+        $visible = $this->repository->findVisible([], [$this->scoutYearId]);
+        $ids = array_map(fn(Album $a) => $a->id, $visible);
+
+        $this->assertContains($ordinaryId, $ids);
+        $this->assertCount(1, $ids);
+    }
 }

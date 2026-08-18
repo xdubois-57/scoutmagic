@@ -153,6 +153,14 @@ class GalleryChiefControllerTest extends TestCase
         return $this->albumRepository->create(Album::TYPE_LOCAL, 'Camp', null, '2026-01-01', null, $this->scoutYearId, null, $this->locationId, $this->authorId);
     }
 
+    private function createDelegatedAlbum(): int
+    {
+        return $this->albumRepository->create(
+            Album::TYPE_LOCAL, 'Album délégué', null, '2026-01-01', null, $this->scoutYearId, null, $this->locationId,
+            $this->authorId, 'some_owner_type', 42
+        );
+    }
+
     /**
      * @param array<string, mixed> $data
      */
@@ -430,5 +438,62 @@ class GalleryChiefControllerTest extends TestCase
 
         $this->assertStringContainsString('Album indisponible', $response->getBody());
         $this->assertStringNotContainsString('gallery-upload-zone', $response->getBody());
+    }
+
+    public function testEditReturns404ForADelegatedAlbum(): void
+    {
+        $id = $this->createDelegatedAlbum();
+
+        $response = $this->controller->edit(new Request('GET', '/gallery/' . $id . '/edit', [], [], [], []), ['id' => (string) $id]);
+
+        $this->assertSame(404, $response->getStatusCode());
+    }
+
+    public function testUpdateReturns404ForADelegatedAlbum(): void
+    {
+        $id = $this->createDelegatedAlbum();
+        $token = $this->csrfToken();
+        $request = new Request('POST', '/gallery/' . $id, [], [
+            'title' => 'Nouveau titre', 'album_date' => '2026-01-01', '_csrf_token' => $token,
+        ], [], []);
+
+        $response = $this->controller->update($request, ['id' => (string) $id]);
+
+        $this->assertSame(404, $response->getStatusCode());
+    }
+
+    public function testUploadMediaReturns404ForADelegatedAlbum(): void
+    {
+        $id = $this->createDelegatedAlbum();
+        $token = $this->csrfToken();
+        $request = new Request('POST', '/gallery/' . $id . '/media', [], ['_csrf_token' => $token], [], []);
+
+        $response = $this->controller->uploadMedia($request, ['id' => (string) $id]);
+
+        $this->assertSame(404, $response->getStatusCode());
+    }
+
+    public function testReorderMediaReturns404ForADelegatedAlbum(): void
+    {
+        $id = $this->createDelegatedAlbum();
+        $token = $this->csrfToken();
+
+        $response = $this->controller->reorderMedia($this->jsonRequest(['ordered_ids' => [], '_csrf_token' => $token]), ['id' => (string) $id]);
+
+        $this->assertSame(404, $response->getStatusCode());
+    }
+
+    public function testDeleteMediaReturns404ForADelegatedAlbum(): void
+    {
+        $id = $this->createDelegatedAlbum();
+        $stmt = $this->pdo->prepare("INSERT INTO files (relative_path, original_name, mime_type, size_bytes, role_min) VALUES ('a', 'a', 'image/jpeg', 1, 'identified')");
+        $stmt->execute();
+        $fileId = (int) $this->pdo->lastInsertId();
+        $mediaId = $this->mediaRepository->create($id, 'photo', $fileId, 0, null);
+        $token = $this->csrfToken();
+
+        $response = $this->controller->deleteMedia($this->jsonRequest(['_csrf_token' => $token]), ['id' => (string) $id, 'media_id' => (string) $mediaId]);
+
+        $this->assertSame(404, $response->getStatusCode());
     }
 }

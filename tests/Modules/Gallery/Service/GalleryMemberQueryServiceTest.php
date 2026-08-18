@@ -144,4 +144,19 @@ class GalleryMemberQueryServiceTest extends TestCase
 
         $this->assertCount(2, $result);
     }
+
+    public function testNeverReturnsADelegatedAlbumEvenUnitWide(): void
+    {
+        // Api\GalleryAlbumProvider is a public entry point any core/module
+        // consumer can call — a delegated album must stay reachable only
+        // through its own owning module, never through this one.
+        $this->albumRepository->create(
+            Album::TYPE_LOCAL, 'Groupe Louveteaux', null, '2026-01-01', null, $this->scoutYearId, null, null,
+            $this->authorId, 'discussion_group', 42
+        );
+
+        $result = $this->service->getAlbumsForMember([], '2025-2026', 10);
+
+        $this->assertSame([], $result);
+    }
 }

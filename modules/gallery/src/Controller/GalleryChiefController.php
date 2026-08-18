@@ -118,7 +118,9 @@ class GalleryChiefController extends AbstractController
     public function edit(Request $request, array $params): Response
     {
         $album = $this->albumService->findById((int) $params['id']);
-        if ($album === null) {
+        if ($album === null || $album->isDelegated()) {
+            // A delegated album never appears in this chief-facing surface
+            // — reachable only through its owning module.
             return new Response('Not Found', 404);
         }
 
@@ -137,7 +139,7 @@ class GalleryChiefController extends AbstractController
         }
 
         $album = $this->albumService->findById((int) $params['id']);
-        if ($album === null) {
+        if ($album === null || $album->isDelegated()) {
             return new Response('Not Found', 404);
         }
         [$role, $email] = $this->currentIdentity();
@@ -199,7 +201,7 @@ class GalleryChiefController extends AbstractController
         }
 
         $album = $this->albumService->findById((int) $params['id']);
-        if ($album === null) {
+        if ($album === null || $album->isDelegated()) {
             return $this->json(['success' => false, 'error' => 'Album introuvable.'], 404);
         }
 
@@ -233,7 +235,7 @@ class GalleryChiefController extends AbstractController
         }
 
         $album = $this->albumService->findById((int) $params['id']);
-        if ($album === null) {
+        if ($album === null || $album->isDelegated()) {
             return $this->json(['success' => false, 'error' => 'Album introuvable.'], 404);
         }
 
@@ -263,7 +265,7 @@ class GalleryChiefController extends AbstractController
 
         $album = $this->albumService->findById((int) $params['id']);
         $media = $album !== null ? $this->mediaRepository->findById((int) $params['media_id']) : null;
-        if ($album === null || $media === null || $media->albumId !== $album->id) {
+        if ($album === null || $album->isDelegated() || $media === null || $media->albumId !== $album->id) {
             return $this->json(['success' => false, 'error' => 'Média introuvable.'], 404);
         }
 

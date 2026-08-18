@@ -39,13 +39,33 @@ final class Album
         public readonly ?int $migrationTargetLocationId,
         public readonly ?string $migrationError,
         public readonly int $createdBy,
-        public readonly string $createdAt
+        public readonly string $createdAt,
+        // Last, with defaults — same "append-only" constructor discipline
+        // as Core\Module\ModuleManifest's own `requires` addition
+        // (docs/module-development.md): AlbumRepository::hydrate() uses
+        // named arguments so it isn't order-sensitive, but
+        // tests/Modules/Gallery/Repository/AlbumTest.php constructs an
+        // Album positionally, and moving these earlier would silently
+        // shift every argument after them.
+        public readonly ?string $ownerType = null,
+        public readonly ?int $ownerId = null
     ) {
     }
 
     public function isLocal(): bool
     {
         return $this->type === self::TYPE_LOCAL;
+    }
+
+    /**
+     * A delegated album is hosted and stored by gallery but owned and
+     * access-controlled by another module (schema.sql's owner_type/
+     * owner_id header comment) — excluded from every gallery-side
+     * listing/picker and reachable only through its owning module.
+     */
+    public function isDelegated(): bool
+    {
+        return $this->ownerType !== null;
     }
 
     /**

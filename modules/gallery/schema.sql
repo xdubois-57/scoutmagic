@@ -97,6 +97,24 @@ CREATE TABLE IF NOT EXISTS gallery_albums (
     -- Service\StorageLocationService::ensureLegacyLocationBackfilled()
     -- self-heals those the first time anything needs to resolve one.
     storage_location_id INT UNSIGNED NULL,
+    -- A delegated album: hosted and stored by gallery (any storage
+    -- location, local or S3) but owned and access-controlled by another
+    -- module, rather than by this module's own section/scout-year
+    -- visibility rules. Deliberately mirrors files.owner_type/owner_id
+    -- (schema/core.sql) in shape — same nullable VARCHAR(50)/INT UNSIGNED
+    -- pair, same non-unique index, no FK (the referenced table varies by
+    -- owner_type) — but is a SEPARATE registry: this pair is resolved by
+    -- Service\DelegatedAlbumAccessRegistry against
+    -- Api\DelegatedAlbumAccessChecker implementations, never by
+    -- Core\File\FileAccessGuard, since a delegated album's media are
+    -- (mostly) not `files` rows — see gallery_media's own header comment.
+    -- NULL on every ordinary album. A non-null owner_type marks the album
+    -- delegated: Repository\AlbumRepository::findAll()/findVisible()
+    -- both exclude it, so it never appears in gallery's own listings,
+    -- pickers or Api\GalleryAlbumProvider — reachable only through its
+    -- owning module (Service\DelegatedAlbumService).
+    owner_type VARCHAR(50) NULL,
+    owner_id INT UNSIGNED NULL,
     -- Background storage migration (Task\MigrateAlbumStorageHandler,
     -- triggered from the album edit page) — 'in_progress' makes the album
     -- unavailable everywhere its media would otherwise be read (a partially
@@ -115,6 +133,7 @@ CREATE TABLE IF NOT EXISTS gallery_albums (
     INDEX idx_gallery_albums_date (album_date),
     INDEX idx_gallery_albums_storage_location (storage_location_id),
     INDEX idx_gallery_albums_migration_target (migration_target_location_id),
+    INDEX idx_gallery_albums_owner (owner_type, owner_id),
     CONSTRAINT fk_gallery_albums_section FOREIGN KEY (section_id) REFERENCES sections(id) ON DELETE SET NULL,
     CONSTRAINT fk_gallery_albums_scout_year FOREIGN KEY (scout_year_id) REFERENCES scout_years(id),
     CONSTRAINT fk_gallery_albums_created_by FOREIGN KEY (created_by) REFERENCES user_accounts(id),
