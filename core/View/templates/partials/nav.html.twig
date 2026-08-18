@@ -4,8 +4,9 @@
 #}
 {# Mobile header bar — visible below lg #}
 <header class="d-lg-none d-flex align-items-center px-3 border-bottom bg-white" style="height:56px;">
-    <button class="btn btn-link text-dark p-2 me-auto d-inline-flex align-items-center justify-content-center" type="button" data-bs-toggle="offcanvas" data-bs-target="#navOffcanvas" aria-label="Menu" style="min-width:44px;min-height:44px;">
-        <i class="bi bi-list fs-3"></i>
+    <button class="btn btn-link text-dark p-2 me-auto d-inline-flex align-items-center justify-content-center" type="button" data-bs-toggle="offcanvas" data-bs-target="#navOffcanvas" style="min-width:44px;min-height:44px;">
+        <i class="bi bi-list fs-3" aria-hidden="true"></i>
+        <span class="visually-hidden">Menu</span>
     </button>
     <span class="fw-semibold text-truncate" style="min-width:0;">{{ site_name }}</span>
     {% if is_authenticated %}

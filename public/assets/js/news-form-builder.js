@@ -698,6 +698,40 @@
             });
         }
 
+        // Pin icon (first, non-draggable field) or drag handle + mobile
+        // move buttons (every other field) — extracted out of
+        // buildFieldRow() itself, same reasoning as buildLabelAndRequiredRow()
+        // and its siblings further down: keeps that function's own
+        // cognitive complexity under the linter's threshold. Side-effects
+        // onto `row` rather than returning anything, matching
+        // attachDragHandlers()'s convention just above.
+        function buildFieldLeadingControls(row, index, isPinned) {
+            if (isPinned) {
+                var pinIcon = document.createElement('span');
+                pinIcon.className = 'text-body-secondary';
+                pinIcon.setAttribute('aria-label', 'Toujours en premier');
+                pinIcon.title = 'Toujours en premier';
+                pinIcon.innerHTML = '<i class="bi bi-pin-angle-fill"></i>';
+                row.appendChild(pinIcon);
+                return;
+            }
+
+            var dragHandle = document.createElement('span');
+            dragHandle.className = 'text-body-secondary d-none d-lg-inline';
+            dragHandle.style.cursor = 'grab';
+            dragHandle.setAttribute('aria-label', 'Glisser pour réordonner');
+            dragHandle.title = 'Glisser pour réordonner';
+            dragHandle.innerHTML = '<i class="bi bi-grip-vertical"></i>';
+            row.appendChild(dragHandle);
+
+            var moveBtns = document.createElement('span');
+            moveBtns.className = 'd-inline-flex flex-column d-lg-none';
+            moveBtns.innerHTML =
+                '<button type="button" class="btn btn-sm btn-link text-body-secondary p-0 news-move-up" aria-label="Monter"' + (index === 1 ? ' disabled' : '') + '><i class="bi bi-chevron-up"></i></button>' +
+                '<button type="button" class="btn btn-sm btn-link text-body-secondary p-0 news-move-down" aria-label="Descendre"' + (index === fieldState.length - 1 ? ' disabled' : '') + '><i class="bi bi-chevron-down"></i></button>';
+            row.appendChild(moveBtns);
+        }
+
         function buildFieldRow(field, index) {
             var isPinned = index === 0;
 
@@ -717,29 +751,7 @@
             row.className = 'd-flex align-items-center gap-2';
             row.style.cursor = 'pointer';
 
-            if (isPinned) {
-                var pinIcon = document.createElement('span');
-                pinIcon.className = 'text-body-secondary';
-                pinIcon.setAttribute('aria-label', 'Toujours en premier');
-                pinIcon.title = 'Toujours en premier';
-                pinIcon.innerHTML = '<i class="bi bi-pin-angle-fill"></i>';
-                row.appendChild(pinIcon);
-            } else {
-                var dragHandle = document.createElement('span');
-                dragHandle.className = 'text-body-secondary d-none d-lg-inline';
-                dragHandle.style.cursor = 'grab';
-                dragHandle.setAttribute('aria-label', 'Glisser pour réordonner');
-                dragHandle.title = 'Glisser pour réordonner';
-                dragHandle.innerHTML = '<i class="bi bi-grip-vertical"></i>';
-                row.appendChild(dragHandle);
-
-                var moveBtns = document.createElement('span');
-                moveBtns.className = 'd-inline-flex flex-column d-lg-none';
-                moveBtns.innerHTML =
-                    '<button type="button" class="btn btn-sm btn-link text-body-secondary p-0 news-move-up" aria-label="Monter"' + (index === 1 ? ' disabled' : '') + '><i class="bi bi-chevron-up"></i></button>' +
-                    '<button type="button" class="btn btn-sm btn-link text-body-secondary p-0 news-move-down" aria-label="Descendre"' + (index === fieldState.length - 1 ? ' disabled' : '') + '><i class="bi bi-chevron-down"></i></button>';
-                row.appendChild(moveBtns);
-            }
+            buildFieldLeadingControls(row, index, isPinned);
 
             var icon = document.createElement('i');
             icon.className = 'bi ' + fieldIcon(field.field_type);
