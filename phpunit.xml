@@ -19,4 +19,10 @@
             <group>database</group>
         </exclude>
     </groups>
+    <source>
+        <include>
+            <directory>core</directory>
+            <directory>modules</directory>
+        </include>
+    </source>
 </phpunit>
