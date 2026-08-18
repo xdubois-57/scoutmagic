@@ -4,6 +4,7 @@ vendor/
 
 # Environment and secrets
 .env
+.sonar-token
 storage/keys/
 storage/config/
 storage/temp/

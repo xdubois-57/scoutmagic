@@ -91,7 +91,13 @@ run_case() {
     local actual_exit=0
     local output
 
-    output="$(PATH="${FAKE_BIN_DIR}:${PATH}" SONAR_TOKEN="fake-token-for-tests" "${GATE_SCRIPT}" 2>&1)" || actual_exit=$?
+    # SONAR_TOKEN_FILE points at a path inside the disposable FAKE_BIN_DIR
+    # (never created unless a test explicitly wants the "token loaded from
+    # local file" path) so no test can ever read or write a real
+    # developer's <repo>/.sonar-token. Stdin is explicitly /dev/null so the
+    # gate script's interactive-prompt branch (`-t 0`) never triggers here,
+    # regardless of whether this test suite itself is run from a terminal.
+    output="$(PATH="${FAKE_BIN_DIR}:${PATH}" SONAR_TOKEN="fake-token-for-tests" SONAR_TOKEN_FILE="${FAKE_BIN_DIR}/.sonar-token-unused" "${GATE_SCRIPT}" < /dev/null 2>&1)" || actual_exit=$?
 
     if [[ "${actual_exit}" -eq "${expected_exit}" ]]; then
         echo "PASS: ${name} (exit ${actual_exit})"
@@ -139,10 +145,10 @@ echo "6. SonarQube Cloud unreachable -> BLOCK"
 write_fake_curl_body 'exit 7'
 run_case "network unreachable" 1
 
-echo "7. SONAR_TOKEN absent -> BLOCK"
+echo "7. SONAR_TOKEN absent (no env, no local file, no terminal) -> BLOCK"
 write_default_fake_curl "${HEAD_SHA}" "OK" 0 0 0 0
 actual_exit=0
-output="$(PATH="${FAKE_BIN_DIR}:${PATH}" env -u SONAR_TOKEN "${GATE_SCRIPT}" 2>&1)" || actual_exit=$?
+output="$(PATH="${FAKE_BIN_DIR}:${PATH}" SONAR_TOKEN_FILE="${FAKE_BIN_DIR}/.sonar-token-missing" env -u SONAR_TOKEN "${GATE_SCRIPT}" < /dev/null 2>&1)" || actual_exit=$?
 if [[ "${actual_exit}" -eq 1 ]]; then
     echo "PASS: missing SONAR_TOKEN (exit 1)"
     PASS_COUNT=$((PASS_COUNT + 1))
@@ -150,6 +156,30 @@ else
     echo "FAIL: missing SONAR_TOKEN (expected exit 1, got ${actual_exit})"
     FAIL_COUNT=$((FAIL_COUNT + 1))
 fi
+
+echo "7b. SONAR_TOKEN absent from env but present in local .sonar-token file -> PASS"
+write_default_fake_curl "${HEAD_SHA}" "OK" 0 0 0 0
+TOKEN_FILE_FOR_TEST="${FAKE_BIN_DIR}/.sonar-token-present"
+printf 'fake-token-from-local-file\n' > "${TOKEN_FILE_FOR_TEST}"
+actual_exit=0
+output="$(PATH="${FAKE_BIN_DIR}:${PATH}" SONAR_TOKEN_FILE="${TOKEN_FILE_FOR_TEST}" env -u SONAR_TOKEN "${GATE_SCRIPT}" < /dev/null 2>&1)" || actual_exit=$?
+if [[ "${actual_exit}" -eq 0 ]]; then
+    echo "PASS: token loaded from local file (exit 0)"
+    PASS_COUNT=$((PASS_COUNT + 1))
+else
+    echo "FAIL: token loaded from local file (expected exit 0, got ${actual_exit})"
+    echo "--- output ---"; echo "${output}"; echo "--------------"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+fi
+rm -f "${TOKEN_FILE_FOR_TEST}"
+
+# The interactive prompt-and-save path (no env token, no local file, but a
+# real terminal attached) is deliberately NOT exercised here — it needs an
+# actual TTY to drive `read -s`, which this non-interactive test harness
+# doesn't have. Verify it manually: `mv .sonar-token /tmp/ 2>/dev/null;
+# unset SONAR_TOKEN; ./scripts/check-sonar-release.sh` from a real
+# terminal, confirm it prompts, writes .sonar-token (mode 600), and that a
+# second run reuses it silently.
 
 echo "8. Invalid authentication -> BLOCK"
 write_fake_curl_body '

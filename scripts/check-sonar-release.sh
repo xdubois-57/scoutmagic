@@ -29,18 +29,35 @@ set -euo pipefail
 # fixed, dismissed as a false positive in SonarQube itself, or resolved in
 # the Quality Gate. See AGENTS.md § Releases for the full rationale.
 #
-# Requires: curl, php, git. Requires SONAR_TOKEN in the environment
-# (never read from a file committed to this repository).
+# Requires: curl, php, git. Requires SONAR_TOKEN in the environment, or in
+# the local, gitignored .sonar-token file (see below) — never in a file
+# committed to this repository.
 #
-# Env vars (all optional except SONAR_TOKEN):
-#   SONAR_TOKEN         SonarQube Cloud token. Required. No default.
+# Env vars (all optional except SONAR_TOKEN, which may instead come from
+# .sonar-token):
+#   SONAR_TOKEN         SonarQube Cloud token. No default.
 #   SONAR_HOST_URL      Default: https://sonarcloud.io
 #   SONAR_PROJECT_KEY   Default: xdubois-57_scoutmagic
 #   SONAR_BRANCH        Default: main
+#
+# Local token storage: if SONAR_TOKEN isn't set in the environment, this
+# script falls back to <repo root>/.sonar-token (one line, no quoting) so a
+# developer running releases locally isn't asked to paste the token every
+# time. If that file doesn't exist either and stdin is a terminal, the
+# script prompts for the token interactively and offers to save it — but
+# only ever writes it after confirming via `git check-ignore` that the
+# file is actually gitignored; if git does not report it as ignored, the
+# script refuses to write the token anywhere and fails closed instead. In
+# any non-interactive context (CI, an agent run with no TTY) with no token
+# available, the gate fails closed exactly as before this feature existed.
 
 SONAR_HOST_URL="${SONAR_HOST_URL:-https://sonarcloud.io}"
 SONAR_PROJECT_KEY="${SONAR_PROJECT_KEY:-xdubois-57_scoutmagic}"
 SONAR_BRANCH="${SONAR_BRANCH:-main}"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Overridable so check-sonar-release.test.sh can point this at a throwaway
+# path instead of ever touching a real developer's ${REPO_ROOT}/.sonar-token.
+SONAR_TOKEN_FILE="${SONAR_TOKEN_FILE:-${REPO_ROOT}/.sonar-token}"
 
 echo "Checking SonarQube Cloud..."
 
@@ -50,14 +67,37 @@ fail() {
     exit 1
 }
 
-if [[ -z "${SONAR_TOKEN:-}" ]]; then
-    echo "ERROR: SONAR_TOKEN is not set." >&2
-    fail
-fi
-
 command -v curl &> /dev/null || { echo "ERROR: curl is required for the SonarQube release gate." >&2; fail; }
 command -v php &> /dev/null || { echo "ERROR: php is required for the SonarQube release gate." >&2; fail; }
 command -v git &> /dev/null || { echo "ERROR: git is required for the SonarQube release gate." >&2; fail; }
+
+if [[ -z "${SONAR_TOKEN:-}" && -f "${SONAR_TOKEN_FILE}" ]]; then
+    SONAR_TOKEN="$(cat "${SONAR_TOKEN_FILE}")"
+fi
+
+if [[ -z "${SONAR_TOKEN:-}" && -t 0 && -t 1 ]]; then
+    if ! git -C "${REPO_ROOT}" check-ignore -q -- "${SONAR_TOKEN_FILE}"; then
+        echo "ERROR: refusing to store a SonarQube token in ${SONAR_TOKEN_FILE} — git does not report this path as ignored (check .gitignore)." >&2
+        fail
+    fi
+
+    echo "SONAR_TOKEN is not set." >&2
+    read -r -s -p "Enter your SonarQube Cloud token (saved locally to ${SONAR_TOKEN_FILE}, gitignored, never printed): " SONAR_TOKEN
+    echo >&2
+
+    if [[ -z "${SONAR_TOKEN}" ]]; then
+        echo "ERROR: no token entered." >&2
+        fail
+    fi
+
+    ( umask 077 && printf '%s' "${SONAR_TOKEN}" > "${SONAR_TOKEN_FILE}" )
+    echo "Token saved to ${SONAR_TOKEN_FILE} (mode 600, gitignored)." >&2
+fi
+
+if [[ -z "${SONAR_TOKEN:-}" ]]; then
+    echo "ERROR: SONAR_TOKEN is not set (checked the environment, ${SONAR_TOKEN_FILE}, and — no terminal attached — could not prompt for it)." >&2
+    fail
+fi
 
 # Performs a GET against the SonarQube Cloud Web API and prints the response
 # body on success. Fails closed on any transport error, non-200 status, or

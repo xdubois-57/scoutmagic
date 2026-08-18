@@ -121,7 +121,7 @@ Every response: `Content-Security-Policy`, `X-Content-Type-Options: nosniff`, `X
 ## 12. Secrets management
 
 - No secrets in source code.
-- `.gitignore`: `storage/keys/`, `storage/config/`, `.env`, and every `storage/<name>/` subdirectory that holds uploaded or generated content (module storage folders, `storage/core/`, `storage/temp/`, etc. — see `.gitignore` for the current, authoritative list). Adding a new storage subdirectory for uploaded content and forgetting to gitignore it has happened more than once in practice; check `.gitignore` whenever a module gains its own `storage/<name>/` folder.
+- `.gitignore`: `storage/keys/`, `storage/config/`, `.env`, `.sonar-token` (the SonarQube Cloud token `scripts/check-sonar-release.sh` may store locally — see §15), and every `storage/<name>/` subdirectory that holds uploaded or generated content (module storage folders, `storage/core/`, `storage/temp/`, etc. — see `.gitignore` for the current, authoritative list). Adding a new storage subdirectory for uploaded content and forgetting to gitignore it has happened more than once in practice; check `.gitignore` whenever a module gains its own `storage/<name>/` folder.
 - CI: secret scanner on every PR.
 - SMTP and DB credentials in `secrets.enc`, not in `settings`.
 
@@ -140,7 +140,7 @@ Every response: `Content-Security-Policy`, `X-Content-Type-Options: nosniff`, `X
 
 ## 15. Static analysis and SonarQube Cloud
 
-- [SonarQube Cloud](https://sonarcloud.io/project/overview?id=xdubois-57_scoutmagic) (`sonar-project.properties`) analyzes every push to `main` and every PR in CI (`.github/workflows/ci.yml`, `sonarqube` job), complementing — never replacing — PHPStan, PHPUnit, `composer audit`, and CodeQL. Authenticated via the `SONAR_TOKEN` repository secret only; never committed to source, never logged.
+- [SonarQube Cloud](https://sonarcloud.io/project/overview?id=xdubois-57_scoutmagic) (`sonar-project.properties`) analyzes every push to `main` and every PR in CI (`.github/workflows/ci.yml`, `sonarqube` job), complementing — never replacing — PHPStan, PHPUnit, `composer audit`, and CodeQL. In CI, authenticated via the `SONAR_TOKEN` repository secret only. For a local release run, `scripts/check-sonar-release.sh` reads the same token from the environment or from a local `.sonar-token` file (gitignored, written only after `git check-ignore` confirms it, mode 600 — see §12). Never committed to source, never logged, in either case.
 - The project's Quality Gate must be `OK`; a failing Quality Gate fails the `sonarqube` GitHub check on the PR/commit.
 - `scripts/release.sh` additionally runs a dedicated, fail-closed **SonarQube Cloud release gate** (`scripts/check-sonar-release.sh`) before creating any release commit or tag: any active security finding (SECURITY-impact issue, or an un-triaged Security Hotspot), any active finding at severity `HIGH` or above, a Quality Gate that isn't `OK`, or any inability to reach a definitive answer from SonarQube Cloud (missing token, unreachable host, invalid response, unconfirmed analysis for the release commit) blocks the release — with no bypass flag. See `AGENTS.md` § Releases.
 
