@@ -34,6 +34,12 @@ write_default_fake_curl() {
     local hotspots_total="$4"
     local high_total="$5"
     local higher_total="$6"
+    # Optional: a raw JSON array of {"status":..., "metricKey":...} objects,
+    # as SonarQube Cloud's project_status response carries per-condition
+    # detail — drives the coverage-only carve-out tests below. Defaults to
+    # "[]" (no detail), matching every pre-existing call site here that
+    # never passed a 7th argument.
+    local qg_conditions_json="${7:-[]}"
 
     cat > "${FAKE_BIN_DIR}/curl" <<EOF
 #!/bin/bash
@@ -47,14 +53,14 @@ for ((i=0; i<\${#args[@]}; i++)); do
         out_file="\${args[i+1]}"
     fi
 done
-url="\${args[-1]}"
+url="\${args[\${#args[@]}-1]}"
 
 case "\$url" in
     */project_analyses/search*)
         printf '{"analyses":[{"revision":"${analysis_revision}"}]}' > "\${out_file}"
         ;;
     */qualitygates/project_status*)
-        printf '{"projectStatus":{"status":"${quality_gate_status}"}}' > "\${out_file}"
+        printf '{"projectStatus":{"status":"${quality_gate_status}","conditions":${qg_conditions_json}}}' > "\${out_file}"
         ;;
     */hotspots/search*)
         printf '{"paging":{"total":${hotspots_total}},"hotspots":[]}' > "\${out_file}"
@@ -137,9 +143,21 @@ echo "5. Only non-blocking findings (Quality Gate OK, no security/HIGH/BLOCKER) 
 write_default_fake_curl "${HEAD_SHA}" "OK" 0 0 0 0
 run_case "non-blocking findings only" 0
 
-echo "5b. Quality Gate ERROR alone -> BLOCK"
+echo "5b. Quality Gate ERROR, no per-condition detail -> BLOCK (fail closed)"
 write_default_fake_curl "${HEAD_SHA}" "ERROR" 0 0 0 0
 run_case "quality gate error" 1
+
+echo "5c. Quality Gate ERROR, only a coverage condition failing -> PASS (ignored)"
+write_default_fake_curl "${HEAD_SHA}" "ERROR" 0 0 0 0 '[{"status":"ERROR","metricKey":"new_coverage"}]'
+run_case "quality gate coverage-only error" 0
+
+echo "5d. Quality Gate ERROR, coverage AND a non-coverage condition failing -> BLOCK"
+write_default_fake_curl "${HEAD_SHA}" "ERROR" 0 0 0 0 '[{"status":"ERROR","metricKey":"new_coverage"},{"status":"ERROR","metricKey":"new_reliability_rating"}]'
+run_case "quality gate mixed error" 1
+
+echo "5e. Quality Gate ERROR, only a non-coverage condition failing -> BLOCK"
+write_default_fake_curl "${HEAD_SHA}" "ERROR" 0 0 0 0 '[{"status":"ERROR","metricKey":"new_reliability_rating"}]'
+run_case "quality gate non-coverage error" 1
 
 echo "6. SonarQube Cloud unreachable -> BLOCK"
 write_fake_curl_body 'exit 7'
