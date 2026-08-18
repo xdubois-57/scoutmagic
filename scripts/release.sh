@@ -4,6 +4,7 @@ set -euo pipefail
 # Usage: ./scripts/release.sh [--minor|--major] [--notes-file <path>]
 #                             [--skip-security-gate] [--skip-tests-gate]
 #                             [--skip-dependency-check] [--skip-deployment-check]
+#                             [--skip-sonar-gate]
 # Default: increments patch level, computes release notes from the commit
 # list (fetched via the same GitHub API `--generate-notes` itself calls),
 # and requires the deployment gate, the security gate, the tests gate,
@@ -33,14 +34,11 @@ set -euo pipefail
 #                               (www.scoutmagic.be up to date and healthy).
 #                               Emergency use only — prints a warning. See
 #                               check_deployment_gate.
-#
-# There is intentionally NO --skip-sonar-gate flag. The SonarQube Cloud
-# gate (scripts/check-sonar-release.sh — active security findings, HIGH or
-# above severity findings, unreviewed Security Hotspots, and the Quality
-# Gate) is fail-closed with no bypass: unlike the four gates above, it
-# cannot be skipped from this script under any circumstance, including a
-# user's explicit request for an urgent release. See check_sonar_gate and
-# AGENTS.md § Releases.
+#   --skip-sonar-gate          Bypass the SonarQube Cloud check (active
+#                               security findings, HIGH-or-above severity
+#                               findings, unreviewed Security Hotspots, the
+#                               Quality Gate). Emergency use only — prints
+#                               a warning. See check_sonar_gate.
 
 BUMP="patch"
 NOTES_FILE=""
@@ -48,6 +46,7 @@ SKIP_SECURITY_GATE=0
 SKIP_TESTS_GATE=0
 SKIP_DEPENDENCY_CHECK=0
 SKIP_DEPLOYMENT_CHECK=0
+SKIP_SONAR_GATE=0
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -63,9 +62,10 @@ while [[ $# -gt 0 ]]; do
         --skip-tests-gate) SKIP_TESTS_GATE=1; shift ;;
         --skip-dependency-check) SKIP_DEPENDENCY_CHECK=1; shift ;;
         --skip-deployment-check) SKIP_DEPLOYMENT_CHECK=1; shift ;;
+        --skip-sonar-gate) SKIP_SONAR_GATE=1; shift ;;
         *)
             echo "ERROR: unknown argument: $1" >&2
-            echo "Usage: $0 [--minor|--major] [--notes-file <path>] [--skip-security-gate] [--skip-tests-gate] [--skip-dependency-check] [--skip-deployment-check]" >&2
+            echo "Usage: $0 [--minor|--major] [--notes-file <path>] [--skip-security-gate] [--skip-tests-gate] [--skip-dependency-check] [--skip-deployment-check] [--skip-sonar-gate]" >&2
             exit 1
             ;;
     esac
@@ -364,8 +364,8 @@ GATE_REPORT="${GATE_REPORT}- **Dépendances** : ${DEPENDENCY_GATE_REPORT_LINE}
 # API calls, JSON parsing, fail-closed error handling — is non-trivial
 # enough to warrant being testable on its own, see
 # scripts/check-sonar-release.test.sh). Runs BEFORE any git commit/tag,
-# same reasoning as the other gates. No bypass flag exists for this gate:
-# it always runs, and always blocks the release on an active security
+# same reasoning as the other gates. When not bypassed via
+# --skip-sonar-gate, it always blocks the release on an active security
 # finding, a HIGH-or-above severity finding, an unreviewed Security
 # Hotspot, a Quality Gate that isn't OK, or any failure to reach a
 # definitive answer from SonarQube Cloud (missing SONAR_TOKEN,
@@ -378,8 +378,14 @@ check_sonar_gate() {
     "${script_dir}/check-sonar-release.sh"
 }
 
-check_sonar_gate
-GATE_REPORT="${GATE_REPORT}- **SonarQube Cloud** : vérifié — aucun signalement de sécurité actif, aucun problème de sévérité HIGH ou supérieure, Quality Gate OK.
+if [[ "${SKIP_SONAR_GATE}" -eq 1 ]]; then
+    echo "WARNING: --skip-sonar-gate used — active SonarQube Cloud security findings, HIGH-or-above severity findings, unreviewed Security Hotspots, and the Quality Gate were NOT checked for this release. Emergency use only: verify and resolve them immediately after publishing." >&2
+    SONAR_GATE_REPORT_LINE="ignoré (\`--skip-sonar-gate\`) — à vérifier manuellement."
+else
+    check_sonar_gate
+    SONAR_GATE_REPORT_LINE="vérifié — aucun signalement de sécurité actif, aucun problème de sévérité HIGH ou supérieure, Quality Gate OK."
+fi
+GATE_REPORT="${GATE_REPORT}- **SonarQube Cloud** : ${SONAR_GATE_REPORT_LINE}
 "
 
 # The VERSION file is the running site's source of truth for its installed

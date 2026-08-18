@@ -23,11 +23,13 @@ set -euo pipefail
 # anything that prevents a definitive PASS answer — no token, an
 # unreachable host, a non-200/401/403 response, invalid JSON, or no
 # SonarQube analysis confirmed to correspond to the exact commit being
-# released — blocks the release. There is intentionally no
-# --skip-sonar-gate flag (unlike this script's sibling gates): a security
-# finding or HIGH+ finding must never be bypassed from this script, only
-# fixed, dismissed as a false positive in SonarQube itself, or resolved in
-# the Quality Gate. See AGENTS.md § Releases for the full rationale.
+# released — blocks the release. This script itself has no self-bypass:
+# every invocation runs the full check. scripts/release.sh's
+# --skip-sonar-gate flag (mirroring its sibling gates' --skip-*-gate
+# flags) controls only whether release.sh calls this script at all —
+# emergency use only, prints a warning, and is never meant to be reached
+# for on your own initiative to work around a genuine finding. See
+# AGENTS.md § Releases for the full rationale.
 #
 # Requires: curl, php, git. Requires SONAR_TOKEN in the environment, or in
 # the local, gitignored .sonar-token file (see below) — never in a file
