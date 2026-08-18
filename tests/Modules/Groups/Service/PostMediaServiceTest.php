@@ -63,7 +63,9 @@ class PostMediaServiceTest extends TestCase
         $albumId = $this->service($manager)->ensureAlbumId($group, 7);
 
         $this->assertSame(55, $albumId);
-        $this->assertSame(55, $this->groupRepo->findById($this->groupId)->galleryAlbumId);
+        $persisted = $this->groupRepo->findById($this->groupId);
+        $this->assertNotNull($persisted);
+        $this->assertSame(55, $persisted->galleryAlbumId);
     }
 
     public function testEnsureAlbumIdNeverCallsGalleryAgainOnceCached(): void

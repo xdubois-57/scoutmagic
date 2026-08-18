@@ -191,7 +191,9 @@ class PostMediaIntegrationTest extends TestCase
 
         $this->assertSame(1, (int) $this->pdo->query('SELECT COUNT(*) FROM gallery_albums')->fetchColumn());
         // The group's cached id points at whichever row actually exists.
-        $this->assertSame($albumId, $this->groupRepo->findById($this->groupId)->galleryAlbumId);
+        $persisted = $this->groupRepo->findById($this->groupId);
+        $this->assertNotNull($persisted);
+        $this->assertSame($albumId, $persisted->galleryAlbumId);
     }
 
     /**
@@ -211,7 +213,9 @@ class PostMediaIntegrationTest extends TestCase
         $group = $this->groupRepo->findById($this->groupId);
         $service = $this->postMediaService();
         $media = $service->addMedia($group, $this->post(), [$this->fakeUploadedImage()], $this->creatorAccountId)[0];
-        $fileId = $this->mediaRepo->findById($media)->fileId;
+        $mediaRow = $this->mediaRepo->findById($media);
+        $this->assertNotNull($mediaRow);
+        $fileId = $mediaRow->fileId;
 
         $checker = $this->fileOwnershipChecker($currentYearId);
 
