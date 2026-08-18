@@ -2,9 +2,11 @@
   "id": "groups",
   "name": "Groupes de discussion",
   "description": "Groupes de discussion privés pour l'unité : un groupe par section et par année scoute, ou des groupes sur invitation. Visibles uniquement par leurs membres.",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "enabled_by_default": false,
-  "requires": ["gallery"],
+  "requires": [
+    "gallery"
+  ],
   "routes": [
     {
       "path": "/groups",
@@ -15,7 +17,12 @@
       "role_min": "identified",
       "label": "Groupes",
       "menu_order": 7,
-      "breadcrumb": { "label": "Groupes", "parents": ["Espace animés"] }
+      "breadcrumb": {
+        "label": "Groupes",
+        "parents": [
+          "Espace animés"
+        ]
+      }
     },
     {
       "path": "/groups/archives",
@@ -25,7 +32,12 @@
       "menu": "espace_animes",
       "role_min": "identified",
       "label": "",
-      "breadcrumb": { "label": "Archives", "parents": ["Espace animés"] }
+      "breadcrumb": {
+        "label": "Archives",
+        "parents": [
+          "Espace animés"
+        ]
+      }
     },
     {
       "path": "/groups/{id}",
@@ -35,7 +47,12 @@
       "menu": "espace_animes",
       "role_min": "identified",
       "label": "",
-      "breadcrumb": { "label": "Groupe", "parents": ["Espace animés"] }
+      "breadcrumb": {
+        "label": "Groupe",
+        "parents": [
+          "Espace animés"
+        ]
+      }
     },
     {
       "path": "/groups/{id}/members",
@@ -45,7 +62,12 @@
       "menu": "espace_animes",
       "role_min": "identified",
       "label": "",
-      "breadcrumb": { "label": "Membres", "parents": ["Espace animés"] }
+      "breadcrumb": {
+        "label": "Membres",
+        "parents": [
+          "Espace animés"
+        ]
+      }
     },
     {
       "path": "/groups",
@@ -88,6 +110,60 @@
       "method": "POST",
       "controller": "Modules\\Groups\\Controller\\GroupMemberController",
       "action": "removeMember",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/groups/{id}/feed",
+      "method": "GET",
+      "controller": "Modules\\\\Groups\\\\Controller\\\\PostController",
+      "action": "feed",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/groups/{id}/posts",
+      "method": "POST",
+      "controller": "Modules\\\\Groups\\\\Controller\\\\PostController",
+      "action": "create",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/groups/{id}/posts/{postId}/edit",
+      "method": "POST",
+      "controller": "Modules\\\\Groups\\\\Controller\\\\PostController",
+      "action": "edit",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/groups/{id}/posts/{postId}/delete",
+      "method": "POST",
+      "controller": "Modules\\\\Groups\\\\Controller\\\\PostController",
+      "action": "delete",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/groups/{id}/posts/{postId}/pin",
+      "method": "POST",
+      "controller": "Modules\\\\Groups\\\\Controller\\\\PostController",
+      "action": "pin",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/groups/{id}/posts/{postId}/unpin",
+      "method": "POST",
+      "controller": "Modules\\\\Groups\\\\Controller\\\\PostController",
+      "action": "unpin",
       "menu": "espace_animes",
       "role_min": "identified",
       "label": ""

@@ -185,6 +185,41 @@ class MemberService
     }
 
     /**
+     * Display names (totem ?? first name, §4's convention) for a batch of
+     * persistent member ids, in one query.
+     *
+     * The cheap counterpart to findProfileByMemberAndYear() for a page
+     * that shows many members and needs nothing but their names — a group
+     * feed signing every post with its author. hydrateMemberProfile()
+     * would issue several queries per member for addresses, functions and
+     * badges that such a page never reads. A member id with no active
+     * member_year for the year is simply absent from the result.
+     *
+     * @param int[] $memberIds
+     * @return array<int, string> members.id => display name
+     */
+    public function findDisplayNamesByMemberIds(array $memberIds, int $scoutYearId): array
+    {
+        $memberIds = array_values(array_unique(array_map('intval', $memberIds)));
+        if ($memberIds === []) {
+            return [];
+        }
+
+        $names = [];
+        foreach ($this->memberYearRepo->findAllByMemberIds($memberIds, $scoutYearId) as $row) {
+            $totem = $row['totem_encrypted'] !== null ? $this->encryption->decrypt($row['totem_encrypted']) : null;
+            $firstName = $row['first_name_encrypted'] !== null ? $this->encryption->decrypt($row['first_name_encrypted']) : '';
+            $displayName = $totem !== null && $totem !== '' ? $totem : $firstName;
+
+            if ($displayName !== '') {
+                $names[(int) $row['member_id']] = $displayName;
+            }
+        }
+
+        return $names;
+    }
+
+    /**
      * Convert a database row (with joined data) into a MemberProfile.
      *
      * @param array<string, mixed> $row

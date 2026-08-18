@@ -19,10 +19,15 @@ use Modules\Groups\Controller\GroupController;
 use Modules\Groups\Repository\GroupMemberRepository;
 use Modules\Groups\Repository\GroupRepository;
 use Modules\Groups\Repository\GroupSectionRepository;
+use Modules\Groups\Repository\PostRepository;
 use Modules\Groups\Service\GroupAccessService;
+use Modules\Groups\Service\GroupActivityService;
+use Modules\Groups\Service\GroupFeedService;
 use Modules\Groups\Service\GroupListService;
 use Modules\Groups\Service\GroupService;
 use Modules\Groups\Service\GroupSessionContextFactory;
+use Modules\Groups\Service\PostAuthorResolver;
+use Modules\Groups\Service\PostService;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
@@ -86,6 +91,9 @@ class GroupControllerTest extends TestCase
         $this->memberService->method('getLinkedMembers')->willReturn(
             array_map(fn(int $id) => $this->profile($id), $linkedMemberIds)
         );
+        $this->memberService->method('findDisplayNamesByMemberIds')->willReturn(
+            array_combine($linkedMemberIds, array_map(fn(int $id) => 'Akéla ' . $id, $linkedMemberIds))
+        );
 
         $accountRepo = $this->createMock(UserAccountRepository::class);
         $accountRepo->method('findById')->willReturn(new UserAccount(
@@ -97,6 +105,7 @@ class GroupControllerTest extends TestCase
             false,
             null
         ));
+        $accountRepo->method('findNamesByIds')->willReturn([1 => ['first_name' => 'Marie', 'last_name' => 'Dupont']]);
 
         $resolver = $this->createMock(ScoutYearResolver::class);
         $resolver->method('getEffectiveYear')->willReturn(new EffectiveScoutYear($this->currentYearId, '2025-2026', null));
@@ -120,6 +129,10 @@ class GroupControllerTest extends TestCase
         $twig->addGlobal('csp_nonce', 'test');
         $twig->addFunction(new \Twig\TwigFunction('param', fn(...$a) => ''));
 
+        $postRepo = new PostRepository($this->pdo);
+        $postService = new PostService($postRepo, new GroupActivityService($this->groupRepo, $postRepo));
+        $feedService = new GroupFeedService($postRepo, new PostAuthorResolver($this->memberService, $accountRepo), $postService);
+
         return new GroupController(
             $twig,
             $this->groupRepo,
@@ -127,7 +140,9 @@ class GroupControllerTest extends TestCase
             $access,
             $this->groupService,
             new GroupSessionContextFactory($this->memberService, $accountRepo, $resolver),
-            $sectionService
+            $sectionService,
+            $feedService,
+            $this->memberService
         );
     }
 

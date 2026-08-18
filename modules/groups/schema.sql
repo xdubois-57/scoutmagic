@@ -82,3 +82,46 @@ CREATE TABLE discussion_group_members (
     CONSTRAINT fk_dgm_member FOREIGN KEY (member_id) REFERENCES members(id) ON DELETE CASCADE,
     CONSTRAINT fk_dgm_invited_by FOREIGN KEY (invited_by_member_id) REFERENCES members(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Text posts. Replies, reactions, media and link previews arrive later:
+-- their tables will hang off this one with ON DELETE CASCADE, which is
+-- why post deletion needs no cleanup of its own here and must not grow
+-- any later (deleting a post is a real DELETE — this module does not
+-- soft-delete).
+CREATE TABLE discussion_group_posts (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    group_id INT UNSIGNED NOT NULL,
+    -- Both author identities, always. author_user_account_id is the human
+    -- who actually typed; author_member_id is the member whose membership
+    -- opens the group (an account linked to several members of the same
+    -- group picks which one it posts as). The UI shows both — "Akéla
+    -- (Marie Dupont)" — so neither can be dropped: the totem alone hides
+    -- which parent wrote, the account name alone hides which child's
+    -- membership it came through.
+    author_user_account_id INT UNSIGNED NOT NULL,
+    author_member_id INT UNSIGNED NOT NULL,
+    -- Plain text, stored raw and escaped by Twig at render time. Never
+    -- HTML: no sanitizer runs over this, no rich-text editor produces it,
+    -- and no Markdown is interpreted. Line breaks are preserved on
+    -- display only.
+    body TEXT NOT NULL,
+    is_pinned BOOLEAN NOT NULL DEFAULT FALSE,
+    -- Set the first time the author edits, within the edit window; drives
+    -- the "modifié" marker. Editing deliberately does NOT touch
+    -- last_activity_at.
+    edited_at DATETIME NULL,
+    -- NOT NULL and set to the creation time at insert — never null, or
+    -- the feed's ordering (and the keyset cursor built on it) silently
+    -- breaks. Bumped later by replies and reactions.
+    last_activity_at DATETIME NOT NULL,
+    created_at DATETIME NOT NULL,
+    -- The feed's exact ordering, so the keyset scan is index-only:
+    -- pinned posts are fetched separately, the stream reads
+    -- (group_id, last_activity_at DESC, id DESC).
+    INDEX idx_dgp_feed (group_id, last_activity_at, id),
+    INDEX idx_dgp_pinned (group_id, is_pinned, last_activity_at),
+    INDEX idx_dgp_author_member (author_member_id),
+    CONSTRAINT fk_dgp_group FOREIGN KEY (group_id) REFERENCES discussion_groups(id) ON DELETE CASCADE,
+    CONSTRAINT fk_dgp_author_account FOREIGN KEY (author_user_account_id) REFERENCES user_accounts(id) ON DELETE CASCADE,
+    CONSTRAINT fk_dgp_author_member FOREIGN KEY (author_member_id) REFERENCES members(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

@@ -25,8 +25,36 @@ class ModuleManifestTest extends TestCase
     public function testTheManifestParsesAndValidates(): void
     {
         $this->assertSame('groups', $this->manifest->id);
-        $this->assertSame('1.0.0', $this->manifest->version);
         $this->assertFalse($this->manifest->enabledByDefault);
+    }
+
+    /**
+     * Pinned deliberately: ModuleManager only re-applies schema.sql when
+     * the manifest version is greater than the installed one, so a schema
+     * change without a bump is silently a no-op on every already-enabled
+     * install (AGENTS.md). Editing schema.sql should break this test — the
+     * fix is to bump module.json, which is the whole point.
+     */
+    public function testTheVersionIsBumpedWheneverTheSchemaChanges(): void
+    {
+        $this->assertSame('1.1.0', $this->manifest->version);
+    }
+
+    public function testThePostActionsAreDeclaredAsPostRoutesOnly(): void
+    {
+        $postPaths = [];
+        foreach ($this->manifest->routes as $route) {
+            if (str_contains($route['path'], '/posts')) {
+                $this->assertSame('POST', $route['method'], $route['path']);
+                $postPaths[] = $route['path'];
+            }
+        }
+
+        $this->assertContains('/groups/{id}/posts', $postPaths);
+        $this->assertContains('/groups/{id}/posts/{postId}/edit', $postPaths);
+        $this->assertContains('/groups/{id}/posts/{postId}/delete', $postPaths);
+        $this->assertContains('/groups/{id}/posts/{postId}/pin', $postPaths);
+        $this->assertContains('/groups/{id}/posts/{postId}/unpin', $postPaths);
     }
 
     public function testItHardDependsOnGallery(): void

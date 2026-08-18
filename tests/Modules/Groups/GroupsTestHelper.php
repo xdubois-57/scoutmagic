@@ -45,6 +45,43 @@ class GroupsTestHelper
             UNIQUE(group_id, member_id),
             FOREIGN KEY (group_id) REFERENCES discussion_groups(id) ON DELETE CASCADE
         )');
+
+        $pdo->exec('CREATE TABLE discussion_group_posts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            group_id INTEGER NOT NULL,
+            author_user_account_id INTEGER NOT NULL,
+            author_member_id INTEGER NOT NULL,
+            body TEXT NOT NULL,
+            is_pinned INTEGER NOT NULL DEFAULT 0,
+            edited_at TEXT NULL,
+            last_activity_at TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (group_id) REFERENCES discussion_groups(id) ON DELETE CASCADE
+        )');
+    }
+
+    /**
+     * A post whose created_at and last_activity_at are set explicitly —
+     * how every ordering, pagination and edit-window test builds the
+     * exact state it needs without waiting for the clock.
+     */
+    public static function createPostAt(
+        \PDO $pdo,
+        int $groupId,
+        string $body,
+        string $at,
+        int $accountId = 1,
+        int $memberId = 1,
+        bool $pinned = false
+    ): int {
+        $stmt = $pdo->prepare(
+            'INSERT INTO discussion_group_posts
+                (group_id, author_user_account_id, author_member_id, body, is_pinned, edited_at, last_activity_at, created_at)
+             VALUES (?, ?, ?, ?, ?, NULL, ?, ?)'
+        );
+        $stmt->execute([$groupId, $accountId, $memberId, $body, $pinned ? 1 : 0, $at, $at]);
+
+        return (int) $pdo->lastInsertId();
     }
 
     /**

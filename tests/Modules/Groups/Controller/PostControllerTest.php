@@ -1,0 +1,473 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Tests\Modules\Groups\Controller;
+
+use Core\Http\Request;
+use Core\Member\MemberProfile;
+use Core\Member\MemberService;
+use Core\Member\SectionMembershipRepository;
+use Core\ScoutYear\EffectiveScoutYear;
+use Core\ScoutYear\ScoutYearResolver;
+use Core\Security\AuthSession;
+use Core\Security\UserAccount;
+use Core\Security\UserAccountRepository;
+use Core\View\TwigFactory;
+use Modules\Groups\Controller\PostController;
+use Modules\Groups\Repository\GroupMemberRepository;
+use Modules\Groups\Repository\GroupRepository;
+use Modules\Groups\Repository\GroupSectionRepository;
+use Modules\Groups\Repository\PostRepository;
+use Modules\Groups\Service\GroupAccessService;
+use Modules\Groups\Service\GroupActivityService;
+use Modules\Groups\Service\GroupFeedService;
+use Modules\Groups\Service\GroupService;
+use Modules\Groups\Service\GroupSessionContextFactory;
+use Modules\Groups\Service\PostAuthorResolver;
+use Modules\Groups\Service\PostService;
+use PHPUnit\Framework\Attributes\Group;
+use PHPUnit\Framework\TestCase;
+use Tests\DatabaseTestHelper;
+use Tests\Modules\Groups\GroupsTestHelper;
+
+/**
+ * CSRF and the authorisation boundary of every post action, in both
+ * directions, plus the 404-not-403 rule on every post route.
+ *
+ * @group database
+ */
+#[Group('database')]
+class PostControllerTest extends TestCase
+{
+    private \PDO $pdo;
+    private GroupRepository $groupRepo;
+    private PostRepository $postRepo;
+    private GroupService $groupService;
+    private int $currentYearId;
+    private int $sectionId;
+    private int $groupId;
+    private int $moderatorMemberId;
+    private int $memberId;
+    private int $otherMemberId;
+
+    private const AUTHOR_ACCOUNT = 7;
+    private const OTHER_ACCOUNT = 8;
+
+    protected function setUp(): void
+    {
+        $this->pdo = DatabaseTestHelper::createTestDatabase();
+        GroupsTestHelper::createTables($this->pdo);
+
+        $this->currentYearId = GroupsTestHelper::createScoutYear($this->pdo, '2025-2026', true);
+        $this->sectionId = GroupsTestHelper::createSection($this->pdo, 'LOU', 'Louveteaux');
+
+        $this->groupRepo = new GroupRepository($this->pdo);
+        $this->postRepo = new PostRepository($this->pdo);
+        $this->groupService = new GroupService(
+            $this->groupRepo,
+            new GroupSectionRepository($this->pdo),
+            new GroupMemberRepository($this->pdo)
+        );
+
+        $this->moderatorMemberId = GroupsTestHelper::createMember($this->pdo, 'MOD');
+        $this->groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $this->moderatorMemberId);
+        $this->memberId = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'MEMBER', $this->sectionId, $this->currentYearId);
+        $this->otherMemberId = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'OTHER', $this->sectionId, $this->currentYearId);
+
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
+        }
+    }
+
+    protected function tearDown(): void
+    {
+        AuthSession::logout();
+        $_POST = [];
+    }
+
+    /**
+     * @param int[] $linkedMemberIds
+     */
+    private function controller(array $linkedMemberIds, int $accountId = self::AUTHOR_ACCOUNT, string $role = 'identified', bool $completeProfile = true): PostController
+    {
+        AuthSession::login($accountId, 'parent@test.be', $role);
+
+        $sectionRepo = new GroupSectionRepository($this->pdo);
+        $memberRepo = new GroupMemberRepository($this->pdo);
+        $access = new GroupAccessService($memberRepo, $sectionRepo, new SectionMembershipRepository($this->pdo));
+
+        $memberService = $this->createMock(MemberService::class);
+        $memberService->method('getLinkedMembers')->willReturn(array_map(fn(int $id) => $this->profile($id), $linkedMemberIds));
+        $memberService->method('findDisplayNamesByMemberIds')->willReturn([$this->memberId => 'Akéla']);
+
+        $accountRepo = $this->createMock(UserAccountRepository::class);
+        $accountRepo->method('findById')->willReturn(new UserAccount(
+            $accountId,
+            'parent@test.be',
+            $completeProfile ? 'Marie' : null,
+            $completeProfile ? 'Dupont' : null,
+            null,
+            false,
+            null
+        ));
+        $accountRepo->method('findNamesByIds')->willReturn([$accountId => ['first_name' => 'Marie', 'last_name' => 'Dupont']]);
+
+        $resolver = $this->createMock(ScoutYearResolver::class);
+        $resolver->method('getEffectiveYear')->willReturn(new EffectiveScoutYear($this->currentYearId, '2025-2026', null));
+
+        $postService = new PostService($this->postRepo, new GroupActivityService($this->groupRepo, $this->postRepo));
+        $feedService = new GroupFeedService($this->postRepo, new PostAuthorResolver($memberService, $accountRepo), $postService);
+
+        $twig = TwigFactory::create(
+            dirname(__DIR__, 4) . '/core/View/templates',
+            true,
+            ['groups' => dirname(__DIR__, 4) . '/modules/groups/views']
+        );
+        foreach (['site_name' => 'Test', 'is_authenticated' => true, 'current_user_email' => 'p@t.be',
+                  'current_user_role' => $role, 'config_mode' => false, 'cookie_consent_given' => true,
+                  'menus' => null, 'csp_nonce' => 'test'] as $key => $value) {
+            $twig->addGlobal($key, $value);
+        }
+        $twig->addFunction(new \Twig\TwigFunction('param', fn(...$a) => ''));
+
+        return new PostController(
+            $twig,
+            $this->groupRepo,
+            $this->postRepo,
+            $access,
+            $feedService,
+            $postService,
+            new GroupSessionContextFactory($memberService, $accountRepo, $resolver)
+        );
+    }
+
+    private function profile(int $memberId): MemberProfile
+    {
+        return new MemberProfile(
+            $memberId * 100, $memberId, 'DESK' . $memberId, 'Marie', 'Dupont', 'Akéla',
+            null, null, null, null, null, null, null, null, false, false, [], [], '2025-2026'
+        );
+    }
+
+    private function withCsrf(array $body): void
+    {
+        $token = bin2hex(random_bytes(32));
+        $_SESSION['_csrf_token'] = $token;
+        $_POST = $body + ['_csrf_token' => $token];
+    }
+
+    private function request(): Request
+    {
+        return new Request('POST', '/groups/' . $this->groupId . '/posts', [], $_POST, [], []);
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function params(?int $postId = null): array
+    {
+        $params = ['id' => (string) $this->groupId];
+        if ($postId !== null) {
+            $params['postId'] = (string) $postId;
+        }
+
+        return $params;
+    }
+
+    private function seedPost(int $minutesAgo = 1, int $accountId = self::AUTHOR_ACCOUNT, bool $pinned = false): int
+    {
+        $at = (new \DateTimeImmutable('now', new \DateTimeZone('UTC')))->modify("-{$minutesAgo} minutes")->format('Y-m-d H:i:s');
+
+        return GroupsTestHelper::createPostAt($this->pdo, $this->groupId, 'Bonjour', $at, $accountId, $this->memberId, $pinned);
+    }
+
+    // --- create --------------------------------------------------------
+
+    public function testCreateRejectsAMissingCsrfToken(): void
+    {
+        $_POST = ['body' => 'Bonjour'];
+
+        $response = $this->controller([$this->memberId])->create($this->request(), $this->params());
+
+        $this->assertSame(403, $response->getStatusCode());
+        $this->assertSame([], $this->postRepo->findPage($this->groupId, 10));
+    }
+
+    public function testCreateIs404ForANonMember(): void
+    {
+        $outsider = GroupsTestHelper::createMember($this->pdo, 'OUT');
+        $this->withCsrf(['body' => 'Bonjour']);
+
+        $response = $this->controller([$outsider])->create($this->request(), $this->params());
+
+        $this->assertSame(404, $response->getStatusCode());
+        $this->assertSame([], $this->postRepo->findPage($this->groupId, 10));
+    }
+
+    public function testCreateStoresThePostForAMember(): void
+    {
+        $this->withCsrf(['body' => "Bonjour\nà tous"]);
+
+        $response = $this->controller([$this->memberId])->create($this->request(), $this->params());
+
+        $this->assertSame(302, $response->getStatusCode());
+        $posts = $this->postRepo->findPage($this->groupId, 10);
+        $this->assertCount(1, $posts);
+        $this->assertSame("Bonjour\nà tous", $posts[0]->body);
+        $this->assertSame(self::AUTHOR_ACCOUNT, $posts[0]->authorUserAccountId);
+        $this->assertSame($this->memberId, $posts[0]->authorMemberId);
+    }
+
+    public function testCreateIsRefusedOnAClosedGroupServerSide(): void
+    {
+        $this->groupRepo->setClosed($this->groupId, '2026-02-01 00:00:00');
+        $this->withCsrf(['body' => 'Bonjour']);
+
+        $response = $this->controller([$this->memberId])->create($this->request(), $this->params());
+
+        $this->assertSame(403, $response->getStatusCode());
+        $this->assertSame([], $this->postRepo->findPage($this->groupId, 10));
+    }
+
+    public function testCreateIsRefusedWithAnIncompleteProfile(): void
+    {
+        $this->withCsrf(['body' => 'Bonjour']);
+
+        $response = $this->controller([$this->memberId], self::AUTHOR_ACCOUNT, 'identified', false)->create($this->request(), $this->params());
+
+        $this->assertSame(403, $response->getStatusCode());
+        $this->assertSame([], $this->postRepo->findPage($this->groupId, 10));
+    }
+
+    public function testCreateNeverSignsThePostAsALinkedMemberWhoIsNotInThisGroup(): void
+    {
+        // A parent linked to two children, only one of whom is in the
+        // group: asking to post as the other must not work.
+        $outsideChild = GroupsTestHelper::createMember($this->pdo, 'CHILD_OUTSIDE');
+        $this->withCsrf(['body' => 'Bonjour', 'author_member_id' => (string) $outsideChild]);
+
+        $this->controller([$this->memberId, $outsideChild])->create($this->request(), $this->params());
+
+        $posts = $this->postRepo->findPage($this->groupId, 10);
+        $this->assertCount(1, $posts);
+        $this->assertSame($this->memberId, $posts[0]->authorMemberId, 'the forged author_member_id must be ignored');
+    }
+
+    // --- edit ----------------------------------------------------------
+
+    public function testEditRejectsAMissingCsrfToken(): void
+    {
+        $postId = $this->seedPost();
+        $_POST = ['body' => 'Corrigé'];
+
+        $response = $this->controller([$this->memberId])->edit($this->request(), $this->params($postId));
+
+        $this->assertSame(403, $response->getStatusCode());
+        $this->assertSame('Bonjour', $this->postRepo->findById($postId)->body);
+    }
+
+    public function testTheAuthorMayEditInsideTheWindow(): void
+    {
+        $postId = $this->seedPost(2);
+        $this->withCsrf(['body' => 'Corrigé']);
+
+        $response = $this->controller([$this->memberId])->edit($this->request(), $this->params($postId));
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('Corrigé', $this->postRepo->findById($postId)->body);
+    }
+
+    public function testTheAuthorMayNotEditOnceTheWindowHasPassed(): void
+    {
+        $postId = $this->seedPost(20);
+        $this->withCsrf(['body' => 'Corrigé']);
+
+        $response = $this->controller([$this->memberId])->edit($this->request(), $this->params($postId));
+
+        $this->assertSame(403, $response->getStatusCode());
+        $this->assertSame('Bonjour', $this->postRepo->findById($postId)->body);
+    }
+
+    public function testAForgedClientTimestampDoesNotReopenTheEditWindow(): void
+    {
+        $postId = $this->seedPost(45);
+        $this->withCsrf([
+            'body' => 'Corrigé',
+            // Everything a client could plausibly try to forge.
+            'created_at' => (new \DateTimeImmutable('now', new \DateTimeZone('UTC')))->format('Y-m-d H:i:s'),
+            'edited_at' => (new \DateTimeImmutable('now', new \DateTimeZone('UTC')))->format('Y-m-d H:i:s'),
+            'edit_window_minutes' => '600',
+        ]);
+
+        $response = $this->controller([$this->memberId])->edit($this->request(), $this->params($postId));
+
+        $this->assertSame(403, $response->getStatusCode());
+        $this->assertSame('Bonjour', $this->postRepo->findById($postId)->body);
+    }
+
+    public function testAnotherMemberMayNotEditSomeoneElsesPost(): void
+    {
+        $postId = $this->seedPost(1, self::AUTHOR_ACCOUNT);
+        $this->withCsrf(['body' => 'Détourné']);
+
+        $response = $this->controller([$this->otherMemberId], self::OTHER_ACCOUNT)->edit($this->request(), $this->params($postId));
+
+        $this->assertSame(403, $response->getStatusCode());
+        $this->assertSame('Bonjour', $this->postRepo->findById($postId)->body);
+    }
+
+    public function testAModeratorMayNotEditSomeoneElsesPostEither(): void
+    {
+        // Moderation covers deleting and pinning, never rewriting words.
+        $postId = $this->seedPost(1, self::AUTHOR_ACCOUNT);
+        $this->withCsrf(['body' => 'Réécrit']);
+
+        $response = $this->controller([$this->moderatorMemberId], self::OTHER_ACCOUNT)->edit($this->request(), $this->params($postId));
+
+        $this->assertSame(403, $response->getStatusCode());
+        $this->assertSame('Bonjour', $this->postRepo->findById($postId)->body);
+    }
+
+    public function testEditIs404ForANonMember(): void
+    {
+        $postId = $this->seedPost();
+        $outsider = GroupsTestHelper::createMember($this->pdo, 'OUT2');
+        $this->withCsrf(['body' => 'Corrigé']);
+
+        $this->assertSame(404, $this->controller([$outsider])->edit($this->request(), $this->params($postId))->getStatusCode());
+    }
+
+    // --- delete --------------------------------------------------------
+
+    public function testDeleteRejectsAMissingCsrfToken(): void
+    {
+        $postId = $this->seedPost();
+        $_POST = [];
+
+        $this->assertSame(403, $this->controller([$this->memberId])->delete($this->request(), $this->params($postId))->getStatusCode());
+        $this->assertNotNull($this->postRepo->findById($postId));
+    }
+
+    public function testTheAuthorMayDeleteTheirOwnPostEvenAfterTheEditWindow(): void
+    {
+        $postId = $this->seedPost(120);
+        $this->withCsrf([]);
+
+        $this->controller([$this->memberId])->delete($this->request(), $this->params($postId));
+
+        $this->assertNull($this->postRepo->findById($postId));
+    }
+
+    public function testAModeratorMayDeleteAnyPost(): void
+    {
+        $postId = $this->seedPost(1, self::AUTHOR_ACCOUNT);
+        $this->withCsrf([]);
+
+        $this->controller([$this->moderatorMemberId], self::OTHER_ACCOUNT)->delete($this->request(), $this->params($postId));
+
+        $this->assertNull($this->postRepo->findById($postId));
+    }
+
+    public function testAnOrdinaryMemberMayNotDeleteSomeoneElsesPost(): void
+    {
+        $postId = $this->seedPost(1, self::AUTHOR_ACCOUNT);
+        $this->withCsrf([]);
+
+        $response = $this->controller([$this->otherMemberId], self::OTHER_ACCOUNT)->delete($this->request(), $this->params($postId));
+
+        $this->assertSame(403, $response->getStatusCode());
+        $this->assertNotNull($this->postRepo->findById($postId));
+    }
+
+    public function testDeleteIs404ForANonMember(): void
+    {
+        $postId = $this->seedPost();
+        $outsider = GroupsTestHelper::createMember($this->pdo, 'OUT3');
+        $this->withCsrf([]);
+
+        $this->assertSame(404, $this->controller([$outsider])->delete($this->request(), $this->params($postId))->getStatusCode());
+        $this->assertNotNull($this->postRepo->findById($postId));
+    }
+
+    // --- pin / unpin ---------------------------------------------------
+
+    public function testPinRejectsAMissingCsrfToken(): void
+    {
+        $postId = $this->seedPost();
+        $_POST = [];
+
+        $this->assertSame(403, $this->controller([$this->moderatorMemberId])->pin($this->request(), $this->params($postId))->getStatusCode());
+        $this->assertFalse($this->postRepo->findById($postId)->isPinned);
+    }
+
+    public function testAModeratorPinsAndUnpins(): void
+    {
+        $postId = $this->seedPost();
+
+        $this->withCsrf([]);
+        $this->controller([$this->moderatorMemberId])->pin($this->request(), $this->params($postId));
+        $this->assertTrue($this->postRepo->findById($postId)->isPinned);
+
+        $this->withCsrf([]);
+        $this->controller([$this->moderatorMemberId])->unpin($this->request(), $this->params($postId));
+        $this->assertFalse($this->postRepo->findById($postId)->isPinned);
+    }
+
+    public function testAnOrdinaryMemberMayNotPinEvenTheirOwnPost(): void
+    {
+        $postId = $this->seedPost();
+        $this->withCsrf([]);
+
+        $response = $this->controller([$this->memberId])->pin($this->request(), $this->params($postId));
+
+        $this->assertSame(403, $response->getStatusCode());
+        $this->assertFalse($this->postRepo->findById($postId)->isPinned);
+    }
+
+    public function testPinIs404ForANonMember(): void
+    {
+        $postId = $this->seedPost();
+        $outsider = GroupsTestHelper::createMember($this->pdo, 'OUT4');
+        $this->withCsrf([]);
+
+        $this->assertSame(404, $this->controller([$outsider])->pin($this->request(), $this->params($postId))->getStatusCode());
+    }
+
+    // --- feed and cross-group isolation --------------------------------
+
+    public function testFeedIs404ForANonMember(): void
+    {
+        $outsider = GroupsTestHelper::createMember($this->pdo, 'OUT5');
+
+        $response = $this->controller([$outsider])->feed(new Request('GET', '/groups/1/feed', [], [], [], []), $this->params());
+
+        $this->assertSame(404, $response->getStatusCode());
+    }
+
+    public function testFeedRendersTheNextPageForAMember(): void
+    {
+        for ($i = 0; $i < GroupFeedService::PAGE_SIZE + 2; $i++) {
+            GroupsTestHelper::createPostAt($this->pdo, $this->groupId, 'post ' . $i, '2026-01-01 10:' . str_pad((string) $i, 2, '0', STR_PAD_LEFT) . ':00', self::AUTHOR_ACCOUNT, $this->memberId);
+        }
+
+        $response = $this->controller([$this->memberId])->feed(new Request('GET', '/groups/1/feed', [], [], [], []), $this->params());
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertStringContainsString('Charger plus', $response->getBody());
+    }
+
+    public function testAPostFromAnotherGroupIs404EvenForAMemberOfBoth(): void
+    {
+        // The group in the URL is what was authorised — a post id from
+        // elsewhere must not be reachable through it.
+        $otherGroupId = $this->groupService->createSectionGroup('Autre', $this->sectionId, $this->currentYearId, $this->moderatorMemberId);
+        $foreignPostId = GroupsTestHelper::createPostAt($this->pdo, $otherGroupId, 'Ailleurs', '2026-01-01 10:00:00', self::AUTHOR_ACCOUNT, $this->memberId);
+        $this->withCsrf([]);
+
+        $response = $this->controller([$this->memberId])->delete($this->request(), $this->params($foreignPostId));
+
+        $this->assertSame(404, $response->getStatusCode());
+        $this->assertNotNull($this->postRepo->findById($foreignPostId));
+    }
+}

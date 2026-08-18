@@ -1,0 +1,86 @@
+{#
+  One post. `row` carries the post plus everything already resolved for
+  it: the two author names and which actions this viewer may take. Every
+  one of those is re-checked server-side by the action itself — this only
+  decides what the kebab menu offers.
+
+  The body is plain text: escaped by Twig (never |raw), with line breaks
+  preserved by nl2br on the already-escaped output.
+#}
+<article class="card mb-2">
+    <div class="card-body py-3">
+        <div class="d-flex justify-content-between align-items-start gap-2">
+            <div class="min-width-0">
+                <p class="mb-1 small">
+                    <span class="fw-semibold">{{ row.display_name }}</span>
+                    {% if row.account_name %}
+                        <span class="text-body-secondary">({{ row.account_name }})</span>
+                    {% endif %}
+                </p>
+                <p class="text-body-tertiary mb-0" style="font-size:0.75rem;">
+                    {{ row.post.createdAt|french_date }} à {{ row.post.createdAt|date('H:i') }}
+                    {% if row.post.isEdited %}<span class="ms-1">· modifié</span>{% endif %}
+                    {% if row.post.isPinned %}<span class="badge bg-warning-subtle text-warning-emphasis ms-1">Épinglé</span>{% endif %}
+                </p>
+            </div>
+
+            {% if row.can_edit or row.can_delete or row.can_pin %}
+                <div class="dropdown">
+                    <button class="btn btn-sm btn-link text-body-secondary d-flex align-items-center justify-content-center"
+                            style="min-height:44px;min-width:44px;" type="button" data-bs-toggle="dropdown"
+                            aria-expanded="false" aria-label="Actions sur ce message">
+                        <i class="bi bi-three-dots-vertical"></i>
+                    </button>
+                    <ul class="dropdown-menu dropdown-menu-end">
+                        {% if row.can_edit %}
+                            <li>
+                                <button class="dropdown-item d-flex align-items-center groups-edit-toggle" style="min-height:44px;"
+                                        type="button" data-post="{{ row.post.id }}">
+                                    Modifier
+                                </button>
+                            </li>
+                        {% endif %}
+                        {% if row.can_pin %}
+                            <li>
+                                <form method="post" action="/groups/{{ group.id }}/posts/{{ row.post.id }}/{{ row.post.isPinned ? 'unpin' : 'pin' }}">
+                                    {{ csrf_field()|raw }}
+                                    <button type="submit" class="dropdown-item d-flex align-items-center" style="min-height:44px;">
+                                        {{ row.post.isPinned ? 'Désépingler' : 'Épingler' }}
+                                    </button>
+                                </form>
+                            </li>
+                        {% endif %}
+                        {% if row.can_delete %}
+                            <li>
+                                <form method="post" action="/groups/{{ group.id }}/posts/{{ row.post.id }}/delete"
+                                      data-confirm="Supprimer définitivement ce message ?">
+                                    {{ csrf_field()|raw }}
+                                    <button type="submit" class="dropdown-item text-danger d-flex align-items-center" style="min-height:44px;">
+                                        Supprimer
+                                    </button>
+                                </form>
+                            </li>
+                        {% endif %}
+                    </ul>
+                </div>
+            {% endif %}
+        </div>
+
+        <p class="mb-0 mt-2 groups-post-body" id="post-body-{{ row.post.id }}">{{ row.post.body|nl2br }}</p>
+
+        {% if row.can_edit %}
+            <form method="post" action="/groups/{{ group.id }}/posts/{{ row.post.id }}/edit"
+                  class="mt-2 d-none groups-edit-form" id="post-edit-{{ row.post.id }}">
+                {{ csrf_field()|raw }}
+                <label class="visually-hidden" for="post-edit-body-{{ row.post.id }}">Modifier le message</label>
+                <textarea class="form-control mb-2" id="post-edit-body-{{ row.post.id }}" name="body" rows="3"
+                          maxlength="5000" required>{{ row.post.body }}</textarea>
+                <div class="d-flex gap-2">
+                    <button type="submit" class="btn btn-sm btn-primary d-flex align-items-center" style="min-height:44px;">Enregistrer</button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary d-flex align-items-center groups-edit-cancel"
+                            style="min-height:44px;" data-post="{{ row.post.id }}">Annuler</button>
+                </div>
+            </form>
+        {% endif %}
+    </div>
+</article>

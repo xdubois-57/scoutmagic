@@ -65,6 +65,45 @@ class UserAccountRepository
     }
 
     /**
+     * First and last name for a batch of account ids, in one query.
+     *
+     * Exists so a page listing many accounts (a group feed signs every
+     * post with its author's real name) resolves them all at once instead
+     * of one findById() per row. Returns only the two name fields — never
+     * the email — and decrypts here, inside the Repository, like every
+     * other encrypted read (SECURITY.md §5). An id with no account is
+     * simply absent from the result.
+     *
+     * @param int[] $ids
+     * @return array<int, array{first_name: ?string, last_name: ?string}>
+     */
+    public function findNamesByIds(array $ids): array
+    {
+        $ids = array_values(array_unique(array_map('intval', $ids)));
+        if ($ids === []) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($ids), '?'));
+        $stmt = $this->pdo->prepare(
+            "SELECT id, first_name_encrypted, last_name_encrypted FROM user_accounts WHERE id IN ({$placeholders})"
+        );
+        $stmt->execute($ids);
+
+        $names = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $names[(int) $row['id']] = [
+                'first_name' => $row['first_name_encrypted'] !== null
+                    ? $this->encryption->decrypt($row['first_name_encrypted']) : null,
+                'last_name' => $row['last_name_encrypted'] !== null
+                    ? $this->encryption->decrypt($row['last_name_encrypted']) : null,
+            ];
+        }
+
+        return $names;
+    }
+
+    /**
      * Find the first super-admin account (by id), for system-generated
      * alerts that need a human to notify but have no more specific
      * recipient (e.g. a scheduled task failure — see Core\Scheduler\TaskContext).

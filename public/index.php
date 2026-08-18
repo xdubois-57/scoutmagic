@@ -2188,6 +2188,15 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
         $memberService, $userAccountRepo, $scoutYearResolver
     );
 
+    $groupsPostRepo = new \Modules\Groups\Repository\PostRepository($pdo);
+    $groupsActivityService = new \Modules\Groups\Service\GroupActivityService($groupsGroupRepo, $groupsPostRepo);
+    $groupsPostService = new \Modules\Groups\Service\PostService($groupsPostRepo, $groupsActivityService);
+    $groupsFeedService = new \Modules\Groups\Service\GroupFeedService(
+        $groupsPostRepo,
+        new \Modules\Groups\Service\PostAuthorResolver($memberService, $userAccountRepo),
+        $groupsPostService
+    );
+
     // Group files (group media, later) are readable only by the group's
     // own members — ARCHITECTURE.md §8.3's owner_type registry, appended
     // here so it reaches FileAccessGuard, which is built after every
@@ -2200,7 +2209,14 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
         \Modules\Groups\Controller\GroupController::class,
         new \Modules\Groups\Controller\GroupController(
             $twig, $groupsGroupRepo, $groupsListService, $groupsAccessService, $groupsService,
-            $groupsContextFactory, $sectionService
+            $groupsContextFactory, $sectionService, $groupsFeedService, $memberService
+        )
+    );
+    $frontController->registerController(
+        \Modules\Groups\Controller\PostController::class,
+        new \Modules\Groups\Controller\PostController(
+            $twig, $groupsGroupRepo, $groupsPostRepo, $groupsAccessService, $groupsFeedService,
+            $groupsPostService, $groupsContextFactory
         )
     );
     $frontController->registerController(

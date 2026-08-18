@@ -11,6 +11,7 @@ namespace Modules\Groups\Controller;
 use Core\Http\Controller\AbstractController;
 use Core\Http\Request;
 use Core\Http\Response;
+use Core\Member\MemberService;
 use Core\Member\SectionService;
 use Core\ScoutYear\ScoutYearSession;
 use Core\Security\AuthSession;
@@ -20,10 +21,12 @@ use Modules\Groups\Repository\DiscussionGroup;
 use Modules\Groups\Repository\GroupRepository;
 use Modules\Groups\Service\GroupAccessService;
 use Modules\Groups\Service\GroupListItem;
+use Modules\Groups\Service\GroupFeedService;
 use Modules\Groups\Service\GroupListService;
 use Modules\Groups\Service\GroupService;
 use Modules\Groups\Service\GroupSessionContext;
 use Modules\Groups\Service\GroupSessionContextFactory;
+use Modules\Groups\Service\PostService;
 use Twig\Environment;
 
 /**
@@ -43,7 +46,9 @@ class GroupController extends AbstractController
         private GroupAccessService $accessService,
         private GroupService $groupService,
         private GroupSessionContextFactory $contextFactory,
-        private SectionService $sectionService
+        private SectionService $sectionService,
+        private GroupFeedService $feedService,
+        private MemberService $memberService
     ) {
     }
 
@@ -96,11 +101,21 @@ class GroupController extends AbstractController
             return new Response('Not Found', 404);
         }
 
+        $canModerate = $this->accessService->canModerate($group, $context);
+        $page = $this->feedService->page($group, $context, $canModerate);
+
         return $this->render('@groups/show.html.twig', [
             'group' => $group,
             'badges' => $this->badges($group, $context),
-            'can_moderate' => $this->accessService->canModerate($group, $context),
+            'can_moderate' => $canModerate,
             'post_permission' => $this->accessService->canPost($group, $context),
+            'pinned' => $page->pinned,
+            'posts' => $page->posts,
+            'next_cursor' => $page->nextCursor,
+            // Only shown when the account is linked to several members of
+            // this group — with one, there is nothing to choose.
+            'author_options' => $this->authorOptions($group, $context),
+            'max_body_length' => PostService::MAX_BODY_LENGTH,
         ]);
     }
 
@@ -139,6 +154,34 @@ class GroupController extends AbstractController
         }
 
         return $this->redirect('/groups/' . $groupId);
+    }
+
+    /**
+     * The members of this group the caller may sign a post as, with their
+     * display names resolved in one query. Never every linked member: an
+     * account linked to three children must not be offered the one who is
+     * not a member here (GroupAccessService::memberIdsAllowedToPostAs()).
+     *
+     * @return array<int, array{id: int, name: string}>
+     */
+    private function authorOptions(DiscussionGroup $group, GroupSessionContext $context): array
+    {
+        $memberIds = $this->accessService->memberIdsAllowedToPostAs($group, $context);
+        if (count($memberIds) < 2) {
+            return [];
+        }
+
+        $names = $this->memberService->findDisplayNamesByMemberIds(
+            $memberIds,
+            $group->scoutYearId ?? $context->effectiveScoutYearId
+        );
+
+        $options = [];
+        foreach ($memberIds as $memberId) {
+            $options[] = ['id' => $memberId, 'name' => $names[$memberId] ?? ('Membre #' . $memberId)];
+        }
+
+        return $options;
     }
 
     /**
