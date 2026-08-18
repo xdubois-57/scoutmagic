@@ -2173,6 +2173,45 @@ if (in_array('gallery', $moduleManager->getEnabledModuleIds(), true)) {
     );
 }
 
+if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
+    $groupsGroupRepo = new \Modules\Groups\Repository\GroupRepository($pdo);
+    $groupsSectionRepo = new \Modules\Groups\Repository\GroupSectionRepository($pdo);
+    $groupsMemberRepo = new \Modules\Groups\Repository\GroupMemberRepository($pdo);
+    $groupsAccessService = new \Modules\Groups\Service\GroupAccessService(
+        $groupsMemberRepo, $groupsSectionRepo, $sectionMembershipRepository
+    );
+    $groupsService = new \Modules\Groups\Service\GroupService($groupsGroupRepo, $groupsSectionRepo, $groupsMemberRepo);
+    $groupsListService = new \Modules\Groups\Service\GroupListService(
+        $groupsGroupRepo, $groupsSectionRepo, $groupsMemberRepo, $sectionMembershipRepository
+    );
+    $groupsContextFactory = new \Modules\Groups\Service\GroupSessionContextFactory(
+        $memberService, $userAccountRepo, $scoutYearResolver
+    );
+
+    // Group files (group media, later) are readable only by the group's
+    // own members — ARCHITECTURE.md §8.3's owner_type registry, appended
+    // here so it reaches FileAccessGuard, which is built after every
+    // module block. Nothing stores such a file yet.
+    $fileOwnershipCheckers[] = new \Modules\Groups\File\GroupFileOwnershipChecker(
+        $groupsGroupRepo, $groupsAccessService, $scoutYearResolver
+    );
+
+    $frontController->registerController(
+        \Modules\Groups\Controller\GroupController::class,
+        new \Modules\Groups\Controller\GroupController(
+            $twig, $groupsGroupRepo, $groupsListService, $groupsAccessService, $groupsService,
+            $groupsContextFactory, $sectionService
+        )
+    );
+    $frontController->registerController(
+        \Modules\Groups\Controller\GroupMemberController::class,
+        new \Modules\Groups\Controller\GroupMemberController(
+            $twig, $groupsGroupRepo, $groupsMemberRepo, $groupsSectionRepo, $groupsAccessService,
+            $groupsService, $groupsContextFactory, $memberService, $sectionService
+        )
+    );
+}
+
 if (in_array('retro', $moduleManager->getEnabledModuleIds(), true)) {
     $retroBoardRepo = new \Modules\Retro\Repository\BoardRepository($pdo);
     $retroCommentRepo = new \Modules\Retro\Repository\CommentRepository($pdo);

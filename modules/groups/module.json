@@ -1,0 +1,102 @@
+{
+  "id": "groups",
+  "name": "Groupes de discussion",
+  "description": "Groupes de discussion privés pour l'unité : un groupe par section et par année scoute, ou des groupes sur invitation. Visibles uniquement par leurs membres.",
+  "version": "1.0.0",
+  "enabled_by_default": false,
+  "requires": ["gallery"],
+  "routes": [
+    {
+      "path": "/groups",
+      "method": "GET",
+      "controller": "Modules\\Groups\\Controller\\GroupController",
+      "action": "index",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": "Groupes",
+      "menu_order": 7,
+      "breadcrumb": { "label": "Groupes", "parents": ["Espace animés"] }
+    },
+    {
+      "path": "/groups/archives",
+      "method": "GET",
+      "controller": "Modules\\Groups\\Controller\\GroupController",
+      "action": "archives",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": "",
+      "breadcrumb": { "label": "Archives", "parents": ["Espace animés"] }
+    },
+    {
+      "path": "/groups/{id}",
+      "method": "GET",
+      "controller": "Modules\\Groups\\Controller\\GroupController",
+      "action": "show",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": "",
+      "breadcrumb": { "label": "Groupe", "parents": ["Espace animés"] }
+    },
+    {
+      "path": "/groups/{id}/members",
+      "method": "GET",
+      "controller": "Modules\\Groups\\Controller\\GroupMemberController",
+      "action": "index",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": "",
+      "breadcrumb": { "label": "Membres", "parents": ["Espace animés"] }
+    },
+    {
+      "path": "/groups",
+      "method": "POST",
+      "controller": "Modules\\Groups\\Controller\\GroupController",
+      "action": "create",
+      "menu": "espace_animes",
+      "role_min": "chief",
+      "label": ""
+    },
+    {
+      "path": "/groups/{id}/invite-member",
+      "method": "POST",
+      "controller": "Modules\\Groups\\Controller\\GroupMemberController",
+      "action": "inviteMember",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/groups/{id}/invite-section",
+      "method": "POST",
+      "controller": "Modules\\Groups\\Controller\\GroupMemberController",
+      "action": "inviteSection",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/groups/{id}/moderator",
+      "method": "POST",
+      "controller": "Modules\\Groups\\Controller\\GroupMemberController",
+      "action": "setModerator",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/groups/{id}/remove-member",
+      "method": "POST",
+      "controller": "Modules\\Groups\\Controller\\GroupMemberController",
+      "action": "removeMember",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    }
+  ],
+  "settings": [],
+  "cookies": [],
+  "scheduled_tasks": [],
+  "storage": {},
+  "notifications": [],
+  "offline": []
+}

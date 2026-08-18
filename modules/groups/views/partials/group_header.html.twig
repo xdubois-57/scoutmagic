@@ -1,0 +1,39 @@
+{#
+  Group header shared by the group page and its members page: title,
+  badges, and the members link. Kept as a partial so the two pages can
+  never drift apart.
+#}
+<div class="d-flex align-items-start justify-content-between gap-2 flex-wrap mb-3">
+    <div>
+        <h1 class="h4 mb-1">{{ group.name }}</h1>
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+            {% if badges.is_invitation %}
+                <span class="badge bg-secondary-subtle text-secondary-emphasis">Sur invitation</span>
+            {% endif %}
+            {% for name in badges.section_names %}
+                <span class="badge bg-info-subtle text-info-emphasis">{{ name }}</span>
+            {% endfor %}
+            {% if badges.is_archived %}
+                <span class="badge bg-secondary-subtle text-secondary-emphasis">Année passée</span>
+            {% endif %}
+            {% if group.isClosed %}
+                <span class="badge bg-warning-subtle text-warning-emphasis">Clôturé</span>
+            {% endif %}
+            {% if badges.is_moderator %}
+                <span class="badge bg-primary-subtle text-primary-emphasis">Modérateur</span>
+            {% endif %}
+        </div>
+    </div>
+    <a class="btn btn-outline-secondary d-flex align-items-center" style="min-height:44px;" href="/groups/{{ group.id }}/members">
+        <i class="bi bi-people me-1"></i> Membres
+    </a>
+</div>
+
+{% if post_permission is defined and not post_permission.allowed %}
+    <div class="alert alert-secondary small" role="status">
+        {{ post_permission.message }}
+        {% if post_permission.actionUrl %}
+            <a href="{{ post_permission.actionUrl }}">{{ post_permission.actionLabel }}</a>
+        {% endif %}
+    </div>
+{% endif %}

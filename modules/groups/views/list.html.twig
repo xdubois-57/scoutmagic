@@ -1,0 +1,89 @@
+{% extends "base.html.twig" %}
+
+{% block title %}Groupes — {{ site_name }}{% endblock %}
+
+{% block content %}
+    <h1 class="h4 mb-3">Groupes</h1>
+
+    <ul class="nav nav-pills mb-3 gap-1">
+        <li class="nav-item">
+            <a class="nav-link {{ is_archive_tab ? '' : 'active' }} px-3 d-flex align-items-center" style="min-height:44px;" href="/groups">Mes groupes</a>
+        </li>
+        <li class="nav-item">
+            <a class="nav-link {{ is_archive_tab ? 'active' : '' }} px-3 d-flex align-items-center" style="min-height:44px;" href="/groups/archives">
+                Archives{% if archived_count > 0 %} <span class="badge bg-secondary-subtle text-secondary-emphasis ms-2">{{ archived_count }}</span>{% endif %}
+            </a>
+        </li>
+    </ul>
+
+    {% if can_create %}
+        <div class="card mb-3">
+            <div class="card-body">
+                <h2 class="h6 mb-3">Créer un groupe</h2>
+                <form method="post" action="/groups" class="row g-2">
+                    {{ csrf_field()|raw }}
+                    <div class="col-12 col-md-5">
+                        <label class="form-label small mb-1" for="group-name">Nom du groupe</label>
+                        <input type="text" class="form-control" id="group-name" name="name" maxlength="150" required
+                               style="min-height:44px;" placeholder="Ex. : Louveteaux 2025-2026">
+                    </div>
+                    <div class="col-12 col-md-4">
+                        <label class="form-label small mb-1" for="group-section">Section</label>
+                        <select class="form-select" id="group-section" name="section_id" style="min-height:44px;">
+                            <option value="0">Sur invitation (sans section)</option>
+                            {% for section in sections %}
+                                <option value="{{ section.id }}">{{ section.name ?? section.desk_code }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-12 col-md-3 d-flex align-items-end">
+                        <button type="submit" class="btn btn-primary w-100" style="min-height:44px;">Créer</button>
+                    </div>
+                    <div class="col-12">
+                        {# The whole row is the tap target (44px), not the 16px box itself. #}
+                        <div class="form-check d-flex align-items-center gap-2 mb-0" style="min-height:44px;">
+                            <input class="form-check-input mt-0" type="checkbox" value="1" id="group-tie-year" name="tie_to_year">
+                            <label class="form-check-label small text-body-secondary d-flex align-items-center" for="group-tie-year" style="min-height:44px;">
+                                Limiter ce groupe sur invitation à l'année scoute en cours
+                            </label>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+    {% endif %}
+
+    {% if items is empty %}
+        <p class="text-body-secondary text-center py-5">
+            {% if is_archive_tab %}
+                Aucun groupe archivé.
+            {% else %}
+                Vous ne faites partie d'aucun groupe pour le moment.
+            {% endif %}
+        </p>
+    {% else %}
+        <div class="list-group">
+            {% for item in items %}
+                <a class="list-group-item list-group-item-action py-3" href="/groups/{{ item.group.id }}" style="min-height:44px;">
+                    <div class="d-flex align-items-center gap-2 flex-wrap">
+                        <span class="fw-semibold">{{ item.group.name }}</span>
+                        {% if item.is_moderator %}
+                            <span class="badge bg-primary-subtle text-primary-emphasis">Modérateur</span>
+                        {% endif %}
+                        {% if item.is_archived %}
+                            <span class="badge bg-secondary-subtle text-secondary-emphasis">Archivé</span>
+                        {% endif %}
+                        {% if item.group.isClosed %}
+                            <span class="badge bg-warning-subtle text-warning-emphasis">Clôturé</span>
+                        {% endif %}
+                    </div>
+                    {% if item.section_names is not empty %}
+                        <p class="small text-body-secondary mb-0 mt-1">{{ item.section_names|join(', ') }}</p>
+                    {% else %}
+                        <p class="small text-body-secondary mb-0 mt-1">Sur invitation</p>
+                    {% endif %}
+                </a>
+            {% endfor %}
+        </div>
+    {% endif %}
+{% endblock %}
