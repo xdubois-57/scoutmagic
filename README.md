@@ -72,6 +72,22 @@ vendor/bin/phpstan analyse core/   # analyse statique
 
 `composer serve` encapsule `php -S` avec des valeurs `upload_max_filesize`/`post_max_size` relevées (`public/.user.ini`, utilisé en production, n'est pas pris en compte par le serveur intégré) — si vous lancez `php -S` directement à la place, les uploads de plus de 8 Mo échoueront avec une erreur 413. Augmentez les valeurs dans `scripts.serve` de `composer.json` si vous devez tester des uploads plus volumineux en local (ex. vidéos de galerie).
 
+## Intégration continue
+
+Chaque push sur `main` et chaque Pull Request déclenchent `.github/workflows/ci.yml` :
+
+- **`test`** : vérification de syntaxe PHP, `vendor/bin/phpstan analyse`, puis `vendor/bin/phpunit` (hors tests `database`) avec couverture PCOV — génère `coverage.xml` (Clover) et `phpunit-report.xml` (JUnit), publiés comme artefacts pour le job `sonarqube`.
+- **`database-tests`** : tests PHPUnit du groupe `database`, avec un service MySQL.
+- **`security`** : `composer audit`.
+- **`sonarqube`** : analyse [SonarQube Cloud](https://sonarcloud.io/project/overview?id=xdubois-57_scoutmagic) (voir `sonar-project.properties`), à partir de la couverture et du rapport de tests produits par le job `test` — PHPUnit n'est pas relancé une seconde fois. Le Quality Gate SonarQube fait échouer ce check GitHub s'il n'est pas OK (`-Dsonar.qualitygate.wait=true`).
+- **CodeQL** : analyse de code activée au niveau du dépôt (GitHub Advanced Security), indépendante de ce workflow.
+
+SonarQube Cloud est complémentaire à PHPStan, PHPUnit, `composer audit` et CodeQL — il ne les remplace pas. Sur une Pull Request, SonarQube Cloud décore automatiquement la PR (résumé du Quality Gate et annotations sur les lignes concernées) via son intégration GitHub officielle, à condition que le secret `SONAR_TOKEN` soit configuré (voir « Configuration manuelle requise » ci-dessous).
+
+### Configuration manuelle requise
+
+Le job `sonarqube` nécessite un secret de dépôt **`SONAR_TOKEN`** (Settings > Secrets and variables > Actions), généré depuis SonarQube Cloud. Sans ce secret, le job échoue pour toute PR/push interne au dépôt (les PR venant d'un fork sont ignorées, GitHub n'exposant pas les secrets aux forks). Voir `AGENTS.md` § Releases pour le rôle de ce même token dans le Release Gate.
+
 ## Déploiement
 
 ### Créer une release (mainteneurs)
@@ -84,14 +100,15 @@ vendor/bin/phpstan analyse core/   # analyse statique
 
 Publie une release GitHub avec l'artefact d'installation et `bootstrap.php` en tant qu'assets. Nécessite le CLI GitHub (`gh`).
 
-Avant de créer un commit, un tag ou une release, le script exécute quatre verrous, dans cet ordre — chacun bloque la release en cas d'échec :
+Avant de créer un commit, un tag ou une release, le script exécute cinq verrous, dans cet ordre — chacun bloque la release en cas d'échec :
 
 1. **Déploiement** : `www.scoutmagic.be` doit déjà avoir installé la release précédente (comparé via `GET /api/version`, exposé publiquement par `Core\Http\Controller\VersionController`) et répondre normalement (code 200, pas d'erreur visible sur la page d'accueil).
 2. **Sécurité** : aucun signalement CodeQL ni alerte Dependabot ouvert dans le dépôt (`gh api repos/{owner}/{repo}/code-scanning/alerts` et `.../dependabot/alerts`, filtrés sur `state == "open"`).
 3. **Tests** : `vendor/bin/phpstan analyse` et `vendor/bin/phpunit` doivent passer.
 4. **Fraîcheur des dépendances** : aucune dépendance Composer directe (`composer outdated --direct`) ni aucune bibliothèque front-end vendorisée (`public/assets/vendor/` — Bootstrap, Bootstrap Icons, Chart.js) ne doit être en retard sur sa dernière version publiée.
+5. **SonarQube Cloud** (`scripts/check-sonar-release.sh`) : aucun signalement de sécurité actif (issue d'impact `SECURITY` non résolue, ou Security Hotspot non trié), aucun signalement de sévérité `HIGH` ou supérieure (`BLOCKER`) actif, et le Quality Gate du projet doit être `OK` — pour l'analyse confirmée correspondre exactement au commit en cours de release. **Ce verrou est fail-closed et non contournable** : un `SONAR_TOKEN` absent, SonarQube Cloud injoignable, une authentification invalide, une réponse invalide, ou l'impossibilité de confirmer qu'une analyse existe pour le commit exact bloquent la release, sans exception ni option de bypass.
 
-Corrigez le problème signalé (ou justifiez son rejet) avant de publier — voir `AGENTS.md` § Releases. Chaque verrou peut être contourné individuellement en cas d'urgence (`--skip-deployment-check`, `--skip-security-gate`, `--skip-tests-gate`, `--skip-dependency-check` ; un avertissement est affiché) — voir l'en-tête de `scripts/release.sh` pour le détail de chaque option.
+Corrigez le problème signalé (ou justifiez son rejet) avant de publier — voir `AGENTS.md` § Releases. Les quatre premiers verrous peuvent être contournés individuellement en cas d'urgence (`--skip-deployment-check`, `--skip-security-gate`, `--skip-tests-gate`, `--skip-dependency-check` ; un avertissement est affiché) — voir l'en-tête de `scripts/release.sh` pour le détail de chaque option. Le verrou SonarQube Cloud n'a volontairement aucune option `--skip-sonar-gate`.
 
 ### Installation sur hébergement mutualisé (administrateurs d'unité)
 

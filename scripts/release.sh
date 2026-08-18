@@ -7,11 +7,11 @@ set -euo pipefail
 # Default: increments patch level, computes release notes from the commit
 # list (fetched via the same GitHub API `--generate-notes` itself calls),
 # and requires the deployment gate, the security gate, the tests gate,
-# and the dependency freshness gate to all pass. Whichever notes are
-# used (this auto-generated list, or --notes-file's content), a
-# "Vérifications effectuées" section reporting every gate's outcome
-# (verified, with details, or bypassed) is always appended at the end —
-# see ${GATE_REPORT} and the gate-invocation blocks below.
+# the dependency freshness gate, and the SonarQube Cloud gate to all pass.
+# Whichever notes are used (this auto-generated list, or --notes-file's
+# content), a "Vérifications effectuées" section reporting every gate's
+# outcome (verified, with details, or bypassed) is always appended at the
+# end — see ${GATE_REPORT} and the gate-invocation blocks below.
 #
 #   --notes-file <path>        Use the release notes from this file
 #                               instead of the auto-generated commit list.
@@ -33,6 +33,14 @@ set -euo pipefail
 #                               (www.scoutmagic.be up to date and healthy).
 #                               Emergency use only — prints a warning. See
 #                               check_deployment_gate.
+#
+# There is intentionally NO --skip-sonar-gate flag. The SonarQube Cloud
+# gate (scripts/check-sonar-release.sh — active security findings, HIGH or
+# above severity findings, unreviewed Security Hotspots, and the Quality
+# Gate) is fail-closed with no bypass: unlike the four gates above, it
+# cannot be skipped from this script under any circumstance, including a
+# user's explicit request for an urgent release. See check_sonar_gate and
+# AGENTS.md § Releases.
 
 BUMP="patch"
 NOTES_FILE=""
@@ -348,6 +356,30 @@ else
     check_dependency_freshness_gate
 fi
 GATE_REPORT="${GATE_REPORT}- **Dépendances** : ${DEPENDENCY_GATE_REPORT_LINE}
+"
+
+# ---------------------------------------------------------------
+# SonarQube Cloud gate — delegates to scripts/check-sonar-release.sh (kept
+# as a separate script rather than inlined here: its logic — multiple Web
+# API calls, JSON parsing, fail-closed error handling — is non-trivial
+# enough to warrant being testable on its own, see
+# scripts/check-sonar-release.test.sh). Runs BEFORE any git commit/tag,
+# same reasoning as the other gates. No bypass flag exists for this gate:
+# it always runs, and always blocks the release on an active security
+# finding, a HIGH-or-above severity finding, an unreviewed Security
+# Hotspot, a Quality Gate that isn't OK, or any failure to reach a
+# definitive answer from SonarQube Cloud (missing SONAR_TOKEN,
+# unreachable host, auth failure, invalid response, or no analysis
+# confirmed for the exact commit being released).
+# ---------------------------------------------------------------
+check_sonar_gate() {
+    local script_dir
+    script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    "${script_dir}/check-sonar-release.sh"
+}
+
+check_sonar_gate
+GATE_REPORT="${GATE_REPORT}- **SonarQube Cloud** : vérifié — aucun signalement de sécurité actif, aucun problème de sévérité HIGH ou supérieure, Quality Gate OK.
 "
 
 # The VERSION file is the running site's source of truth for its installed

@@ -15,6 +15,12 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Full history, not just the checked-out commit: SonarQube Cloud's
+          # analysis (sonarqube job below) needs it for accurate blame/new-code
+          # detection, and this checkout's coverage/report artifacts are what
+          # that job consumes.
+          fetch-depth: 0
 
       - name: Install Ghostscript (PDF rasterization for Core\File\PdfRasterizer)
         run: sudo apt-get update && sudo apt-get install -y ghostscript
@@ -24,7 +30,7 @@ jobs:
         with:
           php-version: '8.4'
           extensions: mbstring, pdo, pdo_mysql, openssl, imagick
-          coverage: none
+          coverage: pcov
 
       - name: PHP syntax check
         run: find core/ modules/ public/ -name '*.php' -exec php -l {} \; | grep -v 'No syntax errors' | head -20 && find core/ modules/ public/ -name '*.php' -exec php -l {} \; | grep -q 'Parse error' && exit 1 || true
@@ -36,7 +42,20 @@ jobs:
         run: vendor/bin/phpstan analyse --memory-limit=512M
 
       - name: Run tests
-        run: vendor/bin/phpunit
+        # Coverage (Clover XML) and the JUnit report are generated here, once,
+        # for SonarQube Cloud to consume in the sonarqube job below — see
+        # sonar.php.coverage.reportPaths / sonar.php.tests.reportPath in
+        # sonar-project.properties. Nothing re-runs PHPUnit a second time.
+        run: vendor/bin/phpunit --coverage-clover coverage.xml --log-junit phpunit-report.xml
+
+      - name: Upload coverage and test reports for SonarQube
+        uses: actions/upload-artifact@v4
+        with:
+          name: phpunit-reports
+          path: |
+            coverage.xml
+            phpunit-report.xml
+          retention-days: 1
 
   database-tests:
     runs-on: ubuntu-latest
@@ -94,3 +113,37 @@ jobs:
 
       - name: Audit dependencies
         run: composer audit
+
+  sonarqube:
+    name: SonarQube Cloud
+    runs-on: ubuntu-latest
+    needs: test
+    # Secrets aren't exposed to pull_request runs triggered from a fork, so
+    # SONAR_TOKEN wouldn't be available there — skip cleanly instead of
+    # failing the check for external contributors. Same-repo pushes and PRs
+    # always run this job.
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # SonarQube Cloud needs full history for accurate blame/new-code
+          # detection and pull request analysis.
+          fetch-depth: 0
+
+      - name: Download coverage and test reports
+        uses: actions/download-artifact@v4
+        with:
+          name: phpunit-reports
+
+      - name: SonarQube Cloud Scan
+        uses: SonarSource/sonarqube-scan-action@v8
+        with:
+          # Fails this job (and therefore the GitHub check) when the Quality
+          # Gate computed from this analysis is not OK, so the gate result is
+          # visible directly as a GitHub Actions check, not just on SonarQube
+          # Cloud's own dashboard.
+          args: >
+            -Dsonar.qualitygate.wait=true
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}

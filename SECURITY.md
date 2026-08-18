@@ -138,6 +138,12 @@ Every response: `Content-Security-Policy`, `X-Content-Type-Options: nosniff`, `X
 - Only a small, explicitly justified set of external dependencies — see the table in `ARCHITECTURE.md` §1 for the complete, current list and each one's justification.
 - Bootstrap: compiled files, pinned version.
 
+## 15. Static analysis and SonarQube Cloud
+
+- [SonarQube Cloud](https://sonarcloud.io/project/overview?id=xdubois-57_scoutmagic) (`sonar-project.properties`) analyzes every push to `main` and every PR in CI (`.github/workflows/ci.yml`, `sonarqube` job), complementing — never replacing — PHPStan, PHPUnit, `composer audit`, and CodeQL. Authenticated via the `SONAR_TOKEN` repository secret only; never committed to source, never logged.
+- The project's Quality Gate must be `OK`; a failing Quality Gate fails the `sonarqube` GitHub check on the PR/commit.
+- `scripts/release.sh` additionally runs a dedicated, fail-closed **SonarQube Cloud release gate** (`scripts/check-sonar-release.sh`) before creating any release commit or tag: any active security finding (SECURITY-impact issue, or an un-triaged Security Hotspot), any active finding at severity `HIGH` or above, a Quality Gate that isn't `OK`, or any inability to reach a definitive answer from SonarQube Cloud (missing token, unreachable host, invalid response, unconfirmed analysis for the release commit) blocks the release — with no bypass flag. See `AGENTS.md` § Releases.
+
 ## 15. Public form protection
 
 - Every public form submitted by a non-identified session goes through `Core\Security\HumanCheck\HumanCheckService` (`ARCHITECTURE.md` §8.31) — no captcha, no external service, no client-side behavioral analysis.

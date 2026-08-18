@@ -23,6 +23,7 @@ Thank you for considering contributing to this project.
 3. Ensure all tests pass: `vendor/bin/phpunit`
 4. Ensure static analysis passes: `vendor/bin/phpstan analyse` (covers `core/`, `modules/`, and `public/index.php`/`public/cron.php` — the composition roots where controllers are wired up are in scope specifically because a wiring bug there only ever surfaces at runtime, never in an IDE or a unit test)
 5. Open a PR against `main` and fill in the PR template checklist.
+6. CI additionally runs [SonarQube Cloud](https://sonarcloud.io/project/overview?id=xdubois-57_scoutmagic) analysis on the PR, alongside PHPStan/PHPUnit/`composer audit`/CodeQL — see README.md § Intégration continue. Its Quality Gate must pass before merge.
 
 ## License and attribution
 
