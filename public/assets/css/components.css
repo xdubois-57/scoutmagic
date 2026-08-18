@@ -226,3 +226,62 @@
 .list-editor-drag-handle:active {
     cursor: grabbing;
 }
+
+/* Modules\Groups\views\partials\post_media_grid.html.twig — a post's
+   attached media (1 to 4), and the flat "Galerie du groupe" grid
+   (gallery.html.twig) reuses the single-cell rule below on its own
+   plain wrapping grid. Module spec: 1 media wide, 2 side by side, 3
+   with one tall on the left, 4 in a 2x2 — expressed with CSS grid
+   rather than Bootstrap's column system, since the 3-media layout's
+   spanning first cell has no equivalent there. */
+.groups-media-grid {
+    display: grid;
+    gap: 2px;
+    border-radius: 0.5rem;
+    overflow: hidden;
+}
+.groups-media-grid-1 {
+    grid-template-columns: 1fr;
+    aspect-ratio: 4 / 3;
+}
+.groups-media-grid-2 {
+    grid-template-columns: 1fr 1fr;
+    aspect-ratio: 16 / 9;
+}
+.groups-media-grid-3 {
+    grid-template-columns: 2fr 1fr;
+    grid-template-rows: 1fr 1fr;
+    aspect-ratio: 4 / 3;
+}
+.groups-media-grid-3 .groups-media-cell:first-child {
+    grid-row: 1 / span 2;
+}
+.groups-media-grid-4 {
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: 1fr 1fr;
+    aspect-ratio: 4 / 3;
+}
+.groups-media-cell {
+    position: relative;
+    display: block;
+    background-color: var(--bs-tertiary-bg);
+}
+
+/* Flat grid for gallery.html.twig ("Galerie du groupe") — every media of
+   the group's posts, same square-cell look as modules/gallery's own
+   album grid, laid out with plain wrapping instead of the 1-4 mosaic
+   above (there is no "one post" grouping to shape here). */
+.groups-gallery-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 4px;
+}
+@media (min-width: 576px) {
+    .groups-gallery-grid { grid-template-columns: repeat(4, 1fr); }
+}
+@media (min-width: 768px) {
+    .groups-gallery-grid { grid-template-columns: repeat(6, 1fr); }
+}
+.groups-gallery-grid .groups-media-cell {
+    aspect-ratio: 1 / 1;
+}

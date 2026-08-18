@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Modules\Groups\Controller;
 
+use Core\Http\FlashMessage;
 use Core\Http\Request;
 use Core\Member\MemberProfile;
 use Core\Member\MemberService;
@@ -14,10 +15,15 @@ use Core\Security\AuthSession;
 use Core\Security\UserAccount;
 use Core\Security\UserAccountRepository;
 use Core\View\TwigFactory;
+use Modules\Gallery\Api\DelegatedAlbum;
+use Modules\Gallery\Api\DelegatedAlbumManager;
+use Modules\Gallery\Api\DelegatedMedia;
+use Modules\Gallery\Service\GalleryException;
 use Modules\Groups\Controller\PostController;
 use Modules\Groups\Repository\GroupMemberRepository;
 use Modules\Groups\Repository\GroupRepository;
 use Modules\Groups\Repository\GroupSectionRepository;
+use Modules\Groups\Repository\PostMediaRepository;
 use Modules\Groups\Repository\PostRepository;
 use Modules\Groups\Service\GroupAccessService;
 use Modules\Groups\Service\GroupActivityService;
@@ -25,6 +31,7 @@ use Modules\Groups\Service\GroupFeedService;
 use Modules\Groups\Service\GroupService;
 use Modules\Groups\Service\GroupSessionContextFactory;
 use Modules\Groups\Service\PostAuthorResolver;
+use Modules\Groups\Service\PostMediaService;
 use Modules\Groups\Service\PostService;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
@@ -84,13 +91,19 @@ class PostControllerTest extends TestCase
     {
         AuthSession::logout();
         $_POST = [];
+        $_FILES = [];
     }
 
     /**
      * @param int[] $linkedMemberIds
      */
-    private function controller(array $linkedMemberIds, int $accountId = self::AUTHOR_ACCOUNT, string $role = 'identified', bool $completeProfile = true): PostController
-    {
+    private function controller(
+        array $linkedMemberIds,
+        int $accountId = self::AUTHOR_ACCOUNT,
+        string $role = 'identified',
+        bool $completeProfile = true,
+        ?DelegatedAlbumManager $delegatedAlbumManager = null
+    ): PostController {
         AuthSession::login($accountId, 'parent@test.be', $role);
 
         $sectionRepo = new GroupSectionRepository($this->pdo);
@@ -117,7 +130,13 @@ class PostControllerTest extends TestCase
         $resolver->method('getEffectiveYear')->willReturn(new EffectiveScoutYear($this->currentYearId, '2025-2026', null));
 
         $postService = new PostService($this->postRepo, new GroupActivityService($this->groupRepo, $this->postRepo));
-        $feedService = new GroupFeedService($this->postRepo, new PostAuthorResolver($memberService, $accountRepo), $postService);
+        $postMediaService = new PostMediaService(
+            $delegatedAlbumManager ?? $this->createMock(DelegatedAlbumManager::class),
+            new PostMediaRepository($this->pdo), $this->groupRepo
+        );
+        $feedService = new GroupFeedService(
+            $this->postRepo, new PostAuthorResolver($memberService, $accountRepo), $postService, $postMediaService
+        );
 
         $twig = TwigFactory::create(
             dirname(__DIR__, 4) . '/core/View/templates',
@@ -138,7 +157,8 @@ class PostControllerTest extends TestCase
             $access,
             $feedService,
             $postService,
-            new GroupSessionContextFactory($memberService, $accountRepo, $resolver)
+            new GroupSessionContextFactory($memberService, $accountRepo, $resolver),
+            $postMediaService
         );
     }
 
@@ -160,6 +180,23 @@ class PostControllerTest extends TestCase
     private function request(): Request
     {
         return new Request('POST', '/groups/' . $this->groupId . '/posts', [], $_POST, [], []);
+    }
+
+    /**
+     * Populates $_FILES['media'] in PHP's own multi-file shape (one array
+     * per property, not one array per file) — same shape a real
+     * <input type="file" name="media[]" multiple> submits, which is what
+     * Core\Http\Request::getFiles() expects to unpack.
+     */
+    private function withMediaFiles(int $count): void
+    {
+        $_FILES['media'] = [
+            'name' => array_fill(0, $count, 'photo.jpg'),
+            'tmp_name' => array_fill(0, $count, '/tmp/fake'),
+            'error' => array_fill(0, $count, 0),
+            'size' => array_fill(0, $count, 100),
+            'type' => array_fill(0, $count, 'image/jpeg'),
+        ];
     }
 
     /**
@@ -252,6 +289,97 @@ class PostControllerTest extends TestCase
         $posts = $this->postRepo->findPage($this->groupId, 10);
         $this->assertCount(1, $posts);
         $this->assertSame($this->memberId, $posts[0]->authorMemberId, 'the forged author_member_id must be ignored');
+    }
+
+    // --- media -----------------------------------------------------------
+
+    public function testCreateRejectsAFifthMediaWithoutCreatingThePostAtAll(): void
+    {
+        $manager = $this->createMock(DelegatedAlbumManager::class);
+        $manager->expects($this->never())->method('ensureAlbum');
+        $manager->expects($this->never())->method('addMedia');
+
+        $this->withMediaFiles(5);
+        $this->withCsrf(['body' => 'Cinq médias']);
+
+        $response = $this->controller([$this->memberId], self::AUTHOR_ACCOUNT, 'identified', true, $manager)
+            ->create($this->request(), $this->params());
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame([], $this->postRepo->findPage($this->groupId, 10), 'the whole post must be rejected, not truncated to 4');
+        $flash = FlashMessage::get();
+        $this->assertNotNull($flash);
+        $this->assertSame('error', $flash['type']);
+        $this->assertStringContainsString('4', $flash['message']);
+    }
+
+    public function testCreateAcceptsExactlyFourMedia(): void
+    {
+        $manager = $this->createMock(DelegatedAlbumManager::class);
+        $manager->method('ensureAlbum')->willReturn(new DelegatedAlbum(1, 'Louveteaux', '2026-01-01'));
+        $manager->method('addMedia')->willReturnCallback(
+            fn() => new DelegatedMedia(random_int(1000, 9999), 'photo', 'pending', 0, 'photo.jpg', '2026-01-01 10:00:00')
+        );
+
+        $this->withMediaFiles(4);
+        $this->withCsrf(['body' => 'Quatre médias']);
+
+        $response = $this->controller([$this->memberId], self::AUTHOR_ACCOUNT, 'identified', true, $manager)
+            ->create($this->request(), $this->params());
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertCount(1, $this->postRepo->findPage($this->groupId, 10));
+    }
+
+    public function testCreateAcceptsAMediaOnlyPostWithNoBodyText(): void
+    {
+        $manager = $this->createMock(DelegatedAlbumManager::class);
+        $manager->method('ensureAlbum')->willReturn(new DelegatedAlbum(1, 'Louveteaux', '2026-01-01'));
+        $manager->method('addMedia')->willReturn(new DelegatedMedia(1, 'photo', 'pending', 0, 'photo.jpg', '2026-01-01 10:00:00'));
+
+        $this->withMediaFiles(1);
+        $this->withCsrf(['body' => '']);
+
+        $this->controller([$this->memberId], self::AUTHOR_ACCOUNT, 'identified', true, $manager)
+            ->create($this->request(), $this->params());
+
+        $posts = $this->postRepo->findPage($this->groupId, 10);
+        $this->assertCount(1, $posts);
+        $this->assertSame('', $posts[0]->body);
+    }
+
+    public function testCreateWithNeitherBodyNorMediaSavesNothing(): void
+    {
+        $this->withCsrf(['body' => '']);
+
+        $this->controller([$this->memberId])->create($this->request(), $this->params());
+
+        $this->assertSame([], $this->postRepo->findPage($this->groupId, 10));
+    }
+
+    public function testCreateRollsBackTheWholePostWhenAVideoIsRefusedServerSide(): void
+    {
+        // Reproduces the "videos disabled" case: gallery's own addMedia()
+        // already refuses server-side (Api\DelegatedAlbumManager::
+        // videoUploadAllowed()'s docblock) — this asserts the whole post
+        // disappears, not just the media, matching the module spec
+        // ("never a silent failure or a stuck upload").
+        $manager = $this->createMock(DelegatedAlbumManager::class);
+        $manager->method('ensureAlbum')->willReturn(new DelegatedAlbum(1, 'Louveteaux', '2026-01-01'));
+        $manager->method('addMedia')->willThrowException(new GalleryException("L'envoi de vidéos est désactivé."));
+
+        $this->withMediaFiles(1);
+        $this->withCsrf(['body' => 'Une vidéo']);
+
+        $response = $this->controller([$this->memberId], self::AUTHOR_ACCOUNT, 'identified', true, $manager)
+            ->create($this->request(), $this->params());
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame([], $this->postRepo->findPage($this->groupId, 10), 'no half-saved post');
+        $flash = FlashMessage::get();
+        $this->assertNotNull($flash);
+        $this->assertSame('error', $flash['type']);
+        $this->assertStringContainsString('vidéo', $flash['message']);
     }
 
     // --- edit ----------------------------------------------------------

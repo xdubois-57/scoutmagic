@@ -26,6 +26,7 @@ use Modules\Groups\Service\GroupListService;
 use Modules\Groups\Service\GroupService;
 use Modules\Groups\Service\GroupSessionContext;
 use Modules\Groups\Service\GroupSessionContextFactory;
+use Modules\Groups\Service\PostMediaService;
 use Modules\Groups\Service\PostService;
 use Twig\Environment;
 
@@ -48,7 +49,8 @@ class GroupController extends AbstractController
         private GroupSessionContextFactory $contextFactory,
         private SectionService $sectionService,
         private GroupFeedService $feedService,
-        private MemberService $memberService
+        private MemberService $memberService,
+        private PostMediaService $postMediaService
     ) {
     }
 
@@ -116,6 +118,31 @@ class GroupController extends AbstractController
             // this group — with one, there is nothing to choose.
             'author_options' => $this->authorOptions($group, $context),
             'max_body_length' => PostService::MAX_BODY_LENGTH,
+            'max_media_per_post' => PostMediaService::MAX_MEDIA_PER_POST,
+            'video_upload_allowed' => $this->postMediaService->videoUploadAllowed(),
+        ]);
+    }
+
+    /**
+     * GET /groups/{id}/gallery — "Galerie du groupe": every media of the
+     * group's posts, newest first. Same 404-not-403 membership rule as
+     * every other group page — readableGroup() resolves the album id
+     * from the authorised $group itself, never from anything in the
+     * request, so this can never be pointed at another group's media.
+     *
+     * @param array<string, string> $params
+     */
+    public function gallery(Request $request, array $params): Response
+    {
+        $context = $this->context();
+        $group = $this->readableGroup($params, $context);
+        if ($group === null) {
+            return new Response('Not Found', 404);
+        }
+
+        return $this->render('@groups/gallery.html.twig', [
+            'group' => $group,
+            'media' => $this->postMediaService->groupGalleryMedia($group),
         ]);
     }
 

@@ -79,10 +79,11 @@ class AlbumRepository
     /**
      * The delegated album already owned by (ownerType, ownerId), or null
      * when none exists yet — Service\DelegatedAlbumService::ensureAlbum()'s
-     * "find" half. No DB-level uniqueness is enforced on (owner_type,
-     * owner_id) — same tradeoff as files.owner_type/owner_id, which this
-     * column pair deliberately mirrors — so this picks the oldest match,
-     * deterministically, on the rare chance more than one exists.
+     * "find" half, called both before attempting create() (the common
+     * case) and after a UNIQUE constraint violation from it (the losing
+     * side of a race — see gallery_albums.owner_type's schema.sql
+     * comment). LIMIT 1 is defensive, not load-bearing: the index this
+     * queries is UNIQUE, so at most one row can ever match.
      */
     public function findByOwner(string $ownerType, int $ownerId): ?Album
     {

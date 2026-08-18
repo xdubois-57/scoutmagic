@@ -23,7 +23,8 @@ class GroupsTestHelper
             last_activity_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             created_by_member_id INTEGER NOT NULL,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            gallery_album_id INTEGER NULL
         )');
 
         $pdo->exec('CREATE TABLE discussion_group_sections (
@@ -57,6 +58,16 @@ class GroupsTestHelper
             last_activity_at TEXT NOT NULL,
             created_at TEXT NOT NULL,
             FOREIGN KEY (group_id) REFERENCES discussion_groups(id) ON DELETE CASCADE
+        )');
+
+        $pdo->exec('CREATE TABLE discussion_group_post_media (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            post_id INTEGER NOT NULL,
+            gallery_media_id INTEGER NOT NULL,
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(post_id, gallery_media_id),
+            FOREIGN KEY (post_id) REFERENCES discussion_group_posts(id) ON DELETE CASCADE
         )');
     }
 

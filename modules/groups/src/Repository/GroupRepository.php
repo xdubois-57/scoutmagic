@@ -71,6 +71,19 @@ class GroupRepository
         $stmt->execute([$closedAt, $id]);
     }
 
+    /**
+     * Caches the group's delegated gallery album id, resolved by
+     * Service\PostMediaService::ensureAlbumId(). Idempotent to call twice
+     * with the same value — two concurrent first-media posts both resolve
+     * the same album id from gallery's own concurrency-safe ensureAlbum()
+     * and both land here harmlessly.
+     */
+    public function setGalleryAlbumId(int $id, int $galleryAlbumId): void
+    {
+        $stmt = $this->pdo->prepare('UPDATE discussion_groups SET gallery_album_id = ? WHERE id = ?');
+        $stmt->execute([$galleryAlbumId, $id]);
+    }
+
     public function delete(int $id): void
     {
         $stmt = $this->pdo->prepare('DELETE FROM discussion_groups WHERE id = ?');
@@ -90,7 +103,8 @@ class GroupRepository
             $row['closed_at'] !== null ? (string) $row['closed_at'] : null,
             (string) $row['last_activity_at'],
             (int) $row['created_by_member_id'],
-            (string) $row['created_at']
+            (string) $row['created_at'],
+            $row['gallery_album_id'] !== null ? (int) $row['gallery_album_id'] : null
         );
     }
 }

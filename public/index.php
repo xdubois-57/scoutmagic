@@ -2209,32 +2209,59 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
     $groupsPostRepo = new \Modules\Groups\Repository\PostRepository($pdo);
     $groupsActivityService = new \Modules\Groups\Service\GroupActivityService($groupsGroupRepo, $groupsPostRepo);
     $groupsPostService = new \Modules\Groups\Service\PostService($groupsPostRepo, $groupsActivityService);
+
+    // gallery is a hard dependency (module.json's requires) — this block
+    // only ever runs when it is enabled, so $galleryDelegatedAlbumManager
+    // (built unconditionally inside gallery's own block above) is always
+    // available here; no nullable optional-dependency handling. The
+    // assert() below is a static-analysis narrowing hint only (PHPStan
+    // cannot see across the two independent `if` blocks) — same
+    // precedent as the \assert() calls already in DelegatedAlbumService
+    // and GalleryController.
+    \assert(isset($galleryDelegatedAlbumManager));
+    $groupsPostMediaRepo = new \Modules\Groups\Repository\PostMediaRepository($pdo);
+    $groupsPostMediaService = new \Modules\Groups\Service\PostMediaService(
+        $galleryDelegatedAlbumManager, $groupsPostMediaRepo, $groupsGroupRepo
+    );
+
     $groupsFeedService = new \Modules\Groups\Service\GroupFeedService(
         $groupsPostRepo,
         new \Modules\Groups\Service\PostAuthorResolver($memberService, $userAccountRepo),
-        $groupsPostService
+        $groupsPostService,
+        $groupsPostMediaService
     );
 
-    // Group files (group media, later) are readable only by the group's
-    // own members — ARCHITECTURE.md §8.3's owner_type registry, appended
-    // here so it reaches FileAccessGuard, which is built after every
-    // module block. Nothing stores such a file yet.
-    $fileOwnershipCheckers[] = new \Modules\Groups\File\GroupFileOwnershipChecker(
+    // Group files are readable only by the group's own members —
+    // ARCHITECTURE.md §8.3's owner_type registry, appended here so it
+    // reaches FileAccessGuard, which is built after every module block.
+    $groupsFileOwnershipChecker = new \Modules\Groups\File\GroupFileOwnershipChecker(
         $groupsGroupRepo, $groupsAccessService, $scoutYearResolver
+    );
+    $fileOwnershipCheckers[] = $groupsFileOwnershipChecker;
+
+    // The gallery-side twin of the checker above, appended to gallery's
+    // OWN registry (Service\DelegatedAlbumAccessRegistry — a SEPARATE
+    // registry from Core\File\FileAccessGuard's, see gallery prompt 5) so
+    // a group's delegated album is readable by exactly the same members.
+    // $galleryDelegatedAlbumAccessCheckers is seeded near the top of this
+    // file and only consumed at the very end, once every module block
+    // that might append to it — this one included — has run.
+    $galleryDelegatedAlbumAccessCheckers[] = new \Modules\Groups\Gallery\GroupDelegatedAlbumAccessChecker(
+        $groupsFileOwnershipChecker
     );
 
     $frontController->registerController(
         \Modules\Groups\Controller\GroupController::class,
         new \Modules\Groups\Controller\GroupController(
             $twig, $groupsGroupRepo, $groupsListService, $groupsAccessService, $groupsService,
-            $groupsContextFactory, $sectionService, $groupsFeedService, $memberService
+            $groupsContextFactory, $sectionService, $groupsFeedService, $memberService, $groupsPostMediaService
         )
     );
     $frontController->registerController(
         \Modules\Groups\Controller\PostController::class,
         new \Modules\Groups\Controller\PostController(
             $twig, $groupsGroupRepo, $groupsPostRepo, $groupsAccessService, $groupsFeedService,
-            $groupsPostService, $groupsContextFactory
+            $groupsPostService, $groupsContextFactory, $groupsPostMediaService
         )
     );
     $frontController->registerController(

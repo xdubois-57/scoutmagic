@@ -7,13 +7,16 @@ namespace Tests\Modules\Groups\Service;
 use Core\Member\MemberService;
 use Core\Security\Role;
 use Core\Security\UserAccountRepository;
+use Modules\Gallery\Api\DelegatedAlbumManager;
 use Modules\Groups\Repository\GroupRepository;
 use Modules\Groups\Repository\Post;
+use Modules\Groups\Repository\PostMediaRepository;
 use Modules\Groups\Repository\PostRepository;
 use Modules\Groups\Service\GroupActivityService;
 use Modules\Groups\Service\GroupFeedService;
 use Modules\Groups\Service\GroupSessionContext;
 use Modules\Groups\Service\PostAuthorResolver;
+use Modules\Groups\Service\PostMediaService;
 use Modules\Groups\Service\PostService;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
@@ -50,10 +53,20 @@ class GroupFeedServiceTest extends TestCase
         $this->feedService = new GroupFeedService(
             $this->postRepo,
             new PostAuthorResolver($memberService, $accountRepo),
-            new PostService($this->postRepo, new GroupActivityService($this->groupRepo, $this->postRepo))
+            new PostService($this->postRepo, new GroupActivityService($this->groupRepo, $this->postRepo)),
+            $this->postMediaService()
         );
 
         $this->groupId = $this->groupRepo->create('Louveteaux', null, null, 1);
+    }
+
+    private function postMediaService(): PostMediaService
+    {
+        return new PostMediaService(
+            $this->createMock(DelegatedAlbumManager::class),
+            new PostMediaRepository($this->pdo),
+            $this->groupRepo
+        );
     }
 
     private function context(): GroupSessionContext
@@ -231,7 +244,8 @@ class GroupFeedServiceTest extends TestCase
         $feedService = new GroupFeedService(
             $this->postRepo,
             new PostAuthorResolver($memberService, $accountRepo),
-            new PostService($this->postRepo, new GroupActivityService($this->groupRepo, $this->postRepo))
+            new PostService($this->postRepo, new GroupActivityService($this->groupRepo, $this->postRepo)),
+            $this->postMediaService()
         );
 
         $this->seed(GroupFeedService::PAGE_SIZE);

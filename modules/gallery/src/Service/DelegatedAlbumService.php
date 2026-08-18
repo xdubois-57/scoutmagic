@@ -82,9 +82,25 @@ class DelegatedAlbumService implements DelegatedAlbumManager
         }
 
         $scoutYearId = (int) $this->scoutYearService->getCurrentYear()['id'];
-        $albumId = $this->albumRepository->create(
-            Album::TYPE_LOCAL, $title, null, $albumDate, null, $scoutYearId, null, $location->id, $createdBy, $ownerType, $ownerId
-        );
+
+        try {
+            $albumId = $this->albumRepository->create(
+                Album::TYPE_LOCAL, $title, null, $albumDate, null, $scoutYearId, null, $location->id, $createdBy, $ownerType, $ownerId
+            );
+        } catch (\PDOException $e) {
+            // Two callers racing to create the first album for the same
+            // owner: the loser's INSERT fails on gallery_albums'
+            // UNIQUE(owner_type, owner_id) index (schema.sql's comment on
+            // that pair) rather than creating a second album. The find()
+            // above already missed the winner's row (it wasn't committed
+            // yet at that point) — it will see it now.
+            if ($e->getCode() !== '23000') {
+                throw $e;
+            }
+            $winner = $this->albumRepository->findByOwner($ownerType, $ownerId);
+            \assert($winner !== null);
+            return $this->toAlbumDto($winner);
+        }
 
         $created = $this->albumRepository->findById($albumId);
         \assert($created !== null);
@@ -131,6 +147,11 @@ class DelegatedAlbumService implements DelegatedAlbumManager
         }
 
         $this->albumRepository->delete($albumId);
+    }
+
+    public function videoUploadAllowed(): bool
+    {
+        return $this->mediaService->videoUploadAllowed();
     }
 
     /**

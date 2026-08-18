@@ -110,8 +110,14 @@ class MediaService
         $allowedMimes = $isVideo ? self::VIDEO_MIMES : self::PHOTO_MIMES;
 
         try {
+            // A delegated album's original is scoped by the same
+            // owner_type/owner_id as the album itself (null/null for an
+            // ordinary album, unchanged) — so /files/{id} is governed by
+            // the exact same ownership check as /gallery/media/{id}/{size},
+            // instead of stopping at the flat 'identified' floor below.
             $fileId = $this->uploadHandler->handle(
-                $uploadedFile, "gallery/{$album->id}/orig", $allowedMimes, $maxBytes, 'identified', 'gallery', $accountId
+                $uploadedFile, "gallery/{$album->id}/orig", $allowedMimes, $maxBytes, 'identified', 'gallery', $accountId,
+                $album->ownerType, $album->ownerId
             );
         } catch (UploadException $e) {
             throw new GalleryException($e->getMessage());

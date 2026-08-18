@@ -2,7 +2,7 @@
   "id": "groups",
   "name": "Groupes de discussion",
   "description": "Groupes de discussion privés pour l'unité : un groupe par section et par année scoute, ou des groupes sur invitation. Visibles uniquement par leurs membres.",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "enabled_by_default": false,
   "requires": [
     "gallery"
@@ -64,6 +64,21 @@
       "label": "",
       "breadcrumb": {
         "label": "Membres",
+        "parents": [
+          "Espace animés"
+        ]
+      }
+    },
+    {
+      "path": "/groups/{id}/gallery",
+      "method": "GET",
+      "controller": "Modules\\Groups\\Controller\\GroupController",
+      "action": "gallery",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": "",
+      "breadcrumb": {
+        "label": "Galerie du groupe",
         "parents": [
           "Espace animés"
         ]
