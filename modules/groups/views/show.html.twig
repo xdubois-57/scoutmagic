@@ -1,0 +1,81 @@
+{% extends "base.html.twig" %}
+
+{% block title %}{{ group.name }} — {{ site_name }}{% endblock %}
+
+{% block content %}
+    {% include '@groups/partials/group_header.html.twig' %}
+
+    {% if post_permission.allowed %}
+        <form method="post" action="/groups/{{ group.id }}/posts" class="card mb-3">
+            <div class="card-body">
+                <label class="form-label small mb-1" for="post-body">Écrire un message</label>
+                {{ csrf_field()|raw }}
+                <textarea class="form-control mb-2" id="post-body" name="body" rows="3" required
+                          maxlength="{{ max_body_length }}" placeholder="Votre message…"></textarea>
+
+                {% if author_options is not empty %}
+                    <label class="form-label small mb-1" for="post-author">Publier en tant que</label>
+                    <select class="form-select mb-2" id="post-author" name="author_member_id" style="min-height:44px;">
+                        {% for option in author_options %}
+                            <option value="{{ option.id }}">{{ option.name }}</option>
+                        {% endfor %}
+                    </select>
+                {% endif %}
+
+                <button type="submit" class="btn btn-primary" style="min-height:44px;">Publier</button>
+            </div>
+        </form>
+    {% endif %}
+
+    {% if pinned is not empty %}
+        {% for row in pinned %}
+            {% include '@groups/partials/post_card.html.twig' with { row: row, group: group } %}
+        {% endfor %}
+        <hr class="my-3">
+    {% endif %}
+
+    <div id="groups-feed">
+        {% if posts is empty and pinned is empty %}
+            <p class="text-body-secondary text-center py-5 mb-0">Aucun message dans ce groupe pour le moment.</p>
+        {% else %}
+            {% include '@groups/partials/feed_page.html.twig' with { posts: posts, group: group, next_cursor: next_cursor } %}
+        {% endif %}
+    </div>
+{% endblock %}
+
+{% block scripts %}
+<script nonce="{{ csp_nonce }}">
+// "Charger plus" appends the next keyset page in place, and the inline
+// edit form toggles without leaving the feed. Both degrade to a plain
+// page reload if this script never runs: the button is a real link target
+// server-side, and every action is a normal form POST.
+document.addEventListener('click', async (event) => {
+    const loadMore = event.target.closest('.groups-load-more');
+    if (loadMore) {
+        loadMore.disabled = true;
+        const response = await fetch(loadMore.dataset.url, { headers: { 'X-Requested-With': 'fetch' } });
+        if (response.ok) {
+            const wrapper = loadMore.closest('.groups-load-more-wrapper');
+            wrapper.insertAdjacentHTML('beforebegin', await response.text());
+            wrapper.remove();
+        } else {
+            loadMore.disabled = false;
+        }
+        return;
+    }
+
+    const editToggle = event.target.closest('.groups-edit-toggle');
+    if (editToggle) {
+        document.getElementById('post-edit-' + editToggle.dataset.post)?.classList.remove('d-none');
+        document.getElementById('post-body-' + editToggle.dataset.post)?.classList.add('d-none');
+        return;
+    }
+
+    const editCancel = event.target.closest('.groups-edit-cancel');
+    if (editCancel) {
+        document.getElementById('post-edit-' + editCancel.dataset.post)?.classList.add('d-none');
+        document.getElementById('post-body-' + editCancel.dataset.post)?.classList.remove('d-none');
+    }
+});
+</script>
+{% endblock %}

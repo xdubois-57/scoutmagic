@@ -1,0 +1,108 @@
+{% extends "base.html.twig" %}
+
+{% block title %}Membres — {{ group.name }} — {{ site_name }}{% endblock %}
+
+{% block content %}
+    {% include '@groups/partials/group_header.html.twig' with { badges: { is_invitation: group.sectionId is null, section_names: derived_sections, is_archived: false, is_moderator: can_moderate } } %}
+
+    <div class="card mb-3">
+        <div class="card-body">
+            <h2 class="h6 mb-2">Sections</h2>
+            {% if derived_sections is empty %}
+                <p class="small text-body-secondary mb-0">Aucune section liée : ce groupe fonctionne uniquement sur invitation.</p>
+            {% else %}
+                <div class="d-flex flex-wrap gap-2 mb-2">
+                    {% for name in derived_sections %}
+                        <span class="badge bg-info-subtle text-info-emphasis">{{ name }}</span>
+                    {% endfor %}
+                </div>
+                <p class="small text-body-secondary mb-0">
+                    Tous les membres de ces sections font partie du groupe. Cette liste suit automatiquement
+                    l'import du Desk : elle ne se modifie pas ici.
+                </p>
+            {% endif %}
+
+            {% if can_moderate %}
+                <form method="post" action="/groups/{{ group.id }}/invite-section" class="row g-2 mt-2">
+                    {{ csrf_field()|raw }}
+                    <div class="col-12 col-md-8">
+                        <label class="form-label small mb-1" for="invite-section">Ajouter une section</label>
+                        <select class="form-select" id="invite-section" name="section_id" style="min-height:44px;">
+                            {% for section in sections %}
+                                <option value="{{ section.id }}">{{ section.name ?? section.desk_code }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-12 col-md-4 d-flex align-items-end">
+                        <button type="submit" class="btn btn-outline-primary w-100" style="min-height:44px;">Ajouter</button>
+                    </div>
+                </form>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-body">
+            <h2 class="h6 mb-2">Membres invités</h2>
+            {% if explicit_members is empty %}
+                <p class="small text-body-secondary mb-0">Aucun membre invité individuellement.</p>
+            {% else %}
+                <div class="list-group list-group-flush">
+                    {% for row in explicit_members %}
+                        <div class="list-group-item px-0 py-2 d-flex align-items-center justify-content-between gap-2 flex-wrap">
+                            <div class="d-flex align-items-center gap-2 flex-wrap">
+                                <span class="fw-semibold">
+                                    {% if row.profile %}{{ row.profile|display_name }}{% else %}Membre #{{ row.member_id }}{% endif %}
+                                </span>
+                                {% if row.is_moderator %}
+                                    <span class="badge bg-primary-subtle text-primary-emphasis">Modérateur</span>
+                                {% endif %}
+                            </div>
+                            {% if can_moderate %}
+                                <div class="d-flex gap-2">
+                                    <form method="post" action="/groups/{{ group.id }}/moderator">
+                                        {{ csrf_field()|raw }}
+                                        <input type="hidden" name="member_id" value="{{ row.member_id }}">
+                                        <input type="hidden" name="is_moderator" value="{{ row.is_moderator ? '0' : '1' }}">
+                                        <button type="submit" class="btn btn-sm btn-outline-secondary d-flex align-items-center" style="min-height:44px;">
+                                            {{ row.is_moderator ? 'Retirer la modération' : 'Nommer modérateur' }}
+                                        </button>
+                                    </form>
+                                    <form method="post" action="/groups/{{ group.id }}/remove-member"
+                                          data-confirm="Retirer ce membre du groupe ?">
+                                        {{ csrf_field()|raw }}
+                                        <input type="hidden" name="member_id" value="{{ row.member_id }}">
+                                        <button type="submit" class="btn btn-sm btn-outline-danger d-flex align-items-center" style="min-height:44px;">
+                                            <i class="bi bi-x-lg"></i><span class="visually-hidden">Retirer</span>
+                                        </button>
+                                    </form>
+                                </div>
+                            {% endif %}
+                        </div>
+                    {% endfor %}
+                </div>
+            {% endif %}
+
+            {% if can_moderate and invite_candidates is not empty %}
+                <form method="post" action="/groups/{{ group.id }}/invite-member" class="row g-2 mt-3">
+                    {{ csrf_field()|raw }}
+                    <div class="col-12 col-md-8">
+                        <label class="form-label small mb-1" for="invite-member">Inviter un membre</label>
+                        <select class="form-select" id="invite-member" name="member_id" style="min-height:44px;">
+                            {% for group_option in invite_candidates %}
+                                <optgroup label="{{ group_option.section }}">
+                                    {% for profile in group_option.members %}
+                                        <option value="{{ profile.memberId }}">{{ profile|display_name }}</option>
+                                    {% endfor %}
+                                </optgroup>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-12 col-md-4 d-flex align-items-end">
+                        <button type="submit" class="btn btn-primary w-100" style="min-height:44px;">Inviter</button>
+                    </div>
+                </form>
+            {% endif %}
+        </div>
+    </div>
+{% endblock %}

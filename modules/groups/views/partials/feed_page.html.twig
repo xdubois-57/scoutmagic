@@ -1,0 +1,18 @@
+{#
+  One page of the paginated stream — rendered both inside the group page
+  and on its own for "Charger plus" (GET /groups/{id}/feed), which is why
+  it extends nothing and carries the next button with it: the JS replaces
+  the button with whatever this returns.
+#}
+{% for row in posts %}
+    {% include '@groups/partials/post_card.html.twig' with { row: row, group: group } %}
+{% endfor %}
+
+{% if next_cursor %}
+    <div class="text-center my-3 groups-load-more-wrapper">
+        <button type="button" class="btn btn-outline-secondary groups-load-more" style="min-height:44px;"
+                data-url="/groups/{{ group.id }}/feed?cursor={{ next_cursor|url_encode }}">
+            Charger plus
+        </button>
+    </div>
+{% endif %}
