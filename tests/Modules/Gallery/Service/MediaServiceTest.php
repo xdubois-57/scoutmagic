@@ -210,4 +210,71 @@ class MediaServiceTest extends TestCase
     {
         $this->assertFalse($this->service->videoUploadAllowed());
     }
+
+    private function createDelegatedAlbum(): int
+    {
+        return $this->albumRepository->create(
+            Album::TYPE_LOCAL, 'Album délégué', null, '2026-01-01', null, 1, null,
+            $this->storageLocationRepository->findDefault()->id, $this->authorId, 'some_owner_type', 42
+        );
+    }
+
+    public function testUploadThrowsForADelegatedAlbum(): void
+    {
+        $album = $this->albumRepository->findById($this->createDelegatedAlbum());
+
+        $this->expectException(GalleryException::class);
+        $this->service->upload($album, $this->fakeUploadedImage(), Role::CHIEF, 'chief@test.com', $this->authorId);
+    }
+
+    public function testAddWithoutAuthorisationCheckStoresMediaOnADelegatedAlbum(): void
+    {
+        $album = $this->albumRepository->findById($this->createDelegatedAlbum());
+
+        $media = $this->service->addWithoutAuthorisationCheck($album, $this->fakeUploadedImage(), $this->authorId);
+
+        $this->assertSame(Media::STATUS_PENDING, $media->processingStatus);
+        $this->assertNotNull($this->mediaRepository->findById($media->id));
+    }
+
+    public function testDeleteThrowsForADelegatedAlbum(): void
+    {
+        $albumId = $this->createDelegatedAlbum();
+        $album = $this->albumRepository->findById($albumId);
+        $media = $this->service->addWithoutAuthorisationCheck($album, $this->fakeUploadedImage(), $this->authorId);
+
+        $this->expectException(GalleryException::class);
+        $this->service->delete($media, $album, Role::CHIEF, 'chief@test.com');
+    }
+
+    public function testDeleteWithoutAuthorisationCheckRemovesMediaFromADelegatedAlbum(): void
+    {
+        $albumId = $this->createDelegatedAlbum();
+        $album = $this->albumRepository->findById($albumId);
+        $media = $this->service->addWithoutAuthorisationCheck($album, $this->fakeUploadedImage(), $this->authorId);
+
+        $this->service->deleteWithoutAuthorisationCheck($media, $album);
+
+        $this->assertNull($this->mediaRepository->findById($media->id));
+    }
+
+    public function testReorderThrowsForADelegatedAlbum(): void
+    {
+        $album = $this->albumRepository->findById($this->createDelegatedAlbum());
+
+        $this->expectException(GalleryException::class);
+        $this->service->reorder($album, [], Role::CHIEF, 'chief@test.com');
+    }
+
+    public function testResolveUrlReturnsNullForADelegatedAlbum(): void
+    {
+        $albumId = $this->createDelegatedAlbum();
+        $album = $this->albumRepository->findById($albumId);
+        $media = $this->service->addWithoutAuthorisationCheck($album, $this->fakeUploadedImage(), $this->authorId);
+        $this->mediaRepository->markPhotoDone($media->id, 'thumb.jpg', 'med.jpg', 'lg.jpg', 100, 100);
+
+        $url = $this->service->resolveUrl($this->mediaRepository->findById($media->id), $album, 'thumb');
+
+        $this->assertNull($url);
+    }
 }

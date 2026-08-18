@@ -25,12 +25,15 @@ class AlbumRepository
     /**
      * All albums, newest activity date first — the chief "manage" list
      * (unfiltered; Service\GalleryAccessService applies section scoping).
+     * Delegated albums (owner_type IS NOT NULL) are always excluded: they
+     * are reachable only through their owning module, never through
+     * gallery's own management pages.
      *
      * @return Album[]
      */
     public function findAll(): array
     {
-        $stmt = $this->pdo->query('SELECT * FROM gallery_albums ORDER BY album_date DESC, id DESC');
+        $stmt = $this->pdo->query('SELECT * FROM gallery_albums WHERE owner_type IS NULL ORDER BY album_date DESC, id DESC');
         return $stmt !== false ? array_map([$this, 'hydrate'], $stmt->fetchAll(\PDO::FETCH_ASSOC)) : [];
     }
 
@@ -40,6 +43,11 @@ class AlbumRepository
      * given scout years — the public gallery list (module spec: "current
      * or previous year"). $sectionIds may be empty (member linked to no
      * section) — unit-wide albums still show.
+     *
+     * Delegated albums (owner_type IS NOT NULL) are always excluded — same
+     * reasoning as findAll() above; a delegated album is never section/
+     * scout-year visible in gallery's own sense, since a member's access
+     * to it is decided entirely by its owning module's own rule.
      *
      * @param int[] $sectionIds
      * @param int[] $scoutYearIds
@@ -62,10 +70,28 @@ class AlbumRepository
         }
 
         $stmt = $this->pdo->prepare(
-            "SELECT * FROM gallery_albums WHERE scout_year_id IN ({$yearPlaceholders}) AND {$sectionClause} ORDER BY album_date DESC, id DESC"
+            "SELECT * FROM gallery_albums WHERE owner_type IS NULL AND scout_year_id IN ({$yearPlaceholders}) AND {$sectionClause} ORDER BY album_date DESC, id DESC"
         );
         $stmt->execute($params);
         return array_map([$this, 'hydrate'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
+    /**
+     * The delegated album already owned by (ownerType, ownerId), or null
+     * when none exists yet — Service\DelegatedAlbumService::ensureAlbum()'s
+     * "find" half. No DB-level uniqueness is enforced on (owner_type,
+     * owner_id) — same tradeoff as files.owner_type/owner_id, which this
+     * column pair deliberately mirrors — so this picks the oldest match,
+     * deterministically, on the rare chance more than one exists.
+     */
+    public function findByOwner(string $ownerType, int $ownerId): ?Album
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT * FROM gallery_albums WHERE owner_type = ? AND owner_id = ? ORDER BY id ASC LIMIT 1'
+        );
+        $stmt->execute([$ownerType, $ownerId]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+        return $row !== false ? $this->hydrate($row) : null;
     }
 
     public function create(
@@ -77,13 +103,18 @@ class AlbumRepository
         int $scoutYearId,
         ?string $externalUrl,
         ?int $storageLocationId,
-        int $createdBy
+        int $createdBy,
+        // Last, both null: an ordinary album never sets these — only
+        // Service\DelegatedAlbumService::ensureAlbum() ever passes a
+        // non-null pair.
+        ?string $ownerType = null,
+        ?int $ownerId = null
     ): int {
         $stmt = $this->pdo->prepare(
-            'INSERT INTO gallery_albums (type, title, subtitle, album_date, section_id, scout_year_id, external_url, storage_location_id, created_by, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+            'INSERT INTO gallery_albums (type, title, subtitle, album_date, section_id, scout_year_id, external_url, storage_location_id, created_by, created_at, owner_type, owner_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
-        $stmt->execute([$type, $title, $subtitle, $albumDate, $sectionId, $scoutYearId, $externalUrl, $storageLocationId, $createdBy, date('Y-m-d H:i:s')]);
+        $stmt->execute([$type, $title, $subtitle, $albumDate, $sectionId, $scoutYearId, $externalUrl, $storageLocationId, $createdBy, date('Y-m-d H:i:s'), $ownerType, $ownerId]);
         return (int) $this->pdo->lastInsertId();
     }
 
@@ -186,7 +217,9 @@ class AlbumRepository
             migrationTargetLocationId: $row['migration_target_location_id'] !== null ? (int) $row['migration_target_location_id'] : null,
             migrationError: $row['migration_error'] !== null ? (string) $row['migration_error'] : null,
             createdBy: (int) $row['created_by'],
-            createdAt: (string) $row['created_at']
+            createdAt: (string) $row['created_at'],
+            ownerType: $row['owner_type'] !== null ? (string) $row['owner_type'] : null,
+            ownerId: $row['owner_id'] !== null ? (int) $row['owner_id'] : null
         );
     }
 }

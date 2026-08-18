@@ -1011,6 +1011,19 @@ $sectionDocumentOwnershipChecker = new \Core\Member\SectionDocumentOwnershipChec
 // FileController is wired, at the end of this file.
 $fileOwnershipCheckers = [$sectionDocumentOwnershipChecker];
 
+// The registry Modules\Gallery\Service\DelegatedAlbumAccessRegistry
+// consults for a delegated album — gallery's own equivalent of
+// $fileOwnershipCheckers above, one level up. Gallery contributes no
+// checker of its own (it only hosts delegated albums, never owns one), so
+// this starts empty; a module that hosts one through
+// Api\DelegatedAlbumManager appends its own checker from inside its own
+// getEnabledModuleIds() block. Consumed only by
+// Controller\GalleryController::serveMedia(), constructed at the end of
+// this file for the exact same ordering reason as Core\File\FileAccessGuard
+// above: every module block that might append to this array runs before
+// that point.
+$galleryDelegatedAlbumAccessCheckers = [];
+
 // Snapshot taken here rather than at the guard's construction site:
 // $linkedMembers is re-resolved further down for the Espace animés menu,
 // and the guard's owner-scoping must not depend on which of the two
@@ -2142,13 +2155,18 @@ if (in_array('gallery', $moduleManager->getEnabledModuleIds(), true)) {
         $galleryAccessService, $galleryStorageBackendFactory, $galleryStorageLocationService, $galleryFfmpegAvailability
     );
 
-    $frontController->registerController(
-        \Modules\Gallery\Controller\GalleryController::class,
-        new \Modules\Gallery\Controller\GalleryController(
-            $twig, $galleryAlbumService, $galleryMediaService, $galleryMediaRepo, $memberService,
-            $sectionService, $scoutYearService, $galleryStorageBackendFactory, $galleryStorageLocationService
-        )
+    // Controller\GalleryController is NOT registered here — see the end
+    // of this file, where $galleryDelegatedAlbumAccessCheckers is
+    // guaranteed complete. Api\DelegatedAlbumManager's concrete
+    // implementation has no such ordering constraint (nothing it does
+    // consults that registry), so it is built here like any other gallery
+    // service, ready for a future module's block to consume — no consumer
+    // exists yet.
+    $galleryDelegatedAlbumManager = new \Modules\Gallery\Service\DelegatedAlbumService(
+        $galleryAlbumRepo, $galleryMediaRepo, $galleryMediaService, $galleryStorageLocationRepo,
+        $galleryStorageLocationService, $galleryStorageBackendFactory, $scoutYearService
     );
+
     $frontController->registerController(
         \Modules\Gallery\Controller\GalleryChiefController::class,
         new \Modules\Gallery\Controller\GalleryChiefController(
@@ -2630,6 +2648,27 @@ $fileAccessGuard = new FileAccessGuard(
 $fileController = new FileController($twig, $fileAccessGuard, $storagePath, $encryptedFileStorageService, $imageVariantService);
 $fileController->setJournalService($journalService);
 $frontController->registerController(FileController::class, $fileController);
+
+// Gallery media serving (/gallery/media/{id}/{size}) — GalleryController
+// built here, deliberately last, for the same reason as FileController
+// just above: Service\DelegatedAlbumAccessRegistry must be complete
+// before serveMedia() can safely consult it, and every module block that
+// might append to $galleryDelegatedAlbumAccessCheckers runs above this
+// point. Guarded by isset(): gallery might be disabled, in which case none
+// of its variables exist and there is nothing to register.
+if (isset($galleryAlbumService, $galleryMediaService, $galleryMediaRepo, $galleryStorageBackendFactory, $galleryStorageLocationService)) {
+    $galleryDelegatedAlbumAccessRegistry = new \Modules\Gallery\Service\DelegatedAlbumAccessRegistry(
+        $galleryDelegatedAlbumAccessCheckers
+    );
+    $frontController->registerController(
+        \Modules\Gallery\Controller\GalleryController::class,
+        new \Modules\Gallery\Controller\GalleryController(
+            $twig, $galleryAlbumService, $galleryMediaService, $galleryMediaRepo, $memberService,
+            $sectionService, $scoutYearService, $galleryStorageBackendFactory, $galleryStorageLocationService,
+            $galleryDelegatedAlbumAccessRegistry, $linkedMemberIds
+        )
+    );
+}
 
 // RGPD configuration controller
 $frontController->registerController(RgpdConfigController::class, new RgpdConfigController($twig, $editableContentService, $rgpdContentService, $settingService, $moduleManager, $journalService));

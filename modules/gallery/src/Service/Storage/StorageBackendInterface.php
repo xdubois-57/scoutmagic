@@ -35,8 +35,17 @@ interface StorageBackendInterface
      * Controller\GalleryController::serveMedia() instead); for
      * S3StorageBackend it's either the configured public URL prefix or a
      * time-limited pre-signed URL.
+     *
+     * $ttl is a pre-signing expiry understood by Aws\S3\S3Client::
+     * createPresignedRequest() (e.g. '+1 hour', '+5 minutes') — only ever
+     * meaningful for S3StorageBackend without a public URL configured;
+     * LocalStorageBackend ignores it entirely (its "URL" is this app's own
+     * access-controlled route, not a time-limited grant). Controller\
+     * GalleryController::serveMedia() passes a short TTL for a delegated
+     * album's media, minted fresh per request and never stored or logged;
+     * every other caller leaves it at the default.
      */
-    public function url(string $key): string;
+    public function url(string $key, string $ttl = '+1 hour'): string;
 
     public function exists(string $key): bool;
 }
