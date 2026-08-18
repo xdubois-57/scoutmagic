@@ -230,9 +230,14 @@ class NavRenderingTest extends TestCase
 
     public function testHeaderAvatarShownForIdentifiedSession(): void
     {
+        // No aria-label on the link itself — the avatar span it wraps is
+        // aria-hidden (see partials/account_avatar.html.twig), so the
+        // accessible name comes from this visually-hidden span instead
+        // (SonarCloud Web:S7927: an aria-label with no matching visible
+        // text is itself a finding).
         $html = $this->renderNav(Role::ADMIN, true);
         $this->assertMatchesRegularExpression(
-            '/<header[^>]*>.*?<a href="\/account"[^>]*aria-label="Mon compte"[^>]*>/s',
+            '/<header[^>]*>.*?<a href="\/account"[^>]*>.*?<span class="visually-hidden">Mon compte<\/span>.*?<\/a>/s',
             $html
         );
     }
@@ -241,7 +246,6 @@ class NavRenderingTest extends TestCase
     {
         $html = $this->renderNav(Role::PUBLIC, false);
         [$header] = explode('</header>', $html, 2);
-        $this->assertStringNotContainsString('aria-label="Mon compte"', $header);
         $this->assertStringNotContainsString('/account', $header);
     }
 

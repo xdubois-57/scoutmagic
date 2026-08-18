@@ -15,8 +15,9 @@
        is already reachable via the hamburger button. Public visitors keep
        this header exactly as before (no "Se connecter" added here — it
        stays in the offcanvas footer, unchanged). #}
-    <a href="/account" class="text-decoration-none ms-1" aria-label="Mon compte" title="Mon compte">
+    <a href="/account" class="text-decoration-none ms-1" title="Mon compte">
         {% include 'partials/account_avatar.html.twig' with {size: 36, font_size: '.8rem'} %}
+        <span class="visually-hidden">Mon compte</span>
     </a>
     {% endif %}
 </header>
