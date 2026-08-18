@@ -183,6 +183,15 @@ function purgeAllContentCaches() {
 }
 
 self.addEventListener('message', function (event) {
+    // A service worker only ever receives a postMessage() from a client
+    // legitimately controlled by it (same-origin, within scope) in
+    // practice, but the type/consent payload below drives real
+    // cache-purge and config-storage side effects — origin is checked
+    // explicitly rather than trusting event.source implicitly.
+    if (event.origin !== self.location.origin) {
+        return;
+    }
+
     const data = event.data || {};
 
     if (data.type === 'offline-config') {
