@@ -3,25 +3,30 @@
 
   `summary` is a Modules\Groups\Service\ReactionSummary (entries already in
   the fixed display order, with the viewer's own one flagged), `action` the
-  POST endpoint, and `compact` switches to the tighter variant used under a
-  reply.
+  POST endpoint, `reactors_url` the GET endpoint behind the tally's own
+  click (Controller\ReactionController's `postReactors`/`replyReactors` —
+  "who reacted, and with what"), and `compact` switches to the tighter
+  variant used under a reply.
 
   Every button is a real form POST, so this works with no JavaScript at
   all; groups.js upgrades the same POST to a fetch() and swaps this whole
   div with the server's freshly rendered response (Controller\
   ReactionController), so a reaction never reloads the page but still
-  waits for the server's answer before showing anything new.
+  waits for the server's answer before showing anything new. The tally
+  itself is a plain, unstyled <button> with no JS at all: nothing here
+  breaks if groups.js never loads, it just stops being clickable.
 #}
 <div class="groups-reactions{{ compact ? ' groups-reactions-compact' : '' }} d-flex align-items-center flex-wrap gap-1 mt-2">
     {% if summary.entries is not empty %}
-        <span class="groups-reaction-tally d-inline-flex align-items-center gap-1">
+        <button type="button" class="groups-reaction-tally btn btn-link p-0 border-0 d-inline-flex align-items-center gap-1 text-decoration-none"
+                data-reactors-url="{{ reactors_url }}" aria-haspopup="dialog">
             {% for entry in summary.entries %}
                 <span class="groups-reaction-count{{ entry.is_own ? ' groups-reaction-own' : '' }}"
                       title="{{ entry.count }}">
                     <span aria-hidden="true">{{ entry.emoji }}</span>{{ entry.count }}
                 </span>
             {% endfor %}
-        </span>
+        </button>
     {% endif %}
 
     {#

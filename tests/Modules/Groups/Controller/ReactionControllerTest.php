@@ -78,7 +78,13 @@ class ReactionControllerTest extends GroupsControllerTestCase
             $this->replyRepo,
             $access,
             $reactionService,
-            new GroupSessionContextFactory($memberService, $accountRepo, $this->scoutYearResolverMock())
+            new GroupSessionContextFactory($memberService, $accountRepo, $this->scoutYearResolverMock()),
+            null,
+            new \Modules\Groups\Service\ReactorListService(
+                ReactionRepository::forPosts($this->pdo),
+                ReactionRepository::forReplies($this->pdo),
+                $memberService
+            )
         );
     }
 
@@ -352,5 +358,103 @@ class ReactionControllerTest extends GroupsControllerTestCase
 
         $this->assertSame(403, $response->getStatusCode());
         $this->assertNull($this->postReactionKey($this->memberId));
+    }
+
+    /**
+     * "Who reacted, and with what" — the dialog behind a reaction tally's
+     * own click (groups.js).
+     */
+    private function reactorsRequest(): Request
+    {
+        return new Request('GET', '/groups/' . $this->groupId . '/posts/' . $this->postId . '/reactions', [], [], [], []);
+    }
+
+    public function testPostReactorsRendersTheReactorsFragment(): void
+    {
+        $this->withCsrf(['reaction' => 'heart']);
+        $this->controller([$this->memberId])->react($this->request(), $this->params($this->postId));
+
+        $response = $this->controller([$this->memberId])->postReactors($this->reactorsRequest(), $this->params($this->postId));
+
+        $this->assertSame(200, $response->getStatusCode());
+        $body = json_decode($response->getBody(), true);
+        $this->assertStringContainsString('Akéla', $body['html']);
+    }
+
+    public function testPostReactorsSaysNobodyHasReactedYet(): void
+    {
+        $response = $this->controller([$this->memberId])->postReactors($this->reactorsRequest(), $this->params($this->postId));
+
+        $body = json_decode($response->getBody(), true);
+        $this->assertStringContainsString('Personne n\'a encore réagi', $body['html']);
+    }
+
+    public function testPostReactorsIs404ForANonMemberRatherThan403(): void
+    {
+        $stranger = GroupsTestHelper::createMember($this->pdo, 'STRANGER2');
+
+        $response = $this->controller([$stranger], self::OTHER_ACCOUNT)
+            ->postReactors($this->reactorsRequest(), $this->params($this->postId));
+
+        $this->assertSame(404, $response->getStatusCode());
+    }
+
+    public function testPostReactorsIs404ForAPostFromAnotherGroup(): void
+    {
+        $otherGroupId = $this->groupService->createSectionGroup('Autre', $this->sectionId, $this->currentYearId, $this->moderatorMemberId);
+        $foreignPostId = GroupsTestHelper::createPostAt($this->pdo, $otherGroupId, 'Ailleurs', '2026-01-01 10:00:00');
+
+        $response = $this->controller([$this->memberId])->postReactors($this->reactorsRequest(), $this->params($foreignPostId));
+
+        $this->assertSame(404, $response->getStatusCode());
+    }
+
+    public function testPostReactorsIs404ForAHiddenPostSeenByAnOrdinaryMember(): void
+    {
+        $this->postRepo->setHiddenAt($this->postId, '2026-01-01 12:00:00');
+
+        $response = $this->controller([$this->memberId])->postReactors($this->reactorsRequest(), $this->params($this->postId));
+
+        $this->assertSame(404, $response->getStatusCode());
+    }
+
+    public function testAModeratorStillSeesReactorsOnAHiddenPost(): void
+    {
+        $this->withCsrf(['reaction' => 'heart']);
+        $this->controller([$this->memberId])->react($this->request(), $this->params($this->postId));
+        $this->postRepo->setHiddenAt($this->postId, '2026-01-01 12:00:00');
+
+        $response = $this->controller([$this->moderatorMemberId])->postReactors($this->reactorsRequest(), $this->params($this->postId));
+
+        $this->assertSame(200, $response->getStatusCode());
+        $body = json_decode($response->getBody(), true);
+        $this->assertStringContainsString('Akéla', $body['html']);
+    }
+
+    public function testReplyReactorsRendersTheReactorsFragment(): void
+    {
+        $this->withCsrf(['reaction' => 'clap']);
+        $this->controller([$this->memberId])->reactToReply($this->request(), $this->params(null, $this->replyId));
+
+        $response = $this->controller([$this->memberId])->replyReactors(
+            new Request('GET', '/groups/' . $this->groupId . '/replies/' . $this->replyId . '/reactions', [], [], [], []),
+            $this->params(null, $this->replyId)
+        );
+
+        $this->assertSame(200, $response->getStatusCode());
+        $body = json_decode($response->getBody(), true);
+        $this->assertStringContainsString('Akéla', $body['html']);
+    }
+
+    public function testReplyReactorsIs404ForAHiddenReplySeenByAnOrdinaryMember(): void
+    {
+        $this->replyRepo->setHiddenAt($this->replyId, '2026-01-01 12:00:00');
+
+        $response = $this->controller([$this->memberId])->replyReactors(
+            new Request('GET', '/groups/' . $this->groupId . '/replies/' . $this->replyId . '/reactions', [], [], [], []),
+            $this->params(null, $this->replyId)
+        );
+
+        $this->assertSame(404, $response->getStatusCode());
     }
 }

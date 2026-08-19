@@ -240,6 +240,34 @@
     // page reload if this script never runs: the button is a real link target
     // server-side, and every action is a normal form POST.
     document.addEventListener('click', async function (event) {
+        // A reaction tally's own click: "who reacted, and with what"
+        // (Controller\ReactionController's postReactors()/replyReactors()).
+        // A plain <button> with no bootstrap data-* attributes of its own
+        // — nothing here breaks if groups.js never loads, the tally just
+        // stops being clickable and stays a plain summary.
+        var tally = event.target.closest('.groups-reaction-tally');
+        if (tally) {
+            var modalEl = document.getElementById('groups-reactors-modal');
+            var modalBody = document.getElementById('groups-reactors-modal-body');
+            if (!modalEl || !modalBody || typeof bootstrap === 'undefined') {
+                return;
+            }
+            modalBody.innerHTML = '<div class="text-center py-3"><span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span></div>';
+            var modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+            modal.show();
+
+            var reactorsResponse = await fetch(tally.dataset.reactorsUrl, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+            if (reactorsResponse.ok) {
+                var reactorsData = await reactorsResponse.json();
+                if (typeof reactorsData.html === 'string') {
+                    modalBody.innerHTML = reactorsData.html;
+                }
+            } else {
+                modalBody.innerHTML = '<p class="text-danger mb-0">Impossible de charger les réactions.</p>';
+            }
+            return;
+        }
+
         var loadMore = event.target.closest('.groups-load-more');
         if (loadMore) {
             loadMore.disabled = true;

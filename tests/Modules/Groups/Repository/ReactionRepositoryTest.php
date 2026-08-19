@@ -151,6 +151,31 @@ class ReactionRepositoryTest extends TestCase
         $this->assertSame([], $this->postReactions->countsFor([]));
     }
 
+    public function testListForReturnsEveryReactorAndTheirKeyOldestFirst(): void
+    {
+        $this->postReactions->set($this->postId, 3, 'heart');
+        $this->postReactions->set($this->postId, 4, 'joy');
+
+        $rows = $this->postReactions->listFor($this->postId);
+
+        $this->assertSame(
+            [['member_id' => 3, 'reaction_key' => 'heart'], ['member_id' => 4, 'reaction_key' => 'joy']],
+            $rows
+        );
+    }
+
+    public function testListForIsEmptyWhenNobodyHasReacted(): void
+    {
+        $this->assertSame([], $this->postReactions->listFor($this->postId));
+    }
+
+    public function testListForOnlyReturnsRowsForItsOwnTable(): void
+    {
+        $this->postReactions->set($this->postId, 3, 'heart');
+
+        $this->assertSame([], $this->replyReactions->listFor($this->postId));
+    }
+
     public function testOwnKeysForReturnsOnlyTheCallersOwnReactions(): void
     {
         $otherPostId = GroupsTestHelper::createPostAt($this->pdo, 1, 'other', '2026-01-01 11:00:00');

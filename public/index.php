@@ -2288,6 +2288,14 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
         \Modules\Groups\Repository\ReactionRepository::forReplies($pdo),
         $groupsActivityService
     );
+    // "Who reacted, and with what" — the dialog behind a reaction tally's
+    // own click. A separate, read-only service from $groupsReactionService
+    // above (Service\ReactorListService's own docblock explains why).
+    $groupsReactorListService = new \Modules\Groups\Service\ReactorListService(
+        \Modules\Groups\Repository\ReactionRepository::forPosts($pdo),
+        \Modules\Groups\Repository\ReactionRepository::forReplies($pdo),
+        $memberService
+    );
     $groupsAuthorResolver = new \Modules\Groups\Service\PostAuthorResolver($memberService, $userAccountRepo);
     // One group per visible, active section per scout year (prompt 11).
     // Injected into the list controller so the page itself heals a
@@ -2406,7 +2414,8 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
         \Modules\Groups\Controller\ReactionController::class,
         new \Modules\Groups\Controller\ReactionController(
             $twig, $groupsGroupRepo, $groupsPostRepo, $groupsReplyRepo, $groupsAccessService,
-            $groupsReactionService, $groupsContextFactory, $groupsNotificationService
+            $groupsReactionService, $groupsContextFactory, $groupsNotificationService,
+            $groupsReactorListService
         )
     );
     $frontController->registerController(

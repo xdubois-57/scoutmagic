@@ -97,6 +97,28 @@
             {% include '@groups/partials/feed_page.html.twig' with { posts: posts, group: group, next_cursor: next_cursor } %}
         {% endif %}
     </div>
+
+    {#
+      One shared dialog for every reaction tally on the page — a tally's
+      own click (groups.js) fetches partials/reactors_list.html.twig's
+      rendered output and fills #groups-reactors-modal-body with it before
+      showing this same modal, rather than one dialog per post/reply.
+    #}
+    <div class="modal fade" id="groups-reactors-modal" tabindex="-1" aria-labelledby="groups-reactors-modal-label" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2 class="modal-title h5" id="groups-reactors-modal-label">Réactions</h2>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fermer"></button>
+                </div>
+                <div class="modal-body" id="groups-reactors-modal-body">
+                    <div class="text-center py-3">
+                        <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
 {% endblock %}
 
 {% block scripts %}

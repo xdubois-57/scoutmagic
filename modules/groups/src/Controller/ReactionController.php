@@ -24,6 +24,7 @@ use Modules\Groups\Service\GroupNotificationService;
 use Modules\Groups\Service\GroupSessionContextFactory;
 use Modules\Groups\Service\ReactionService;
 use Modules\Groups\Service\ReactionSummary;
+use Modules\Groups\Service\ReactorListService;
 use Modules\Groups\Support\ReactionOutcome;
 use Twig\Environment;
 
@@ -53,7 +54,8 @@ class ReactionController extends AbstractController
         private GroupAccessService $accessService,
         private ReactionService $reactionService,
         private GroupSessionContextFactory $contextFactory,
-        private ?GroupNotificationService $notificationService = null
+        private ?GroupNotificationService $notificationService = null,
+        private ?ReactorListService $reactorListService = null
     ) {
     }
 
@@ -128,6 +130,82 @@ class ReactionController extends AbstractController
                 '/groups/' . $group->id . '/replies/' . $reply->id . '/react',
             ];
         });
+    }
+
+    /**
+     * GET /groups/{id}/posts/{postId}/reactions — who reacted, and with
+     * what (the dialog behind a reaction tally's own click, groups.js).
+     *
+     * @param array<string, string> $params
+     */
+    public function postReactors(Request $request, array $params): Response
+    {
+        return $this->reactorsAction($params, function (DiscussionGroup $group, GroupSessionContext $context) use ($params) {
+            $post = $this->postRepository->findById((int) ($params['postId'] ?? 0));
+            if ($post === null || $post->groupId !== $group->id) {
+                return null;
+            }
+            if ($post->isHidden() && !$this->accessService->canModerate($group, $context)) {
+                return null;
+            }
+
+            return $this->reactorListService?->forPost($post->id, $group->scoutYearId ?? $context->effectiveScoutYearId) ?? [];
+        });
+    }
+
+    /**
+     * GET /groups/{id}/replies/{replyId}/reactions
+     *
+     * @param array<string, string> $params
+     */
+    public function replyReactors(Request $request, array $params): Response
+    {
+        return $this->reactorsAction($params, function (DiscussionGroup $group, GroupSessionContext $context) use ($params) {
+            $reply = $this->replyRepository->findById((int) ($params['replyId'] ?? 0));
+            if ($reply === null) {
+                return null;
+            }
+
+            $post = $this->postRepository->findById($reply->postId);
+            if ($post === null || $post->groupId !== $group->id) {
+                return null;
+            }
+            if ($reply->isHidden() && !$this->accessService->canModerate($group, $context)) {
+                return null;
+            }
+
+            return $this->reactorListService?->forReply($reply->id, $group->scoutYearId ?? $context->effectiveScoutYearId) ?? [];
+        });
+    }
+
+    /**
+     * The shared shape of both `reactors` endpoints: read access only —
+     * unlike reacting itself, viewing who already reacted needs no
+     * canPost() (module spec: viewing stays as available as the item
+     * itself already is). $locate returns null when the item does not
+     * belong to the authorised group, or is hidden from this viewer
+     * (→ 404 either way, same oracle reasoning as reactAction()'s own
+     * docblock).
+     *
+     * @param array<string, string> $params
+     * @param callable(DiscussionGroup, GroupSessionContext): ?array<int, array{key: string, emoji: string, names: string[]}> $locate
+     */
+    private function reactorsAction(array $params, callable $locate): Response
+    {
+        $context = $this->context();
+        $group = $this->groupRepository->findById((int) ($params['id'] ?? 0));
+        if ($group === null || !$this->accessService->canRead($group, $context)) {
+            return new Response('Not Found', 404);
+        }
+
+        $groups = $locate($group, $context);
+        if ($groups === null) {
+            return new Response('Not Found', 404);
+        }
+
+        return $this->json([
+            'html' => $this->twig->render('@groups/partials/reactors_list.html.twig', ['groups' => $groups]),
+        ]);
     }
 
     /**

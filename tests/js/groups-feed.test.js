@@ -216,6 +216,43 @@ describe('groups.js dynamic reactions, in-place pagination and inline edit toggl
         }
     });
 
+    it('a reaction tally click fetches and shows who reacted in the shared modal', async () => {
+        document.body.innerHTML = `
+            <button type="button" class="groups-reaction-tally" data-reactors-url="/groups/1/posts/9/reactions"></button>
+            <div class="modal" id="groups-reactors-modal"></div>
+            <div id="groups-reactors-modal-body"></div>
+        `;
+        var modal = { show: vi.fn() };
+        global.bootstrap = { Modal: { getOrCreateInstance: vi.fn(() => modal) } };
+        global.fetch = vi.fn(() => Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ html: '<p>Akéla, Baloo</p>' })
+        }));
+
+        document.querySelector('.groups-reaction-tally').click();
+        await vi.waitFor(() => expect(document.getElementById('groups-reactors-modal-body').innerHTML).toContain('Akéla, Baloo'));
+
+        expect(fetch).toHaveBeenCalledWith(
+            '/groups/1/posts/9/reactions',
+            { headers: { 'X-Requested-With': 'XMLHttpRequest' } }
+        );
+        expect(bootstrap.Modal.getOrCreateInstance).toHaveBeenCalledWith(document.getElementById('groups-reactors-modal'));
+        expect(modal.show).toHaveBeenCalled();
+    });
+
+    it('shows an error in the modal when the reactors request fails', async () => {
+        document.body.innerHTML = `
+            <button type="button" class="groups-reaction-tally" data-reactors-url="/groups/1/posts/9/reactions"></button>
+            <div class="modal" id="groups-reactors-modal"></div>
+            <div id="groups-reactors-modal-body"></div>
+        `;
+        global.bootstrap = { Modal: { getOrCreateInstance: vi.fn(() => ({ show: vi.fn() })) } };
+        global.fetch = vi.fn(() => Promise.resolve({ ok: false }));
+
+        document.querySelector('.groups-reaction-tally').click();
+        await vi.waitFor(() => expect(document.getElementById('groups-reactors-modal-body').textContent).toContain('Impossible de charger'));
+    });
+
     it('toggles a post into edit mode and back', async () => {
         document.body.innerHTML = `
             <p id="post-body-42">Texte original</p>

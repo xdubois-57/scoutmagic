@@ -289,6 +289,24 @@
       "label": ""
     },
     {
+      "path": "/groups/{id}/posts/{postId}/reactions",
+      "method": "GET",
+      "controller": "Modules\\Groups\\Controller\\ReactionController",
+      "action": "postReactors",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/groups/{id}/replies/{replyId}/reactions",
+      "method": "GET",
+      "controller": "Modules\\Groups\\Controller\\ReactionController",
+      "action": "replyReactors",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
       "path": "/groups/{id}/posts/{postId}/report",
       "method": "POST",
       "controller": "Modules\\Groups\\Controller\\ReportController",
