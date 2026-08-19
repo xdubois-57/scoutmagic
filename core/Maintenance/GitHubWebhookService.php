@@ -41,8 +41,18 @@ class GitHubWebhookService
         'friday' => 5, 'saturday' => 6, 'sunday' => 7,
     ];
 
-    private const SCHEDULED_INSTALL_REFERENCE = 'scheduled_install';
+    // Public: MaintenanceController::saveAutoUpdatePreferences() must be
+    // able to find/reconcile the exact pending install this service
+    // scheduled when the admin changes the preferences that produced it.
+    public const SCHEDULED_INSTALL_REFERENCE = 'scheduled_install';
     private const PUSH_INSTALL_REFERENCE = 'push_install';
+
+    // Wall-clock timezone the admin's auto_update_day/auto_update_time are
+    // expressed in. Shared hosting routinely runs PHP with date.timezone
+    // UTC, and an admin typing "03:00" means 3 o'clock at night locally,
+    // not 04:00/05:00 — same "this platform serves Belgian scout units"
+    // rationale as Modules\Calendar\Service\IcsBuilder::TIMEZONE_ID.
+    public const SCHEDULE_TIMEZONE = 'Europe/Brussels';
 
     public function __construct(
         private SettingService $settings,
@@ -157,15 +167,13 @@ class GitHubWebhookService
             return ['status' => 'ignored', 'reason' => 'no_download_url'];
         }
 
-        $bumpType = $this->classifyVersionBump($installedVersion, $latestVersion);
-        $allowed = self::LEVEL_ALLOWS[$level] ?? self::LEVEL_ALLOWS['patch'];
-        if (!in_array($bumpType, $allowed, true)) {
+        if (!self::isBumpAllowed($installedVersion, $latestVersion, $level)) {
             return ['status' => 'ignored', 'reason' => 'version_type_not_allowed'];
         }
 
         $day = (string) ($this->settings->get('auto_update_day') ?: 'monday');
         $time = (string) ($this->settings->get('auto_update_time') ?: '03:00');
-        $runAt = $this->nextOccurrence($day, $time, new \DateTimeImmutable());
+        $runAt = self::nextOccurrence($day, $time, new \DateTimeImmutable());
 
         $historyId = $this->updateHistoryRepository->create($installedVersion, $latestVersion, $dependenciesChanged, null);
 
@@ -300,8 +308,16 @@ class GitHubWebhookService
 
     private function composerLockChanged(string $installedVersion, string $latestTag): bool
     {
+        // A dev/branch build's git ref is the commit sha inside its
+        // "dev-{sha}" VERSION string — "vdev-{sha}" is never a real tag, so
+        // comparing from it would always fail and wrongly report changed
+        // dependencies on every dev-build → release transition.
+        $base = VersionFile::isDevBuild($installedVersion)
+            ? substr($installedVersion, strlen('dev-'))
+            : 'v' . $installedVersion;
+
         try {
-            return $this->releaseClient()->composerLockChanged('v' . $installedVersion, $latestTag);
+            return $this->releaseClient()->composerLockChanged($base, $latestTag);
         } catch (\Throwable) {
             // Same "err on the side of caution" fallback Task\CheckUpdateHandler used.
             return true;
@@ -321,11 +337,38 @@ class GitHubWebhookService
     }
 
     /**
+     * Whether auto-installing $candidate over $installed is within the
+     * admin's configured $level ('patch'/'minor'/'major'). Public static
+     * (pure) so MaintenanceController::saveAutoUpdatePreferences() can
+     * re-check an already-scheduled install against just-changed
+     * preferences with exactly the rule this service applied when
+     * scheduling it.
+     *
+     * An installed dev build ("dev-{sha}") bypasses the bump-type gate
+     * entirely: its version components would parse as 0.0.0, classifying
+     * EVERY release as a major bump and silently blocking sites configured
+     * at patch/minor from ever leaving the dev build — yet the only way to
+     * be on a dev build with a non-dev level is an admin who deliberately
+     * switched the channel back to stable, i.e. explicitly asked for the
+     * next release to be installed over it.
+     */
+    public static function isBumpAllowed(string $installed, string $candidate, string $level): bool
+    {
+        if (VersionFile::isDevBuild($installed)) {
+            return true;
+        }
+
+        $allowed = self::LEVEL_ALLOWS[$level] ?? self::LEVEL_ALLOWS['patch'];
+
+        return in_array(self::classifyVersionBump($installed, $candidate), $allowed, true);
+    }
+
+    /**
      * "major" if the major component differs, else "minor" if the minor
      * component differs, else "patch" (covers an equal-or-lower-precision
      * bump — this is only ever called after confirming $to > $from).
      */
-    private function classifyVersionBump(string $from, string $to): string
+    private static function classifyVersionBump(string $from, string $to): string
     {
         $fromParts = array_pad(array_map('intval', explode('.', $from)), 3, 0);
         $toParts = array_pad(array_map('intval', explode('.', $to)), 3, 0);
@@ -342,24 +385,38 @@ class GitHubWebhookService
 
     /**
      * Next occurrence of $day (e.g. "monday") at $time ("HH:MM") from $now.
+     * $day/$time are interpreted as wall-clock LOCAL time
+     * (SCHEDULE_TIMEZONE) — never the server's own PHP timezone, which is
+     * frequently UTC on shared hosting and used to silently shift the
+     * admin's configured slot by one or two hours. The result is converted
+     * back to $now's timezone before returning, since
+     * scheduled_actions.run_at is stored naive and compared against PHP's
+     * default timezone (Core\Scheduler\SchedulerRepository::claimOverdue()).
      * Pushed a full week out if the naturally-next occurrence is less than
      * 5 minutes away — module spec: never install on a coincidental
      * near-immediate slot right as the webhook arrives.
+     *
+     * Public static (pure) so MaintenanceController::
+     * saveAutoUpdatePreferences() can move an already-pending install to a
+     * just-saved slot with exactly this computation.
      */
-    private function nextOccurrence(string $day, string $time, \DateTimeImmutable $now): \DateTimeImmutable
+    public static function nextOccurrence(string $day, string $time, \DateTimeImmutable $now): \DateTimeImmutable
     {
         $targetIso = self::DAY_ISO[$day] ?? 1;
         [$hour, $minute] = array_pad(array_map('intval', explode(':', $time)), 2, 0);
 
-        $candidate = $now->setTime($hour, $minute, 0);
+        $localNow = $now->setTimezone(new \DateTimeZone(self::SCHEDULE_TIMEZONE));
+        $candidate = $localNow->setTime($hour, $minute, 0);
         $currentIso = (int) $candidate->format('N');
         $daysUntil = ($targetIso - $currentIso + 7) % 7;
         $candidate = $candidate->modify("+{$daysUntil} days");
 
+        // DateTimeImmutable comparisons are instant-based, so comparing the
+        // Brussels-zoned candidate against a differently-zoned $now is safe.
         if ($candidate <= $now->modify('+5 minutes')) {
             $candidate = $candidate->modify('+7 days');
         }
 
-        return $candidate;
+        return $candidate->setTimezone($now->getTimezone());
     }
 }
