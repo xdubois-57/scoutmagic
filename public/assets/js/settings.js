@@ -60,6 +60,13 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
+    /**
+     * @param {string} type
+     * @param {string} value
+     * @param {string} regex
+     * @param {string[]} options
+     * @returns {string}
+     */
     function buildInput(type, value, regex, options) {
         var pattern = regex ? ' pattern="' + escapeAttr(regex) + '"' : '';
         switch (type) {

@@ -14,6 +14,11 @@
         return meta ? meta.content : '';
     }
 
+    /**
+     * @param {string} url
+     * @param {Object} body
+     * @returns {Promise<Object>}
+     */
     function postJson(url, body) {
         return fetch(url, {
             method: 'POST',
@@ -71,6 +76,10 @@
         return URL_SCHEME_ALLOWLIST.indexOf(schemeMatch[1]) !== -1;
     }
 
+    /**
+     * @param {Element} el
+     * @param {string} tagName
+     */
     function sanitizeHtmlAttributes(el, tagName) {
         var allowed = HTML_SANITIZER_ALLOWED_TAGS[tagName] || [];
         Array.prototype.slice.call(el.attributes).forEach(function (attr) {
@@ -155,6 +164,11 @@
         { command: 'removeFormat', icon: 'bi-eraser', title: 'Supprimer le formatage' }
     ];
 
+    /**
+     * @param {string} initialHtml
+     * @param {((html: string) => void)|null} [onChange]
+     * @returns {{wrapper: HTMLDivElement, editable: HTMLDivElement}}
+     */
     function createRichTextEditor(initialHtml, onChange) {
         var wrapper = document.createElement('div');
 
@@ -265,6 +279,11 @@
     // processed version, never the original.
     var FEATURED_IMAGE_MAX_DIMENSION = 2048;
 
+    /**
+     * @param {File} file
+     * @param {number} maxDimension
+     * @param {(blob: Blob|null) => void} callback
+     */
     function processFeaturedImage(file, maxDimension, callback) {
         var url = URL.createObjectURL(file);
         var img = new Image();
@@ -582,6 +601,10 @@
             renderFieldList();
         }
 
+        /**
+         * @param {string} key
+         * @param {number} direction
+         */
         function moveField(key, direction) {
             var index = fieldState.findIndex(function (f) { return f._key === key; });
             if (index === 0) return;
@@ -598,6 +621,10 @@
         // pattern as public/assets/js/list-editor.js) — arbitrary
         // reordering by key, driving the same fieldState array the
         // up/down buttons (mobile/touch, see buildFieldRow) also mutate.
+        /**
+         * @param {string} draggedKey
+         * @param {string} targetKey
+         */
         function moveFieldToKey(draggedKey, targetKey) {
             var fromIndex = fieldState.findIndex(function (f) { return f._key === draggedKey; });
             var toIndex = fieldState.findIndex(function (f) { return f._key === targetKey; });

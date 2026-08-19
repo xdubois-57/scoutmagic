@@ -27,6 +27,11 @@
         return meta ? meta.content : '';
     }
 
+    /**
+     * @param {string} url
+     * @param {Object} body
+     * @returns {Promise<Object>}
+     */
     function postJson(url, body) {
         return fetch(url, {
             method: 'POST',
@@ -187,6 +192,11 @@
         }
 
         // moderationMode: 'warning' offers "publish anyway"; 'enforced' never does.
+        /**
+         * @param {string} reason
+         * @param {string} suggestion
+         * @param {string} moderationMode
+         */
         function showModeration(reason, suggestion, moderationMode) {
             if (!moderationEl) return;
 

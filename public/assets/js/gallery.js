@@ -16,6 +16,11 @@
     // dropped connection or a non-JSON error page has to come back as a
     // failure object rather than an unhandled rejection that silently does
     // nothing at all.
+    /**
+     * @param {string} url
+     * @param {Object} body
+     * @returns {Promise<Object>}
+     */
     function postJson(url, body) {
         return fetch(url, {
             method: 'POST',

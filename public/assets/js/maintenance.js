@@ -394,6 +394,12 @@
 // only a client-side UX gate (enabling the submit button); the real check
 // always happens server-side (Core\Http\Controller\MaintenanceController).
 (function () {
+    /**
+     * @param {string} inputId
+     * @param {string} expected
+     * @param {(() => boolean)} [extraCondition]
+     * @returns {(() => void)|null}
+     */
     function wireKeywordGate(inputId, expected, extraCondition) {
         var input = document.getElementById(inputId);
         if (!input) return null;
@@ -410,6 +416,13 @@
     // onDone/onFailed receive the error message (may be null); onNotFound
     // is only meaningfully different for full reset (see below), where a
     // 404 means "the operation wiped its own tracking row — that's success".
+    /**
+     * @param {string|number} actionId
+     * @param {() => void} onDone
+     * @param {(message: string|null) => void} onFailed
+     * @param {() => void} onNotFound
+     * @returns {ReturnType<typeof setInterval>}
+     */
     function pollResetStatus(actionId, onDone, onFailed, onNotFound) {
         var timer = setInterval(function () {
             fetch('/api/maintenance/reset-status/' + actionId)

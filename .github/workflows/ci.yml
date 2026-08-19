@@ -101,6 +101,20 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Run JavaScript static analysis
+        # TypeScript's checkJs (allowJs/checkJs/noEmit — see tsconfig.json),
+        # wrapped by scripts/js-typecheck.mjs so pre-existing findings
+        # (js-typecheck-baseline.json, the same baseline model as
+        # phpstan-baseline.neon) don't re-fail every run while a genuinely
+        # new finding still does. The PHPStan-equivalent gate for
+        # JavaScript — catches unresolved identifiers, wrong argument
+        # counts, and statically-detectable invalid property access before
+        # Vitest/Playwright/SonarQube ever run. Runs first: cheap,
+        # deterministic, and fails fast on the kind of mistake a unit test
+        # wouldn't otherwise catch. See AGENTS.md § Static analysis and
+        # README.md § Analyse statique JavaScript.
+        run: npm run typecheck
+
       - name: Run JavaScript unit tests with coverage
         # Isolated jsdom-simulated DOM tests for first-party public/assets/js/
         # — no PHP server, no MySQL, no network (see vitest.config.js and

@@ -52,7 +52,7 @@ volontaire, sans garantie de délai.
 - PHP >= 8.4
 - MySQL >= 8.0
 - Composer (pour le développement/build uniquement — non nécessaire sur le serveur)
-- Node.js >= 22 et npm (pour les tests uniquement — tests unitaires JavaScript et tests de bout en bout ; non nécessaire sur le serveur, ni pour exécuter ScoutMagic)
+- Node.js >= 22 et npm (pour l'outillage de développement uniquement — analyse statique JavaScript, tests unitaires JavaScript et tests de bout en bout ; non nécessaire sur le serveur, ni pour exécuter ScoutMagic)
 - Accès FTP au serveur d'hébergement
 
 ## Installation
@@ -70,7 +70,8 @@ composer serve                     # serveur de dev local (localhost:8000)
 vendor/bin/phpunit                 # exécuter les tests PHP (suite complète)
 vendor/bin/phpstan analyse core/   # analyse statique
 
-npm ci                             # dépendances Node (tests uniquement — voir Prérequis)
+npm ci                             # dépendances Node (outillage de dev uniquement — voir Prérequis)
+npm run typecheck                  # analyse statique JavaScript (TypeScript checkJs — voir ci-dessous)
 npm test                           # exécuter les tests unitaires JavaScript (Vitest + jsdom)
 npm run test:coverage              # idem, avec couverture LCOV (coverage/js/lcov.info)
 
@@ -83,6 +84,16 @@ npm run e2e                        # exécuter les tests de bout en bout (voir c
 `composer serve` encapsule `php -S` avec des valeurs `upload_max_filesize`/`post_max_size` relevées (`public/.user.ini`, utilisé en production, n'est pas pris en compte par le serveur intégré) — si vous lancez `php -S` directement à la place, les uploads de plus de 8 Mo échoueront avec une erreur 413. Augmentez les valeurs dans `scripts.serve` de `composer.json` si vous devez tester des uploads plus volumineux en local (ex. vidéos de galerie).
 
 Les tests JavaScript (`tests/js/`, Vitest + jsdom) sont isolés du reste de la pile : aucun serveur PHP, aucune base MySQL, aucun réseau réel (`fetch`/Service Worker/WebAuthn sont simulés dans les tests qui en ont besoin). Ils exercent directement le vrai code de production sous `public/assets/js/`, jamais une réimplémentation. Node/npm ne servent qu'à ça — ScoutMagic lui-même reste du JavaScript navigateur simple, sans étape de build, et ni Node ni npm ne sont nécessaires pour l'exécuter ou le déployer (voir `AGENTS.md` § CSS / frontend).
+
+### Analyse statique JavaScript
+
+`npm run typecheck` est l'équivalent JavaScript de `vendor/bin/phpstan analyse` pour PHP : un contrôle statique, déterministe, qui détecte avant toute exécution une classe d'erreurs que ni Vitest (comportement à l'exécution) ni SonarQube Cloud (qualité de code générale, doublons, complexité, sécurité) ne couvrent — identifiants non résolus, appels de fonction avec un nombre d'arguments incorrect, signatures qui divergent d'un site d'appel après un refactoring, accès à une propriété statiquement invalide. C'est exactement la classe de bug documentée dans `AGENTS.md` § Static analysis (un paramètre de constructeur PHP supprimé, un site d'appel non mis à jour, jamais détecté avant la production) — appliquée ici au JavaScript.
+
+Concrètement, c'est le compilateur TypeScript utilisé uniquement comme vérificateur de développement (`allowJs`/`checkJs`/`noEmit` — voir `tsconfig.json`) sur le JavaScript existant de `public/assets/js/`, qui reste par ailleurs strictement inchangé : pas de transpilation, pas de build, aucun fichier généré, rien de nouveau à servir au navigateur ou à déployer (voir `AGENTS.md` § CSS / frontend). Le typage vient d'annotations [JSDoc](https://jsdoc.app/) (`@param`, `@returns`) ajoutées aux fonctions à plusieurs paramètres réutilisées à plusieurs endroits — là où une erreur de signature serait sinon invisible pour l'outil ; les scripts strictement DOM (un écouteur d'événement à un seul paramètre évident) n'en ont pas besoin.
+
+`scripts/js-typecheck.mjs` (invoqué par `npm run typecheck`) encapsule `tsc` avec un mécanisme de baseline identique dans son principe à `phpstan-baseline.neon` : `js-typecheck-baseline.json` recense les signalements préexistants (le code n'a jamais été écrit avec un vérificateur de types en tête, notamment tout le typage générique de `document.getElementById()`/`querySelector()`), et une exécution propre signifie *aucun nouveau signalement*, pas zéro signalement. Ne régénérez la baseline (`node scripts/js-typecheck.mjs --generate-baseline`) que pour accepter délibérément une dette préexistante que vous ne corrigez pas maintenant — jamais pour masquer un signalement introduit par votre propre changement.
+
+Exécutez `npm run typecheck` avant tout commit qui touche `public/assets/js/` — comme `vendor/bin/phpstan analyse` pour le PHP (`AGENTS.md` § Static analysis). CI (`javascript-tests`, avant les tests unitaires) et `scripts/release.sh` (verrou « Tests ») exécutent la même commande canonique et bloquent en cas d'échec.
 
 ### Tests de bout en bout (E2E)
 
@@ -126,13 +137,13 @@ Toutes les assertions utilisent les rôles ARIA et les textes visibles (`getByRo
 Chaque push sur `main` et chaque Pull Request déclenchent `.github/workflows/ci.yml` :
 
 - **`test`** : vérification de syntaxe PHP, `vendor/bin/phpstan analyse`, puis `vendor/bin/phpunit` — **la suite complète, groupe `database` compris** — avec couverture PCOV et un service MySQL. Génère `coverage.xml` (Clover) et `phpunit-report.xml` (JUnit), publiés comme artefacts pour le job `sonarqube`.
-- **`javascript-tests`** : tests unitaires JavaScript (`npm ci` puis `npm run test:coverage` — Vitest + jsdom, `tests/js/`), isolés (sans serveur PHP ni base de données) — génère `coverage/js/lcov.info`, publié comme artefact pour le job `sonarqube`. Un échec fait échouer ce check GitHub indépendamment du job `test`.
+- **`javascript-tests`** : `npm ci`, puis analyse statique JavaScript (`npm run typecheck` — voir § Analyse statique JavaScript), puis tests unitaires JavaScript (`npm run test:coverage` — Vitest + jsdom, `tests/js/`), isolés (sans serveur PHP ni base de données) — génère `coverage/js/lcov.info`, publié comme artefact pour le job `sonarqube`. Un échec de l'une ou l'autre étape fait échouer ce check GitHub indépendamment du job `test`.
 - **`e2e-tests`** (« End-to-end (browser) ») : les scénarios de bout en bout (`npm run e2e` — la commande canonique, identique en local et dans `scripts/release.sh`), avec un service MySQL et Chromium installé via `npm run e2e:install`. Sans serveur graphique, borné à 20 minutes. Un échec fait échouer ce check GitHub ; les diagnostics Playwright (trace, capture, vidéo, rapport HTML) sont publiés comme artefact **uniquement en cas d'échec**.
 - **`security`** : `composer audit`.
 - **`sonarqube`** : analyse [SonarQube Cloud](https://sonarcloud.io/project/overview?id=xdubois-57_scoutmagic) (voir `sonar-project.properties`), à partir de la couverture/du rapport PHP produits par le job `test` et de la couverture JavaScript (LCOV) produite par le job `javascript-tests` — ni PHPUnit ni Vitest ne sont relancés une seconde fois. Le Quality Gate SonarQube fait échouer ce check GitHub s'il n'est pas OK (`-Dsonar.qualitygate.wait=true`).
 - **CodeQL** : analyse de code activée au niveau du dépôt (GitHub Advanced Security), indépendante de ce workflow.
 
-SonarQube Cloud est complémentaire à PHPStan, PHPUnit, Vitest, `composer audit` et CodeQL — il ne les remplace pas. Sur une Pull Request, SonarQube Cloud décore automatiquement la PR (résumé du Quality Gate et annotations sur les lignes concernées) via son intégration GitHub officielle, à condition que le secret `SONAR_TOKEN` soit configuré (voir « Configuration manuelle requise » ci-dessous).
+SonarQube Cloud est complémentaire à PHPStan, PHPUnit, l'analyse statique JavaScript (`npm run typecheck`), Vitest, `composer audit` et CodeQL — il ne les remplace pas. Sur une Pull Request, SonarQube Cloud décore automatiquement la PR (résumé du Quality Gate et annotations sur les lignes concernées) via son intégration GitHub officielle, à condition que le secret `SONAR_TOKEN` soit configuré (voir « Configuration manuelle requise » ci-dessous).
 
 ### Configuration manuelle requise
 
@@ -154,7 +165,7 @@ Avant de créer un commit, un tag ou une release, le script exécute six verrous
 
 1. **Déploiement** : `www.scoutmagic.be` doit déjà avoir installé la release précédente (comparé via `GET /api/version`, exposé publiquement par `Core\Http\Controller\VersionController`) et répondre normalement (code 200, pas d'erreur visible sur la page d'accueil).
 2. **Sécurité** : aucun signalement CodeQL ni alerte Dependabot ouvert dans le dépôt (`gh api repos/{owner}/{repo}/code-scanning/alerts` et `.../dependabot/alerts`, filtrés sur `state == "open"`).
-3. **Tests** : `vendor/bin/phpstan analyse`, `vendor/bin/phpunit`, et les tests unitaires JavaScript (`npm run test:coverage`) doivent tous passer. `--skip-tests-gate` contourne les trois à la fois — voir `AGENTS.md` § Releases.
+3. **Tests** : `vendor/bin/phpstan analyse`, `vendor/bin/phpunit`, l'analyse statique JavaScript (`npm run typecheck` — voir § Analyse statique JavaScript) et les tests unitaires JavaScript (`npm run test:coverage`) doivent tous passer. `--skip-tests-gate` contourne les quatre à la fois — voir `AGENTS.md` § Releases.
 4. **Tests de bout en bout** : `npm run e2e` — la page d'accueil publique doit démarrer via le vrai `public/index.php` et s'afficher dans un Chromium *headless* (voir § Tests de bout en bout). C'est le seul verrou qui prouve que la racine de composition démarre réellement. Verrou distinct de « Tests » à dessein : c'est le seul à exiger un serveur MySQL et un binaire navigateur, et un mainteneur qui n'a ni l'un ni l'autre ne doit pas avoir à renoncer aussi à PHPStan/PHPUnit/Vitest pour publier. `--skip-e2e-gate` le contourne — voir `AGENTS.md` § Releases.
 5. **Fraîcheur des dépendances** : aucune dépendance Composer directe (`composer outdated --direct`) ni aucune bibliothèque front-end vendorisée (`public/assets/vendor/` — Bootstrap, Bootstrap Icons, Chart.js) ne doit être en retard sur sa dernière version publiée.
 6. **SonarQube Cloud** (`scripts/check-sonar-release.sh`) : aucun signalement de sécurité actif (issue d'impact `SECURITY` non résolue, ou Security Hotspot non trié), aucun signalement de sévérité `HIGH` ou supérieure (`BLOCKER`) actif, et le Quality Gate du projet doit être `OK` — pour l'analyse confirmée correspondre exactement au commit en cours de release. **Ce verrou est fail-closed** : un `SONAR_TOKEN` absent, SonarQube Cloud injoignable, une authentification invalide, une réponse invalide, ou l'impossibilité de confirmer qu'une analyse existe pour le commit exact bloquent la release.

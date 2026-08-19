@@ -20,12 +20,21 @@
     // error message containing a double quote could break out of it. Quotes
     // are escaped explicitly so the helper is safe in both text and attribute
     // position.
+    /**
+     * @param {string} str
+     * @returns {string}
+     */
     function escapeHtml(str) {
         var div = document.createElement('div');
         div.textContent = str === null || str === undefined ? '' : String(str);
         return div.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
     }
 
+    /**
+     * @param {string} url
+     * @param {Object} body
+     * @returns {Promise<Object>}
+     */
     function postJson(url, body) {
         return fetch(url, {
             method: 'POST',
