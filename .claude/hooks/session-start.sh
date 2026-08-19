@@ -16,8 +16,40 @@ cd "${CLAUDE_PROJECT_DIR:-$(dirname "$0")/../..}"
 
 export COMPOSER_NO_INTERACTION=1
 export COMPOSER_ALLOW_SUPERUSER=1
+export DEBIAN_FRONTEND=noninteractive
 
 log() { echo "[session-start] $*"; }
+warn() { echo "[session-start] WARNING: $*" >&2; }
+
+# --- System packages ---------------------------------------------------
+#
+# Ghostscript and the imagick extension back Core\File\PdfRasterizer and
+# Core\Pdf\PdfCompressor. Their tests self-skip when either is missing —
+# not fail — so without this the suite quietly reports OK while never
+# running six PDF tests, which is worse than a visible failure. pcov is
+# the coverage driver `phpunit --coverage-clover` needs (see ci.yml's
+# `test` job); without it, coverage generation silently produces nothing
+# useful rather than erroring.
+#
+# PHP's own major.minor picks the matching Sury/Ondrej-style package name
+# (php8.4-imagick, php8.4-pcov, ...) instead of a version hardcoded here,
+# so this keeps working if the container's PHP version moves.
+PHP_VER="$(php -r 'echo PHP_MAJOR_VERSION.".".PHP_MINOR_VERSION;')"
+SYSTEM_PKGS=()
+command -v gs >/dev/null 2>&1 || SYSTEM_PKGS+=(ghostscript)
+php -m | grep -qix imagick || SYSTEM_PKGS+=("php${PHP_VER}-imagick")
+php -m | grep -qix pcov || SYSTEM_PKGS+=("php${PHP_VER}-pcov")
+
+if [ "${#SYSTEM_PKGS[@]}" -gt 0 ]; then
+  log "installing system packages: ${SYSTEM_PKGS[*]}"
+  if apt-get update -qq && apt-get install -y -qq "${SYSTEM_PKGS[@]}"; then
+    log "system packages installed"
+  else
+    warn "apt-get failed; Ghostscript/imagick/pcov-dependent tests will self-skip instead of running"
+  fi
+else
+  log "system packages (ghostscript, imagick, pcov) already present"
+fi
 
 # --- PHP dependencies ------------------------------------------------------
 #
