@@ -105,7 +105,9 @@ class PasswordAuthMethodTest extends TestCase
      */
     public function testDummyHashMatchesTheCostOfARealStoredHash(): void
     {
-        $dummy = (new \ReflectionClass(PasswordAuthMethod::class))->getConstant('DUMMY_HASH');
+        $method = new \ReflectionMethod(PasswordAuthMethod::class, 'dummyHash');
+        $method->setAccessible(true);
+        $dummy = $method->invoke(null);
         $this->assertIsString($dummy);
 
         $dummyInfo = password_get_info($dummy);
@@ -114,22 +116,25 @@ class PasswordAuthMethodTest extends TestCase
         $this->assertSame(
             'bcrypt',
             $dummyInfo['algoName'],
-            'DUMMY_HASH must be a real hash — password_verify() returns instantly on a malformed one, which defeats the point.'
+            'dummyHash() must return a real hash — password_verify() returns instantly on a malformed one, which defeats the point.'
         );
         $this->assertSame(
             $realInfo['algoName'],
             $dummyInfo['algoName'],
-            'DUMMY_HASH has drifted from PASSWORD_DEFAULT — regenerate it with password_hash(bin2hex(random_bytes(32)), PASSWORD_DEFAULT).'
+            'dummyHash() has drifted from PASSWORD_DEFAULT.'
         );
         $this->assertSame(
             $realInfo['options']['cost'] ?? null,
             $dummyInfo['options']['cost'] ?? null,
-            'DUMMY_HASH cost no longer matches PASSWORD_DEFAULT — regenerate it, or the absent-account path is measurably cheaper/costlier than a real verify.'
+            'dummyHash() cost no longer matches PASSWORD_DEFAULT, or the absent-account path is measurably cheaper/costlier than a real verify.'
         );
 
         // And it must not accidentally accept anything submitted against it.
         $this->assertFalse(password_verify('', $dummy));
         $this->assertFalse(password_verify('irrelevant', $dummy));
+
+        // Memoized: same value across calls within a process.
+        $this->assertSame($dummy, $method->invoke(null));
     }
 
     /**
