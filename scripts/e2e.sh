@@ -1,0 +1,326 @@
+#!/bin/bash
+set -euo pipefail
+
+# ScoutMagic — end-to-end (real browser) test harness.
+#
+# Usage: ./scripts/e2e.sh [<extra playwright arguments>...]
+#        npm run e2e        (canonical command — see README.md § Développement)
+#
+# One command, one complete run: this script provisions a throwaway
+# ScoutMagic install, serves it through the application's REAL entry point
+# (public/index.php), drives it with a headless Chromium via Playwright,
+# and tears everything back down — on success, on failure, and on Ctrl-C.
+# Nothing here needs a graphical session, a browser window, a developer's
+# existing local install, or any manually started service.
+#
+# What it does, in order:
+#   1. Check prerequisites (php, npm, node_modules, @playwright/test).
+#   2. Resolve the MySQL server to use, starting a throwaway Docker
+#      container if none is reachable and Docker is available.
+#   3. Provision a throwaway instance directory + a dedicated, empty E2E
+#      database (scripts/e2e-support.php provision — see its header for
+#      why the instance is a directory of its own).
+#   4. Start `php -S` on a free local port, document root = the instance's
+#      public/.
+#   5. Poll (never sleep) until the server answers.
+#   6. Run the Playwright project in tests/e2e/.
+#   7. Exit with Playwright's own exit code.
+#
+# Cleanup (kill the server, drop the database, remove the instance, remove
+# the Docker container if this script started it) runs from an EXIT trap,
+# so it happens on every path out — including SIGINT/SIGTERM.
+#
+# Configuration (all optional; every value has a working default):
+#   E2E_DB_HOST / E2E_DB_PORT / E2E_DB_USER / E2E_DB_PASSWORD
+#       MySQL server to use. Default to TEST_DB_* (the same variables the
+#       PHPUnit `database` group already uses, so a developer or CI job
+#       that has one configured needs no extra setup), then to
+#       127.0.0.1 / 3306 / root / empty.
+#   E2E_DB_NAME
+#       Default 'scoutmagic_e2e' — deliberately NOT TEST_DB_NAME and never
+#       a real install's database: this script empties it at the start of
+#       every run and drops it at the end.
+#   E2E_PORT
+#       Fixed HTTP port for the application server. Default: a free port
+#       chosen at run time.
+#   E2E_DOCKER_MYSQL
+#       1 (default) to start a throwaway MySQL container when no MySQL is
+#       reachable and `docker` works; 0 to fail instead.
+#   E2E_SERVER_TIMEOUT
+#       Seconds to wait for the application server to answer. Default 60.
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "${REPO_ROOT}"
+
+# storage/temp/ is gitignored runtime state (PHPStan cache, Twig cache,
+# session files, MigrationRunner's own backups — see .gitignore) and does
+# not exist on a fresh checkout, CI included. Core\Database\MigrationRunner
+# creates it lazily on first use, but this script's `find` calls below (the
+# backup-snapshot bookkeeping) need it to exist unconditionally: `find` on a
+# missing directory exits non-zero, and piped into `sort` under `set -o
+# pipefail` that silently kills the whole script right here, before a
+# single diagnostic line is printed. Created once, up front, so a fresh
+# checkout and a developer's already-used one behave identically.
+mkdir -p "${REPO_ROOT}/storage/temp"
+
+E2E_DB_HOST="${E2E_DB_HOST:-${TEST_DB_HOST:-127.0.0.1}}"
+E2E_DB_PORT="${E2E_DB_PORT:-${TEST_DB_PORT:-3306}}"
+E2E_DB_NAME="${E2E_DB_NAME:-scoutmagic_e2e}"
+E2E_DB_USER="${E2E_DB_USER:-${TEST_DB_USER:-root}}"
+E2E_DB_PASSWORD="${E2E_DB_PASSWORD:-${TEST_DB_PASSWORD:-}}"
+E2E_DOCKER_MYSQL="${E2E_DOCKER_MYSQL:-1}"
+E2E_SERVER_TIMEOUT="${E2E_SERVER_TIMEOUT:-60}"
+export E2E_DB_HOST E2E_DB_PORT E2E_DB_NAME E2E_DB_USER E2E_DB_PASSWORD
+
+SUPPORT="${REPO_ROOT}/scripts/e2e-support.php"
+
+# State the cleanup trap acts on. Each stays empty until the corresponding
+# resource actually exists, so cleanup is safe at any point.
+SERVER_PID=""
+PLAYWRIGHT_PID=""
+INSTANCE_DIR=""
+DOCKER_CONTAINER=""
+DATABASE_PROVISIONED=0
+BACKUP_SNAPSHOT=""
+
+cleanup() {
+    # Never let a cleanup step's failure replace the test's own exit code,
+    # and never let one failing step skip the others.
+    local exit_code=$?
+    set +e
+
+    # Playwright first: it is the only child that can still be driving the
+    # server, and killing the server out from under it would turn a
+    # cancelled run into a wall of connection errors.
+    if [[ -n "${PLAYWRIGHT_PID}" ]] && kill -0 "${PLAYWRIGHT_PID}" 2>/dev/null; then
+        kill "${PLAYWRIGHT_PID}" 2>/dev/null
+        local browser_waited=0
+        while kill -0 "${PLAYWRIGHT_PID}" 2>/dev/null && [[ "${browser_waited}" -lt 100 ]]; do
+            browser_waited=$((browser_waited + 1))
+            sleep 0.1
+        done
+        kill -9 "${PLAYWRIGHT_PID}" 2>/dev/null
+    fi
+
+    if [[ -n "${SERVER_PID}" ]] && kill -0 "${SERVER_PID}" 2>/dev/null; then
+        echo "E2E: stopping the application server (pid ${SERVER_PID})."
+        kill "${SERVER_PID}" 2>/dev/null
+        # Give it a moment to exit on SIGTERM, then insist. Polling rather
+        # than a blanket sleep: `wait` cannot be used here because the trap
+        # may run from a different shell context than the one that forked.
+        local waited=0
+        while kill -0 "${SERVER_PID}" 2>/dev/null && [[ "${waited}" -lt 50 ]]; do
+            waited=$((waited + 1))
+            sleep 0.1
+        done
+        kill -9 "${SERVER_PID}" 2>/dev/null
+    fi
+
+    if [[ "${DATABASE_PROVISIONED}" -eq 1 ]]; then
+        php "${SUPPORT}" teardown-db
+    fi
+
+    if [[ -n "${DOCKER_CONTAINER}" ]]; then
+        echo "E2E: removing the throwaway MySQL container."
+        docker rm -f "${DOCKER_CONTAINER}" > /dev/null 2>&1
+    fi
+
+    # Core\Database\MigrationRunner dumps the database it is about to
+    # migrate into the REPOSITORY's storage/temp — it anchors that
+    # directory to its own file location, and the throwaway instance loads
+    # core/ from the repository, so no amount of instance isolation can
+    # redirect it. A run produces several of these (the provisioning
+    # migration, then one per module applying its own schema.sql on the
+    # first request), all of them dumps of a database that no longer
+    # exists by the time this runs. Only the files that appeared during
+    # this run are removed, matched against a snapshot taken before it
+    # started — a real backup a developer already had sitting there is
+    # never touched.
+    if [[ -n "${BACKUP_SNAPSHOT}" && -f "${BACKUP_SNAPSHOT}" ]]; then
+        find "${REPO_ROOT}/storage/temp" -maxdepth 1 -type f -name 'backup_*.sql' 2>/dev/null | sort \
+            | comm -13 "${BACKUP_SNAPSHOT}" - \
+            | while IFS= read -r stray_backup; do
+                  [[ -n "${stray_backup}" ]] && rm -f "${stray_backup}"
+              done
+    fi
+
+    if [[ -n "${INSTANCE_DIR}" && -d "${INSTANCE_DIR}" ]]; then
+        rm -rf "${INSTANCE_DIR}"
+    fi
+
+    exit "${exit_code}"
+}
+trap cleanup EXIT
+# Without these, Ctrl-C kills this script without running the EXIT trap in
+# some shells; re-raising the signal after the trap keeps the exit status
+# honest for whatever invoked this script.
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+# ---------------------------------------------------------------
+# 1. Prerequisites. Fail closed with the exact command to run —
+# never install anything on the caller's behalf, same philosophy as
+# scripts/release.sh's tests gate.
+# ---------------------------------------------------------------
+command -v php > /dev/null 2>&1 || { echo "ERROR: php is required to run the E2E tests." >&2; exit 1; }
+command -v npm > /dev/null 2>&1 || { echo "ERROR: npm is required to run the E2E tests (Node.js >= 22 — see README.md § Prérequis)." >&2; exit 1; }
+[[ -f "${REPO_ROOT}/vendor/autoload.php" ]] || { echo "ERROR: vendor/autoload.php not found — run 'composer install' first." >&2; exit 1; }
+[[ -d "${REPO_ROOT}/node_modules/@playwright/test" ]] || {
+    echo "ERROR: @playwright/test is not installed — run 'npm ci' then 'npm run e2e:install' (see README.md § Développement)." >&2
+    exit 1
+}
+
+# ---------------------------------------------------------------
+# 2. MySQL. Reuse whatever is already reachable; otherwise start a
+# throwaway container and remember to remove it in cleanup().
+# ---------------------------------------------------------------
+mysql_is_reachable() {
+    php -r '
+        $host = getenv("E2E_DB_HOST");
+        $port = (int) getenv("E2E_DB_PORT");
+        $socket = @fsockopen($host, $port, $errno, $errstr, 2);
+        if ($socket === false) { exit(1); }
+        fclose($socket);
+        try {
+            new PDO("mysql:host={$host};port={$port}", getenv("E2E_DB_USER"), getenv("E2E_DB_PASSWORD"));
+        } catch (Throwable $e) {
+            fwrite(STDERR, $e->getMessage() . "\n");
+            exit(1);
+        }
+        exit(0);
+    '
+}
+
+start_docker_mysql() {
+    DOCKER_CONTAINER="scoutmagic-e2e-mysql-$$"
+    E2E_DB_HOST="127.0.0.1"
+    E2E_DB_PORT="$(php "${SUPPORT}" free-port)"
+    E2E_DB_USER="root"
+    E2E_DB_PASSWORD="e2e_password"
+    export E2E_DB_HOST E2E_DB_PORT E2E_DB_USER E2E_DB_PASSWORD
+
+    echo "E2E: no MySQL reachable — starting a throwaway container on 127.0.0.1:${E2E_DB_PORT} (mysql:8.0)."
+    docker run --detach --rm \
+        --name "${DOCKER_CONTAINER}" \
+        --env "MYSQL_ROOT_PASSWORD=${E2E_DB_PASSWORD}" \
+        --publish "127.0.0.1:${E2E_DB_PORT}:3306" \
+        mysql:8.0 > /dev/null || {
+            echo "ERROR: could not start the throwaway MySQL container." >&2
+            exit 1
+        }
+
+    echo "E2E: waiting for the MySQL container to accept connections..."
+    local waited=0
+    until mysql_is_reachable > /dev/null 2>&1; do
+        waited=$((waited + 1))
+        if [[ "${waited}" -gt 600 ]]; then
+            echo "ERROR: the throwaway MySQL container did not become reachable within 60 s." >&2
+            docker logs "${DOCKER_CONTAINER}" 2>&1 | tail -20 >&2
+            exit 1
+        fi
+        sleep 0.1
+    done
+}
+
+if mysql_is_reachable > /dev/null 2>&1; then
+    echo "E2E: using the MySQL server at ${E2E_DB_HOST}:${E2E_DB_PORT} (database '${E2E_DB_NAME}')."
+elif [[ "${E2E_DOCKER_MYSQL}" != "0" ]] && command -v docker > /dev/null 2>&1 && docker info > /dev/null 2>&1; then
+    start_docker_mysql
+else
+    echo "ERROR: no MySQL server reachable at ${E2E_DB_HOST}:${E2E_DB_PORT} as user '${E2E_DB_USER}'." >&2
+    echo "       Start one and re-run, point E2E_DB_HOST/E2E_DB_PORT/E2E_DB_USER/E2E_DB_PASSWORD at it," >&2
+    echo "       or make Docker available so this script can start a throwaway one itself." >&2
+    exit 1
+fi
+
+# ---------------------------------------------------------------
+# 3-5. Provision, serve, wait. Retried as a unit on a lost port race:
+# the port is free when it is picked and can be taken by anything else
+# before `php -S` binds it, which no portable shell can prevent.
+# ---------------------------------------------------------------
+INSTANCE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/scoutmagic-e2e.XXXXXX")"
+SERVER_LOG="${INSTANCE_DIR}/php-server.log"
+
+# Taken before anything migrates — see cleanup()'s own comment.
+BACKUP_SNAPSHOT="${INSTANCE_DIR}/backups-before-run.txt"
+find "${REPO_ROOT}/storage/temp" -maxdepth 1 -type f -name 'backup_*.sql' 2>/dev/null | sort > "${BACKUP_SNAPSHOT}"
+
+attempt=0
+while true; do
+    attempt=$((attempt + 1))
+
+    PORT="${E2E_PORT:-$(php "${SUPPORT}" free-port)}"
+    BASE_URL="http://127.0.0.1:${PORT}"
+
+    php "${SUPPORT}" provision "${INSTANCE_DIR}/instance" "${PORT}"
+    DATABASE_PROVISIONED=1
+
+    echo "E2E: starting the application server on ${BASE_URL} (document root: the instance's public/)."
+    # display_errors off / log_errors on: the instance must behave like a
+    # production install (an uncaught error is a clean HTTP 500, not a
+    # stack trace rendered into the page the browser then "successfully"
+    # asserts against), while still leaving the real error somewhere the
+    # failure path below can print.
+    php \
+        -d display_errors=0 \
+        -d log_errors=1 \
+        -d error_log="${INSTANCE_DIR}/php-error.log" \
+        -d upload_max_filesize=100M \
+        -d post_max_size=110M \
+        -S "127.0.0.1:${PORT}" \
+        -t "${INSTANCE_DIR}/instance/public" \
+        > "${SERVER_LOG}" 2>&1 &
+    SERVER_PID=$!
+
+    if php "${SUPPORT}" wait-http "${BASE_URL}/api/version" "${E2E_SERVER_TIMEOUT}"; then
+        break
+    fi
+
+    kill "${SERVER_PID}" 2>/dev/null || true
+    SERVER_PID=""
+
+    if [[ -n "${E2E_PORT:-}" ]] || [[ "${attempt}" -ge 3 ]]; then
+        echo "ERROR: the application server did not answer on ${BASE_URL} within ${E2E_SERVER_TIMEOUT} s." >&2
+        echo "--- php -S output ---" >&2
+        tail -40 "${SERVER_LOG}" >&2 || true
+        echo "--- PHP error log ---" >&2
+        tail -40 "${INSTANCE_DIR}/php-error.log" >&2 || true
+        exit 1
+    fi
+
+    echo "E2E: port ${PORT} did not come up — retrying with another port." >&2
+done
+
+echo "E2E: server ready. Running the browser tests..."
+
+# ---------------------------------------------------------------
+# 6-7. Run Playwright and propagate its exit code verbatim. `set -e` is
+# lifted around this one call so the diagnostics below still print on a
+# failure before the script exits with Playwright's status.
+# ---------------------------------------------------------------
+# Backgrounded and `wait`ed rather than run in the foreground: bash defers
+# a trap until a foreground child finishes, so a SIGINT that reaches only
+# this shell (and not the whole process group, as a terminal's Ctrl-C
+# would) would otherwise leave the run going for minutes before cleanup
+# happened. Interrupting a `wait` runs the trap immediately.
+set +e
+E2E_BASE_URL="${BASE_URL}" npm exec --no -- playwright test --config="${REPO_ROOT}/tests/e2e/playwright.config.js" "$@" &
+PLAYWRIGHT_PID=$!
+wait "${PLAYWRIGHT_PID}"
+PLAYWRIGHT_EXIT=$?
+PLAYWRIGHT_PID=""
+set -e
+
+if [[ "${PLAYWRIGHT_EXIT}" -ne 0 ]]; then
+    echo "--- php -S output (last 40 lines) ---" >&2
+    tail -40 "${SERVER_LOG}" >&2 || true
+    if [[ -s "${INSTANCE_DIR}/php-error.log" ]]; then
+        echo "--- PHP error log (last 40 lines) ---" >&2
+        tail -40 "${INSTANCE_DIR}/php-error.log" >&2 || true
+    fi
+    echo "E2E FAILED (Playwright exit code ${PLAYWRIGHT_EXIT}). Report: tests/e2e/playwright-report/" >&2
+else
+    echo "E2E OK."
+fi
+
+exit "${PLAYWRIGHT_EXIT}"

@@ -23,8 +23,9 @@ Thank you for considering contributing to this project.
 3. Ensure all PHP tests pass: `vendor/bin/phpunit`
 4. Ensure static analysis passes: `vendor/bin/phpstan analyse` (covers `core/`, `modules/`, and `public/index.php`/`public/cron.php` — the composition roots where controllers are wired up are in scope specifically because a wiring bug there only ever surfaces at runtime, never in an IDE or a unit test)
 5. If you touched `public/assets/js/` or `tests/js/`, ensure the JavaScript tests pass: `npm ci` then `npm test` (or `npm run test:coverage` — see README.md § Développement).
-6. Open a PR against `main` and fill in the PR template checklist.
-7. CI additionally runs [SonarQube Cloud](https://sonarcloud.io/project/overview?id=xdubois-57_scoutmagic) analysis on the PR, alongside PHPStan/PHPUnit/Vitest/`composer audit`/CodeQL — see README.md § Intégration continue. Its Quality Gate must pass before merge.
+6. If you touched the application's boot path, routing, or the shared layout (`public/index.php`, `core/Http/`, `core/View/templates/base.html.twig`, `schema/core.sql`, …), run the end-to-end test: `npm run e2e:install` once, then `npm run e2e` — see README.md § Tests de bout en bout. It is the only check that proves the application still starts; CI runs it as a blocking check and `scripts/release.sh` as a release gate either way.
+7. Open a PR against `main` and fill in the PR template checklist.
+8. CI additionally runs [SonarQube Cloud](https://sonarcloud.io/project/overview?id=xdubois-57_scoutmagic) analysis on the PR, alongside PHPStan/PHPUnit/Vitest/the end-to-end browser test/`composer audit`/CodeQL — see README.md § Intégration continue. Its Quality Gate must pass before merge.
 
 ## License and attribution
 
@@ -48,7 +49,8 @@ composer install
 cp config/app.php.dist config/app.php
 composer serve
 
-npm ci     # only needed if you're running/adding JavaScript unit tests — see README.md
+npm ci               # only needed for the Node-based tests (Vitest, Playwright) — see README.md
+npm run e2e:install  # only needed once, before your first `npm run e2e`
 ```
 
 (`composer serve` runs `php -S` with raised upload limits — see README.md. If your IDE runs its own built-in PHP server instead, add `-d upload_max_filesize=100M -d post_max_size=110M` to its PHP interpreter's CLI options, or uploads over 8M will 413.)
