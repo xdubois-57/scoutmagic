@@ -23,12 +23,24 @@ config/app.php
 # IDE files
 .idea/
 .vscode/
-.claude/
 *.swp
 *.swo
 *~
 .DS_Store
 Thumbs.db
+
+# Claude Code: personal/local state stays out of the repository, but the
+# shared SessionStart hook and its registration are tracked deliberately.
+# They are what let a Claude Code on the web session install Composer/npm
+# dependencies and start MariaDB, so that `vendor/bin/phpstan analyse`,
+# `vendor/bin/phpunit`, `vendor/bin/phpunit --group=database` and
+# `npm run test:coverage` all actually run there — see
+# .claude/hooks/session-start.sh. A hook only takes effect once it is on the
+# default branch, so ignoring it entirely would make it dead code.
+.claude/*
+!.claude/hooks/
+!.claude/settings.json
+.claude/settings.local.json
 
 # PHPUnit test cache
 .phpunit.result.cache
