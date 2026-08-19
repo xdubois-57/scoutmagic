@@ -82,7 +82,12 @@ class GroupMemberControllerTest extends TestCase
     /**
      * @param int[] $linkedMemberIds
      */
-    private function controller(array $linkedMemberIds, string $role = 'identified'): GroupMemberController
+    /**
+     * @param array<string, mixed>|null $routeBreadcrumb see
+     *        GroupControllerTest::controller()'s own doc — same optional,
+     *        opt-in Twig global.
+     */
+    private function controller(array $linkedMemberIds, string $role = 'identified', ?array $routeBreadcrumb = null): GroupMemberController
     {
         AuthSession::login(1, 'parent@test.be', $role);
 
@@ -113,6 +118,9 @@ class GroupMemberControllerTest extends TestCase
                   'current_user_role' => $role, 'config_mode' => false, 'cookie_consent_given' => true,
                   'menus' => null, 'csp_nonce' => 'test'] as $key => $value) {
             $twig->addGlobal($key, $value);
+        }
+        if ($routeBreadcrumb !== null) {
+            $twig->addGlobal('route_breadcrumb', $routeBreadcrumb);
         }
         $twig->addFunction(new \Twig\TwigFunction('param', fn(...$a) => ''));
 
@@ -177,6 +185,20 @@ class GroupMemberControllerTest extends TestCase
         $body = $this->controller([$this->plainMemberId])->index(new Request('GET', '/g', [], [], [], []), $this->params())->getBody();
 
         $this->assertStringContainsString('import du Desk', $body);
+    }
+
+    /**
+     * partials/breadcrumb_bar.html.twig: "Groupes" and the group's own
+     * name both link back, same trail as GroupController's own pages.
+     */
+    public function testMembersPageBreadcrumbLinksBackToTheGroupListAndTheGroupItself(): void
+    {
+        $body = $this->controller([$this->plainMemberId], 'identified', ['label' => 'Membres', 'parents' => ['Espace animés']])
+            ->index(new Request('GET', '/g', [], [], [], []), $this->params())->getBody();
+
+        $this->assertMatchesRegularExpression('/<a href="\/groups" class="text-decoration-none">Groupes<\/a>/', $body);
+        $this->assertMatchesRegularExpression('/<a href="\/groups\/' . $this->groupId . '" class="text-decoration-none">Louveteaux<\/a>/', $body);
+        $this->assertMatchesRegularExpression('/aria-current="page">\s*Membres\s*<\/li>/', $body);
     }
 
     public function testInviteMemberRejectsAMissingCsrfToken(): void

@@ -149,6 +149,13 @@ class GroupController extends AbstractController
             // it survives exactly this one render, and lives nowhere but
             // this member's own session (Support\RejectedDraft).
             'rejected_draft' => RejectedDraft::take(),
+            // Replaces the route's static "Groupe" label with this
+            // group's own name, and adds a real "Groupes" link back to
+            // the module's list page ahead of it — partials/
+            // breadcrumb_bar.html.twig's own docblock explains why a
+            // direct link is safe here and not for an ordinary parent.
+            'breadcrumb_trail' => [['label' => 'Groupes', 'url' => '/groups']],
+            'breadcrumb_current' => $group->name,
         ]);
     }
 
@@ -225,6 +232,13 @@ class GroupController extends AbstractController
                 $group,
                 $this->accessService->canModerate($group, $context)
             ),
+            // Same trail as show(), one level deeper: "Groupes" then this
+            // group's own page, both real links — see show()'s own
+            // comment for why that is safe here.
+            'breadcrumb_trail' => [
+                ['label' => 'Groupes', 'url' => '/groups'],
+                ['label' => $group->name, 'url' => '/groups/' . $group->id],
+            ],
         ]);
     }
 

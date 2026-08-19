@@ -91,6 +91,13 @@ class GroupMemberController extends AbstractController
             'sections' => $canModerate ? $this->sectionService->getAllWithBranches() : [],
             // Only an explicit membership can be left — see the template.
             'can_leave' => $this->explicitMemberId($group, $context) !== null,
+            // Same trail as GroupController::show(), one level deeper —
+            // see that controller's own comment for why a direct link is
+            // safe here.
+            'breadcrumb_trail' => [
+                ['label' => 'Groupes', 'url' => '/groups'],
+                ['label' => $group->name, 'url' => '/groups/' . $group->id],
+            ],
         ]);
     }
 

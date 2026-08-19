@@ -84,11 +84,20 @@ class GroupControllerTest extends TestCase
     /**
      * @param int[] $linkedMemberIds
      */
+    /**
+     * @param array<string, mixed>|null $routeBreadcrumb the route's own
+     *        static breadcrumb declaration (module.json's `routes[].
+     *        breadcrumb`) — FrontController::handle() sets this as a Twig
+     *        global on every real request; left unset by default here
+     *        exactly as it always has been, since no other test in this
+     *        file asserts on the rendered breadcrumb bar.
+     */
     private function controller(
         array $linkedMemberIds,
         string $role = 'identified',
         bool $completeProfile = true,
-        ?DelegatedAlbumManager $delegatedAlbumManager = null
+        ?DelegatedAlbumManager $delegatedAlbumManager = null,
+        ?array $routeBreadcrumb = null
     ): GroupController {
         AuthSession::login(1, 'parent@test.be', $role);
 
@@ -137,6 +146,9 @@ class GroupControllerTest extends TestCase
         $twig->addGlobal('cookie_consent_given', true);
         $twig->addGlobal('menus', null);
         $twig->addGlobal('csp_nonce', 'test');
+        if ($routeBreadcrumb !== null) {
+            $twig->addGlobal('route_breadcrumb', $routeBreadcrumb);
+        }
         $twig->addFunction(new \Twig\TwigFunction('param', fn(...$a) => ''));
 
         $postRepo = new PostRepository($this->pdo);
@@ -504,6 +516,25 @@ class GroupControllerTest extends TestCase
         $this->assertStringContainsString('Louveteaux', $response->getBody());
     }
 
+    /**
+     * partials/breadcrumb_bar.html.twig: the group's own name replaces the
+     * route's static "Groupe" label, and a real link back to "Groupes"
+     * (the module's list page) appears ahead of it.
+     */
+    public function testShowBreadcrumbNamesTheGroupAndLinksBackToTheGroupList(): void
+    {
+        $creator = GroupsTestHelper::createMember($this->pdo, 'CBC1');
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator);
+        $member = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'MBC1', $this->sectionId, $this->currentYearId);
+
+        $body = $this->controller([$member], 'identified', true, null, ['label' => 'Groupe', 'parents' => ['Espace animés']])
+            ->show(new Request('GET', '/groups/' . $groupId, [], [], [], []), ['id' => (string) $groupId])
+            ->getBody();
+
+        $this->assertMatchesRegularExpression('/<a href="\/groups" class="text-decoration-none">Groupes<\/a>/', $body);
+        $this->assertMatchesRegularExpression('/aria-current="page">\s*Louveteaux\s*<\/li>/', $body);
+    }
+
     public function testShowReturns404ForAnUnknownGroup(): void
     {
         $member = GroupsTestHelper::createMember($this->pdo, 'M3');
@@ -625,6 +656,24 @@ class GroupControllerTest extends TestCase
 
         $this->assertStringContainsString('/gallery/media/1/thumb', $body);
         $this->assertStringContainsString('/gallery/media/2/thumb', $body);
+    }
+
+    public function testGalleryBreadcrumbLinksBackToTheGroupListAndTheGroupItself(): void
+    {
+        $creator = GroupsTestHelper::createMember($this->pdo, 'CBC2');
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator);
+        $member = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'MBC2', $this->sectionId, $this->currentYearId);
+
+        $manager = $this->createMock(DelegatedAlbumManager::class);
+        $manager->method('listMedia')->willReturn([]);
+
+        $body = $this->controller([$member], 'identified', true, $manager, ['label' => 'Galerie du groupe', 'parents' => ['Espace animés']])
+            ->gallery(new Request('GET', '/groups/' . $groupId . '/gallery', [], [], [], []), ['id' => (string) $groupId])
+            ->getBody();
+
+        $this->assertMatchesRegularExpression('/<a href="\/groups" class="text-decoration-none">Groupes<\/a>/', $body);
+        $this->assertMatchesRegularExpression('/<a href="\/groups\/' . $groupId . '" class="text-decoration-none">Louveteaux<\/a>/', $body);
+        $this->assertMatchesRegularExpression('/aria-current="page">\s*Galerie du groupe\s*<\/li>/', $body);
     }
 
     /**
