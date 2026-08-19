@@ -53,7 +53,7 @@
     // Toolbar commands
     document.querySelectorAll('[data-command]').forEach(function (btn) {
         btn.addEventListener('click', function () {
-            var cmd = btn.dataset.command;
+            var cmd = /** @type {HTMLElement} */ (btn).dataset.command;
             if (cmd === 'createLink') {
                 var url = prompt('URL du lien :');
                 if (url) document.execCommand(cmd, false, url);
@@ -68,10 +68,10 @@
     document.querySelectorAll('.editable-content .editable-edit-btn').forEach(function (btn) {
         btn.addEventListener('click', function (e) {
             e.stopPropagation();
-            var container = btn.closest('.editable-content');
+            var container = /** @type {HTMLElement} */ (btn.closest('.editable-content'));
             currentKey = container.dataset.key;
             currentElement = container;
-            var clone = container.cloneNode(true);
+            var clone = /** @type {HTMLElement} */ (container.cloneNode(true));
             var overlay = clone.querySelector('.editable-overlay');
             if (overlay) overlay.remove();
             editorContent.innerHTML = clone.innerHTML;
@@ -82,7 +82,7 @@
     // Save
     document.getElementById('richTextEditorSave').addEventListener('click', function () {
         var html = editorContent.innerHTML;
-        var csrfMeta = document.querySelector('meta[name="csrf-token"]');
+        var csrfMeta = /** @type {HTMLMetaElement | null} */ (document.querySelector('meta[name="csrf-token"]'));
         var csrf = csrfMeta ? csrfMeta.content : '';
 
         fetch('/api/editable-content', {

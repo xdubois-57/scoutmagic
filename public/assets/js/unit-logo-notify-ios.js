@@ -4,7 +4,7 @@
  */
 
 document.addEventListener('DOMContentLoaded', function() {
-    var notifyBtn = document.getElementById('unit-logo-notify-ios-btn');
+    var notifyBtn = /** @type {HTMLButtonElement} */ (document.getElementById('unit-logo-notify-ios-btn'));
     if (!notifyBtn) {
         return;
     }
@@ -14,7 +14,7 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
 
-        var csrf = document.querySelector('meta[name="csrf-token"]');
+        var csrf = /** @type {HTMLMetaElement} */ (document.querySelector('meta[name="csrf-token"]'));
         var res = await fetch('/config/settings/logo-notify-ios', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },

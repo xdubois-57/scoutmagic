@@ -8,7 +8,8 @@ document.addEventListener('DOMContentLoaded', function() {
     var currentModuleId = null;
     var currentKey = null;
 
-    document.querySelectorAll('.setting-row').forEach(function(row) {
+    document.querySelectorAll('.setting-row').forEach(function(rowEl) {
+        var row = /** @type {HTMLElement} */ (rowEl);
         row.addEventListener('click', function() {
             currentModuleId = row.dataset.module === 'core' ? '' : row.dataset.module;
             currentKey = row.dataset.key;
@@ -34,9 +35,9 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     document.getElementById('settingEditSave').addEventListener('click', async function() {
-        var input = document.querySelector('#settingEditInputContainer input, #settingEditInputContainer select, #settingEditInputContainer textarea');
+        var input = /** @type {HTMLInputElement} */ (document.querySelector('#settingEditInputContainer input, #settingEditInputContainer select, #settingEditInputContainer textarea'));
         var value = input.type === 'checkbox' ? (input.checked ? '1' : '0') : input.value;
-        var csrf = document.querySelector('meta[name="csrf-token"]');
+        var csrf = /** @type {HTMLMetaElement} */ (document.querySelector('meta[name="csrf-token"]'));
         var csrfValue = csrf ? csrf.content : '';
 
         var res = await fetch('/config/settings/update', {

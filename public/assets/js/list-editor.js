@@ -15,7 +15,7 @@
 // of drag-and-drop feeling instant.
 (function () {
     function csrf() {
-        var meta = document.querySelector('meta[name="csrf-token"]');
+        var meta = /** @type {HTMLMetaElement} */ (document.querySelector('meta[name="csrf-token"]'));
         return meta ? meta.content : '';
     }
 
@@ -32,12 +32,14 @@
         }).then(function (res) { return res.json(); });
     }
 
-    document.querySelectorAll('.list-editor').forEach(function (container) {
+    document.querySelectorAll('.list-editor').forEach(
+        /** @param {HTMLElement} container */
+        function (container) {
         var itemsEl = container.querySelector('.list-editor-items');
         var reorderUrl = container.dataset.reorderUrl;
         var activeUrl = container.dataset.activeUrl;
         var deleteUrl = container.dataset.deleteUrl;
-        var addBtn = container.querySelector('.list-editor-add-btn');
+        var addBtn = /** @type {HTMLButtonElement} */ (container.querySelector('.list-editor-add-btn'));
         var draggedItem = null;
 
         // --- Drag-and-drop reorder ---
@@ -51,7 +53,9 @@
                 draggedItem = null;
                 persistOrder();
             });
-            item.addEventListener('dragover', function (e) {
+            item.addEventListener('dragover',
+                /** @param {DragEvent} e */
+                function (e) {
                 e.preventDefault();
                 if (!draggedItem || draggedItem === item) return;
                 var rect = item.getBoundingClientRect();
@@ -65,7 +69,9 @@
             // Sent as-is (not parseInt'd) — an item's id isn't always
             // numeric (e.g. the general configuration page's module list
             // uses each module's string id).
-            var ids = Array.from(itemsEl.querySelectorAll('.list-editor-item')).map(function (el) {
+            var ids = Array.from(itemsEl.querySelectorAll('.list-editor-item')).map(
+                /** @param {HTMLElement} el */
+                function (el) {
                 return el.dataset.id;
             });
             postJson(reorderUrl, { ids: ids }).then(function (data) {
@@ -100,15 +106,17 @@
         function updateMoveButtons() {
             var items = Array.from(itemsEl.querySelectorAll('.list-editor-item'));
             items.forEach(function (item, index) {
-                var upBtn = item.querySelector('.list-editor-move-up');
-                var downBtn = item.querySelector('.list-editor-move-down');
+                var upBtn = /** @type {HTMLButtonElement} */ (item.querySelector('.list-editor-move-up'));
+                var downBtn = /** @type {HTMLButtonElement} */ (item.querySelector('.list-editor-move-down'));
                 if (upBtn) upBtn.disabled = (index === 0);
                 if (downBtn) downBtn.disabled = (index === items.length - 1);
             });
         }
 
         // --- Active toggle (icon button, not a checkbox) ---
-        itemsEl.querySelectorAll('.list-editor-active-toggle').forEach(function (toggle) {
+        itemsEl.querySelectorAll('.list-editor-active-toggle').forEach(
+            /** @param {HTMLButtonElement} toggle */
+            function (toggle) {
             toggle.addEventListener('click', function () {
                 if (!activeUrl) return;
                 var nextActive = toggle.dataset.active !== '1';
@@ -132,7 +140,9 @@
         });
 
         // --- Delete ---
-        itemsEl.querySelectorAll('.list-editor-delete-btn').forEach(function (btn) {
+        itemsEl.querySelectorAll('.list-editor-delete-btn').forEach(
+            /** @param {HTMLButtonElement} btn */
+            function (btn) {
             btn.addEventListener('click', function () {
                 if (btn.disabled) return;
                 if (!confirm('Supprimer définitivement cet élément ?')) return;

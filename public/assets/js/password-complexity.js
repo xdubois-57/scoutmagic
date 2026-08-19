@@ -12,7 +12,7 @@
  * @returns {{isValid: () => boolean}|null}
  */
 function initPasswordComplexityChecklist(inputId, listId) {
-    var input = document.getElementById(inputId);
+    var input = /** @type {HTMLInputElement} */ (document.getElementById(inputId));
     var list = document.getElementById(listId);
     if (!input || !list) return null;
 

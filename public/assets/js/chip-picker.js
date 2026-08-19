@@ -167,7 +167,8 @@
     }
 
     function init() {
-        document.querySelectorAll('.chip-picker').forEach(function (container) {
+        document.querySelectorAll('.chip-picker').forEach(function (containerEl) {
+            var container = /** @type {HTMLElement} */ (containerEl);
             truncate(container);
             if (container.dataset.mode === 'multi') initMulti(container);
         });

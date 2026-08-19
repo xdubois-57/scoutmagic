@@ -9,7 +9,7 @@
 // preference — a different device always starts unsubscribed, per module
 // spec. IIFE/var style matches public/assets/js/upload.js and friends.
 (function () {
-    var toggle = document.getElementById('push-toggle');
+    var toggle = /** @type {HTMLInputElement | null} */ (document.getElementById('push-toggle'));
     if (!toggle) return;
 
     var unsupportedNotice = document.getElementById('push-unsupported-notice');
@@ -18,7 +18,7 @@
     var vapidPublicKey = toggle.dataset.vapidPublicKey || '';
 
     function csrf() {
-        var meta = document.querySelector('meta[name="csrf-token"]');
+        var meta = /** @type {HTMLMetaElement | null} */ (document.querySelector('meta[name="csrf-token"]'));
         return meta ? meta.content : '';
     }
 
@@ -94,7 +94,7 @@
             if (permission !== 'granted') {
                 toggle.checked = false;
                 if (deniedNotice) deniedNotice.classList.remove('d-none');
-                return;
+                return undefined;
             }
 
             return getRegistration()
@@ -122,7 +122,7 @@
         return getRegistration()
             .then(function (registration) { return registration.pushManager.getSubscription(); })
             .then(function (subscription) {
-                if (!subscription) return;
+                if (!subscription) return undefined;
                 var endpoint = subscription.endpoint;
                 return subscription.unsubscribe().then(function () {
                     return deleteSubscription(endpoint);

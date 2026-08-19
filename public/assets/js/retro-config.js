@@ -22,9 +22,9 @@
         });
     });
 
-    var eventSelect = document.getElementById('retro-event');
-    var dateInput = document.getElementById('retro-date');
-    var titleInput = document.getElementById('retro-title');
+    var eventSelect = /** @type {HTMLSelectElement} */ (document.getElementById('retro-event'));
+    var dateInput = /** @type {HTMLInputElement} */ (document.getElementById('retro-date'));
+    var titleInput = /** @type {HTMLInputElement} */ (document.getElementById('retro-title'));
     if (eventSelect && dateInput) {
         eventSelect.addEventListener('change', function () {
             var selected = eventSelect.options[eventSelect.selectedIndex];
@@ -50,7 +50,7 @@
         });
     }
 
-    var maxLengthSlider = document.getElementById('retro-max-length');
+    var maxLengthSlider = /** @type {HTMLInputElement} */ (document.getElementById('retro-max-length'));
     var maxLengthValue = document.getElementById('retro-max-length-value');
     if (maxLengthSlider && maxLengthValue) {
         maxLengthSlider.addEventListener('input', function () {
@@ -58,8 +58,8 @@
         });
     }
 
-    var notifyEnabled = document.getElementById('retro-notify-enabled');
-    var notifyEmail = document.getElementById('retro-notify-email');
+    var notifyEnabled = /** @type {HTMLInputElement} */ (document.getElementById('retro-notify-enabled'));
+    var notifyEmail = /** @type {HTMLInputElement} */ (document.getElementById('retro-notify-email'));
     if (notifyEnabled && notifyEmail) {
         var syncNotifyEmail = function () { notifyEmail.disabled = !notifyEnabled.checked; };
         notifyEnabled.addEventListener('change', syncNotifyEmail);

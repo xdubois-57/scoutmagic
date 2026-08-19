@@ -4,11 +4,11 @@
  */
 
 (function() {
-    var form = document.getElementById('setup-form');
-    var mailMode = document.getElementById('mail_mode');
+    var form = /** @type {HTMLFormElement} */ (document.getElementById('setup-form'));
+    var mailMode = /** @type {HTMLSelectElement} */ (document.getElementById('mail_mode'));
     var smtpFields = document.getElementById('smtp-fields');
     var btnTestDb = document.getElementById('btn-test-db');
-    var btnSave = document.getElementById('btn-save');
+    var btnSave = /** @type {HTMLButtonElement} */ (document.getElementById('btn-save'));
     var saveHint = document.getElementById('save-hint');
     var dbSpinner = document.getElementById('db-spinner');
     var dbResult = document.getElementById('db-test-result');
@@ -17,7 +17,7 @@
     var dnsRecords = document.getElementById('dns-records');
     var dbNotEmptyWarning = document.getElementById('db-not-empty-warning');
     var dbNotEmptyCount = document.getElementById('db-not-empty-count');
-    var btnBackupEmptyDb = document.getElementById('btn-backup-empty-db');
+    var btnBackupEmptyDb = /** @type {HTMLButtonElement} */ (document.getElementById('btn-backup-empty-db'));
     var backupEmptySpinner = document.getElementById('backup-empty-spinner');
     var backupEmptyResult = document.getElementById('backup-empty-result');
 
@@ -83,8 +83,9 @@
     }
 
     document.addEventListener('click', function(event) {
-        if (event.target.classList && event.target.classList.contains('btn-copy-value')) {
-            copyValue(event.target);
+        var target = /** @type {HTMLElement} */ (event.target);
+        if (target.classList && target.classList.contains('btn-copy-value')) {
+            copyValue(target);
         }
     });
 
@@ -116,11 +117,11 @@
 
         var data = new FormData();
         data.append('_csrf_token', form.elements['_csrf_token'].value);
-        data.append('db_host', document.getElementById('db_host').value);
-        data.append('db_port', document.getElementById('db_port').value);
-        data.append('db_name', document.getElementById('db_name').value);
-        data.append('db_user', document.getElementById('db_user').value);
-        data.append('db_password', document.getElementById('db_password').value);
+        data.append('db_host', /** @type {HTMLInputElement} */ (document.getElementById('db_host')).value);
+        data.append('db_port', /** @type {HTMLInputElement} */ (document.getElementById('db_port')).value);
+        data.append('db_name', /** @type {HTMLInputElement} */ (document.getElementById('db_name')).value);
+        data.append('db_user', /** @type {HTMLInputElement} */ (document.getElementById('db_user')).value);
+        data.append('db_password', /** @type {HTMLInputElement} */ (document.getElementById('db_password')).value);
 
         fetch(btnTestDb.dataset.action || '/setup/test-db', { method: 'POST', body: data })
             .then(function(r) { return r.json(); })
@@ -182,7 +183,7 @@
 
     btnTestDb.addEventListener('click', runDbTestOrInstall);
 
-    var btnEmptyWithoutBackup = document.getElementById('btn-empty-without-backup');
+    var btnEmptyWithoutBackup = /** @type {HTMLButtonElement} */ (document.getElementById('btn-empty-without-backup'));
 
     function runBackupAndEmpty(forceWithoutBackup) {
         btnBackupEmptyDb.disabled = true;
@@ -192,11 +193,11 @@
 
         var data = new FormData();
         data.append('_csrf_token', form.elements['_csrf_token'].value);
-        data.append('db_host', document.getElementById('db_host').value);
-        data.append('db_port', document.getElementById('db_port').value);
-        data.append('db_name', document.getElementById('db_name').value);
-        data.append('db_user', document.getElementById('db_user').value);
-        data.append('db_password', document.getElementById('db_password').value);
+        data.append('db_host', /** @type {HTMLInputElement} */ (document.getElementById('db_host')).value);
+        data.append('db_port', /** @type {HTMLInputElement} */ (document.getElementById('db_port')).value);
+        data.append('db_name', /** @type {HTMLInputElement} */ (document.getElementById('db_name')).value);
+        data.append('db_user', /** @type {HTMLInputElement} */ (document.getElementById('db_user')).value);
+        data.append('db_password', /** @type {HTMLInputElement} */ (document.getElementById('db_password')).value);
         if (forceWithoutBackup) { data.append('force_without_backup', '1'); }
 
         fetch('/setup/backup-and-empty-db', { method: 'POST', body: data })
@@ -291,7 +292,7 @@
 
     if (btnTestEmail) {
         btnTestEmail.addEventListener('click', function() {
-            var recipient = document.getElementById('test_email_recipient').value.trim();
+            var recipient = /** @type {HTMLInputElement} */ (document.getElementById('test_email_recipient')).value.trim();
             if (!recipient) {
                 emailResult.innerHTML = '<span class="text-danger">\u2717 Veuillez entrer une adresse email.</span>';
                 return;
@@ -307,14 +308,14 @@
             // of persisted secrets (harmless extra fields once
             // initialized \u2014 that path reads from secrets.enc instead).
             data.append('mail_mode', mailMode.value);
-            data.append('smtp_host', document.getElementById('smtp_host').value);
-            data.append('smtp_port', document.getElementById('smtp_port').value);
-            data.append('smtp_user', document.getElementById('smtp_user').value);
-            data.append('smtp_password', document.getElementById('smtp_password').value);
-            data.append('mail_from_address', document.getElementById('mail_from_address').value);
-            data.append('mail_from_name', document.getElementById('mail_from_name').value);
-            data.append('short_name', document.getElementById('short_name').value);
-            data.append('dkim_selector', document.getElementById('dkim_selector').value);
+            data.append('smtp_host', /** @type {HTMLInputElement} */ (document.getElementById('smtp_host')).value);
+            data.append('smtp_port', /** @type {HTMLInputElement} */ (document.getElementById('smtp_port')).value);
+            data.append('smtp_user', /** @type {HTMLInputElement} */ (document.getElementById('smtp_user')).value);
+            data.append('smtp_password', /** @type {HTMLInputElement} */ (document.getElementById('smtp_password')).value);
+            data.append('mail_from_address', /** @type {HTMLInputElement} */ (document.getElementById('mail_from_address')).value);
+            data.append('mail_from_name', /** @type {HTMLInputElement} */ (document.getElementById('mail_from_name')).value);
+            data.append('short_name', /** @type {HTMLInputElement} */ (document.getElementById('short_name')).value);
+            data.append('dkim_selector', /** @type {HTMLInputElement} */ (document.getElementById('dkim_selector')).value);
 
             fetch('/setup/test-email', { method: 'POST', body: data })
                 .then(function(r) { return r.json(); })
@@ -357,7 +358,7 @@
                     // Rebuilt in place (no location.reload()) so the rest
                     // of the \u2014 possibly already partly filled \u2014 form isn't
                     // lost just because the DKIM key got generated early.
-                    var selector = document.getElementById('dkim_selector').value
+                    var selector = /** @type {HTMLInputElement} */ (document.getElementById('dkim_selector')).value
                         .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
                     var html = '<p class="mb-2 small">Cl\u00e9 DKIM g\u00e9n\u00e9r\u00e9e. S\u00e9lecteur : <strong>' + selector + '</strong>.</p>';
                     html += '<div class="mb-2">';
@@ -380,12 +381,12 @@
     btnCheckDns.addEventListener('click', function() {
         dnsSpinner.classList.remove('d-none');
 
-        var fromAddress = document.getElementById('mail_from_address').value;
+        var fromAddress = /** @type {HTMLInputElement} */ (document.getElementById('mail_from_address')).value;
         var domain = fromAddress.indexOf('@') !== -1 ? fromAddress.split('@')[1] : '';
-        var selector = document.getElementById('dkim_selector').value;
+        var selector = /** @type {HTMLInputElement} */ (document.getElementById('dkim_selector')).value;
         var mode = mailMode.value;
-        var smtpHost = document.getElementById('smtp_host').value;
-        var dmarcFieldValue = document.getElementById('dmarc_report_email').value.trim();
+        var smtpHost = /** @type {HTMLInputElement} */ (document.getElementById('smtp_host')).value;
+        var dmarcFieldValue = /** @type {HTMLInputElement} */ (document.getElementById('dmarc_report_email')).value.trim();
         var dmarcEmail = dmarcFieldValue || fromAddress;
 
         if (!domain || !selector) {

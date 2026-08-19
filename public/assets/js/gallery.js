@@ -8,7 +8,7 @@
 // no external library — same IIFE/var/fetch style as list-editor.js.
 (function () {
     function csrf() {
-        var meta = document.querySelector('meta[name="csrf-token"]');
+        var meta = /** @type {HTMLMetaElement} */ (document.querySelector('meta[name="csrf-token"]'));
         return meta ? meta.content : '';
     }
 
@@ -43,13 +43,13 @@
         var box = document.getElementById('gallery-lightbox');
         if (!triggers.length || !box) return;
 
-        var imageEl = document.getElementById('gallery-lightbox-image');
-        var videoEl = document.getElementById('gallery-lightbox-video');
+        var imageEl = /** @type {HTMLImageElement} */ (document.getElementById('gallery-lightbox-image'));
+        var videoEl = /** @type {HTMLVideoElement} */ (document.getElementById('gallery-lightbox-video'));
         var closeBtn = document.getElementById('gallery-lightbox-close');
         var prevBtn = document.getElementById('gallery-lightbox-prev');
         var nextBtn = document.getElementById('gallery-lightbox-next');
         var hqBtn = document.getElementById('gallery-lightbox-hq');
-        var downloadBtn = document.getElementById('gallery-lightbox-download');
+        var downloadBtn = /** @type {HTMLAnchorElement} */ (document.getElementById('gallery-lightbox-download'));
 
         var items = [];
         var currentIndex = -1;
@@ -120,7 +120,7 @@
         // meant a still-processing (or failed) thumbnail resolved to index -1,
         // and open(-1) un-hid the overlay anyway: a fullscreen black screen
         // with nothing in it.
-        triggers.forEach(function (btn) {
+        triggers.forEach(/** @param {HTMLElement} btn */ function (btn) {
             var mediumUrl = btn.dataset.mediumUrl;
             if (!mediumUrl) {
                 btn.setAttribute('aria-disabled', 'true');
@@ -170,7 +170,7 @@
     // ------------------------------------------------------------------
     (function initUpload() {
         var zone = document.getElementById('gallery-upload-zone');
-        var input = document.getElementById('gallery-upload-input');
+        var input = /** @type {HTMLInputElement} */ (document.getElementById('gallery-upload-input'));
         var progressWrap = document.getElementById('gallery-upload-progress');
         var progressBar = document.getElementById('gallery-upload-progress-bar');
         var progressLabel = document.getElementById('gallery-upload-progress-label');
@@ -266,7 +266,7 @@
         var draggedItem = null;
 
         function persistOrder() {
-            var ids = Array.from(grid.querySelectorAll('.gallery-media-item')).map(function (el) {
+            var ids = Array.from(grid.querySelectorAll('.gallery-media-item')).map(/** @param {HTMLElement} el */ function (el) {
                 return parseInt(el.dataset.mediaId, 10);
             });
             postJson(reorderUrl, { ordered_ids: ids }).then(function (data) {
@@ -274,7 +274,7 @@
             });
         }
 
-        grid.querySelectorAll('.gallery-media-item').forEach(function (item) {
+        grid.querySelectorAll('.gallery-media-item').forEach(/** @param {HTMLElement} item */ function (item) {
             item.addEventListener('dragstart', function () {
                 draggedItem = item;
                 item.classList.add('opacity-50');
@@ -293,7 +293,7 @@
             });
         });
 
-        grid.querySelectorAll('.gallery-media-delete').forEach(function (btn) {
+        grid.querySelectorAll('.gallery-media-delete').forEach(/** @param {HTMLElement} btn */ function (btn) {
             btn.addEventListener('click', function () {
                 if (!confirm('Supprimer ce média ?')) return;
                 var item = btn.closest('.gallery-media-item');
@@ -307,7 +307,7 @@
             });
         });
 
-        grid.querySelectorAll('.gallery-media-set-cover').forEach(function (btn) {
+        grid.querySelectorAll('.gallery-media-set-cover').forEach(/** @param {HTMLElement} btn */ function (btn) {
             btn.addEventListener('click', function () {
                 postJson(btn.dataset.url, { media_id: parseInt(btn.dataset.mediaId, 10) }).then(function (data) {
                     if (data.success) {
@@ -324,7 +324,7 @@
     // Refresh OG metadata button (album_form.html.twig, external albums)
     // ------------------------------------------------------------------
     (function initRefreshOg() {
-        var btn = document.getElementById('gallery-refresh-og');
+        var btn = /** @type {HTMLButtonElement} */ (document.getElementById('gallery-refresh-og'));
         if (!btn) return;
         btn.addEventListener('click', function () {
             btn.disabled = true;
@@ -345,14 +345,14 @@
     (function initTypeToggle() {
         var radios = document.querySelectorAll('input[name="type"]');
         var externalField = document.querySelector('.gallery-external-field');
-        var externalInput = document.getElementById('album-external-url');
-        var titleInput = document.getElementById('album-title');
+        var externalInput = /** @type {HTMLInputElement} */ (document.getElementById('album-external-url'));
+        var titleInput = /** @type {HTMLInputElement} */ (document.getElementById('album-title'));
         var titleHint = document.querySelector('.gallery-title-optional-hint');
         var localField = document.querySelector('.gallery-local-field');
         if (!radios.length || !externalField) return;
 
         function sync() {
-            var checked = document.querySelector('input[name="type"]:checked');
+            var checked = /** @type {HTMLInputElement} */ (document.querySelector('input[name="type"]:checked'));
             var isExternal = !!checked && checked.value === 'external';
 
             externalField.classList.toggle('d-none', !isExternal);

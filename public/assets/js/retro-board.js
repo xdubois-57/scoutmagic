@@ -23,7 +23,7 @@
     var budgetEl = document.getElementById('retro-budget-remaining');
 
     function csrf() {
-        var meta = document.querySelector('meta[name="csrf-token"]');
+        var meta = /** @type {HTMLMetaElement} */ (document.querySelector('meta[name="csrf-token"]'));
         return meta ? meta.content : '';
     }
 
@@ -158,13 +158,15 @@
     // ------------------------------------------------------------------
     // Comment submission (one form per column) + AI-shorten
     // ------------------------------------------------------------------
-    container.querySelectorAll('.retro-comment-form').forEach(function (form) {
+    container.querySelectorAll('.retro-comment-form').forEach(
+        /** @param {HTMLElement} form */
+        function (form) {
         var column = form.dataset.column;
-        var input = form.querySelector('[data-draft-input]');
+        var input = /** @type {HTMLTextAreaElement} */ (form.querySelector('[data-draft-input]'));
         var counter = form.querySelector('[data-draft-counter]');
         var errorEl = form.querySelector('[data-draft-error]');
-        var shortenBtn = form.querySelector('[data-shorten-btn]');
-        var submitBtn = form.querySelector('button[type="submit"]');
+        var shortenBtn = /** @type {HTMLButtonElement} */ (form.querySelector('[data-shorten-btn]'));
+        var submitBtn = /** @type {HTMLButtonElement} */ (form.querySelector('button[type="submit"]'));
         var moderationEl = form.querySelector('[data-moderation-alert]');
 
         function updateCounter() {
@@ -298,11 +300,12 @@
     // re-rendered wholesale on every poll.
     // ------------------------------------------------------------------
     container.addEventListener('click', function (e) {
-        var likeBtn = e.target.closest('.retro-vote-like');
-        var addBtn = e.target.closest('.retro-vote-add');
-        var removeBtn = e.target.closest('.retro-vote-remove');
-        var hideBtn = e.target.closest('.retro-hide');
-        var unhideBtn = e.target.closest('.retro-unhide');
+        var target = /** @type {HTMLElement} */ (e.target);
+        var likeBtn = /** @type {HTMLButtonElement} */ (target.closest('.retro-vote-like'));
+        var addBtn = /** @type {HTMLButtonElement} */ (target.closest('.retro-vote-add'));
+        var removeBtn = /** @type {HTMLButtonElement} */ (target.closest('.retro-vote-remove'));
+        var hideBtn = /** @type {HTMLButtonElement} */ (target.closest('.retro-hide'));
+        var unhideBtn = /** @type {HTMLButtonElement} */ (target.closest('.retro-unhide'));
 
         if (likeBtn) {
             var id1 = likeBtn.dataset.commentId;

@@ -14,7 +14,7 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
 
-        var csrf = document.querySelector('meta[name="csrf-token"]');
+        var csrf = /** @type {HTMLMetaElement} */ (document.querySelector('meta[name="csrf-token"]'));
         var res = await fetch('/config/settings/logo-delete', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },

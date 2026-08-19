@@ -121,7 +121,7 @@
         if (navigator.onLine) {
             return;
         }
-        var link = event.target.closest('a[href^="/"]');
+        var link = /** @type {HTMLElement} */ (event.target).closest('a[href^="/"]');
         if (!link) {
             return;
         }
@@ -150,8 +150,8 @@
             var method = 'GET';
             if (init && init.method) {
                 method = init.method;
-            } else if (input && typeof input === 'object' && input.method) {
-                method = input.method;
+            } else if (input && typeof input === 'object' && /** @type {Request} */ (input).method) {
+                method = /** @type {Request} */ (input).method;
             }
 
             if (!navigator.onLine && method.toUpperCase() !== 'GET') {
