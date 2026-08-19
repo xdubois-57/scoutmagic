@@ -82,8 +82,24 @@ class AttachmentRepository
         $stmt->execute([$id]);
     }
 
+    /**
+     * The config page's "zone de danger" bulk archive. Drops every movement
+     * association first, exactly as the per-receipt path
+     * (Service\ReceiptService::delete()) does — archiving alone used to
+     * leave the finance_transaction_attachments rows behind, so movements
+     * kept showing a paperclip count and the archived receipt's merchant/
+     * description via Service\MovementPresenter, and — the durable part —
+     * Service\ReceiptMatchingService::candidateTransactions() went on
+     * excluding those movements as "already has a receipt" forever, so no
+     * new receipt could ever be auto-matched to them again.
+     */
     public function archiveAll(): int
     {
+        $this->pdo->exec(
+            "DELETE FROM finance_transaction_attachments
+             WHERE attachment_id IN (SELECT id FROM finance_attachments WHERE status = 'active')"
+        );
+
         $stmt = $this->pdo->exec("UPDATE finance_attachments SET status = 'archived' WHERE status = 'active'");
         return $stmt !== false ? $stmt : 0;
     }

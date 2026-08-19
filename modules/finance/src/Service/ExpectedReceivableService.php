@@ -29,6 +29,16 @@ class ExpectedReceivableService implements ExpectedReceivableInterface
     ) {
     }
 
+    /**
+     * @throws FinanceException when $communication carries no digit — the
+     *         status computation matches on its digits alone, so such a
+     *         receivable could never be settled by any transaction, and
+     *         (before sumMatchingCredits() guarded it) an empty needle made
+     *         every credit on the account look like a payment for it. This
+     *         is a public cross-module API (ARCHITECTURE.md §7.5), so the
+     *         caller is not assumed to have gone through
+     *         Service\StructuredCommunicationService::generate().
+     */
     public function createReceivable(
         string $sourceModule,
         int $sourceReferenceId,
@@ -37,6 +47,10 @@ class ExpectedReceivableService implements ExpectedReceivableInterface
         string $communication,
         ?string $label
     ): int {
+        if ($this->digitsOnly($communication) === '') {
+            throw new FinanceException('La communication doit contenir au moins un chiffre.');
+        }
+
         return $this->repository->create($sourceModule, $sourceReferenceId, $accountId, $amountCents, $communication, $label);
     }
 
@@ -66,17 +80,84 @@ class ExpectedReceivableService implements ExpectedReceivableInterface
 
     private function computeAmountReceivedCents(ExpectedReceivable $receivable): int
     {
-        $digitsOnlyCommunication = $this->digitsOnly($receivable->communication);
-        $total = 0;
+        return $this->sumMatchingCredits(
+            $receivable,
+            $this->transactionRepository->findByAccountId($receivable->accountId)
+        );
+    }
 
-        foreach ($this->transactionRepository->findByAccountId($receivable->accountId) as $transaction) {
+    /**
+     * Statuses for many receivables at once, keyed by receivable id — the
+     * reconciliation page (Service\ReceivablesOverviewService) needs one
+     * per row, and calling getReceivableStatus() in a loop re-read AND
+     * re-decrypted every movement on the account once per receivable.
+     * Movements are loaded once per distinct account instead.
+     *
+     * @param ExpectedReceivable[] $receivables
+     * @return array<int, array{amount_due: int, amount_received: int, status: 'paid'|'partial'|'unpaid'}>
+     */
+    public function getReceivableStatuses(array $receivables): array
+    {
+        $transactionsByAccountId = [];
+        foreach ($receivables as $receivable) {
+            if (!isset($transactionsByAccountId[$receivable->accountId])) {
+                $transactionsByAccountId[$receivable->accountId] =
+                    $this->transactionRepository->findByAccountId($receivable->accountId);
+            }
+        }
+
+        $statuses = [];
+        foreach ($receivables as $receivable) {
+            $amountReceived = $this->sumMatchingCredits(
+                $receivable,
+                $transactionsByAccountId[$receivable->accountId] ?? []
+            );
+            $statuses[$receivable->id] = [
+                'amount_due' => $receivable->amountDueCents,
+                'amount_received' => $amountReceived,
+                'status' => $this->statusFor($receivable->amountDueCents, $amountReceived),
+            ];
+        }
+
+        return $statuses;
+    }
+
+    /**
+     * Credits on the account whose free text carries the receivable's
+     * communication, summed (a receivable can be settled across several
+     * transfers).
+     *
+     * Two things this deliberately does NOT do. It never matches on an
+     * empty needle: a communication with no digits at all reduces to '',
+     * and str_contains($haystack, '') is always true — which used to count
+     * *every* credit on the account as settling the receivable and report
+     * it "paid". createReceivable() now rejects such a communication, and
+     * this is the second line of defence for rows written before it did.
+     * And it matches each field separately rather than concatenating them:
+     * stripping the separators from "label + comment + extra" glued the
+     * digits of adjacent fields together, so a communication could be
+     * "found" straddling a boundary where it appears in neither field.
+     *
+     * @param \Modules\Finance\Repository\Transaction[] $transactions
+     */
+    private function sumMatchingCredits(ExpectedReceivable $receivable, array $transactions): int
+    {
+        $needle = $this->digitsOnly($receivable->communication);
+        if ($needle === '') {
+            return 0;
+        }
+
+        $total = 0;
+        foreach ($transactions as $transaction) {
             if ($transaction->amount <= 0) {
                 continue; // only credits (money coming in) can settle a receivable
             }
 
-            $haystack = $this->digitsOnly($transaction->label . ' ' . ($transaction->comment ?? '') . ' ' . ($transaction->extraDetails ?? ''));
-            if (str_contains($haystack, $digitsOnlyCommunication)) {
-                $total += (int) round($transaction->amount * 100);
+            foreach ([$transaction->label, $transaction->comment, $transaction->extraDetails] as $field) {
+                if ($field !== null && str_contains($this->digitsOnly($field), $needle)) {
+                    $total += (int) round($transaction->amount * 100);
+                    break;
+                }
             }
         }
 
