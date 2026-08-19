@@ -436,4 +436,74 @@ class ConfigControllerTest extends TestCase
         $this->assertFalse($decoded['success']);
         $this->assertStringContainsString('Échec de connexion', $decoded['error']);
     }
+
+    // --------------------------------------------------- ProviderRepository
+
+    /**
+     * The deactivate-then-activate pair must be atomic: a failure between the
+     * two would otherwise leave the site with no active provider at all.
+     */
+    public function testTransactionalRollsBackEverythingWhenTheWorkThrows(): void
+    {
+        $this->providerRepository->create('Anthropic', 'anthropic', 'https://api.anthropic.com', 'sk-a', true);
+
+        try {
+            $this->providerRepository->transactional(function (): void {
+                $this->providerRepository->deactivateAll();
+                throw new \RuntimeException('mid-flight failure');
+            });
+            $this->fail('The exception must propagate.');
+        } catch (\RuntimeException $e) {
+            $this->assertSame('mid-flight failure', $e->getMessage());
+        }
+
+        $active = $this->providerRepository->findFirstActive();
+        $this->assertNotNull($active, 'deactivateAll() must have been rolled back.');
+        $this->assertSame('anthropic', $active['driver']);
+    }
+
+    public function testTransactionalCommitsWhenTheWorkSucceeds(): void
+    {
+        $this->providerRepository->transactional(function (): void {
+            $this->providerRepository->create('Mistral AI', 'mistral', 'https://api.mistral.ai', 'sk-m', true);
+        });
+
+        $this->assertCount(1, $this->providerRepository->findAll());
+    }
+
+    /**
+     * A caller may already own a transaction; the helper must join it rather
+     * than fail on a nested begin, leaving the commit to that caller.
+     */
+    public function testTransactionalJoinsAnAlreadyOpenTransaction(): void
+    {
+        $this->pdo->beginTransaction();
+
+        $this->providerRepository->transactional(function (): void {
+            $this->providerRepository->create('Scaleway', 'scaleway', 'https://api.scaleway.ai', 'sk-s', true);
+        });
+
+        $this->assertTrue($this->pdo->inTransaction(), 'The outer transaction must still be open.');
+        $this->pdo->commit();
+
+        $this->assertCount(1, $this->providerRepository->findAll());
+    }
+
+    public function testFindByDriverReturnsNullWhenNoRowExists(): void
+    {
+        $this->assertNull($this->providerRepository->findByDriver('anthropic'));
+    }
+
+    public function testFindByDriverReturnsTheLowestIdForThatDriver(): void
+    {
+        $firstId = $this->providerRepository->create('Anthropic', 'anthropic', 'https://api.anthropic.com', 'sk-1', false);
+        $this->providerRepository->create('Anthropic bis', 'anthropic', 'https://api.anthropic.com', 'sk-2', true);
+        $this->providerRepository->create('Mistral AI', 'mistral', 'https://api.mistral.ai', 'sk-m', false);
+
+        $found = $this->providerRepository->findByDriver('anthropic');
+
+        $this->assertNotNull($found);
+        $this->assertSame($firstId, $found['id']);
+        $this->assertSame('mistral', $this->providerRepository->findByDriver('mistral')['driver']);
+    }
 }
