@@ -92,7 +92,13 @@ class ModerationService
             return null;
         }
 
-        if (!($parsed['flagged'] ?? false)) {
+        // Structured output is prompt-instructed, not enforced by the API
+        // (see Service\LlmConnectorService::extractJson()), so a model may
+        // answer with the string "false" — which is truthy in PHP and used to
+        // flag a perfectly civil comment. Only a real boolean true counts;
+        // anything else means "not flagged", the safe direction for a
+        // courtesy check that must never block a legitimate participant.
+        if (($parsed['flagged'] ?? false) !== true) {
             return ['flagged' => false, 'reason' => null, 'suggestion' => null];
         }
 

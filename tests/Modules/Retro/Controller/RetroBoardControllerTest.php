@@ -487,4 +487,115 @@ class RetroBoardControllerTest extends TestCase
 
         $this->assertSame(422, $response->getStatusCode());
     }
+
+    /**
+     * POST /r/{token}/shorten is role_min "public", and every call is a paid
+     * LLM round-trip. Service\CommentService::postComment() guards its own
+     * moderation call with a board-open check, a rate limit and a length cap
+     * before reaching the LLM; this route reached it with none of the three.
+     * The tests below pin each guard, and assert the LLM is not called.
+     */
+    private function rebuildControllerWithModeration(ModerationService $moderationService): void
+    {
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $commentService = new CommentService($this->commentRepository, null, $this->rateLimitService);
+        $voteService = new VoteService(new VoteRepository($this->pdo), $this->commentRepository, $encryption);
+
+        $this->controller = new RetroBoardController(
+            $this->twig, $this->boardRepository, $this->commentRepository, $commentService, $voteService, $this->boardService,
+            $this->rateLimitService, $moderationService, new CookieConsentService(), $this->settingService, $this->scoutYearService
+        );
+    }
+
+    private function alwaysAvailableModeration(int $expectedShortenCalls): ModerationService
+    {
+        $moderationService = $this->createMock(ModerationService::class);
+        $moderationService->method('isAvailable')->willReturn(true);
+        $moderationService->expects($this->exactly($expectedShortenCalls))
+            ->method('shorten')
+            ->willReturn('Version raccourcie.');
+
+        return $moderationService;
+    }
+
+    public function testShortenSucceedsOnAnOpenBoardWithAReasonableBody(): void
+    {
+        $this->rebuildControllerWithModeration($this->alwaysAvailableModeration(1));
+        [, $token] = $this->createBoard();
+        $csrf = $this->csrfToken();
+
+        $response = $this->controller->shorten(
+            $this->jsonRequest('/r/' . $token . '/shorten', ['_csrf_token' => $csrf, 'body' => str_repeat('a', 200)]),
+            ['token' => $token]
+        );
+
+        $this->assertSame(200, $response->getStatusCode());
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertTrue($decoded['success']);
+        $this->assertSame('Version raccourcie.', $decoded['body']);
+    }
+
+    public function testShortenIsRefusedOnAClosedBoardWithoutCallingTheLlm(): void
+    {
+        $this->rebuildControllerWithModeration($this->alwaysAvailableModeration(0));
+        [$boardId, $token] = $this->createBoard();
+        $this->boardRepository->close($boardId);
+        $csrf = $this->csrfToken();
+
+        $response = $this->controller->shorten(
+            $this->jsonRequest('/r/' . $token . '/shorten', ['_csrf_token' => $csrf, 'body' => 'Un commentaire']),
+            ['token' => $token]
+        );
+
+        $this->assertSame(422, $response->getStatusCode());
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertStringContainsString('clôturé', (string) $decoded['error']);
+    }
+
+    public function testShortenRefusesAnOversizedBodyWithoutCallingTheLlm(): void
+    {
+        $this->rebuildControllerWithModeration($this->alwaysAvailableModeration(0));
+        [, $token] = $this->createBoard();
+        $csrf = $this->csrfToken();
+
+        // maxCommentLength is 140 here, so anything past 4x that is refused.
+        $response = $this->controller->shorten(
+            $this->jsonRequest('/r/' . $token . '/shorten', ['_csrf_token' => $csrf, 'body' => str_repeat('a', 600)]),
+            ['token' => $token]
+        );
+
+        $this->assertSame(422, $response->getStatusCode());
+    }
+
+    public function testShortenRefusesAnEmptyBodyWithoutCallingTheLlm(): void
+    {
+        $this->rebuildControllerWithModeration($this->alwaysAvailableModeration(0));
+        [, $token] = $this->createBoard();
+        $csrf = $this->csrfToken();
+
+        $response = $this->controller->shorten(
+            $this->jsonRequest('/r/' . $token . '/shorten', ['_csrf_token' => $csrf, 'body' => '   ']),
+            ['token' => $token]
+        );
+
+        $this->assertSame(422, $response->getStatusCode());
+    }
+
+    public function testShortenIsRateLimitedSoAnAnonymousBurstCannotDrainTheAiBudget(): void
+    {
+        // RateLimitService::LIMITS['shorten'] is 5 per window.
+        $this->rebuildControllerWithModeration($this->alwaysAvailableModeration(5));
+        [, $token] = $this->createBoard();
+
+        $statuses = [];
+        for ($i = 0; $i < 8; $i++) {
+            $csrf = $this->csrfToken();
+            $statuses[] = $this->controller->shorten(
+                $this->jsonRequest('/r/' . $token . '/shorten', ['_csrf_token' => $csrf, 'body' => 'Un commentaire à raccourcir']),
+                ['token' => $token]
+            )->getStatusCode();
+        }
+
+        $this->assertSame([200, 200, 200, 200, 200, 422, 422, 422], $statuses);
+    }
 }
