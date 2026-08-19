@@ -52,7 +52,7 @@ volontaire, sans garantie de délai.
 - PHP >= 8.4
 - MySQL >= 8.0
 - Composer (pour le développement/build uniquement — non nécessaire sur le serveur)
-- Node.js >= 22 et npm (pour les tests unitaires JavaScript uniquement — non nécessaire sur le serveur, ni pour exécuter ScoutMagic)
+- Node.js >= 22 et npm (pour les tests uniquement — tests unitaires JavaScript et tests de bout en bout ; non nécessaire sur le serveur, ni pour exécuter ScoutMagic)
 - Accès FTP au serveur d'hébergement
 
 ## Installation
@@ -70,9 +70,12 @@ composer serve                     # serveur de dev local (localhost:8000)
 vendor/bin/phpunit                 # exécuter les tests PHP (suite complète)
 vendor/bin/phpstan analyse core/   # analyse statique
 
-npm ci                             # dépendances Node (tests JS uniquement — voir Prérequis)
+npm ci                             # dépendances Node (tests uniquement — voir Prérequis)
 npm test                           # exécuter les tests unitaires JavaScript (Vitest + jsdom)
 npm run test:coverage              # idem, avec couverture LCOV (coverage/js/lcov.info)
+
+npm run e2e:install                # une seule fois : installer le navigateur Chromium (Playwright)
+npm run e2e                        # exécuter les tests de bout en bout (voir ci-dessous)
 ```
 
 `vendor/bin/phpunit` exécute **toute** la suite, groupe `database` compris : aucun test n'est exclu par défaut, ni en local, ni en CI, ni dans `scripts/release.sh`. La majorité de ce groupe tourne sur une base SQLite en mémoire (`Tests\DatabaseTestHelper`) et ne demande rien de particulier ; seuls les six fichiers qui lisent `TEST_DB_*` ont besoin d'une vraie instance MySQL jetable. Renseignez alors `TEST_DB_HOST` / `TEST_DB_PORT` / `TEST_DB_NAME` / `TEST_DB_USER` / `TEST_DB_PASSWORD` (la CI utilise `127.0.0.1`, `3306`, `test_db`, `root`, `test_password`). **`TEST_DB_PASSWORD` ne doit pas être vide** : les tests du formulaire d'installation (`Tests\Core\Http\Controller\SetupControllerTest`) rejouent la vraie validation du formulaire, qui rend le mot de passe de base de données obligatoire.
@@ -81,12 +84,50 @@ npm run test:coverage              # idem, avec couverture LCOV (coverage/js/lco
 
 Les tests JavaScript (`tests/js/`, Vitest + jsdom) sont isolés du reste de la pile : aucun serveur PHP, aucune base MySQL, aucun réseau réel (`fetch`/Service Worker/WebAuthn sont simulés dans les tests qui en ont besoin). Ils exercent directement le vrai code de production sous `public/assets/js/`, jamais une réimplémentation. Node/npm ne servent qu'à ça — ScoutMagic lui-même reste du JavaScript navigateur simple, sans étape de build, et ni Node ni npm ne sont nécessaires pour l'exécuter ou le déployer (voir `AGENTS.md` § CSS / frontend).
 
+### Tests de bout en bout (E2E)
+
+Un petit nombre de scénarios à haute valeur, jamais une couverture exhaustive : **ScoutMagic démarre-t-il vraiment et affiche-t-il une page dans un vrai navigateur ?** PHPUnit instancie les contrôleurs un par un et n'exécute jamais `public/index.php` ; Vitest exécute du JavaScript dans un DOM simulé, sans PHP ni base de données. Une erreur de câblage dans la racine de composition de `public/index.php` (un constructeur dont la signature change, un service manquant) ne se voit donc qu'en production — c'est déjà arrivé (voir `AGENTS.md` § Static analysis). Les tests E2E ferment ce trou.
+
+```bash
+npm ci                 # une fois : dépendances Node
+npm run e2e:install    # une fois : télécharge le navigateur Chromium utilisé par Playwright
+npm run e2e            # exécuter le scénario complet
+```
+
+`npm run e2e` (c'est-à-dire `scripts/e2e.sh`) fait tout, en une commande, sans aucune étape manuelle :
+
+1. crée une installation ScoutMagic jetable dans un répertoire temporaire (son propre `storage/`, sa propre `config/app.php`, ses propres secrets générés) — **votre installation locale n'est jamais lue ni modifiée** ;
+2. crée et vide une base de données dédiée (`scoutmagic_e2e` par défaut, jamais `test_db` ni une base de développement), puis y applique `schema/core.sql` via le vrai `Core\Database\MigrationRunner` ;
+3. démarre `php -S` sur un port libre, avec pour racine le `public/` de cette installation jetable — le vrai `public/index.php`, pas une application de test ;
+4. attend (par sondage, jamais par `sleep`) que le serveur réponde ;
+5. lance Playwright/Chromium en mode *headless* ;
+6. rend le code de sortie de Playwright tel quel ;
+7. arrête le serveur, supprime la base et le répertoire temporaire — après un succès, après un échec, et sur Ctrl-C.
+
+Scénarios actuels (`tests/e2e/specs/`), chacun bootant l'application réelle de bout en bout :
+
+- **`public-home-page.spec.js`** — `GET /` (page d'accueil publique, `role_min: public`) : réponse HTTP 200, titre de page issu du `site_name` lu en base, titre `<h1>` du contenu éditable, repères d'accessibilité `main`/`navigation`/`contentinfo`, lien « Protection des données » du pied de page.
+- **`login-page.spec.js`** — `GET /login` (`Core\Http\Controller\AuthController::login()`) : formulaire de connexion (onglet lien magique par défaut) avec ses champs étiquetés et son lien vers `/rgpd`, exerçant une racine de composition différente (CsrfGuard, LastLoginMethodCookie, HumanCheck) de celle de la page d'accueil.
+- **`rbac-anonymous-redirect.spec.js`** — un visiteur anonyme demandant `/account` (`role_min: identified`) est réellement redirigé, dans un vrai navigateur, vers une page `/login` qui s'affiche correctement — pas seulement le couple statut/en-tête `302`/`Location` qu'un test unitaire de `RbacGuard` vérifie déjà isolément.
+- **`cookie-consent-reject.spec.js`** — la bannière de consentement s'affiche sans y être invitée sur une instance jamais visitée ; cliquer sur « Tout refuser » la fait disparaître et ne laisse dans le navigateur que le cookie nécessaire `cookie_consent`, jamais le cookie fonctionnel `last_login_method` (AGENTS.md § Cookie consent).
+
+Toutes les assertions utilisent les rôles ARIA et les textes visibles (`getByRole`, `getByLabel`), jamais des sélecteurs CSS structurels — et échouent sur toute réponse 5xx ou erreur JavaScript non capturée.
+
+**Base de données.** Le harnais réutilise le serveur MySQL déjà joignable (`E2E_DB_HOST`/`E2E_DB_PORT`/`E2E_DB_USER`/`E2E_DB_PASSWORD`, avec repli sur les variables `TEST_DB_*` déjà utilisées par les tests PHPUnit du groupe `database`, puis sur `127.0.0.1:3306` / `root` / mot de passe vide). S'il n'y en a aucun et que Docker est disponible, il démarre un conteneur `mysql:8.0` jetable et le supprime à la fin. Sinon il échoue avec un message explicite — jamais silencieusement.
+
+**Artefacts.** Trace, capture d'écran et vidéo ne sont produites qu'en cas d'échec, sous `tests/e2e/test-results/`, avec un rapport HTML dans `tests/e2e/playwright-report/`. Les deux sont ignorés par git.
+
+**Où ça tourne.** Le navigateur est *headless* : aucune fenêtre, aucune interaction souris/clavier, aucun service à démarrer à la main, aucun chemin absolu propre à une machine. macOS et Linux fonctionnent à l'identique. Depuis Claude Code, ce qui compte est l'hôte d'exécution, pas l'appareil client : une session lancée depuis un iPhone s'exécute dans un environnement de développement distant, et c'est cet hôte (Linux) qui doit pouvoir installer Chromium et joindre un MySQL — iOS lui-même n'exécute jamais Playwright. Si l'hôte distant ne peut pas héberger de binaire navigateur, `npm run e2e` n'y est pas exécutable ; la même commande reste la référence en local et dans GitHub Actions.
+
+**Playwright et la règle « pas d'outil de build frontend ».** Playwright est de l'outillage de test, au même titre que Vitest : il n'introduit ni bundler, ni compilateur Sass, ni transpileur, ni la moindre étape de build pour `public/assets/js/`, qui reste du JavaScript navigateur simple chargé par une balise `<script src="...">`. Ni Node ni Playwright ne sont nécessaires pour exécuter ou déployer ScoutMagic, et rien de tout cela n'entre dans l'artefact de release. Voir `AGENTS.md` § CSS / frontend.
+
 ## Intégration continue
 
 Chaque push sur `main` et chaque Pull Request déclenchent `.github/workflows/ci.yml` :
 
 - **`test`** : vérification de syntaxe PHP, `vendor/bin/phpstan analyse`, puis `vendor/bin/phpunit` — **la suite complète, groupe `database` compris** — avec couverture PCOV et un service MySQL. Génère `coverage.xml` (Clover) et `phpunit-report.xml` (JUnit), publiés comme artefacts pour le job `sonarqube`.
 - **`javascript-tests`** : tests unitaires JavaScript (`npm ci` puis `npm run test:coverage` — Vitest + jsdom, `tests/js/`), isolés (sans serveur PHP ni base de données) — génère `coverage/js/lcov.info`, publié comme artefact pour le job `sonarqube`. Un échec fait échouer ce check GitHub indépendamment du job `test`.
+- **`e2e-tests`** (« End-to-end (browser) ») : les scénarios de bout en bout (`npm run e2e` — la commande canonique, identique en local et dans `scripts/release.sh`), avec un service MySQL et Chromium installé via `npm run e2e:install`. Sans serveur graphique, borné à 20 minutes. Un échec fait échouer ce check GitHub ; les diagnostics Playwright (trace, capture, vidéo, rapport HTML) sont publiés comme artefact **uniquement en cas d'échec**.
 - **`security`** : `composer audit`.
 - **`sonarqube`** : analyse [SonarQube Cloud](https://sonarcloud.io/project/overview?id=xdubois-57_scoutmagic) (voir `sonar-project.properties`), à partir de la couverture/du rapport PHP produits par le job `test` et de la couverture JavaScript (LCOV) produite par le job `javascript-tests` — ni PHPUnit ni Vitest ne sont relancés une seconde fois. Le Quality Gate SonarQube fait échouer ce check GitHub s'il n'est pas OK (`-Dsonar.qualitygate.wait=true`).
 - **CodeQL** : analyse de code activée au niveau du dépôt (GitHub Advanced Security), indépendante de ce workflow.
@@ -109,17 +150,18 @@ Le job `sonarqube` nécessite un secret de dépôt **`SONAR_TOKEN`** (Settings >
 
 Publie une release GitHub avec l'artefact d'installation et `bootstrap.php` en tant qu'assets. Nécessite le CLI GitHub (`gh`).
 
-Avant de créer un commit, un tag ou une release, le script exécute cinq verrous, dans cet ordre — chacun bloque la release en cas d'échec :
+Avant de créer un commit, un tag ou une release, le script exécute six verrous, dans cet ordre — chacun bloque la release en cas d'échec :
 
 1. **Déploiement** : `www.scoutmagic.be` doit déjà avoir installé la release précédente (comparé via `GET /api/version`, exposé publiquement par `Core\Http\Controller\VersionController`) et répondre normalement (code 200, pas d'erreur visible sur la page d'accueil).
 2. **Sécurité** : aucun signalement CodeQL ni alerte Dependabot ouvert dans le dépôt (`gh api repos/{owner}/{repo}/code-scanning/alerts` et `.../dependabot/alerts`, filtrés sur `state == "open"`).
 3. **Tests** : `vendor/bin/phpstan analyse`, `vendor/bin/phpunit`, et les tests unitaires JavaScript (`npm run test:coverage`) doivent tous passer. `--skip-tests-gate` contourne les trois à la fois — voir `AGENTS.md` § Releases.
-4. **Fraîcheur des dépendances** : aucune dépendance Composer directe (`composer outdated --direct`) ni aucune bibliothèque front-end vendorisée (`public/assets/vendor/` — Bootstrap, Bootstrap Icons, Chart.js) ne doit être en retard sur sa dernière version publiée.
-5. **SonarQube Cloud** (`scripts/check-sonar-release.sh`) : aucun signalement de sécurité actif (issue d'impact `SECURITY` non résolue, ou Security Hotspot non trié), aucun signalement de sévérité `HIGH` ou supérieure (`BLOCKER`) actif, et le Quality Gate du projet doit être `OK` — pour l'analyse confirmée correspondre exactement au commit en cours de release. **Ce verrou est fail-closed** : un `SONAR_TOKEN` absent, SonarQube Cloud injoignable, une authentification invalide, une réponse invalide, ou l'impossibilité de confirmer qu'une analyse existe pour le commit exact bloquent la release.
+4. **Tests de bout en bout** : `npm run e2e` — la page d'accueil publique doit démarrer via le vrai `public/index.php` et s'afficher dans un Chromium *headless* (voir § Tests de bout en bout). C'est le seul verrou qui prouve que la racine de composition démarre réellement. Verrou distinct de « Tests » à dessein : c'est le seul à exiger un serveur MySQL et un binaire navigateur, et un mainteneur qui n'a ni l'un ni l'autre ne doit pas avoir à renoncer aussi à PHPStan/PHPUnit/Vitest pour publier. `--skip-e2e-gate` le contourne — voir `AGENTS.md` § Releases.
+5. **Fraîcheur des dépendances** : aucune dépendance Composer directe (`composer outdated --direct`) ni aucune bibliothèque front-end vendorisée (`public/assets/vendor/` — Bootstrap, Bootstrap Icons, Chart.js) ne doit être en retard sur sa dernière version publiée.
+6. **SonarQube Cloud** (`scripts/check-sonar-release.sh`) : aucun signalement de sécurité actif (issue d'impact `SECURITY` non résolue, ou Security Hotspot non trié), aucun signalement de sévérité `HIGH` ou supérieure (`BLOCKER`) actif, et le Quality Gate du projet doit être `OK` — pour l'analyse confirmée correspondre exactement au commit en cours de release. **Ce verrou est fail-closed** : un `SONAR_TOKEN` absent, SonarQube Cloud injoignable, une authentification invalide, une réponse invalide, ou l'impossibilité de confirmer qu'une analyse existe pour le commit exact bloquent la release.
 
    Ce verrou lit `SONAR_TOKEN` depuis l'environnement, ou à défaut depuis `.sonar-token` à la racine du dépôt (une ligne, jamais commité — voir `.gitignore`). S'il est absent des deux et qu'un terminal est attaché, le script le demande de manière interactive (saisie masquée) et propose de l'enregistrer dans `.sonar-token` — mais seulement après avoir vérifié via `git check-ignore` que ce fichier est bien ignoré par git ; sinon il refuse d'écrire le token et bloque la release. Sans terminal (CI, exécution automatisée), l'absence de token bloque directement, comme avant.
 
-Corrigez le problème signalé (ou justifiez son rejet) avant de publier — voir `AGENTS.md` § Releases. Chaque verrou peut être contourné individuellement en cas d'urgence (`--skip-deployment-check`, `--skip-security-gate`, `--skip-tests-gate`, `--skip-dependency-check`, `--skip-sonar-gate` ; un avertissement est affiché) — voir l'en-tête de `scripts/release.sh` pour le détail de chaque option. Ces options sont réservées à une décision explicite et informée de l'utilisateur, jamais à contourner une découverte réelle.
+Corrigez le problème signalé (ou justifiez son rejet) avant de publier — voir `AGENTS.md` § Releases. Chaque verrou peut être contourné individuellement en cas d'urgence (`--skip-deployment-check`, `--skip-security-gate`, `--skip-tests-gate`, `--skip-e2e-gate`, `--skip-dependency-check`, `--skip-sonar-gate` ; un avertissement est affiché) — voir l'en-tête de `scripts/release.sh` pour le détail de chaque option. Ces options sont réservées à une décision explicite et informée de l'utilisateur, jamais à contourner une découverte réelle.
 
 ### Installation sur hébergement mutualisé (administrateurs d'unité)
 
