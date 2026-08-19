@@ -1928,7 +1928,8 @@ if (in_array('finance', $moduleManager->getEnabledModuleIds(), true)) {
     );
     $financeEncryptedFileStorage = new \Core\File\EncryptedFileStorageService($fileRepository, $encryptionService, $storagePath);
     $financeReceiptService = new \Modules\Finance\Service\ReceiptService(
-        $financeAttachmentRepo, $financeAccountRepo, $financeTransactionAttachmentRepo, $financeEncryptedFileStorage
+        $financeAttachmentRepo, $financeAccountRepo, $financeTransactionAttachmentRepo, $financeEncryptedFileStorage,
+        $financeTransactionRepo
     );
     // Optional dependency on the llm_connector module (ARCHITECTURE.md
     // §7.5) — reuses the same LlmConnectorInterface instance already
@@ -1984,7 +1985,7 @@ if (in_array('finance', $moduleManager->getEnabledModuleIds(), true)) {
     $frontController->registerController(
         \Modules\Finance\Controller\ConfigRuleController::class,
         new \Modules\Finance\Controller\ConfigRuleController(
-            $twig, $financeCategoryRuleRepo, $financeRuleEngine, $journalService, $financeService, $financeBulkCategorizationService
+            $twig, $financeCategoryRuleRepo, $financeCategoryRepo, $financeRuleEngine, $journalService, $financeService, $financeBulkCategorizationService
         )
     );
     $frontController->registerController(

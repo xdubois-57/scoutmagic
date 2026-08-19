@@ -212,30 +212,75 @@ class DashboardController extends AbstractController
             return $movements;
         }
 
-        return array_values(array_filter(
-            $movements,
-            fn(Transaction $movement) => $this->matchesSearch($movement, $search)
-        ));
-    }
-
-    private function matchesSearch(Transaction $movement, string $search): bool
-    {
-        if ($movement->matchesTextSearch($search)) {
-            return true;
-        }
-
-        $attachmentIds = $this->transactionAttachmentRepository->findAttachmentIdsForTransaction($movement->id);
-        if ($attachmentIds === []) {
-            return false;
-        }
-
-        foreach ($this->attachmentRepository->findByIds($attachmentIds) as $attachment) {
-            if ($this->attachmentMatchesSearch($attachment, $search)) {
-                return true;
+        // A movement that already matches on its own fields needs no
+        // receipt lookup at all; the rest are resolved in two queries for
+        // the whole set rather than two per movement.
+        $ownMatches = [];
+        $undecided = [];
+        foreach ($movements as $movement) {
+            if ($movement->matchesTextSearch($search)) {
+                $ownMatches[$movement->id] = true;
+            } else {
+                $undecided[] = $movement;
             }
         }
 
-        return false;
+        $matchingByReceipt = $this->findMovementIdsMatchingByReceipt($undecided, $search);
+
+        return array_values(array_filter(
+            $movements,
+            fn(Transaction $movement) => isset($ownMatches[$movement->id]) || isset($matchingByReceipt[$movement->id])
+        ));
+    }
+
+    /**
+     * Movement ids (as a set) whose linked receipts match $search, for the
+     * movements that did not already match on their own fields.
+     *
+     * @param Transaction[] $movements
+     * @return array<int, true>
+     */
+    private function findMovementIdsMatchingByReceipt(array $movements, string $search): array
+    {
+        if ($movements === []) {
+            return [];
+        }
+
+        $attachmentIdsByMovementId = [];
+        $allAttachmentIds = [];
+        foreach ($movements as $movement) {
+            $ids = $this->transactionAttachmentRepository->findAttachmentIdsForTransaction($movement->id);
+            if ($ids === []) {
+                continue;
+            }
+            $attachmentIdsByMovementId[$movement->id] = $ids;
+            foreach ($ids as $id) {
+                $allAttachmentIds[$id] = true;
+            }
+        }
+
+        if ($allAttachmentIds === []) {
+            return [];
+        }
+
+        $matchingAttachmentIds = [];
+        foreach ($this->attachmentRepository->findByIds(array_keys($allAttachmentIds)) as $attachment) {
+            if ($this->attachmentMatchesSearch($attachment, $search)) {
+                $matchingAttachmentIds[$attachment->id] = true;
+            }
+        }
+
+        $matching = [];
+        foreach ($attachmentIdsByMovementId as $movementId => $ids) {
+            foreach ($ids as $id) {
+                if (isset($matchingAttachmentIds[$id])) {
+                    $matching[$movementId] = true;
+                    break;
+                }
+            }
+        }
+
+        return $matching;
     }
 
     private function attachmentMatchesSearch(Attachment $attachment, string $search): bool

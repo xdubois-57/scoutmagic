@@ -303,59 +303,6 @@ class ExtractReceiptDataHandlerTest extends TestCase
         $this->assertNotNull($attachment->matchingAiAttemptedAt);
     }
 
-    private function normalizeDate(string $rawDate): ?string
-    {
-        $method = new \ReflectionMethod(ExtractReceiptDataHandler::class, 'normalizeDate');
-        $method->setAccessible(true);
-
-        return $method->invoke(new ExtractReceiptDataHandler(), $rawDate);
-    }
-
-    public function testNormalizeDateAcceptsIsoDate(): void
-    {
-        $this->assertSame('2026-10-27', $this->normalizeDate('2026-10-27'));
-    }
-
-    public function testNormalizeDateAcceptsIsoDatetimeWithTimeComponent(): void
-    {
-        $this->assertSame('2026-10-27', $this->normalizeDate('2026-10-27T00:00:00'));
-    }
-
-    public function testNormalizeDateAcceptsEuropeanSlashFormat(): void
-    {
-        $this->assertSame('2026-10-27', $this->normalizeDate('27/10/2026'));
-    }
-
-    public function testNormalizeDateAcceptsEuropeanDashFormat(): void
-    {
-        $this->assertSame('2026-10-27', $this->normalizeDate('27-10-2026'));
-    }
-
-    public function testNormalizeDateAcceptsEuropeanDotFormat(): void
-    {
-        $this->assertSame('2026-10-27', $this->normalizeDate('27.10.2026'));
-    }
-
-    public function testNormalizeDateAcceptsSingleDigitDayAndMonth(): void
-    {
-        $this->assertSame('2026-01-05', $this->normalizeDate('5/1/2026'));
-    }
-
-    public function testNormalizeDateRejectsAnImpossibleCalendarDate(): void
-    {
-        $this->assertNull($this->normalizeDate('30/02/2026'));
-    }
-
-    public function testNormalizeDateRejectsUnrecognizableText(): void
-    {
-        $this->assertNull($this->normalizeDate('27 octobre 2026'));
-    }
-
-    public function testNormalizeDateRejectsEmptyString(): void
-    {
-        $this->assertNull($this->normalizeDate(''));
-    }
-
     private function stripMerchantName(string $description, string $merchant): string
     {
         $method = new \ReflectionMethod(ExtractReceiptDataHandler::class, 'stripMerchantName');

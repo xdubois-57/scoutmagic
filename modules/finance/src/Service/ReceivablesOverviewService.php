@@ -55,6 +55,12 @@ class ReceivablesOverviewService
         foreach ($this->repository->findDistinctSourceModules() as $sourceModule) {
             $receivables = $this->repository->findAllByModule($sourceModule);
 
+            // One batch call rather than getReceivableStatus() per row:
+            // each of those re-read and re-decrypted every movement on the
+            // account, so a page with a few hundred receivables over a few
+            // thousand movements ran hundreds of thousands of decryptions.
+            $statuses = $this->receivableService->getReceivableStatuses($receivables);
+
             $instancesByReference = [];
             foreach ($receivables as $receivable) {
                 $instancesByReference[$receivable->sourceReferenceId][] = $receivable;
@@ -70,7 +76,7 @@ class ReceivablesOverviewService
                 $instanceAmountReceived = 0;
 
                 foreach ($group as $receivable) {
-                    $status = $this->receivableService->getReceivableStatus($receivable->id);
+                    $status = $statuses[$receivable->id];
                     $rows[] = [
                         'id' => $receivable->id,
                         'label' => $receivable->label,

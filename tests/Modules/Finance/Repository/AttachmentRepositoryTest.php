@@ -244,4 +244,59 @@ class AttachmentRepositoryTest extends TestCase
         $this->assertCount(3, $this->repository->findFilteredForAccount($accountId, false, null, 3, 0));
         $this->assertCount(2, $this->repository->findFilteredForAccount($accountId, false, null, 3, 3));
     }
+
+    /**
+     * Regression: archiveAll() (the config page's "supprimer tous les
+     * reçus") flipped the status but left every
+     * finance_transaction_attachments row in place, unlike the per-receipt
+     * Service\ReceiptService::delete(). Movements kept showing a paperclip
+     * count for an archived receipt, and — durably —
+     * Service\ReceiptMatchingService went on excluding those movements as
+     * "already has a receipt", so none could ever be auto-matched again.
+     */
+    public function testArchiveAllAlsoDropsEveryMovementAssociation(): void
+    {
+        $accountId = $this->accountId();
+        $attachmentId = $this->repository->create($accountId, $this->fileId, 'application/pdf', 'a.pdf', null, null, null, null);
+        $transactionId = $this->createTransaction($accountId);
+
+        $associations = new \Modules\Finance\Repository\TransactionAttachmentRepository($this->pdo);
+        $associations->associate($transactionId, $attachmentId);
+        $this->assertSame([$attachmentId], $associations->findAttachmentIdsForTransaction($transactionId));
+
+        $this->repository->archiveAll();
+
+        $this->assertSame([], $associations->findAttachmentIdsForTransaction($transactionId));
+        $this->assertSame([], $associations->findTransactionIdsForAttachment($attachmentId));
+        $this->assertSame([], $associations->findAssociatedTransactionIds());
+    }
+
+    /**
+     * An already-archived receipt's associations were dropped when it was
+     * archived; archiveAll() must not reach outside the active set.
+     */
+    public function testArchiveAllOnlyTouchesActiveAttachments(): void
+    {
+        $accountId = $this->accountId();
+        $activeId = $this->repository->create($accountId, $this->fileId, 'application/pdf', 'a.pdf', null, null, null, null);
+        $alreadyArchivedId = $this->repository->create($accountId, $this->fileId, 'application/pdf', 'b.pdf', null, null, null, null);
+        $this->repository->archive($alreadyArchivedId);
+
+        $archived = $this->repository->archiveAll();
+
+        $this->assertSame(1, $archived);
+        $this->assertSame('archived', $this->repository->findById($activeId)?->status);
+        $this->assertSame('archived', $this->repository->findById($alreadyArchivedId)?->status);
+    }
+
+    private function createTransaction(int $accountId): int
+    {
+        $fiscalYearId = FinanceTestHelper::createScoutYear($this->pdo, '2026-2027', '2026-09-01', '2027-08-31');
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO finance_transactions (account_id, fiscal_year_id, transaction_date, label, amount, source)
+             VALUES (?, ?, ?, ?, ?, ?)'
+        );
+        $stmt->execute([$accountId, $fiscalYearId, '2026-10-01', 'x', -12.5, 'manual']);
+        return (int) $this->pdo->lastInsertId();
+    }
 }

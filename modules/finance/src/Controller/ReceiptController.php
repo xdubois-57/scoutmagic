@@ -25,6 +25,7 @@ use Modules\Finance\Service\FinanceException;
 use Modules\Finance\Service\FinanceService;
 use Modules\Finance\Service\FirstReceiptResolver;
 use Modules\Finance\Service\MovementPresenter;
+use Modules\Finance\Service\ReceiptDateNormalizer;
 use Modules\Finance\Service\ReceiptExtractionService;
 use Modules\Finance\Service\ReceiptService;
 
@@ -150,7 +151,14 @@ class ReceiptController extends AbstractController
         }
 
         $transactionIds = $this->transactionAttachmentRepository->findTransactionIdsForAttachment($id);
-        $transactions = $this->transactionRepository->findByIds($transactionIds);
+        // Defence in depth: Service\ReceiptService::associate() now refuses
+        // to link a movement from another account, but a row written before
+        // that check existed would otherwise still be listed here — and this
+        // endpoint only ever authorized the caller against the receipt.
+        $transactions = array_values(array_filter(
+            $this->transactionRepository->findByIds($transactionIds),
+            fn(Transaction $transaction) => $transaction->accountId === $attachment->accountId
+        ));
 
         $firstReceipts = $this->firstReceiptResolver->resolve(array_map(fn(Transaction $t) => $t->id, $transactions));
 
@@ -308,11 +316,55 @@ class ReceiptController extends AbstractController
             return $attachment;
         }
 
-        $amountRaw = $data['suggested_amount'] ?? null;
-        $amount = $amountRaw !== null && $amountRaw !== '' ? (float) $amountRaw : null;
-        $date = !empty($data['suggested_date']) ? (string) $data['suggested_date'] : null;
+        // array_key_exists(), not ??/empty(): a PATCH that omits a field
+        // must leave it alone, and only an explicitly-sent empty value
+        // clears it. Reading with ?? made a partial request silently wipe
+        // whatever Task\ExtractReceiptDataHandler had extracted — same
+        // convention as Controller\MovementController::update().
+        $amount = $attachment->suggestedAmount;
+        $amountChanged = false;
+        if (array_key_exists('suggested_amount', $data)) {
+            $amountRaw = $data['suggested_amount'];
+            if ($amountRaw === null || $amountRaw === '') {
+                $amount = null;
+            } elseif (!is_numeric($amountRaw)) {
+                return $this->json(['success' => false, 'error' => 'Montant invalide.'], 400);
+            } else {
+                $amount = (float) $amountRaw;
+            }
+            $amountChanged = $amount !== $attachment->suggestedAmount;
+        }
 
-        $suggestedSource = ($amount !== null || $date !== null) ? Attachment::SUGGESTED_SOURCE_MANUAL : null;
+        $date = $attachment->suggestedDate;
+        $dateChanged = false;
+        if (array_key_exists('suggested_date', $data)) {
+            $dateRaw = $data['suggested_date'];
+            if ($dateRaw === null || $dateRaw === '') {
+                $date = null;
+            } else {
+                // Never store an unparseable date: it reaches a DATE column
+                // and, worse, new \DateTimeImmutable() in Service\
+                // ReceiptMatchingService and Controller\MovementController,
+                // where it would throw and break a whole page.
+                $date = ReceiptDateNormalizer::normalize((string) $dateRaw);
+                if ($date === null) {
+                    return $this->json(['success' => false, 'error' => 'Date invalide.'], 400);
+                }
+            }
+            $dateChanged = $date !== $attachment->suggestedDate;
+        }
+
+        // Only a real edit re-labels the suggestion as manual — re-saving a
+        // receipt without touching its AI-extracted values must keep the
+        // "(IA)" indicator the column exists to carry.
+        $suggestedSource = $attachment->suggestedSource;
+        if ($amountChanged || $dateChanged) {
+            $suggestedSource = Attachment::SUGGESTED_SOURCE_MANUAL;
+        }
+        if ($amount === null && $date === null) {
+            $suggestedSource = null;
+        }
+
         $this->attachmentRepository->updateSuggestedData($id, $amount, $date, $suggestedSource);
 
         return $this->json(['success' => true]);

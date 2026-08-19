@@ -153,6 +153,41 @@ class FinanceServiceTest extends TestCase
         $this->assertNull($account->holderName);
     }
 
+    /**
+     * Regression: an IBAN could not be removed. The config form always
+     * posts both bank fields, so clearing the IBAN sends an empty string,
+     * which normalizeBankFields() turns into null — and the repository's
+     * old "null means leave unchanged" contract then kept the previous
+     * value, along with its blind index and the account's "Virement
+     * <compte>" system category.
+     */
+    public function testClearingTheIbanOnABankAccountActuallyRemovesIt(): void
+    {
+        $account = $this->service->createAccount('Compte', Account::TYPE_BANK, null, 'BE92001511757023', 'Titulaire', 'intendant');
+        $this->assertSame('BE92001511757023', $account->iban);
+
+        $updated = $this->service->updateAccount($account->id, 'Compte', Account::TYPE_BANK, null, '', '', 'intendant');
+
+        $this->assertNull($updated->iban);
+        $this->assertNull($updated->holderName);
+    }
+
+    /**
+     * The transfer category is derived from the account's IBAN, so it must
+     * go when the IBAN does (AccountTransferCategoryService::sync() already
+     * removes it for an account with no IBAN — it just never ran on this
+     * path before, because the IBAN never actually changed).
+     */
+    public function testClearingTheIbanAlsoRemovesTheAccountTransferCategory(): void
+    {
+        $account = $this->service->createAccount('Louveteaux', Account::TYPE_BANK, null, 'BE92001511757023', 'Titulaire', 'intendant');
+        $this->assertNotNull($this->categoryRepository->findByAccountId($account->id));
+
+        $this->service->updateAccount($account->id, 'Louveteaux', Account::TYPE_BANK, null, '', '', 'intendant');
+
+        $this->assertNull($this->categoryRepository->findByAccountId($account->id));
+    }
+
     public function testUpdateAccountToCashDiscardsExistingIbanAndHolderName(): void
     {
         $account = $this->service->createAccount('Compte', Account::TYPE_BANK, null, 'BE71096123456769', 'Titulaire', 'intendant');

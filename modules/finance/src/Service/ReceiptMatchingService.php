@@ -322,10 +322,10 @@ class ReceiptMatchingService
      */
     private function pendingReceiptsForAccount(int $accountId): array
     {
-        $associatedIds = $this->transactionAttachmentRepository->findAssociatedAttachmentIds();
+        $associatedIds = array_flip($this->transactionAttachmentRepository->findAssociatedAttachmentIds());
         return array_values(array_filter(
             $this->attachmentRepository->findActiveByAccountId($accountId),
-            fn(Attachment $a) => !in_array($a->id, $associatedIds, true)
+            fn(Attachment $a) => !isset($associatedIds[$a->id])
         ));
     }
 
@@ -334,10 +334,13 @@ class ReceiptMatchingService
      */
     private function candidateTransactions(int $accountId): array
     {
-        $associatedIds = $this->transactionAttachmentRepository->findAssociatedTransactionIds();
+        // Hash set, not in_array() over the full id list: this runs once
+        // per pending receipt on every import, so the linear scan made the
+        // post-import matching pass quadratic.
+        $associatedIds = array_flip($this->transactionAttachmentRepository->findAssociatedTransactionIds());
         return array_values(array_filter(
             $this->transactionRepository->findByAccountId($accountId),
-            fn(Transaction $t) => !in_array($t->id, $associatedIds, true)
+            fn(Transaction $t) => !isset($associatedIds[$t->id])
         ));
     }
 

@@ -8,6 +8,7 @@ use Core\Security\EncryptionService;
 use Modules\Finance\Repository\ExpectedReceivableRepository;
 use Modules\Finance\Repository\TransactionRepository;
 use Modules\Finance\Service\ExpectedReceivableService;
+use Modules\Finance\Service\FinanceException;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Finance\FinanceTestHelper;
@@ -182,6 +183,98 @@ class ExpectedReceivableServiceTest extends TestCase
 
         $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM finance_expected_receivables WHERE source_reference_id = 12')->fetchColumn());
         $this->assertSame(1, (int) $this->pdo->query('SELECT COUNT(*) FROM finance_expected_receivables WHERE source_reference_id = 99')->fetchColumn());
+    }
+
+    /**
+     * Regression: the communication is reduced to its digits and matched
+     * with str_contains(). A communication carrying no digit reduced to ''
+     * — and str_contains($haystack, '') is always true — so every credit on
+     * the account was counted as settling the receivable and it reported
+     * "paid". createReceivable() now refuses such a communication, and the
+     * matching itself refuses an empty needle for rows written before it.
+     */
+    public function testCreateReceivableRejectsACommunicationWithoutDigits(): void
+    {
+        $this->expectException(FinanceException::class);
+        $this->service->createReceivable('news', 12, $this->accountId, 2500, 'REFERENCE', null);
+    }
+
+    public function testADigitlessCommunicationAlreadyStoredNeverMatchesAnyCredit(): void
+    {
+        // Written straight to the repository, bypassing createReceivable()'s
+        // new guard — this is the pre-existing row the guard cannot undo.
+        $repository = new \Modules\Finance\Repository\ExpectedReceivableRepository(
+            $this->pdo, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32))
+        );
+        $id = $repository->create('news', 12, $this->accountId, 2500, 'REFERENCE', null);
+
+        $this->createTransaction('Virement sans rapport', 500.0);
+        $this->createTransaction('Autre virement', 900.0);
+
+        $status = $this->service->getReceivableStatus($id);
+
+        $this->assertSame(0, $status['amount_received']);
+        $this->assertSame('unpaid', $status['status']);
+    }
+
+    /**
+     * Regression: label/comment/extra_details used to be concatenated and
+     * stripped of every separator before matching, gluing the digits of
+     * adjacent fields together — so a communication could be "found"
+     * straddling a field boundary where it appears in neither field.
+     */
+    public function testACommunicationStraddlingTwoFieldsIsNotAMatch(): void
+    {
+        $id = $this->service->createReceivable('news', 12, $this->accountId, 2500, '+++123/4567/89012+++', null);
+
+        // Digits of the communication are 123456789012. Split across the
+        // label's tail and the comment's head, they only join up if the two
+        // fields are concatenated before matching.
+        $this->transactionRepository->create(
+            $this->accountId, $this->fiscalYearId, null, '2026-10-01',
+            'Paiement 123456', 25.0, null, '789012 suite', 'import', null
+        );
+
+        $status = $this->service->getReceivableStatus($id);
+
+        $this->assertSame(0, $status['amount_received']);
+        $this->assertSame('unpaid', $status['status']);
+    }
+
+    public function testACommunicationWhollyInsideTheCommentStillMatches(): void
+    {
+        $id = $this->service->createReceivable('news', 12, $this->accountId, 2500, '+++123/4567/89012+++', null);
+
+        $this->transactionRepository->create(
+            $this->accountId, $this->fiscalYearId, null, '2026-10-01',
+            'Virement', 25.0, null, 'communication 123 4567 89012 merci', 'import', null
+        );
+
+        $status = $this->service->getReceivableStatus($id);
+
+        $this->assertSame(2500, $status['amount_received']);
+        $this->assertSame('paid', $status['status']);
+    }
+
+    /**
+     * getReceivableStatuses() is the batch form the reconciliation page
+     * uses; it must agree with getReceivableStatus() row for row.
+     */
+    public function testBatchStatusesAgreeWithThePerReceivableComputation(): void
+    {
+        $paidId = $this->service->createReceivable('news', 12, $this->accountId, 2500, '+++123/4567/89012+++', null);
+        $unpaidId = $this->service->createReceivable('news', 12, $this->accountId, 4000, '+++999/8888/77766+++', null);
+        $this->createTransaction('Paiement 123 4567 89012', 25.0);
+
+        $repository = new \Modules\Finance\Repository\ExpectedReceivableRepository(
+            $this->pdo, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32))
+        );
+        $statuses = $this->service->getReceivableStatuses($repository->findBySource('news', 12));
+
+        $this->assertSame($this->service->getReceivableStatus($paidId), $statuses[$paidId]);
+        $this->assertSame($this->service->getReceivableStatus($unpaidId), $statuses[$unpaidId]);
+        $this->assertSame('paid', $statuses[$paidId]['status']);
+        $this->assertSame('unpaid', $statuses[$unpaidId]['status']);
     }
 
     private function createTransaction(string $label, float $amount): void

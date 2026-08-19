@@ -125,4 +125,94 @@ class BnpParserTest extends TestCase
         $lines = $this->parser->parse($this->fixturePath);
         $this->assertCount(3, $lines);
     }
+    /**
+     * Regression: extractSourceIban() only trimmed, while the account's own
+     * IBAN is stored normalized — Service\ImportService::verifyIban()
+     * compares blind indexes, so a formatted value here aborted every
+     * import of the right file with a misleading "IBAN mismatch".
+     */
+    public function testExtractSourceIbanNormalizesAFormattedValue(): void
+    {
+        $path = $this->writeCsv([
+            ['2026-', '01/09/2026', '01/09/2026', '-35,98', 'EUR', 'BE00 0000 0000 0001', 'Virement', '', '', 'Test', 'REFERENCE BANQUE : 1', 'Accepté', ''],
+        ]);
+
+        $this->assertSame('BE00000000000001', (new BnpParser())->extractSourceIban($path));
+
+        unlink($path);
+    }
+
+    /**
+     * Regression: "." was stripped unconditionally as a thousands
+     * separator, so a dot-decimal amount was silently multiplied by 100 —
+     * no error, just a wrong movement and a wrong balance checkpoint.
+     *
+     * @dataProvider amountFormats
+     */
+    public function testParseAmountReadsBothDecimalConventions(string $raw, float $expected): void
+    {
+        $path = $this->writeCsv([
+            ['2026-', '01/09/2026', '01/09/2026', $raw, 'EUR', 'BE00000000000001', 'Virement', '', '', 'Test', 'REFERENCE BANQUE : 1', 'Accepté', ''],
+        ]);
+
+        $lines = (new BnpParser())->parse($path);
+
+        $this->assertSame($expected, $lines[0]->amount, $raw);
+
+        unlink($path);
+    }
+
+    /**
+     * @return array<string, array{string, float}>
+     */
+    public static function amountFormats(): array
+    {
+        return [
+            'belgian decimal comma' => ['35,98', 35.98],
+            'belgian negative' => ['-35,98', -35.98],
+            'belgian thousands and decimals' => ['1.234,56', 1234.56],
+            'belgian millions' => ['1.234.567,89', 1234567.89],
+            'dot decimal' => ['35.98', 35.98],
+            'dot decimal negative' => ['-35.98', -35.98],
+            'plain integer' => ['100', 100.0],
+            'multiple dots without comma' => ['1.234.567', 1234567.0],
+        ];
+    }
+
+    public function testParseRejectsAnUnparseableAmount(): void
+    {
+        $path = $this->writeCsv([
+            ['2026-', '01/09/2026', '01/09/2026', 'beaucoup', 'EUR', 'BE00000000000001', 'Virement', '', '', 'Test', 'REFERENCE BANQUE : 1', 'Accepté', ''],
+        ]);
+
+        $this->expectException(FinanceException::class);
+        try {
+            (new BnpParser())->parse($path);
+        } finally {
+            unlink($path);
+        }
+    }
+
+    /**
+     * @param array<int, array<int, string>> $rows
+     */
+    private function writeCsv(array $rows): string
+    {
+        $path = tempnam(sys_get_temp_dir(), 'bnp_test_') . '.csv';
+        $handle = fopen($path, 'w');
+        fwrite($handle, "\xEF\xBB\xBF");
+        fputcsv(
+            $handle,
+            ['Nº de séquence', "Date d'exécution", 'Date valeur', 'Montant', 'Devise du compte', 'Numéro de compte',
+             'Type de transaction', 'Contrepartie', 'Nom de la contrepartie', 'Communication', 'Détails', 'Statut', 'Motif du refus'],
+            ';', '"', '\\'
+        );
+        foreach ($rows as $row) {
+            fputcsv($handle, $row, ';', '"', '\\');
+        }
+        fclose($handle);
+
+        return $path;
+    }
+
 }

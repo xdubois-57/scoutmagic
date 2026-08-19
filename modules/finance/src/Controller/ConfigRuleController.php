@@ -15,6 +15,7 @@ use Core\Journal\JournalService;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Modules\Finance\Repository\CategoryRule;
+use Modules\Finance\Repository\CategoryRepository;
 use Modules\Finance\Repository\CategoryRuleRepository;
 use Modules\Finance\Service\BulkCategorizationService;
 use Modules\Finance\Service\CategoryRuleEngine;
@@ -32,6 +33,7 @@ class ConfigRuleController extends AbstractController
     public function __construct(
         protected \Twig\Environment $twig,
         private CategoryRuleRepository $ruleRepository,
+        private CategoryRepository $categoryRepository,
         private CategoryRuleEngine $ruleEngine,
         private JournalService $journalService,
         private FinanceService $financeService,
@@ -60,6 +62,9 @@ class ConfigRuleController extends AbstractController
                 [$keywordPattern, $counterpartyAccountPattern, $amountRange] = $conditions;
 
                 $categoryId = (int) ($data['category_id'] ?? 0);
+                if ($this->categoryRepository->findById($categoryId) === null) {
+                    return $this->json(['success' => false, 'error' => 'Catégorie invalide.'], 400);
+                }
                 $priority = count($this->ruleRepository->findAllOrderedByPriority());
                 $id = $this->ruleRepository->create($categoryId, $priority, $keywordPattern, $counterpartyAccountPattern, $amountRange);
                 $this->journalService->log('finance', 'rule_created', 'info', 'Règle de catégorisation créée', ['rule_id' => $id], AuthSession::getUserAccountId());
@@ -72,6 +77,12 @@ class ConfigRuleController extends AbstractController
                 if ($blocked instanceof Response) {
                     return $blocked;
                 }
+                // rejectIfSystem() passes an unknown id through — without
+                // this the UPDATE below silently touched zero rows and
+                // still answered "success".
+                if ($this->ruleRepository->findById($ruleId) === null) {
+                    return $this->json(['success' => false, 'error' => 'Règle introuvable.'], 404);
+                }
 
                 $conditions = $this->extractConditions($data);
                 if ($conditions instanceof Response) {
@@ -79,7 +90,12 @@ class ConfigRuleController extends AbstractController
                 }
                 [$keywordPattern, $counterpartyAccountPattern, $amountRange] = $conditions;
 
-                $this->ruleRepository->update($ruleId, (int) ($data['category_id'] ?? 0), $keywordPattern, $counterpartyAccountPattern, $amountRange);
+                $categoryId = (int) ($data['category_id'] ?? 0);
+                if ($this->categoryRepository->findById($categoryId) === null) {
+                    return $this->json(['success' => false, 'error' => 'Catégorie invalide.'], 400);
+                }
+
+                $this->ruleRepository->update($ruleId, $categoryId, $keywordPattern, $counterpartyAccountPattern, $amountRange);
                 $this->journalService->log('finance', 'rule_updated', 'info', 'Règle de catégorisation modifiée', ['rule_id' => $ruleId], AuthSession::getUserAccountId());
                 return $this->json(['success' => true]);
             }
@@ -227,6 +243,13 @@ class ConfigRuleController extends AbstractController
             if (IbanNormalizer::looksLikeFullIban($counterpartyAccountPattern) && !IbanNormalizer::isValidFullIban($counterpartyAccountPattern)) {
                 return $this->json(['success' => false, 'error' => "Le compte contrepartie n'est pas un IBAN valide."], 400);
             }
+        }
+
+        if ($amountRange !== null && !CategoryRuleEngine::isValidAmountRange($amountRange)) {
+            return $this->json([
+                'success' => false,
+                'error' => 'Fourchette de montant invalide. Utilisez « >100 » (strictement supérieur) ou « 50-200 » (bornes incluses).',
+            ], 400);
         }
 
         return [$keywordPattern, $counterpartyAccountPattern, $amountRange];

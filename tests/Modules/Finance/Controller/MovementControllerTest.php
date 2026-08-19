@@ -78,7 +78,7 @@ class MovementControllerTest extends TestCase
             $settingService, $categoryRuleRepository, $accountTransferCategoryService
         );
         $fileStorage = new EncryptedFileStorageService(new FileRepository($this->pdo), $encryption, sys_get_temp_dir() . '/finance_movement_test_' . uniqid());
-        $receiptService = new ReceiptService($attachmentRepository, $this->accountRepository, $transactionAttachmentRepository, $fileStorage);
+        $receiptService = new ReceiptService($attachmentRepository, $this->accountRepository, $transactionAttachmentRepository, $fileStorage, $this->transactionRepository);
         $receiptExtractionService = new \Modules\Finance\Service\ReceiptExtractionService(
             new \Core\Scheduler\SchedulerService(new \Core\Scheduler\SchedulerRepository($this->pdo)), null
         );
@@ -144,6 +144,46 @@ class MovementControllerTest extends TestCase
         $this->assertSame(200, $response->getStatusCode());
         $this->assertStringContainsString('Achat A', $response->getBody());
         $this->assertStringNotContainsString('Achat ancien exercice', $response->getBody());
+    }
+
+    /**
+     * Regression: the pagination and XLSX-export links omitted
+     * fiscal_year_id when the filter was "Tous les exercices", but list()
+     * reads a *missing* parameter as "the current exercice" and only the
+     * literal 'all' as "every exercice" — so page 2 (and the export)
+     * silently dropped back to the current year.
+     */
+    public function testPaginationLinksKeepTheAllFiscalYearsFilter(): void
+    {
+        $this->createTransaction('2026-10-01', -20.0, 'Achat A');
+        $otherYearId = FinanceTestHelper::createScoutYear($this->pdo, '2020-2021', '2020-09-01', '2021-08-31');
+        $this->transactionRepository->create($this->accountId, $otherYearId, 'ref-old', '2025-10-01', 'Achat ancien exercice', -5.0, null, null, Transaction::SOURCE_MANUAL, null);
+
+        $response = $this->controller->list(
+            new Request('GET', '/finance/movements', ['fiscal_year_id' => 'all'], [], [], []),
+            []
+        );
+
+        $this->assertStringContainsString('fiscal_year_id=all', $response->getBody());
+    }
+
+    /**
+     * Regression: the search term was concatenated into the query string
+     * unencoded, so an '&' (or '#', '+') in it truncated every pagination
+     * and export link.
+     */
+    public function testPaginationLinksUrlEncodeTheSearchTerm(): void
+    {
+        $this->createTransaction('2026-10-01', -20.0, 'Foo & Bar');
+
+        $response = $this->controller->list(
+            new Request('GET', '/finance/movements', ['q' => 'Foo & Bar'], [], [], []),
+            []
+        );
+
+        $body = $response->getBody();
+        $this->assertStringContainsString('q=Foo%20%26%20Bar', $body);
+        $this->assertStringNotContainsString('q=Foo & Bar', $body);
     }
 
     public function testExportXlsxReturnsAValidSpreadsheetForTheFilteredMovements(): void

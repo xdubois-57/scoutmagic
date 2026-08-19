@@ -13,6 +13,7 @@ use Modules\Finance\Repository\Attachment;
 use Modules\Finance\Repository\AttachmentRepository;
 use Modules\Finance\Repository\AccountRepository;
 use Modules\Finance\Repository\TransactionAttachmentRepository;
+use Modules\Finance\Repository\TransactionRepository;
 
 /**
  * Receipt upload/replace/archive and linking to movements. Files
@@ -47,7 +48,8 @@ class ReceiptService
         private AttachmentRepository $attachmentRepository,
         private AccountRepository $accountRepository,
         private TransactionAttachmentRepository $transactionAttachmentRepository,
-        private EncryptedFileStorageService $fileStorage
+        private EncryptedFileStorageService $fileStorage,
+        private TransactionRepository $transactionRepository
     ) {
     }
 
@@ -140,17 +142,44 @@ class ReceiptService
     }
 
     /**
+     * Links a receipt to one or more movements. Every id is verified to
+     * exist AND to belong to the receipt's own account before anything is
+     * written: the ids arrive straight from the client (Controller\
+     * ReceiptController::associate()'s JSON body), and the caller has only
+     * ever been authorized against the *receipt* — never against the
+     * movements it is being pointed at. Without this check an intendant
+     * could link one of their own receipts to any transaction id in the
+     * database and then read that movement's decrypted label/amount/date
+     * back out through Controller\ReceiptController::movements(), which
+     * also only authorizes against the receipt. The whole call is rejected
+     * on the first bad id rather than partially applied.
+     *
      * @param int[] $transactionIds
-     * @throws FinanceException when the attachment is unknown
+     * @throws FinanceException when the attachment is unknown, or any
+     *                           transaction is unknown or belongs to
+     *                           another account
      */
     public function associate(int $attachmentId, array $transactionIds): void
     {
-        if ($this->attachmentRepository->findById($attachmentId) === null) {
+        $attachment = $this->attachmentRepository->findById($attachmentId);
+        if ($attachment === null) {
             throw new FinanceException('Reçu introuvable.');
         }
 
+        $transactionIds = array_map('intval', $transactionIds);
+        $accountIdsByTransactionId = $this->transactionRepository->findAccountIdsByIds($transactionIds);
+
         foreach ($transactionIds as $transactionId) {
-            $this->transactionAttachmentRepository->associate((int) $transactionId, $attachmentId);
+            if (!isset($accountIdsByTransactionId[$transactionId])) {
+                throw new FinanceException('Mouvement introuvable.');
+            }
+            if ($accountIdsByTransactionId[$transactionId] !== $attachment->accountId) {
+                throw new FinanceException('Ce mouvement appartient à un autre compte que le reçu.');
+            }
+        }
+
+        foreach ($transactionIds as $transactionId) {
+            $this->transactionAttachmentRepository->associate($transactionId, $attachmentId);
         }
     }
 
@@ -167,14 +196,17 @@ class ReceiptService
      */
     public function listPending(?int $accountId = null): array
     {
-        $associatedIds = $this->transactionAttachmentRepository->findAssociatedAttachmentIds();
+        // Hash set rather than in_array() over the full id list — this
+        // runs once per movements/dashboard page render, and the linear
+        // scan made it quadratic in the number of receipts.
+        $associatedIds = array_flip($this->transactionAttachmentRepository->findAssociatedAttachmentIds());
         $attachments = $accountId !== null
             ? $this->attachmentRepository->findActiveByAccountId($accountId)
             : $this->attachmentRepository->findActiveOrdered();
 
         return array_values(array_filter(
             $attachments,
-            fn(Attachment $attachment) => !in_array($attachment->id, $associatedIds, true)
+            fn(Attachment $attachment) => !isset($associatedIds[$attachment->id])
         ));
     }
 

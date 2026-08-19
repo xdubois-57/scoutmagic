@@ -44,9 +44,14 @@ CREATE TABLE IF NOT EXISTS finance_accounts (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- finance_categories: simple, flat category list for movement
--- classification. Deleting one un-links it from every transaction that
--- referenced it (falls back to uncategorized) rather than being blocked —
--- see Service\FinanceService::deleteCategory(). account_id is set only
+-- classification. Deleting one is refused while any movement still
+-- references it (Service\FinanceService::deleteCategory() — the config
+-- page disables the button in that case and the service is the backstop);
+-- deactivating it is the way to retire a category that has history. The
+-- one category removed with its movements un-linked instead is the derived
+-- "Virement <compte>" one, dropped by Service\
+-- AccountTransferCategoryService::removeFor() when its account stops being
+-- eligible — that one is app-managed, not an admin decision. account_id is set only
 -- for the auto-generated "Virement <compte>" category
 -- Service\AccountTransferCategoryService keeps in sync with each active
 -- account (one per account, never for the default/custom categories an

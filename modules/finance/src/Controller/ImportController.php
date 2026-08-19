@@ -12,6 +12,7 @@ use Core\Http\Controller\AbstractController;
 use Core\Http\Request;
 use Core\Http\Response;
 use Core\Security\AuthSession;
+use Core\Security\CsrfGuard;
 use Core\Security\Role;
 use Modules\Finance\Parser\BankStatementParserFactory;
 use Modules\Finance\Repository\BalanceCheckpointRepository;
@@ -57,6 +58,10 @@ class ImportController extends AbstractController
      */
     public function upload(Request $request, array $params): Response
     {
+        if (!CsrfGuard::validateToken((string) $request->getBody('_csrf_token', ''))) {
+            return $this->render('@finance/import/result.html.twig', ['error' => 'Jeton CSRF invalide.']);
+        }
+
         $account = $this->financeService->getAccount((int) $request->getBody('account_id', 0));
         $bankCode = (string) $request->getBody('bank_code', '');
         $file = $request->getFile('statement');
@@ -65,6 +70,16 @@ class ImportController extends AbstractController
 
         if ($account === null) {
             return $this->render('@finance/import/result.html.twig', ['error' => 'Compte introuvable.']);
+        }
+        // The route's own role_min ('intendant') is only the module floor —
+        // each account carries its own role_min_view on top of it, and
+        // form() above only ever *renders* the visible ones. Without this
+        // check a request crafted directly against the endpoint could
+        // import movements (and a balance checkpoint) into an account the
+        // caller is not allowed to see at all.
+        $role = Role::fromString(AuthSession::getRole());
+        if (!$role->hasAccess(Role::fromString($account->roleMinView))) {
+            return $this->render('@finance/import/result.html.twig', ['error' => 'Accès refusé.']);
         }
         if ($file === null || (int) ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
             return $this->render('@finance/import/result.html.twig', ['error' => 'Aucun fichier fourni ou erreur lors du téléversement.']);

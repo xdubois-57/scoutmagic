@@ -160,7 +160,18 @@
         </table>
     </div>
 
-    {% set filters_query = '?account_id=' ~ selected_account.id ~ (filter_fiscal_year_id ? '&fiscal_year_id=' ~ filter_fiscal_year_id : '') ~ (filter_category_id and filter_category_id != 'all' ? '&category_id=' ~ filter_category_id : '') ~ (filter_search ? '&q=' ~ filter_search : '') %}
+    {#
+       'all' is emitted explicitly rather than omitted: MovementController
+       reads a *missing* fiscal_year_id as "the current exercice" and only
+       the literal 'all' as "every exercice", so dropping the parameter
+       silently reset the filter on page 2 and on the XLSX export. The
+       search term is url_encode'd — an '&', '#' or '+' in it truncated the
+       query string.
+    #}
+    {% set filters_query = '?account_id=' ~ selected_account.id
+        ~ '&fiscal_year_id=' ~ (filter_fiscal_year_id ? filter_fiscal_year_id : 'all')
+        ~ (filter_category_id and filter_category_id != 'all' ? '&category_id=' ~ filter_category_id|url_encode : '')
+        ~ (filter_search ? '&q=' ~ filter_search|url_encode : '') %}
     <a href="/finance/movements/export{{ filters_query }}" class="btn btn-sm btn-outline-secondary mb-3">
         <i class="bi bi-file-earmark-spreadsheet"></i> Exporter en XLSX
     </a>

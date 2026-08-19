@@ -100,7 +100,13 @@ class AccountRepositoryTest extends TestCase
         $this->assertSame('admin', $account->roleMinView);
     }
 
-    public function testUpdateWithNullIbanAndHolderNamePreservesExistingValues(): void
+    /**
+     * update() used to read a null iban/holder as "leave unchanged", which
+     * made an IBAN impossible to remove: the config form always posts both
+     * fields, so a blanked-out one arrives as null. It now writes exactly
+     * what it is given, and the blind index goes with it.
+     */
+    public function testUpdateWithNullIbanAndHolderNameClearsThem(): void
     {
         $id = $this->repository->create('Compte', Account::TYPE_BANK, null, 'BE92001511757023', 'Titulaire original', 'intendant');
 
@@ -109,19 +115,12 @@ class AccountRepositoryTest extends TestCase
         $account = $this->repository->findById($id);
         $this->assertSame('Nouveau nom', $account->name);
         $this->assertSame('admin', $account->roleMinView);
-        $this->assertSame('BE92001511757023', $account->iban);
-        $this->assertSame('Titulaire original', $account->holderName);
-    }
-
-    public function testClearBankDetailsWipesIbanAndHolderName(): void
-    {
-        $id = $this->repository->create('Compte', Account::TYPE_BANK, null, 'BE92001511757023', 'Titulaire', 'intendant');
-
-        $this->repository->clearBankDetails($id);
-
-        $account = $this->repository->findById($id);
         $this->assertNull($account->iban);
         $this->assertNull($account->holderName);
+        $this->assertNull(
+            $this->pdo->query('SELECT iban_blind_index FROM finance_accounts WHERE id = ' . $id)->fetchColumn() ?: null,
+            'a cleared IBAN must not leave its blind index behind'
+        );
     }
 
     public function testCreateWithIsDefaultPersistsFlag(): void

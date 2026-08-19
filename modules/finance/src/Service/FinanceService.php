@@ -443,12 +443,12 @@ class FinanceService
         }
         $this->validateAccountFields($name, $accountType, $roleMinView);
         [$iban, $holderName] = $this->normalizeBankFields($accountType, $iban, $holderName);
-        if ($accountType === Account::TYPE_CASH) {
-            // update()'s null-means-preserve contract would otherwise
-            // leave a previously-set IBAN/holder in place — see
-            // Repository\AccountRepository::clearBankDetails().
-            $this->accountRepository->clearBankDetails($id);
-        }
+        // No preserve-on-null dance here any more: the config form always
+        // posts both bank fields, so a blank one means "cleared", and
+        // Repository\AccountRepository::update() writes exactly what it is
+        // given. Switching to "caisse" clears them for free, since
+        // normalizeBankFields() already returns [null, null] for a cash
+        // account.
         $this->accountRepository->update($id, $name, $accountType, $sectionId, $iban, $holderName, $roleMinView);
         $this->activateIfEligible($id);
         $account = $this->accountRepository->findById($id);
@@ -555,6 +555,13 @@ class FinanceService
             $iban = $normalizedIban;
         } else {
             $iban = null;
+        }
+
+        // A blanked-out holder is null, like a blanked-out IBAN — the two
+        // fields are cleared together from the form, and storing '' would
+        // leave activateIfEligible() seeing a holder that isn't one.
+        if ($holderName !== null && trim($holderName) === '') {
+            $holderName = null;
         }
 
         return [$iban, $holderName];

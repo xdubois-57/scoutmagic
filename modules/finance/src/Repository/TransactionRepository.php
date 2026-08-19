@@ -187,11 +187,17 @@ class TransactionRepository
     }
 
     /**
-     * Un-links every transaction from a category about to be deleted
-     * (Service\FinanceService::deleteCategory()) — done explicitly here
-     * rather than relying on the schema's ON DELETE SET NULL, so the
-     * behavior doesn't depend on the underlying database engine actually
-     * enforcing that FK action.
+     * Un-links every transaction from a category being removed — done
+     * explicitly rather than relying on the schema's ON DELETE SET NULL,
+     * so the behavior doesn't depend on the underlying database engine
+     * actually enforcing that FK action.
+     *
+     * The only caller is Service\AccountTransferCategoryService::
+     * removeFor(), which drops an account's derived "Virement <compte>"
+     * category when the account stops being eligible for one. Note this is
+     * NOT what Service\FinanceService::deleteCategory() does: an
+     * admin-facing category deletion is *refused* while any movement still
+     * references it.
      */
     public function clearCategory(int $categoryId): void
     {
@@ -387,6 +393,33 @@ class TransactionRepository
         $stmt = $this->pdo->prepare('DELETE FROM finance_transactions WHERE account_id = ?');
         $stmt->execute([$accountId]);
         return $stmt->rowCount();
+    }
+
+    /**
+     * account_id for each of $ids that actually exists, keyed by id — the
+     * ownership check Service\ReceiptService::associate() needs before
+     * linking a receipt to movements the caller was never authorized
+     * against. Deliberately not findByIds(): that hydrates (and therefore
+     * decrypts) every label/comment/counterparty field, none of which this
+     * check looks at. A missing id simply has no entry in the result.
+     *
+     * @param int[] $ids
+     * @return array<int, int> transaction id => account id
+     */
+    public function findAccountIdsByIds(array $ids): array
+    {
+        if ($ids === []) {
+            return [];
+        }
+        $placeholders = implode(',', array_fill(0, count($ids), '?'));
+        $stmt = $this->pdo->prepare("SELECT id, account_id FROM finance_transactions WHERE id IN ({$placeholders})");
+        $stmt->execute(array_values($ids));
+
+        $accountIds = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $accountIds[(int) $row['id']] = (int) $row['account_id'];
+        }
+        return $accountIds;
     }
 
     /**

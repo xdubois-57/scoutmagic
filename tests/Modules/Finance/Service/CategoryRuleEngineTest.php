@@ -310,4 +310,102 @@ class CategoryRuleEngineTest extends TestCase
     {
         $this->assertTrue(CategoryRuleEngine::isValidKeywordPattern('a~b'));
     }
+    /**
+     * @dataProvider validAmountRanges
+     */
+    public function testIsValidAmountRangeAcceptsTheTwoDocumentedShapes(string $range): void
+    {
+        $this->assertTrue(CategoryRuleEngine::isValidAmountRange($range), $range);
+    }
+
+    /**
+     * @return array<string, array{string}>
+     */
+    public static function validAmountRanges(): array
+    {
+        return [
+            'greater than' => ['>100'],
+            'greater than spaced' => ['>  100'],
+            'greater than decimal' => ['>10.5'],
+            'greater than comma decimal' => ['>10,5'],
+            'range' => ['10-50'],
+            'range spaced' => ['10 - 50'],
+            'range decimal' => ['10.5-50.25'],
+            'equal bounds' => ['50-50'],
+            'surrounding whitespace' => ['  10-50  '],
+        ];
+    }
+
+    /**
+     * @dataProvider invalidAmountRanges
+     */
+    public function testIsValidAmountRangeRejectsEverythingElse(string $range): void
+    {
+        $this->assertFalse(CategoryRuleEngine::isValidAmountRange($range), $range);
+    }
+
+    /**
+     * @return array<string, array{string}>
+     */
+    public static function invalidAmountRanges(): array
+    {
+        return [
+            'bare number' => ['100'],
+            'prose' => ['100 a 200'],
+            'en dash' => ['100–200'],
+            'gte' => ['>=100'],
+            'lt' => ['<100'],
+            'non numeric threshold' => ['>abc'],
+            'inverted bounds' => ['200-100'],
+            'open ended' => ['100-'],
+            'open started' => ['-100'],
+            'empty threshold' => ['>'],
+            'empty' => [''],
+            'negative threshold' => ['>-10'],
+        ];
+    }
+
+    /**
+     * Regression: matchesAmountRange() used a bare (float) cast, so a
+     * threshold of "abc" became 0.0 and the rule matched every movement
+     * with a non-zero amount. Such a rule can no longer be saved, but a row
+     * predating the validation must match nothing rather than everything.
+     */
+    public function testAMalformedAmountRangeMatchesNothingRatherThanEverything(): void
+    {
+        $categoryId = $this->categoryRepository->create('Divers');
+        $this->categoryRuleRepository->create($categoryId, 0, null, null, '>abc');
+
+        $line = new StatementLine(
+            bankReference: 'ref-1',
+            transactionDate: new \DateTimeImmutable('2026-10-01'),
+            amount: -250.0,
+            label: 'Achat quelconque'
+        );
+
+        $this->assertNull($this->engine->apply($line));
+    }
+
+    public function testAnAmountRangeWithCommaDecimalsIsHonouredAtMatchTime(): void
+    {
+        $categoryId = $this->categoryRepository->create('Divers');
+        $this->categoryRuleRepository->create($categoryId, 0, null, null, '>99,99');
+
+        $above = new StatementLine(
+            bankReference: 'ref-1',
+            transactionDate: new \DateTimeImmutable('2026-10-01'),
+            amount: -100.0,
+            label: 'Achat'
+        );
+        $below = new StatementLine(
+            bankReference: 'ref-2',
+            transactionDate: new \DateTimeImmutable('2026-10-01'),
+            amount: -99.0,
+            label: 'Achat'
+        );
+
+        $this->assertSame($categoryId, $this->engine->apply($above));
+        $this->assertNull($this->engine->apply($below));
+    }
+
 }

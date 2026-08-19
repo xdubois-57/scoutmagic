@@ -20,6 +20,13 @@ interface ExpectedReceivableInterface
      * Registers an expected payment. $amountCents and $communication are
      * caller-computed (see StructuredCommunicationInterface::generate()).
      * Returns the new receivable's id.
+     *
+     * $communication must contain at least one digit: settlement is
+     * detected by matching its digits against the free text of the
+     * account's incoming transactions, so a digit-less communication
+     * could never be matched — it is rejected with a
+     * Modules\Finance\Service\FinanceException rather than stored as a
+     * receivable that can never be settled.
      */
     public function createReceivable(
         string $sourceModule,

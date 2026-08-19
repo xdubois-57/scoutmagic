@@ -151,10 +151,22 @@ class ImportControllerTest extends TestCase
         return $path;
     }
 
-    private function uploadRequest(int $accountId, ?float $balance, string $tmpFilePath): Request
+    /**
+     * A valid CSRF token in the session, matching what the form now sends
+     * ({{ csrf_field() }} in @finance/import/form.html.twig).
+     */
+    private function csrfToken(): string
+    {
+        $token = bin2hex(random_bytes(32));
+        $_SESSION['_csrf_token'] = $token;
+        return $token;
+    }
+
+    private function uploadRequest(int $accountId, ?float $balance, string $tmpFilePath, ?string $csrfToken = null): Request
     {
         $request = $this->getMockBuilder(Request::class)
             ->setConstructorArgs(['POST', '/finance/import', [], [
+                '_csrf_token' => $csrfToken ?? $this->csrfToken(),
                 'account_id' => (string) $accountId,
                 'bank_code' => 'bnp',
                 'balance' => $balance !== null ? (string) $balance : '',
@@ -206,5 +218,76 @@ class ImportControllerTest extends TestCase
         $response = $this->controller->upload($this->uploadRequest(9999, 1000.0, $tmp), []);
 
         $this->assertStringContainsString('introuvable', $response->getBody());
+    }
+
+    /**
+     * Regression: POST /finance/import used to accept a request with no
+     * CSRF token at all — the only mutation endpoint in the module that
+     * did (AGENTS.md security checklist #7).
+     */
+    public function testUploadRejectsAMissingCsrfToken(): void
+    {
+        $tmp = $this->tmpCopyOfFixture();
+        $request = $this->uploadRequest($this->accountId, 1000.0, $tmp, '');
+
+        $response = $this->controller->upload($request, []);
+
+        $this->assertStringContainsString('CSRF', $response->getBody());
+        $this->assertSame(0, $this->countTransactions(), 'no movement may be imported without a valid token');
+    }
+
+    public function testUploadRejectsAForgedCsrfToken(): void
+    {
+        $tmp = $this->tmpCopyOfFixture();
+        $this->csrfToken();
+        $request = $this->uploadRequest($this->accountId, 1000.0, $tmp, str_repeat('f', 64));
+
+        $response = $this->controller->upload($request, []);
+
+        $this->assertStringContainsString('CSRF', $response->getBody());
+        $this->assertSame(0, $this->countTransactions());
+    }
+
+    /**
+     * Regression: the route's role_min is 'intendant', but each account
+     * carries its own role_min_view on top of it. upload() resolved the
+     * account by raw id and never checked it, so an intendant could import
+     * a statement — and write a balance checkpoint — into an admin-only
+     * account by posting its id directly.
+     */
+    public function testUploadRefusesAnAccountAboveTheCallersRole(): void
+    {
+        $adminOnlyAccountId = $this->accountRepository->create(
+            'Compte réservé admin', Account::TYPE_BANK, null, 'BE00000000000001', 'Titulaire', 'admin'
+        );
+        $this->pdo->prepare("UPDATE finance_accounts SET status = 'active' WHERE id = ?")->execute([$adminOnlyAccountId]);
+
+        $tmp = $this->tmpCopyOfFixture();
+        $response = $this->controller->upload($this->uploadRequest($adminOnlyAccountId, 1000.0, $tmp), []);
+
+        $this->assertStringContainsString('refusé', $response->getBody());
+        $this->assertSame(0, $this->countTransactions());
+        $this->assertFalse(
+            $this->checkpointRepository->hasAnyForAccount($adminOnlyAccountId),
+            'no balance checkpoint may be written into an account the caller cannot see'
+        );
+    }
+
+    /**
+     * The boundary's other side: at the account's own floor the import
+     * goes through, so the guard above rejects on role, not by accident.
+     */
+    public function testUploadAllowsAnAccountAtTheCallersOwnRole(): void
+    {
+        $tmp = $this->tmpCopyOfFixture();
+        $response = $this->controller->upload($this->uploadRequest($this->accountId, 1000.0, $tmp), []);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertGreaterThan(0, $this->countTransactions());
+    }
+
+    private function countTransactions(): int
+    {
+        return (int) $this->pdo->query('SELECT COUNT(*) FROM finance_transactions')->fetchColumn();
     }
 }

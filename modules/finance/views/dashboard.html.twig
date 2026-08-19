@@ -297,13 +297,20 @@
     {% if selected_fiscal_year and category_summary %}
         <script src="/assets/vendor/chartjs/chart.umd.min.js"></script>
         <script nonce="{{ csp_nonce }}">
-        const categoryLabels = {{ category_summary|map(row => row.category_name ?? 'Non catégorisé')|json_encode|raw }};
-        const categoryIncome = {{ category_summary|map(row => row.income)|json_encode|raw }};
-        const categoryExpense = {{ category_summary|map(row => row.expense)|json_encode|raw }};
-        const evolutionLabels = {{ balance_evolution|map(point => point.month)|json_encode|raw }};
-        const evolutionBalances = {{ balance_evolution|map(point => point.balance)|json_encode|raw }};
-        const netPositive = {{ net_category_breakdown.positive|json_encode|raw }};
-        const netNegative = {{ net_category_breakdown.negative|json_encode|raw }};
+        {#
+           JSON_HEX_TAG/JSON_HEX_AMP: a category name is free text, and
+           without them a name containing "</script>" closes this block.
+           CSP (nonce, no unsafe-inline) stops that from executing, but it
+           still breaks the page — and escaping costs nothing.
+        #}
+        {% set json_flags = constant('JSON_HEX_TAG') b-or constant('JSON_HEX_AMP') b-or constant('JSON_UNESCAPED_UNICODE') %}
+        const categoryLabels = {{ category_summary|map(row => row.category_name ?? 'Non catégorisé')|json_encode(json_flags)|raw }};
+        const categoryIncome = {{ category_summary|map(row => row.income)|json_encode(json_flags)|raw }};
+        const categoryExpense = {{ category_summary|map(row => row.expense)|json_encode(json_flags)|raw }};
+        const evolutionLabels = {{ balance_evolution|map(point => point.month)|json_encode(json_flags)|raw }};
+        const evolutionBalances = {{ balance_evolution|map(point => point.balance)|json_encode(json_flags)|raw }};
+        const netPositive = {{ net_category_breakdown.positive|json_encode(json_flags)|raw }};
+        const netNegative = {{ net_category_breakdown.negative|json_encode(json_flags)|raw }};
 
         const positiveColors = ['#198754', '#20c997', '#0d6efd', '#0dcaf0', '#adb5bd'];
         const negativeColors = ['#dc3545', '#fd7e14', '#6f42c1', '#d63384', '#adb5bd'];
