@@ -48,9 +48,13 @@ class PasswordAuthMethod
         $email = strtolower(trim($input['email']));
         $password = $input['password'];
         $blindIndex = $this->encryption->blindIndex($email);
+        // Counted alongside the email so a spray of one password across many
+        // accounts from a single source is slowed too — per-email counting
+        // alone never accumulates enough failures on any one address to see it.
+        $ip = (string) ($_SERVER['REMOTE_ADDR'] ?? '');
 
         // Check lockout
-        $lockout = $this->throttler->getLockoutRemaining($blindIndex);
+        $lockout = $this->throttler->getLockoutRemaining($blindIndex, $ip);
         if ($lockout > 0) {
             $this->journalService?->log(
                 'core', 'login_lockout', 'security', 'Compte temporairement verrouillé (trop de tentatives)',
@@ -67,13 +71,13 @@ class PasswordAuthMethod
         // by response content and by timing alike).
         if ($account === null || $account->passwordHash === null) {
             password_verify($password, self::DUMMY_HASH);
-            $this->throttler->recordFailure($blindIndex);
+            $this->throttler->recordFailure($blindIndex, $ip);
             return ['account' => null, 'locked_seconds' => 0];
         }
 
         // Verify password
         if (!password_verify($password, $account->passwordHash)) {
-            $this->throttler->recordFailure($blindIndex);
+            $this->throttler->recordFailure($blindIndex, $ip);
             return ['account' => null, 'locked_seconds' => 0];
         }
 

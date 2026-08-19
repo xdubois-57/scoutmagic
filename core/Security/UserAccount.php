@@ -19,6 +19,12 @@ class UserAccount
         public readonly bool $isSuperAdmin,
         public readonly ?\DateTimeImmutable $lastLoginAt,
         public readonly ?\DateTimeImmutable $passwordChangedAt = null,
+        /**
+         * Sessions issued before this instant are revoked — see the
+         * user_accounts.sessions_valid_from column comment and
+         * Core\Security\SessionRevalidator.
+         */
+        public readonly ?\DateTimeImmutable $sessionsValidFrom = null,
         public readonly ?string $quietHoursStart = null,
         public readonly ?string $quietHoursEnd = null,
         public readonly bool $notificationDiscretion = false

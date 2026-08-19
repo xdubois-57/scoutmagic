@@ -41,8 +41,9 @@ class PasswordResetServiceTest extends TestCase
 
         $this->emailSent = false;
         $mailService = $this->createMock(\Core\Mail\MailService::class);
-        $mailService->method('send')->willReturnCallback(function () {
+        $mailService->method('send')->willReturnCallback(function (string $to, string $subject, string $bodyHtml, string $bodyText) {
             $this->emailSent = true;
+            $this->capturedResetUrl = trim($bodyText);
         });
 
         $twig = new Environment(new ArrayLoader([
@@ -189,5 +190,41 @@ class PasswordResetServiceTest extends TestCase
         $stmt->execute([$blindIndex, $tokenHash, $expiresAt]);
 
         return [(int) $this->pdo->lastInsertId(), $rawToken];
+    }
+
+    /**
+     * The token rides in the URL FRAGMENT, never the query string. A
+     * fragment is not transmitted by the browser at all, which keeps the
+     * token out of the web server's access log, any proxy in front of it,
+     * and the Referer header the reset page would otherwise leak to
+     * whatever it loads next.
+     */
+    public function testTheEmailedLinkCarriesTheTokenInTheFragmentNotTheQueryString(): void
+    {
+        $this->userRepo->create('reset@test.com');
+
+        $this->service->requestReset('reset@test.com');
+
+        $this->assertTrue($this->emailSent);
+        $this->assertNotSame('', $this->capturedResetUrl);
+        $this->assertStringNotContainsString('?token=', $this->capturedResetUrl);
+        $this->assertStringNotContainsString('&token=', $this->capturedResetUrl);
+        $this->assertMatchesRegularExpression('#/password-reset/\d+\#[0-9a-f]{64}$#', $this->capturedResetUrl);
+    }
+
+    /**
+     * And the token in that fragment must still be the real, working one —
+     * moving where it travels must not break what it does.
+     */
+    public function testTheTokenFromTheFragmentIsTheOneThatValidates(): void
+    {
+        $this->userRepo->create('reset2@test.com');
+        $this->service->requestReset('reset2@test.com');
+
+        [$path, $token] = explode('#', $this->capturedResetUrl, 2);
+        $id = (int) substr($path, (int) strrpos($path, '/') + 1);
+
+        $this->assertTrue($this->service->checkToken($id, $token));
+        $this->assertFalse($this->service->checkToken($id, 'not-the-token'));
     }
 }

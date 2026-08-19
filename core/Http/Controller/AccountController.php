@@ -130,7 +130,11 @@ class AccountController extends AbstractController
         }
 
         $hash = password_hash($newPassword, PASSWORD_DEFAULT);
+        // Revokes every session for this account (see updatePasswordHash())...
         $this->userAccountRepo->updatePasswordHash($userId, $hash);
+        // ...including this one, so re-stamp the tab the member is actually
+        // using: they stay signed in here, everywhere else is signed out.
+        AuthSession::refreshIssuedAt();
 
         FlashMessage::set('success', $hasPassword ? 'Mot de passe mis à jour.' : 'Mot de passe défini.');
         return $this->redirect('/account');

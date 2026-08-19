@@ -233,6 +233,66 @@ class AccountControllerTest extends TestCase
         $this->assertNotNull($account->passwordChangedAt);
     }
 
+    /**
+     * Changing a password revokes every session for the account
+     * (Core\Security\SessionRevalidator) — including, mechanically, the
+     * one doing the changing. The controller re-stamps its own session so
+     * the member stays signed in on the tab they are using while every
+     * other session is signed out.
+     */
+    public function testChangingYourOwnPasswordRevokesOtherSessionsButKeepsThisOne(): void
+    {
+        $csrfToken = CsrfGuard::generateToken();
+        $before = time() - 120;
+        $_SESSION['_auth']['issued_at'] = $before;
+
+        $request = new Request('POST', '/account/password', [], [
+            '_csrf_token' => $csrfToken,
+            'new_password' => 'MySecureP@ss1',
+            'confirm_password' => 'MySecureP@ss1',
+        ], [], []);
+
+        $this->controller->updatePassword($request, []);
+
+        $account = $this->userRepo->findById($this->userId);
+
+        // Every session issued before the change is now revoked...
+        $this->assertNotNull($account->sessionsValidFrom);
+        $this->assertGreaterThan($before, $account->sessionsValidFrom->getTimestamp());
+
+        // ...except this one, which was re-stamped after the write.
+        $this->assertGreaterThanOrEqual(
+            $account->sessionsValidFrom->getTimestamp(),
+            AuthSession::getIssuedAt()
+        );
+    }
+
+    /**
+     * A failed change must not revoke anything — a wrong current password
+     * would otherwise be a way to sign somebody out of every device.
+     */
+    public function testAFailedPasswordChangeRevokesNothing(): void
+    {
+        $this->userRepo->updatePasswordHash($this->userId, password_hash('CurrentP@ss1', PASSWORD_DEFAULT));
+        $stampBefore = $this->userRepo->findById($this->userId)->sessionsValidFrom;
+        $this->assertNotNull($stampBefore);
+
+        $csrfToken = CsrfGuard::generateToken();
+        $request = new Request('POST', '/account/password', [], [
+            '_csrf_token' => $csrfToken,
+            'current_password' => 'WrongCurrentPassword1!',
+            'new_password' => 'MySecureP@ss1',
+            'confirm_password' => 'MySecureP@ss1',
+        ], [], []);
+
+        $this->controller->updatePassword($request, []);
+
+        $this->assertSame(
+            $stampBefore->getTimestamp(),
+            $this->userRepo->findById($this->userId)->sessionsValidFrom->getTimestamp()
+        );
+    }
+
     public function testCsrfValidatedOnProfileUpdate(): void
     {
         $request = new Request('POST', '/account/profile', [], [
