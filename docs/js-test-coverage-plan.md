@@ -309,8 +309,14 @@ Net effect: `offline-nav.js` and the PHP matcher both present member detail page
 offline-available, and they are never cached or served from cache by the service worker.
 Offline, the user gets the generic `/offline` page on a link the UI showed as available.
 
+**Why it survived is the instructive part.** `tests/Core/View/OfflineNavDialogTest.php:80`
+already asserts `entry.match === 'child'` — but it asserts it against `offline-nav.js` only.
+The PHP suite pins one copy of the duplicated matching algorithm by grepping its source text,
+and never checks the other. A JS unit test on the actual function is what closes that.
+
 That makes this item **fix, then pin**, and it is a good argument for the whole plan: three
-implementations of one rule, no JS test on any of them, and the odd one out went unnoticed.
+implementations of one rule, a source-grep test on one of them, and the odd one out went
+unnoticed.
 The docblock in `OfflineWhitelist.php` even anticipates the risk — it accepts that the
 matching algorithm is "necessarily reimplemented in JS", which is exactly the kind of
 deliberate duplication that needs a test to hold it together.
@@ -500,12 +506,32 @@ the minority convention:
   `unit-logo.js`, `unit-logo-notify-ios.js`) send **`_csrf_token` in the request body**.
 - `auth.js` uses both.
 
-So the existing suite's CSRF coverage generalises to almost nothing: it pins the one
-convention that fourteen other files don't use. Worth checking whether that split is
-intentional (header for the pre-consent endpoints, body elsewhere) or accidental drift —
-either way, a small parameterised wiring spec asserting "this file's write path carries a
-CSRF token, by its stated convention" is high value per line and reaches many files at once.
-Recommend promoting this to **P1.5**.
+**Checked on the server side: the split is intentional and correct, not drift.** `CsrfGuard`
+has two entry points:
+
+- `validateRequest()` — reads `$_POST['_csrf_token']` first, then falls back to the
+  `HTTP_X_CSRF_TOKEN` header. Used by `/cookies/accept-all` and `/cookies/reject-all`, the
+  two endpoints `cookie-consent.js` calls header-only. So the header transport works.
+- `validateToken($token)` — validates one caller-supplied string. Used by the majority of
+  controllers as `validateToken($request->getBody('_csrf_token', ''))` — **body only**.
+
+So there is no live CSRF bug. But the pairing is **implicit and asymmetric**, which is the
+actual reason to test it:
+
+- A `validateRequest()` endpoint accepts either transport, so a client switching to body-only
+  keeps working.
+- A `validateToken(getBody(...))` endpoint accepts **only** the body. Any script that switched
+  to header-only would start returning 403 with no client-side error path distinguishing it
+  from an expired session — `settings.js`, for instance, surfaces `data.error` and leaves the
+  modal open, which reads to the user as a validation failure rather than a broken request.
+
+Nothing enforces which transport a given file uses. The existing suite's single CSRF assertion
+pins `cookie-consent.js`'s header convention — the one convention fourteen other files don't
+use — so it guards the case that was already safe and none of the fragile ones.
+
+A small parameterised wiring spec asserting *"this file's write path carries a CSRF token, by
+the transport its endpoint requires"* is therefore high value per line and reaches many files
+at once. Recommend promoting this to **P1.5**.
 
 ### 7.5 Still not worth it
 
@@ -530,14 +556,13 @@ consent dimension worth pinning.
 | 0 | §4.1 widen `coverage.include` to `public/sw.js` | Honest baseline. Headline % drops — say so in the PR |
 | 1 | **P1.1** `news-form-builder.js` sanitizer | Closes the only client-side XSS surface at 0 % |
 | 2 | **P1.3 + P1.4** `retro-board.js` + escaping-helper consolidation | Covers cog-168 rendering; collapses 4 `escapeHtml` + 3 `escapeAttr` copies |
-| 3 | **P1.5** the CSRF/endpoint contract sweep (§7.4) | Highest coverage-per-line in the plan; touches ~14 files; resolves whether the header/body split is intentional |
+| 3 | **P1.5** the CSRF/endpoint contract sweep (§7.4) | Highest coverage-per-line in the plan; touches ~14 files; pins each transport against a silent 403 |
 | 4 | **P1.2** `sw.js` + `offline-nav.js` whitelist | Fixes a confirmed offline bug; builds the reusable `caches` fake |
 | 5 | **P2.1–2.2** `maintenance.js` gate + pollers | Protects destructive actions |
 | 6 | **P2.3–2.8**, plus the wiring specs per §7 | Steady grind on the long tail |
 
 P1.5 is new, and it is placed third deliberately: §7's experiment showed wiring tests are the
-cheapest coverage available, and the CSRF sweep is the cheapest of those while also answering
-a real question about the codebase.
+cheapest coverage available, and the CSRF sweep is the cheapest of those.
 
 Suggested PR granularity: one step per PR. Step 0 is a one-line config change and should go
 in on its own so the coverage-number drop is unambiguous and reviewable in isolation.
