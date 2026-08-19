@@ -86,8 +86,8 @@ class ConfigRuleControllerTest extends TestCase
         );
 
         $this->controller = new ConfigRuleController(
-            new Environment(new ArrayLoader([])), $this->categoryRuleRepository, $ruleEngine, $journalService, $this->financeService,
-            $this->bulkCategorizationService
+            new Environment(new ArrayLoader([])), $this->categoryRuleRepository, $this->categoryRepository, $ruleEngine, $journalService,
+            $this->financeService, $this->bulkCategorizationService
         );
 
         if (session_status() === PHP_SESSION_NONE) {
@@ -110,6 +110,151 @@ class ConfigRuleControllerTest extends TestCase
             ->getMock();
         $request->method('getRawBody')->willReturn(json_encode($data));
         return $request;
+    }
+
+    /**
+     * Regression: amount_range was the one condition never validated at
+     * save time, while keyword_pattern and counterparty_account_pattern
+     * both were. CategoryRuleEngine understands exactly ">N" and "N-M", so
+     * every other shape was saved happily and then matched nothing, for
+     * ever — the exact failure extractConditions()'s own doc comment says
+     * it exists to prevent.
+     *
+     * @dataProvider malformedAmountRanges
+     */
+    public function testCreateRejectsAMalformedAmountRange(string $range): void
+    {
+        $categoryId = $this->categoryRepository->create('Alimentation');
+
+        $response = $this->controller->save($this->jsonRequest([
+            'action' => 'create',
+            'category_id' => $categoryId,
+            'amount_range' => $range,
+            '_csrf_token' => $this->csrfToken(),
+        ]), []);
+
+        $this->assertSame(400, $response->getStatusCode(), $range);
+        $this->assertSame([], $this->categoryRuleRepository->findAllOrderedByPriority(), $range);
+    }
+
+    /**
+     * @return array<string, array{string}>
+     */
+    public static function malformedAmountRanges(): array
+    {
+        return [
+            'bare number' => ['100'],
+            'french prose' => ['100 a 200'],
+            'en dash' => ['100–200'],
+            'greater-or-equal sign' => ['>=100'],
+            // (float) 'abc' is 0.0, so this used to match every movement
+            // with a non-zero amount instead of nothing.
+            'non-numeric threshold' => ['>abc'],
+            'inverted bounds' => ['200-100'],
+            'open-ended range' => ['100-'],
+            'empty threshold' => ['>'],
+        ];
+    }
+
+    /**
+     * @dataProvider wellFormedAmountRanges
+     */
+    public function testCreateAcceptsAWellFormedAmountRange(string $range): void
+    {
+        $categoryId = $this->categoryRepository->create('Alimentation');
+
+        $response = $this->controller->save($this->jsonRequest([
+            'action' => 'create',
+            'category_id' => $categoryId,
+            'amount_range' => $range,
+            '_csrf_token' => $this->csrfToken(),
+        ]), []);
+
+        $this->assertSame(200, $response->getStatusCode(), $range);
+        $this->assertCount(1, $this->categoryRuleRepository->findAllOrderedByPriority(), $range);
+    }
+
+    /**
+     * @return array<string, array{string}>
+     */
+    public static function wellFormedAmountRanges(): array
+    {
+        return [
+            'greater than' => ['>100'],
+            'greater than with decimals' => ['>99.99'],
+            'greater than with comma decimals' => ['>99,99'],
+            'greater than with spacing' => ['> 100'],
+            'inclusive range' => ['50-200'],
+            'inclusive range with spacing' => ['50 - 200'],
+            'equal bounds' => ['100-100'],
+        ];
+    }
+
+    /**
+     * Regression: category_id went straight to the repository, so a
+     * missing or unknown id hit the fk_fcr_category constraint and came
+     * back as an uncaught PDOException (a 500) instead of a 400.
+     */
+    public function testCreateRejectsAnUnknownCategory(): void
+    {
+        $response = $this->controller->save($this->jsonRequest([
+            'action' => 'create',
+            'category_id' => 999999,
+            'keyword_pattern' => 'delhaize',
+            '_csrf_token' => $this->csrfToken(),
+        ]), []);
+
+        $this->assertSame(400, $response->getStatusCode());
+        $this->assertSame([], $this->categoryRuleRepository->findAllOrderedByPriority());
+    }
+
+    public function testCreateRejectsAMissingCategory(): void
+    {
+        $response = $this->controller->save($this->jsonRequest([
+            'action' => 'create',
+            'keyword_pattern' => 'delhaize',
+            '_csrf_token' => $this->csrfToken(),
+        ]), []);
+
+        $this->assertSame(400, $response->getStatusCode());
+        $this->assertSame([], $this->categoryRuleRepository->findAllOrderedByPriority());
+    }
+
+    public function testUpdateRejectsAnUnknownCategory(): void
+    {
+        $categoryId = $this->categoryRepository->create('Alimentation');
+        $ruleId = $this->categoryRuleRepository->create($categoryId, 0, 'delhaize', null, null);
+
+        $response = $this->controller->save($this->jsonRequest([
+            'action' => 'update',
+            'id' => $ruleId,
+            'category_id' => 999999,
+            'keyword_pattern' => 'carrefour',
+            '_csrf_token' => $this->csrfToken(),
+        ]), []);
+
+        $this->assertSame(400, $response->getStatusCode());
+        $this->assertSame($categoryId, $this->categoryRuleRepository->findById($ruleId)?->categoryId);
+        $this->assertSame('delhaize', $this->categoryRuleRepository->findById($ruleId)?->keywordPattern);
+    }
+
+    /**
+     * Regression: rejectIfSystem() lets an unknown id through, and the
+     * UPDATE then touched zero rows while still answering "success".
+     */
+    public function testUpdateRejectsAnUnknownRule(): void
+    {
+        $categoryId = $this->categoryRepository->create('Alimentation');
+
+        $response = $this->controller->save($this->jsonRequest([
+            'action' => 'update',
+            'id' => 999999,
+            'category_id' => $categoryId,
+            'keyword_pattern' => 'carrefour',
+            '_csrf_token' => $this->csrfToken(),
+        ]), []);
+
+        $this->assertSame(404, $response->getStatusCode());
     }
 
     public function testCreateWithAllThreeConditionsAtOnce(): void

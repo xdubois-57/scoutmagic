@@ -93,6 +93,30 @@ class CategoryRuleEngine
         return @preg_match(self::delimit(self::normalize($pattern)), '') !== false;
     }
 
+    /**
+     * An amount range is well-formed on its own — matchesAmountRange()
+     * understands exactly two shapes, so this is what
+     * Controller\ConfigRuleController validates against at save time,
+     * exactly as it already does for a keyword pattern. Without it a range
+     * like "100", "100 a 200" or an en-dash "100-200" was saved happily and
+     * then silently matched nothing forever, and "&gt;abc" cast to 0.0 and
+     * matched every movement instead.
+     */
+    public static function isValidAmountRange(string $range): bool
+    {
+        $range = trim($range);
+
+        if (preg_match('/^>\s*\d+(?:[.,]\d+)?$/', $range) === 1) {
+            return true;
+        }
+
+        if (preg_match('/^(\d+(?:[.,]\d+)?)\s*-\s*(\d+(?:[.,]\d+)?)$/', $range, $m) === 1) {
+            return (float) str_replace(',', '.', $m[1]) <= (float) str_replace(',', '.', $m[2]);
+        }
+
+        return false;
+    }
+
     private function matches(CategoryRule $rule, string $label, float $amount, ?string $counterpartyAccount): bool
     {
         $hasCondition = false;
@@ -175,19 +199,37 @@ class CategoryRuleEngine
         $range = trim($range);
 
         if (str_starts_with($range, '>')) {
-            $threshold = (float) substr($range, 1);
-            return $amount > $threshold;
+            $threshold = self::toFloat(substr($range, 1));
+            return $threshold !== null && $amount > $threshold;
         }
 
         if (str_contains($range, '-')) {
             [$min, $max] = array_map('trim', explode('-', $range, 2));
-            if ($min === '' || $max === '') {
+            $minValue = self::toFloat($min);
+            $maxValue = self::toFloat($max);
+            if ($minValue === null || $maxValue === null) {
                 return false;
             }
-            return $amount >= (float) $min && $amount <= (float) $max;
+            return $amount >= $minValue && $amount <= $maxValue;
         }
 
         return false;
+    }
+
+    /**
+     * A bound as written by an admin — digits with an optional decimal
+     * part, "," or "." as separator. Anything else is null rather than
+     * PHP's (float) cast, which turns "abc" into 0.0 and would silently
+     * make "&gt;abc" match every movement.
+     */
+    private static function toFloat(string $value): ?float
+    {
+        $value = trim($value);
+        if (preg_match('/^\d+(?:[.,]\d+)?$/', $value) !== 1) {
+            return null;
+        }
+
+        return (float) str_replace(',', '.', $value);
     }
 
     /**

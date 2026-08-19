@@ -1985,7 +1985,7 @@ if (in_array('finance', $moduleManager->getEnabledModuleIds(), true)) {
     $frontController->registerController(
         \Modules\Finance\Controller\ConfigRuleController::class,
         new \Modules\Finance\Controller\ConfigRuleController(
-            $twig, $financeCategoryRuleRepo, $financeRuleEngine, $journalService, $financeService, $financeBulkCategorizationService
+            $twig, $financeCategoryRuleRepo, $financeCategoryRepo, $financeRuleEngine, $journalService, $financeService, $financeBulkCategorizationService
         )
     );
     $frontController->registerController(

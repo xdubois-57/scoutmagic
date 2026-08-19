@@ -276,7 +276,7 @@ class FinanceRbacTest extends TestCase
                 $this->aiSuggestionRepository, $this->bulkCategorizationService, $this->transactionRepository, false
             ),
             'ConfigRuleController' => new ConfigRuleController(
-                $this->twig, $this->categoryRuleRepository, $this->categoryRuleEngine, $this->journalService,
+                $this->twig, $this->categoryRuleRepository, $this->categoryRepository, $this->categoryRuleEngine, $this->journalService,
                 $this->financeService, $this->bulkCategorizationService
             ),
             'ReceivablesController' => new ReceivablesController($this->twig, $this->receivablesOverviewService),
