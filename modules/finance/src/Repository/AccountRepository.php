@@ -77,10 +77,17 @@ class AccountRepository
     }
 
     /**
-     * $iban/$holderName of null means "leave unchanged" — the existing
-     * encrypted value (if any) is preserved rather than wiped, since a
-     * caller with only a partial form (e.g. editing just the name) must
-     * never silently erase the other fields.
+     * Writes exactly what it is given: a null $iban/$holderName clears the
+     * column rather than preserving whatever was there.
+     *
+     * This used to mean "leave unchanged", which read as prudent but made
+     * an IBAN impossible to remove: the config form always posts both
+     * fields, and Service\FinanceService::normalizeBankFields() turns a
+     * blanked-out one into null, so clearing the IBAN on a bank account
+     * silently kept the old encrypted value and its blind index — and with
+     * them the account's "Virement <compte>" system rule. Deciding what to
+     * preserve is the service's job (it is the layer that knows whether a
+     * field was omitted or emptied); the repository just persists.
      */
     public function update(
         int $id,
@@ -91,10 +98,6 @@ class AccountRepository
         ?string $holderName,
         string $roleMinView
     ): void {
-        $existingStmt = $this->pdo->prepare('SELECT iban, iban_blind_index, holder_name FROM finance_accounts WHERE id = ?');
-        $existingStmt->execute([$id]);
-        $existing = $existingStmt->fetch(\PDO::FETCH_ASSOC) ?: [];
-
         $stmt = $this->pdo->prepare(
             'UPDATE finance_accounts
              SET name = ?, account_type = ?, section_id = ?, iban = ?, iban_blind_index = ?, holder_name = ?, role_min_view = ?
@@ -104,9 +107,9 @@ class AccountRepository
             $name,
             $accountType,
             $sectionId,
-            $iban !== null ? $this->encryption->encrypt($iban) : ($existing['iban'] ?? null),
-            $iban !== null ? $this->encryption->blindIndex($iban) : ($existing['iban_blind_index'] ?? null),
-            $holderName !== null ? $this->encryption->encrypt($holderName) : ($existing['holder_name'] ?? null),
+            $iban !== null ? $this->encryption->encrypt($iban) : null,
+            $iban !== null ? $this->encryption->blindIndex($iban) : null,
+            $holderName !== null ? $this->encryption->encrypt($holderName) : null,
             $roleMinView,
             $id,
         ]);
@@ -116,19 +119,6 @@ class AccountRepository
     {
         $stmt = $this->pdo->prepare('UPDATE finance_accounts SET status = ? WHERE id = ?');
         $stmt->execute([$status, $id]);
-    }
-
-    /**
-     * The one narrow exception to update()'s "null means leave unchanged"
-     * contract — Service\FinanceService::updateAccount() calls this
-     * explicitly when an account is switched to "caisse" (cash), which
-     * has no bank details at all, so a previously-set IBAN/holder from
-     * when it was a bank account must actually be wiped, not preserved.
-     */
-    public function clearBankDetails(int $id): void
-    {
-        $stmt = $this->pdo->prepare('UPDATE finance_accounts SET iban = NULL, iban_blind_index = NULL, holder_name = NULL WHERE id = ?');
-        $stmt->execute([$id]);
     }
 
     /**

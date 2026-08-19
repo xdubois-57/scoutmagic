@@ -192,4 +192,55 @@ class BulkCategorizationServiceTest extends TestCase
         $this->assertSame(0, $result['categorized_by_ai']);
         $this->assertSame(0, $result['still_uncategorized']);
     }
+    /**
+     * Regression: the marker was a bare '1' cleared only by
+     * runInBackground()'s finally block. If the scheduled task was never
+     * picked up (the poor man's cron needs a page load) or the process died
+     * first, it stayed set for ever and the config page's "Exécuter les
+     * règles" button was permanently disabled, with no way to reset it.
+     */
+    public function testAStaleRunningMarkerIsNotReportedAsRunning(): void
+    {
+        $this->service()->markRunning();
+        $this->assertTrue($this->service()->isRunning());
+
+        $this->settingService->setInternal(
+            'bulk_categorization_running',
+            (string) (time() - 7200),
+            'finance'
+        );
+
+        $this->assertFalse($this->service()->isRunning());
+        $this->assertTrue($this->service()->scheduleBackgroundRun(), 'a stale marker must not block a new run');
+    }
+
+    public function testAFreshRunningMarkerStillBlocksASecondRun(): void
+    {
+        $this->assertTrue($this->service()->scheduleBackgroundRun());
+
+        $this->assertTrue($this->service()->isRunning());
+        $this->assertFalse($this->service()->scheduleBackgroundRun());
+    }
+
+    /**
+     * A marker written before the timestamp existed is a bare '1' — it must
+     * still read as running rather than crashing or silently resetting.
+     */
+    public function testALegacyBareOneMarkerIsStillReportedAsRunning(): void
+    {
+        $this->settingService->register('bulk_categorization_running', '0', 'text', 'x', 'x', 'finance', null, null, false);
+        $this->settingService->setInternal('bulk_categorization_running', '1', 'finance');
+
+        $this->assertTrue($this->service()->isRunning());
+    }
+
+    public function testRunInBackgroundClearsTheMarkerEvenWhenNothingToDo(): void
+    {
+        $this->service()->markRunning();
+
+        $this->service()->runInBackground();
+
+        $this->assertFalse($this->service()->isRunning());
+    }
+
 }

@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Modules\Finance\Parser;
 
 use Modules\Finance\Service\FinanceException;
+use Modules\Finance\Service\IbanNormalizer;
 
 /**
  * BNP Paribas Fortis CSV export parser — semicolon-delimited, UTF-8 with
@@ -37,10 +38,20 @@ final class BnpParser implements BankStatementParserInterface
     private const COL_DETAILS = 10;
     private const COL_STATUS = 11;
 
+    /**
+     * Normalized (uppercase, no spaces or punctuation), because
+     * Service\ImportService::verifyIban() compares its blind index to the
+     * account's own IBAN — which Service\IbanNormalizer already stored in
+     * exactly that form. A trim() alone was enough only as long as this
+     * column happens to arrive unformatted; the "Détails" column of the
+     * same export does write IBANs as "BE00 0000 0000 0002", and a
+     * space-separated value here would have failed every import of the
+     * right file with a misleading "IBAN mismatch" and no way to override.
+     */
     public function extractSourceIban(string $filePath): string
     {
         foreach ($this->readRows($filePath) as $row) {
-            $iban = trim($row[self::COL_ACCOUNT_NUMBER] ?? '');
+            $iban = IbanNormalizer::normalize($row[self::COL_ACCOUNT_NUMBER] ?? '');
             if ($iban !== '') {
                 return $iban;
             }
@@ -117,13 +128,27 @@ final class BnpParser implements BankStatementParserInterface
         return $parts !== [] ? implode(' ; ', $parts) : null;
     }
 
+    /**
+     * Belgian/French formatting: "." as thousands separator, "," as
+     * decimal separator (e.g. "1.234,56" or plain "35,98").
+     *
+     * The "." is only stripped when a "," is actually present. Stripping it
+     * unconditionally silently turned a dot-decimal "35.98" into 3598,00 €
+     * — no error, just a wrong amount, and a wrong balance checkpoint
+     * behind it. With no comma in the value, a single "." is read as the
+     * decimal separator instead.
+     */
     private function parseAmount(string $raw): float
     {
         $raw = trim($raw);
-        // Belgian/French formatting: "." as thousands separator, "," as
-        // decimal separator (e.g. "1.234,56" or plain "35,98").
-        $normalized = str_replace('.', '', $raw);
-        $normalized = str_replace(',', '.', $normalized);
+
+        if (str_contains($raw, ',')) {
+            $normalized = str_replace(['.', ','], ['', '.'], $raw);
+        } else {
+            // No decimal comma: a lone "." is the decimal point, but
+            // several ("1.234.567") can only be thousands separators.
+            $normalized = substr_count($raw, '.') > 1 ? str_replace('.', '', $raw) : $raw;
+        }
 
         if ($normalized === '' || !is_numeric($normalized)) {
             throw new FinanceException("Montant invalide dans le relevé BNP : \"{$raw}\".");

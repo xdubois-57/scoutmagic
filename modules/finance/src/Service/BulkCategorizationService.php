@@ -51,21 +51,57 @@ class BulkCategorizationService
     }
 
     /**
+     * How long a "running" marker is trusted before it is treated as
+     * abandoned. The flag is cleared by runInBackground()'s finally block,
+     * but nothing clears it if the scheduled task is never picked up at all
+     * (the poor man's cron depends on a page load — see public/index.php)
+     * or if the process dies before that block runs. Without an expiry the
+     * config page's "Exécuter les règles" button then stayed disabled for
+     * ever, with no way to reset it from the UI. An hour is far longer than
+     * any real run: the batch makes one LLM call per uncategorized movement.
+     */
+    private const RUNNING_STALE_AFTER_SECONDS = 3600;
+
+    /**
      * Whether Task\RunCategorizationRulesHandler is currently queued or
      * running — set the moment Controller\ConfigRuleController schedules
      * the task (before it has actually started, since the poor man's
      * cron may not pick it up for up to a minute — see public/index.php),
      * cleared once runInBackground() finishes, success or failure.
+     *
+     * A marker older than RUNNING_STALE_AFTER_SECONDS is reported as not
+     * running: see that constant for why one can be left behind.
      */
     public function isRunning(): bool
     {
-        return $this->settingService->get(self::RUNNING_SETTING_KEY, 'finance', '0') === '1';
+        $value = $this->settingService->get(self::RUNNING_SETTING_KEY, 'finance', '0');
+        if ($value === null || $value === '' || $value === '0') {
+            return false;
+        }
+
+        // Historic marker from before the timestamp was recorded: treated
+        // as running, and the next completed run rewrites it as '0'.
+        if ($value === '1') {
+            return true;
+        }
+
+        $startedAt = (int) $value;
+        return $startedAt > 0 && (time() - $startedAt) < self::RUNNING_STALE_AFTER_SECONDS;
     }
 
+    /**
+     * Stores the marker as the UNIX timestamp the run was queued at, so
+     * isRunning() can tell a live run from one that never finished.
+     */
     public function markRunning(): void
     {
-        $this->settingService->register(self::RUNNING_SETTING_KEY, '0', 'boolean', 'Exécution des règles en cours', 'Indicateur interne — ne pas modifier.', 'finance', null, null, false);
-        $this->settingService->setInternal(self::RUNNING_SETTING_KEY, '1', 'finance');
+        $this->registerRunningSetting();
+        $this->settingService->setInternal(self::RUNNING_SETTING_KEY, (string) time(), 'finance');
+    }
+
+    private function registerRunningSetting(): void
+    {
+        $this->settingService->register(self::RUNNING_SETTING_KEY, '0', 'text', 'Exécution des règles en cours', 'Indicateur interne — ne pas modifier.', 'finance', null, null, false);
     }
 
     /**
@@ -119,7 +155,7 @@ class BulkCategorizationService
             $result = $this->runOnUncategorized();
             $this->storeLastResult($result);
         } finally {
-            $this->settingService->register(self::RUNNING_SETTING_KEY, '0', 'boolean', 'Exécution des règles en cours', 'Indicateur interne — ne pas modifier.', 'finance', null, null, false);
+            $this->registerRunningSetting();
             $this->settingService->setInternal(self::RUNNING_SETTING_KEY, '0', 'finance');
         }
     }

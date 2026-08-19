@@ -187,11 +187,17 @@ class TransactionRepository
     }
 
     /**
-     * Un-links every transaction from a category about to be deleted
-     * (Service\FinanceService::deleteCategory()) — done explicitly here
-     * rather than relying on the schema's ON DELETE SET NULL, so the
-     * behavior doesn't depend on the underlying database engine actually
-     * enforcing that FK action.
+     * Un-links every transaction from a category being removed — done
+     * explicitly rather than relying on the schema's ON DELETE SET NULL,
+     * so the behavior doesn't depend on the underlying database engine
+     * actually enforcing that FK action.
+     *
+     * The only caller is Service\AccountTransferCategoryService::
+     * removeFor(), which drops an account's derived "Virement <compte>"
+     * category when the account stops being eligible for one. Note this is
+     * NOT what Service\FinanceService::deleteCategory() does: an
+     * admin-facing category deletion is *refused* while any movement still
+     * references it.
      */
     public function clearCategory(int $categoryId): void
     {
