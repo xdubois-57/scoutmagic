@@ -349,6 +349,36 @@ class GroupController extends AbstractController
     }
 
     /**
+     * POST /groups/{id}/edit — moderator only. Renames the group and, for
+     * an invitation group, links or unlinks it to the current scout year
+     * — same "tie_to_year" checkbox and semantics as create() above. A
+     * section group's own scout-year link is never editable (its year
+     * comes from its section, schema.sql); the checkbox is not offered
+     * for one, and Service\GroupService::edit() ignores it either way.
+     *
+     * @param array<string, string> $params
+     */
+    public function edit(Request $request, array $params): Response
+    {
+        return $this->moderatorAction($params, function (DiscussionGroup $group, GroupSessionContext $context) use ($request): Response {
+            $name = trim((string) $request->getBody('name', ''));
+            if ($name === '') {
+                FlashMessage::set('error', 'Le nom du groupe ne peut pas être vide.');
+
+                return $this->redirect('/groups/' . $group->id);
+            }
+            $name = mb_substr($name, 0, 150);
+
+            $scoutYearId = $request->getBody('tie_to_year') !== null ? $context->effectiveScoutYearId : null;
+            $this->groupService->edit($group, $name, $scoutYearId);
+
+            FlashMessage::set('success', 'Les informations du groupe ont été mises à jour.');
+
+            return $this->redirect('/groups/' . $group->id);
+        });
+    }
+
+    /**
      * POST /groups/{id}/close — moderator only.
      *
      * The manual counterpart of Task\CloseInactiveGroupsHandler: a

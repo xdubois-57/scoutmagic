@@ -55,6 +55,25 @@ class GroupService
         return $groupId;
     }
 
+    /**
+     * Renames a group (any group) and, for an invitation group only,
+     * links or unlinks it to a scout year — a section group's year is
+     * derived from its section (schema.sql) and never editable, so
+     * $scoutYearId is silently ignored when $group->isSectionGroup() is
+     * true. That is the actual enforcement of the rule, not just what
+     * Controller\GroupController's edit form happens to offer: nothing
+     * anywhere in this module can detach a section group from its
+     * section's year by calling this method directly.
+     */
+    public function edit(DiscussionGroup $group, string $name, ?int $scoutYearId): void
+    {
+        $this->groupRepository->rename($group->id, $name);
+
+        if (!$group->isSectionGroup()) {
+            $this->groupRepository->setScoutYearId($group->id, $scoutYearId);
+        }
+    }
+
     public function inviteMember(DiscussionGroup $group, int $memberId, int $invitedByMemberId): void
     {
         $this->memberRepository->add($group->id, $memberId, false, $invitedByMemberId);

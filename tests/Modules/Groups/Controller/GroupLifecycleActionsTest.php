@@ -166,6 +166,106 @@ class GroupLifecycleActionsTest extends GroupsControllerTestCase
         );
     }
 
+    // ---- edit ----
+
+    public function testEditRejectsAMissingCsrfToken(): void
+    {
+        $_POST = ['name' => 'Renommé'];
+
+        $response = $this->groupController([$this->moderatorMemberId])->edit($this->request(), $this->params());
+
+        $this->assertSame(403, $response->getStatusCode());
+        $this->assertSame('Louveteaux', $this->group()->name);
+    }
+
+    public function testAModeratorMayRenameTheGroup(): void
+    {
+        $this->withCsrf(['name' => 'Nouveau nom']);
+
+        $response = $this->groupController([$this->moderatorMemberId])->edit($this->request(), $this->params());
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('Nouveau nom', $this->group()->name);
+    }
+
+    public function testAnOrdinaryMemberMayNotEdit(): void
+    {
+        $this->withCsrf(['name' => 'Nouveau nom']);
+
+        $response = $this->groupController([$this->memberId])->edit($this->request(), $this->params());
+
+        $this->assertSame(403, $response->getStatusCode());
+        $this->assertSame('Louveteaux', $this->group()->name);
+    }
+
+    public function testANonMemberGets404OnEditRatherThan403(): void
+    {
+        $this->withCsrf(['name' => 'Nouveau nom']);
+        $stranger = GroupsTestHelper::createMember($this->pdo, 'STRANGER3');
+
+        $response = $this->groupController([$stranger], self::OTHER_ACCOUNT)->edit($this->request(), $this->params());
+
+        $this->assertSame(404, $response->getStatusCode());
+    }
+
+    public function testAnEmptyNameIsRefusedWithoutWriting(): void
+    {
+        $this->withCsrf(['name' => '   ']);
+
+        $response = $this->groupController([$this->moderatorMemberId])->edit($this->request(), $this->params());
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('Louveteaux', $this->group()->name);
+    }
+
+    public function testANameOver150CharactersIsTruncated(): void
+    {
+        $this->withCsrf(['name' => str_repeat('a', 200)]);
+
+        $this->groupController([$this->moderatorMemberId])->edit($this->request(), $this->params());
+
+        $this->assertSame(150, mb_strlen($this->group()->name));
+    }
+
+    public function testEditingASectionGroupNeverChangesItsScoutYearEvenIfTieToYearIsSubmitted(): void
+    {
+        // $this->groupId is a section group (setUp/GroupsControllerTestCase)
+        // — its scout year is derived from its section and must stay
+        // exactly what createSectionGroup() set, regardless of the field.
+        $before = $this->group()->scoutYearId;
+        $this->withCsrf(['name' => 'Louveteaux', 'tie_to_year' => '1']);
+
+        $this->groupController([$this->moderatorMemberId])->edit($this->request(), $this->params());
+
+        $this->assertSame($before, $this->group()->scoutYearId);
+    }
+
+    public function testLinkingAnInvitationGroupToTheCurrentYear(): void
+    {
+        $groupRepo = new GroupRepository($this->pdo);
+        $groupId = $groupRepo->create('Projet', null, null, $this->moderatorMemberId);
+        $this->memberRepo->add($groupId, $this->moderatorMemberId, true);
+        $this->withCsrf(['name' => 'Projet', 'tie_to_year' => '1']);
+
+        $this->groupController([$this->moderatorMemberId])->edit($this->request(), ['id' => (string) $groupId]);
+
+        $this->assertSame($this->currentYearId, $groupRepo->findById($groupId)->scoutYearId);
+    }
+
+    public function testUncheckingTieToYearUnlinksAnInvitationGroup(): void
+    {
+        $groupRepo = new GroupRepository($this->pdo);
+        $groupId = $groupRepo->create('Projet', $this->currentYearId, null, $this->moderatorMemberId);
+        $this->memberRepo->add($groupId, $this->moderatorMemberId, true);
+        // No tie_to_year field at all — the checkbox was unchecked, and an
+        // unchecked HTML checkbox submits nothing.
+        $this->withCsrf(['name' => 'Projet']);
+
+        $this->groupController([$this->moderatorMemberId])->edit($this->request(), ['id' => (string) $groupId]);
+
+        $this->assertNull($groupRepo->findById($groupId)->scoutYearId);
+    }
+
     // ---- leave ----
 
     public function testLeaveRejectsAMissingCsrfToken(): void

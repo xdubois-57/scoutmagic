@@ -492,6 +492,7 @@ Four types, all optional per member except one: a new post in one of my groups, 
 
 | Action | Who | Rule |
 |---|---|---|
+| Modifier le groupe | Moderator | Rename it. An **invitation** group may also be linked or unlinked to the current scout year (same effect as the checkbox at creation); a **section** group's year always follows its section and is never editable here. |
 | Modifier les membres | Moderator | Invite a member or a whole section; grant or revoke the moderator flag; remove an invited member. |
 | Quitter le groupe | Any invited member | Deletes their invitation; access is lost immediately and coming back needs a new invitation. A membership that comes from a **linked section cannot be left** — it follows the Desk import. The **last moderator** may not leave until another one is appointed; site admins do not count. Their existing posts and replies stay in the group. |
 | Clôturer | Moderator | Read-only from then on, still fully visible. |

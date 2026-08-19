@@ -154,6 +154,15 @@
       "label": ""
     },
     {
+      "path": "/groups/{id}/edit",
+      "method": "POST",
+      "controller": "Modules\\Groups\\Controller\\GroupController",
+      "action": "edit",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
       "path": "/groups/{id}/close",
       "method": "POST",
       "controller": "Modules\\Groups\\Controller\\GroupController",

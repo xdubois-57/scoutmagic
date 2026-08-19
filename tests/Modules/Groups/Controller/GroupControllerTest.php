@@ -535,6 +535,48 @@ class GroupControllerTest extends TestCase
         $this->assertMatchesRegularExpression('/aria-current="page">\s*Louveteaux\s*<\/li>/', $body);
     }
 
+    public function testShowOffersTheEditFormToAModeratorWithTheGroupsCurrentName(): void
+    {
+        $moderator = GroupsTestHelper::createMember($this->pdo, 'MODEDIT');
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $moderator);
+
+        $body = $this->controller([$moderator])
+            ->show(new Request('GET', '/groups/' . $groupId, [], [], [], []), ['id' => (string) $groupId])
+            ->getBody();
+
+        $this->assertStringContainsString('Modifier le groupe', $body);
+        $this->assertStringContainsString('value="Louveteaux"', $body);
+        // A section group's year is derived from its section — no
+        // tie-to-year checkbox is offered for one (partials/
+        // group_edit_form.html.twig).
+        $this->assertStringNotContainsString('group-edit-tie-year', $body);
+    }
+
+    public function testShowDoesNotOfferTheEditFormToAnOrdinaryMember(): void
+    {
+        $creator = GroupsTestHelper::createMember($this->pdo, 'CEDIT');
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator);
+        $member = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'MEDIT', $this->sectionId, $this->currentYearId);
+
+        $body = $this->controller([$member])
+            ->show(new Request('GET', '/groups/' . $groupId, [], [], [], []), ['id' => (string) $groupId])
+            ->getBody();
+
+        $this->assertStringNotContainsString('Modifier le groupe', $body);
+    }
+
+    public function testShowOffersTheTieToYearCheckboxForAnInvitationGroup(): void
+    {
+        $moderator = GroupsTestHelper::createMember($this->pdo, 'MODEDIT2');
+        $groupId = $this->groupService->createInvitationGroup('Projet', null, $moderator);
+
+        $body = $this->controller([$moderator])
+            ->show(new Request('GET', '/groups/' . $groupId, [], [], [], []), ['id' => (string) $groupId])
+            ->getBody();
+
+        $this->assertStringContainsString('group-edit-tie-year', $body);
+    }
+
     public function testShowReturns404ForAnUnknownGroup(): void
     {
         $member = GroupsTestHelper::createMember($this->pdo, 'M3');
