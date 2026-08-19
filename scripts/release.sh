@@ -238,6 +238,13 @@ check_tests_gate() {
     vendor/bin/phpstan analyse --memory-limit=512M
 
     echo "Checking the MySQL test instance is reachable..."
+    # Without a server the suite is GREEN, not broken — the server-dependent
+    # tests skip cleanly. That is exactly why this check has to exist and has
+    # to fail closed: a release would otherwise be cut on a run where ~28
+    # tests silently skipped, which is the same "narrower suite than CI
+    # actually ran" problem that removing phpunit.xml's group exclusion was
+    # meant to end. A skip is easier to miss than a failure, not safer.
+    #
     # An EMPTY TEST_DB_PASSWORD is rejected too, not just an unreachable
     # server: Tests\Core\Http\Controller\SetupControllerTest drives the real
     # first-time-setup form, whose own validation makes db_password
