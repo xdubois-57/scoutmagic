@@ -1,6 +1,8 @@
 # JavaScript unit test coverage — gap analysis and implementation plan
 
 **Status:** plan only, no code changes.
+**Revision:** §3 and §7 rewritten after a challenge to the original "don't test DOM wiring"
+position. That position was wrong; §7 now carries the measurement that settles it.
 **Scope:** first-party browser JavaScript (`public/assets/js/*.js` + `public/sw.js`).
 **Measured on:** branch `claude/js-test-coverage-plan-hks4bw`, at `b5b9fa4`.
 
@@ -77,29 +79,58 @@ see §4.2).
 
 ## 3. How the work is prioritised
 
-Raw uncovered-line count is the wrong ranking on its own — it would put us straight into
-DOM wiring, which `AGENTS.md` § Tests explicitly tells us **not** to unit-test:
+### 3.1 The wrong cut: "logic vs. DOM glue"
+
+An earlier draft of this plan ranked candidates on "logic density" and excluded DOM wiring
+outright, citing `AGENTS.md` § Tests:
 
 > a thin script whose entire job is gluing a handful of DOM elements together with no
 > independent logic of its own is often not worth the isolation cost
 
-So each candidate is scored on four axes, and only the ones that win on **all** of them
-go into P1:
+That reading was too broad, and it produced wrong answers. Two checks kill it:
 
-1. **Blast radius if wrong** — does a silent regression cause an XSS, an auth failure, a
-   destructive action firing without confirmation, or a data-loss? Or just a cosmetic glitch?
-2. **Logic density** — is there real deterministic logic (string transforms, allowlists,
-   state machines, arithmetic), or is it `addEventListener` → `fetch` → `classList.toggle`?
-3. **Testability in jsdom** — pure functions and DOM-tree work test cleanly. Anything
-   needing canvas rendering, real layout (`offsetTop`), or a live Service Worker does not.
-4. **Cost to reach** — is the logic already reachable, or does the production file need a
-   test seam added first?
+- **The repo already tests DOM wiring, deliberately.** `cookie-consent.test.js` does nothing
+  else: build the banner, dispatch `DOMContentLoaded`, click, assert `fetch` was called with
+  the right URL and the CSRF header. It is the second-best-covered JS file at 65.6 %. And
+  `AGENTS.md` itself *mandates* that test — "Cookie consent: test that non-essential cookies
+  are not set when consent is missing." A rubric that excludes wiring excludes the one wiring
+  test the guidelines require.
+- **It misclassified real logic as glue.** The earlier §7 dismissed `settings.js` as "wires
+  elements to `fetch` calls with no independent logic". `settings.js` in fact contains
+  `buildInput(type, value, regex, options)` — a five-branch HTML string builder that
+  interpolates server-supplied `data-*` values into `value="…"` and `pattern="…"` attributes,
+  with its own `escapeAttr` for attribute context. That is an XSS surface, and it is exactly
+  what P1 is supposed to catch. Note also that the quoted sentence continues "**use
+  judgment**" — it is a caution against tautological tests, not a ban on a whole category.
 
-That reordering matters. `gallery.js` has 324 uncovered lines but is mostly lightbox and
-upload wiring; `sw.js` has 123 but they are the offline-correctness decisions the whole
-PWA rests on. Sorting by line count alone would get this backwards.
+### 3.2 The right cut: does the assertion pin a contract outside this file?
 
----
+The useful question is not *what kind of code* is under test, but *what the assertion is
+anchored to*:
+
+| | Worth testing | Not worth testing |
+| --- | --- | --- |
+| **Anchor** | A contract with something outside the file | The file's own DOM manipulation |
+| **Examples** | request URL, method, payload shape; CSRF transport; an event a sibling script listens for; a role-gated affordance; a destructive-action gate; escaping of server-supplied data | a spinner class toggling; a label's text changing; a `d-none` added next to the line that adds it |
+| **Breaks when** | the contract genuinely changes — which is when you *want* a failure | you refactor the markup, which is when a failure is pure cost |
+| **Reads as** | a specification | a restatement of the implementation |
+
+A test that asserts `POST /config/settings/update` carries `_csrf_token` in the body is
+valuable *because* the server owns the other half of that contract and nothing else checks
+it. A test that asserts `errorEl.classList.contains('d-none') === false` right after the
+implementation calls `classList.remove('d-none')` is a tautology — it can only fail when
+you edit it.
+
+So the four scoring axes are **blast radius**, **contract density** (not logic density),
+**jsdom feasibility**, and **cost to reach**. "It's wiring" is not a disqualifier; "the
+assertion has no anchor outside this file" is.
+
+### 3.3 Why line count still isn't the ranking
+
+`gallery.js` has 324 uncovered lines but they are largely lightbox and upload wiring with
+few external contracts. `sw.js` has 123 and they are the offline-correctness decisions the
+whole PWA rests on. Sorting by uncovered lines gets that backwards, which is why the tiers
+below don't.
 
 ## 4. Enabling work to do first
 
@@ -181,7 +212,8 @@ Why this ranks first on every axis:
   round-trip that the server-side pass alone does not cover. A silent regression here is a
   stored-XSS path, and it is exactly the kind of regression a unit test catches and a
   manual visual check never will.
-- **Logic density:** highest cognitive complexity in the codebase (323).
+- **Contract density:** highest cognitive complexity in the codebase (323), and every
+  assertion is anchored to a security property rather than to its own markup.
 - **Testability:** pure input-string → output-string. `DOMParser` works in jsdom. The file
   is import-safe. No network, no canvas, no layout.
 - **Cost:** one namespaced test seam (§4.2).
@@ -342,7 +374,10 @@ Test cases:
 
 ### P1.4 — Consolidate and test `escapeHtml` once
 
-Three separate `escapeHtml` implementations, none covered, written three different ways:
+**Four** separate `escapeHtml` implementations, none covered, written three different ways
+(the earlier draft of this plan counted three and missed `settings.js`) — plus three separate
+`escapeAttr` implementations, which `escapeHtml` alone cannot substitute for because it does
+not escape quotes:
 
 ```js
 // retro-board.js               — explicit null/undefined guard, explicit String()
@@ -351,19 +386,30 @@ div.textContent = str === null || str === undefined ? '' : String(str);
 div.textContent = text == null ? '' : text;
 // gallery-storage-location.js  — no guard at all
 div.textContent = str;
+// settings.js                  — same as gallery-storage-location.js
+div.textContent = text;
 ```
 
+`escapeAttr` (attribute context, escapes `&`, `"`, `<`, `>`) is duplicated across
+`settings.js`, `setup.js`, and `rich-text-field.js`. Seven copies of escaping helpers across
+five files, none of them covered.
+
 The differing guards *look* like a divergence. They are not: swept against `undefined`,
-`null`, numbers, booleans, `NaN`, strings, objects, and arrays, all three produce identical
+`null`, numbers, booleans, `NaN`, strings, objects, and arrays, all four produce identical
 output — `textContent` is a nullable `DOMString` in the IDL, so both `null` and `undefined`
 convert to the empty string before the guards ever matter, and the implicit stringification
 matches `String()` for every other case.
 
-So this is a **triplication to consolidate, not a bug to fix**. The value is still real,
-just smaller than it first appears: one implementation instead of three means one place to
-cover, and no risk that a future edit to one copy silently changes escaping behaviour on
-one page only. Pick the `retro-board.js` form (the guard is redundant but self-documenting),
-use it in all three places, and cover it once as part of P1.3 rather than as its own PR.
+So this is a **duplication to consolidate, not a bug to fix**. The value is still real, just
+smaller than it first appears: one implementation instead of four means one place to cover,
+and no risk that a future edit to one copy silently changes escaping behaviour on one page
+only. Pick the `retro-board.js` form (the guard is redundant but self-documenting), use it
+everywhere, and cover it once as part of P1.3 rather than as its own PR.
+
+`escapeAttr` is the more interesting half: it is the one that guards attribute context, it is
+duplicated three ways, and `settings.js`'s `buildInput()` depends on it for exactly the
+payload the P1 experiment fired at it (`"><img src=x onerror=alert(1)>` into `value="…"`).
+Cover `escapeAttr` on its own merits, not as an afterthought to `escapeHtml`.
 
 ---
 
@@ -382,30 +428,100 @@ use it in all three places, and cover it once as part of P1.3 rather than as its
 
 ---
 
-## 7. Deliberately not prioritised
+## 7. DOM wiring: feasibility, measured
 
-Per `AGENTS.md` § Tests, these are thin DOM glue or jsdom-hostile, and unit tests would
-cost more than they return:
+Since §3.2 admits wiring tests, the question becomes how far jsdom actually gets. This was
+settled empirically rather than by argument: two specs were written against two files the
+earlier draft had dismissed, then discarded (they live outside the repo, ready to land if
+wanted). Results, in roughly 40 minutes of work:
 
-- `nav.js`, `breadcrumb.js`, `editable.js`, `unit-logo.js`, `unit-logo-notify-ios.js`,
-  `offline-page.js`, `settings.js`, `notification-preferences.js` — wire elements to
-  `fetch` calls with no independent logic.
-- `chip-picker.js` — `rowsFor()` and `truncate()` look pure but depend on `offsetTop`.
-  jsdom reports `0` for every element with no layout engine, so every chip collapses into
-  one row and the test would assert a jsdom artefact. Only worth doing with stubbed
-  geometry, and then it is testing the stub. `isDesktop()` (a `matchMedia` read) is
-  trivially mockable if we ever want it.
-- `gallery.js` — mostly lightbox and upload wiring. The one genuinely interesting piece is
-  the bounded-concurrency worker pool in `uploadAll`/`worker`; if gallery uploads ever
-  misbehave in the field, that is the part to test, not the lightbox.
-- `push-notifications.js`, `setup.js` — dominated by browser-permission and installer
-  flows that mock out to near-tautology. `setup.js`'s `escapeHtml`/`escapeAttr` are picked
-  up by P1.4 instead.
+| File | Before | After | Tests |
+| --- | --- | --- | --- |
+| `notification-badge.js` | 0 % | **100 %** stmts, 100 % funcs, 90 % branch | 8 |
+| `settings.js` | 0 % | **97.7 %** stmts, 100 % funcs, 82.8 % branch | 8 |
+| **Project JS total** | 1.83 % stmts / 19.35 % funcs / 46 % branch | **5.0 % / 34.28 % / 67.01 %** | 26 |
 
-This list is a judgement call, not a rule. If any of these files starts producing
-regressions, it earns a test.
+Every one of those 16 tests is pure wiring — `fetch` mocking, event dispatch, fake timers,
+`navigator` stubs, a `bootstrap.Modal` stub. None of them is a tautology, because each is
+anchored per §3.2: the request URL and payload shape, the CSRF transport, the `99+` clamp,
+`clearAppBadge()` on zero (the exact stale-OS-badge bug `notification-badge.js`'s own
+docblock says it exists to fix), the service-worker `push-received` message contract, and
+the escaping of hostile `data-*` values.
 
----
+**Conclusion: wiring tests are both feasible and cheap here, and the earlier blanket
+exclusion was costing real coverage.** Wiring should be a first-class part of this plan, not
+an excluded category.
+
+### 7.1 What jsdom handles fine
+
+Event dispatch (`click`, `input`, `change`, `submit`), the `DOMContentLoaded` re-dispatch
+idiom already used by `cookie-consent.test.js`, `fetch` mocking, `classList`/`dataset`/
+`textContent`/`disabled`, `setInterval`/`setTimeout` under `vi.useFakeTimers()`, and
+`DOMParser`.
+
+### 7.2 Friction worth budgeting for, with the fix
+
+| Friction | Affects | Fix |
+| --- | --- | --- |
+| `bootstrap` is a global from a vendored `<script>`, absent in jsdom | `settings.js`, `editable.js`, `breadcrumb.js`, `offline-nav.js`, `rich-text-field.js` | `global.bootstrap = { Modal: vi.fn(() => ({ show, hide })) }` — 3 lines, and asserting `hide()` was or wasn't called is itself a useful contract |
+| An IIFE's `setInterval` has **no teardown hook**, so timers accumulate across imports in one spec and poll-count assertions read high | `notification-badge.js`, `maintenance.js`, `auth.js` | `vi.clearAllTimers()` in `beforeEach`. Found the hard way — a "re-polls every 60s" test saw 5 calls instead of 2 |
+| `window.location.reload()` / `href` assignment prints `Not implemented: navigation` to stderr | `settings.js`, `auth.js`, `setup.js` | Stub `window.location` (as `cookie-consent.test.js` already does). Noisy but non-fatal if skipped |
+| Hostile payloads in an `innerHTML` fixture string silently truncate the attribute and defuse themselves | any XSS test | Set `dataset`/attributes programmatically. Also found the hard way — a passing-looking test proved nothing |
+| Modules must be imported **after** the DOM exists | `auth.js`, `setup.js` (§4.3) | `vi.resetModules()` + `await import(...)` inside the test |
+
+### 7.3 The real feasibility blockers
+
+These are genuine, not fixable with a stub, and are the honest boundary of this approach:
+
+- **Layout.** jsdom has no layout engine: `offsetTop`, `offsetWidth`, `getBoundingClientRect()`
+  all return `0`. This kills `chip-picker.js`'s `rowsFor()`/`truncate()` (every chip collapses
+  into one row, so the test would assert a jsdom artefact) and the geometry parts of
+  `gallery.js` and `list-editor.js`. Stubbing geometry means testing the stub.
+- **Canvas.** No rendering backend, so `upload.js`'s `downscaleToWebp()` and
+  `news-form-builder.js`'s `processFeaturedImage()` are out. Their *decision* functions
+  (`shouldConsiderDownscale`) are fine.
+- **Drag and drop.** `DataTransfer` support is thin; the reorder paths in `gallery.js`,
+  `list-editor.js`, and `news-form-builder.js` are better reached by calling the persist
+  handler directly than by simulating a drag.
+- **Real navigation, clipboard, permission prompts.** Mockable, but the test often ends up
+  asserting the mock — judge case by case.
+
+### 7.4 Where wiring tests are cheapest and most valuable: the CSRF contract
+
+Ten files carry their own copy of a `csrf()` helper and five their own `postJson()`. More
+importantly, **the CSRF transport is not consistent**, and the one file that has a test uses
+the minority convention:
+
+- `cookie-consent.js` sends the token as an **`X-CSRF-Token` header** — and it is the only
+  file that does so exclusively.
+- Fourteen files (`settings.js`, `maintenance.js`, `retro-board.js`, `gallery.js`,
+  `news-form-builder.js`, `setup.js`, `push-notifications.js`, `notification-preferences.js`,
+  `list-editor.js`, `gallery-storage-location.js`, `editable.js`, `rich-text-field.js`,
+  `unit-logo.js`, `unit-logo-notify-ios.js`) send **`_csrf_token` in the request body**.
+- `auth.js` uses both.
+
+So the existing suite's CSRF coverage generalises to almost nothing: it pins the one
+convention that fourteen other files don't use. Worth checking whether that split is
+intentional (header for the pre-consent endpoints, body elsewhere) or accidental drift —
+either way, a small parameterised wiring spec asserting "this file's write path carries a
+CSRF token, by its stated convention" is high value per line and reaches many files at once.
+Recommend promoting this to **P1.5**.
+
+### 7.5 Still not worth it
+
+Narrowed considerably, and on the §3.2 test rather than on "it's glue":
+
+- `nav.js`, `breadcrumb.js`, `unit-logo.js`, `unit-logo-notify-ios.js`, `offline-page.js` —
+  genuinely no contract outside themselves beyond a single `fetch` URL. Pick those up free
+  via §7.4 rather than writing per-file specs.
+- `chip-picker.js`, and the geometry halves of `gallery.js` and `list-editor.js` — blocked by
+  §7.3, not by judgment.
+- `push-notifications.js`, `setup.js` — dominated by permission and installer flows that mock
+  out to near-tautology. `setup.js`'s `escapeHtml`/`escapeAttr` are covered by P1.4 instead.
+
+`editable.js` and `notification-preferences.js` were on the earlier exclusion list and should
+come off it: both have server-request contracts, and `notification-preferences.js` has a
+consent dimension worth pinning.
 
 ## 8. Sequencing
 
@@ -413,21 +529,30 @@ regressions, it earns a test.
 | --- | --- | --- |
 | 0 | §4.1 widen `coverage.include` to `public/sw.js` | Honest baseline. Headline % drops — say so in the PR |
 | 1 | **P1.1** `news-form-builder.js` sanitizer | Closes the only client-side XSS surface at 0 % |
-| 2 | **P1.3 + P1.4** `retro-board.js` + `escapeHtml` consolidation | Covers cog-168 rendering; de-duplicates `escapeHtml` three ways |
-| 3 | **P1.2** `sw.js` + `offline-nav.js` whitelist | Fixes a confirmed offline bug; builds the reusable `caches` fake |
-| 4 | **P2.1–2.2** `maintenance.js` gate + pollers | Protects destructive actions |
-| 5 | **P2.3–2.8** as capacity allows | Steady grind on the long tail |
+| 2 | **P1.3 + P1.4** `retro-board.js` + escaping-helper consolidation | Covers cog-168 rendering; collapses 4 `escapeHtml` + 3 `escapeAttr` copies |
+| 3 | **P1.5** the CSRF/endpoint contract sweep (§7.4) | Highest coverage-per-line in the plan; touches ~14 files; resolves whether the header/body split is intentional |
+| 4 | **P1.2** `sw.js` + `offline-nav.js` whitelist | Fixes a confirmed offline bug; builds the reusable `caches` fake |
+| 5 | **P2.1–2.2** `maintenance.js` gate + pollers | Protects destructive actions |
+| 6 | **P2.3–2.8**, plus the wiring specs per §7 | Steady grind on the long tail |
 
-Suggested PR granularity: one step per PR. Step 0 is a one-line config change and should
-go in on its own so the coverage-number drop is unambiguous and reviewable in isolation.
+P1.5 is new, and it is placed third deliberately: §7's experiment showed wiring tests are the
+cheapest coverage available, and the CSRF sweep is the cheapest of those while also answering
+a real question about the codebase.
 
-**Reasonable target:** these steps do not get JS to parity with PHP, and should not be sold
-that way. Steps 0–3 put the *security-relevant and offline-correctness* logic under test —
-which is the part where a silent regression is expensive and manual verification is
-weakest. Line coverage will land somewhere in the 20–30 % range for JS; the number is a
-side effect, not the goal.
+Suggested PR granularity: one step per PR. Step 0 is a one-line config change and should go
+in on its own so the coverage-number drop is unambiguous and reviewable in isolation.
 
----
+**Revised target.** The earlier draft projected 20–30 % line coverage for JS and treated
+wiring as out of scope. With wiring in scope that is too pessimistic: two files alone moved
+the project from 1.83 % to 5.0 % statements and from 19.35 % to 34.28 % *functions* in about
+40 minutes. Steps 0–3 plausibly land JS statement coverage in the 35–50 % range, with function
+and branch coverage substantially higher — those two move faster than statement coverage
+because wiring tests tend to hit many small handlers.
+
+The number is still a side effect rather than the goal. What steps 0–4 actually buy is that
+the security-relevant logic, the offline-correctness decisions, and the client-server request
+contracts are all under test — the three places where a silent regression is expensive and
+manual verification is weakest.
 
 ## 9. Constraints this plan respects
 
