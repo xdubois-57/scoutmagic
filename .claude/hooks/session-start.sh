@@ -151,10 +151,76 @@ if [ -f package.json ] && [ ! -d node_modules ]; then
   npm install --no-audit --no-fund >/dev/null 2>&1 || log "npm install failed (JS tests unavailable)"
 fi
 
+# --- MySQL for `phpunit --group=database` -----------------------------
+#
+# Everything outside this group runs on an in-memory SQLite database and
+# needs nothing here; the tests in this group exercise real MySQL/MariaDB
+# behaviour (migrations, dumps, connection handling) and skip cleanly on
+# a connection failure rather than fail — so without a server, a web
+# session silently never runs them, same story as the PDF tests above.
+#
+# No systemd in this container, so mariadbd is started directly rather
+# than through a service manager. Credentials match
+# .github/workflows/ci.yml's database-tests job exactly
+# (TEST_DB_HOST/PORT/NAME/USER/PASSWORD), so the same values work here and
+# in CI.
+if ! command -v mariadbd >/dev/null 2>&1; then
+  log "installing mariadb-server"
+  apt-get update -qq && apt-get install -y -qq mariadb-server \
+    || warn "apt-get failed; --group=database will self-skip instead of running"
+fi
+
+if command -v mariadbd >/dev/null 2>&1; then
+  if ! mariadb-admin ping --protocol=tcp -h 127.0.0.1 --silent 2>/dev/null; then
+    log "starting MariaDB"
+    mkdir -p /var/run/mysqld /var/log/mysql
+    chown -R mysql:mysql /var/run/mysqld /var/log/mysql /var/lib/mysql 2>/dev/null || true
+    nohup /usr/sbin/mariadbd --user=mysql --datadir=/var/lib/mysql \
+      --socket=/var/run/mysqld/mysqld.sock --bind-address=127.0.0.1 --port=3306 \
+      >/var/log/mysql/session-start.log 2>&1 &
+
+    for _ in $(seq 1 30); do
+      mariadb-admin ping --protocol=tcp -h 127.0.0.1 --silent 2>/dev/null && break
+      sleep 1
+    done
+  fi
+
+  if mariadb-admin ping --protocol=tcp -h 127.0.0.1 --silent 2>/dev/null; then
+    # Two connection attempts, not one, so this stays idempotent: on a
+    # first run root@localhost has no password and the bare socket login
+    # works, but on every later run this script has already set one, and
+    # the bare login is refused.
+    sql_file=$(mktemp)
+    cat > "$sql_file" <<'SQL'
+CREATE DATABASE IF NOT EXISTS test_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER IF NOT EXISTS 'root'@'127.0.0.1' IDENTIFIED BY 'test_password';
+GRANT ALL PRIVILEGES ON *.* TO 'root'@'127.0.0.1' WITH GRANT OPTION;
+ALTER USER 'root'@'localhost' IDENTIFIED BY 'test_password';
+FLUSH PRIVILEGES;
+SQL
+    if mariadb --socket=/var/run/mysqld/mysqld.sock -u root < "$sql_file" 2>/dev/null \
+      || mariadb --socket=/var/run/mysqld/mysqld.sock -u root -ptest_password < "$sql_file" 2>/dev/null; then
+      log "MariaDB ready on 127.0.0.1:3306 (test_db)"
+    else
+      warn "could not provision test_db; --group=database will not run"
+    fi
+    rm -f "$sql_file"
+  else
+    warn "MariaDB did not come up; --group=database will self-skip instead of running"
+  fi
+fi
+
+if [ -n "${CLAUDE_ENV_FILE:-}" ]; then
+  cat >> "$CLAUDE_ENV_FILE" <<'ENV'
+export TEST_DB_HOST=127.0.0.1
+export TEST_DB_PORT=3306
+export TEST_DB_NAME=test_db
+export TEST_DB_USER=root
+export TEST_DB_PASSWORD=test_password
+ENV
+fi
+
 # --- Report ----------------------------------------------------------------
-# `phpunit --group database` needs no server: every suite except the handful
-# of tests that exercise MySQL itself runs on an in-memory SQLite database,
-# and those skip cleanly when TEST_DB_HOST points at nothing. CI's
-# database-tests job supplies a real MySQL so they actually execute there.
 log "phpunit: $(vendor/bin/phpunit --version 2>/dev/null | head -1 || echo unavailable)"
 log "phpstan: $(vendor/bin/phpstan --version 2>/dev/null | head -1 || echo unavailable)"
+log "run 'vendor/bin/phpunit --group=database' for the MySQL-backed suite (TEST_DB_* already exported)"
