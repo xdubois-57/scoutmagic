@@ -141,6 +141,11 @@ class SetupController extends AbstractController
      */
     public function testDatabase(Request $request, array $params): Response
     {
+        $gate = $this->denyUnlessTokenVerified();
+        if ($gate !== null) {
+            return $gate;
+        }
+
         if (!CsrfGuard::validateRequest()) {
             return $this->json(['success' => false, 'message' => 'Jeton CSRF invalide.'], 403);
         }
@@ -194,6 +199,11 @@ class SetupController extends AbstractController
      */
     public function installDatabase(Request $request, array $params): Response
     {
+        $gate = $this->denyUnlessTokenVerified();
+        if ($gate !== null) {
+            return $gate;
+        }
+
         if ($this->secretManager->isInitialized()) {
             return $this->json(['success' => false, 'message' => 'Action indisponible : le site est déjà configuré.'], 403);
         }
@@ -259,6 +269,11 @@ class SetupController extends AbstractController
      */
     public function backupAndEmptyDatabase(Request $request, array $params): Response
     {
+        $gate = $this->denyUnlessTokenVerified();
+        if ($gate !== null) {
+            return $gate;
+        }
+
         if ($this->secretManager->isInitialized()) {
             return $this->json(['success' => false, 'message' => 'Action indisponible : le site est déjà configuré.'], 403);
         }
@@ -381,6 +396,11 @@ class SetupController extends AbstractController
      */
     public function downloadBackup(Request $request, array $params): Response
     {
+        $gate = $this->denyUnlessTokenVerified(false);
+        if ($gate !== null) {
+            return $gate;
+        }
+
         $filename = SessionStore::get('setup_backup_download');
         if (!is_string($filename) || $filename === '') {
             return new Response('Not Found', 404);
@@ -415,6 +435,11 @@ class SetupController extends AbstractController
      */
     public function save(Request $request, array $params): Response
     {
+        $gate = $this->denyUnlessTokenVerified(false);
+        if ($gate !== null) {
+            return $gate;
+        }
+
         // Validate CSRF token
         $csrfToken = (string) $request->getBody('_csrf_token', '');
         if (!CsrfGuard::validateToken($csrfToken)) {
@@ -453,6 +478,11 @@ class SetupController extends AbstractController
      */
     public function checkDns(Request $request, array $params): Response
     {
+        $gate = $this->denyUnlessTokenVerified();
+        if ($gate !== null) {
+            return $gate;
+        }
+
         $domain = (string) $request->getQuery('domain', '');
         $selector = (string) $request->getQuery('selector', '');
         $mode = (string) $request->getQuery('mode', 'smtp');
@@ -494,6 +524,11 @@ class SetupController extends AbstractController
      */
     public function generateDkimKey(Request $request, array $params): Response
     {
+        $gate = $this->denyUnlessTokenVerified();
+        if ($gate !== null) {
+            return $gate;
+        }
+
         if (!CsrfGuard::validateRequest()) {
             return $this->json(['success' => false, 'message' => 'Jeton CSRF invalide.'], 403);
         }
@@ -579,6 +614,11 @@ class SetupController extends AbstractController
      */
     public function testEmail(Request $request, array $params): Response
     {
+        $gate = $this->denyUnlessTokenVerified();
+        if ($gate !== null) {
+            return $gate;
+        }
+
         if (!CsrfGuard::validateRequest()) {
             return $this->json(['success' => false, 'message' => 'Jeton CSRF invalide.'], 403);
         }
@@ -1037,6 +1077,53 @@ class SetupController extends AbstractController
             @unlink($secrets);
         }
         $this->dkimManager->deleteKey();
+    }
+
+    /**
+     * The same pre-init barrier as checkTokenGate(), for every OTHER setup
+     * endpoint — the ones that actually read credentials, touch the
+     * database or write secrets.enc.
+     *
+     * checkTokenGate() only ever guarded the GET /setup wizard page, which
+     * left the write endpoints behind nothing but a CSRF token — and a CSRF
+     * token is not an authentication barrier here: the gate screen itself
+     * hands a valid one to any anonymous visitor (it has to, so the token
+     * form can post). A stranger could therefore GET /setup, take the token
+     * from the gate page, POST straight to /setup/save with their own admin
+     * email and database, and own a freshly-deployed site outright, without
+     * ever knowing what is in token.php.
+     *
+     * Returns null when the request may proceed, otherwise the refusal to
+     * send back — as JSON for the AJAX endpoints, as a plain 403 body for
+     * the form/file ones (matching each caller's own CSRF rejection).
+     */
+    private function denyUnlessTokenVerified(bool $asJson = true): ?Response
+    {
+        // Once initialized, /setup is an ordinary superadmin-only
+        // configuration page (see the routes in public/index.php) — the
+        // token file is long gone by then and RBAC is the real boundary.
+        if ($this->secretManager->isInitialized()) {
+            return null;
+        }
+
+        if (SessionStore::get('setup_token_verified', false) === true) {
+            return null;
+        }
+
+        $this->journalService?->log(
+            'core', 'setup_token_gate_blocked', 'security',
+            'Accès à un point d\'entrée d\'installation sans jeton vérifié',
+            ['ip' => $_SERVER['REMOTE_ADDR'] ?? '']
+        );
+
+        if ($asJson) {
+            return $this->json(
+                ['success' => false, 'message' => 'Jeton d\'installation requis.'],
+                403
+            );
+        }
+
+        return (new Response('', 403))->setBody('Forbidden: installation token required.');
     }
 
     /**

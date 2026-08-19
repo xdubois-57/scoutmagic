@@ -91,6 +91,73 @@ class PasswordAuthMethodTest extends TestCase
         $this->assertSame(0, $result['locked_seconds']);
     }
 
+    /**
+     * A uniform error message alone doesn't buy no-enumeration if the
+     * response time still separates "no such account" from "wrong
+     * password": only the latter used to pay for a bcrypt verify, so the
+     * two were trivially distinguishable from the outside. The absent-hash
+     * paths now burn an equivalent verify against a dummy hash.
+     *
+     * Asserted structurally rather than by wall-clock, which would be
+     * flaky under CI load: what matters is that the dummy really is a
+     * bcrypt hash of the same cost the real ones are stored with, so
+     * password_verify() does the same work on it.
+     */
+    public function testDummyHashMatchesTheCostOfARealStoredHash(): void
+    {
+        $dummy = (new \ReflectionClass(PasswordAuthMethod::class))->getConstant('DUMMY_HASH');
+        $this->assertIsString($dummy);
+
+        $dummyInfo = password_get_info($dummy);
+        $realInfo = password_get_info(password_hash('irrelevant', PASSWORD_DEFAULT));
+
+        $this->assertSame(
+            'bcrypt',
+            $dummyInfo['algoName'],
+            'DUMMY_HASH must be a real hash — password_verify() returns instantly on a malformed one, which defeats the point.'
+        );
+        $this->assertSame(
+            $realInfo['algoName'],
+            $dummyInfo['algoName'],
+            'DUMMY_HASH has drifted from PASSWORD_DEFAULT — regenerate it with password_hash(bin2hex(random_bytes(32)), PASSWORD_DEFAULT).'
+        );
+        $this->assertSame(
+            $realInfo['options']['cost'] ?? null,
+            $dummyInfo['options']['cost'] ?? null,
+            'DUMMY_HASH cost no longer matches PASSWORD_DEFAULT — regenerate it, or the absent-account path is measurably cheaper/costlier than a real verify.'
+        );
+
+        // And it must not accidentally accept anything submitted against it.
+        $this->assertFalse(password_verify('', $dummy));
+        $this->assertFalse(password_verify('irrelevant', $dummy));
+    }
+
+    /**
+     * Both no-hash paths must stay indistinguishable from a wrong password
+     * in what they return AND in the failure they record.
+     */
+    public function testUnknownEmailAndPasswordlessAccountBehaveLikeAWrongPassword(): void
+    {
+        $withPassword = $this->userRepo->create('has-password@example.com');
+        $this->userRepo->updatePasswordHash($withPassword->id, password_hash('CorrectPassword', PASSWORD_DEFAULT));
+        $this->userRepo->create('no-password@example.com');
+
+        $wrongPassword = $this->authMethod->attempt(['email' => 'has-password@example.com', 'password' => 'nope']);
+        $unknownEmail = $this->authMethod->attempt(['email' => 'nobody@example.com', 'password' => 'nope']);
+        $noPassword = $this->authMethod->attempt(['email' => 'no-password@example.com', 'password' => 'nope']);
+
+        foreach (['wrong password' => $wrongPassword, 'unknown email' => $unknownEmail, 'no password set' => $noPassword] as $label => $result) {
+            $this->assertNull($result['account'], $label);
+            $this->assertSame(0, $result['locked_seconds'], $label);
+        }
+
+        // Each of the three recorded exactly one throttled failure.
+        $this->assertSame(
+            3,
+            (int) $this->pdo->query('SELECT COUNT(*) FROM login_attempts')->fetchColumn()
+        );
+    }
+
     public function testLockoutAfterMultipleFailures(): void
     {
         $account = $this->userRepo->create('locked@example.com');

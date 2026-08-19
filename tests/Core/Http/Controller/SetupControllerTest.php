@@ -676,6 +676,8 @@ class SetupControllerTest extends TestCase
 
     public function testDownloadBackupReturns404WithoutAPendingBackup(): void
     {
+        // Past the pre-init token gate — this test is about what comes after it.
+        $_SESSION['setup_token_verified'] = true;
         $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath);
 
         $response = $controller->downloadBackup(new Request('GET', '/setup/download-backup', [], [], [], []), []);
@@ -711,8 +713,126 @@ class SetupControllerTest extends TestCase
         ]];
     }
 
+    /**
+     * The pre-init token gate has to cover the endpoints that actually DO
+     * something, not just the wizard page.
+     *
+     * A CSRF token is no barrier to a stranger here: the gate screen itself
+     * issues one to any anonymous visitor so its own form can post. Before
+     * this, that was enough to walk straight past the gate into
+     * /setup/save — configuring a freshly-deployed site with an attacker's
+     * admin email and database, without ever knowing what is in token.php.
+     */
+    public function testSaveIsRefusedBeforeTheInstallationTokenIsVerified(): void
+    {
+        unset($_SESSION['setup_token_verified']);
+        file_put_contents($this->tempDir . '/token.php', "<?php /* TOKEN: " . str_repeat('e', 64) . " */\n");
+
+        $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath, $this->tempDir);
+
+        // A CSRF token obtained exactly the way the gate page hands one out.
+        $csrf = $this->issueCsrfToken();
+        $request = new Request('POST', '/setup/save', [], [
+            '_csrf_token' => $csrf,
+            'db_host' => 'localhost',
+            'db_port' => '3306',
+            'db_name' => 'attacker_db',
+            'db_user' => 'attacker',
+            'db_password' => 'attacker',
+            'site_name' => 'Pwned',
+            'short_name' => 'PWN',
+            'base_url' => 'https://example.com',
+            'mail_mode' => 'smtp',
+            'smtp_host' => 'smtp.example.com',
+            'smtp_port' => '587',
+            'smtp_user' => 'u',
+            'smtp_password' => 'p',
+            'mail_from_address' => 'attacker@example.com',
+            'mail_from_name' => 'A',
+            'dkim_selector' => 's2026',
+            'dmarc_report_email' => '',
+            'admin_email' => 'attacker@example.com',
+            'admin_password' => 'Attacker-Password-1!',
+        ], [], []);
+
+        $response = $controller->save($request, []);
+
+        $this->assertSame(403, $response->getStatusCode());
+        // Nothing was installed: no master key, no secrets file.
+        $this->assertFalse($this->secretManager->isInitialized());
+        $this->assertFileDoesNotExist($this->tempDir . '/keys/master.key');
+    }
+
+    /**
+     * @return array<int, array{0: string}>
+     */
+    public static function gatedSetupEndpointProvider(): array
+    {
+        return [
+            ['testDatabase'],
+            ['installDatabase'],
+            ['backupAndEmptyDatabase'],
+            ['downloadBackup'],
+            ['checkDns'],
+            ['generateDkimKey'],
+            ['testEmail'],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('gatedSetupEndpointProvider')]
+    public function testEverySetupEndpointIsRefusedBeforeTheInstallationTokenIsVerified(string $action): void
+    {
+        unset($_SESSION['setup_token_verified']);
+        file_put_contents($this->tempDir . '/token.php', "<?php /* TOKEN: " . str_repeat('f', 64) . " */\n");
+
+        $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath, $this->tempDir);
+        $csrf = $this->issueCsrfToken();
+
+        $request = new Request('POST', '/setup/' . $action, [
+            'domain' => 'example.com',
+            'selector' => 's2026',
+        ], [
+            '_csrf_token' => $csrf,
+            'db_host' => '127.0.0.1',
+            'db_port' => '3306',
+            'db_name' => 'probe',
+            'db_user' => 'probe',
+            'db_password' => 'probe',
+            'recipient' => 'attacker@example.com',
+        ], [], []);
+
+        $response = $controller->$action($request, []);
+
+        $this->assertSame(403, $response->getStatusCode(), $action . ' must be gated');
+        $this->assertFalse($this->secretManager->isInitialized());
+    }
+
+    /**
+     * The gate is a PRE-initialization barrier only — token.php is deleted
+     * once setup completes, and from then on /setup is an ordinary
+     * superadmin-only page guarded by RBAC (see the routes in
+     * public/index.php). It must not brick the configuration page.
+     */
+    public function testGatedEndpointStillWorksOnceTheSiteIsInitialized(): void
+    {
+        unset($_SESSION['setup_token_verified']);
+        $this->secretManager->generateMasterKey();
+        $this->secretManager->writeSecrets(['db_host' => 'localhost']);
+        $this->assertTrue($this->secretManager->isInitialized());
+
+        $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath, $this->tempDir);
+        $this->issueCsrfToken();
+        $request = new Request('POST', '/setup/generate-dkim-key', [], [], [], []);
+
+        $response = $controller->generateDkimKey($request, []);
+
+        $this->assertSame(200, $response->getStatusCode());
+    }
+
     public function testSaveRejectsInvalidCsrfToken(): void
     {
+        // Past the pre-init token gate — this test is about what comes after it.
+        $_SESSION['setup_token_verified'] = true;
         $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath);
         $request = new Request('POST', '/setup/save', [], [
             '_csrf_token' => 'invalid_token',
@@ -725,6 +845,8 @@ class SetupControllerTest extends TestCase
 
     public function testSaveRejectsInvalidData(): void
     {
+        // Past the pre-init token gate — this test is about what comes after it.
+        $_SESSION['setup_token_verified'] = true;
         // Generate a valid CSRF token first
         $token = \Core\Security\CsrfGuard::generateToken();
 
@@ -1064,6 +1186,8 @@ class SetupControllerTest extends TestCase
 
     public function testGenerateDkimKeyCreatesKeyWhenNoneExists(): void
     {
+        // Past the pre-init token gate — this test is about what comes after it.
+        $_SESSION['setup_token_verified'] = true;
         $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath);
         $this->issueCsrfToken();
         $request = new Request('POST', '/setup/generate-dkim-key', [], [], [], []);
@@ -1084,6 +1208,8 @@ class SetupControllerTest extends TestCase
      */
     public function testGenerateDkimKeyIsIdempotentWhenKeyAlreadyExists(): void
     {
+        // Past the pre-init token gate — this test is about what comes after it.
+        $_SESSION['setup_token_verified'] = true;
         $existingPublicKey = $this->dkimManager->generateKey();
 
         $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath);
@@ -1099,6 +1225,8 @@ class SetupControllerTest extends TestCase
 
     public function testCheckDnsReturnsKeyMissingMarkerForDkimWhenNoKeyExists(): void
     {
+        // Past the pre-init token gate — this test is about what comes after it.
+        $_SESSION['setup_token_verified'] = true;
         $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath);
         $request = new Request('GET', '/setup/dns', [
             'domain' => 'example.com',
@@ -1116,6 +1244,8 @@ class SetupControllerTest extends TestCase
 
     public function testCheckDnsReturnsRealDkimExpectedValueOnceKeyExists(): void
     {
+        // Past the pre-init token gate — this test is about what comes after it.
+        $_SESSION['setup_token_verified'] = true;
         $publicKey = $this->dkimManager->generateKey();
 
         $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath);

@@ -21,6 +21,7 @@ use Core\Security\HumanCheck\HumanCheckService;
 use Core\Security\LastLoginMethodCookie;
 use Core\Security\LoginThrottler;
 use Core\Security\PasswordAuthMethod;
+use Core\Security\PendingMagicLink;
 use Core\Security\RoleResolver;
 use Core\Security\WebAuthnService;
 use Twig\Environment;
@@ -130,6 +131,10 @@ class AuthController extends AbstractController
 
         $this->rememberLoginMethod('magic-link');
 
+        // Only this session may later collect the session created by
+        // confirming that link (see Core\Security\PendingMagicLink).
+        PendingMagicLink::remember((int) $result->magicLinkId);
+
         return $this->json(['success' => true, 'poll_id' => $result->magicLinkId]);
     }
 
@@ -177,7 +182,12 @@ class AuthController extends AbstractController
     {
         $id = (int) ($params['id'] ?? 0);
 
-        if ($id === 0) {
+        // The id is a sequential AUTO_INCREMENT integer, not a secret, so it
+        // is never on its own enough to collect a session — only the session
+        // that actually requested this link may poll it. Answering the
+        // uniform "not confirmed yet" for every other id also keeps this
+        // endpoint from confirming that some id exists or was clicked.
+        if (!PendingMagicLink::matches($id)) {
             return $this->json(['confirmed' => false]);
         }
 
@@ -196,6 +206,8 @@ class AuthController extends AbstractController
                 $this->storeLinkedMembers($user->email);
             }
         }
+
+        PendingMagicLink::forget();
 
         return $this->json(['confirmed' => true]);
     }
@@ -333,6 +345,7 @@ class AuthController extends AbstractController
         }
 
         AuthSession::logout();
+        PendingMagicLink::forget();
         ScoutYearSession::clear();
         FlashMessage::set('success', 'Vous avez été déconnecté.');
 

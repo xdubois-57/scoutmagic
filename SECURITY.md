@@ -28,7 +28,8 @@ appliquées, mots de passe et clés gérés par l'unité déployante.
 - `password_hash()` / `password_verify()` for password storage. No custom hashing.
 - Magic link tokens: `random_bytes(32)`, stored hashed, single-use, 15-minute expiry.
 - WebAuthn credentials: public key stored, challenge verified server-side, sign count checked.
-- Identical error messages for "unknown email" and "wrong password" — no account enumeration.
+- Identical error messages for "unknown email" and "wrong password" — no account enumeration. Identical *cost*, too: the "no such account" and "account without a password" paths deliberately burn a `password_verify()` against a dummy hash of the same algorithm/cost (`Core\Security\PasswordAuthMethod::DUMMY_HASH`), so response time doesn't separate the cases a uniform message just merged.
+- The magic-link polling endpoint (`GET /auth/poll/{id}`) is bound to the session that requested the link (`Core\Security\PendingMagicLink`). `magic_links.id` is a sequential `AUTO_INCREMENT` integer, never the emailed secret — it is not a capability, and polling somebody else's id returns the same "not confirmed yet" as an unconfirmed one. Only `AuthService::verifyMagicLink()` checks the real token.
 - Progressive lockout on failed attempts.
 - Session ID regenerated at login (`session_regenerate_id(true)`).
 - Session cookies: `HttpOnly`, `Secure`, `SameSite=Lax`, 30-day lifetime (`Core\Security\SessionManager`, matching `session.gc_maxlifetime` so server-side session data doesn't expire before the cookie does) — an installed PWA shouldn't demand a fresh magic link every few days.
@@ -124,6 +125,7 @@ Every response: `Content-Security-Policy`, `X-Content-Type-Options: nosniff`, `X
 - `.gitignore`: `storage/keys/`, `storage/config/`, `.env`, `.sonar-token` (the SonarQube Cloud token `scripts/check-sonar-release.sh` may store locally — see §15), and every `storage/<name>/` subdirectory that holds uploaded or generated content (module storage folders, `storage/core/`, `storage/temp/`, etc. — see `.gitignore` for the current, authoritative list). Adding a new storage subdirectory for uploaded content and forgetting to gitignore it has happened more than once in practice; check `.gitignore` whenever a module gains its own `storage/<name>/` folder.
 - CI: secret scanner on every PR.
 - SMTP and DB credentials in `secrets.enc`, not in `settings`.
+- Before the site is initialized, **every** `/setup` endpoint — not just the wizard page — requires the installation token in `token.php` to have been verified this session (`Core\Security` session flag `setup_token_verified`, enforced by `SetupController::denyUnlessTokenVerified()`). A CSRF token is not a substitute: the gate screen issues one to any anonymous visitor so its own form can post, so gating only the page would leave `/setup/save` and friends open to a stranger. The gate applies pre-initialization only — afterwards `token.php` is deleted and the routes are `role_min: superadmin`.
 
 ## 13. Desk import security
 

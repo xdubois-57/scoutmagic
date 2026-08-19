@@ -12,6 +12,7 @@ use Core\Security\AuthService;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\Security\EncryptionService;
+use Core\Security\PendingMagicLink;
 use Core\Security\UserAccountRepository;
 use PHPUnit\Framework\TestCase;
 use Twig\Environment;
@@ -139,6 +140,9 @@ class AuthControllerTest extends TestCase
         $body = json_decode($response->getBody(), true);
         $this->assertTrue($body['success']);
         $this->assertSame(42, $body['poll_id']);
+        // The id handed to the client is also bound to this session, so
+        // only this session can later collect the resulting login.
+        $this->assertTrue(PendingMagicLink::matches(42));
     }
 
     public function testRequestMagicLinkWithoutRgpdConsentReturnsError(): void
@@ -213,6 +217,9 @@ class AuthControllerTest extends TestCase
         $this->authService->method('getUserForConfirmedLink')->willReturn($superAdmin);
         $this->authService->method('getUserById')->willReturn($superAdmin);
 
+        // This session is the one that asked for link #1.
+        PendingMagicLink::remember(1);
+
         $request = new Request('GET', '/auth/poll/1', [], [], [], []);
         $response = $this->controller->pollMagicLink($request, ['id' => '1']);
 
@@ -221,6 +228,79 @@ class AuthControllerTest extends TestCase
         $this->assertTrue(AuthSession::isAuthenticated());
         $this->assertSame(5, AuthSession::getUserAccountId());
         $this->assertSame('superadmin', AuthSession::getRole());
+        // Single-use: the pending id is spent once collected.
+        $this->assertFalse(PendingMagicLink::matches(1));
+    }
+
+    /**
+     * The account-takeover this binding exists to stop: magic_links.id is a
+     * sequential AUTO_INCREMENT integer, never the emailed secret, so a
+     * stranger who simply guesses the id of a link somebody else has just
+     * confirmed must not be handed that person's session.
+     */
+    public function testPollMagicLinkRefusesAnIdThisSessionNeverRequested(): void
+    {
+        $this->startTestSession();
+
+        $victim = new \Core\Security\UserAccount(
+            id: 5,
+            email: 'victim@test.com',
+            firstName: null,
+            lastName: null,
+            passwordHash: null,
+            isSuperAdmin: true,
+            lastLoginAt: null
+        );
+
+        // The link really is confirmed — it just isn't this session's.
+        $this->authService->method('isMagicLinkConfirmed')->willReturn(true);
+        $this->authService->expects($this->never())->method('getUserForConfirmedLink');
+
+        $request = new Request('GET', '/auth/poll/1', [], [], [], []);
+        $response = $this->controller->pollMagicLink($request, ['id' => '1']);
+
+        $body = json_decode($response->getBody(), true);
+        // Reported exactly like "not confirmed yet", so the endpoint is not
+        // an oracle for which ids exist or have been clicked either.
+        $this->assertFalse($body['confirmed']);
+        $this->assertFalse(AuthSession::isAuthenticated());
+        $this->assertNull(AuthSession::getUserAccountId());
+        unset($victim);
+    }
+
+    /**
+     * Having requested *a* link doesn't licence polling every other id —
+     * an attacker with a session of their own must not be able to walk the
+     * id space from it.
+     */
+    public function testPollMagicLinkRefusesAnIdOtherThanTheOneThisSessionRequested(): void
+    {
+        $this->startTestSession();
+
+        $this->authService->method('isMagicLinkConfirmed')->willReturn(true);
+        $this->authService->expects($this->never())->method('getUserForConfirmedLink');
+
+        PendingMagicLink::remember(41);
+
+        $request = new Request('GET', '/auth/poll/42', [], [], [], []);
+        $response = $this->controller->pollMagicLink($request, ['id' => '42']);
+
+        $body = json_decode($response->getBody(), true);
+        $this->assertFalse($body['confirmed']);
+        $this->assertFalse(AuthSession::isAuthenticated());
+    }
+
+    public function testLogoutClearsThePendingMagicLink(): void
+    {
+        $this->startTestSession();
+        AuthSession::login(1, 'user@test.com', 'identified');
+        PendingMagicLink::remember(7);
+        $token = CsrfGuard::generateToken();
+
+        $request = new Request('POST', '/logout', [], ['_csrf_token' => $token], [], []);
+        $this->controller->logout($request, []);
+
+        $this->assertFalse(PendingMagicLink::matches(7));
     }
 
     private function startTestSession(): void
