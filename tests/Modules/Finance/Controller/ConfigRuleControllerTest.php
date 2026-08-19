@@ -122,6 +122,7 @@ class ConfigRuleControllerTest extends TestCase
      *
      * @dataProvider malformedAmountRanges
      */
+    #[\PHPUnit\Framework\Attributes\DataProvider('malformedAmountRanges')]
     public function testCreateRejectsAMalformedAmountRange(string $range): void
     {
         $categoryId = $this->categoryRepository->create('Alimentation');
@@ -159,6 +160,7 @@ class ConfigRuleControllerTest extends TestCase
     /**
      * @dataProvider wellFormedAmountRanges
      */
+    #[\PHPUnit\Framework\Attributes\DataProvider('wellFormedAmountRanges')]
     public function testCreateAcceptsAWellFormedAmountRange(string $range): void
     {
         $categoryId = $this->categoryRepository->create('Alimentation');

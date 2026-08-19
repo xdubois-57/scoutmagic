@@ -27,6 +27,7 @@ use Tests\DatabaseTestHelper;
  * exercising real DDL execution (that's MigrationRunnerTest.php's job,
  * against real MySQL in CI).
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class MigrationRunnerChunkingTest extends TestCase
 {
     private string $tmpDir;

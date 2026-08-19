@@ -28,6 +28,7 @@ use Twig\Loader\ArrayLoader;
  *
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class ConfigDangerControllerTest extends TestCase
 {
     private \PDO $pdo;
@@ -104,6 +105,7 @@ class ConfigDangerControllerTest extends TestCase
     /**
      * @dataProvider wrongConfirmations
      */
+    #[\PHPUnit\Framework\Attributes\DataProvider('wrongConfirmations')]
     public function testDeleteMovementsRefusesAWrongConfirmationText(string $confirmation): void
     {
         $this->createTransaction($this->accountId);

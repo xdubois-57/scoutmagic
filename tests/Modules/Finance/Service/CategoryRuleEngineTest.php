@@ -313,6 +313,7 @@ class CategoryRuleEngineTest extends TestCase
     /**
      * @dataProvider validAmountRanges
      */
+    #[\PHPUnit\Framework\Attributes\DataProvider('validAmountRanges')]
     public function testIsValidAmountRangeAcceptsTheTwoDocumentedShapes(string $range): void
     {
         $this->assertTrue(CategoryRuleEngine::isValidAmountRange($range), $range);
@@ -339,6 +340,7 @@ class CategoryRuleEngineTest extends TestCase
     /**
      * @dataProvider invalidAmountRanges
      */
+    #[\PHPUnit\Framework\Attributes\DataProvider('invalidAmountRanges')]
     public function testIsValidAmountRangeRejectsEverythingElse(string $range): void
     {
         $this->assertFalse(CategoryRuleEngine::isValidAmountRange($range), $range);

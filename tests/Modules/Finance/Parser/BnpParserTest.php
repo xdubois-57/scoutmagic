@@ -149,6 +149,7 @@ class BnpParserTest extends TestCase
      *
      * @dataProvider amountFormats
      */
+    #[\PHPUnit\Framework\Attributes\DataProvider('amountFormats')]
     public function testParseAmountReadsBothDecimalConventions(string $raw, float $expected): void
     {
         $path = $this->writeCsv([

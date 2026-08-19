@@ -22,6 +22,7 @@ use Tests\Modules\Finance\FinanceTestHelper;
  *
  * @group database
  */
+#[\PHPUnit\Framework\Attributes\Group('database')]
 class AccountTransferCategoryServiceTest extends TestCase
 {
     private \PDO $pdo;
@@ -124,6 +125,7 @@ class AccountTransferCategoryServiceTest extends TestCase
     /**
      * @dataProvider ineligibleAccounts
      */
+    #[\PHPUnit\Framework\Attributes\DataProvider('ineligibleAccounts')]
     public function testSyncRemovesEverythingForAnIneligibleAccount(string $status, ?string $iban): void
     {
         $account = $this->activeBankAccount('Louveteaux', 'BE92001511757023');
