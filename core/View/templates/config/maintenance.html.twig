@@ -437,7 +437,8 @@
                             </div>
                         </div>
                         <div class="mb-2" id="restore-server-picker">
-                            <select class="form-select form-select-sm" name="backup_id" id="restore-backup-id" aria-label="Sauvegarde à restaurer" {% if backups is empty %}disabled{% endif %}>
+                            <label class="visually-hidden" for="restore-backup-id">Sauvegarde à restaurer</label>
+                            <select class="form-select form-select-sm" name="backup_id" id="restore-backup-id" {% if backups is empty %}disabled{% endif %}>
                                 {% for backup in backups %}
                                     {% if backup.status == 'completed' %}
                                         <option value="{{ backup.id }}">{{ _self.backup_type_label(backup.type) }} — {{ backup.createdAt }}</option>

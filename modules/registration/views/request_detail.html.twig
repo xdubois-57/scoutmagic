@@ -117,7 +117,8 @@
                         </div>
                         <form method="post" action="/config/inscriptions/demandes/{{ r.id }}/fee-category" class="d-flex gap-2">
                             {{ csrf_field()|raw }}
-                            <select name="fee_category_id" class="form-select form-select-sm" style="max-width:260px;" aria-label="Catégorie tarifaire">
+                            <label class="visually-hidden" for="request-fee-category-{{ r.id }}">Catégorie tarifaire</label>
+                            <select name="fee_category_id" id="request-fee-category-{{ r.id }}" class="form-select form-select-sm" style="max-width:260px;">
                                 <option value="0">— Non défini —</option>
                                 {% for category in fee_categories %}
                                     <option value="{{ category.id }}" {{ r.feeCategoryId == category.id ? 'selected' : '' }}>{{ category.label }}</option>
@@ -160,7 +161,8 @@
                 <p class="small text-body-secondary">Jamais visibles par la famille, jamais journalisées.</p>
                 <form method="post" action="/config/inscriptions/demandes/{{ r.id }}/notes">
                     {{ csrf_field()|raw }}
-                    <textarea name="internal_notes" class="form-control mb-2" rows="4" aria-label="Notes internes">{{ r.internalNotes }}</textarea>
+                    <label class="visually-hidden" for="request-internal-notes-{{ r.id }}">Notes internes</label>
+                    <textarea name="internal_notes" id="request-internal-notes-{{ r.id }}" class="form-control mb-2" rows="4">{{ r.internalNotes }}</textarea>
                     <button type="submit" class="btn btn-sm btn-outline-primary">Enregistrer</button>
                 </form>
             </div>

@@ -178,10 +178,14 @@
                                         {% block item_content %}
                                             <div class="section-document-row" data-id="{{ item.id }}">
                                                 {% if can_edit_section %}
+                                                    <label class="visually-hidden" for="section-document-title-{{ item.id }}">Titre du document</label>
                                                     <input type="text" class="form-control form-control-sm mb-1 section-document-title-input"
-                                                           value="{{ item.title }}" placeholder="Titre" aria-label="Titre du document" data-id="{{ item.id }}">
+                                                           id="section-document-title-{{ item.id }}"
+                                                           value="{{ item.title }}" placeholder="Titre" data-id="{{ item.id }}">
+                                                    <label class="visually-hidden" for="section-document-description-{{ item.id }}">Description du document</label>
                                                     <textarea class="form-control form-control-sm mb-1 section-document-description-input" rows="1"
-                                                              placeholder="Description (optionnel)" aria-label="Description du document" data-id="{{ item.id }}">{{ item.description }}</textarea>
+                                                              id="section-document-description-{{ item.id }}"
+                                                              placeholder="Description (optionnel)" data-id="{{ item.id }}">{{ item.description }}</textarea>
                                                 {% else %}
                                                     <div class="fw-semibold">{{ item.title }}</div>
                                                     {% if item.description %}

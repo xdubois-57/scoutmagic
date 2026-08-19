@@ -165,7 +165,8 @@
                                                 <span class="text-body-secondary small">Aucun autre emplacement disponible</span>
                                             {% else %}
                                                 <div class="d-inline-flex gap-2 align-items-center">
-                                                    <select class="form-select form-select-sm gallery-migrate-target" data-album-id="{{ album.id }}" style="width:auto;" aria-label="Emplacement de destination pour {{ album.title }}">
+                                                    <label class="visually-hidden" for="gallery-migrate-target-{{ album.id }}">Emplacement de destination pour {{ album.title }}</label>
+                                                    <select class="form-select form-select-sm gallery-migrate-target" id="gallery-migrate-target-{{ album.id }}" data-album-id="{{ album.id }}" style="width:auto;">
                                                         {% for location in other_locations %}
                                                             <option value="{{ location.id }}">{{ location.label }} ({{ location.type == 's3' ? 'S3' : 'Disque local' }})</option>
                                                         {% endfor %}

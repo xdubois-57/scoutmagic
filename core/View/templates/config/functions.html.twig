@@ -34,8 +34,8 @@
                         <span class="fw-semibold">{{ func.desk_code }}</span>
                         <span class="badge bg-warning-subtle text-warning-emphasis ms-2">Non confirmée</span>
                     </div>
-                    <select class="form-select form-select-sm w-auto role-select" data-id="{{ func.id }}"
-                            aria-label="Rôle pour {{ func.desk_code }}">
+                    <label class="visually-hidden" for="unconfirmed-role-{{ func.id }}">Rôle pour {{ func.desk_code }}</label>
+                    <select class="form-select form-select-sm w-auto role-select" id="unconfirmed-role-{{ func.id }}" data-id="{{ func.id }}">
                         {% for role in roles %}
                             <option value="{{ role.value }}"
                                     {{ func.role == role.value ? 'selected' : '' }}>
@@ -75,8 +75,8 @@
                                     </label>
                                 </div>
                             {% endif %}
-                            <select class="form-select form-select-sm w-auto role-select" data-id="{{ func.id }}"
-                                    aria-label="Rôle pour {{ func.desk_code }}">
+                            <label class="visually-hidden" for="confirmed-role-{{ func.id }}">Rôle pour {{ func.desk_code }}</label>
+                            <select class="form-select form-select-sm w-auto role-select" id="confirmed-role-{{ func.id }}" data-id="{{ func.id }}">
                                 {% for role in roles %}
                                     <option value="{{ role.value }}"
                                             {{ func.role == role.value ? 'selected' : '' }}>

@@ -48,8 +48,9 @@
                             </tr>
                             <tr class="departure-comment-row" data-member-year-id="{{ row.profile.memberYearId }}" style="{{ row.leaving ? '' : 'display:none;' }}">
                                 <td colspan="3" class="pt-0">
-                                    <textarea class="form-control form-control-sm departure-comment" data-member-year-id="{{ row.profile.memberYearId }}"
-                                        rows="2" placeholder="Commentaire facultatif (motif du départ, jamais visible en dehors de cette section)" aria-label="Commentaire de départ — {{ row.profile.firstName }} {{ row.profile.lastName }}">{{ row.comment }}</textarea>
+                                    <label class="visually-hidden" for="departure-comment-{{ row.profile.memberYearId }}">Commentaire de départ — {{ row.profile.firstName }} {{ row.profile.lastName }}</label>
+                                    <textarea class="form-control form-control-sm departure-comment" id="departure-comment-{{ row.profile.memberYearId }}" data-member-year-id="{{ row.profile.memberYearId }}"
+                                        rows="2" placeholder="Commentaire facultatif (motif du départ, jamais visible en dehors de cette section)">{{ row.comment }}</textarea>
                                 </td>
                             </tr>
                         {% else %}
