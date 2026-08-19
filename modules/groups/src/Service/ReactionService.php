@@ -10,6 +10,7 @@ namespace Modules\Groups\Service;
 
 use Modules\Groups\Repository\DiscussionGroup;
 use Modules\Groups\Repository\ReactionRepository;
+use Modules\Groups\Support\ReactionOutcome;
 use Modules\Groups\Support\Reactions;
 
 /**
@@ -42,10 +43,13 @@ class ReactionService
      * Reacting on a post. $postId must already have been confirmed to
      * belong to $group by the caller.
      *
-     * @return bool false when $reactionKey is not one of the fixed six —
-     *         the Controller turns that into a 400, and nothing is written
+     * @return ReactionOutcome INVALID when $reactionKey is not one of the
+     *         fixed six — the Controller turns that into a 400, and
+     *         nothing is written. ADDED/REMOVED is what
+     *         Service\GroupNotificationService needs to tell "someone
+     *         reacted" from "someone changed their mind".
      */
-    public function toggleOnPost(DiscussionGroup $group, int $postId, int $memberId, string $reactionKey): bool
+    public function toggleOnPost(DiscussionGroup $group, int $postId, int $memberId, string $reactionKey): ReactionOutcome
     {
         return $this->toggle($this->postReactions, $group, $postId, $postId, $memberId, $reactionKey);
     }
@@ -62,7 +66,7 @@ class ReactionService
         int $postId,
         int $memberId,
         string $reactionKey
-    ): bool {
+    ): ReactionOutcome {
         return $this->toggle($this->replyReactions, $group, $replyId, $postId, $memberId, $reactionKey);
     }
 
@@ -105,23 +109,25 @@ class ReactionService
         int $postId,
         int $memberId,
         string $reactionKey
-    ): bool {
+    ): ReactionOutcome {
         // Validated against the constant map before anything is written,
         // and before the item is even touched: an unknown key, an empty
         // string or a raw emoji character submitted instead of a key are
         // all refused here (module spec).
         if (!Reactions::isValid($reactionKey)) {
-            return false;
+            return ReactionOutcome::INVALID;
         }
 
         if ($repository->findKeyFor($itemId, [$memberId]) === $reactionKey) {
             $repository->remove($itemId, $memberId);
+            $outcome = ReactionOutcome::REMOVED;
         } else {
             $repository->set($itemId, $memberId, $reactionKey);
+            $outcome = ReactionOutcome::ADDED;
         }
 
         $this->activityService->bump($group->id, $postId);
 
-        return true;
+        return $outcome;
     }
 }

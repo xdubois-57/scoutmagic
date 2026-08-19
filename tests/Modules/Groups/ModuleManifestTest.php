@@ -37,7 +37,7 @@ class ModuleManifestTest extends TestCase
      */
     public function testTheVersionIsBumpedWheneverTheSchemaChanges(): void
     {
-        $this->assertSame('1.5.0', $this->manifest->version);
+        $this->assertSame('1.6.0', $this->manifest->version);
     }
 
     /**
@@ -179,7 +179,14 @@ class ModuleManifestTest extends TestCase
     public function testItDeclaresTheTwoModerationSettings(): void
     {
         $keys = array_column($this->manifest->settings, 'key');
-        $this->assertSame(['groups_report_hide_threshold', 'groups_ai_moderation_enabled'], $keys);
+        $this->assertSame(
+            [
+                'groups_report_hide_threshold',
+                'groups_ai_moderation_enabled',
+                'groups_reaction_notification_window_minutes',
+            ],
+            $keys
+        );
 
         $byKey = array_column($this->manifest->settings, null, 'key');
         $this->assertSame('2', $byKey['groups_report_hide_threshold']['default_value']);
@@ -194,6 +201,74 @@ class ModuleManifestTest extends TestCase
             'Connecteur IA',
             $byKey['groups_ai_moderation_enabled']['description']
         );
+    }
+
+    /**
+     * The four types this module can send, exactly as the preferences
+     * page will list them (grouped by `group`, labelled in French).
+     */
+    public function testItDeclaresTheFourNotificationTypes(): void
+    {
+        $byId = array_column($this->manifest->notifications, null, 'id');
+
+        $this->assertSame(
+            [
+                'groups.post_published',
+                'groups.reply_received',
+                'groups.reaction_received',
+                'groups.item_reported',
+            ],
+            array_keys($byId)
+        );
+
+        foreach ($byId as $id => $type) {
+            $this->assertSame('Groupes', $type['group'], "{$id} must sit in the Groupes preferences group");
+            $this->assertSame('identified', $type['role_min'], "{$id} audience is membership, so its floor is identified");
+            $this->assertNotSame('', trim($type['label']));
+            $this->assertNotSame('', trim($type['description']));
+        }
+    }
+
+    /**
+     * Email is off — and LOCKED off — on all four: none of these is worth
+     * an email, and a member who switched it on would get one per
+     * reaction (module spec, "do not send email for any of these").
+     */
+    public function testNoNotificationTypeCanEverSendEmail(): void
+    {
+        foreach ($this->manifest->notifications as $type) {
+            $this->assertSame('default_off', $type['channels']['email'], "{$type['id']} must not default to email");
+        }
+    }
+
+    public function testTheChannelDefaultsMatchHowNoisyEachTypeIs(): void
+    {
+        $byId = array_column($this->manifest->notifications, null, 'id');
+
+        // A new post and a reply are worth a buzz.
+        $this->assertSame('default_on', $byId['groups.post_published']['channels']['in_app']);
+        $this->assertSame('default_on', $byId['groups.post_published']['channels']['push']);
+        $this->assertSame('default_on', $byId['groups.reply_received']['channels']['push']);
+
+        // A reaction is not: it is in the centre, but it does not
+        // interrupt anyone by default.
+        $this->assertSame('default_on', $byId['groups.reaction_received']['channels']['in_app']);
+        $this->assertSame('default_off', $byId['groups.reaction_received']['channels']['push']);
+    }
+
+    /**
+     * The one locked channel in this module: a moderator must not be able
+     * to switch off the only signal that something in their group needs
+     * their attention, so the in-app channel is 'on' rather than
+     * 'default_on' — NotificationService::channelEnabled() ignores any
+     * preference row for a locked channel.
+     */
+    public function testAModeratorCannotSwitchOffTheReportNotificationInApp(): void
+    {
+        $byId = array_column($this->manifest->notifications, null, 'id');
+
+        $this->assertSame('on', $byId['groups.item_reported']['channels']['in_app']);
+        $this->assertSame('default_on', $byId['groups.item_reported']['channels']['push']);
     }
 
     /**

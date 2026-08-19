@@ -145,6 +145,38 @@ class SectionMembershipRepository
     }
 
     /**
+     * Every member with a period in ANY of $sectionIds for $scoutYearId —
+     * the reverse of hasAnyPeriod(), for callers that start from a set of
+     * sections rather than from one member. Modules\Groups' notification
+     * recipient resolution needs it: a discussion group linked to sections
+     * has to answer "who is in these sections this year" at dispatch time,
+     * which is what makes a member who left the section between the post
+     * and the send drop out of the list on their own.
+     *
+     * Open and closed periods alike, exactly like hasAnyPeriod() — "was a
+     * member of that section that year" is the question, not "is one right
+     * now on this date" (that is hasPeriodCovering()).
+     *
+     * @param int[] $sectionIds
+     * @return int[] distinct members.id values
+     */
+    public function findMemberIdsForSections(array $sectionIds, int $scoutYearId): array
+    {
+        if ($sectionIds === []) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($sectionIds), '?'));
+        $stmt = $this->pdo->prepare(
+            "SELECT DISTINCT member_id FROM member_section_periods
+             WHERE scout_year_id = ? AND section_id IN ({$placeholders})"
+        );
+        $stmt->execute(array_merge([$scoutYearId], array_map('intval', array_values($sectionIds))));
+
+        return array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN));
+    }
+
+    /**
      * Every period ever recorded for this member, most recent first — the
      * member page (Core\Member\SectionDocumentPageService) walks this to
      * find every (section, scout year) the member was ever active in.

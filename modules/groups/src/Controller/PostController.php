@@ -23,6 +23,7 @@ use Modules\Groups\Repository\PostRepository;
 use Modules\Groups\Service\AuthorOptionsService;
 use Modules\Groups\Service\GroupAccessService;
 use Modules\Groups\Service\GroupFeedService;
+use Modules\Groups\Service\GroupNotificationService;
 use Modules\Groups\Service\GroupSessionContext;
 use Modules\Groups\Service\GroupSessionContextFactory;
 use Modules\Groups\Service\GroupsException;
@@ -58,7 +59,8 @@ class PostController extends AbstractController
         private PostLinkService $postLinkService,
         private ReplyService $replyService,
         private AuthorOptionsService $authorOptionsService,
-        private ReportService $reportService
+        private ReportService $reportService,
+        private ?GroupNotificationService $notificationService = null
     ) {
     }
 
@@ -180,6 +182,16 @@ class PostController extends AbstractController
             // one with no Open Graph tags all still attach a (plain)
             // link, so there is nothing here to roll the post back for.
             $this->postLinkService->attach($group, $postId, $link, $authorMemberId, $context->userAccountId);
+        }
+
+        // Last, and only once the post is complete: notifying about a
+        // post whose media upload then failed and rolled it back would
+        // deep-link everyone to a 404. Never throws (see
+        // Service\GroupNotificationService) — a post that published fine
+        // is not undone because a notification could not go out.
+        $created = $this->postRepository->findById($postId);
+        if ($created !== null) {
+            $this->notificationService?->postPublished($group, $created, $context->effectiveScoutYearId);
         }
 
         return $this->redirect('/groups/' . $group->id);

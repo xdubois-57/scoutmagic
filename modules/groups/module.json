@@ -2,7 +2,7 @@
   "id": "groups",
   "name": "Groupes de discussion",
   "description": "Groupes de discussion privés pour l'unité : un groupe par section et par année scoute, ou des groupes sur invitation. Visibles uniquement par leurs membres.",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "enabled_by_default": false,
   "requires": [
     "gallery"
@@ -79,6 +79,21 @@
       "label": "",
       "breadcrumb": {
         "label": "Galerie du groupe",
+        "parents": [
+          "Espace animés"
+        ]
+      }
+    },
+    {
+      "path": "/groups/{id}/posts/{postId}",
+      "method": "GET",
+      "controller": "Modules\\Groups\\Controller\\GroupController",
+      "action": "post",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": "",
+      "breadcrumb": {
+        "label": "Message",
         "parents": [
           "Espace animés"
         ]
@@ -288,6 +303,13 @@
       "type": "boolean",
       "label": "Modération automatique par IA",
       "description": "Vérifie chaque message et chaque réponse avant publication et propose une reformulation en cas d'attaque personnelle ou de propos irrespectueux. Sans le module « Connecteur IA » actif, ce réglage n'a aucun effet : les messages sont publiés sans vérification. Le signalement par les membres et la modération humaine restent la protection principale dans tous les cas."
+    },
+    {
+      "key": "groups_reaction_notification_window_minutes",
+      "default_value": "60",
+      "type": "number",
+      "label": "Délai entre deux notifications de réaction",
+      "description": "Durée, en minutes, pendant laquelle un message ou une réponse ne génère qu'une seule notification de réaction pour son auteur. Sans ce délai, un message qui reçoit douze réactions enverrait douze notifications. Les réactions elles-mêmes restent toutes visibles sur le message : seule la notification est regroupée."
     }
   ],
   "cookies": [],
@@ -298,6 +320,55 @@
     }
   ],
   "storage": {},
-  "notifications": [],
+  "notifications": [
+    {
+      "id": "groups.post_published",
+      "label": "Nouveau message dans un groupe",
+      "description": "Quand un nouveau message est publié dans un de vos groupes de discussion.",
+      "group": "Groupes",
+      "role_min": "identified",
+      "channels": {
+        "in_app": "default_on",
+        "push": "default_on",
+        "email": "default_off"
+      }
+    },
+    {
+      "id": "groups.reply_received",
+      "label": "Réponse à votre message",
+      "description": "Quand quelqu'un répond à un message que vous avez publié.",
+      "group": "Groupes",
+      "role_min": "identified",
+      "channels": {
+        "in_app": "default_on",
+        "push": "default_on",
+        "email": "default_off"
+      }
+    },
+    {
+      "id": "groups.reaction_received",
+      "label": "Réaction à votre message",
+      "description": "Quand quelqu'un réagit à un de vos messages ou à une de vos réponses. Les réactions reçues coup sur coup sur un même message sont regroupées en une seule notification.",
+      "group": "Groupes",
+      "role_min": "identified",
+      "channels": {
+        "in_app": "default_on",
+        "push": "default_off",
+        "email": "default_off"
+      }
+    },
+    {
+      "id": "groups.item_reported",
+      "label": "Contenu signalé dans un groupe",
+      "description": "Quand un membre signale un message ou une réponse dans un groupe dont vous êtes modérateur. Réservé aux modérateurs du groupe : cette notification ne peut pas être désactivée dans le centre de notifications.",
+      "group": "Groupes",
+      "role_min": "identified",
+      "channels": {
+        "in_app": "on",
+        "push": "default_on",
+        "email": "default_off"
+      }
+    }
+  ],
   "offline": []
 }

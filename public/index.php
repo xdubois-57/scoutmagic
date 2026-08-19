@@ -2277,6 +2277,33 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
         $groupsActivityService
     );
     $groupsAuthorResolver = new \Modules\Groups\Service\PostAuthorResolver($memberService, $userAccountRepo);
+    // Notifications (prompt 10). The recipient resolver reads membership
+    // group-first (the reverse of GroupAccessService's account-first
+    // read) and resolves members to accounts through the same blind index
+    // that backs login — no new lookup, no address decrypted on the way.
+    // $roleResolver/$scoutYearService are what let it recognise a site
+    // admin, which is a derived role and not a stored flag.
+    $groupsRecipientResolver = new \Modules\Groups\Service\GroupRecipientResolver(
+        $groupsMemberRepo,
+        $groupsSectionRepo,
+        $sectionMembershipRepository,
+        $memberYearRepo,
+        $memberEmailRepository,
+        $userAccountRepo,
+        $encryptionService,
+        $roleResolver,
+        $scoutYearService
+    );
+    $groupsNotificationService = new \Modules\Groups\Service\GroupNotificationService(
+        $groupsRecipientResolver,
+        new \Modules\Groups\Service\ReactionNoticeThrottle(
+            \Modules\Groups\Repository\ReactionNoticeRepository::forPosts($pdo),
+            \Modules\Groups\Repository\ReactionNoticeRepository::forReplies($pdo),
+            $settingService
+        ),
+        $notificationService
+    );
+
     // Reporting and auto-hiding (prompt 9): two report tables behind one
     // class, the same shape as the two reaction ones above.
     $groupsReportService = new \Modules\Groups\Service\ReportService(
@@ -2328,7 +2355,7 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
         new \Modules\Groups\Controller\GroupController(
             $twig, $groupsGroupRepo, $groupsListService, $groupsAccessService, $groupsService,
             $groupsContextFactory, $sectionService, $groupsFeedService, $groupsPostMediaService,
-            $groupsAuthorOptionsService
+            $groupsAuthorOptionsService, $groupsPostRepo
         )
     );
     $frontController->registerController(
@@ -2336,7 +2363,8 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
         new \Modules\Groups\Controller\PostController(
             $twig, $groupsGroupRepo, $groupsPostRepo, $groupsAccessService, $groupsFeedService,
             $groupsPostService, $groupsContextFactory, $groupsPostMediaService, $groupsPostLinkService,
-            $groupsReplyService, $groupsAuthorOptionsService, $groupsReportService
+            $groupsReplyService, $groupsAuthorOptionsService, $groupsReportService,
+            $groupsNotificationService
         )
     );
     $frontController->registerController(
@@ -2344,21 +2372,21 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
         new \Modules\Groups\Controller\ReplyController(
             $twig, $groupsGroupRepo, $groupsPostRepo, $groupsReplyRepo, $groupsAccessService,
             $groupsReplyService, $groupsReplyPresenter, $groupsPostMediaService, $groupsContextFactory,
-            $groupsReportService
+            $groupsReportService, $groupsNotificationService
         )
     );
     $frontController->registerController(
         \Modules\Groups\Controller\ReactionController::class,
         new \Modules\Groups\Controller\ReactionController(
             $twig, $groupsGroupRepo, $groupsPostRepo, $groupsReplyRepo, $groupsAccessService,
-            $groupsReactionService, $groupsContextFactory
+            $groupsReactionService, $groupsContextFactory, $groupsNotificationService
         )
     );
     $frontController->registerController(
         \Modules\Groups\Controller\ReportController::class,
         new \Modules\Groups\Controller\ReportController(
             $twig, $groupsGroupRepo, $groupsPostRepo, $groupsReplyRepo, $groupsAccessService,
-            $groupsReportService, $groupsContextFactory
+            $groupsReportService, $groupsContextFactory, $groupsNotificationService
         )
     );
     $frontController->registerController(

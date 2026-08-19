@@ -413,3 +413,38 @@ CREATE TABLE discussion_group_link_fetch_log (
     INDEX idx_dglfl_member (member_id, created_at),
     CONSTRAINT fk_dglfl_member FOREIGN KEY (member_id) REFERENCES members(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Debounce state for the "reaction to your message" notification, one row
+-- per item that has already produced one. A popular post picks up a dozen
+-- reactions in a minute, and a notification each would make the feature
+-- unusable rather than useful; Service\ReactionNoticeThrottle checks these
+-- rows against groups_reaction_notification_window_minutes before asking
+-- core to dispatch anything.
+--
+-- This tracks TIMING, never notifications: the notifications themselves
+-- live in core's `notifications` table and only there (ARCHITECTURE.md
+-- §8.24). Nothing here is ever read to find out what core already sent —
+-- a module must not read core's table, so it keeps its own small record of
+-- when it last asked.
+--
+-- Two tables rather than one polymorphic one, for the same reason
+-- discussion_group_post_reactions and discussion_group_reply_reactions are
+-- two (see their comment above): a single (item_type, item_id) table can
+-- carry no foreign key at all, so every deleted post would leave its
+-- debounce row behind forever. With one table per item kind, the CASCADE
+-- does the cleanup and there is no purge task to write.
+CREATE TABLE discussion_group_post_reaction_notices (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    post_id INT UNSIGNED NOT NULL,
+    notified_at DATETIME NOT NULL,
+    UNIQUE INDEX idx_dgprn_post (post_id),
+    CONSTRAINT fk_dgprn_post FOREIGN KEY (post_id) REFERENCES discussion_group_posts(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE discussion_group_reply_reaction_notices (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    reply_id INT UNSIGNED NOT NULL,
+    notified_at DATETIME NOT NULL,
+    UNIQUE INDEX idx_dgrrn_reply (reply_id),
+    CONSTRAINT fk_dgrrn_reply FOREIGN KEY (reply_id) REFERENCES discussion_group_replies(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

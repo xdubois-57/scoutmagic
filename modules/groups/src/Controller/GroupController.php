@@ -18,6 +18,7 @@ use Core\Security\CsrfGuard;
 use Core\Security\Role;
 use Modules\Groups\Repository\DiscussionGroup;
 use Modules\Groups\Repository\GroupRepository;
+use Modules\Groups\Repository\PostRepository;
 use Modules\Groups\Service\AuthorOptionsService;
 use Modules\Groups\Service\GroupAccessService;
 use Modules\Groups\Service\GroupListItem;
@@ -51,7 +52,8 @@ class GroupController extends AbstractController
         private SectionService $sectionService,
         private GroupFeedService $feedService,
         private PostMediaService $postMediaService,
-        private AuthorOptionsService $authorOptionsService
+        private AuthorOptionsService $authorOptionsService,
+        private PostRepository $postRepository
     ) {
     }
 
@@ -127,6 +129,52 @@ class GroupController extends AbstractController
             // this member's own session (Support\RejectedDraft).
             'rejected_draft' => RejectedDraft::take(),
         ]);
+    }
+
+    /**
+     * GET /groups/{id}/posts/{postId} — where a notification's deep link
+     * lands.
+     *
+     * A real server route rather than a `#post-123` fragment, for one
+     * reason: a fragment is resolved by the browser and never reaches the
+     * server, so a link forwarded to somebody outside the group would
+     * render them the group page and only then fail to scroll. Here
+     * membership is re-checked before anything is rendered, and a
+     * non-member gets the module's usual 404 — never a 403, which would
+     * confirm the group exists (prompt 3's rule, unchanged).
+     *
+     * The post itself is only used to check it belongs to the authorised
+     * group; the landing page is the group's own feed, anchored on the
+     * post. Rendering one post alone would be a second, parallel rendering
+     * path for exactly the thing show() already renders.
+     *
+     * @param array<string, string> $params
+     */
+    public function post(Request $request, array $params): Response
+    {
+        $context = $this->context();
+        $group = $this->readableGroup($params, $context);
+        if ($group === null) {
+            return new Response('Not Found', 404);
+        }
+
+        $post = $this->postRepository->findById((int) ($params['postId'] ?? 0));
+        // A post id from another group is a 404, not someone else's post —
+        // the group in the URL is what was authorised.
+        if ($post === null || $post->groupId !== $group->id) {
+            return new Response('Not Found', 404);
+        }
+
+        // A hidden post is not reachable through its own deep link either,
+        // for anyone but a moderator: the notification that linked here
+        // predates the hiding, and following it must not become the way
+        // around it (prompt 9 — the hidden state is enforced in the query,
+        // and this is one more query).
+        if ($post->isHidden() && !$this->accessService->canModerate($group, $context)) {
+            return new Response('Not Found', 404);
+        }
+
+        return $this->redirect('/groups/' . $group->id . '#post-' . $post->id);
     }
 
     /**

@@ -21,6 +21,7 @@ use Modules\Groups\Repository\PostRepository;
 use Modules\Groups\Repository\ReplyRepository;
 use Modules\Groups\Service\GroupAccessService;
 use Modules\Groups\Service\GroupSessionContext;
+use Modules\Groups\Service\GroupNotificationService;
 use Modules\Groups\Service\GroupSessionContextFactory;
 use Modules\Groups\Service\ReportService;
 use Twig\Environment;
@@ -57,7 +58,8 @@ class ReportController extends AbstractController
         private ReplyRepository $replyRepository,
         private GroupAccessService $accessService,
         private ReportService $reportService,
-        private GroupSessionContextFactory $contextFactory
+        private GroupSessionContextFactory $contextFactory,
+        private ?GroupNotificationService $notificationService = null
     ) {
     }
 
@@ -74,7 +76,14 @@ class ReportController extends AbstractController
                 return false;
             }
 
-            $this->reportService->reportPost($group->id, $post->id, $memberId, $context->userAccountId);
+            if ($this->reportService->reportPost($group->id, $post->id, $memberId, $context->userAccountId)) {
+                // Only on a NEW report: a repeat submission by the same
+                // member must not buzz every moderator again, and it must
+                // stay indistinguishable from a first one at the endpoint
+                // (prompt 9) — which it does, since the caller sees the
+                // same response either way.
+                $this->notificationService?->itemReported($group, $post->id, 'post', $context->userAccountId);
+            }
 
             return true;
         });
@@ -98,7 +107,12 @@ class ReportController extends AbstractController
                 return false;
             }
 
-            $this->reportService->reportReply($group->id, $reply->id, $memberId, $context->userAccountId);
+            if ($this->reportService->reportReply($group->id, $reply->id, $memberId, $context->userAccountId)) {
+                // The deep link points at the reply's POST: a reply has no
+                // page of its own, and the post is what a moderator has to
+                // open to judge it in context.
+                $this->notificationService?->itemReported($group, $post->id, 'reply', $context->userAccountId);
+            }
 
             return true;
         });

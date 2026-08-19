@@ -146,6 +146,26 @@ class GroupsTestHelper
             FOREIGN KEY (reply_id) REFERENCES discussion_group_replies(id) ON DELETE CASCADE
         )');
 
+        // Debounce state for the reaction notification — timing only,
+        // never a copy of what core sent (ARCHITECTURE.md §8.24). Two
+        // tables for the same reason the reaction tables are two: a
+        // polymorphic one could carry no foreign key.
+        $pdo->exec('CREATE TABLE discussion_group_post_reaction_notices (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            post_id INTEGER NOT NULL,
+            notified_at TEXT NOT NULL,
+            UNIQUE(post_id),
+            FOREIGN KEY (post_id) REFERENCES discussion_group_posts(id) ON DELETE CASCADE
+        )');
+
+        $pdo->exec('CREATE TABLE discussion_group_reply_reaction_notices (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            reply_id INTEGER NOT NULL,
+            notified_at TEXT NOT NULL,
+            UNIQUE(reply_id),
+            FOREIGN KEY (reply_id) REFERENCES discussion_group_replies(id) ON DELETE CASCADE
+        )');
+
         $pdo->exec('CREATE TABLE discussion_group_rate_limits (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             member_id INTEGER NOT NULL,
@@ -163,6 +183,21 @@ class GroupsTestHelper
     {
         return new \Modules\Groups\Service\RateLimitService(
             new \Modules\Groups\Repository\RateLimitRepository($pdo)
+        );
+    }
+
+    /**
+     * The reaction-notification debounce over the real (in-memory)
+     * tables, wired the way public/index.php wires it.
+     */
+    public static function reactionNoticeThrottle(
+        \PDO $pdo,
+        \Core\Config\SettingService $settingService
+    ): \Modules\Groups\Service\ReactionNoticeThrottle {
+        return new \Modules\Groups\Service\ReactionNoticeThrottle(
+            \Modules\Groups\Repository\ReactionNoticeRepository::forPosts($pdo),
+            \Modules\Groups\Repository\ReactionNoticeRepository::forReplies($pdo),
+            $settingService
         );
     }
 

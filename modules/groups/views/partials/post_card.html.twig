@@ -14,7 +14,9 @@
   moderator's view of something nobody else can see, not a hidden-by-CSS
   post.
 #}
-<article class="card mb-2{% if row.is_hidden|default(false) %} groups-post-hidden{% endif %}">
+{# id is what a notification's deep link scrolls to — GroupController::post()
+   redirects to /groups/{id}#post-{postId} after re-checking membership. #}
+<article id="post-{{ row.post.id }}" class="card mb-2{% if row.is_hidden|default(false) %} groups-post-hidden{% endif %}">
     <div class="card-body py-3">
         {% if row.is_hidden|default(false) %}
             <div class="alert alert-warning d-flex flex-wrap align-items-center gap-2 py-2 px-3 mb-2 small">

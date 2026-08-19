@@ -165,7 +165,120 @@ class GroupControllerTest extends TestCase
             $sectionService,
             $feedService,
             $postMediaService,
-            new AuthorOptionsService($access, $this->memberService)
+            new AuthorOptionsService($access, $this->memberService),
+            $postRepo
+        );
+    }
+
+    /**
+     * Where a notification's deep link lands. A real server route rather
+     * than a `#post-123` fragment precisely so this check happens at all:
+     * a fragment never reaches the server, so a forwarded link would
+     * render the group page to somebody outside the group before failing
+     * to scroll.
+     */
+    public function testTheDeepLinkRedirectsAMemberToTheAnchoredPost(): void
+    {
+        $groupId = $this->deepLinkGroup('D1');
+        $postId = GroupsTestHelper::createPostAt($this->pdo, $groupId, 'Le message', '2026-01-01 10:00:00');
+        $member = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'DM1', $this->sectionId, $this->currentYearId);
+
+        $response = $this->controller([$member])->post(
+            new Request('GET', '/groups/' . $groupId . '/posts/' . $postId, [], [], [], []),
+            ['id' => (string) $groupId, 'postId' => (string) $postId]
+        );
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('/groups/' . $groupId . '#post-' . $postId, $response->getHeaders()['Location'] ?? null);
+    }
+
+    public function testTheDeepLinkIs404ForANonMemberRatherThan403(): void
+    {
+        $groupId = $this->deepLinkGroup('D2');
+        $postId = GroupsTestHelper::createPostAt($this->pdo, $groupId, 'Le message', '2026-01-01 10:00:00');
+        $stranger = GroupsTestHelper::createMember($this->pdo, 'STRANGER');
+
+        $response = $this->controller([$stranger])->post(
+            new Request('GET', '/groups/' . $groupId . '/posts/' . $postId, [], [], [], []),
+            ['id' => (string) $groupId, 'postId' => (string) $postId]
+        );
+
+        $this->assertSame(404, $response->getStatusCode());
+    }
+
+    public function testTheDeepLinkIs404ForAnUnknownGroupToo(): void
+    {
+        // Same status as the case above, which is the point: the two are
+        // indistinguishable from outside.
+        $stranger = GroupsTestHelper::createMember($this->pdo, 'STRANGER3');
+
+        $response = $this->controller([$stranger])->post(
+            new Request('GET', '/groups/9999/posts/1', [], [], [], []),
+            ['id' => '9999', 'postId' => '1']
+        );
+
+        $this->assertSame(404, $response->getStatusCode());
+    }
+
+    public function testTheDeepLinkIs404ForAPostFromAnotherGroup(): void
+    {
+        $groupId = $this->deepLinkGroup('D4');
+        $otherSection = GroupsTestHelper::createSection($this->pdo, 'ECL', 'Éclaireurs');
+        $otherGroupId = $this->groupService->createSectionGroup('Ailleurs', $otherSection, $this->currentYearId, GroupsTestHelper::createMember($this->pdo, 'C-OTHER'));
+        $foreignPost = GroupsTestHelper::createPostAt($this->pdo, $otherGroupId, 'Ailleurs', '2026-01-01 10:00:00');
+        $member = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'DM4', $this->sectionId, $this->currentYearId);
+
+        $response = $this->controller([$member])->post(
+            new Request('GET', '/groups/' . $groupId . '/posts/' . $foreignPost, [], [], [], []),
+            ['id' => (string) $groupId, 'postId' => (string) $foreignPost]
+        );
+
+        $this->assertSame(404, $response->getStatusCode());
+    }
+
+    /**
+     * Following an old notification must not become the way around the
+     * hiding it predates.
+     */
+    public function testTheDeepLinkIs404ForAHiddenPostSeenByAnOrdinaryMember(): void
+    {
+        $groupId = $this->deepLinkGroup('D5');
+        $postId = GroupsTestHelper::createPostAt($this->pdo, $groupId, 'Le message', '2026-01-01 10:00:00');
+        (new PostRepository($this->pdo))->setHiddenAt($postId, '2026-02-01 00:00:00');
+        $member = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'DM5', $this->sectionId, $this->currentYearId);
+
+        $response = $this->controller([$member])->post(
+            new Request('GET', '/groups/' . $groupId . '/posts/' . $postId, [], [], [], []),
+            ['id' => (string) $groupId, 'postId' => (string) $postId]
+        );
+
+        $this->assertSame(404, $response->getStatusCode());
+    }
+
+    public function testAModeratorStillReachesAHiddenPostThroughTheDeepLink(): void
+    {
+        $moderator = GroupsTestHelper::createMember($this->pdo, 'D6-MOD');
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $moderator);
+        $postId = GroupsTestHelper::createPostAt($this->pdo, $groupId, 'Le message', '2026-01-01 10:00:00');
+        (new PostRepository($this->pdo))->setHiddenAt($postId, '2026-02-01 00:00:00');
+
+        // createSectionGroup() makes its creator a moderator of the group.
+        $response = $this->controller([$moderator])->post(
+            new Request('GET', '/groups/' . $groupId . '/posts/' . $postId, [], [], [], []),
+            ['id' => (string) $groupId, 'postId' => (string) $postId]
+        );
+
+        $this->assertSame(302, $response->getStatusCode());
+    }
+
+    /** A section group whose creator is nobody we assert anything about. */
+    private function deepLinkGroup(string $creatorDeskId): int
+    {
+        return $this->groupService->createSectionGroup(
+            'Louveteaux',
+            $this->sectionId,
+            $this->currentYearId,
+            GroupsTestHelper::createMember($this->pdo, $creatorDeskId)
         );
     }
 

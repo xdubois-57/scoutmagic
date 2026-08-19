@@ -24,6 +24,7 @@ use Modules\Groups\Repository\Reply;
 use Modules\Groups\Repository\ReplyRepository;
 use Modules\Groups\Service\GroupAccessService;
 use Modules\Groups\Service\GroupSessionContext;
+use Modules\Groups\Service\GroupNotificationService;
 use Modules\Groups\Service\GroupSessionContextFactory;
 use Modules\Groups\Service\GroupsException;
 use Modules\Groups\Service\PostMediaService;
@@ -55,7 +56,8 @@ class ReplyController extends AbstractController
         private ReplyPresenter $replyPresenter,
         private PostMediaService $postMediaService,
         private GroupSessionContextFactory $contextFactory,
-        private ReportService $reportService
+        private ReportService $reportService,
+        private ?GroupNotificationService $notificationService = null
     ) {
     }
 
@@ -175,7 +177,7 @@ class ReplyController extends AbstractController
         }
 
         try {
-            $this->replyService->create($group, $post->id, $context->userAccountId, $authorMemberId, $body, $mediaId);
+            $replyId = $this->replyService->create($group, $post->id, $context->userAccountId, $authorMemberId, $body, $mediaId);
         } catch (GroupsException $e) {
             // The image was uploaded before the reply row existed, so a
             // refusal here has to take it back out again — otherwise a
@@ -185,6 +187,14 @@ class ReplyController extends AbstractController
             }
 
             return $this->refuse($e, $group->id, $body, $post->id);
+        }
+
+        // The post's author is told someone answered them — never
+        // themselves, which Service\GroupNotificationService refuses on
+        // its own rather than relying on this call site remembering.
+        $reply = $this->replyRepository->findById($replyId);
+        if ($reply !== null) {
+            $this->notificationService?->replyReceived($group, $post, $reply, $context->effectiveScoutYearId);
         }
 
         return $this->redirect('/groups/' . $group->id);
