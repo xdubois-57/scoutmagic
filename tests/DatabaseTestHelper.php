@@ -38,6 +38,7 @@ class DatabaseTestHelper
             last_name_encrypted BLOB,
             password_hash TEXT,
             password_changed_at TEXT,
+            sessions_valid_from TEXT,
             is_super_admin INTEGER NOT NULL DEFAULT 0,
             quiet_hours_start TEXT,
             quiet_hours_end TEXT,
@@ -252,6 +253,7 @@ class DatabaseTestHelper
         $pdo->exec('CREATE TABLE login_attempts (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             email_blind_index TEXT NOT NULL,
+            ip_blind_index TEXT,
             attempted_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )');
 

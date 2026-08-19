@@ -52,21 +52,45 @@ class PasswordResetController extends AbstractController
     /**
      * GET /password-reset/{id} — the reset page reached via the emailed link.
      *
+     * The token is in the URL fragment, which browsers never transmit, so
+     * this request genuinely cannot see it — that is the point (it keeps
+     * the token out of server logs and Referer headers). The page therefore
+     * renders in a neutral "checking" state and its script posts the
+     * fragment to check() below, which is what decides between the form and
+     * the "no longer valid" message.
+     *
      * @param array<string, string> $params
      */
     public function show(Request $request, array $params): Response
     {
         $id = (int) ($params['id'] ?? 0);
-        $token = (string) $request->getQuery('token', '');
+
+        return $this->render('auth/password_reset.html.twig', [
+            'reset_id' => $id,
+            'csrf_token' => CsrfGuard::generateToken(),
+        ]);
+    }
+
+    /**
+     * POST /password-reset/{id}/check — is this token still usable? (AJAX)
+     *
+     * Read-only: deliberately does NOT consume the token, so reloading the
+     * page or a browser prefetching the link doesn't burn it.
+     *
+     * @param array<string, string> $params
+     */
+    public function check(Request $request, array $params): Response
+    {
+        if (!CsrfGuard::validateToken((string) $request->getBody('_csrf_token', ''))) {
+            return $this->json(['valid' => false], 403);
+        }
+
+        $id = (int) ($params['id'] ?? 0);
+        $token = (string) $request->getBody('token', '');
 
         $valid = $id > 0 && $token !== '' && $this->passwordResetService->checkToken($id, $token);
 
-        return $this->render('auth/password_reset.html.twig', [
-            'valid' => $valid,
-            'reset_id' => $id,
-            'reset_token' => $token,
-            'csrf_token' => CsrfGuard::generateToken(),
-        ]);
+        return $this->json(['valid' => $valid]);
     }
 
     /**
@@ -80,14 +104,14 @@ class PasswordResetController extends AbstractController
 
         if (!CsrfGuard::validateToken((string) $request->getBody('_csrf_token', ''))) {
             FlashMessage::set('error', 'Session expirée. Veuillez réessayer.');
-            return $this->redirect('/password-reset/' . $id . '?token=' . urlencode((string) $request->getBody('token', '')));
+            return $this->redirect('/password-reset/' . $id . '#' . rawurlencode((string) $request->getBody('token', '')));
         }
 
         $token = (string) $request->getBody('token', '');
         $newPassword = (string) $request->getBody('new_password', '');
         $confirmPassword = (string) $request->getBody('confirm_password', '');
 
-        $backUrl = '/password-reset/' . $id . '?token=' . urlencode($token);
+        $backUrl = '/password-reset/' . $id . '#' . rawurlencode($token);
 
         if ($newPassword !== $confirmPassword) {
             FlashMessage::set('error', 'Les mots de passe ne correspondent pas.');

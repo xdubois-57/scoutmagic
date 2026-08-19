@@ -10,83 +10,102 @@ namespace Core\Security;
 
 use Core\Database\Connection;
 
+/**
+ * Progressive lockout on failed password logins, counted along two
+ * independent axes.
+ *
+ * Per email: stops someone grinding a single account's password.
+ *
+ * Per source IP: stops the attack the per-email counter is structurally
+ * blind to — a spray of one likely password across MANY accounts, which
+ * never accumulates enough failures on any single address to trip the
+ * email lockout. Its thresholds are deliberately far higher, because a
+ * whole unit can legitimately sit behind one NAT and a lockout here is
+ * collateral for everyone sharing it.
+ *
+ * This is NOT the per-IP counter ARCHITECTURE.md §8.31 rules out: that one
+ * is about the magic-link REQUEST form, where a second, differently-scoped
+ * limiter would duplicate AuthService's own per-email rate limit for the
+ * same abuse pattern. Password login has no such existing IP-scoped
+ * counter, and per-email counting genuinely cannot see a spray.
+ */
 class LoginThrottler
 {
+    /** Failures within the window below which no per-email lockout applies. */
+    private const EMAIL_TIERS = [
+        20 => 1800,  // 30 minutes
+        10 => 300,   // 5 minutes
+        5 => 60,     // 1 minute
+    ];
+
+    /**
+     * Same shape, per source IP. Set high enough that a shared connection
+     * (a scout local, a school, a family) never trips it in normal use:
+     * these counts are failures inside one hour from a single address.
+     */
+    private const IP_TIERS = [
+        100 => 1800, // 30 minutes
+        60 => 300,   // 5 minutes
+        30 => 60,    // 1 minute
+    ];
+
     private \PDO $pdo;
 
-    public function __construct(private Connection $connection)
-    {
+    /**
+     * $encryption is what lets an IP be counted without being stored: the
+     * raw address never reaches the database, only its blind index (same
+     * HMAC treatment as every other searchable personal datum, SECURITY.md
+     * §5). Null disables the per-IP axis entirely — for callers with no
+     * key available (tests, CLI) — and is never the web path.
+     */
+    public function __construct(
+        private Connection $connection,
+        private ?EncryptionService $encryption = null
+    ) {
         $this->pdo = $this->connection->getPdo();
     }
 
     /**
-     * Record a failed login attempt for an email.
+     * Record a failed login attempt for an email, and for the IP it came
+     * from when one is known.
      */
-    public function recordFailure(string $emailBlindIndex): void
+    public function recordFailure(string $emailBlindIndex, ?string $ip = null): void
     {
         $now = (new \DateTimeImmutable())->format('Y-m-d H:i:s');
         $stmt = $this->pdo->prepare(
-            'INSERT INTO login_attempts (email_blind_index, attempted_at) VALUES (?, ?)'
+            'INSERT INTO login_attempts (email_blind_index, ip_blind_index, attempted_at) VALUES (?, ?, ?)'
         );
-        $stmt->execute([$emailBlindIndex, $now]);
+        $stmt->execute([$emailBlindIndex, $this->ipBlindIndex($ip), $now]);
     }
 
     /**
-     * Check if the email is currently locked out.
-     * Returns the number of seconds remaining if locked, 0 if not.
+     * Seconds of lockout remaining, 0 if not locked out.
      *
-     * Lockout schedule:
-     * - 1-4 failures: no lockout
-     * - 5 failures: 1 minute lockout
-     * - 10 failures: 5 minutes
-     * - 20+ failures: 30 minutes
+     * Lockout schedule (failures inside a 1-hour sliding window):
+     * - per email: 5 → 1 minute, 10 → 5 minutes, 20+ → 30 minutes
+     * - per IP:   30 → 1 minute, 60 → 5 minutes, 100+ → 30 minutes
      *
-     * Failures are counted within a 1-hour sliding window.
+     * Whichever axis is angrier wins — an attacker must satisfy both to
+     * keep going.
      */
-    public function getLockoutRemaining(string $emailBlindIndex): int
+    public function getLockoutRemaining(string $emailBlindIndex, ?string $ip = null): int
     {
-        $failures = $this->countRecentFailures($emailBlindIndex);
+        $remaining = $this->lockoutFor('email_blind_index', $emailBlindIndex, self::EMAIL_TIERS);
 
-        if ($failures < 5) {
-            return 0;
+        $ipBlindIndex = $this->ipBlindIndex($ip);
+        if ($ipBlindIndex !== null) {
+            $remaining = max($remaining, $this->lockoutFor('ip_blind_index', $ipBlindIndex, self::IP_TIERS));
         }
 
-        // Determine lockout duration based on failure count
-        if ($failures >= 20) {
-            $lockoutSeconds = 1800; // 30 minutes
-        } elseif ($failures >= 10) {
-            $lockoutSeconds = 300;  // 5 minutes
-        } else {
-            $lockoutSeconds = 60;   // 1 minute
-        }
-
-        // Find the most recent failure timestamp
-        $cutoff = (new \DateTimeImmutable('-1 hour'))->format('Y-m-d H:i:s');
-        $stmt = $this->pdo->prepare(
-            'SELECT attempted_at FROM login_attempts
-             WHERE email_blind_index = ? AND attempted_at >= ?
-             ORDER BY attempted_at DESC LIMIT 1'
-        );
-        $stmt->execute([$emailBlindIndex, $cutoff]);
-        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
-
-        if ($row === false) {
-            return 0;
-        }
-
-        $lastAttempt = new \DateTimeImmutable($row['attempted_at']);
-        $unlockAt = $lastAttempt->modify('+' . $lockoutSeconds . ' seconds');
-        $now = new \DateTimeImmutable();
-
-        if ($now >= $unlockAt) {
-            return 0;
-        }
-
-        return $unlockAt->getTimestamp() - $now->getTimestamp();
+        return $remaining;
     }
 
     /**
      * Clear failures for an email (called after successful login).
+     *
+     * Deliberately does NOT clear the IP axis: one attacker succeeding on
+     * one account they do control must not wipe the evidence of the spray
+     * they are running from the same address against everyone else.
      */
     public function clearFailures(string $emailBlindIndex): void
     {
@@ -97,16 +116,69 @@ class LoginThrottler
     }
 
     /**
-     * Count failures in the last hour.
+     * @param array<int, int> $tiers failure count => lockout seconds, highest first
      */
-    private function countRecentFailures(string $emailBlindIndex): int
+    private function lockoutFor(string $column, string $value, array $tiers): int
+    {
+        $failures = $this->countRecentFailures($column, $value);
+
+        $lockoutSeconds = 0;
+        foreach ($tiers as $threshold => $seconds) {
+            if ($failures >= $threshold) {
+                $lockoutSeconds = $seconds;
+                break;
+            }
+        }
+
+        if ($lockoutSeconds === 0) {
+            return 0;
+        }
+
+        $cutoff = (new \DateTimeImmutable('-1 hour'))->format('Y-m-d H:i:s');
+        $stmt = $this->pdo->prepare(
+            "SELECT attempted_at FROM login_attempts
+             WHERE {$column} = ? AND attempted_at >= ?
+             ORDER BY attempted_at DESC LIMIT 1"
+        );
+        $stmt->execute([$value, $cutoff]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+        if ($row === false) {
+            return 0;
+        }
+
+        $unlockAt = (new \DateTimeImmutable($row['attempted_at']))
+            ->modify('+' . $lockoutSeconds . ' seconds');
+        $now = new \DateTimeImmutable();
+
+        if ($now >= $unlockAt) {
+            return 0;
+        }
+
+        return $unlockAt->getTimestamp() - $now->getTimestamp();
+    }
+
+    /**
+     * Count failures in the last hour along one axis.
+     */
+    private function countRecentFailures(string $column, string $value): int
     {
         $cutoff = (new \DateTimeImmutable('-1 hour'))->format('Y-m-d H:i:s');
         $stmt = $this->pdo->prepare(
-            'SELECT COUNT(*) FROM login_attempts
-             WHERE email_blind_index = ? AND attempted_at >= ?'
+            "SELECT COUNT(*) FROM login_attempts
+             WHERE {$column} = ? AND attempted_at >= ?"
         );
-        $stmt->execute([$emailBlindIndex, $cutoff]);
+        $stmt->execute([$value, $cutoff]);
+
         return (int) $stmt->fetchColumn();
+    }
+
+    private function ipBlindIndex(?string $ip): ?string
+    {
+        if ($this->encryption === null || $ip === null || trim($ip) === '') {
+            return null;
+        }
+
+        return $this->encryption->blindIndex(strtolower(trim($ip)));
     }
 }

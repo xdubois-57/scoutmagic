@@ -30,6 +30,16 @@ CREATE TABLE user_accounts (
     -- password-reset link) — shown on the account page, never used for
     -- expiry/rotation logic.
     password_changed_at DATETIME,
+    -- Every session issued for this account BEFORE this instant is treated
+    -- as revoked on its next request (Core\Security\SessionRevalidator).
+    -- Bumped whenever the credentials behind existing sessions change —
+    -- today a password set/change/reset (UserAccountRepository::
+    -- updatePasswordHash()). PHP's file-based sessions have no per-user
+    -- registry to walk and expire, so revocation has to be a stamp the
+    -- session re-checks itself against on every request. NULL (the value
+    -- for every pre-existing row) revokes nothing, so adding this column
+    -- never logs the whole unit out on deploy.
+    sessions_valid_from DATETIME,
     is_super_admin BOOLEAN NOT NULL DEFAULT FALSE,
     -- Per-account overrides for Core\Notification\NotificationService's
     -- push dispatch (Configuration > Notifications preferences, "Mon
@@ -381,8 +391,15 @@ CREATE TABLE webauthn_credentials (
 CREATE TABLE login_attempts (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     email_blind_index CHAR(64) NOT NULL,
+    -- Blind index (never the raw address) of the client IP the attempt came
+    -- from, so Core\Security\LoginThrottler can also slow a spray across
+    -- MANY accounts from one source — which per-email counting alone never
+    -- sees. Same HMAC treatment as every other searchable personal datum
+    -- (SECURITY.md §5); NULL when no IP was available.
+    ip_blind_index CHAR(64),
     attempted_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    INDEX idx_email_time (email_blind_index, attempted_at)
+    INDEX idx_email_time (email_blind_index, attempted_at),
+    INDEX idx_ip_time (ip_blind_index, attempted_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE settings (

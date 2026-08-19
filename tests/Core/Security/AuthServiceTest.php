@@ -39,6 +39,7 @@ class AuthServiceTest extends TestCase
                 first_name_encrypted BLOB,
                 last_name_encrypted BLOB,
                 password_hash VARCHAR(255),
+                sessions_valid_from DATETIME,
                 is_super_admin BOOLEAN NOT NULL DEFAULT 0,
                 created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 last_login_at DATETIME

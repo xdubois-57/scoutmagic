@@ -219,13 +219,29 @@ class UserAccountRepository
      * Update the password hash for a user — always also stamps
      * password_changed_at (initial set, account-page change, or a
      * password-reset link all count), shown on the account page.
+     *
+     * The same write also bumps sessions_valid_from, which revokes every
+     * session already issued for this account (Core\Security\
+     * SessionRevalidator). Changing a password has to end the sessions an
+     * attacker may already be sitting in, otherwise a reset "recovers" an
+     * account that stays compromised. The caller doing a self-service
+     * change re-stamps its OWN session afterwards (AuthSession::
+     * refreshIssuedAt()) so the member isn't logged out of the tab they
+     * just used; a reset link deliberately doesn't, and ends every session
+     * including the one that requested it.
+     *
+     * Stamped from PHP rather than CURRENT_TIMESTAMP so it is directly
+     * comparable to the PHP-side login timestamp held in the session, and
+     * so it works identically on the SQLite test database (same convention
+     * as Core\Security\MagicLinkRepository).
      */
     public function updatePasswordHash(int $id, string $passwordHash): void
     {
+        $now = (new \DateTimeImmutable())->format('Y-m-d H:i:s');
         $stmt = $this->pdo->prepare(
-            'UPDATE user_accounts SET password_hash = ?, password_changed_at = CURRENT_TIMESTAMP WHERE id = ?'
+            'UPDATE user_accounts SET password_hash = ?, password_changed_at = ?, sessions_valid_from = ? WHERE id = ?'
         );
-        $stmt->execute([$passwordHash, $id]);
+        $stmt->execute([$passwordHash, $now, $now, $id]);
     }
 
     /**
@@ -268,6 +284,11 @@ class UserAccountRepository
             $passwordChangedAt = new \DateTimeImmutable($row['password_changed_at']);
         }
 
+        $sessionsValidFrom = null;
+        if (!empty($row['sessions_valid_from'])) {
+            $sessionsValidFrom = new \DateTimeImmutable($row['sessions_valid_from']);
+        }
+
         return new UserAccount(
             id: (int) $row['id'],
             email: $decryptedEmail,
@@ -277,6 +298,7 @@ class UserAccountRepository
             isSuperAdmin: (bool) $row['is_super_admin'],
             lastLoginAt: $lastLoginAt,
             passwordChangedAt: $passwordChangedAt,
+            sessionsValidFrom: $sessionsValidFrom,
             quietHoursStart: $row['quiet_hours_start'] ?? null,
             quietHoursEnd: $row['quiet_hours_end'] ?? null,
             notificationDiscretion: (bool) ($row['notification_discretion'] ?? false)

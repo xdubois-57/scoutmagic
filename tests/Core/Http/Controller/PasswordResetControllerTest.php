@@ -45,7 +45,7 @@ class PasswordResetControllerTest extends TestCase
         $twig = new Environment(new ArrayLoader([
             'email/password_reset.html.twig' => '{{ reset_url }}',
             'email/password_reset.text.twig' => '{{ reset_url }}',
-            'auth/password_reset.html.twig' => '{{ valid ? "VALID" : "INVALID" }}',
+            'auth/password_reset.html.twig' => 'RESET_PAGE id={{ reset_id }} csrf={{ csrf_token }}',
         ]));
         $twig->addGlobal('site_name', 'Test Unit');
         $twig->addGlobal('csp_nonce', 'x');
@@ -80,23 +80,77 @@ class PasswordResetControllerTest extends TestCase
         $this->assertTrue($data['success']);
     }
 
-    public function testShowRendersInvalidForAnUnknownToken(): void
-    {
-        $request = new Request('GET', '/password-reset/999', ['token' => 'bogus'], [], [], []);
-        $response = $this->controller->show($request, ['id' => '999']);
-
-        $this->assertStringContainsString('INVALID', $response->getBody());
-    }
-
-    public function testShowRendersValidForAGenuineToken(): void
+    /**
+     * The token now travels in the URL fragment, which browsers never send
+     * — so this request genuinely cannot see it, and the page renders the
+     * same neutral shell whatever the token turns out to be. That is the
+     * property worth pinning: the GET must not become a place where a
+     * token in the query string would still be honoured.
+     */
+    public function testShowRendersTheSameShellRegardlessOfAnyTokenInTheQueryString(): void
     {
         $this->userRepo->create('valid-token@test.com');
         [$id, $rawToken] = $this->createRawToken('valid-token@test.com');
 
-        $request = new Request('GET', '/password-reset/' . $id, ['token' => $rawToken], [], [], []);
-        $response = $this->controller->show($request, ['id' => (string) $id]);
+        $withRealToken = $this->controller->show(
+            new Request('GET', '/password-reset/' . $id, ['token' => $rawToken], [], [], []),
+            ['id' => (string) $id]
+        );
+        $withBogusToken = $this->controller->show(
+            new Request('GET', '/password-reset/' . $id, ['token' => 'bogus'], [], [], []),
+            ['id' => (string) $id]
+        );
+        $withNoToken = $this->controller->show(
+            new Request('GET', '/password-reset/' . $id, [], [], [], []),
+            ['id' => (string) $id]
+        );
 
-        $this->assertStringContainsString('VALID', $response->getBody());
+        $this->assertStringContainsString('RESET_PAGE id=' . $id, $withNoToken->getBody());
+        $this->assertSame($withNoToken->getBody(), $withRealToken->getBody());
+        $this->assertSame($withNoToken->getBody(), $withBogusToken->getBody());
+    }
+
+    public function testCheckReportsAGenuineTokenValidWithoutConsumingIt(): void
+    {
+        $this->userRepo->create('checkable@test.com');
+        [$id, $rawToken] = $this->createRawToken('checkable@test.com');
+        $csrf = CsrfGuard::generateToken();
+
+        $request = new Request('POST', '/password-reset/' . $id . '/check', [], [
+            'token' => $rawToken, '_csrf_token' => $csrf,
+        ], [], []);
+        $response = $this->controller->check($request, ['id' => (string) $id]);
+
+        $this->assertTrue(json_decode($response->getBody(), true)['valid']);
+        // Checking must never burn the token — the member still has to use it.
+        $this->assertTrue($this->service->checkToken($id, $rawToken));
+    }
+
+    public function testCheckReportsAnUnknownOrExpiredTokenInvalid(): void
+    {
+        $csrf = CsrfGuard::generateToken();
+
+        $request = new Request('POST', '/password-reset/999/check', [], [
+            'token' => 'bogus', '_csrf_token' => $csrf,
+        ], [], []);
+        $response = $this->controller->check($request, ['id' => '999']);
+
+        $this->assertFalse(json_decode($response->getBody(), true)['valid']);
+    }
+
+    /**
+     * Without CSRF the endpoint would be a cross-origin oracle for whether
+     * a guessed token is live.
+     */
+    public function testCheckRejectsInvalidCsrf(): void
+    {
+        $request = new Request('POST', '/password-reset/1/check', [], [
+            'token' => 'whatever', '_csrf_token' => 'wrong',
+        ], [], []);
+        $response = $this->controller->check($request, ['id' => '1']);
+
+        $this->assertSame(403, $response->getStatusCode());
+        $this->assertFalse(json_decode($response->getBody(), true)['valid']);
     }
 
     public function testSubmitSetsNewPasswordAndRedirectsToLogin(): void

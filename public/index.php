@@ -965,6 +965,17 @@ $roleLabelMap = [
     'superadmin' => 'Administrateur',
 ];
 
+// Re-check an existing session against current data BEFORE anything reads
+// the role from it (Core\Security\SessionRevalidator): a password change
+// revokes sessions issued earlier, and the effective role is re-resolved so
+// a demotion doesn't wait out the 30-day session cookie. Uses the current
+// PUBLIC year deliberately — the same basis AuthController::resolveRole()
+// used to grant the role at login, and unlike $effectiveScoutYear below it
+// doesn't itself depend on the role we are about to validate.
+$sessionRevalidator = new \Core\Security\SessionRevalidator($userAccountRepo, $roleResolver);
+$sessionRevalidator->setJournalService($journalService);
+$sessionRevalidator->revalidate(static fn(): int => (int) $scoutYearResolver->getCurrentPublicYear()['id']);
+
 // Set Twig globals for auth state (after session is started)
 $currentRole = AuthSession::getRole();
 $twig->addGlobal('is_authenticated', AuthSession::isAuthenticated());
@@ -1259,6 +1270,7 @@ $router->addRoute('POST', '/logout', AuthController::class, 'logout', 'identifie
 // Password reset ("Mot de passe oublié")
 $router->addRoute('POST', '/password-reset/request', PasswordResetController::class, 'request', 'public');
 $router->addRoute('GET', '/password-reset/{id}', PasswordResetController::class, 'show', 'public');
+$router->addRoute('POST', '/password-reset/{id}/check', PasswordResetController::class, 'check', 'public');
 $router->addRoute('POST', '/password-reset/{id}', PasswordResetController::class, 'submit', 'public');
 
 // Account routes
@@ -1573,7 +1585,7 @@ $frontController->registerController(SetupController::class, $setupController);
 // Build auth dependencies
 $authService->setJournalService($journalService);
 $passwordResetService->setJournalService($journalService);
-$loginThrottler = new LoginThrottler($connection);
+$loginThrottler = new LoginThrottler($connection, $encryptionService);
 $passwordAuthMethod = new PasswordAuthMethod($userAccountRepo, $encryptionService, $loginThrottler);
 $passwordAuthMethod->setJournalService($journalService);
 $humanCheckService = new \Core\Security\HumanCheck\HumanCheckService(
