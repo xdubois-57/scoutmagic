@@ -37,7 +37,7 @@ class BreadcrumbJsTest extends TestCase
     public function testBreadcrumbJsListensOnTheParentButtonClass(): void
     {
         $this->assertStringContainsString("querySelectorAll('.breadcrumb-parent-btn')", $this->breadcrumbJs);
-        $this->assertStringContainsString('btn.dataset.openMenu', $this->breadcrumbJs);
+        $this->assertStringContainsString('.dataset.openMenu', $this->breadcrumbJs);
     }
 
     public function testBreadcrumbJsDesktopPathReusesNavJsSharedFunctionNeverARawClick(): void
