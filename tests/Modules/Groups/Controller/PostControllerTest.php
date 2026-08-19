@@ -30,6 +30,7 @@ use Modules\Groups\Repository\LinkFetchLogRepository;
 use Modules\Groups\Repository\PostLinkRepository;
 use Modules\Groups\Repository\PostMediaRepository;
 use Modules\Groups\Repository\PostRepository;
+use Modules\Groups\Service\AuthorOptionsService;
 use Modules\Groups\Service\GroupAccessService;
 use Modules\Groups\Service\GroupActivityService;
 use Modules\Groups\Service\GroupFeedService;
@@ -137,7 +138,8 @@ class PostControllerTest extends TestCase
         $resolver = $this->createMock(ScoutYearResolver::class);
         $resolver->method('getEffectiveYear')->willReturn(new EffectiveScoutYear($this->currentYearId, '2025-2026', null));
 
-        $postService = new PostService($this->postRepo, new GroupActivityService($this->groupRepo, $this->postRepo));
+        $activityService = new GroupActivityService($this->groupRepo, $this->postRepo);
+        $postService = new PostService($this->postRepo, $activityService);
         $postMediaService = new PostMediaService(
             $delegatedAlbumManager ?? $this->createMock(DelegatedAlbumManager::class),
             new PostMediaRepository($this->pdo), $this->groupRepo
@@ -151,8 +153,11 @@ class PostControllerTest extends TestCase
             new FileRepository($this->pdo),
             sys_get_temp_dir()
         );
+        $authorResolver = new PostAuthorResolver($memberService, $accountRepo);
+        $stack = GroupsTestHelper::replyStack($this->pdo, $activityService, $postMediaService, $authorResolver);
         $feedService = new GroupFeedService(
-            $this->postRepo, new PostAuthorResolver($memberService, $accountRepo), $postService, $postMediaService, $postLinkRepo
+            $this->postRepo, $authorResolver, $postService, $postMediaService, $postLinkRepo,
+            $stack['replyRepository'], $stack['replyPresenter'], $stack['reactionService']
         );
 
         $twig = TwigFactory::create(
@@ -176,7 +181,9 @@ class PostControllerTest extends TestCase
             $postService,
             new GroupSessionContextFactory($memberService, $accountRepo, $resolver),
             $postMediaService,
-            $postLinkService
+            $postLinkService,
+            $stack['replyService'],
+            new AuthorOptionsService($access, $memberService)
         );
     }
 

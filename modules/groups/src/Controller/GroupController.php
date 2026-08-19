@@ -11,7 +11,6 @@ namespace Modules\Groups\Controller;
 use Core\Http\Controller\AbstractController;
 use Core\Http\Request;
 use Core\Http\Response;
-use Core\Member\MemberService;
 use Core\Member\SectionService;
 use Core\ScoutYear\ScoutYearSession;
 use Core\Security\AuthSession;
@@ -19,6 +18,7 @@ use Core\Security\CsrfGuard;
 use Core\Security\Role;
 use Modules\Groups\Repository\DiscussionGroup;
 use Modules\Groups\Repository\GroupRepository;
+use Modules\Groups\Service\AuthorOptionsService;
 use Modules\Groups\Service\GroupAccessService;
 use Modules\Groups\Service\GroupListItem;
 use Modules\Groups\Service\GroupFeedService;
@@ -49,8 +49,8 @@ class GroupController extends AbstractController
         private GroupSessionContextFactory $contextFactory,
         private SectionService $sectionService,
         private GroupFeedService $feedService,
-        private MemberService $memberService,
-        private PostMediaService $postMediaService
+        private PostMediaService $postMediaService,
+        private AuthorOptionsService $authorOptionsService
     ) {
     }
 
@@ -116,7 +116,7 @@ class GroupController extends AbstractController
             'next_cursor' => $page->nextCursor,
             // Only shown when the account is linked to several members of
             // this group — with one, there is nothing to choose.
-            'author_options' => $this->authorOptions($group, $context),
+            'author_options' => $this->authorOptionsService->forGroup($group, $context),
             'max_body_length' => PostService::MAX_BODY_LENGTH,
             'max_media_per_post' => PostMediaService::MAX_MEDIA_PER_POST,
             'video_upload_allowed' => $this->postMediaService->videoUploadAllowed(),
@@ -181,34 +181,6 @@ class GroupController extends AbstractController
         }
 
         return $this->redirect('/groups/' . $groupId);
-    }
-
-    /**
-     * The members of this group the caller may sign a post as, with their
-     * display names resolved in one query. Never every linked member: an
-     * account linked to three children must not be offered the one who is
-     * not a member here (GroupAccessService::memberIdsAllowedToPostAs()).
-     *
-     * @return array<int, array{id: int, name: string}>
-     */
-    private function authorOptions(DiscussionGroup $group, GroupSessionContext $context): array
-    {
-        $memberIds = $this->accessService->memberIdsAllowedToPostAs($group, $context);
-        if (count($memberIds) < 2) {
-            return [];
-        }
-
-        $names = $this->memberService->findDisplayNamesByMemberIds(
-            $memberIds,
-            $group->scoutYearId ?? $context->effectiveScoutYearId
-        );
-
-        $options = [];
-        foreach ($memberIds as $memberId) {
-            $options[] = ['id' => $memberId, 'name' => $names[$memberId] ?? ('Membre #' . $memberId)];
-        }
-
-        return $options;
     }
 
     /**

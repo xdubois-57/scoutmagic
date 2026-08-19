@@ -87,6 +87,101 @@ class GroupsTestHelper
             member_id INTEGER NOT NULL,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )');
+
+        $pdo->exec('CREATE TABLE discussion_group_replies (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            post_id INTEGER NOT NULL,
+            author_user_account_id INTEGER NOT NULL,
+            author_member_id INTEGER NOT NULL,
+            body TEXT NOT NULL,
+            gallery_media_id INTEGER NULL,
+            edited_at TEXT NULL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (post_id) REFERENCES discussion_group_posts(id) ON DELETE CASCADE
+        )');
+
+        $pdo->exec('CREATE TABLE discussion_group_post_reactions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            post_id INTEGER NOT NULL,
+            member_id INTEGER NOT NULL,
+            reaction_key TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(post_id, member_id),
+            FOREIGN KEY (post_id) REFERENCES discussion_group_posts(id) ON DELETE CASCADE
+        )');
+
+        $pdo->exec('CREATE TABLE discussion_group_reply_reactions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            reply_id INTEGER NOT NULL,
+            member_id INTEGER NOT NULL,
+            reaction_key TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(reply_id, member_id),
+            FOREIGN KEY (reply_id) REFERENCES discussion_group_replies(id) ON DELETE CASCADE
+        )');
+    }
+
+    /**
+     * The reply/reaction service trio, wired the same way public/index.php
+     * wires it. Built here rather than in each test file so the three that
+     * need a GroupFeedService cannot drift from the composition root — or
+     * from each other.
+     *
+     * @return array{
+     *     replyRepository: \Modules\Groups\Repository\ReplyRepository,
+     *     replyService: \Modules\Groups\Service\ReplyService,
+     *     reactionService: \Modules\Groups\Service\ReactionService,
+     *     replyPresenter: \Modules\Groups\Service\ReplyPresenter
+     * }
+     */
+    public static function replyStack(
+        \PDO $pdo,
+        \Modules\Groups\Service\GroupActivityService $activityService,
+        \Modules\Groups\Service\PostMediaService $postMediaService,
+        \Modules\Groups\Service\PostAuthorResolver $authorResolver
+    ): array {
+        $replyRepository = new \Modules\Groups\Repository\ReplyRepository($pdo);
+        $replyService = new \Modules\Groups\Service\ReplyService($replyRepository, $activityService, $postMediaService);
+        $reactionService = new \Modules\Groups\Service\ReactionService(
+            \Modules\Groups\Repository\ReactionRepository::forPosts($pdo),
+            \Modules\Groups\Repository\ReactionRepository::forReplies($pdo),
+            $activityService
+        );
+
+        return [
+            'replyRepository' => $replyRepository,
+            'replyService' => $replyService,
+            'reactionService' => $reactionService,
+            'replyPresenter' => new \Modules\Groups\Service\ReplyPresenter(
+                $authorResolver,
+                $replyService,
+                $reactionService
+            ),
+        ];
+    }
+
+    /**
+     * A reply with an explicit created_at — how every edit-window and
+     * pagination test builds the exact state it needs without waiting for
+     * the clock, same shape as createPostAt() above.
+     */
+    public static function createReplyAt(
+        \PDO $pdo,
+        int $postId,
+        string $body,
+        string $at,
+        int $accountId = 1,
+        int $memberId = 1,
+        ?int $galleryMediaId = null
+    ): int {
+        $stmt = $pdo->prepare(
+            'INSERT INTO discussion_group_replies
+                (post_id, author_user_account_id, author_member_id, body, gallery_media_id, edited_at, created_at)
+             VALUES (?, ?, ?, ?, ?, NULL, ?)'
+        );
+        $stmt->execute([$postId, $accountId, $memberId, $body, $galleryMediaId, $at]);
+
+        return (int) $pdo->lastInsertId();
     }
 
     /**

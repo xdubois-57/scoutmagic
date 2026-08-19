@@ -307,3 +307,69 @@
     -webkit-box-orient: vertical;
     overflow: hidden;
 }
+
+/* Modules\Groups\views\partials\reactions.html.twig — the six-emoji picker
+   and the running tally, on posts and (in the -compact variant) on
+   replies. Every button is a real form submit, so the 44px touch target
+   is on the button itself rather than on a wrapper. */
+.groups-reaction-btn {
+    min-width: 44px;
+    min-height: 44px;
+    padding: 0;
+    line-height: 1;
+    font-size: 1.1rem;
+    border: 1px solid transparent;
+    background: transparent;
+    border-radius: 999px;
+}
+.groups-reaction-btn:hover,
+.groups-reaction-btn:focus-visible {
+    background-color: var(--bs-tertiary-bg);
+}
+.groups-reaction-btn-own {
+    border-color: var(--bs-primary-border-subtle);
+    background-color: var(--bs-primary-bg-subtle);
+}
+.groups-reaction-count {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.15rem;
+    padding: 0.1rem 0.45rem;
+    border-radius: 999px;
+    background-color: var(--bs-tertiary-bg);
+    font-size: 0.8rem;
+    line-height: 1.4;
+}
+.groups-reaction-own {
+    background-color: var(--bs-primary-bg-subtle);
+    font-weight: 600;
+}
+/* On a reply the picker would dominate the bubble at full size, so it
+   shrinks — the tally keeps its own size, since that is the part people
+   actually read. */
+.groups-reactions-compact .groups-reaction-btn {
+    min-width: 34px;
+    min-height: 34px;
+    font-size: 0.95rem;
+}
+
+/* Modules\Groups\views\partials\reply_card.html.twig — one level of
+   replies, never nested (schema.sql has no parent_reply_id), so a single
+   fixed indent is all that is ever needed. */
+.groups-reply {
+    padding-left: 0.75rem;
+    border-left: 2px solid var(--bs-border-color);
+}
+.groups-reply-bubble {
+    background-color: var(--bs-tertiary-bg);
+    border-radius: 0.75rem;
+    padding: 0.5rem 0.75rem;
+}
+.groups-reply-image-link {
+    max-width: 220px;
+}
+.groups-reply-image-link img {
+    width: 100%;
+    height: auto;
+    border-radius: 0.5rem;
+}

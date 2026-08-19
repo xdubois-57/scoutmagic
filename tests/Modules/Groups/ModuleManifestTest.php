@@ -37,24 +37,62 @@ class ModuleManifestTest extends TestCase
      */
     public function testTheVersionIsBumpedWheneverTheSchemaChanges(): void
     {
-        $this->assertSame('1.3.0', $this->manifest->version);
+        $this->assertSame('1.4.0', $this->manifest->version);
     }
 
-    public function testThePostActionsAreDeclaredAsPostRoutesOnly(): void
+    /**
+     * Every route that CHANGES something is POST — never GET, which a
+     * crawler, a prefetch or an <img src> could trigger without the
+     * visitor ever meaning to, and which carries no CSRF token.
+     *
+     * Read-only endpoints under the same prefixes are legitimately GET
+     * (the feed's own "Charger plus", and a post's replies listing), so
+     * this asserts the write paths specifically rather than "anything
+     * containing /posts", which would have to be relaxed every time a
+     * read endpoint is added — exactly the kind of assertion that gets
+     * weakened rather than fixed.
+     */
+    public function testEveryStateChangingRouteIsDeclaredAsPostOnly(): void
     {
-        $postPaths = [];
+        $writePaths = [
+            '/groups',
+            '/groups/{id}/invite-member',
+            '/groups/{id}/invite-section',
+            '/groups/{id}/moderator',
+            '/groups/{id}/remove-member',
+            '/groups/{id}/posts',
+            '/groups/{id}/posts/{postId}/edit',
+            '/groups/{id}/posts/{postId}/delete',
+            '/groups/{id}/posts/{postId}/pin',
+            '/groups/{id}/posts/{postId}/unpin',
+            '/groups/{id}/posts/{postId}/replies',
+            '/groups/{id}/posts/{postId}/react',
+            '/groups/{id}/replies/{replyId}/edit',
+            '/groups/{id}/replies/{replyId}/delete',
+            '/groups/{id}/replies/{replyId}/react',
+        ];
+
+        $declared = [];
         foreach ($this->manifest->routes as $route) {
-            if (str_contains($route['path'], '/posts')) {
-                $this->assertSame('POST', $route['method'], $route['path']);
-                $postPaths[] = $route['path'];
-            }
+            $declared[$route['method'] . ' ' . $route['path']] = true;
         }
 
-        $this->assertContains('/groups/{id}/posts', $postPaths);
-        $this->assertContains('/groups/{id}/posts/{postId}/edit', $postPaths);
-        $this->assertContains('/groups/{id}/posts/{postId}/delete', $postPaths);
-        $this->assertContains('/groups/{id}/posts/{postId}/pin', $postPaths);
-        $this->assertContains('/groups/{id}/posts/{postId}/unpin', $postPaths);
+        foreach ($writePaths as $path) {
+            $this->assertArrayHasKey('POST ' . $path, $declared, $path . ' must be declared as a POST route');
+        }
+    }
+
+    /**
+     * The two read-only companions of those write routes, which ARE GET:
+     * pinned here so neither can quietly become a POST-only route and
+     * break the "Charger plus" buttons that fetch them.
+     */
+    public function testTheTwoPaginationEndpointsAreGet(): void
+    {
+        $declared = array_map(fn(array $r) => $r['method'] . ' ' . $r['path'], $this->manifest->routes);
+
+        $this->assertContains('GET /groups/{id}/feed', $declared);
+        $this->assertContains('GET /groups/{id}/posts/{postId}/replies', $declared);
     }
 
     public function testItHardDependsOnGallery(): void

@@ -334,6 +334,116 @@ class PostMediaIntegrationTest extends TestCase
         return GroupsTestHelper::createPostAt($this->pdo, $this->groupId, 'Bonjour', '2026-01-01 10:00:00');
     }
 
+    private function replyService(): \Modules\Groups\Service\ReplyService
+    {
+        return new \Modules\Groups\Service\ReplyService(
+            new \Modules\Groups\Repository\ReplyRepository($this->pdo),
+            new \Modules\Groups\Service\GroupActivityService(
+                $this->groupRepo,
+                new \Modules\Groups\Repository\PostRepository($this->pdo)
+            ),
+            $this->postMediaService()
+        );
+    }
+
+    /**
+     * DoD: "A non-member cannot fetch a reply image, tested."
+     *
+     * A reply's image goes through the SAME delegated album as post media
+     * (module spec: no second storage path), so it is guarded by the same
+     * owner_type — this asserts that end-to-end rather than assuming the
+     * reuse carried the guarantee with it.
+     */
+    public function testAReplyImageIsInaccessibleToANonMemberThroughFileAccessGuard(): void
+    {
+        $currentYearId = (int) $this->pdo->query('SELECT id FROM scout_years LIMIT 1')->fetchColumn();
+        $member = GroupsTestHelper::createMember($this->pdo, 'M1');
+        (new \Modules\Groups\Repository\GroupMemberRepository($this->pdo))->add($this->groupId, $member, false, null);
+        $outsider = GroupsTestHelper::createMember($this->pdo, 'OUT');
+
+        $group = $this->groupRepo->findById($this->groupId);
+        $mediaId = $this->postMediaService()->addOne($group, $this->fakeUploadedImage(), $this->creatorAccountId);
+        $fileId = $this->mediaRepo->findById($mediaId)->fileId;
+
+        $checker = $this->fileOwnershipChecker($currentYearId);
+        $memberGuard = new FileAccessGuard($this->fileRepo, Role::IDENTIFIED, [$member], [$checker]);
+        $outsiderGuard = new FileAccessGuard($this->fileRepo, Role::IDENTIFIED, [$outsider], [$checker]);
+
+        $this->assertNotNull($memberGuard->check($fileId));
+        $this->assertNull($outsiderGuard->check($fileId));
+    }
+
+    /**
+     * DoD: "Deleting a post cascades to replies, reactions and reply
+     * images with no orphan row or orphan stored object, tested."
+     *
+     * Verifies the cascade actually FIRES rather than assuming it (module
+     * spec's own pitfall): FK enforcement is on for this file, and the
+     * reply image — which lives in another module's table, outside any
+     * CASCADE reach — is checked on disk, not just in the database.
+     */
+    public function testDeletingAPostCascadesToRepliesReactionsAndReplyImages(): void
+    {
+        $group = $this->groupRepo->findById($this->groupId);
+        $postId = $this->post();
+        $replyService = $this->replyService();
+
+        // A reply carrying an image, plus reactions on both the post and
+        // the reply — everything a post's deletion has to sweep.
+        $mediaId = $this->postMediaService()->addOne($group, $this->fakeUploadedImage(), $this->creatorAccountId);
+        $group = $this->groupRepo->findById($this->groupId); // refreshed: now carries galleryAlbumId
+        $replyId = GroupsTestHelper::createReplyAt($this->pdo, $postId, 'Avec image', '2026-01-01 10:01:00', 1, 1, $mediaId);
+        $textOnlyReplyId = GroupsTestHelper::createReplyAt($this->pdo, $postId, 'Sans image', '2026-01-01 10:02:00');
+
+        $member = GroupsTestHelper::createMember($this->pdo, 'REACTOR');
+        \Modules\Groups\Repository\ReactionRepository::forPosts($this->pdo)->set($postId, $member, 'heart');
+        \Modules\Groups\Repository\ReactionRepository::forReplies($this->pdo)->set($replyId, $member, 'clap');
+        \Modules\Groups\Repository\ReactionRepository::forReplies($this->pdo)->set($textOnlyReplyId, $member, 'joy');
+
+        // Give the reply's media real stored renditions, so their
+        // disappearance is genuinely observed on disk.
+        $location = $this->storageLocationRepo->findDefault();
+        $backend = $this->storageBackendFactory->create($location);
+        $albumId = $group->galleryAlbumId;
+        $backend->put("{$albumId}/thumb_{$mediaId}.jpg", 'thumb-bytes', 'image/jpeg');
+        $this->mediaRepo->markPhotoDone(
+            $mediaId, "{$albumId}/thumb_{$mediaId}.jpg", "{$albumId}/med_{$mediaId}.jpg", "{$albumId}/lg_{$mediaId}.jpg", 10, 10
+        );
+        $thumbPath = $this->storagePath . "/gallery/{$albumId}/thumb_{$mediaId}.jpg";
+        $this->assertFileExists($thumbPath);
+
+        // Mirrors Controller\PostController::delete()'s own sequence.
+        $this->postMediaService()->deleteAllForPost($group, $postId);
+        $replyService->deleteAllMediaForPost($group, $postId);
+        (new \Modules\Groups\Repository\PostRepository($this->pdo))->delete($postId);
+
+        // The reply's stored image is gone from disk and from gallery.
+        $this->assertFileDoesNotExist($thumbPath);
+        $this->assertNull($this->mediaRepo->findById($mediaId));
+
+        // And the CASCADE really fired: no reply row, no reaction row of
+        // either kind, anywhere.
+        $this->assertSame(0, $this->countRows('discussion_group_replies'));
+        $this->assertSame(0, $this->countRows('discussion_group_post_reactions'));
+        $this->assertSame(0, $this->countRows('discussion_group_reply_reactions'));
+    }
+
+    /**
+     * The negative control for the test above: without FK enforcement the
+     * cascade silently does nothing, so this pins that the fixture really
+     * has it on — otherwise the assertions above would pass vacuously on a
+     * database that never cascaded at all.
+     */
+    public function testForeignKeyEnforcementIsActuallyOnInThisFixture(): void
+    {
+        $this->assertSame(1, (int) $this->pdo->query('PRAGMA foreign_keys')->fetchColumn());
+    }
+
+    private function countRows(string $table): int
+    {
+        return (int) $this->pdo->query("SELECT COUNT(*) FROM {$table}")->fetchColumn();
+    }
+
     protected function tearDown(): void
     {
         $this->recursiveDelete($this->storagePath);

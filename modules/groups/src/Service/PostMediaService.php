@@ -107,6 +107,51 @@ class PostMediaService
     }
 
     /**
+     * Stores ONE media in the group's delegated album and returns its
+     * gallery media id, without attaching it to any post — how a reply's
+     * single optional image gets in (Service\ReplyService). Deliberately
+     * the same album, the same Api\DelegatedAlbumManager and therefore the
+     * same ownership checker as post media: a reply image is group media
+     * like any other and shows up in "Galerie du groupe" for free, which a
+     * second storage path would have broken (module spec).
+     *
+     * @param array{name: string, tmp_name: string, error: int, size: int, type: string} $uploadedFile
+     * @throws GalleryException on an invalid file, a disabled type or over-quota
+     */
+    public function addOne(DiscussionGroup $group, array $uploadedFile, int $accountId): int
+    {
+        $albumId = $this->ensureAlbumId($group, $accountId);
+
+        return $this->delegatedAlbumManager->addMedia($albumId, $uploadedFile, $accountId)->id;
+    }
+
+    /**
+     * Removes one gallery media (row and stored object) from the group's
+     * album — the counterpart of addOne(), used when a reply carrying an
+     * image is deleted, and when a post's deletion sweeps its replies'
+     * images (Service\ReplyService::deleteAllMediaForPost()).
+     *
+     * Re-reads the album id fresh from the repository for the same reason
+     * deleteAllForPost() does, and never throws for the same reason: a
+     * media row already gone must not block the deletion that triggered
+     * this.
+     */
+    public function deleteOne(DiscussionGroup $group, int $mediaId): void
+    {
+        $albumId = $this->groupRepository->findById($group->id)?->galleryAlbumId;
+        if ($albumId === null) {
+            return;
+        }
+
+        try {
+            $this->delegatedAlbumManager->deleteMedia($albumId, $mediaId);
+        } catch (GalleryException) {
+            // Already gone (or the album vanished) — nothing left to clean
+            // up either way.
+        }
+    }
+
+    /**
      * Removes every gallery media (row and stored object) already
      * attached to a post — used both to roll back a post rejected
      * partway through addMedia(), and on a genuine post deletion

@@ -221,7 +221,59 @@ document.addEventListener('click', async (event) => {
     if (editCancel) {
         document.getElementById('post-edit-' + editCancel.dataset.post)?.classList.add('d-none');
         document.getElementById('post-body-' + editCancel.dataset.post)?.classList.remove('d-none');
+        return;
     }
+
+    // "Voir plus de réponses" — appends the next page of replies in place,
+    // exactly like "Charger plus" does for the feed itself. Degrades to
+    // nothing if this script never runs: the replies already rendered
+    // server-side stay visible, and every action below them is a plain
+    // form POST.
+    const repliesMore = event.target.closest('.groups-replies-more');
+    if (repliesMore) {
+        repliesMore.disabled = true;
+        const response = await fetch(repliesMore.dataset.url, { headers: { 'X-Requested-With': 'fetch' } });
+        if (response.ok) {
+            const wrapper = repliesMore.closest('.groups-replies-more-wrapper');
+            wrapper.insertAdjacentHTML('beforebegin', await response.text());
+            wrapper.remove();
+        } else {
+            repliesMore.disabled = false;
+        }
+        return;
+    }
+
+    const replyEditToggle = event.target.closest('.groups-reply-edit-toggle');
+    if (replyEditToggle) {
+        document.getElementById('reply-edit-' + replyEditToggle.dataset.reply)?.classList.remove('d-none');
+        document.getElementById('reply-body-' + replyEditToggle.dataset.reply)?.classList.add('d-none');
+        return;
+    }
+
+    const replyEditCancel = event.target.closest('.groups-reply-edit-cancel');
+    if (replyEditCancel) {
+        document.getElementById('reply-edit-' + replyEditCancel.dataset.reply)?.classList.add('d-none');
+        document.getElementById('reply-body-' + replyEditCancel.dataset.reply)?.classList.remove('d-none');
+    }
+});
+
+// The reply composer's image picker is a bare <input type="file"> with no
+// preview grid (one image, not four) — this only surfaces the chosen
+// filename so the member can tell something is attached before sending.
+document.addEventListener('change', (event) => {
+    const input = event.target.closest('.groups-reply-image');
+    if (!input) {
+        return;
+    }
+
+    const label = input.closest('form')?.querySelector('.groups-reply-image-name');
+    if (!label) {
+        return;
+    }
+
+    const name = input.files && input.files.length > 0 ? input.files[0].name : '';
+    label.textContent = name;
+    label.classList.toggle('d-none', name === '');
 });
 </script>
 {% endblock %}

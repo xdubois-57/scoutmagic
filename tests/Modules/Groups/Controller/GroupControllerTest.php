@@ -24,6 +24,7 @@ use Modules\Groups\Repository\GroupSectionRepository;
 use Modules\Groups\Repository\PostLinkRepository;
 use Modules\Groups\Repository\PostMediaRepository;
 use Modules\Groups\Repository\PostRepository;
+use Modules\Groups\Service\AuthorOptionsService;
 use Modules\Groups\Service\GroupAccessService;
 use Modules\Groups\Service\GroupActivityService;
 use Modules\Groups\Service\GroupFeedService;
@@ -139,14 +140,18 @@ class GroupControllerTest extends TestCase
         $twig->addFunction(new \Twig\TwigFunction('param', fn(...$a) => ''));
 
         $postRepo = new PostRepository($this->pdo);
-        $postService = new PostService($postRepo, new GroupActivityService($this->groupRepo, $postRepo));
+        $activityService = new GroupActivityService($this->groupRepo, $postRepo);
+        $postService = new PostService($postRepo, $activityService);
         $postMediaService = new PostMediaService(
             $delegatedAlbumManager ?? $this->createMock(DelegatedAlbumManager::class),
             new PostMediaRepository($this->pdo), $this->groupRepo
         );
+        $authorResolver = new PostAuthorResolver($this->memberService, $accountRepo);
+        $stack = GroupsTestHelper::replyStack($this->pdo, $activityService, $postMediaService, $authorResolver);
         $feedService = new GroupFeedService(
-            $postRepo, new PostAuthorResolver($this->memberService, $accountRepo), $postService, $postMediaService,
-            new PostLinkRepository($this->pdo)
+            $postRepo, $authorResolver, $postService, $postMediaService,
+            new PostLinkRepository($this->pdo),
+            $stack['replyRepository'], $stack['replyPresenter'], $stack['reactionService']
         );
 
         return new GroupController(
@@ -158,8 +163,8 @@ class GroupControllerTest extends TestCase
             new GroupSessionContextFactory($this->memberService, $accountRepo, $resolver),
             $sectionService,
             $feedService,
-            $this->memberService,
-            $postMediaService
+            $postMediaService,
+            new AuthorOptionsService($access, $this->memberService)
         );
     }
 

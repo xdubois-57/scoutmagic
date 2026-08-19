@@ -73,6 +73,12 @@
         {% include '@groups/partials/post_media_grid.html.twig' with { media: row.media } %}
         {% include '@groups/partials/post_link.html.twig' with { link: row.link } %}
 
+        {% include '@groups/partials/reactions.html.twig' with {
+            summary: row.reactions,
+            action: '/groups/' ~ group.id ~ '/posts/' ~ row.post.id ~ '/react',
+            compact: false
+        } only %}
+
         {% if row.can_edit %}
             <form method="post" action="/groups/{{ group.id }}/posts/{{ row.post.id }}/edit"
                   class="mt-2 d-none groups-edit-form" id="post-edit-{{ row.post.id }}">
@@ -85,6 +91,50 @@
                     <button type="button" class="btn btn-sm btn-outline-secondary d-flex align-items-center groups-edit-cancel"
                             style="min-height:44px;" data-post="{{ row.post.id }}">Annuler</button>
                 </div>
+            </form>
+        {% endif %}
+
+        {% if row.reply_count > 0 or post_permission.allowed|default(false) %}
+            <div class="groups-replies mt-2" id="post-replies-{{ row.post.id }}">
+                {% include '@groups/partials/reply_page.html.twig' with {
+                    replies: row.replies,
+                    group: group,
+                    post: row.post,
+                    replies_next_after_id: row.replies_next_after_id
+                } only %}
+            </div>
+        {% endif %}
+
+        {% if post_permission.allowed|default(false) %}
+            <form method="post" action="/groups/{{ group.id }}/posts/{{ row.post.id }}/replies"
+                  enctype="multipart/form-data" class="groups-reply-form mt-2">
+                {{ csrf_field()|raw }}
+                {% if author_options|default([]) is not empty %}
+                    <label class="visually-hidden" for="reply-author-{{ row.post.id }}">Répondre en tant que</label>
+                    <select class="form-select form-select-sm mb-2" id="reply-author-{{ row.post.id }}"
+                            name="author_member_id" style="min-height:44px;">
+                        {% for option in author_options %}
+                            <option value="{{ option.id }}">{{ option.name }}</option>
+                        {% endfor %}
+                    </select>
+                {% endif %}
+                <div class="d-flex align-items-center gap-2">
+                    <label class="visually-hidden" for="reply-body-input-{{ row.post.id }}">Répondre</label>
+                    <input type="text" class="form-control form-control-sm" id="reply-body-input-{{ row.post.id }}"
+                           name="body" placeholder="Répondre…" style="min-height:44px;"
+                           maxlength="{{ constant('Modules\\Groups\\Service\\ReplyService::MAX_BODY_LENGTH') }}">
+                    <label class="btn btn-sm btn-outline-secondary d-flex align-items-center mb-0"
+                           style="min-height:44px;" aria-label="Joindre une image à la réponse">
+                        <i class="bi bi-image"></i>
+                        {# One image maximum — no `multiple`, and the server rejects a second one anyway. #}
+                        <input type="file" name="image[]" class="visually-hidden groups-reply-image" accept="image/*">
+                    </label>
+                    <button type="submit" class="btn btn-sm btn-primary d-flex align-items-center"
+                            style="min-height:44px;" aria-label="Envoyer la réponse">
+                        <i class="bi bi-send"></i>
+                    </button>
+                </div>
+                <p class="small text-body-secondary mt-1 mb-0 d-none groups-reply-image-name"></p>
             </form>
         {% endif %}
     </div>

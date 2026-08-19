@@ -2238,12 +2238,34 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
         $uploadHandler, $fileRepository, $storagePath
     );
 
+    // Replies and reactions (prompt 8). The two reaction repositories are
+    // the same class over its two tables — see Repository\ReactionRepository
+    // for why one class serves both, and modules/groups/schema.sql for why
+    // there are two tables rather than one polymorphic one.
+    $groupsReplyRepo = new \Modules\Groups\Repository\ReplyRepository($pdo);
+    $groupsReplyService = new \Modules\Groups\Service\ReplyService(
+        $groupsReplyRepo, $groupsActivityService, $groupsPostMediaService
+    );
+    $groupsReactionService = new \Modules\Groups\Service\ReactionService(
+        \Modules\Groups\Repository\ReactionRepository::forPosts($pdo),
+        \Modules\Groups\Repository\ReactionRepository::forReplies($pdo),
+        $groupsActivityService
+    );
+    $groupsAuthorResolver = new \Modules\Groups\Service\PostAuthorResolver($memberService, $userAccountRepo);
+    $groupsReplyPresenter = new \Modules\Groups\Service\ReplyPresenter(
+        $groupsAuthorResolver, $groupsReplyService, $groupsReactionService
+    );
+    $groupsAuthorOptionsService = new \Modules\Groups\Service\AuthorOptionsService($groupsAccessService, $memberService);
+
     $groupsFeedService = new \Modules\Groups\Service\GroupFeedService(
         $groupsPostRepo,
-        new \Modules\Groups\Service\PostAuthorResolver($memberService, $userAccountRepo),
+        $groupsAuthorResolver,
         $groupsPostService,
         $groupsPostMediaService,
-        $groupsPostLinkRepo
+        $groupsPostLinkRepo,
+        $groupsReplyRepo,
+        $groupsReplyPresenter,
+        $groupsReactionService
     );
 
     // Group files are readable only by the group's own members —
@@ -2269,14 +2291,30 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
         \Modules\Groups\Controller\GroupController::class,
         new \Modules\Groups\Controller\GroupController(
             $twig, $groupsGroupRepo, $groupsListService, $groupsAccessService, $groupsService,
-            $groupsContextFactory, $sectionService, $groupsFeedService, $memberService, $groupsPostMediaService
+            $groupsContextFactory, $sectionService, $groupsFeedService, $groupsPostMediaService,
+            $groupsAuthorOptionsService
         )
     );
     $frontController->registerController(
         \Modules\Groups\Controller\PostController::class,
         new \Modules\Groups\Controller\PostController(
             $twig, $groupsGroupRepo, $groupsPostRepo, $groupsAccessService, $groupsFeedService,
-            $groupsPostService, $groupsContextFactory, $groupsPostMediaService, $groupsPostLinkService
+            $groupsPostService, $groupsContextFactory, $groupsPostMediaService, $groupsPostLinkService,
+            $groupsReplyService, $groupsAuthorOptionsService
+        )
+    );
+    $frontController->registerController(
+        \Modules\Groups\Controller\ReplyController::class,
+        new \Modules\Groups\Controller\ReplyController(
+            $twig, $groupsGroupRepo, $groupsPostRepo, $groupsReplyRepo, $groupsAccessService,
+            $groupsReplyService, $groupsReplyPresenter, $groupsPostMediaService, $groupsContextFactory
+        )
+    );
+    $frontController->registerController(
+        \Modules\Groups\Controller\ReactionController::class,
+        new \Modules\Groups\Controller\ReactionController(
+            $twig, $groupsGroupRepo, $groupsPostRepo, $groupsReplyRepo, $groupsAccessService,
+            $groupsReactionService, $groupsContextFactory
         )
     );
     $frontController->registerController(
