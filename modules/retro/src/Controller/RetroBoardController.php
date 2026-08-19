@@ -49,6 +49,14 @@ class RetroBoardController extends AbstractController
     private const VOTER_COOKIE = 'retro_voter';
     private const VOTER_COOKIE_DAYS = 365;
 
+    /**
+     * How far past the board's own comment limit a text may still be handed
+     * to shorten(). Rewriting a slightly-too-long comment is the whole point,
+     * so the cap has to sit above maxCommentLength — but "shorten this novel"
+     * is not a real use of the feature, just a way to run up the AI bill.
+     */
+    private const SHORTEN_MAX_INPUT_FACTOR = 4;
+
     public function __construct(
         Environment $twig,
         private BoardRepository $boardRepository,
@@ -281,8 +289,32 @@ class RetroBoardController extends AbstractController
             return $this->json(['success' => false, 'error' => 'Service IA non disponible.'], 422);
         }
 
+        // Same three guards Service\CommentService::postComment() applies
+        // before it reaches the LLM, and for the same reason: this route is
+        // role_min "public", so without them any visitor holding a board URL
+        // could spend the unit's AI budget in a loop, on a closed board, with
+        // a body of unbounded size.
+        if (!$board->isOpen()) {
+            return $this->json(['success' => false, 'error' => 'Ce board est clôturé.'], 422);
+        }
+
+        $body = trim((string) ($data['body'] ?? ''));
+        if ($body === '') {
+            return $this->json(['success' => false, 'error' => 'Le commentaire ne peut pas être vide.'], 422);
+        }
+        if (mb_strlen($body) > $board->maxCommentLength * self::SHORTEN_MAX_INPUT_FACTOR) {
+            return $this->json([
+                'success' => false,
+                'error' => 'Message beaucoup trop long pour être raccourci — réduis-le d\'abord.',
+            ], 422);
+        }
+
         try {
-            $shortened = $this->moderationService->shorten((string) ($data['body'] ?? ''), $board->maxCommentLength);
+            $this->rateLimitService->checkAndRecord(
+                $this->rateLimitService->identifierHash($this->readVoterCookie($request), session_id()),
+                'shorten'
+            );
+            $shortened = $this->moderationService->shorten($body, $board->maxCommentLength);
         } catch (RetroException $e) {
             return $this->json(['success' => false, 'error' => $e->getMessage()], 422);
         }

@@ -109,4 +109,64 @@ class ModerationServiceTest extends TestCase
         $this->expectException(RetroException::class);
         $service->shorten('text', 20);
     }
+
+    /**
+     * Structured output is prompt-instructed, not API-enforced, so a model
+     * can answer with the string "false" — truthy in PHP, which used to flag
+     * a perfectly civil comment and block it in "enforced" mode.
+     */
+    public function testModerateTreatsAStringFalseAsNotFlagged(): void
+    {
+        $llmConnector = $this->createMock(LlmConnectorInterface::class);
+        $llmConnector->method('isAvailable')->willReturn(true);
+        $llmConnector->method('complete')->willReturn(new LlmResponse(
+            content: '{"flagged":"false","reason":null,"suggestion":null}',
+            parsed: ['flagged' => 'false', 'reason' => null, 'suggestion' => null],
+            inputTokens: 5,
+            outputTokens: 5
+        ));
+
+        $result = (new ModerationService($llmConnector))->moderate('Un commentaire tout à fait courtois.', 140);
+
+        $this->assertNotNull($result);
+        $this->assertFalse($result['flagged']);
+    }
+
+    public function testModerateTreatsAStringTrueAsNotFlaggedEither(): void
+    {
+        $llmConnector = $this->createMock(LlmConnectorInterface::class);
+        $llmConnector->method('isAvailable')->willReturn(true);
+        $llmConnector->method('complete')->willReturn(new LlmResponse(
+            content: '{"flagged":"true","reason":"Attaque","suggestion":"Reformule"}',
+            parsed: ['flagged' => 'true', 'reason' => 'Attaque', 'suggestion' => 'Reformule'],
+            inputTokens: 5,
+            outputTokens: 5
+        ));
+
+        // Only a real boolean counts. Falling back to "not flagged" is the
+        // safe direction: moderation is a courtesy check, and a chief can
+        // still hide a comment afterwards.
+        $result = (new ModerationService($llmConnector))->moderate('Un commentaire.', 140);
+
+        $this->assertNotNull($result);
+        $this->assertFalse($result['flagged']);
+    }
+
+    public function testModerateStillFlagsOnARealBooleanTrue(): void
+    {
+        $llmConnector = $this->createMock(LlmConnectorInterface::class);
+        $llmConnector->method('isAvailable')->willReturn(true);
+        $llmConnector->method('complete')->willReturn(new LlmResponse(
+            content: '{"flagged":true,"reason":"Attaque personnelle","suggestion":"Reformule"}',
+            parsed: ['flagged' => true, 'reason' => 'Attaque personnelle', 'suggestion' => 'Reformule'],
+            inputTokens: 5,
+            outputTokens: 5
+        ));
+
+        $result = (new ModerationService($llmConnector))->moderate('Un commentaire.', 140);
+
+        $this->assertNotNull($result);
+        $this->assertTrue($result['flagged']);
+        $this->assertSame('Attaque personnelle', $result['reason']);
+    }
 }

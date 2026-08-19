@@ -243,7 +243,7 @@ function updateModelsList(driver) {
 
 function escapeHtml(text) {
     const div = document.createElement('div');
-    div.textContent = text;
+    div.textContent = text ?? '';
     return div.innerHTML;
 }
 
@@ -282,7 +282,7 @@ document.getElementById('provider-form')?.addEventListener('submit', async (e) =
     });
     const data = await res.json();
     if (!data.success) {
-        msgEl.innerHTML = '<div class="alert alert-danger mb-0">' + data.error + '</div>';
+        msgEl.innerHTML = '<div class="alert alert-danger mb-0">' + escapeHtml(data.error) + '</div>';
         return;
     }
 
@@ -334,10 +334,10 @@ async function testConnection(providerId, shouldActivate = false) {
         }
         
         updateSummary(data);
-        msgEl.innerHTML = '<div class="alert alert-success mb-0">Connexion réussie — ' + data.message.replace('Connexion réussie — ', '') + '</div>';
+        msgEl.innerHTML = '<div class="alert alert-success mb-0">Connexion réussie — ' + escapeHtml(String(data.message || '').replace('Connexion réussie — ', '')) + '</div>';
         setTimeout(() => window.location.reload(), 800);
     } else {
-        msgEl.innerHTML = '<div class="alert alert-danger mb-0">' + data.error + '</div>';
+        msgEl.innerHTML = '<div class="alert alert-danger mb-0">' + escapeHtml(data.error) + '</div>';
     }
 }
 

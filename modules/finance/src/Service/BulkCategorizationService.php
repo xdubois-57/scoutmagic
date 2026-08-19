@@ -26,9 +26,35 @@ use Modules\Finance\Repository\TransactionRepository;
 class BulkCategorizationService
 {
     private const AI_ENABLED_SETTING_KEY = 'ai_categorization_enabled';
-    private const RUNNING_SETTING_KEY = 'bulk_categorization_running';
+    /**
+     * Unix timestamp of the currently-claimed run, or '0'. A distinct key
+     * from the boolean 'bulk_categorization_running' this replaces: an
+     * existing install already carries that row typed as `boolean`, and
+     * SettingRepository::upsert() never changes an existing row's type while
+     * SettingService::setInternal() validates against it — writing a
+     * timestamp there would throw on every upgraded site. The old row simply
+     * falls out of use.
+     */
+    private const RUNNING_SETTING_KEY = 'bulk_categorization_started_at';
+
+    /**
+     * The key the one above replaces. Only ever read, never written: an
+     * install from before this change already carries that row typed as
+     * `boolean`, SettingRepository::upsert() never re-types an existing row,
+     * and SettingService::setInternal() validates against the stored type —
+     * so writing a timestamp there throws on exactly the sites that have one.
+     */
+    private const LEGACY_RUNNING_SETTING_KEY = 'bulk_categorization_running';
     private const LAST_RESULT_SETTING_KEY = 'bulk_categorization_last_result';
     private const RUN_TASK_KEY = 'run_categorization_rules';
+
+    /**
+     * Ceiling for a background run. The poor man's cron executes this inside
+     * a normal web request, whose default max_execution_time (often 30s) is
+     * far below what one LLM call per uncategorized movement needs — and
+     * exceeding it is a fatal error that skips the finally block below.
+     */
+    private const RUN_TIME_LIMIT_SECONDS = 1800;
 
     public function __construct(
         private TransactionRepository $transactionRepository,
@@ -70,23 +96,35 @@ class BulkCategorizationService
      * cleared once runInBackground() finishes, success or failure.
      *
      * A marker older than RUNNING_STALE_AFTER_SECONDS is reported as not
-     * running: see that constant for why one can be left behind.
+     * running: see that constant for why one can be left behind. The most
+     * likely way that happens is not an exception at all — the poor man's
+     * cron runs the batch inside an ordinary web request, and exceeding
+     * max_execution_time is a fatal error, which skips runInBackground()'s
+     * finally block entirely.
      */
     public function isRunning(): bool
     {
-        $value = $this->settingService->get(self::RUNNING_SETTING_KEY, 'finance', '0');
-        if ($value === null || $value === '' || $value === '0') {
+        $startedAt = (int) ($this->settingService->get(self::RUNNING_SETTING_KEY, 'finance', '0') ?: '0');
+        if ($startedAt > 0) {
+            return (time() - $startedAt) < self::RUNNING_STALE_AFTER_SECONDS;
+        }
+
+        return $this->hasLegacyRunningMarker();
+    }
+
+    /**
+     * A bare '1' written under the old key by a version that recorded no
+     * timestamp. Still honoured, so upgrading mid-run does not immediately
+     * start a second one — but only while the scheduled task it refers to is
+     * actually still queued, since the marker carries no expiry of its own.
+     */
+    private function hasLegacyRunningMarker(): bool
+    {
+        if ($this->settingService->get(self::LEGACY_RUNNING_SETTING_KEY, 'finance', '0') !== '1') {
             return false;
         }
 
-        // Historic marker from before the timestamp was recorded: treated
-        // as running, and the next completed run rewrites it as '0'.
-        if ($value === '1') {
-            return true;
-        }
-
-        $startedAt = (int) $value;
-        return $startedAt > 0 && (time() - $startedAt) < self::RUNNING_STALE_AFTER_SECONDS;
+        return $this->schedulerService->find('finance', self::RUN_TASK_KEY) !== null;
     }
 
     /**
@@ -101,7 +139,7 @@ class BulkCategorizationService
 
     private function registerRunningSetting(): void
     {
-        $this->settingService->register(self::RUNNING_SETTING_KEY, '0', 'text', 'Exécution des règles en cours', 'Indicateur interne — ne pas modifier.', 'finance', null, null, false);
+        $this->settingService->register(self::RUNNING_SETTING_KEY, '0', 'number', 'Exécution des règles en cours depuis', 'Indicateur interne — ne pas modifier.', 'finance', null, null, false);
     }
 
     /**
@@ -151,13 +189,39 @@ class BulkCategorizationService
      */
     public function runInBackground(): void
     {
+        // Same reasoning as Core\View\RgpdContentService::generateWithAi():
+        // max_execution_time is a hard script timeout, not a catchable
+        // exception, so it must be raised before the work rather than
+        // handled after it.
+        $previousLimit = (int) ini_get('max_execution_time');
+        @set_time_limit(self::RUN_TIME_LIMIT_SECONDS);
+
         try {
             $result = $this->runOnUncategorized();
             $this->storeLastResult($result);
         } finally {
-            $this->registerRunningSetting();
-            $this->settingService->setInternal(self::RUNNING_SETTING_KEY, '0', 'finance');
+            $this->clearRunning();
+            @set_time_limit($previousLimit);
         }
+    }
+
+    /**
+     * Public so a stuck lock can also be released deliberately — see
+     * Controller\ConfigRuleController's "run_status" branch, which reports
+     * the lock as free once it has expired.
+     */
+    public function clearRunning(): void
+    {
+        $this->registerRunningSetting();
+        $this->settingService->setInternal(self::RUNNING_SETTING_KEY, '0', 'finance');
+
+        // Retire the legacy marker too, so a site upgraded mid-run stops
+        // falling back to it once this run has finished. '0' is a valid
+        // value whichever type that row happens to carry — only a timestamp
+        // would fail validation on a `boolean` row, which is precisely why
+        // the timestamp lives under its own key.
+        $this->settingService->register(self::LEGACY_RUNNING_SETTING_KEY, '0', 'boolean', 'Exécution des règles en cours (obsolète)', 'Indicateur interne — ne pas modifier.', 'finance', null, null, false);
+        $this->settingService->setInternal(self::LEGACY_RUNNING_SETTING_KEY, '0', 'finance');
     }
 
     private function storeLastResult(BulkCategorizationResult $result): void
@@ -187,7 +251,18 @@ class BulkCategorizationService
             }
 
             if ($aiEnabled) {
-                $aiCategoryId = $this->aiCategorizationService->categorize($transaction);
+                // One unusable movement must never abort the whole batch.
+                // AiCategorizationService::categorize() only catches
+                // LlmException, and a movement can fail in other ways — a
+                // label carrying non-UTF-8 bytes from a Latin-1 bank export,
+                // for one. Everything before this point has already been
+                // committed, so the batch continues with the next movement.
+                try {
+                    $aiCategoryId = $this->aiCategorizationService->categorize($transaction);
+                } catch (\Throwable) {
+                    $aiCategoryId = null;
+                }
+
                 if ($aiCategoryId !== null) {
                     $this->transactionRepository->setCategoryId($transaction->id, $aiCategoryId);
                     $byAi++;

@@ -195,9 +195,11 @@ class BulkCategorizationServiceTest extends TestCase
     /**
      * Regression: the marker was a bare '1' cleared only by
      * runInBackground()'s finally block. If the scheduled task was never
-     * picked up (the poor man's cron needs a page load) or the process died
-     * first, it stayed set for ever and the config page's "Exécuter les
-     * règles" button was permanently disabled, with no way to reset it.
+     * picked up (the poor man's cron needs a page load), the process died
+     * first, or — the most likely case — the batch was killed by PHP's
+     * max_execution_time (a fatal error, which skips finally entirely), it
+     * stayed set for ever and the config page's "Exécuter les règles" button
+     * was permanently disabled, with no way to reset it.
      */
     public function testAStaleRunningMarkerIsNotReportedAsRunning(): void
     {
@@ -205,7 +207,7 @@ class BulkCategorizationServiceTest extends TestCase
         $this->assertTrue($this->service()->isRunning());
 
         $this->settingService->setInternal(
-            'bulk_categorization_running',
+            'bulk_categorization_started_at',
             (string) (time() - 7200),
             'finance'
         );
@@ -223,15 +225,54 @@ class BulkCategorizationServiceTest extends TestCase
     }
 
     /**
-     * A marker written before the timestamp existed is a bare '1' — it must
-     * still read as running rather than crashing or silently resetting.
+     * A marker written before the timestamp existed is a bare '1' under the
+     * old key — it must still read as running rather than crashing or
+     * silently resetting, for as long as the task it refers to is queued.
      */
     public function testALegacyBareOneMarkerIsStillReportedAsRunning(): void
     {
         $this->settingService->register('bulk_categorization_running', '0', 'text', 'x', 'x', 'finance', null, null, false);
         $this->settingService->setInternal('bulk_categorization_running', '1', 'finance');
+        (new SchedulerService(new SchedulerRepository($this->pdo)))->scheduleAfter('finance', 'run_categorization_rules', 0);
 
         $this->assertTrue($this->service()->isRunning());
+    }
+
+    /**
+     * ...but it carries no expiry of its own, so once the task it referred to
+     * is gone it must not block a new run for ever either.
+     */
+    public function testALegacyMarkerWithNoQueuedTaskDoesNotBlockANewRun(): void
+    {
+        $this->settingService->register('bulk_categorization_running', '0', 'text', 'x', 'x', 'finance', null, null, false);
+        $this->settingService->setInternal('bulk_categorization_running', '1', 'finance');
+
+        $this->assertFalse($this->service()->isRunning());
+        $this->assertTrue($this->service()->scheduleBackgroundRun());
+    }
+
+    /**
+     * The upgrade path the legacy tests above cannot reach: a site that ran
+     * the previous version carries 'bulk_categorization_running' registered
+     * as a `boolean` setting. SettingRepository::upsert() never re-types an
+     * existing row and SettingService::setInternal() validates against the
+     * stored type, so writing a timestamp into that key throws on exactly the
+     * sites that have one. The timestamp lives under its own numeric key for
+     * that reason.
+     */
+    public function testWorksOnAnInstallThatStillCarriesTheOldBooleanFlag(): void
+    {
+        $this->settingService->register('bulk_categorization_running', '0', 'boolean', 'Ancien indicateur', 'x', 'finance', null, null, false);
+        $this->settingService->setInternal('bulk_categorization_running', '1', 'finance');
+
+        $service = $this->service();
+
+        $this->assertTrue($service->scheduleBackgroundRun());
+        $this->assertTrue($service->isRunning());
+
+        $service->runInBackground();
+        $this->assertFalse($service->isRunning());
+        $this->assertNotNull($service->getLastResult());
     }
 
     public function testRunInBackgroundClearsTheMarkerEvenWhenNothingToDo(): void
@@ -241,6 +282,39 @@ class BulkCategorizationServiceTest extends TestCase
         $this->service()->runInBackground();
 
         $this->assertFalse($this->service()->isRunning());
+    }
+
+    /**
+     * A movement whose data breaks the AI call — a label carrying non-UTF-8
+     * bytes from a Latin-1 bank export is the real-world case — must not
+     * abort the batch. AiCategorizationService only catches LlmException.
+     */
+    public function testOneFailingMovementDoesNotAbortTheBatch(): void
+    {
+        $categoryId = $this->categoryRepository->create('Fournitures');
+        $this->createTransaction('Premier mouvement');
+        $secondId = $this->createTransaction('Deuxième mouvement');
+
+        $calls = 0;
+        $llmConnector = $this->createMock(LlmConnectorInterface::class);
+        $llmConnector->method('isAvailable')->willReturn(true);
+        $llmConnector->method('complete')->willReturnCallback(function () use (&$calls) {
+            $calls++;
+            if ($calls === 1) {
+                throw new \TypeError('strlen(): Argument #1 ($string) must be of type string, false given');
+            }
+            return new LlmResponse('{}', ['category' => 'Fournitures', 'new_category_suggestion' => null], 10, 5);
+        });
+
+        $service = $this->service($llmConnector);
+        $service->setAiRuleEnabled(true);
+
+        $result = $service->runOnUncategorized();
+
+        $this->assertSame(2, $calls, 'The batch must reach the second movement.');
+        $this->assertSame(1, $result->categorizedByAi);
+        $this->assertSame(1, $result->stillUncategorized);
+        $this->assertSame($categoryId, $this->transactionRepository->findById($secondId)->categoryId);
     }
 
 }
