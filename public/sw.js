@@ -324,12 +324,41 @@ function handleNavigate(request, url) {
     });
 }
 
+// Third implementation of ONE rule, and the two others are the reference:
+// Core\Offline\OfflineWhitelist::matches() (server) and
+// public/assets/js/offline-nav.js's isWhitelisted() (page). There is no
+// shared runtime between PHP, the page, and this worker, so the algorithm
+// is necessarily reimplemented here — see OfflineWhitelist's own docblock
+// on that point. It must stay semantically identical to both.
+//
+// `match: 'child'` means the entry's path plus EXACTLY one additional
+// segment — '/members/' covers '/members/12' but not '/members/12/emails/5'
+// (two extra segments). Anything else is an exact path match.
+//
+// This used to ignore entry.match entirely and compare paths for equality
+// only. Because base.html.twig hands this worker the SAME role-filtered
+// list it hands offline-nav.js — with `match` intact and no server-side
+// expansion into concrete paths — every child-matched entry (/members/ is
+// one, and modules may declare more) failed the check here while
+// offline-nav.js counted it as available. The result: member pages were
+// presented as offline-ready in the UI and then never cached or served
+// from cache by this worker, so going offline showed the generic /offline
+// page on a link that claimed to work.
 function isWhitelisted(pathname, whitelist) {
     if (!whitelist) {
         return false;
     }
     for (let i = 0; i < whitelist.length; i++) {
-        if (whitelist[i].path === pathname) {
+        const entry = whitelist[i];
+        if (entry.match === 'child') {
+            if (pathname.indexOf(entry.path) !== 0) {
+                continue;
+            }
+            const remainder = pathname.slice(entry.path.length).replace(/^\/+|\/+$/g, '');
+            if (remainder !== '' && remainder.indexOf('/') === -1) {
+                return true;
+            }
+        } else if (pathname === entry.path) {
             return true;
         }
     }
@@ -475,3 +504,25 @@ self.addEventListener('notificationclick', function (event) {
         })
     );
 });
+
+// This file is registered as a CLASSIC service-worker script (see
+// base.html.twig — navigator.serviceWorker.register('/sw.js?...'), no
+// `type: 'module'`), so every top-level `function` declaration above is
+// already a property of the worker's global scope. These lines change
+// nothing at runtime, in exactly the way
+// public/assets/js/password-complexity.js's own globalThis line does.
+// They exist so tests/js/sw.test.js can `import` this exact file (an ES
+// module under Vitest, where top-level declarations are module-scoped
+// rather than global) and call the real implementations directly instead
+// of reimplementing their logic in a test-only copy.
+globalThis.ScoutMagicServiceWorkerInternals = {
+    isWhitelisted: isWhitelisted,
+    formatOfflineTimestamp: formatOfflineTimestamp,
+    injectOfflineBanner: injectOfflineBanner,
+    networkFirstWithCacheFallback: networkFirstWithCacheFallback,
+    handleNavigate: handleNavigate,
+    storeOfflineConfig: storeOfflineConfig,
+    getOfflineConfig: getOfflineConfig,
+    purgeAllContentCaches: purgeAllContentCaches,
+    CONTENT_CACHE_PREFIX: CONTENT_CACHE_PREFIX,
+};
