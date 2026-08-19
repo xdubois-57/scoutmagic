@@ -44,6 +44,27 @@ class PostMediaRepository
     }
 
     /**
+     * Gallery media attached to HIDDEN posts of a group — the post-level
+     * counterpart of Repository\ReplyRepository::
+     * findMediaIdsForHiddenRepliesInGroup(). Subtracted from "Galerie du
+     * groupe" for a non-moderator so a hidden post's photos do not stay
+     * reachable there after the post left the feed.
+     *
+     * @return int[]
+     */
+    public function findMediaIdsForHiddenPostsInGroup(int $groupId): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT m.gallery_media_id FROM discussion_group_post_media m
+             INNER JOIN discussion_group_posts p ON p.id = m.post_id
+             WHERE p.group_id = ? AND p.hidden_at IS NOT NULL'
+        );
+        $stmt->execute([$groupId]);
+
+        return array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN));
+    }
+
+    /**
      * Batched form of findMediaIdsForPost() for a whole feed page —
      * Service\GroupFeedService resolves every post's media in one query
      * rather than one per post.

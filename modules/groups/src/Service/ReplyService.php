@@ -49,7 +49,9 @@ class ReplyService
     public function __construct(
         private ReplyRepository $replyRepository,
         private GroupActivityService $activityService,
-        private PostMediaService $postMediaService
+        private PostMediaService $postMediaService,
+        private RateLimitService $rateLimitService,
+        private ?ModerationService $moderationService = null
     ) {
     }
 
@@ -60,6 +62,9 @@ class ReplyService
      * conversation back to the top of the feed.
      *
      * @return int the new reply id
+     * @throws GroupsException TYPE_RATE_LIMITED or TYPE_OFFENSIVE — same
+     *         contract as Service\PostService::create(), and nothing is
+     *         written in either case
      */
     public function create(
         DiscussionGroup $group,
@@ -69,6 +74,11 @@ class ReplyService
         string $body,
         ?int $galleryMediaId = null
     ): int {
+        // Cheap check first, so a burst never reaches the LLM.
+        $this->rateLimitService->checkAndRecord($authorMemberId, RateLimitService::ACTION_REPLY);
+
+        $this->assertAcceptable($body);
+
         $now = Timestamps::now();
         $replyId = $this->replyRepository->create(
             $postId,
@@ -121,10 +131,44 @@ class ReplyService
      * is untouched, for the same reason editing a post leaves it alone:
      * correcting a typo must not resurrect an old conversation to the top
      * of the feed (nor postpone its later purge).
+     *
+     * The AI check runs here too, for the same reason it runs on a post's
+     * edit: otherwise a clean reply followed immediately by an edit would
+     * walk straight around moderation.
+     *
+     * @throws GroupsException TYPE_OFFENSIVE
      */
     public function edit(Reply $reply, string $body): void
     {
+        $this->assertAcceptable($body);
+
         $this->replyRepository->updateBody($reply->id, $this->normalize($body), Timestamps::now());
+    }
+
+    /**
+     * The a-priori AI check on the text that would actually be stored,
+     * with the same fail-open contract as a post's
+     * (Service\PostService::create() and Service\ModerationService).
+     *
+     * @throws GroupsException TYPE_OFFENSIVE
+     */
+    private function assertAcceptable(string $body): void
+    {
+        if ($this->moderationService === null) {
+            return;
+        }
+
+        $result = $this->moderationService->moderate($this->normalize($body));
+        if ($result === null || !$result['flagged']) {
+            return;
+        }
+
+        // The rejected text goes nowhere but back to its own author.
+        throw new GroupsException(
+            $result['reason'] ?? 'Cette réponse peut être perçue comme une attaque personnelle. Merci de la reformuler.',
+            GroupsException::TYPE_OFFENSIVE,
+            $result['suggestion']
+        );
     }
 
     /**

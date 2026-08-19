@@ -52,13 +52,18 @@ class PostRepository
     }
 
     /**
+     * @param bool $includeHidden only ever true for a moderator's own
+     *        request — auto-hidden posts are excluded in the QUERY, not in
+     *        the markup, so a non-moderator cannot reach one by reading
+     *        the HTML or replaying the request.
      * @return Post[] pinned posts, newest activity first
      */
-    public function findPinned(int $groupId): array
+    public function findPinned(int $groupId, bool $includeHidden = false): array
     {
+        $hiddenClause = $includeHidden ? '' : ' AND hidden_at IS NULL';
         $stmt = $this->pdo->prepare(
             'SELECT * FROM discussion_group_posts
-             WHERE group_id = ? AND is_pinned = 1
+             WHERE group_id = ? AND is_pinned = 1' . $hiddenClause . '
              ORDER BY last_activity_at DESC, id DESC'
         );
         $stmt->execute([$groupId]);
@@ -74,17 +79,23 @@ class PostRepository
      * @param array{last_activity_at: string, id: int}|null $cursor
      * @return Post[]
      */
-    public function findPage(int $groupId, int $limit, ?array $cursor = null): array
+    public function findPage(int $groupId, int $limit, ?array $cursor = null, bool $includeHidden = false): array
     {
+        // Same query-level exclusion as findPinned(). It also keeps the
+        // keyset cursor honest: a hidden post filtered out in PHP would
+        // still consume a slot of the LIMIT, so a page could come back
+        // short and the "is there more?" probe would be wrong.
+        $hiddenClause = $includeHidden ? '' : ' AND hidden_at IS NULL';
+
         if ($cursor === null) {
             $sql = 'SELECT * FROM discussion_group_posts
-                    WHERE group_id = ? AND is_pinned = 0
+                    WHERE group_id = ? AND is_pinned = 0' . $hiddenClause . '
                     ORDER BY last_activity_at DESC, id DESC
                     LIMIT ' . $limit;
             $params = [$groupId];
         } else {
             $sql = 'SELECT * FROM discussion_group_posts
-                    WHERE group_id = ? AND is_pinned = 0
+                    WHERE group_id = ? AND is_pinned = 0' . $hiddenClause . '
                       AND (last_activity_at < ? OR (last_activity_at = ? AND id < ?))
                     ORDER BY last_activity_at DESC, id DESC
                     LIMIT ' . $limit;
@@ -127,6 +138,25 @@ class PostRepository
         $stmt->execute([$id]);
     }
 
+    public function setHiddenAt(int $id, ?string $hiddenAt): void
+    {
+        $stmt = $this->pdo->prepare('UPDATE discussion_group_posts SET hidden_at = ? WHERE id = ?');
+        $stmt->execute([$hiddenAt, $id]);
+    }
+
+    /**
+     * Marks the post as reviewed and cleared by a moderator: it becomes
+     * visible again AND immune to further auto-hiding, in one write, so
+     * the two can never drift apart.
+     */
+    public function restore(int $id): void
+    {
+        $stmt = $this->pdo->prepare(
+            'UPDATE discussion_group_posts SET hidden_at = NULL, moderation_cleared = 1 WHERE id = ?'
+        );
+        $stmt->execute([$id]);
+    }
+
     /**
      * @param array<string, mixed> $row
      */
@@ -141,7 +171,9 @@ class PostRepository
             (bool) $row['is_pinned'],
             $row['edited_at'] !== null ? (string) $row['edited_at'] : null,
             (string) $row['last_activity_at'],
-            (string) $row['created_at']
+            (string) $row['created_at'],
+            $row['hidden_at'] !== null ? (string) $row['hidden_at'] : null,
+            (bool) $row['moderation_cleared']
         );
     }
 }

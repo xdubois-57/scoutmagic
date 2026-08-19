@@ -139,7 +139,7 @@ class PostControllerTest extends TestCase
         $resolver->method('getEffectiveYear')->willReturn(new EffectiveScoutYear($this->currentYearId, '2025-2026', null));
 
         $activityService = new GroupActivityService($this->groupRepo, $this->postRepo);
-        $postService = new PostService($this->postRepo, $activityService);
+        $postService = new PostService($this->postRepo, $activityService, GroupsTestHelper::rateLimitService($this->pdo));
         $postMediaService = new PostMediaService(
             $delegatedAlbumManager ?? $this->createMock(DelegatedAlbumManager::class),
             new PostMediaRepository($this->pdo), $this->groupRepo
@@ -157,7 +157,7 @@ class PostControllerTest extends TestCase
         $stack = GroupsTestHelper::replyStack($this->pdo, $activityService, $postMediaService, $authorResolver);
         $feedService = new GroupFeedService(
             $this->postRepo, $authorResolver, $postService, $postMediaService, $postLinkRepo,
-            $stack['replyRepository'], $stack['replyPresenter'], $stack['reactionService']
+            $stack['replyRepository'], $stack['replyPresenter'], $stack['reactionService'], $stack['reportService']
         );
 
         $twig = TwigFactory::create(
@@ -183,7 +183,8 @@ class PostControllerTest extends TestCase
             $postMediaService,
             $postLinkService,
             $stack['replyService'],
-            new AuthorOptionsService($access, $memberService)
+            new AuthorOptionsService($access, $memberService),
+            $stack['reportService']
         );
     }
 

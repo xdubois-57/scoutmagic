@@ -64,7 +64,8 @@ class ReplyControllerTest extends GroupsControllerTestCase
             $stack['replyService'],
             $stack['replyPresenter'],
             $postMediaService,
-            new GroupSessionContextFactory($memberService, $accountRepo, $this->scoutYearResolverMock())
+            new GroupSessionContextFactory($memberService, $accountRepo, $this->scoutYearResolverMock()),
+            $stack['reportService']
         );
     }
 

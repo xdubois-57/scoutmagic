@@ -28,6 +28,7 @@ use Modules\Groups\Service\GroupSessionContext;
 use Modules\Groups\Service\GroupSessionContextFactory;
 use Modules\Groups\Service\PostMediaService;
 use Modules\Groups\Service\PostService;
+use Modules\Groups\Support\RejectedDraft;
 use Twig\Environment;
 
 /**
@@ -120,6 +121,11 @@ class GroupController extends AbstractController
             'max_body_length' => PostService::MAX_BODY_LENGTH,
             'max_media_per_post' => PostMediaService::MAX_MEDIA_PER_POST,
             'video_upload_allowed' => $this->postMediaService->videoUploadAllowed(),
+            // A message the AI moderation just refused, handed back to
+            // its author so the composer is not emptied. Read-and-clear:
+            // it survives exactly this one render, and lives nowhere but
+            // this member's own session (Support\RejectedDraft).
+            'rejected_draft' => RejectedDraft::take(),
         ]);
     }
 
@@ -142,7 +148,14 @@ class GroupController extends AbstractController
 
         return $this->render('@groups/gallery.html.twig', [
             'group' => $group,
-            'media' => $this->postMediaService->groupGalleryMedia($group),
+            // The media of auto-hidden posts and replies are filtered out
+            // here too: hiding a message that no longer shows its photos
+            // in the feed but still shows them one click away in the
+            // gallery would hide nothing at all.
+            'media' => $this->postMediaService->groupGalleryMedia(
+                $group,
+                $this->accessService->canModerate($group, $context)
+            ),
         ]);
     }
 

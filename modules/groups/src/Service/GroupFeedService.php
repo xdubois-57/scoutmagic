@@ -37,7 +37,8 @@ class GroupFeedService
         private PostLinkRepository $postLinkRepository,
         private ReplyRepository $replyRepository,
         private ReplyPresenter $replyPresenter,
-        private ReactionService $reactionService
+        private ReactionService $reactionService,
+        private ReportService $reportService
     ) {
     }
 
@@ -46,12 +47,20 @@ class GroupFeedService
         $isFirstPage = $cursor === null;
 
         // One extra row, to know whether another page exists without a
-        // second COUNT query.
-        $rows = $this->postRepository->findPage($group->id, self::PAGE_SIZE + 1, $this->decodeCursor($cursor));
+        // second COUNT query. A moderator, and only a moderator, sees
+        // auto-hidden posts — and the exclusion happens in the SQL, so a
+        // hidden post is absent from the rows entirely rather than
+        // rendered and then hidden in the markup (module spec).
+        $rows = $this->postRepository->findPage(
+            $group->id,
+            self::PAGE_SIZE + 1,
+            $this->decodeCursor($cursor),
+            $canModerate
+        );
         $hasMore = count($rows) > self::PAGE_SIZE;
         $rows = array_slice($rows, 0, self::PAGE_SIZE);
 
-        $pinned = $isFirstPage ? $this->postRepository->findPinned($group->id) : [];
+        $pinned = $isFirstPage ? $this->postRepository->findPinned($group->id, $canModerate) : [];
         $all = array_merge($pinned, $rows);
 
         // Author names for the pinned posts and the page together: still
@@ -71,8 +80,9 @@ class GroupFeedService
         // first few replies of every post plus their true totals come back
         // in two queries (Repository\ReplyRepository::findFirstForPosts()),
         // and the post reactions in two more.
-        $replyData = $this->replyRepository->findFirstForPosts($postIds, ReplyService::PAGE_SIZE);
+        $replyData = $this->replyRepository->findFirstForPosts($postIds, ReplyService::PAGE_SIZE, $canModerate);
         $postReactions = $this->reactionService->forPosts($postIds, $context->linkedMemberIds);
+        $postReports = $this->reportService->forPosts($postIds, $context->linkedMemberIds);
 
         $repliesByPost = [];
         foreach ($replyData['replies'] as $postId => $replies) {
@@ -92,6 +102,7 @@ class GroupFeedService
             'replies' => $repliesByPost,
             'reply_counts' => $replyData['counts'],
             'reactions' => $postReactions,
+            'reports' => $postReports,
         ];
 
         $last = $rows === [] ? null : $rows[count($rows) - 1];
@@ -114,7 +125,8 @@ class GroupFeedService
      *     links: array<int, \Modules\Groups\Repository\PostLink>,
      *     replies: array<int, array<int, array<string, mixed>>>,
      *     reply_counts: array<int, int>,
-     *     reactions: array{counts: array<int, array<string, int>>, own: array<int, string>}
+     *     reactions: array{counts: array<int, array<string, int>>, own: array<int, string>},
+     *     reports: array{reported: array<int, true>, counts: array<int, int>}
      * } $page
      * @return array<string, mixed>
      */
@@ -147,6 +159,18 @@ class GroupFeedService
             'can_edit' => $this->postService->canEdit($post, $context),
             'can_delete' => $this->postService->canDelete($post, $context, $canModerate),
             'can_pin' => $canModerate,
+            // Offered to everyone but the author, and only once: a second
+            // report from the same member is refused by the UNIQUE index
+            // anyway, so there is nothing to gain from showing the entry
+            // again. This flag says only "you reported this" — never
+            // whether anyone else did, nor what came of it.
+            'can_report' => !isset($page['reports']['reported'][$post->id])
+                && !in_array($post->authorMemberId, $context->linkedMemberIds, true),
+            // Moderators only: everything about the hidden state stays
+            // behind canModerate, so a member never learns an item exists
+            // but is hidden.
+            'is_hidden' => $canModerate && $post->isHidden(),
+            'report_count' => $canModerate ? ($page['reports']['counts'][$post->id] ?? 0) : 0,
         ];
     }
 

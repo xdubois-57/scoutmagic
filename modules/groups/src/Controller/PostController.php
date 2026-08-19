@@ -25,10 +25,13 @@ use Modules\Groups\Service\GroupAccessService;
 use Modules\Groups\Service\GroupFeedService;
 use Modules\Groups\Service\GroupSessionContext;
 use Modules\Groups\Service\GroupSessionContextFactory;
+use Modules\Groups\Service\GroupsException;
 use Modules\Groups\Service\PostLinkService;
 use Modules\Groups\Service\PostMediaService;
 use Modules\Groups\Service\PostService;
 use Modules\Groups\Service\ReplyService;
+use Modules\Groups\Service\ReportService;
+use Modules\Groups\Support\RejectedDraft;
 use Twig\Environment;
 
 /**
@@ -54,7 +57,8 @@ class PostController extends AbstractController
         private PostMediaService $postMediaService,
         private PostLinkService $postLinkService,
         private ReplyService $replyService,
-        private AuthorOptionsService $authorOptionsService
+        private AuthorOptionsService $authorOptionsService,
+        private ReportService $reportService
     ) {
     }
 
@@ -151,7 +155,11 @@ class PostController extends AbstractController
             return new Response('Aucun membre de ce groupe n\'est associé à votre compte.', 403);
         }
 
-        $postId = $this->postService->create($group, $context->userAccountId, $authorMemberId, $body);
+        try {
+            $postId = $this->postService->create($group, $context->userAccountId, $authorMemberId, $body);
+        } catch (GroupsException $e) {
+            return $this->refuse($e, $group->id, $body, null);
+        }
 
         if ($files !== []) {
             try {
@@ -199,7 +207,11 @@ class PostController extends AbstractController
 
             $body = (string) $request->getBody('body', '');
             if ($this->postService->isPostable($body)) {
-                $this->postService->edit($post, $body);
+                try {
+                    $this->postService->edit($post, $body);
+                } catch (GroupsException $e) {
+                    return $this->refuse($e, $group->id, $body, null);
+                }
             }
 
             return $this->redirect('/groups/' . $group->id);
@@ -214,8 +226,17 @@ class PostController extends AbstractController
     public function delete(Request $request, array $params): Response
     {
         return $this->postAction($params, function (DiscussionGroup $group, Post $post, GroupSessionContext $context) {
-            if (!$this->postService->canDelete($post, $context, $this->accessService->canModerate($group, $context))) {
+            $canModerate = $this->accessService->canModerate($group, $context);
+            if (!$this->postService->canDelete($post, $context, $canModerate)) {
                 return new Response('Vous ne pouvez pas supprimer ce message.', 403);
+            }
+
+            // Journaled before the row goes, and only when it is a
+            // moderator acting on someone else's message — an author
+            // deleting their own is an ordinary edit, not a moderation
+            // decision. Ids only, never the message's text.
+            if ($canModerate && $post->authorUserAccountId !== $context->userAccountId) {
+                $this->reportService->journalModeratorDeletion('post', $group->id, $post->id, $context->userAccountId);
             }
 
             // Everything living outside this post row's own CASCADE reach
@@ -267,6 +288,25 @@ class PostController extends AbstractController
 
             return $this->redirect('/groups/' . $group->id);
         });
+    }
+
+    /**
+     * A refused write, told to its author and to nobody else: the reason
+     * in a flash, and their own text plus the suggested rewording handed
+     * back through the session so the composer is not emptied.
+     *
+     * Nothing here is written to the database or journaled — the refused
+     * text exists only in this member's own session, for one render
+     * (Support\RejectedDraft).
+     */
+    private function refuse(GroupsException $e, int $groupId, string $body, ?int $postId): Response
+    {
+        FlashMessage::set('error', $e->getMessage());
+        if ($e->type === GroupsException::TYPE_OFFENSIVE) {
+            RejectedDraft::set($body, $e->suggestion, $postId);
+        }
+
+        return $this->redirect('/groups/' . $groupId);
     }
 
     /**

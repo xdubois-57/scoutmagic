@@ -342,7 +342,8 @@ class PostMediaIntegrationTest extends TestCase
                 $this->groupRepo,
                 new \Modules\Groups\Repository\PostRepository($this->pdo)
             ),
-            $this->postMediaService()
+            $this->postMediaService(),
+            GroupsTestHelper::rateLimitService($this->pdo)
         );
     }
 

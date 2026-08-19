@@ -7,8 +7,30 @@
   The body is plain text: escaped by Twig (never |raw), with line breaks
   preserved by nl2br on the already-escaped output.
 #}
-<article class="card mb-2">
+{#
+  `row.is_hidden` is only ever true for a moderator: for everyone else an
+  auto-hidden post is filtered out in the SQL and never reaches this
+  template at all (Service\GroupFeedService). So the banner below is a
+  moderator's view of something nobody else can see, not a hidden-by-CSS
+  post.
+#}
+<article class="card mb-2{% if row.is_hidden|default(false) %} groups-post-hidden{% endif %}">
     <div class="card-body py-3">
+        {% if row.is_hidden|default(false) %}
+            <div class="alert alert-warning d-flex flex-wrap align-items-center gap-2 py-2 px-3 mb-2 small">
+                <span class="flex-grow-1">
+                    <i class="bi bi-eye-slash me-1"></i>
+                    Message masqué après {{ row.report_count }} signalement{{ row.report_count > 1 ? 's' : '' }}.
+                    Vous seul, en tant que modérateur, le voyez.
+                </span>
+                <form method="post" action="/groups/{{ group.id }}/posts/{{ row.post.id }}/restore" class="m-0">
+                    {{ csrf_field()|raw }}
+                    <button type="submit" class="btn btn-sm btn-outline-secondary d-flex align-items-center" style="min-height:44px;">
+                        Rétablir
+                    </button>
+                </form>
+            </div>
+        {% endif %}
         <div class="d-flex justify-content-between align-items-start gap-2">
             <div class="min-width-0">
                 <p class="mb-1 small">
@@ -24,7 +46,7 @@
                 </p>
             </div>
 
-            {% if row.can_edit or row.can_delete or row.can_pin %}
+            {% if row.can_edit or row.can_delete or row.can_pin or row.can_report|default(false) %}
                 <div class="dropdown">
                     <button class="btn btn-sm btn-link text-body-secondary d-flex align-items-center justify-content-center"
                             style="min-height:44px;min-width:44px;" type="button" data-bs-toggle="dropdown"
@@ -46,6 +68,17 @@
                                     {{ csrf_field()|raw }}
                                     <button type="submit" class="dropdown-item d-flex align-items-center" style="min-height:44px;">
                                         {{ row.post.isPinned ? 'Désépingler' : 'Épingler' }}
+                                    </button>
+                                </form>
+                            </li>
+                        {% endif %}
+                        {% if row.can_report|default(false) %}
+                            <li>
+                                <form method="post" action="/groups/{{ group.id }}/posts/{{ row.post.id }}/report"
+                                      data-confirm="Signaler ce message aux modérateurs du groupe ?">
+                                    {{ csrf_field()|raw }}
+                                    <button type="submit" class="dropdown-item d-flex align-items-center" style="min-height:44px;">
+                                        Signaler
                                     </button>
                                 </form>
                             </li>
@@ -120,8 +153,11 @@
                 {% endif %}
                 <div class="d-flex align-items-center gap-2">
                     <label class="visually-hidden" for="reply-body-input-{{ row.post.id }}">Répondre</label>
+                    {# Refilled only for the very post whose reply was refused, and only
+                       for its own author — see show.html.twig's panel. #}
                     <input type="text" class="form-control form-control-sm" id="reply-body-input-{{ row.post.id }}"
                            name="body" placeholder="Répondre…" style="min-height:44px;"
+                           value="{% if rejected_draft|default(null) and rejected_draft.post_id == row.post.id %}{{ rejected_draft.body }}{% endif %}"
                            maxlength="{{ constant('Modules\\Groups\\Service\\ReplyService::MAX_BODY_LENGTH') }}">
                     <label class="btn btn-sm btn-outline-secondary d-flex align-items-center mb-0"
                            style="min-height:44px;" aria-label="Joindre une image à la réponse">

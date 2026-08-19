@@ -74,12 +74,13 @@ class GroupFeedServiceTest extends TestCase
         return new GroupFeedService(
             $this->postRepo,
             $authorResolver,
-            new PostService($this->postRepo, $activityService),
+            new PostService($this->postRepo, $activityService, GroupsTestHelper::rateLimitService($this->pdo)),
             $postMediaService,
             new PostLinkRepository($this->pdo),
             $stack['replyRepository'],
             $stack['replyPresenter'],
-            $stack['reactionService']
+            $stack['reactionService'],
+            $stack['reportService']
         );
     }
 

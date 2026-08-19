@@ -15,6 +15,7 @@ use Modules\Groups\File\GroupFileOwnershipChecker;
 use Modules\Groups\Repository\DiscussionGroup;
 use Modules\Groups\Repository\GroupRepository;
 use Modules\Groups\Repository\PostMediaRepository;
+use Modules\Groups\Repository\ReplyRepository;
 
 /**
  * Attaches gallery media to a post through Api\DelegatedAlbumManager —
@@ -47,7 +48,8 @@ class PostMediaService
     public function __construct(
         private DelegatedAlbumManager $delegatedAlbumManager,
         private PostMediaRepository $postMediaRepository,
-        private GroupRepository $groupRepository
+        private GroupRepository $groupRepository,
+        private ?ReplyRepository $replyRepository = null
     ) {
     }
 
@@ -253,7 +255,7 @@ class PostMediaService
      *
      * @return DelegatedMedia[]
      */
-    public function groupGalleryMedia(DiscussionGroup $group): array
+    public function groupGalleryMedia(DiscussionGroup $group, bool $includeHidden = false): array
     {
         if ($group->galleryAlbumId === null) {
             return [];
@@ -262,6 +264,29 @@ class PostMediaService
         $media = $this->delegatedAlbumManager->listMedia($group->galleryAlbumId);
         usort($media, fn(DelegatedMedia $a, DelegatedMedia $b) => $b->id <=> $a->id);
 
-        return $media;
+        if ($includeHidden) {
+            return $media;
+        }
+
+        // A report-hidden post or reply must disappear from the gallery
+        // too, not just from the feed — otherwise the exact photo that
+        // got the post hidden stays one click away on another page. The
+        // album itself knows nothing about this module's moderation
+        // state, so the exclusion is computed here from the join tables
+        // and applied to the listing.
+        $hiddenIds = $this->postMediaRepository->findMediaIdsForHiddenPostsInGroup($group->id);
+        if ($this->replyRepository !== null) {
+            $hiddenIds = array_merge(
+                $hiddenIds,
+                $this->replyRepository->findMediaIdsForHiddenRepliesInGroup($group->id)
+            );
+        }
+        if ($hiddenIds === []) {
+            return $media;
+        }
+
+        $hidden = array_flip($hiddenIds);
+
+        return array_values(array_filter($media, fn(DelegatedMedia $m) => !isset($hidden[$m->id])));
     }
 }

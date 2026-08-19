@@ -55,6 +55,8 @@ class GroupsTestHelper
             body TEXT NOT NULL,
             is_pinned INTEGER NOT NULL DEFAULT 0,
             edited_at TEXT NULL,
+            hidden_at TEXT NULL,
+            moderation_cleared INTEGER NOT NULL DEFAULT 0,
             last_activity_at TEXT NOT NULL,
             created_at TEXT NOT NULL,
             FOREIGN KEY (group_id) REFERENCES discussion_groups(id) ON DELETE CASCADE
@@ -96,6 +98,8 @@ class GroupsTestHelper
             body TEXT NOT NULL,
             gallery_media_id INTEGER NULL,
             edited_at TEXT NULL,
+            hidden_at TEXT NULL,
+            moderation_cleared INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL,
             FOREIGN KEY (post_id) REFERENCES discussion_group_posts(id) ON DELETE CASCADE
         )');
@@ -119,6 +123,65 @@ class GroupsTestHelper
             UNIQUE(reply_id, member_id),
             FOREIGN KEY (reply_id) REFERENCES discussion_group_replies(id) ON DELETE CASCADE
         )');
+
+        // The UNIQUE index is the one-report-per-member rule itself, not a
+        // performance hint: Repository\ReportRepository::record() relies on
+        // it raising SQLSTATE 23000 rather than checking first, which is
+        // what makes a double submit safe under concurrency.
+        $pdo->exec('CREATE TABLE discussion_group_post_reports (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            post_id INTEGER NOT NULL,
+            reporter_member_id INTEGER NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(post_id, reporter_member_id),
+            FOREIGN KEY (post_id) REFERENCES discussion_group_posts(id) ON DELETE CASCADE
+        )');
+
+        $pdo->exec('CREATE TABLE discussion_group_reply_reports (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            reply_id INTEGER NOT NULL,
+            reporter_member_id INTEGER NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(reply_id, reporter_member_id),
+            FOREIGN KEY (reply_id) REFERENCES discussion_group_replies(id) ON DELETE CASCADE
+        )');
+
+        $pdo->exec('CREATE TABLE discussion_group_rate_limits (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            member_id INTEGER NOT NULL,
+            action_type TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )');
+    }
+
+    /**
+     * A RateLimitService over a real (in-memory) table — every caller of
+     * PostService/ReplyService needs one, and none of them is testing the
+     * limit itself, so they all take this rather than a double.
+     */
+    public static function rateLimitService(\PDO $pdo): \Modules\Groups\Service\RateLimitService
+    {
+        return new \Modules\Groups\Service\RateLimitService(
+            new \Modules\Groups\Repository\RateLimitRepository($pdo)
+        );
+    }
+
+    /**
+     * A ReportService wired the way public/index.php wires it.
+     */
+    public static function reportService(
+        \PDO $pdo,
+        \Core\Config\SettingService $settingService,
+        \Core\Journal\JournalService $journalService
+    ): \Modules\Groups\Service\ReportService {
+        return new \Modules\Groups\Service\ReportService(
+            \Modules\Groups\Repository\ReportRepository::forPosts($pdo),
+            \Modules\Groups\Repository\ReportRepository::forReplies($pdo),
+            new \Modules\Groups\Repository\PostRepository($pdo),
+            new \Modules\Groups\Repository\ReplyRepository($pdo),
+            $settingService,
+            $journalService
+        );
     }
 
     /**
@@ -131,6 +194,7 @@ class GroupsTestHelper
      *     replyRepository: \Modules\Groups\Repository\ReplyRepository,
      *     replyService: \Modules\Groups\Service\ReplyService,
      *     reactionService: \Modules\Groups\Service\ReactionService,
+     *     reportService: \Modules\Groups\Service\ReportService,
      *     replyPresenter: \Modules\Groups\Service\ReplyPresenter
      * }
      */
@@ -138,10 +202,21 @@ class GroupsTestHelper
         \PDO $pdo,
         \Modules\Groups\Service\GroupActivityService $activityService,
         \Modules\Groups\Service\PostMediaService $postMediaService,
-        \Modules\Groups\Service\PostAuthorResolver $authorResolver
+        \Modules\Groups\Service\PostAuthorResolver $authorResolver,
+        ?\Modules\Groups\Service\ReportService $reportService = null
     ): array {
+        $reportService ??= self::reportService(
+            $pdo,
+            new \Core\Config\SettingService(new \Core\Config\SettingRepository($pdo)),
+            new \Core\Journal\JournalService(new \Core\Journal\JournalRepository($pdo))
+        );
         $replyRepository = new \Modules\Groups\Repository\ReplyRepository($pdo);
-        $replyService = new \Modules\Groups\Service\ReplyService($replyRepository, $activityService, $postMediaService);
+        $replyService = new \Modules\Groups\Service\ReplyService(
+            $replyRepository,
+            $activityService,
+            $postMediaService,
+            self::rateLimitService($pdo)
+        );
         $reactionService = new \Modules\Groups\Service\ReactionService(
             \Modules\Groups\Repository\ReactionRepository::forPosts($pdo),
             \Modules\Groups\Repository\ReactionRepository::forReplies($pdo),
@@ -152,10 +227,12 @@ class GroupsTestHelper
             'replyRepository' => $replyRepository,
             'replyService' => $replyService,
             'reactionService' => $reactionService,
+            'reportService' => $reportService,
             'replyPresenter' => new \Modules\Groups\Service\ReplyPresenter(
                 $authorResolver,
                 $replyService,
-                $reactionService
+                $reactionService,
+                $reportService
             ),
         ];
     }

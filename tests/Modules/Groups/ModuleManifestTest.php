@@ -37,7 +37,7 @@ class ModuleManifestTest extends TestCase
      */
     public function testTheVersionIsBumpedWheneverTheSchemaChanges(): void
     {
-        $this->assertSame('1.4.0', $this->manifest->version);
+        $this->assertSame('1.5.0', $this->manifest->version);
     }
 
     /**
@@ -168,6 +168,46 @@ class ModuleManifestTest extends TestCase
         $this->assertSame([], $this->manifest->offline);
         $this->assertSame([], $this->manifest->cookies);
         $this->assertSame([], $this->manifest->storage);
-        $this->assertSame([], $this->manifest->settings);
+    }
+
+    /**
+     * Both settings are the module's own, and both have to keep working
+     * with the AI module absent — which is exactly what the AI one's
+     * description says out loud, since a switch that silently does
+     * nothing is worse than no switch.
+     */
+    public function testItDeclaresTheTwoModerationSettings(): void
+    {
+        $keys = array_column($this->manifest->settings, 'key');
+        $this->assertSame(['groups_report_hide_threshold', 'groups_ai_moderation_enabled'], $keys);
+
+        $byKey = array_column($this->manifest->settings, null, 'key');
+        $this->assertSame('2', $byKey['groups_report_hide_threshold']['default_value']);
+        $this->assertSame('number', $byKey['groups_report_hide_threshold']['type']);
+
+        // Default ON, and harmless when llm_connector is disabled:
+        // Service\ModerationService then simply reports itself
+        // unavailable and every message is published unchecked.
+        $this->assertSame('1', $byKey['groups_ai_moderation_enabled']['default_value']);
+        $this->assertSame('boolean', $byKey['groups_ai_moderation_enabled']['type']);
+        $this->assertStringContainsString(
+            'Connecteur IA',
+            $byKey['groups_ai_moderation_enabled']['description']
+        );
+    }
+
+    /**
+     * The purge that keeps discussion_group_rate_limits from growing
+     * without bound — declared here, self-rescheduling once it runs
+     * (Task\PurgeRateLimitHandler).
+     */
+    public function testItDeclaresTheRateLimitPurgeTask(): void
+    {
+        $byKey = array_column($this->manifest->scheduledTasks, null, 'key');
+        $this->assertArrayHasKey('purge_rate_limits', $byKey);
+        $this->assertSame(
+            \Modules\Groups\Task\PurgeRateLimitHandler::class,
+            $byKey['purge_rate_limits']['handler']
+        );
     }
 }

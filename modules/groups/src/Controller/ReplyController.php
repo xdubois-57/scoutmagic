@@ -25,9 +25,12 @@ use Modules\Groups\Repository\ReplyRepository;
 use Modules\Groups\Service\GroupAccessService;
 use Modules\Groups\Service\GroupSessionContext;
 use Modules\Groups\Service\GroupSessionContextFactory;
+use Modules\Groups\Service\GroupsException;
 use Modules\Groups\Service\PostMediaService;
 use Modules\Groups\Service\ReplyPresenter;
 use Modules\Groups\Service\ReplyService;
+use Modules\Groups\Service\ReportService;
+use Modules\Groups\Support\RejectedDraft;
 use Twig\Environment;
 
 /**
@@ -51,7 +54,8 @@ class ReplyController extends AbstractController
         private ReplyService $replyService,
         private ReplyPresenter $replyPresenter,
         private PostMediaService $postMediaService,
-        private GroupSessionContextFactory $contextFactory
+        private GroupSessionContextFactory $contextFactory,
+        private ReportService $reportService
     ) {
     }
 
@@ -75,17 +79,27 @@ class ReplyController extends AbstractController
             return new Response('Not Found', 404);
         }
 
+        $canModerate = $this->accessService->canModerate($group, $context);
+
         $after = (int) $request->getQuery('after', '0');
         // One extra row, to know whether another page exists without a
-        // second COUNT — same trick as the feed's own pagination.
-        $replies = $this->replyRepository->findPage($post->id, ReplyService::PAGE_SIZE + 1, $after > 0 ? $after : null);
+        // second COUNT — same trick as the feed's own pagination. And the
+        // same rule as the feed on auto-hidden replies: excluded in the
+        // SQL for everyone but a moderator, so this page can never be the
+        // way a member reaches one.
+        $replies = $this->replyRepository->findPage(
+            $post->id,
+            ReplyService::PAGE_SIZE + 1,
+            $after > 0 ? $after : null,
+            $canModerate
+        );
         $hasMore = count($replies) > ReplyService::PAGE_SIZE;
         $replies = array_slice($replies, 0, ReplyService::PAGE_SIZE);
 
         $rows = $this->replyPresenter->decorate(
             $replies,
             $context,
-            $this->accessService->canModerate($group, $context),
+            $canModerate,
             $group->scoutYearId ?? $context->effectiveScoutYearId,
             $this->postMediaService->albumMediaById($group)
         );
@@ -160,7 +174,18 @@ class ReplyController extends AbstractController
             }
         }
 
-        $this->replyService->create($group, $post->id, $context->userAccountId, $authorMemberId, $body, $mediaId);
+        try {
+            $this->replyService->create($group, $post->id, $context->userAccountId, $authorMemberId, $body, $mediaId);
+        } catch (GroupsException $e) {
+            // The image was uploaded before the reply row existed, so a
+            // refusal here has to take it back out again — otherwise a
+            // rejected reply would leave its picture in the group album.
+            if ($mediaId !== null) {
+                $this->postMediaService->deleteOne($group, $mediaId);
+            }
+
+            return $this->refuse($e, $group->id, $body, $post->id);
+        }
 
         return $this->redirect('/groups/' . $group->id);
     }
@@ -188,7 +213,11 @@ class ReplyController extends AbstractController
             // its own — the same "text alone or image alone" rule as
             // creation.
             if ($this->replyService->isReplyable($body, $reply->galleryMediaId !== null)) {
-                $this->replyService->edit($reply, $body);
+                try {
+                    $this->replyService->edit($reply, $body);
+                } catch (GroupsException $e) {
+                    return $this->refuse($e, $group->id, $body, $reply->postId);
+                }
             }
 
             return $this->redirect('/groups/' . $group->id);
@@ -203,8 +232,15 @@ class ReplyController extends AbstractController
     public function delete(Request $request, array $params): Response
     {
         return $this->replyAction($params, function (DiscussionGroup $group, Reply $reply, GroupSessionContext $context) {
-            if (!$this->replyService->canDelete($reply, $context, $this->accessService->canModerate($group, $context))) {
+            $canModerate = $this->accessService->canModerate($group, $context);
+            if (!$this->replyService->canDelete($reply, $context, $canModerate)) {
                 return new Response('Vous ne pouvez pas supprimer cette réponse.', 403);
+            }
+
+            // Same rule as a post's: recorded only when a moderator
+            // removes someone else's reply, and with ids only.
+            if ($canModerate && $reply->authorUserAccountId !== $context->userAccountId) {
+                $this->reportService->journalModeratorDeletion('reply', $group->id, $reply->id, $context->userAccountId);
             }
 
             // Deletes the reply's image (another module's table, out of
@@ -214,6 +250,21 @@ class ReplyController extends AbstractController
 
             return $this->redirect('/groups/' . $group->id);
         });
+    }
+
+    /**
+     * A refused write, told to its author only — the exact counterpart of
+     * Controller\PostController::refuse(), including the fact that the
+     * refused text never leaves this member's own session.
+     */
+    private function refuse(GroupsException $e, int $groupId, string $body, int $postId): Response
+    {
+        FlashMessage::set('error', $e->getMessage());
+        if ($e->type === GroupsException::TYPE_OFFENSIVE) {
+            RejectedDraft::set($body, $e->suggestion, $postId);
+        }
+
+        return $this->redirect('/groups/' . $groupId);
     }
 
     /**

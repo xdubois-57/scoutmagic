@@ -60,7 +60,8 @@ class ReplyServiceTest extends TestCase
                 $this->createMock(DelegatedAlbumManager::class),
                 new PostMediaRepository($this->pdo),
                 $this->groupRepo
-            )
+            ),
+            GroupsTestHelper::rateLimitService($this->pdo)
         );
     }
 
@@ -215,7 +216,8 @@ class ReplyServiceTest extends TestCase
         $service = new ReplyService(
             $this->replyRepo,
             new GroupActivityService($this->groupRepo, $this->postRepo),
-            new PostMediaService($album, new PostMediaRepository($this->pdo), $this->groupRepo)
+            new PostMediaService($album, new PostMediaRepository($this->pdo), $this->groupRepo),
+            GroupsTestHelper::rateLimitService($this->pdo)
         );
 
         $id = GroupsTestHelper::createReplyAt($this->pdo, $this->postId, 'with image', '2026-01-01 10:01:00', 7, 3, 42);
@@ -232,7 +234,8 @@ class ReplyServiceTest extends TestCase
         $service = new ReplyService(
             $this->replyRepo,
             new GroupActivityService($this->groupRepo, $this->postRepo),
-            new PostMediaService($album, new PostMediaRepository($this->pdo), $this->groupRepo)
+            new PostMediaService($album, new PostMediaRepository($this->pdo), $this->groupRepo),
+            GroupsTestHelper::rateLimitService($this->pdo)
         );
 
         $id = GroupsTestHelper::createReplyAt($this->pdo, $this->postId, 'text only', '2026-01-01 10:01:00', 7, 3);
@@ -253,7 +256,8 @@ class ReplyServiceTest extends TestCase
         $service = new ReplyService(
             $this->replyRepo,
             new GroupActivityService($this->groupRepo, $this->postRepo),
-            new PostMediaService($album, new PostMediaRepository($this->pdo), $this->groupRepo)
+            new PostMediaService($album, new PostMediaRepository($this->pdo), $this->groupRepo),
+            GroupsTestHelper::rateLimitService($this->pdo)
         );
 
         GroupsTestHelper::createReplyAt($this->pdo, $this->postId, 'a', '2026-01-01 10:01:00', 7, 3, 11);

@@ -2,7 +2,7 @@
   "id": "groups",
   "name": "Groupes de discussion",
   "description": "Groupes de discussion privés pour l'unité : un groupe par section et par année scoute, ou des groupes sur invitation. Visibles uniquement par leurs membres.",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "enabled_by_default": false,
   "requires": [
     "gallery"
@@ -236,11 +236,67 @@
       "menu": "espace_animes",
       "role_min": "identified",
       "label": ""
+    },
+    {
+      "path": "/groups/{id}/posts/{postId}/report",
+      "method": "POST",
+      "controller": "Modules\\Groups\\Controller\\ReportController",
+      "action": "reportPost",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/groups/{id}/posts/{postId}/restore",
+      "method": "POST",
+      "controller": "Modules\\Groups\\Controller\\ReportController",
+      "action": "restorePost",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/groups/{id}/replies/{replyId}/report",
+      "method": "POST",
+      "controller": "Modules\\Groups\\Controller\\ReportController",
+      "action": "reportReply",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/groups/{id}/replies/{replyId}/restore",
+      "method": "POST",
+      "controller": "Modules\\Groups\\Controller\\ReportController",
+      "action": "restoreReply",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
     }
   ],
-  "settings": [],
+  "settings": [
+    {
+      "key": "groups_report_hide_threshold",
+      "default_value": "2",
+      "type": "number",
+      "label": "Signalements avant masquage automatique",
+      "description": "Nombre de signalements à partir duquel un message ou une réponse est masqué automatiquement pour tout le monde, sauf pour les modérateurs du groupe. Le masquage est la seule conséquence automatique : rien n'est jamais supprimé sans l'action d'un modérateur."
+    },
+    {
+      "key": "groups_ai_moderation_enabled",
+      "default_value": "1",
+      "type": "boolean",
+      "label": "Modération automatique par IA",
+      "description": "Vérifie chaque message et chaque réponse avant publication et propose une reformulation en cas d'attaque personnelle ou de propos irrespectueux. Sans le module « Connecteur IA » actif, ce réglage n'a aucun effet : les messages sont publiés sans vérification. Le signalement par les membres et la modération humaine restent la protection principale dans tous les cas."
+    }
+  ],
   "cookies": [],
-  "scheduled_tasks": [],
+  "scheduled_tasks": [
+    {
+      "key": "purge_rate_limits",
+      "handler": "Modules\\Groups\\Task\\PurgeRateLimitHandler"
+    }
+  ],
   "storage": {},
   "notifications": [],
   "offline": []
