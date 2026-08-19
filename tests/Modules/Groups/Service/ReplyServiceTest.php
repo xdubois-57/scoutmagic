@@ -59,7 +59,8 @@ class ReplyServiceTest extends TestCase
             new PostMediaService(
                 $this->createMock(DelegatedAlbumManager::class),
                 new PostMediaRepository($this->pdo),
-                $this->groupRepo
+                $this->groupRepo,
+                $this->replyRepo
             ),
             GroupsTestHelper::rateLimitService($this->pdo)
         );
@@ -216,7 +217,7 @@ class ReplyServiceTest extends TestCase
         $service = new ReplyService(
             $this->replyRepo,
             new GroupActivityService($this->groupRepo, $this->postRepo),
-            new PostMediaService($album, new PostMediaRepository($this->pdo), $this->groupRepo),
+            new PostMediaService($album, new PostMediaRepository($this->pdo), $this->groupRepo, $this->replyRepo),
             GroupsTestHelper::rateLimitService($this->pdo)
         );
 
@@ -234,7 +235,7 @@ class ReplyServiceTest extends TestCase
         $service = new ReplyService(
             $this->replyRepo,
             new GroupActivityService($this->groupRepo, $this->postRepo),
-            new PostMediaService($album, new PostMediaRepository($this->pdo), $this->groupRepo),
+            new PostMediaService($album, new PostMediaRepository($this->pdo), $this->groupRepo, $this->replyRepo),
             GroupsTestHelper::rateLimitService($this->pdo)
         );
 
@@ -256,7 +257,7 @@ class ReplyServiceTest extends TestCase
         $service = new ReplyService(
             $this->replyRepo,
             new GroupActivityService($this->groupRepo, $this->postRepo),
-            new PostMediaService($album, new PostMediaRepository($this->pdo), $this->groupRepo),
+            new PostMediaService($album, new PostMediaRepository($this->pdo), $this->groupRepo, $this->replyRepo),
             GroupsTestHelper::rateLimitService($this->pdo)
         );
 

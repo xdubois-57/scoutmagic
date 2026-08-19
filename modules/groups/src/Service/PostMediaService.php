@@ -49,7 +49,7 @@ class PostMediaService
         private DelegatedAlbumManager $delegatedAlbumManager,
         private PostMediaRepository $postMediaRepository,
         private GroupRepository $groupRepository,
-        private ?ReplyRepository $replyRepository = null
+        private ReplyRepository $replyRepository
     ) {
     }
 
@@ -274,13 +274,10 @@ class PostMediaService
         // album itself knows nothing about this module's moderation
         // state, so the exclusion is computed here from the join tables
         // and applied to the listing.
-        $hiddenIds = $this->postMediaRepository->findMediaIdsForHiddenPostsInGroup($group->id);
-        if ($this->replyRepository !== null) {
-            $hiddenIds = array_merge(
-                $hiddenIds,
-                $this->replyRepository->findMediaIdsForHiddenRepliesInGroup($group->id)
-            );
-        }
+        $hiddenIds = array_merge(
+            $this->postMediaRepository->findMediaIdsForHiddenPostsInGroup($group->id),
+            $this->replyRepository->findMediaIdsForHiddenRepliesInGroup($group->id)
+        );
         if ($hiddenIds === []) {
             return $media;
         }

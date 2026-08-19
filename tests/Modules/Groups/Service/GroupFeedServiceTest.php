@@ -61,7 +61,8 @@ class GroupFeedServiceTest extends TestCase
         return new PostMediaService(
             $this->createMock(DelegatedAlbumManager::class),
             new PostMediaRepository($this->pdo),
-            $this->groupRepo
+            $this->groupRepo,
+            new \Modules\Groups\Repository\ReplyRepository($this->pdo)
         );
     }
 

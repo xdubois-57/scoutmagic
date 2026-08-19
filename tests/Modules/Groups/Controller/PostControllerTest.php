@@ -142,7 +142,7 @@ class PostControllerTest extends TestCase
         $postService = new PostService($this->postRepo, $activityService, GroupsTestHelper::rateLimitService($this->pdo));
         $postMediaService = new PostMediaService(
             $delegatedAlbumManager ?? $this->createMock(DelegatedAlbumManager::class),
-            new PostMediaRepository($this->pdo), $this->groupRepo
+            new PostMediaRepository($this->pdo), $this->groupRepo, new \Modules\Groups\Repository\ReplyRepository($this->pdo)
         );
         $postLinkRepo = new PostLinkRepository($this->pdo);
         $postLinkService = new PostLinkService(
@@ -571,6 +571,47 @@ class PostControllerTest extends TestCase
         $this->controller([$this->moderatorMemberId], self::OTHER_ACCOUNT)->delete($this->request(), $this->params($postId));
 
         $this->assertNull($this->postRepo->findById($postId));
+    }
+
+    /**
+     * A moderator removing someone else's message is a moderation
+     * decision and is recorded as one — with ids only, never the
+     * message's text (module spec, SECURITY.md §11).
+     */
+    public function testAModeratorsDeletionIsJournaledWithIdsOnly(): void
+    {
+        $postId = $this->seedPost(1, self::AUTHOR_ACCOUNT);
+        $this->withCsrf([]);
+
+        $this->controller([$this->moderatorMemberId], self::OTHER_ACCOUNT)->delete($this->request(), $this->params($postId));
+
+        $rows = $this->pdo
+            ->query("SELECT event_type, description, context FROM event_log WHERE category = 'groups'")
+            ->fetchAll(\PDO::FETCH_ASSOC);
+
+        $this->assertSame(['group_post_moderator_deleted'], array_column($rows, 'event_type'));
+        $this->assertSame(
+            ['group_id' => $this->groupId, 'post_id' => $postId],
+            json_decode((string) $rows[0]['context'], true)
+        );
+    }
+
+    /**
+     * An author tidying up after themselves is not a moderation decision,
+     * so it leaves no moderation entry — even when that author happens to
+     * be a moderator of the group.
+     */
+    public function testAnAuthorDeletingTheirOwnPostIsNotJournaledAsModeration(): void
+    {
+        $postId = $this->seedPost(1, self::AUTHOR_ACCOUNT);
+        $this->withCsrf([]);
+
+        $this->controller([$this->memberId], self::AUTHOR_ACCOUNT)->delete($this->request(), $this->params($postId));
+
+        $count = (int) $this->pdo
+            ->query("SELECT COUNT(*) FROM event_log WHERE category = 'groups' AND event_type = 'group_post_moderator_deleted'")
+            ->fetchColumn();
+        $this->assertSame(0, $count);
     }
 
     public function testAnOrdinaryMemberMayNotDeleteSomeoneElsesPost(): void

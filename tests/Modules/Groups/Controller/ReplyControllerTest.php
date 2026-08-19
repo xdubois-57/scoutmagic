@@ -46,7 +46,8 @@ class ReplyControllerTest extends GroupsControllerTestCase
         $postMediaService = new PostMediaService(
             $delegatedAlbumManager ?? $this->createMock(DelegatedAlbumManager::class),
             new PostMediaRepository($this->pdo),
-            $this->groupRepo
+            $this->groupRepo,
+            $this->replyRepo
         );
         $stack = GroupsTestHelper::replyStack(
             $this->pdo,
@@ -338,6 +339,32 @@ class ReplyControllerTest extends GroupsControllerTestCase
 
         $this->assertSame(302, $response->getStatusCode());
         $this->assertNull($this->replyRepo->findById($replyId));
+    }
+
+    /**
+     * Same rule as a post's: a moderator removing someone else's reply is
+     * recorded, with ids only and never the reply's text.
+     */
+    public function testAModeratorsReplyDeletionIsJournaledWithIdsOnly(): void
+    {
+        $replyId = GroupsTestHelper::createReplyAt(
+            $this->pdo, $this->postId, 'à supprimer', '2026-01-01 10:01:00', self::AUTHOR_ACCOUNT, $this->memberId
+        );
+        $this->withCsrf([]);
+
+        $this->controller([$this->moderatorMemberId], self::OTHER_ACCOUNT)
+            ->delete($this->request(), $this->params(null, $replyId));
+
+        $rows = $this->pdo
+            ->query("SELECT event_type, description, context FROM event_log WHERE category = 'groups'")
+            ->fetchAll(\PDO::FETCH_ASSOC);
+
+        $this->assertSame(['group_reply_moderator_deleted'], array_column($rows, 'event_type'));
+        $this->assertStringNotContainsString('à supprimer', (string) $rows[0]['context']);
+        $this->assertSame(
+            ['group_id' => $this->groupId, 'reply_id' => $replyId],
+            json_decode((string) $rows[0]['context'], true)
+        );
     }
 
     public function testAnOrdinaryMemberMayNotDeleteSomeoneElsesReply(): void

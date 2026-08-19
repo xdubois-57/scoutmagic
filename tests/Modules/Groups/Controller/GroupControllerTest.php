@@ -144,7 +144,8 @@ class GroupControllerTest extends TestCase
         $postService = new PostService($postRepo, $activityService, GroupsTestHelper::rateLimitService($this->pdo));
         $postMediaService = new PostMediaService(
             $delegatedAlbumManager ?? $this->createMock(DelegatedAlbumManager::class),
-            new PostMediaRepository($this->pdo), $this->groupRepo
+            new PostMediaRepository($this->pdo), $this->groupRepo,
+            new \Modules\Groups\Repository\ReplyRepository($this->pdo)
         );
         $authorResolver = new PostAuthorResolver($this->memberService, $accountRepo);
         $stack = GroupsTestHelper::replyStack($this->pdo, $activityService, $postMediaService, $authorResolver);

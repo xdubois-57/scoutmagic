@@ -153,8 +153,12 @@ class ReportService
      */
     public function threshold(): int
     {
-        $configured = (int) ($this->settingService->get(self::SETTING_THRESHOLD, 'groups', self::DEFAULT_THRESHOLD)
-            ?: self::DEFAULT_THRESHOLD);
+        $raw = $this->settingService->get(self::SETTING_THRESHOLD, 'groups', self::DEFAULT_THRESHOLD);
+        // A blank or non-numeric setting means "never configured", which
+        // is the default. A numeric one is honoured as written and only
+        // then floored — so a deliberate 1 stays 1, and a 0 becomes 1
+        // rather than silently jumping back up to the default.
+        $configured = is_numeric($raw) ? (int) $raw : self::DEFAULT_THRESHOLD;
 
         return max(1, $configured);
     }

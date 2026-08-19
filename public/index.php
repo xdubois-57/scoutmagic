@@ -2246,8 +2246,13 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
     // and GalleryController.
     \assert(isset($galleryDelegatedAlbumManager, $galleryLinkPreviewFetcher));
     $groupsPostMediaRepo = new \Modules\Groups\Repository\PostMediaRepository($pdo);
+    $groupsReplyRepo = new \Modules\Groups\Repository\ReplyRepository($pdo);
+    // The reply repository is needed here, not only by the reply stack
+    // below: the group gallery has to drop the media of hidden REPLIES as
+    // well as of hidden posts, or the very photo that got something hidden
+    // stays one click away on another page.
     $groupsPostMediaService = new \Modules\Groups\Service\PostMediaService(
-        $galleryDelegatedAlbumManager, $groupsPostMediaRepo, $groupsGroupRepo
+        $galleryDelegatedAlbumManager, $groupsPostMediaRepo, $groupsGroupRepo, $groupsReplyRepo
     );
 
     $groupsPostLinkRepo = new \Modules\Groups\Repository\PostLinkRepository($pdo);
@@ -2262,7 +2267,6 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
     // the same class over its two tables — see Repository\ReactionRepository
     // for why one class serves both, and modules/groups/schema.sql for why
     // there are two tables rather than one polymorphic one.
-    $groupsReplyRepo = new \Modules\Groups\Repository\ReplyRepository($pdo);
     $groupsReplyService = new \Modules\Groups\Service\ReplyService(
         $groupsReplyRepo, $groupsActivityService, $groupsPostMediaService,
         $groupsRateLimitService, $groupsModerationService
