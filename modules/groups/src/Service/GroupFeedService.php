@@ -10,7 +10,9 @@ namespace Modules\Groups\Service;
 
 use Modules\Groups\Repository\DiscussionGroup;
 use Modules\Groups\Repository\Post;
+use Modules\Groups\Repository\PostLinkRepository;
 use Modules\Groups\Repository\PostRepository;
+use Modules\Groups\Repository\ReplyRepository;
 
 /**
  * Assembles a feed page: pinned posts first, then the stream ordered by
@@ -31,7 +33,11 @@ class GroupFeedService
         private PostRepository $postRepository,
         private PostAuthorResolver $authorResolver,
         private PostService $postService,
-        private PostMediaService $postMediaService
+        private PostMediaService $postMediaService,
+        private PostLinkRepository $postLinkRepository,
+        private ReplyRepository $replyRepository,
+        private ReplyPresenter $replyPresenter,
+        private ReactionService $reactionService
     ) {
     }
 
@@ -56,32 +62,86 @@ class GroupFeedService
         // media list is fetched once (Service\PostMediaService::
         // albumMediaById()), then mediaForPosts() maps it onto every post
         // on this page in one more query, never once per post.
+        $postIds = array_map(fn(Post $p) => $p->id, $all);
         $mediaById = $this->postMediaService->albumMediaById($group);
-        $mediaByPost = $this->postMediaService->mediaForPosts(array_map(fn(Post $p) => $p->id, $all), $mediaById);
+        $mediaByPost = $this->postMediaService->mediaForPosts($postIds, $mediaById);
+        $linkByPost = $this->postLinkRepository->findForPosts($postIds);
+
+        // Replies and reactions for the whole page, never per post: the
+        // first few replies of every post plus their true totals come back
+        // in two queries (Repository\ReplyRepository::findFirstForPosts()),
+        // and the post reactions in two more.
+        $replyData = $this->replyRepository->findFirstForPosts($postIds, ReplyService::PAGE_SIZE);
+        $postReactions = $this->reactionService->forPosts($postIds, $context->linkedMemberIds);
+
+        $repliesByPost = [];
+        foreach ($replyData['replies'] as $postId => $replies) {
+            $repliesByPost[$postId] = $this->replyPresenter->decorate(
+                $replies,
+                $context,
+                $canModerate,
+                $group->scoutYearId ?? $context->effectiveScoutYearId,
+                $mediaById
+            );
+        }
+
+        $decorated = [
+            'labels' => $labels,
+            'media' => $mediaByPost,
+            'links' => $linkByPost,
+            'replies' => $repliesByPost,
+            'reply_counts' => $replyData['counts'],
+            'reactions' => $postReactions,
+        ];
 
         $last = $rows === [] ? null : $rows[count($rows) - 1];
 
         return new FeedPage(
-            array_map(fn(Post $p) => $this->decorate($p, $labels, $mediaByPost, $context, $canModerate), $pinned),
-            array_map(fn(Post $p) => $this->decorate($p, $labels, $mediaByPost, $context, $canModerate), $rows),
+            array_map(fn(Post $p) => $this->decorate($p, $decorated, $context, $canModerate), $pinned),
+            array_map(fn(Post $p) => $this->decorate($p, $decorated, $context, $canModerate), $rows),
             $hasMore && $last !== null ? $this->encodeCursor($last) : null
         );
     }
 
     /**
-     * @param array<int, array{display_name: string, account_name: string}> $labels
-     * @param array<int, \Modules\Gallery\Api\DelegatedMedia[]> $mediaByPost
+     * $page carries everything already resolved once for the whole page —
+     * passed as one array rather than six positional parameters, which is
+     * what kept this signature from growing a parameter per feature.
+     *
+     * @param array{
+     *     labels: array<int, array{display_name: string, account_name: string}>,
+     *     media: array<int, \Modules\Gallery\Api\DelegatedMedia[]>,
+     *     links: array<int, \Modules\Groups\Repository\PostLink>,
+     *     replies: array<int, array<int, array<string, mixed>>>,
+     *     reply_counts: array<int, int>,
+     *     reactions: array{counts: array<int, array<string, int>>, own: array<int, string>}
+     * } $page
      * @return array<string, mixed>
      */
-    private function decorate(Post $post, array $labels, array $mediaByPost, GroupSessionContext $context, bool $canModerate): array
+    private function decorate(Post $post, array $page, GroupSessionContext $context, bool $canModerate): array
     {
-        $label = $labels[$post->id] ?? ['display_name' => '', 'account_name' => ''];
+        $label = $page['labels'][$post->id] ?? ['display_name' => '', 'account_name' => ''];
+        $shownReplies = $page['replies'][$post->id] ?? [];
+        $totalReplies = $page['reply_counts'][$post->id] ?? 0;
 
         return [
             'post' => $post,
             'display_name' => $label['display_name'],
             'account_name' => $label['account_name'],
-            'media' => $mediaByPost[$post->id] ?? [],
+            'media' => $page['media'][$post->id] ?? [],
+            'link' => $page['links'][$post->id] ?? null,
+            'replies' => $shownReplies,
+            'reply_count' => $totalReplies,
+            // The cursor "Charger plus" continues from: the last reply
+            // actually rendered. Null when everything already fits, which
+            // is also what hides the button.
+            'replies_next_after_id' => $totalReplies > count($shownReplies) && $shownReplies !== []
+                ? $shownReplies[count($shownReplies) - 1]['reply']->id
+                : null,
+            'reactions' => ReactionSummary::build(
+                $page['reactions']['counts'][$post->id] ?? [],
+                $page['reactions']['own'][$post->id] ?? null
+            ),
             // Every one of these is re-checked server-side by the action
             // itself — they only decide whether the kebab entry is shown.
             'can_edit' => $this->postService->canEdit($post, $context),

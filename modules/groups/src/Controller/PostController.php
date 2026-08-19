@@ -20,12 +20,15 @@ use Modules\Groups\Repository\DiscussionGroup;
 use Modules\Groups\Repository\GroupRepository;
 use Modules\Groups\Repository\Post;
 use Modules\Groups\Repository\PostRepository;
+use Modules\Groups\Service\AuthorOptionsService;
 use Modules\Groups\Service\GroupAccessService;
 use Modules\Groups\Service\GroupFeedService;
 use Modules\Groups\Service\GroupSessionContext;
 use Modules\Groups\Service\GroupSessionContextFactory;
+use Modules\Groups\Service\PostLinkService;
 use Modules\Groups\Service\PostMediaService;
 use Modules\Groups\Service\PostService;
+use Modules\Groups\Service\ReplyService;
 use Twig\Environment;
 
 /**
@@ -48,7 +51,10 @@ class PostController extends AbstractController
         private GroupFeedService $feedService,
         private PostService $postService,
         private GroupSessionContextFactory $contextFactory,
-        private PostMediaService $postMediaService
+        private PostMediaService $postMediaService,
+        private PostLinkService $postLinkService,
+        private ReplyService $replyService,
+        private AuthorOptionsService $authorOptionsService
     ) {
     }
 
@@ -73,6 +79,13 @@ class PostController extends AbstractController
             'group' => $group,
             'posts' => $page->posts,
             'next_cursor' => $page->nextCursor,
+            // The post cards this renders carry a reply composer, exactly
+            // like the ones on the group page — so this page has to supply
+            // the same two values that decide whether it appears and who it
+            // may sign as. Without them a "Charger plus" page would quietly
+            // render posts you cannot reply to.
+            'post_permission' => $this->accessService->canPost($group, $context),
+            'author_options' => $this->authorOptionsService->forGroup($group, $context),
         ]);
     }
 
@@ -102,6 +115,7 @@ class PostController extends AbstractController
 
         $body = (string) $request->getBody('body', '');
         $files = $request->getFiles('media');
+        $link = trim((string) $request->getBody('link', ''));
 
         // The ceiling is checked before anything is written — a post over
         // it is rejected whole, never silently truncated to the first
@@ -114,7 +128,16 @@ class PostController extends AbstractController
             return $this->redirect('/groups/' . $group->id);
         }
 
-        if (!$this->postService->isPostable($body, count($files))) {
+        // Same "reject the whole post rather than silently drop it"
+        // posture as the media ceiling above — a link the member actually
+        // typed is either attached or the post is refused, never posted
+        // with the link quietly missing.
+        if ($link !== '' && !PostLinkService::isValidUrl($link)) {
+            FlashMessage::set('error', 'Le lien saisi n\'est pas une adresse web valide.');
+            return $this->redirect('/groups/' . $group->id);
+        }
+
+        if (!$this->postService->isPostable($body, count($files), $link !== '')) {
             return $this->redirect('/groups/' . $group->id);
         }
 
@@ -142,6 +165,13 @@ class PostController extends AbstractController
                 FlashMessage::set('error', $e->getMessage());
                 return $this->redirect('/groups/' . $group->id);
             }
+        }
+
+        if ($link !== '') {
+            // Never throws — a throttled member, an unreachable page, or
+            // one with no Open Graph tags all still attach a (plain)
+            // link, so there is nothing here to roll the post back for.
+            $this->postLinkService->attach($group, $postId, $link, $authorMemberId, $context->userAccountId);
         }
 
         return $this->redirect('/groups/' . $group->id);
@@ -188,10 +218,15 @@ class PostController extends AbstractController
                 return new Response('Vous ne pouvez pas supprimer ce message.', 403);
             }
 
-            // Media first: it must be resolved from the still-existing
-            // discussion_group_post_media join rows, which the post's own
-            // deletion below cascades away.
+            // Everything living outside this post row's own CASCADE reach
+            // goes first, while the rows pointing at it still exist: its
+            // media, its link's cached image, and its replies' images.
+            // The reply rows themselves — and every reaction on the post
+            // and on those replies — are removed by the CASCADE
+            // (schema.sql), which is why nothing here touches them.
             $this->postMediaService->deleteAllForPost($group, $post->id);
+            $this->postLinkService->deleteForPost($post->id);
+            $this->replyService->deleteAllMediaForPost($group, $post->id);
             $this->postService->delete($post);
 
             return $this->redirect('/groups/' . $group->id);

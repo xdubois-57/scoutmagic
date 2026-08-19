@@ -489,6 +489,7 @@ class AlbumServiceTest extends TestCase
      *
      * @dataProvider unsafeExternalUrls
      */
+    #[\PHPUnit\Framework\Attributes\DataProvider('unsafeExternalUrls')]
     public function testCreateRejectsAnExternalUrlThatIsNotHttp(string $url): void
     {
         $this->expectException(GalleryException::class);
@@ -500,6 +501,7 @@ class AlbumServiceTest extends TestCase
     /**
      * @dataProvider unsafeExternalUrls
      */
+    #[\PHPUnit\Framework\Attributes\DataProvider('unsafeExternalUrls')]
     public function testUpdateRejectsAnExternalUrlThatIsNotHttp(string $url): void
     {
         $id = $this->albumRepository->create(

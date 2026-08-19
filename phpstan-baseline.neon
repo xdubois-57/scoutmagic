@@ -115,12 +115,6 @@ parameters:
 			path: modules/gallery/src/Repository/StorageLocationRepository.php
 
 		-
-			message: '#^Strict comparison using \!\=\= between non\-empty\-string and null will always evaluate to true\.$#'
-			identifier: notIdentical.alwaysTrue
-			count: 2
-			path: modules/gallery/src/Service/AlbumService.php
-
-		-
 			message: '#^Using nullsafe property access "\?\-\>originalName" on left side of \?\? is unnecessary\. Use \-\> instead\.$#'
 			identifier: nullsafe.neverNull
 			count: 1

@@ -751,6 +751,7 @@ class GalleryControllerTest extends TestCase
      *
      * @dataProvider unsupportedRangeHeaders
      */
+    #[\PHPUnit\Framework\Attributes\DataProvider('unsupportedRangeHeaders')]
     public function testServeMediaFallsBackToAFullResponseForAnUnsupportedRange(string $header): void
     {
         $mediaId = $this->createDoneVideo($this->createLocalAlbum(null));
@@ -815,7 +816,16 @@ class GalleryControllerTest extends TestCase
 
         $body = $this->controller->index(new Request('GET', '/gallery', [], [], [], []), [])->getBody();
 
-        $this->assertStringNotContainsString('target="_blank"', $body);
+        // Scoped to the album's own anchor, not the whole page: the site
+        // footer carries a GitHub link that legitimately has
+        // target="_blank", so a page-wide assertion can never pass no
+        // matter how the album link is rendered.
+        $this->assertSame(
+            1,
+            preg_match('#<a href="/gallery/\d+"[^>]*>#', $body, $albumAnchor),
+            'the local album link should be rendered as a plain in-app href'
+        );
+        $this->assertStringNotContainsString('target=', $albumAnchor[0]);
     }
 
     /**

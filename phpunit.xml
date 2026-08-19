@@ -14,11 +14,19 @@
             <directory>tests/Bootstrap</directory>
         </testsuite>
     </testsuites>
-    <groups>
-        <exclude>
-            <group>database</group>
-        </exclude>
-    </groups>
+    <!--
+        No <groups><exclude> here, deliberately: every test runs by default,
+        `database`-tagged ones included. That group used to be excluded so a
+        machine without MySQL could still run the suite — but the exclusion
+        applied everywhere the suite ran, so the `database` tests were absent
+        from the coverage report CI feeds SonarQube Cloud, and whole modules
+        whose tests are almost entirely `database`-tagged (groups, gallery)
+        read as near-zero coverage on new code. Most of that group needs no
+        MySQL at all (Tests\DatabaseTestHelper builds an in-memory SQLite
+        database); only the six files reading TEST_DB_* env vars do, and CI
+        provisions a MySQL service container for them. See README.md
+        § Intégration continue, and scripts/release.sh's own tests gate.
+    -->
     <source>
         <include>
             <directory>core</directory>

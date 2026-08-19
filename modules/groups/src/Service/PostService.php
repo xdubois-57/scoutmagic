@@ -121,13 +121,15 @@ class PostService
     }
 
     /**
-     * A media-only post is valid (module spec); a post with neither text
-     * nor media is not. $mediaCount is trusted as-is — the caller
-     * (Controller\PostController::create()) is the one that already
-     * capped it against Service\PostMediaService::MAX_MEDIA_PER_POST.
+     * A media-only or link-only post is valid (module spec); a post with
+     * none of text, media or a link is not. $mediaCount is trusted as-is
+     * — the caller (Controller\PostController::create()) is the one that
+     * already capped it against Service\PostMediaService::
+     * MAX_MEDIA_PER_POST, and already validated $hasLink's URL via
+     * Service\PostLinkService::isValidUrl() before reaching here.
      */
-    public function isPostable(string $body, int $mediaCount = 0): bool
+    public function isPostable(string $body, int $mediaCount = 0, bool $hasLink = false): bool
     {
-        return $this->normalize($body) !== '' || $mediaCount > 0;
+        return $this->normalize($body) !== '' || $mediaCount > 0 || $hasLink;
     }
 }

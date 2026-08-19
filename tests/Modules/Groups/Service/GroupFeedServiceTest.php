@@ -10,6 +10,7 @@ use Core\Security\UserAccountRepository;
 use Modules\Gallery\Api\DelegatedAlbumManager;
 use Modules\Groups\Repository\GroupRepository;
 use Modules\Groups\Repository\Post;
+use Modules\Groups\Repository\PostLinkRepository;
 use Modules\Groups\Repository\PostMediaRepository;
 use Modules\Groups\Repository\PostRepository;
 use Modules\Groups\Service\GroupActivityService;
@@ -50,12 +51,7 @@ class GroupFeedServiceTest extends TestCase
         $accountRepo = $this->createMock(UserAccountRepository::class);
         $accountRepo->method('findNamesByIds')->willReturn([7 => ['first_name' => 'Marie', 'last_name' => 'Dupont']]);
 
-        $this->feedService = new GroupFeedService(
-            $this->postRepo,
-            new PostAuthorResolver($memberService, $accountRepo),
-            new PostService($this->postRepo, new GroupActivityService($this->groupRepo, $this->postRepo)),
-            $this->postMediaService()
-        );
+        $this->feedService = $this->buildFeedService(new PostAuthorResolver($memberService, $accountRepo));
 
         $this->groupId = $this->groupRepo->create('Louveteaux', null, null, 1);
     }
@@ -66,6 +62,24 @@ class GroupFeedServiceTest extends TestCase
             $this->createMock(DelegatedAlbumManager::class),
             new PostMediaRepository($this->pdo),
             $this->groupRepo
+        );
+    }
+
+    private function buildFeedService(PostAuthorResolver $authorResolver): GroupFeedService
+    {
+        $activityService = new GroupActivityService($this->groupRepo, $this->postRepo);
+        $postMediaService = $this->postMediaService();
+        $stack = GroupsTestHelper::replyStack($this->pdo, $activityService, $postMediaService, $authorResolver);
+
+        return new GroupFeedService(
+            $this->postRepo,
+            $authorResolver,
+            new PostService($this->postRepo, $activityService),
+            $postMediaService,
+            new PostLinkRepository($this->pdo),
+            $stack['replyRepository'],
+            $stack['replyPresenter'],
+            $stack['reactionService']
         );
     }
 
@@ -241,12 +255,7 @@ class GroupFeedServiceTest extends TestCase
         $accountRepo = $this->createMock(UserAccountRepository::class);
         $accountRepo->expects($this->once())->method('findNamesByIds')->willReturn([7 => ['first_name' => 'Marie', 'last_name' => 'Dupont']]);
 
-        $feedService = new GroupFeedService(
-            $this->postRepo,
-            new PostAuthorResolver($memberService, $accountRepo),
-            new PostService($this->postRepo, new GroupActivityService($this->groupRepo, $this->postRepo)),
-            $this->postMediaService()
-        );
+        $feedService = $this->buildFeedService(new PostAuthorResolver($memberService, $accountRepo));
 
         $this->seed(GroupFeedService::PAGE_SIZE);
         $page = $feedService->page($this->groupRepo->findById($this->groupId), $this->context(), false);

@@ -1,0 +1,90 @@
+{#
+  One reply. `row` carries the reply plus everything already resolved for
+  it: the two author names, its optional image, its reaction summary and
+  which actions this viewer may take — every one of them re-checked
+  server-side by the action itself.
+
+  The body is plain text, escaped by Twig (never |raw), with line breaks
+  preserved by nl2br on the already-escaped output — same as a post's.
+#}
+<div class="groups-reply d-flex gap-2 mt-2">
+    <div class="flex-grow-1 min-width-0">
+        <div class="groups-reply-bubble">
+            <div class="d-flex justify-content-between align-items-start gap-2">
+                <p class="mb-1 small">
+                    <span class="fw-semibold">{{ row.display_name }}</span>
+                    {% if row.account_name %}
+                        <span class="text-body-secondary">({{ row.account_name }})</span>
+                    {% endif %}
+                    <span class="text-body-tertiary ms-1" style="font-size:0.7rem;">
+                        {{ row.reply.createdAt|french_date }} à {{ row.reply.createdAt|date('H:i') }}
+                        {% if row.reply.isEdited %}· modifié{% endif %}
+                    </span>
+                </p>
+
+                {% if row.can_edit or row.can_delete %}
+                    <div class="dropdown">
+                        <button class="btn btn-sm btn-link text-body-secondary d-flex align-items-center justify-content-center p-0"
+                                style="min-height:44px;min-width:44px;" type="button" data-bs-toggle="dropdown"
+                                aria-expanded="false" aria-label="Actions sur cette réponse">
+                            <i class="bi bi-three-dots"></i>
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end">
+                            {% if row.can_edit %}
+                                <li>
+                                    <button class="dropdown-item d-flex align-items-center groups-reply-edit-toggle" style="min-height:44px;"
+                                            type="button" data-reply="{{ row.reply.id }}">
+                                        Modifier
+                                    </button>
+                                </li>
+                            {% endif %}
+                            {% if row.can_delete %}
+                                <li>
+                                    <form method="post" action="/groups/{{ group.id }}/replies/{{ row.reply.id }}/delete"
+                                          data-confirm="Supprimer définitivement cette réponse ?">
+                                        {{ csrf_field()|raw }}
+                                        <button type="submit" class="dropdown-item text-danger d-flex align-items-center" style="min-height:44px;">
+                                            Supprimer
+                                        </button>
+                                    </form>
+                                </li>
+                            {% endif %}
+                        </ul>
+                    </div>
+                {% endif %}
+            </div>
+
+            {% if row.reply.body %}
+                <p class="mb-0 groups-post-body" id="reply-body-{{ row.reply.id }}">{{ row.reply.body|nl2br }}</p>
+            {% endif %}
+
+            {% if row.media %}
+                <a href="/gallery/media/{{ row.media.id }}/large" target="_blank" rel="noopener"
+                   class="groups-reply-image-link d-block mt-2">
+                    {% include '@groups/partials/media_thumb.html.twig' with { media: row.media } %}
+                </a>
+            {% endif %}
+        </div>
+
+        {% include '@groups/partials/reactions.html.twig' with {
+            summary: row.reactions,
+            action: '/groups/' ~ group.id ~ '/replies/' ~ row.reply.id ~ '/react',
+            compact: true
+        } only %}
+
+        {% if row.can_edit %}
+            <form method="post" action="/groups/{{ group.id }}/replies/{{ row.reply.id }}/edit"
+                  class="mt-2 d-none groups-reply-edit-form" id="reply-edit-{{ row.reply.id }}">
+                {{ csrf_field()|raw }}
+                <label class="visually-hidden" for="reply-edit-body-{{ row.reply.id }}">Modifier la réponse</label>
+                <textarea class="form-control mb-2" id="reply-edit-body-{{ row.reply.id }}" name="body" rows="2"
+                          maxlength="{{ constant('Modules\\Groups\\Service\\ReplyService::MAX_BODY_LENGTH') }}">{{ row.reply.body }}</textarea>
+                <div class="d-flex gap-2">
+                    <button type="submit" class="btn btn-sm btn-primary d-flex align-items-center" style="min-height:44px;">Enregistrer</button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary d-flex align-items-center groups-reply-edit-cancel"
+                            style="min-height:44px;" data-reply="{{ row.reply.id }}">Annuler</button>
+                </div>
+            </form>
+        {% endif %}
+    </div>
+</div>

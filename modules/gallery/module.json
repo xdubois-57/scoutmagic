@@ -2,7 +2,7 @@
   "id": "gallery",
   "name": "Galerie photos et vidéos",
   "description": "Albums photo/vidéo (envoi local avec redimensionnement/transcodage automatique, ou lien vers un album externe) visibles par les membres identifiés.",
-  "version": "1.6.1",
+  "version": "1.7.0",
   "enabled_by_default": false,
   "routes": [
     {

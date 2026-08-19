@@ -11,6 +11,7 @@ namespace Modules\Groups\Service;
 use Core\Member\MemberService;
 use Core\Security\UserAccountRepository;
 use Modules\Groups\Repository\Post;
+use Modules\Groups\Repository\Reply;
 
 /**
  * Author labels for a whole page of posts, in two queries total — one for
@@ -32,33 +33,43 @@ class PostAuthorResolver
     }
 
     /**
-     * @param Post[] $posts
-     * @return array<int, array{display_name: string, account_name: string}> post id => label parts
+     * Posts and replies alike: both carry the same three properties this
+     * reads (id, authorMemberId, authorUserAccountId), so one page's posts
+     * AND their replies can be resolved together in the same two queries
+     * rather than two more per post.
+     *
+     * The returned array is keyed by the item's own id, so callers must not
+     * mix posts and replies in a single call — their ids come from
+     * different sequences and would collide. Service\GroupFeedService makes
+     * two calls for that reason.
+     *
+     * @param array<int, Post|Reply> $items
+     * @return array<int, array{display_name: string, account_name: string}> item id => label parts
      */
-    public function resolve(array $posts, int $scoutYearId): array
+    public function resolve(array $items, int $scoutYearId): array
     {
-        if ($posts === []) {
+        if ($items === []) {
             return [];
         }
 
         $displayNames = $this->memberService->findDisplayNamesByMemberIds(
-            array_map(fn(Post $p) => $p->authorMemberId, $posts),
+            array_map(fn(Post|Reply $item) => $item->authorMemberId, $items),
             $scoutYearId
         );
         $accountNames = $this->userAccountRepository->findNamesByIds(
-            array_map(fn(Post $p) => $p->authorUserAccountId, $posts)
+            array_map(fn(Post|Reply $item) => $item->authorUserAccountId, $items)
         );
 
         $labels = [];
-        foreach ($posts as $post) {
-            $account = $accountNames[$post->authorUserAccountId] ?? ['first_name' => null, 'last_name' => null];
+        foreach ($items as $item) {
+            $account = $accountNames[$item->authorUserAccountId] ?? ['first_name' => null, 'last_name' => null];
             $accountName = trim(($account['first_name'] ?? '') . ' ' . ($account['last_name'] ?? ''));
 
-            $labels[$post->id] = [
+            $labels[$item->id] = [
                 // A member who has left the unit has no member_year for
                 // this year any more, so their display name is gone —
                 // the post stays, attributed to the account that wrote it.
-                'display_name' => $displayNames[$post->authorMemberId] ?? $accountName,
+                'display_name' => $displayNames[$item->authorMemberId] ?? $accountName,
                 'account_name' => $accountName,
             ];
         }

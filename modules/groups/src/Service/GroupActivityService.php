@@ -15,14 +15,17 @@ use Modules\Groups\Support\Timestamps;
 /**
  * The single writer of last_activity_at, on both the group and the post.
  *
- * Written once, here, because everything that will later count as
- * activity — a reply, a reaction — has to bump the same two columns in
- * the same way, and a second implementation would be a second answer to
- * "when was this group last alive?", which the group list orders on and
- * the later purge measures.
+ * Written once, here, because everything that counts as activity — a new
+ * post, a reply, a reaction — bumps the same two columns in the same way,
+ * and a second implementation would be a second answer to "when was this
+ * group last alive?", which the group list orders on and the later purge
+ * measures.
  *
- * Editing a post is deliberately NOT activity: correcting a typo on an
- * old post must not resurrect it to the top of the feed.
+ * Editing is deliberately NOT activity, for a post or a reply:
+ * correcting a typo on an old post must not resurrect it to the top of
+ * the feed. A reaction IS activity, which also means it postpones that
+ * post's eventual purge — intended, not an oversight: a post people are
+ * still reacting to is not dormant.
  */
 class GroupActivityService
 {

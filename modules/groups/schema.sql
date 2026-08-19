@@ -103,12 +103,20 @@ CREATE TABLE discussion_group_members (
     CONSTRAINT fk_dgm_invited_by FOREIGN KEY (invited_by_member_id) REFERENCES members(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Text posts, and (see discussion_group_post_media below) up to four
--- media each. Replies, reactions and link previews arrive later: their
--- tables will hang off this one with ON DELETE CASCADE, which is why
--- post deletion needs no cleanup of its own here and must not grow any
--- later (deleting a post is a real DELETE — this module does not
--- soft-delete).
+-- Text posts, up to four media each (see discussion_group_post_media
+-- below), an optional single link preview (discussion_group_post_links),
+-- replies (discussion_group_replies) and reactions
+-- (discussion_group_post_reactions). Every one of those hangs off this
+-- table with ON DELETE CASCADE, so deleting a post takes its own rows
+-- with it — but a bare CASCADE is not the whole cleanup story, because
+-- three kinds of thing live outside this table's CASCADE reach:
+-- gallery_media (post media AND reply images, another module's table), and
+-- core's own files table (a link preview's cached image). So
+-- Service\PostMediaService, Service\PostLinkService and
+-- Service\ReplyService each explicitly delete their own external
+-- row/stored object BEFORE the post row goes — deleting a post is a real
+-- DELETE, this module does not soft-delete, and a reply's reactions are
+-- reached by the CASCADE chain post -> reply -> reply reaction.
 CREATE TABLE discussion_group_posts (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     group_id INT UNSIGNED NOT NULL,
@@ -170,4 +178,152 @@ CREATE TABLE discussion_group_post_media (
     UNIQUE INDEX idx_dgpm_post_media (post_id, gallery_media_id),
     INDEX idx_dgpm_post (post_id, sort_order),
     CONSTRAINT fk_dgpm_post FOREIGN KEY (post_id) REFERENCES discussion_group_posts(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- One link preview per post (module spec: max one link per post — the
+-- UNIQUE index on post_id enforces it at the DB level too, not just in
+-- Service\PostLinkService). title/description/image_file_id are all
+-- nullable independently of one another: a URL with no Open Graph tags at
+-- all, or one Service\PostLinkService could not reach, still becomes a
+-- post — just a plain link with nothing else resolved (module spec:
+-- "degrade to a plain link on any failure"). The preview image is fetched
+-- through Modules\Gallery\Api\LinkPreviewFetcher (SECURITY.md §17) but
+-- stored as this module's OWN files row (owner_type
+-- File\GroupFileOwnershipChecker::OWNER_TYPE, owner_id = the group's id) —
+-- never inside the group's delegated gallery album (discussion_groups.
+-- gallery_album_id): a link preview image is not a photo/video the group
+-- posted, and gallery's own Api\LinkPreviewFetcher never stores or serves
+-- it itself (see that interface's own docblock) precisely so each group
+-- keeps its own separately access-controlled copy.
+--
+-- No FK to files: it lives in core's schema, loaded before every module's
+-- own schema.sql, so unlike gallery_media_id above (a cross-MODULE
+-- reference, no guaranteed load-order) a FK here is safe — same reasoning
+-- as e.g. gallery_media.file_id's own FK in modules/gallery/schema.sql.
+-- Service\PostLinkService deletes the files row (and its stored object)
+-- itself before a post is deleted, exactly like Service\PostMediaService
+-- does for gallery_media — the CASCADE below only ever cleans up this
+-- table's own row afterward, never the file it pointed at.
+CREATE TABLE discussion_group_post_links (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    post_id INT UNSIGNED NOT NULL,
+    url VARCHAR(2048) NOT NULL,
+    title VARCHAR(255) NULL,
+    description TEXT NULL,
+    image_file_id INT UNSIGNED NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE INDEX idx_dgpl_post (post_id),
+    CONSTRAINT fk_dgpl_post FOREIGN KEY (post_id) REFERENCES discussion_group_posts(id) ON DELETE CASCADE,
+    CONSTRAINT fk_dgpl_image_file FOREIGN KEY (image_file_id) REFERENCES files(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Replies to a post — ONE level deep, always. There is deliberately no
+-- parent_reply_id: threading is not a feature of this module, and adding
+-- the column "just in case" is exactly what makes it accidentally arrive
+-- later. A reply is addressed only by its post.
+--
+-- Displayed oldest first (the opposite of the post stream, which is newest
+-- first): a conversation reads forward, so idx_dgr_post below is
+-- (post_id, id) and the keyset cursor walks it ascending.
+--
+-- gallery_media_id is the reply's single optional image (module spec: at
+-- most one), living in the SAME delegated gallery album as post media
+-- (discussion_groups.gallery_album_id) and reached through the same
+-- Modules\Gallery\Api\DelegatedAlbumManager — never a second storage path,
+-- which is also what makes a reply image show up in "Galerie du groupe"
+-- like any other group media, with no extra code. No FK to gallery_media
+-- for the cross-module reason discussion_group_post_media documents;
+-- Service\ReplyService deletes the media itself (row and stored object)
+-- before the reply row goes, and Service\ReplyService::deleteAllForPost()
+-- does the same for every reply of a post about to be deleted — the
+-- CASCADE below only ever removes this table's own rows.
+CREATE TABLE discussion_group_replies (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    post_id INT UNSIGNED NOT NULL,
+    -- Both author identities, same reasoning as discussion_group_posts.
+    author_user_account_id INT UNSIGNED NOT NULL,
+    author_member_id INT UNSIGNED NOT NULL,
+    -- Plain text, escaped by Twig at render time — never HTML, exactly
+    -- like a post's own body. May be empty when the reply carries an
+    -- image instead (module spec: text alone and image alone are both
+    -- valid, neither alone is not).
+    body TEXT NOT NULL,
+    gallery_media_id INT UNSIGNED NULL,
+    -- Set on the author's first edit inside the window; drives the
+    -- "modifié" marker. Editing a reply does NOT bump the post's
+    -- last_activity_at, for the same reason editing a post does not.
+    edited_at DATETIME NULL,
+    created_at DATETIME NOT NULL,
+    INDEX idx_dgr_post (post_id, id),
+    INDEX idx_dgr_author_member (author_member_id),
+    CONSTRAINT fk_dgr_post FOREIGN KEY (post_id) REFERENCES discussion_group_posts(id) ON DELETE CASCADE,
+    CONSTRAINT fk_dgr_author_account FOREIGN KEY (author_user_account_id) REFERENCES user_accounts(id) ON DELETE CASCADE,
+    CONSTRAINT fk_dgr_author_member FOREIGN KEY (author_member_id) REFERENCES members(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Reactions: TWO tables, one per reactable kind, deliberately NOT one
+-- polymorphic (target_type, target_id) table. A polymorphic pair cannot
+-- carry a real foreign key, so deleting a post or a reply would leave its
+-- reactions behind unless application code remembered to sweep them —
+-- exactly the kind of cleanup that gets forgotten on the one path nobody
+-- tested. With a real FK per table the database does it, always.
+--
+-- reaction_key stores a KEY ('thumbs_up', 'heart', …), never the emoji
+-- character itself. Support\Reactions is the single source of truth for
+-- the fixed set of six and the key => emoji map used at render time, and
+-- validates every incoming key against it (module spec: never trust the
+-- client's value, never accept an arbitrary emoji). Storing the character
+-- would also walk straight into the utf8mb4-versus-utf8 trap, where a
+-- three-byte column silently truncates or rejects a four-byte emoji.
+-- Not an ENUM either: that would duplicate the set in the schema and turn
+-- a rendering change into a migration.
+--
+-- UNIQUE (item, member) is what enforces "one reaction per member per
+-- item" — the DATABASE enforces it, not application logic, because a
+-- double-tap on mobile genuinely fires twice and two concurrent inserts
+-- would otherwise both succeed. Repository\ReactionRepository catches the
+-- resulting SQLSTATE 23000 and updates instead.
+CREATE TABLE discussion_group_post_reactions (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    post_id INT UNSIGNED NOT NULL,
+    member_id INT UNSIGNED NOT NULL,
+    reaction_key VARCHAR(20) NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE INDEX idx_dgpr_post_member (post_id, member_id),
+    INDEX idx_dgpr_post (post_id),
+    CONSTRAINT fk_dgpr_post FOREIGN KEY (post_id) REFERENCES discussion_group_posts(id) ON DELETE CASCADE,
+    CONSTRAINT fk_dgpr_member FOREIGN KEY (member_id) REFERENCES members(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE discussion_group_reply_reactions (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    reply_id INT UNSIGNED NOT NULL,
+    member_id INT UNSIGNED NOT NULL,
+    reaction_key VARCHAR(20) NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE INDEX idx_dgrr_reply_member (reply_id, member_id),
+    INDEX idx_dgrr_reply (reply_id),
+    CONSTRAINT fk_dgrr_reply FOREIGN KEY (reply_id) REFERENCES discussion_group_replies(id) ON DELETE CASCADE,
+    CONSTRAINT fk_dgrr_member FOREIGN KEY (member_id) REFERENCES members(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Per-member throttle on link-preview fetch attempts (module spec,
+-- following the retro_rate_limits precedent — see that table's own
+-- comment in modules/retro/schema.sql) — without this, posting links
+-- would let a member trigger unlimited outbound requests through the
+-- server (an SSRF-probing/DoS-against-a-third-party vector even with
+-- Service\OgScraperService's own hardening, SECURITY.md §17). Unlike
+-- retro_rate_limits, member_id is stored directly rather than an HMAC: a
+-- group post is already tied to both author identities in plain form
+-- (discussion_group_posts.author_member_id above) — there is no
+-- anonymity guarantee here to protect. Purged opportunistically by
+-- Service\LinkFetchThrottleService on every check (same "no dedicated
+-- scheduled task" choice as gallery's gallery_link_preview_cache, and for
+-- the same reason: low write volume, a fixed short retention window).
+CREATE TABLE discussion_group_link_fetch_log (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    member_id INT UNSIGNED NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_dglfl_member (member_id, created_at),
+    CONSTRAINT fk_dglfl_member FOREIGN KEY (member_id) REFERENCES members(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

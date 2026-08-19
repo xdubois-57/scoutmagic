@@ -41,6 +41,10 @@
                             <input type="file" id="groups-media-capture" class="visually-hidden"
                                    accept="image/*" capture="environment">
                         </label>
+                        <button type="button" class="btn btn-outline-secondary d-flex align-items-center" style="min-height:44px;"
+                                id="groups-link-toggle">
+                            <i class="bi bi-link-45deg me-1"></i> Lien
+                        </button>
                     </div>
                     <span class="small text-body-secondary" id="groups-media-count">0 / {{ max_media_per_post }} médias</span>
                 </div>
@@ -50,6 +54,12 @@
                 {% if not video_upload_allowed %}
                     <p class="small text-body-secondary mt-1 mb-0">L'envoi de vidéos est désactivé sur ce site.</p>
                 {% endif %}
+
+                <div class="mt-2 d-none" id="groups-link-field">
+                    <label class="form-label small mb-1" for="post-link">Lien</label>
+                    <input type="url" class="form-control" id="post-link" name="link"
+                           placeholder="https://…" maxlength="2048">
+                </div>
 
                 <button type="submit" class="btn btn-primary mt-2" style="min-height:44px;">Publier</button>
             </div>
@@ -161,6 +171,24 @@
             input.value = '';
         });
     });
+
+    // "Lien" reveals a plain URL input rather than fetching a preview
+    // client-side (module spec: no browser-side fetch) — the server
+    // resolves title/description/image synchronously on submit
+    // (Service\PostLinkService), same as every other post field.
+    const linkToggle = document.getElementById('groups-link-toggle');
+    const linkField = document.getElementById('groups-link-field');
+    const linkInput = document.getElementById('post-link');
+    if (linkToggle && linkField && linkInput) {
+        linkToggle.addEventListener('click', () => {
+            const hidden = linkField.classList.toggle('d-none');
+            if (hidden) {
+                linkInput.value = '';
+            } else {
+                linkInput.focus();
+            }
+        });
+    }
 })();
 
 // "Charger plus" appends the next keyset page in place, and the inline
@@ -193,7 +221,59 @@ document.addEventListener('click', async (event) => {
     if (editCancel) {
         document.getElementById('post-edit-' + editCancel.dataset.post)?.classList.add('d-none');
         document.getElementById('post-body-' + editCancel.dataset.post)?.classList.remove('d-none');
+        return;
     }
+
+    // "Voir plus de réponses" — appends the next page of replies in place,
+    // exactly like "Charger plus" does for the feed itself. Degrades to
+    // nothing if this script never runs: the replies already rendered
+    // server-side stay visible, and every action below them is a plain
+    // form POST.
+    const repliesMore = event.target.closest('.groups-replies-more');
+    if (repliesMore) {
+        repliesMore.disabled = true;
+        const response = await fetch(repliesMore.dataset.url, { headers: { 'X-Requested-With': 'fetch' } });
+        if (response.ok) {
+            const wrapper = repliesMore.closest('.groups-replies-more-wrapper');
+            wrapper.insertAdjacentHTML('beforebegin', await response.text());
+            wrapper.remove();
+        } else {
+            repliesMore.disabled = false;
+        }
+        return;
+    }
+
+    const replyEditToggle = event.target.closest('.groups-reply-edit-toggle');
+    if (replyEditToggle) {
+        document.getElementById('reply-edit-' + replyEditToggle.dataset.reply)?.classList.remove('d-none');
+        document.getElementById('reply-body-' + replyEditToggle.dataset.reply)?.classList.add('d-none');
+        return;
+    }
+
+    const replyEditCancel = event.target.closest('.groups-reply-edit-cancel');
+    if (replyEditCancel) {
+        document.getElementById('reply-edit-' + replyEditCancel.dataset.reply)?.classList.add('d-none');
+        document.getElementById('reply-body-' + replyEditCancel.dataset.reply)?.classList.remove('d-none');
+    }
+});
+
+// The reply composer's image picker is a bare <input type="file"> with no
+// preview grid (one image, not four) — this only surfaces the chosen
+// filename so the member can tell something is attached before sending.
+document.addEventListener('change', (event) => {
+    const input = event.target.closest('.groups-reply-image');
+    if (!input) {
+        return;
+    }
+
+    const label = input.closest('form')?.querySelector('.groups-reply-image-name');
+    if (!label) {
+        return;
+    }
+
+    const name = input.files && input.files.length > 0 ? input.files[0].name : '';
+    label.textContent = name;
+    label.classList.toggle('d-none', name === '');
 });
 </script>
 {% endblock %}

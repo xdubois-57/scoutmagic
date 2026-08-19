@@ -1,0 +1,28 @@
+{#
+  A post's optional link preview (module spec: image/domain/title/
+  description, degrading to a plain link when nothing was resolved).
+  `link` is a Modules\Groups\Repository\PostLink — its url is always
+  http(s), enforced once at write time (Service\PostLinkService::
+  isValidUrl()), so it is safe to render as a real href here without any
+  scheme check of its own; Twig still escapes it like any other value.
+#}
+{% if link %}
+    <a href="{{ link.url }}" target="_blank" rel="noopener noreferrer nofollow"
+       class="card mt-2 text-decoration-none groups-link-preview">
+        {% if link.imageFileId %}
+            <img src="{{ file_url(link.imageFileId) }}" alt="" class="groups-link-preview-image">
+        {% endif %}
+        <div class="card-body py-2 px-3">
+            <p class="text-body-tertiary text-uppercase mb-1" style="font-size:0.7rem;">{{ link.host() }}</p>
+            {% if link.title %}
+                <p class="fw-semibold mb-1 text-body">{{ link.title }}</p>
+            {% endif %}
+            {% if link.description %}
+                <p class="text-body-secondary mb-0 groups-link-preview-description">{{ link.description }}</p>
+            {% endif %}
+            {% if not link.title and not link.description %}
+                <p class="text-body mb-0 text-truncate">{{ link.url }}</p>
+            {% endif %}
+        </div>
+    </a>
+{% endif %}

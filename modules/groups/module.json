@@ -2,7 +2,7 @@
   "id": "groups",
   "name": "Groupes de discussion",
   "description": "Groupes de discussion privés pour l'unité : un groupe par section et par année scoute, ou des groupes sur invitation. Visibles uniquement par leurs membres.",
-  "version": "1.2.0",
+  "version": "1.4.0",
   "enabled_by_default": false,
   "requires": [
     "gallery"
@@ -132,8 +132,17 @@
     {
       "path": "/groups/{id}/feed",
       "method": "GET",
-      "controller": "Modules\\\\Groups\\\\Controller\\\\PostController",
+      "controller": "Modules\\Groups\\Controller\\PostController",
       "action": "feed",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/groups/{id}/posts/{postId}/replies",
+      "method": "GET",
+      "controller": "Modules\\Groups\\Controller\\ReplyController",
+      "action": "page",
       "menu": "espace_animes",
       "role_min": "identified",
       "label": ""
@@ -141,7 +150,7 @@
     {
       "path": "/groups/{id}/posts",
       "method": "POST",
-      "controller": "Modules\\\\Groups\\\\Controller\\\\PostController",
+      "controller": "Modules\\Groups\\Controller\\PostController",
       "action": "create",
       "menu": "espace_animes",
       "role_min": "identified",
@@ -150,7 +159,7 @@
     {
       "path": "/groups/{id}/posts/{postId}/edit",
       "method": "POST",
-      "controller": "Modules\\\\Groups\\\\Controller\\\\PostController",
+      "controller": "Modules\\Groups\\Controller\\PostController",
       "action": "edit",
       "menu": "espace_animes",
       "role_min": "identified",
@@ -159,7 +168,7 @@
     {
       "path": "/groups/{id}/posts/{postId}/delete",
       "method": "POST",
-      "controller": "Modules\\\\Groups\\\\Controller\\\\PostController",
+      "controller": "Modules\\Groups\\Controller\\PostController",
       "action": "delete",
       "menu": "espace_animes",
       "role_min": "identified",
@@ -168,7 +177,7 @@
     {
       "path": "/groups/{id}/posts/{postId}/pin",
       "method": "POST",
-      "controller": "Modules\\\\Groups\\\\Controller\\\\PostController",
+      "controller": "Modules\\Groups\\Controller\\PostController",
       "action": "pin",
       "menu": "espace_animes",
       "role_min": "identified",
@@ -177,8 +186,53 @@
     {
       "path": "/groups/{id}/posts/{postId}/unpin",
       "method": "POST",
-      "controller": "Modules\\\\Groups\\\\Controller\\\\PostController",
+      "controller": "Modules\\Groups\\Controller\\PostController",
       "action": "unpin",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/groups/{id}/posts/{postId}/replies",
+      "method": "POST",
+      "controller": "Modules\\Groups\\Controller\\ReplyController",
+      "action": "create",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/groups/{id}/posts/{postId}/react",
+      "method": "POST",
+      "controller": "Modules\\Groups\\Controller\\ReactionController",
+      "action": "react",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/groups/{id}/replies/{replyId}/edit",
+      "method": "POST",
+      "controller": "Modules\\Groups\\Controller\\ReplyController",
+      "action": "edit",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/groups/{id}/replies/{replyId}/delete",
+      "method": "POST",
+      "controller": "Modules\\Groups\\Controller\\ReplyController",
+      "action": "delete",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/groups/{id}/replies/{replyId}/react",
+      "method": "POST",
+      "controller": "Modules\\Groups\\Controller\\ReactionController",
+      "action": "reactToReply",
       "menu": "espace_animes",
       "role_min": "identified",
       "label": ""

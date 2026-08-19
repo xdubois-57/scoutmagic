@@ -142,6 +142,7 @@ class LocalStorageBackendTest extends TestCase
     /**
      * @dataProvider escapingKeys
      */
+    #[\PHPUnit\Framework\Attributes\DataProvider('escapingKeys')]
     public function testAKeyThatEscapesTheLocationIsRefused(string $key): void
     {
         $this->expectException(\RuntimeException::class);

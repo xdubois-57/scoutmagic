@@ -464,6 +464,7 @@ class GalleryConfigControllerTest extends TestCase
      * @dataProvider invalidNumericBodies
      * @param array<string, string> $overrides
      */
+    #[\PHPUnit\Framework\Attributes\DataProvider('invalidNumericBodies')]
     public function testSaveRejectsAnInvalidNumericSetting(array $overrides): void
     {
         $token = $this->csrfToken();

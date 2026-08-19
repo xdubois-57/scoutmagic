@@ -2134,6 +2134,12 @@ if (in_array('gallery', $moduleManager->getEnabledModuleIds(), true)) {
 
     $galleryAccessService = new \Modules\Gallery\Service\GalleryAccessService($memberService, $sectionService, $scoutYearService);
     $galleryOgScraperService = new \Modules\Gallery\Service\OgScraperService();
+    // Api\LinkPreviewFetcher's only implementation (SECURITY.md §17) —
+    // built unconditionally, like Api\DelegatedAlbumManager just below,
+    // ready for a future module's block to consume; groups (first
+    // consumer) is the only one that does so today.
+    $galleryLinkPreviewCacheRepo = new \Modules\Gallery\Repository\LinkPreviewCacheRepository($pdo);
+    $galleryLinkPreviewFetcher = new \Modules\Gallery\Service\LinkPreviewService($galleryOgScraperService, $galleryLinkPreviewCacheRepo);
     $galleryStorageBackendFactory = new \Modules\Gallery\Service\Storage\StorageBackendFactory($galleryStorageLocationRepo, $storagePath);
     $galleryFfmpegAvailability = new \Modules\Gallery\Service\FfmpegAvailability();
     // Optional dependency on the llm_connector module (ARCHITECTURE.md
@@ -2223,17 +2229,48 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
     // cannot see across the two independent `if` blocks) — same
     // precedent as the \assert() calls already in DelegatedAlbumService
     // and GalleryController.
-    \assert(isset($galleryDelegatedAlbumManager));
+    \assert(isset($galleryDelegatedAlbumManager, $galleryLinkPreviewFetcher));
     $groupsPostMediaRepo = new \Modules\Groups\Repository\PostMediaRepository($pdo);
     $groupsPostMediaService = new \Modules\Groups\Service\PostMediaService(
         $galleryDelegatedAlbumManager, $groupsPostMediaRepo, $groupsGroupRepo
     );
 
+    $groupsPostLinkRepo = new \Modules\Groups\Repository\PostLinkRepository($pdo);
+    $groupsLinkFetchLogRepo = new \Modules\Groups\Repository\LinkFetchLogRepository($pdo);
+    $groupsLinkFetchThrottleService = new \Modules\Groups\Service\LinkFetchThrottleService($groupsLinkFetchLogRepo);
+    $groupsPostLinkService = new \Modules\Groups\Service\PostLinkService(
+        $galleryLinkPreviewFetcher, $groupsLinkFetchThrottleService, $groupsPostLinkRepo,
+        $uploadHandler, $fileRepository, $storagePath
+    );
+
+    // Replies and reactions (prompt 8). The two reaction repositories are
+    // the same class over its two tables — see Repository\ReactionRepository
+    // for why one class serves both, and modules/groups/schema.sql for why
+    // there are two tables rather than one polymorphic one.
+    $groupsReplyRepo = new \Modules\Groups\Repository\ReplyRepository($pdo);
+    $groupsReplyService = new \Modules\Groups\Service\ReplyService(
+        $groupsReplyRepo, $groupsActivityService, $groupsPostMediaService
+    );
+    $groupsReactionService = new \Modules\Groups\Service\ReactionService(
+        \Modules\Groups\Repository\ReactionRepository::forPosts($pdo),
+        \Modules\Groups\Repository\ReactionRepository::forReplies($pdo),
+        $groupsActivityService
+    );
+    $groupsAuthorResolver = new \Modules\Groups\Service\PostAuthorResolver($memberService, $userAccountRepo);
+    $groupsReplyPresenter = new \Modules\Groups\Service\ReplyPresenter(
+        $groupsAuthorResolver, $groupsReplyService, $groupsReactionService
+    );
+    $groupsAuthorOptionsService = new \Modules\Groups\Service\AuthorOptionsService($groupsAccessService, $memberService);
+
     $groupsFeedService = new \Modules\Groups\Service\GroupFeedService(
         $groupsPostRepo,
-        new \Modules\Groups\Service\PostAuthorResolver($memberService, $userAccountRepo),
+        $groupsAuthorResolver,
         $groupsPostService,
-        $groupsPostMediaService
+        $groupsPostMediaService,
+        $groupsPostLinkRepo,
+        $groupsReplyRepo,
+        $groupsReplyPresenter,
+        $groupsReactionService
     );
 
     // Group files are readable only by the group's own members —
@@ -2259,14 +2296,30 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
         \Modules\Groups\Controller\GroupController::class,
         new \Modules\Groups\Controller\GroupController(
             $twig, $groupsGroupRepo, $groupsListService, $groupsAccessService, $groupsService,
-            $groupsContextFactory, $sectionService, $groupsFeedService, $memberService, $groupsPostMediaService
+            $groupsContextFactory, $sectionService, $groupsFeedService, $groupsPostMediaService,
+            $groupsAuthorOptionsService
         )
     );
     $frontController->registerController(
         \Modules\Groups\Controller\PostController::class,
         new \Modules\Groups\Controller\PostController(
             $twig, $groupsGroupRepo, $groupsPostRepo, $groupsAccessService, $groupsFeedService,
-            $groupsPostService, $groupsContextFactory, $groupsPostMediaService
+            $groupsPostService, $groupsContextFactory, $groupsPostMediaService, $groupsPostLinkService,
+            $groupsReplyService, $groupsAuthorOptionsService
+        )
+    );
+    $frontController->registerController(
+        \Modules\Groups\Controller\ReplyController::class,
+        new \Modules\Groups\Controller\ReplyController(
+            $twig, $groupsGroupRepo, $groupsPostRepo, $groupsReplyRepo, $groupsAccessService,
+            $groupsReplyService, $groupsReplyPresenter, $groupsPostMediaService, $groupsContextFactory
+        )
+    );
+    $frontController->registerController(
+        \Modules\Groups\Controller\ReactionController::class,
+        new \Modules\Groups\Controller\ReactionController(
+            $twig, $groupsGroupRepo, $groupsPostRepo, $groupsReplyRepo, $groupsAccessService,
+            $groupsReactionService, $groupsContextFactory
         )
     );
     $frontController->registerController(

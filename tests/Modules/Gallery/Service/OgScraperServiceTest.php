@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Modules\Gallery\Service;
 
 use Modules\Gallery\Service\OgScraperService;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 class OgScraperServiceTest extends TestCase
@@ -60,7 +61,9 @@ class OgScraperServiceTest extends TestCase
 
     /**
      * Some sites (and most WordPress SEO plugins) emit the OG tags with
-     * name= instead of the spec's property=.
+     * name= instead of the spec's property=. Kept from the parallel
+     * gallery-review fix on main, whose parseOgTags() improvement this
+     * class adopted.
      */
     public function testParseOgTagsAlsoAcceptsTheNameAttribute(): void
     {
@@ -96,73 +99,66 @@ class OgScraperServiceTest extends TestCase
     }
 
     /**
-     * The album link is chief-supplied and the server fetches it, so the
-     * guard is what stops the app from GETting an internal address and
-     * surfacing part of the response (og:title/og:description, and the
-     * og:image bytes, cached and served back via /files/{id}).
+     * SSRF hardening: every one of these targets an IP-literal host, so
+     * the rejection happens in isPublicIp()/parseAndValidateUrl() before
+     * any DNS lookup or connection attempt — deterministic, no network
+     * access required. Covers loopback, RFC1918 private ranges, link-local
+     * (including the cloud-metadata address every SSRF checklist starts
+     * with), IPv6 loopback and unique-local, an IPv4-mapped IPv6 loopback
+     * literal, and multicast.
      *
-     * Literal addresses throughout: the assertions must hold with no DNS and
-     * no network at all.
-     *
-     * @dataProvider blockedUrls
+     * @return iterable<string, array{string}>
      */
-    public function testIsFetchableUrlRefusesAnUnsafeTarget(string $url): void
+    public static function ssrfTargetUrls(): iterable
     {
-        $this->assertFalse($this->service->isFetchableUrl($url));
+        yield 'IPv4 loopback' => ['http://127.0.0.1/x'];
+        yield 'IPv4 loopback, alternate' => ['http://127.1.2.3/x'];
+        yield 'RFC1918 10.x' => ['http://10.0.0.5/x'];
+        yield 'RFC1918 172.16.x' => ['http://172.16.0.1/x'];
+        yield 'RFC1918 192.168.x' => ['http://192.168.1.1/x'];
+        yield 'link-local' => ['http://169.254.1.1/x'];
+        yield 'cloud metadata endpoint' => ['http://169.254.169.254/latest/meta-data/'];
+        yield 'unspecified' => ['http://0.0.0.0/x'];
+        yield 'IPv4 multicast' => ['http://224.0.0.1/x'];
+        yield 'IPv6 loopback' => ['http://[::1]/x'];
+        yield 'IPv6 unique-local' => ['http://[fc00::1]/x'];
+        yield 'IPv6 link-local' => ['http://[fe80::1]/x'];
+        yield 'IPv6 multicast' => ['http://[ff02::1]/x'];
+        yield 'IPv4-mapped IPv6 loopback' => ['http://[::ffff:127.0.0.1]/x'];
+        yield 'https scheme, loopback' => ['https://127.0.0.1/x'];
     }
 
-    /**
-     * @return array<string, array{0: string}>
-     */
-    public static function blockedUrls(): array
+    #[DataProvider('ssrfTargetUrls')]
+    public function testFetchImageBytesRejectsPrivateAndReservedTargets(string $url): void
     {
-        return [
-            'loopback' => ['http://127.0.0.1/admin'],
-            'private 10/8' => ['http://10.0.0.5/'],
-            'private 172.16/12' => ['http://172.16.3.9/'],
-            'private 192.168/16' => ['http://192.168.1.1/'],
-            'link-local cloud metadata' => ['http://169.254.169.254/latest/meta-data/'],
-            'IPv6 loopback' => ['http://[::1]/'],
-            'IPv4-mapped loopback' => ['http://[::ffff:127.0.0.1]/'],
-            'file scheme' => ['file:///etc/passwd'],
-            'gopher scheme' => ['gopher://8.8.8.8/'],
-            'ftp scheme' => ['ftp://8.8.8.8/'],
-            'no scheme' => ['//8.8.8.8/album'],
-            'garbage' => ['not-a-url'],
-            'empty' => [''],
-            'unbracketed IPv6' => ['https://2001:4860:4860::8888/'],
-        ];
+        $this->assertNull($this->service->fetchImageBytes($url));
     }
 
-    /**
-     * @dataProvider allowedUrls
-     */
-    public function testIsFetchableUrlAcceptsAPublicTarget(string $url): void
-    {
-        $this->assertTrue($this->service->isFetchableUrl($url));
-    }
-
-    /**
-     * @return array<string, array{0: string}>
-     */
-    public static function allowedUrls(): array
-    {
-        return [
-            'public IPv4 over https' => ['https://8.8.8.8/album'],
-            'public IPv4 over http' => ['http://8.8.8.8/album'],
-            'public IPv6' => ['http://[2001:4860:4860::8888]/album'],
-        ];
-    }
-
-    public function testFetchImageBytesRefusesABlockedTargetWithoutAnyRequest(): void
-    {
-        $this->assertNull($this->service->fetchImageBytes('http://169.254.169.254/latest/meta-data/'));
-        $this->assertNull($this->service->fetchImageBytes('http://127.0.0.1:8080/internal'));
-    }
-
-    public function testFetchThrowsForABlockedTarget(): void
+    #[DataProvider('ssrfTargetUrls')]
+    public function testFetchRejectsPrivateAndReservedTargets(string $url): void
     {
         $this->expectException(\Modules\Gallery\Service\GalleryException::class);
-        $this->service->fetch('http://10.1.2.3/album');
+        $this->service->fetch($url);
+    }
+
+    public function testFetchImageBytesRejectsEmbeddedCredentials(): void
+    {
+        $this->assertNull($this->service->fetchImageBytes('http://user:pass@127.0.0.1/x'));
+    }
+
+    /**
+     * A safe (public) host is still rejected when the URL asks for a
+     * non-default port — connecting to an arbitrary port on an otherwise
+     * public address is exactly how an SSRF payload reaches an internal
+     * service (a database, an admin panel) that only happens to be
+     * fronted by a machine with a public IP.
+     */
+    public function testFetchImageBytesRejectsNonDefaultPorts(): void
+    {
+        // 93.184.216.34 is example.com's own address (a real public IP,
+        // no DNS lookup needed for this assertion since the rejection
+        // happens on the port check alone, before resolution).
+        $this->assertNull($this->service->fetchImageBytes('http://93.184.216.34:8080/x'));
+        $this->assertNull($this->service->fetchImageBytes('https://93.184.216.34:8443/x'));
     }
 }

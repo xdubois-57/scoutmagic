@@ -18,9 +18,13 @@ use Modules\Groups\Service\GroupSessionContext;
 /**
  * Scopes a file to the members of one group: owner_type
  * 'discussion_group', owner_id = discussion_groups.id (ARCHITECTURE.md
- * §8.3). Nothing stores such a file yet — group media arrive later and are
- * this checker's first consumer — but the rule is registered from the
- * start so a file can never exist ahead of the rule that guards it.
+ * §8.3). Registered from the module's very first iteration, before
+ * anything stored such a file, precisely so a file could never exist
+ * ahead of the rule that guards it — three things rely on it now: a
+ * post's media, a reply's single image (both gallery_media inside the
+ * group's delegated album, reached through the twin
+ * Gallery\GroupDelegatedAlbumAccessChecker) and a link preview's cached
+ * image (a plain `files` row, guarded here directly).
  *
  * Fail-closed twice over: the registry denies any owner_type with no
  * checker (so every group file is denied while this module is disabled),

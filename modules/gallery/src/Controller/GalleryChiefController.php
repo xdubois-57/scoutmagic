@@ -354,7 +354,10 @@ class GalleryChiefController extends AbstractController
     {
         $labels = [];
         foreach ($this->sectionService->getAllWithBranches() as $section) {
-            $labels[(int) $section['id']] = (string) ($section['name'] ?? $section['desk_code'] ?? '');
+            // desk_code is non-nullable in SectionService's own return
+            // shape, so it is already the terminal fallback — a further
+            // ?? '' after it is unreachable, which PHPStan reports.
+            $labels[(int) $section['id']] = (string) ($section['name'] ?? $section['desk_code']);
         }
 
         return $labels;

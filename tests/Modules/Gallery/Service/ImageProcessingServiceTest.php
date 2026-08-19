@@ -129,6 +129,7 @@ class ImageProcessingServiceTest extends TestCase
      *
      * @dataProvider nonPositiveMaxDimensions
      */
+    #[\PHPUnit\Framework\Attributes\DataProvider('nonPositiveMaxDimensions')]
     public function testNonPositiveMaxDimensionFallsBackToTheSourceSize(int $maxDimension): void
     {
         $result = $this->service->process($this->fakeJpeg(2000, 1000), 'image/jpeg', $maxDimension);

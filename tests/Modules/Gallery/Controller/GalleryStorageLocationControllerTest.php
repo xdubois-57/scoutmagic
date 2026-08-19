@@ -270,6 +270,7 @@ class GalleryStorageLocationControllerTest extends TestCase
      *
      * @dataProvider unsafeSubdirs
      */
+    #[\PHPUnit\Framework\Attributes\DataProvider('unsafeSubdirs')]
     public function testStoreRejectsAnUnsafeSubdir(string $subdir): void
     {
         $token = $this->csrfToken();
@@ -370,6 +371,7 @@ class GalleryStorageLocationControllerTest extends TestCase
     /**
      * @dataProvider unsafeSubdirs
      */
+    #[\PHPUnit\Framework\Attributes\DataProvider('unsafeSubdirs')]
     public function testUpdateRejectsAnUnsafeSubdir(string $subdir): void
     {
         $id = $this->storageLocationRepository->create(

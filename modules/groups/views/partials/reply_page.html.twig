@@ -1,0 +1,20 @@
+{#
+  One page of a post's replies — rendered both inline under a post in the
+  feed and on its own for "Charger plus"
+  (GET /groups/{id}/posts/{postId}/replies), which is why it extends
+  nothing and carries the next button with it: the JS replaces the button
+  with whatever this returns. Same shape as feed_page.html.twig one level
+  up.
+#}
+{% for row in replies %}
+    {% include '@groups/partials/reply_card.html.twig' with { row: row, group: group } only %}
+{% endfor %}
+
+{% if replies_next_after_id %}
+    <div class="groups-replies-more-wrapper mt-1">
+        <button type="button" class="btn btn-sm btn-link px-0 groups-replies-more" style="min-height:44px;"
+                data-url="/groups/{{ group.id }}/posts/{{ post.id }}/replies?after={{ replies_next_after_id }}">
+            Voir plus de réponses
+        </button>
+    </div>
+{% endif %}
