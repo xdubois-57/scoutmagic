@@ -83,11 +83,10 @@ class GalleryStorageLocationController extends AbstractController
                     $this->nullableString($request->getBody('s3_secret_key'))
                 );
             } else {
-                $subdir = trim((string) $request->getBody('subdir', ''));
                 $id = $this->storageLocationRepository->create(
                     StorageLocation::TYPE_LOCAL,
                     $label,
-                    $subdir !== '' ? $subdir : 'gallery',
+                    $this->normalizeSubdir($request->getBody('subdir')),
                     null, null, null, null, null, null, null
                 );
             }
@@ -169,9 +168,8 @@ class GalleryStorageLocationController extends AbstractController
                     $this->nullableString($request->getBody('s3_secret_key'))
                 );
             } else {
-                $subdir = trim((string) $request->getBody('subdir', ''));
                 $this->storageLocationRepository->update(
-                    $location->id, $label, $subdir !== '' ? $subdir : 'gallery',
+                    $location->id, $label, $this->normalizeSubdir($request->getBody('subdir')),
                     null, null, null, null, null, null, null
                 );
             }
@@ -294,6 +292,46 @@ class GalleryStorageLocationController extends AbstractController
             'gallery_s3_ai_available' => $this->s3ErrorExplainerService->isAvailable(),
             'csrf_token' => CsrfGuard::generateToken(),
         ];
+    }
+
+    /**
+     * The local sub-directory is concatenated straight onto the storage root
+     * by Service\Storage\LocalStorageBackend, so it is validated here rather
+     * than trusted: a value like "../../public" would put every rendition
+     * inside the webroot. Kept to plain relative segments — the backend also
+     * refuses to resolve outside its own directory, this just makes the
+     * refusal a readable message at the point of entry.
+     *
+     * @throws GalleryException on an absolute path, a parent-directory hop, or
+     *                           a character outside [A-Za-z0-9._-] and "/"
+     */
+    private function normalizeSubdir(mixed $value): string
+    {
+        $raw = trim((string) ($value ?? ''));
+        // Rejected rather than silently reinterpreted as relative: an admin who
+        // typed "/etc" meant an absolute path, and quietly storing "etc"
+        // (i.e. storage/etc) is a surprise, not a fix.
+        if (str_starts_with($raw, '/') || preg_match('#^[A-Za-z]:[\\\\/]#', $raw) === 1) {
+            throw new GalleryException('Le sous-dossier doit être un chemin relatif, sans « / » au début.');
+        }
+
+        $subdir = trim($raw, " \t\n\r\0\x0B/");
+        if ($subdir === '') {
+            return 'gallery';
+        }
+        if (mb_strlen($subdir) > 255) {
+            throw new GalleryException('Le sous-dossier ne peut pas dépasser 255 caractères.');
+        }
+
+        foreach (explode('/', $subdir) as $segment) {
+            if ($segment === '' || $segment === '.' || $segment === '..' || preg_match('/^[A-Za-z0-9._-]+$/', $segment) !== 1) {
+                throw new GalleryException(
+                    'Le sous-dossier ne peut contenir que des lettres, chiffres, points, tirets et « / ».'
+                );
+            }
+        }
+
+        return $subdir;
     }
 
     private function nullableProvider(mixed $value): string

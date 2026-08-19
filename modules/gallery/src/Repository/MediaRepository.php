@@ -39,6 +39,22 @@ class MediaRepository
         return (int) $stmt->fetchColumn();
     }
 
+    /**
+     * The rank a newly uploaded media should take to land last in the album.
+     * Deliberately MAX(sort_order) + 1 rather than COUNT(*): after any
+     * deletion the two disagree, and a count-derived rank then collides with
+     * an existing row (so did five parallel uploads all reading the same
+     * count), silently scrambling the order a chief had arranged.
+     */
+    public function nextSortOrder(int $albumId): int
+    {
+        $stmt = $this->pdo->prepare('SELECT MAX(sort_order) FROM gallery_media WHERE album_id = ?');
+        $stmt->execute([$albumId]);
+        $max = $stmt->fetchColumn();
+
+        return $max !== null && $max !== false ? ((int) $max) + 1 : 0;
+    }
+
     public function create(
         int $albumId,
         string $mediaType,
@@ -91,13 +107,19 @@ class MediaRepository
     }
 
     /**
+     * Writes $orderedMediaIds' positions as sort_order 0..n-1. Scoped to
+     * $albumId in the WHERE clause as a second line of defence: the caller
+     * (Service\MediaService::reorder()) already validates that every id
+     * belongs to the album, and this makes a future caller that forgets to
+     * a no-op rather than a cross-album write.
+     *
      * @param int[] $orderedMediaIds
      */
-    public function reorder(array $orderedMediaIds): void
+    public function reorder(int $albumId, array $orderedMediaIds): void
     {
-        $stmt = $this->pdo->prepare('UPDATE gallery_media SET sort_order = ? WHERE id = ?');
-        foreach ($orderedMediaIds as $index => $mediaId) {
-            $stmt->execute([$index, $mediaId]);
+        $stmt = $this->pdo->prepare('UPDATE gallery_media SET sort_order = ? WHERE id = ? AND album_id = ?');
+        foreach (array_values($orderedMediaIds) as $index => $mediaId) {
+            $stmt->execute([$index, $mediaId, $albumId]);
         }
     }
 

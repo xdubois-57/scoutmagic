@@ -20,6 +20,10 @@
 
     <div class="position-absolute bottom-0 start-50 translate-middle-x mb-3 d-flex gap-2">
         <button type="button" class="btn btn-sm btn-outline-light d-none" id="gallery-lightbox-hq">Voir en haute qualité</button>
-        <a href="#" class="btn btn-sm btn-outline-light d-none" id="gallery-lightbox-download" download>Télécharger l'original</a>
+        {# The href is the "large" rendition, not a pristine original, and the
+           download attribute is ignored cross-origin (S3/CDN) — hence the
+           neutral label and the new tab, so the button never looks broken. #}
+        <a href="#" class="btn btn-sm btn-outline-light d-none" id="gallery-lightbox-download"
+           download target="_blank" rel="noopener">Télécharger cette image</a>
     </div>
 </div>

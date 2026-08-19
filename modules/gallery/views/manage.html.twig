@@ -38,7 +38,9 @@
                             <h2 class="h6 mb-0 text-truncate">{{ album.displayTitle() }}</h2>
                             <p class="small text-body-secondary mb-0">
                                 {{ album.albumDate|french_date }}
-                                {% if album.sectionId %}· {{ album.sectionId is not null ? 'Section spécifique' : '' }}{% else %}· Toute l'unité{% endif %}
+                                {# Literal text in the else branch, not a string expression: an
+                                   apostrophe inside {{ ... }} comes out as &#039;. #}
+                                · {% if row.section_label %}{{ row.section_label }}{% else %}Toute l'unité{% endif %}
                             </p>
                         </div>
                         {% if row.can_edit %}

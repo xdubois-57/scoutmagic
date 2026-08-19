@@ -262,4 +262,129 @@ class GalleryStorageLocationControllerTest extends TestCase
         // the meaningful assertion is that a result was actually persisted.
         $this->assertNotNull($this->storageLocationRepository->findById($id)->lastCheckOk);
     }
+
+    /**
+     * The sub-directory is concatenated straight onto the storage root by
+     * Service\Storage\LocalStorageBackend, so a value like "../../public"
+     * would put every rendition inside the webroot.
+     *
+     * @dataProvider unsafeSubdirs
+     */
+    public function testStoreRejectsAnUnsafeSubdir(string $subdir): void
+    {
+        $token = $this->csrfToken();
+        $request = new Request('POST', '/config/gallery/locations', [], [
+            '_csrf_token' => $token,
+            'type' => 'local',
+            'label' => 'Traversée',
+            'subdir' => $subdir,
+        ], [], []);
+
+        $response = $this->controller->store($request, []);
+
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertNull($this->storageLocationRepository->findByLabel('Traversée'));
+    }
+
+    /**
+     * @return array<string, array{0: string}>
+     */
+    public static function unsafeSubdirs(): array
+    {
+        return [
+            'parent hop' => ['../public'],
+            'deep parent hop' => ['gallery/../../public'],
+            'absolute path' => ['/etc'],
+            'leading slash' => ['/gallery/'],
+            'windows drive' => ['C:\\gallery'],
+            'backslash hop' => ['..\\public'],
+            'bare parent' => ['..'],
+            'null byte' => ["gallery\0/x"],
+            'space in a segment' => ['mon dossier'],
+            'wildcard' => ['gal*ery'],
+            'over 255 characters' => [str_repeat('a', 256)],
+        ];
+    }
+
+    public function testStoreAcceptsAPlainSubdir(): void
+    {
+        $token = $this->csrfToken();
+        $request = new Request('POST', '/config/gallery/locations', [], [
+            '_csrf_token' => $token,
+            'type' => 'local',
+            'label' => 'Disque secondaire',
+            'subdir' => 'gallery-2024',
+        ], [], []);
+
+        $response = $this->controller->store($request, []);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('gallery-2024', $this->storageLocationRepository->findByLabel('Disque secondaire')?->subdir);
+    }
+
+    public function testStoreNormalizesATrailingSlash(): void
+    {
+        $token = $this->csrfToken();
+        $request = new Request('POST', '/config/gallery/locations', [], [
+            '_csrf_token' => $token,
+            'type' => 'local',
+            'label' => 'Slash final',
+            'subdir' => 'gallery/',
+        ], [], []);
+
+        $this->controller->store($request, []);
+
+        $this->assertSame('gallery', $this->storageLocationRepository->findByLabel('Slash final')?->subdir);
+    }
+
+    public function testStoreAcceptsANestedSubdir(): void
+    {
+        $token = $this->csrfToken();
+        $request = new Request('POST', '/config/gallery/locations', [], [
+            '_csrf_token' => $token,
+            'type' => 'local',
+            'label' => 'Disque imbriqué',
+            'subdir' => 'medias/gallery',
+        ], [], []);
+
+        $this->controller->store($request, []);
+
+        $this->assertSame('medias/gallery', $this->storageLocationRepository->findByLabel('Disque imbriqué')?->subdir);
+    }
+
+    public function testStoreFallsBackToTheDefaultSubdirWhenBlank(): void
+    {
+        $token = $this->csrfToken();
+        $request = new Request('POST', '/config/gallery/locations', [], [
+            '_csrf_token' => $token,
+            'type' => 'local',
+            'label' => 'Sans sous-dossier',
+            'subdir' => '   ',
+        ], [], []);
+
+        $this->controller->store($request, []);
+
+        $this->assertSame('gallery', $this->storageLocationRepository->findByLabel('Sans sous-dossier')?->subdir);
+    }
+
+    /**
+     * @dataProvider unsafeSubdirs
+     */
+    public function testUpdateRejectsAnUnsafeSubdir(string $subdir): void
+    {
+        $id = $this->storageLocationRepository->create(
+            StorageLocation::TYPE_LOCAL, 'À modifier', 'gallery', null, null, null, null, null, null, null
+        );
+        $token = $this->csrfToken();
+        $request = new Request('POST', '/config/gallery/locations/' . $id, [], [
+            '_csrf_token' => $token,
+            'label' => 'À modifier',
+            'subdir' => $subdir,
+        ], [], []);
+
+        $response = $this->controller->update($request, ['id' => (string) $id]);
+
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertSame('gallery', $this->storageLocationRepository->findById($id)?->subdir);
+    }
 }

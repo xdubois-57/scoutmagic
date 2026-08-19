@@ -454,6 +454,157 @@ class GalleryConfigControllerTest extends TestCase
     /**
      * @return array<string, string>
      */
+    /**
+     * Core\Config\SettingService only checks that a 'number' setting is
+     * numeric — it happily stores '', '0' or '-5', and every read site casts
+     * those to a hard 0: gallery_max_media_per_album = 0 refused every upload
+     * ("limite de 0 médias") and gallery_photo_max_dimension = 0 asked GD for
+     * a 0x0 canvas, failing every photo in the album.
+     *
+     * @dataProvider invalidNumericBodies
+     * @param array<string, string> $overrides
+     */
+    public function testSaveRejectsAnInvalidNumericSetting(array $overrides): void
+    {
+        $token = $this->csrfToken();
+        $body = array_merge($this->minimalSaveBody($token), $overrides);
+
+        $response = $this->controller->save(new Request('POST', '/config/gallery', [], $body, [], []), []);
+
+        $this->assertSame(422, $response->getStatusCode());
+        $this->settingService->clearCache();
+        // Nothing was written: the previous values are all still in place.
+        $this->assertSame('200', (string) $this->settingService->get('gallery_max_media_per_album', 'gallery'));
+        $this->assertSame('3000', (string) $this->settingService->get('gallery_photo_max_dimension', 'gallery'));
+    }
+
+    /**
+     * @return array<string, array{0: array<string, string>}>
+     */
+    public static function invalidNumericBodies(): array
+    {
+        return [
+            'zero media limit' => [['gallery_max_media_per_album' => '0']],
+            'blank media limit' => [['gallery_max_media_per_album' => '']],
+            'non-numeric media limit' => [['gallery_max_media_per_album' => 'beaucoup']],
+            'negative media limit' => [['gallery_max_media_per_album' => '-5']],
+            'media limit over the ceiling' => [['gallery_max_media_per_album' => '10001']],
+            'zero photo dimension' => [['gallery_photo_max_dimension' => '0']],
+            'photo dimension under the floor' => [['gallery_photo_max_dimension' => '499']],
+            'zero photo upload size' => [['gallery_max_photo_upload_mb' => '0']],
+            'zero video upload size' => [['gallery_max_video_upload_mb' => '0']],
+            'zero video duration' => [['gallery_max_video_duration_sec' => '0']],
+            'decimal media limit' => [['gallery_max_media_per_album' => '12.5']],
+        ];
+    }
+
+    public function testSaveRendersTheValidationMessage(): void
+    {
+        $token = $this->csrfToken();
+        $body = array_merge($this->minimalSaveBody($token), ['gallery_max_media_per_album' => '0']);
+
+        $response = $this->controller->save(new Request('POST', '/config/gallery', [], $body, [], []), []);
+
+        $this->assertStringContainsString('doit être comprise entre 1 et 10000', $response->getBody());
+    }
+
+    public function testSaveLeavesBooleansUntouchedWhenANumericFieldIsInvalid(): void
+    {
+        $this->settingService->set('gallery_allow_video', '1', 'gallery');
+        $token = $this->csrfToken();
+        // gallery_allow_video absent from the body would normally switch it off.
+        $body = array_merge($this->minimalSaveBody($token), ['gallery_max_media_per_album' => '0']);
+
+        $this->controller->save(new Request('POST', '/config/gallery', [], $body, [], []), []);
+
+        $this->settingService->clearCache();
+        $this->assertSame('1', (string) $this->settingService->get('gallery_allow_video', 'gallery'));
+    }
+
+    public function testSaveAcceptsValuesAtTheBoundaries(): void
+    {
+        $token = $this->csrfToken();
+        $body = array_merge($this->minimalSaveBody($token), [
+            'gallery_max_media_per_album' => '1',
+            'gallery_photo_max_dimension' => '500',
+            'gallery_max_video_duration_sec' => '86400',
+        ]);
+
+        $response = $this->controller->save(new Request('POST', '/config/gallery', [], $body, [], []), []);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->settingService->clearCache();
+        $this->assertSame('1', (string) $this->settingService->get('gallery_max_media_per_album', 'gallery'));
+        $this->assertSame('86400', (string) $this->settingService->get('gallery_max_video_duration_sec', 'gallery'));
+    }
+
+    /**
+     * The edit form deliberately leaves the secret field blank ("laisser vide
+     * pour conserver la clé actuelle"), so testing an existing location used
+     * to send an empty secret and could only ever fail on authentication.
+     */
+    public function testTestConnectionFallsBackToTheStoredSecretWhenTheFieldIsBlank(): void
+    {
+        $locationId = $this->storageLocationRepository->create(
+            StorageLocation::TYPE_S3, 'Bucket', null, 'custom',
+            'http://127.0.0.1:1', 'eu', 'bucket', 'access-key', null, 'stored-secret'
+        );
+
+        $response = $this->controller->testConnection($this->jsonRequest([
+            '_csrf_token' => $this->csrfToken(),
+            'location_id' => $locationId,
+            'endpoint' => 'http://127.0.0.1:1',
+            'region' => 'eu',
+            'bucket' => 'bucket',
+            'access_key' => 'access-key',
+            'secret_key' => '',
+        ]), []);
+
+        // The connection itself still fails (nothing is listening on port 9),
+        // but it fails on the network, not on a missing credential — proving
+        // the stored secret was picked up rather than an empty string sent.
+        $this->assertSame(422, $response->getStatusCode());
+        $payload = json_decode($response->getBody(), true);
+        $this->assertIsArray($payload);
+        $this->assertFalse($payload['success']);
+        $this->assertStringNotContainsString('stored-secret', (string) $payload['error']);
+    }
+
+    public function testTestConnectionIgnoresAnUnknownLocationId(): void
+    {
+        $response = $this->controller->testConnection($this->jsonRequest([
+            '_csrf_token' => $this->csrfToken(),
+            'location_id' => 999999,
+            'endpoint' => 'http://127.0.0.1:1',
+            'region' => 'eu',
+            'bucket' => 'bucket',
+            'access_key' => 'access-key',
+            'secret_key' => '',
+        ]), []);
+
+        $this->assertSame(422, $response->getStatusCode());
+    }
+
+    /**
+     * Emitted from a string expression, autoescaping turned the quotes into
+     * &quot; and left a trail of bogus boolean attributes behind the disabled
+     * flag.
+     */
+    public function testTheDeleteButtonOfAReferencedLocationRendersRealAttributes(): void
+    {
+        $locationId = $this->storageLocationRepository->create(
+            StorageLocation::TYPE_LOCAL, 'Utilisé', 'gallery-used', null, null, null, null, null, null, null
+        );
+        $this->albumRepository->create(
+            Album::TYPE_LOCAL, 'Camp', null, '2026-01-01', null, $this->scoutYearId, null, $locationId, $this->authorId
+        );
+
+        $body = $this->controller->index(new Request('GET', '/config/gallery', [], [], [], []), [])->getBody();
+
+        $this->assertStringNotContainsString('disabled title=&quot;', $body);
+        $this->assertStringContainsString('non supprimable', $body);
+    }
+
     private function minimalSaveBody(string $token): array
     {
         return [

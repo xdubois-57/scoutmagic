@@ -17,7 +17,10 @@
         </div>
     {% endif %}
 
-    <form method="post" action="/config/gallery" novalidate>
+    {# No novalidate: every field left on this form is a bounded number input,
+       and the browser's own min/max is the first line of defence behind
+       Controller\GalleryConfigController::NUMERIC_SETTINGS. #}
+    <form method="post" action="/config/gallery">
         <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
 
         <div class="card mb-4">
@@ -101,8 +104,12 @@
                                             <a href="/config/gallery/locations/{{ location.id }}/edit" class="btn btn-sm btn-outline-secondary" title="Modifier">
                                                 <i class="bi bi-pencil"></i>
                                             </a>
+                                            {% set location_in_use = (location_album_counts[location.id] ?? 0) > 0 %}
+                                            {# Real attributes, not an emitted attribute string: autoescaping
+                                               would turn the quotes into &quot; and mangle the markup. #}
                                             <button type="button" class="btn btn-sm btn-outline-danger gallery-location-delete" data-id="{{ location.id }}"
-                                                    {{ (location_album_counts[location.id] ?? 0) > 0 ? 'disabled title="Encore utilisé par au moins un album — non supprimable."' : 'title="Supprimer"' }}>
+                                                    {% if location_in_use %}disabled{% endif %}
+                                                    title="{{ location_in_use ? 'Encore utilisé par au moins un album — non supprimable.' : 'Supprimer' }}">
                                                 <i class="bi bi-trash"></i>
                                             </button>
                                         </td>

@@ -22,6 +22,8 @@ class MediaRepositoryTest extends TestCase
     private MediaRepository $repository;
     private int $albumId;
     private int $fileId;
+    private int $scoutYearId;
+    private int $authorId;
 
     protected function setUp(): void
     {
@@ -31,13 +33,14 @@ class MediaRepositoryTest extends TestCase
 
         $stmt = $this->pdo->prepare('INSERT INTO user_accounts (email_encrypted, email_blind_index) VALUES (?, ?)');
         $stmt->execute(['enc', 'idx']);
-        $authorId = (int) $this->pdo->lastInsertId();
+        $this->authorId = (int) $this->pdo->lastInsertId();
+        $authorId = $this->authorId;
 
         $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date) VALUES ('2025-2026', '2025-09-01', '2026-08-31')");
-        $scoutYearId = (int) $this->pdo->lastInsertId();
+        $this->scoutYearId = (int) $this->pdo->lastInsertId();
 
         $albumRepository = new AlbumRepository($this->pdo);
-        $this->albumId = $albumRepository->create(Album::TYPE_LOCAL, 'Camp', null, '2026-01-01', null, $scoutYearId, null, null, $authorId);
+        $this->albumId = $albumRepository->create(Album::TYPE_LOCAL, 'Camp', null, '2026-01-01', null, $this->scoutYearId, null, null, $authorId);
 
         $stmt = $this->pdo->prepare("INSERT INTO files (relative_path, original_name, mime_type, size_bytes, role_min, module_id, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)");
         $stmt->execute(['gallery/orig/a.jpg', 'a.jpg', 'image/jpeg', 1000, 'identified', 'gallery', $authorId]);
@@ -123,11 +126,62 @@ class MediaRepositoryTest extends TestCase
         $id1 = $this->repository->create($this->albumId, Media::TYPE_PHOTO, $this->fileId, 0, null);
         $id2 = $this->repository->create($this->albumId, Media::TYPE_PHOTO, $this->fileId, 1, null);
 
-        $this->repository->reorder([$id2, $id1]);
+        $this->repository->reorder($this->albumId, [$id2, $id1]);
 
         $media = $this->repository->findByAlbumId($this->albumId);
         $this->assertSame($id2, $media[0]->id);
         $this->assertSame($id1, $media[1]->id);
+    }
+
+    /**
+     * The album id in the WHERE clause is a second line of defence behind
+     * Service\MediaService::reorder()'s own validation: an id from another
+     * album must be a no-op, never a cross-album write.
+     */
+    public function testReorderIgnoresAnIdFromAnotherAlbum(): void
+    {
+        $otherAlbumId = (new AlbumRepository($this->pdo))->create(
+            Album::TYPE_LOCAL, 'Autre', null, '2026-01-01', null, $this->scoutYearId, null, null, $this->authorId
+        );
+        $mine = $this->repository->create($this->albumId, Media::TYPE_PHOTO, $this->fileId, 0, null);
+        $theirs = $this->repository->create($otherAlbumId, Media::TYPE_PHOTO, $this->fileId, 7, null);
+
+        $this->repository->reorder($this->albumId, [$theirs, $mine]);
+
+        $this->assertSame(7, $this->repository->findById($theirs)->sortOrder);
+        $this->assertSame(1, $this->repository->findById($mine)->sortOrder);
+    }
+
+    /**
+     * Service\MediaService::upload() used to derive a new media's rank from
+     * COUNT(*), which disagrees with MAX(sort_order) as soon as anything has
+     * been deleted — the new row then collided with an existing rank.
+     */
+    public function testNextSortOrderIsBasedOnTheMaximumNotTheCount(): void
+    {
+        $first = $this->repository->create($this->albumId, Media::TYPE_PHOTO, $this->fileId, 0, null);
+        $this->repository->create($this->albumId, Media::TYPE_PHOTO, $this->fileId, 1, null);
+        $this->repository->create($this->albumId, Media::TYPE_PHOTO, $this->fileId, 2, null);
+
+        $this->repository->delete($first);
+
+        // COUNT(*) would say 2 here, colliding with the existing rank 2.
+        $this->assertSame(3, $this->repository->nextSortOrder($this->albumId));
+    }
+
+    public function testNextSortOrderIsZeroForAnEmptyAlbum(): void
+    {
+        $this->assertSame(0, $this->repository->nextSortOrder($this->albumId));
+    }
+
+    public function testNextSortOrderIgnoresOtherAlbums(): void
+    {
+        $otherAlbumId = (new AlbumRepository($this->pdo))->create(
+            Album::TYPE_LOCAL, 'Autre', null, '2026-01-01', null, $this->scoutYearId, null, null, $this->authorId
+        );
+        $this->repository->create($otherAlbumId, Media::TYPE_PHOTO, $this->fileId, 42, null);
+
+        $this->assertSame(0, $this->repository->nextSortOrder($this->albumId));
     }
 
     public function testDeleteRemovesMedia(): void

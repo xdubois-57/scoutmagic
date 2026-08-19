@@ -33,6 +33,7 @@ use Modules\Gallery\Service\GalleryException;
 use Modules\Gallery\Service\OgScraperService;
 use Modules\Gallery\Service\Storage\StorageBackendFactory;
 use Modules\Gallery\Service\StorageLocationService;
+use Modules\Gallery\Service\StoredFileCleaner;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Gallery\GalleryTestHelper;
@@ -52,6 +53,9 @@ class AlbumServiceTest extends TestCase
     private StorageBackendFactory $storageBackendFactory;
     private SchedulerService $schedulerService;
     private UploadHandler $uploadHandler;
+    private FileRepository $fileRepository;
+    private StoredFileCleaner $storedFileCleaner;
+    private MediaRepository $mediaRepository;
     private int $authorId;
     private int $scoutYearId;
     private int $sectionId;
@@ -63,7 +67,8 @@ class AlbumServiceTest extends TestCase
         GalleryTestHelper::createTables($this->pdo);
 
         $this->albumRepository = new AlbumRepository($this->pdo);
-        $mediaRepository = new MediaRepository($this->pdo);
+        $this->mediaRepository = new MediaRepository($this->pdo);
+        $mediaRepository = $this->mediaRepository;
         $this->accessService = $this->createMock(GalleryAccessService::class);
         $this->accessService->method('canManageAlbum')->willReturn(true);
         $ogScraperService = $this->createMock(OgScraperService::class);
@@ -96,12 +101,15 @@ class AlbumServiceTest extends TestCase
         );
 
         $this->schedulerService = $this->createMock(SchedulerService::class);
-        $this->uploadHandler = new UploadHandler(new FileRepository($this->pdo), sys_get_temp_dir());
+        $this->fileRepository = new FileRepository($this->pdo);
+        $this->uploadHandler = new UploadHandler($this->fileRepository, sys_get_temp_dir());
+        $this->storedFileCleaner = new StoredFileCleaner($this->fileRepository, sys_get_temp_dir());
 
         $this->service = new AlbumService(
             $this->albumRepository, $mediaRepository, $this->accessService, $ogScraperService,
             $this->storageBackendFactory, $this->storageLocationRepository, $this->storageLocationService,
-            $scoutYearService, $settingService, $this->schedulerService, $this->uploadHandler
+            $scoutYearService, $settingService, $this->schedulerService, $this->uploadHandler,
+            null, null, $this->storedFileCleaner
         );
     }
 
@@ -470,6 +478,250 @@ class AlbumServiceTest extends TestCase
         $settingService = $this->createMock(SettingService::class);
         $settingService->method('get')->willReturnCallback(fn($key, $module, $default) => $default);
         return $settingService;
+    }
+
+    /**
+     * An external album's link is rendered as an ordinary href on the member
+     * gallery and the member page. FILTER_VALIDATE_URL accepts
+     * "javascript:alert(1)", so the scheme has to be an explicit allowlist —
+     * otherwise a chief-level account can store XSS aimed at every identified
+     * member.
+     *
+     * @dataProvider unsafeExternalUrls
+     */
+    public function testCreateRejectsAnExternalUrlThatIsNotHttp(string $url): void
+    {
+        $this->expectException(GalleryException::class);
+        $this->service->create(
+            Album::TYPE_EXTERNAL, 'Titre', null, '2026-07-01', null, $url, $this->authorId, Role::CHIEF, 'chief@test.com'
+        );
+    }
+
+    /**
+     * @dataProvider unsafeExternalUrls
+     */
+    public function testUpdateRejectsAnExternalUrlThatIsNotHttp(string $url): void
+    {
+        $id = $this->albumRepository->create(
+            Album::TYPE_EXTERNAL, 'Titre', null, '2026-01-01', null, $this->scoutYearId, 'https://example.com/album', null, $this->authorId
+        );
+
+        $this->expectException(GalleryException::class);
+        $this->service->update($id, 'Titre', null, '2026-01-01', null, $url, Role::CHIEF, 'chief@test.com');
+    }
+
+    /**
+     * @return array<string, array{0: string}>
+     */
+    public static function unsafeExternalUrls(): array
+    {
+        return [
+            'javascript' => ['javascript:alert(1)'],
+            'javascript with newline' => ["java\nscript:alert(1)"],
+            'data url' => ['data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg=='],
+            'file' => ['file:///etc/passwd'],
+            'vbscript' => ['vbscript:msgbox(1)'],
+            'scheme-relative' => ['//evil.example/album'],
+            'no scheme at all' => ['evil.example/album'],
+            'scheme without host' => ['https:///album'],
+        ];
+    }
+
+    public function testCreateKeepsAValidHttpsExternalUrl(): void
+    {
+        $album = $this->service->create(
+            Album::TYPE_EXTERNAL, 'Titre', null, '2026-07-01', null, '  https://photos.example.org/album  ',
+            $this->authorId, Role::CHIEF, 'chief@test.com'
+        );
+
+        $this->assertSame('https://photos.example.org/album', $album->externalUrl);
+    }
+
+    public function testCreateAcceptsAPlainHttpExternalUrl(): void
+    {
+        $album = $this->service->create(
+            Album::TYPE_EXTERNAL, 'Titre', null, '2026-07-01', null, 'http://photos.example.org/album',
+            $this->authorId, Role::CHIEF, 'chief@test.com'
+        );
+
+        $this->assertSame('http://photos.example.org/album', $album->externalUrl);
+    }
+
+    /**
+     * A local album has no link of its own — one posted on the side must not
+     * be persisted.
+     */
+    public function testCreateDropsAnExternalUrlPostedForALocalAlbum(): void
+    {
+        $album = $this->service->create(
+            Album::TYPE_LOCAL, 'Camp', null, '2026-07-01', null, 'javascript:alert(1)',
+            $this->authorId, Role::CHIEF, 'chief@test.com'
+        );
+
+        $this->assertNull($album->externalUrl);
+    }
+
+    public function testCreateRejectsAnOverLongTitle(): void
+    {
+        $this->expectException(GalleryException::class);
+        $this->expectExceptionMessageMatches('/255/');
+        $this->service->create(
+            Album::TYPE_LOCAL, str_repeat('a', 256), null, '2026-07-01', null, null, $this->authorId, Role::CHIEF, 'chief@test.com'
+        );
+    }
+
+    public function testCreateRejectsAnOverLongSubtitle(): void
+    {
+        $this->expectException(GalleryException::class);
+        $this->service->create(
+            Album::TYPE_LOCAL, 'Camp', str_repeat('b', 256), '2026-07-01', null, null, $this->authorId, Role::CHIEF, 'chief@test.com'
+        );
+    }
+
+    public function testCreateRejectsAnOverLongExternalUrl(): void
+    {
+        $this->expectException(GalleryException::class);
+        $this->service->create(
+            Album::TYPE_EXTERNAL, 'Titre', null, '2026-07-01', null, 'https://example.org/' . str_repeat('c', 500),
+            $this->authorId, Role::CHIEF, 'chief@test.com'
+        );
+    }
+
+    public function testUpdateRejectsAnOverLongTitle(): void
+    {
+        $id = $this->albumRepository->create(
+            Album::TYPE_LOCAL, 'Titre', null, '2026-01-01', null, $this->scoutYearId, null, $this->locationId, $this->authorId
+        );
+
+        $this->expectException(GalleryException::class);
+        $this->service->update($id, str_repeat('a', 256), null, '2026-01-01', null, null, Role::CHIEF, 'chief@test.com');
+    }
+
+    /**
+     * A scraped title is third-party text of unbounded length; truncating it
+     * beats a PDOException on a VARCHAR(255) column, and the chief never
+     * typed it in the first place.
+     */
+    public function testAnOverLongScrapedTitleIsTruncatedRatherThanRejected(): void
+    {
+        $longImageUrl = 'https://example.com/' . str_repeat('d', 600) . '.jpg';
+        $ogScraperService = $this->createMock(OgScraperService::class);
+        $ogScraperService->method('fetch')->willReturn([
+            'title' => str_repeat('é', 400),
+            'description' => 'Desc',
+            'image' => $longImageUrl,
+        ]);
+        // The image download must be attempted with the FULL url, never the
+        // clipped one — a truncated url fetches nothing.
+        $ogScraperService->expects($this->once())->method('fetchImageBytes')->with($longImageUrl)->willReturn(null);
+        $service = $this->serviceWithScraper($ogScraperService);
+
+        $album = $service->create(
+            Album::TYPE_EXTERNAL, '', null, '2026-07-01', null, 'https://example.com/album', $this->authorId, Role::CHIEF, 'chief@test.com'
+        );
+
+        $this->assertSame(255, mb_strlen($album->title));
+        $this->assertSame(255, mb_strlen((string) $album->ogTitle));
+        $this->assertSame(500, mb_strlen((string) $album->ogImageUrl));
+    }
+
+    public function testSetCoverIsRejectedWhileTheAlbumIsMigrating(): void
+    {
+        $id = $this->albumRepository->create(
+            Album::TYPE_LOCAL, 'Titre', null, '2026-01-01', null, $this->scoutYearId, null, $this->locationId, $this->authorId
+        );
+        $stmt = $this->pdo->prepare("INSERT INTO files (relative_path, original_name, mime_type, size_bytes, role_min) VALUES ('cover', 'a', 'image/jpeg', 1, 'identified')");
+        $stmt->execute();
+        $mediaId = $this->mediaRepository->create($id, 'photo', (int) $this->pdo->lastInsertId(), 0, null);
+        $this->albumRepository->startMigration($id, $this->locationId);
+
+        $this->expectException(GalleryException::class);
+        $this->expectExceptionMessageMatches('/migration/i');
+        $this->service->setCover($id, $mediaId, Role::CHIEF, 'chief@test.com');
+    }
+
+    /**
+     * Deleting an album removed its renditions from the storage backend but
+     * never the staging originals behind its media rows, nor the cached
+     * og:image of an external album — both survived indefinitely.
+     */
+    public function testDeleteAlsoRemovesEveryMediaOriginal(): void
+    {
+        $id = $this->albumRepository->create(
+            Album::TYPE_LOCAL, 'Titre', null, '2026-01-01', null, $this->scoutYearId, null, $this->locationId, $this->authorId
+        );
+        $fileIds = [];
+        foreach (['one', 'two'] as $name) {
+            $stmt = $this->pdo->prepare('INSERT INTO files (relative_path, original_name, mime_type, size_bytes, role_min) VALUES (?, ?, ?, ?, ?)');
+            $stmt->execute(["gallery/{$id}/orig/{$name}.jpg", "{$name}.jpg", 'image/jpeg', 10, 'identified']);
+            $fileId = (int) $this->pdo->lastInsertId();
+            $fileIds[] = $fileId;
+            $this->mediaRepository->create($id, 'photo', $fileId, 0, null);
+        }
+        $backend = $this->createMock(\Modules\Gallery\Service\Storage\StorageBackendInterface::class);
+        $this->storageBackendFactory->method('create')->willReturn($backend);
+
+        $this->service->delete($id, Role::CHIEF, 'chief@test.com');
+
+        $this->assertSame([], $this->mediaRepository->findByAlbumId($id));
+        foreach ($fileIds as $fileId) {
+            $this->assertNull($this->fileRepository->findById($fileId), 'original file row still present');
+        }
+    }
+
+    public function testDeleteAlsoRemovesTheCachedOgImageOfAnExternalAlbum(): void
+    {
+        $stmt = $this->pdo->prepare('INSERT INTO files (relative_path, original_name, mime_type, size_bytes, role_min) VALUES (?, ?, ?, ?, ?)');
+        $stmt->execute(['gallery/9/og/cover.jpg', 'og_image', 'image/jpeg', 10, 'identified']);
+        $ogFileId = (int) $this->pdo->lastInsertId();
+        $id = $this->albumRepository->create(
+            Album::TYPE_EXTERNAL, 'Titre', null, '2026-01-01', null, $this->scoutYearId, 'https://example.com/album', null, $this->authorId
+        );
+        $this->albumRepository->updateOgMetadata($id, 'Titre', 'Desc', 'https://example.com/img.jpg', $ogFileId);
+
+        $this->service->delete($id, Role::CHIEF, 'chief@test.com');
+
+        $this->assertNull($this->fileRepository->findById($ogFileId));
+    }
+
+    /**
+     * Every "Rafraîchir l'aperçu" click cached a new og:image and abandoned
+     * the previous one.
+     */
+    public function testRefreshOgDiscardsThePreviousCachedImage(): void
+    {
+        $image = imagecreatetruecolor(4, 4);
+        ob_start();
+        imagejpeg($image);
+        $jpegBytes = (string) ob_get_clean();
+        imagedestroy($image);
+
+        $ogScraperService = $this->createMock(OgScraperService::class);
+        $ogScraperService->method('fetch')->willReturn(['title' => 'Titre', 'description' => 'Desc', 'image' => 'https://example.com/img.jpg']);
+        $ogScraperService->method('fetchImageBytes')->willReturn($jpegBytes);
+        $service = $this->serviceWithScraper($ogScraperService);
+
+        $album = $service->create(
+            Album::TYPE_EXTERNAL, 'Titre', null, '2026-07-01', null, 'https://example.com/album', $this->authorId, Role::CHIEF, 'chief@test.com'
+        );
+        $firstFileId = $album->ogImageFileId;
+        $this->assertNotNull($firstFileId);
+
+        $refreshed = $service->refreshOg($album->id, Role::CHIEF, 'chief@test.com');
+
+        $this->assertNotSame($firstFileId, $refreshed->ogImageFileId);
+        $this->assertNull($this->fileRepository->findById($firstFileId), 'superseded og image still present');
+        $this->assertNotNull($this->fileRepository->findById((int) $refreshed->ogImageFileId));
+    }
+
+    private function serviceWithScraper(OgScraperService $ogScraperService): AlbumService
+    {
+        return new AlbumService(
+            $this->albumRepository, $this->mediaRepository, $this->accessService, $ogScraperService,
+            $this->storageBackendFactory, $this->storageLocationRepository, $this->storageLocationService,
+            new ScoutYearService($this->pdo), $this->settingServiceAllowingEverything(), $this->schedulerService,
+            $this->uploadHandler, null, null, $this->storedFileCleaner
+        );
     }
 
     public function testCreateDispatchesAlbumPublishedToEveryAccountExceptTheAuthor(): void

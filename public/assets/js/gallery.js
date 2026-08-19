@@ -12,12 +12,22 @@
         return meta ? meta.content : '';
     }
 
+    // Always resolves: every caller below branches on data.success, so a
+    // dropped connection or a non-JSON error page has to come back as a
+    // failure object rather than an unhandled rejection that silently does
+    // nothing at all.
     function postJson(url, body) {
         return fetch(url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(Object.assign({}, body, { _csrf_token: csrf() }))
-        }).then(function (res) { return res.json(); });
+        }).then(function (res) {
+            return res.json().catch(function () {
+                return { success: false, error: 'Réponse inattendue du serveur.' };
+            });
+        }).catch(function () {
+            return { success: false, error: 'Erreur réseau.' };
+        });
     }
 
     // ------------------------------------------------------------------
@@ -36,19 +46,7 @@
         var hqBtn = document.getElementById('gallery-lightbox-hq');
         var downloadBtn = document.getElementById('gallery-lightbox-download');
 
-        var items = triggers
-            .map(function (btn) {
-                return {
-                    type: btn.dataset.type,
-                    mediumUrl: btn.dataset.mediumUrl,
-                    largeUrl: btn.dataset.largeUrl
-                };
-            })
-            .filter(function (item) { return item.mediumUrl; });
-        var indexByTrigger = triggers.map(function (btn) {
-            return items.findIndex(function (item) { return item.mediumUrl === btn.dataset.mediumUrl; });
-        });
-
+        var items = [];
         var currentIndex = -1;
 
         function preload(index) {
@@ -81,6 +79,9 @@
                 hqBtn.dataset.largeUrl = item.largeUrl || '';
             }
 
+            // This is the "large" rendition, not a pristine original — and the
+            // download attribute is ignored cross-origin anyway (S3/CDN), so
+            // the link opens in a new tab there rather than appearing broken.
             if (item.largeUrl) {
                 downloadBtn.href = item.largeUrl;
                 downloadBtn.classList.remove('d-none');
@@ -109,9 +110,26 @@
             videoEl.load();
         }
 
-        triggers.forEach(function (btn, i) {
-            btn.addEventListener('click', function () { open(indexByTrigger[i]); });
+        // Only triggers that actually have a rendition to show get an index and
+        // a click handler. Mapping every trigger onto a filtered list by URL
+        // meant a still-processing (or failed) thumbnail resolved to index -1,
+        // and open(-1) un-hid the overlay anyway: a fullscreen black screen
+        // with nothing in it.
+        triggers.forEach(function (btn) {
+            var mediumUrl = btn.dataset.mediumUrl;
+            if (!mediumUrl) {
+                btn.setAttribute('aria-disabled', 'true');
+                return;
+            }
+            var index = items.length;
+            items.push({
+                type: btn.dataset.type,
+                mediumUrl: mediumUrl,
+                largeUrl: btn.dataset.largeUrl
+            });
+            btn.addEventListener('click', function () { open(index); });
         });
+        if (!items.length) return;
 
         closeBtn.addEventListener('click', close);
         box.addEventListener('click', function (e) { if (e.target === box) close(); });
