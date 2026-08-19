@@ -28,12 +28,18 @@ class MigrationRunnerTest extends TestCase
         $user = getenv('TEST_DB_USER') ?: 'root';
         $password = getenv('TEST_DB_PASSWORD') ?: '';
 
-        $this->connection = new Connection($host, $port, $dbName, $user, $password);
+        // Assigned only once the server has answered: tearDown() runs even
+        // after markTestSkipped(), and dereferencing an unusable Connection
+        // there turned a clean skip into a PDOException on every one of
+        // this class's tests wherever no MySQL is running.
+        $connection = new Connection($host, $port, $dbName, $user, $password);
 
-        $result = $this->connection->testConnection();
+        $result = $connection->testConnection();
         if ($result !== true) {
             $this->markTestSkipped('Database connection not available: ' . $result);
         }
+
+        $this->connection = $connection;
 
         $this->introspector = new SchemaIntrospector($this->connection->getPdo());
 

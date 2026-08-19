@@ -12,7 +12,6 @@ use Modules\Finance\Repository\CategoryRuleRepository;
 use Modules\Finance\Repository\Transaction;
 use Modules\Finance\Repository\TransactionRepository;
 use Modules\Finance\Service\CategoryRuleEngine;
-use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Finance\FinanceTestHelper;
@@ -314,7 +313,7 @@ class CategoryRuleEngineTest extends TestCase
     /**
      * @dataProvider validAmountRanges
      */
-    #[DataProvider('validAmountRanges')]
+    #[\PHPUnit\Framework\Attributes\DataProvider('validAmountRanges')]
     public function testIsValidAmountRangeAcceptsTheTwoDocumentedShapes(string $range): void
     {
         $this->assertTrue(CategoryRuleEngine::isValidAmountRange($range), $range);
@@ -341,7 +340,7 @@ class CategoryRuleEngineTest extends TestCase
     /**
      * @dataProvider invalidAmountRanges
      */
-    #[DataProvider('invalidAmountRanges')]
+    #[\PHPUnit\Framework\Attributes\DataProvider('invalidAmountRanges')]
     public function testIsValidAmountRangeRejectsEverythingElse(string $range): void
     {
         $this->assertFalse(CategoryRuleEngine::isValidAmountRange($range), $range);

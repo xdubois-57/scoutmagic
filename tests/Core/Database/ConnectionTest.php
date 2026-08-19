@@ -42,13 +42,7 @@ class ConnectionTest extends TestCase
     #[\PHPUnit\Framework\Attributes\Group('database')]
     public function testTestConnectionReturnsTrueWithValidCredentials(): void
     {
-        $host = getenv('TEST_DB_HOST') ?: '127.0.0.1';
-        $port = (int) (getenv('TEST_DB_PORT') ?: 3306);
-        $dbName = getenv('TEST_DB_NAME') ?: 'test_db';
-        $user = getenv('TEST_DB_USER') ?: 'root';
-        $password = getenv('TEST_DB_PASSWORD') ?: '';
-
-        $connection = new Connection($host, $port, $dbName, $user, $password);
+        $connection = $this->connectionFromEnvironment();
         $result = $connection->testConnection();
 
         $this->assertTrue($result);
@@ -60,13 +54,7 @@ class ConnectionTest extends TestCase
     #[\PHPUnit\Framework\Attributes\Group('database')]
     public function testGetPdoReturnsConfiguredInstance(): void
     {
-        $host = getenv('TEST_DB_HOST') ?: '127.0.0.1';
-        $port = (int) (getenv('TEST_DB_PORT') ?: 3306);
-        $dbName = getenv('TEST_DB_NAME') ?: 'test_db';
-        $user = getenv('TEST_DB_USER') ?: 'root';
-        $password = getenv('TEST_DB_PASSWORD') ?: '';
-
-        $connection = new Connection($host, $port, $dbName, $user, $password);
+        $connection = $this->connectionFromEnvironment();
         $pdo = $connection->getPdo();
 
         $this->assertInstanceOf(\PDO::class, $pdo);
@@ -74,4 +62,32 @@ class ConnectionTest extends TestCase
         $this->assertSame(\PDO::FETCH_ASSOC, $pdo->getAttribute(\PDO::ATTR_DEFAULT_FETCH_MODE));
         $this->assertFalse($pdo->getAttribute(\PDO::ATTR_EMULATE_PREPARES));
     }
+
+    /**
+     * The MySQL server the TEST_DB_* variables point at, skipping the test
+     * when it isn't reachable — the same contract as
+     * Tests\Core\Database\MigrationRunnerTest and SchemaIntrospectorTest,
+     * which this class was the only @group database holdout from. CI's
+     * database-tests job provides the server; a local or Claude-on-the-web
+     * checkout usually has none, and these two tests hard-failing there is
+     * what made `phpunit --group database` unrunnable outside CI.
+     */
+    private function connectionFromEnvironment(): Connection
+    {
+        $connection = new Connection(
+            getenv('TEST_DB_HOST') ?: '127.0.0.1',
+            (int) (getenv('TEST_DB_PORT') ?: 3306),
+            getenv('TEST_DB_NAME') ?: 'test_db',
+            getenv('TEST_DB_USER') ?: 'root',
+            getenv('TEST_DB_PASSWORD') ?: ''
+        );
+
+        $result = $connection->testConnection();
+        if ($result !== true) {
+            $this->markTestSkipped('Database connection not available: ' . $result);
+        }
+
+        return $connection;
+    }
+
 }

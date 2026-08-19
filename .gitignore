@@ -23,7 +23,6 @@ config/app.php
 # IDE files
 .idea/
 .vscode/
-.claude/
 *.swp
 *.swo
 *~
@@ -51,3 +50,12 @@ storage/temp/twig_cache/
 
 # Release artifacts
 release-*.zip
+
+# Claude Code: the SessionStart hook and the shared settings that register it
+# are versioned (they are what makes `composer install`, phpunit and phpstan
+# work in a Claude Code on the web session); everything else under .claude/,
+# including per-developer settings.local.json, stays local.
+.claude/*
+!.claude/hooks/
+!.claude/settings.json
+.claude/settings.local.json
