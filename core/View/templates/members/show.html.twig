@@ -211,7 +211,13 @@
                             <div class="row g-2">
                                 {% for album in gallery_albums %}
                                     <div class="col-6 col-md-4 col-lg-2">
-                                        <a href="{{ album.url }}" class="text-decoration-none text-body" {{ album.url starts with 'http' ? 'target="_blank" rel="noopener"' : '' }}>
+                                        {# Real attributes, not an emitted attribute string: autoescaping
+                                           turns the quotes into &quot;, leaving a named target of
+                                           «"_blank"» and no noopener protection on an outbound link
+                                           (Modules\Gallery\Api\GalleryAlbumProvider hands back the
+                                           third-party album URL verbatim). #}
+                                        <a href="{{ album.url }}" class="text-decoration-none text-body"
+                                           {% if album.url starts with 'http' %}target="_blank" rel="noopener noreferrer"{% endif %}>
                                             <div class="bg-light rounded d-flex align-items-center justify-content-center" style="aspect-ratio:1/1;overflow:hidden;">
                                                 {% if album.cover_url %}
                                                     <img src="{{ album.cover_url }}" alt="" class="w-100 h-100" style="object-fit:cover;">

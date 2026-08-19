@@ -26,6 +26,12 @@ class MediaService
     /** @var string[] */
     private const VIDEO_MIMES = ['video/mp4', 'video/quicktime', 'video/webm'];
 
+    /**
+     * $storedFileCleaner is what lets delete() actually reclaim an original
+     * upload's bytes; it is trailing and nullable so a caller that doesn't
+     * wire it degrades to the old "leave the original behind" behaviour
+     * instead of failing to construct.
+     */
     public function __construct(
         private MediaRepository $mediaRepository,
         private AlbumRepository $albumRepository,
@@ -35,14 +41,16 @@ class MediaService
         private GalleryAccessService $accessService,
         private StorageBackendFactory $storageBackendFactory,
         private StorageLocationService $storageLocationService,
-        private FfmpegAvailability $ffmpegAvailability
+        private FfmpegAvailability $ffmpegAvailability,
+        private ?StoredFileCleaner $storedFileCleaner = null
     ) {
     }
 
     /**
      * @param array<string, mixed> $uploadedFile $_FILES entry
      * @throws GalleryException on an invalid file, a disabled type,
-     *                           over-quota, or a permission failure
+     *                           over-quota, a migration in flight, or a
+     *                           permission failure
      */
     public function upload(Album $album, array $uploadedFile, Role $role, string $email, ?int $accountId): Media
     {
@@ -58,6 +66,12 @@ class MediaService
         if (!$this->accessService->canManageAlbum($role, $album->sectionId, $email)) {
             throw new GalleryException('Vous ne gérez pas cette section.');
         }
+        // A media uploaded mid-migration is processed against the album's
+        // CURRENT (source) location, which Task\MigrateAlbumStorageHandler
+        // has already walked past — completeMigration() then flips the album
+        // onto the target and deletes the source prefix, taking the new
+        // media's renditions with it. Refuse the upload instead.
+        $this->assertNotMigrating($album);
 
         return $this->store($album, $uploadedFile, $accountId);
     }
@@ -88,6 +102,9 @@ class MediaService
     private function store(Album $album, array $uploadedFile, ?int $accountId): Media
     {
         $maxMedia = (int) $this->settingService->get('gallery_max_media_per_album', 'gallery', 200);
+        if ($maxMedia < 1) {
+            throw new GalleryException('La limite de médias par album est mal configurée — prévenez un administrateur.');
+        }
         if ($this->mediaRepository->countByAlbumId($album->id) >= $maxMedia) {
             throw new GalleryException("Cet album a atteint la limite de {$maxMedia} médias.");
         }
@@ -123,7 +140,7 @@ class MediaService
             throw new GalleryException($e->getMessage());
         }
 
-        $sortOrder = $this->mediaRepository->countByAlbumId($album->id);
+        $sortOrder = $this->mediaRepository->nextSortOrder($album->id);
         $originalFilename = isset($uploadedFile['name']) ? (string) $uploadedFile['name'] : null;
         $mediaId = $this->mediaRepository->create(
             $album->id, $isVideo ? Media::TYPE_VIDEO : Media::TYPE_PHOTO, $fileId, $sortOrder, $originalFilename
@@ -141,11 +158,15 @@ class MediaService
         $taskKey = $isVideo ? 'process_video' : 'process_photo';
         $this->schedulerService->scheduleAfter('gallery', $taskKey, 0, ['media_id' => $mediaId]);
 
-        return $this->mediaRepository->findById($mediaId);
+        $created = $this->mediaRepository->findById($mediaId);
+        \assert($created !== null);
+
+        return $created;
     }
 
     /**
-     * @throws GalleryException when the current chief doesn't manage this album
+     * @throws GalleryException when the current chief doesn't manage this
+     *                           album, or a migration is in flight
      */
     public function delete(Media $media, Album $album, Role $role, string $email): void
     {
@@ -155,6 +176,9 @@ class MediaService
         if (!$this->accessService->canManageAlbum($role, $album->sectionId, $email)) {
             throw new GalleryException('Vous ne gérez pas cette section.');
         }
+        // Task\MigrateAlbumStorageHandler is copying these very files; a
+        // deletion underneath it aborts the migration for no good reason.
+        $this->assertNotMigrating($album);
 
         $this->remove($media, $album);
     }
@@ -188,13 +212,18 @@ class MediaService
             $this->albumRepository->setCoverMediaId($album->id, null);
         }
 
+        // gallery_media first: files(id) is referenced by
+        // gallery_media.file_id with no ON DELETE clause, so the child row
+        // has to be gone before the parent can be.
         $this->mediaRepository->delete($media->id);
+        $this->storedFileCleaner?->delete($media->fileId);
     }
 
     /**
      * @param int[] $orderedMediaIds
      * @throws GalleryException when the list doesn't match the album's
-     *                           media exactly, or on a permission failure
+     *                           media exactly, a migration is in flight, or
+     *                           on a permission failure
      */
     public function reorder(Album $album, array $orderedMediaIds, Role $role, string $email): void
     {
@@ -204,14 +233,20 @@ class MediaService
         if (!$this->accessService->canManageAlbum($role, $album->sectionId, $email)) {
             throw new GalleryException('Vous ne gérez pas cette section.');
         }
+        $this->assertNotMigrating($album);
 
         $existingIds = array_map(fn(Media $m) => $m->id, $this->mediaRepository->findByAlbumId($album->id));
-        $validIds = array_values(array_intersect($orderedMediaIds, $existingIds));
+        // array_unique BEFORE intersecting: array_intersect keeps duplicates
+        // from its first argument, so a payload of [7, 7, 7] against an album
+        // of three media used to pass the count check below and then rewrite
+        // media #7's rank three times, leaving the other two untouched.
+        $submittedIds = array_values(array_unique($orderedMediaIds));
+        $validIds = array_values(array_intersect($submittedIds, $existingIds));
         if (count($validIds) !== count($existingIds)) {
             throw new GalleryException('Liste de médias invalide.');
         }
 
-        $this->mediaRepository->reorder($validIds);
+        $this->mediaRepository->reorder($album->id, $validIds);
     }
 
     /**
@@ -239,13 +274,7 @@ class MediaService
             return null;
         }
 
-        $path = match ($size) {
-            'thumb' => $media->thumbPath,
-            'medium' => $media->mediumPath,
-            'large' => $media->largePath,
-            'original' => $media->originalPath,
-            default => null,
-        };
+        $path = self::pathForSize($media, $size);
         if ($path === null) {
             return null;
         }
@@ -263,6 +292,24 @@ class MediaService
     }
 
     /**
+     * The storage key backing one named rendition, or null when that
+     * rendition doesn't exist (not processed yet, or a video original the
+     * admin chose not to keep). Static and shared so resolveUrl() and
+     * Controller\GalleryController::serveMedia() can never drift apart on
+     * which sizes exist.
+     */
+    public static function pathForSize(Media $media, string $size): ?string
+    {
+        return match ($size) {
+            'thumb' => $media->thumbPath,
+            'medium' => $media->mediumPath,
+            'large' => $media->largePath,
+            'original' => $media->originalPath,
+            default => null,
+        };
+    }
+
+    /**
      * Video uploads are only actually possible when both the setting is
      * on AND ffmpeg/ffprobe are present on the server (module spec:
      * "gallery_allow_video is effectively forced to false regardless of
@@ -271,5 +318,15 @@ class MediaService
     public function videoUploadAllowed(): bool
     {
         return (bool) $this->settingService->get('gallery_allow_video', 'gallery', true) && $this->ffmpegAvailability->check();
+    }
+
+    /**
+     * @throws GalleryException when a storage migration is in flight for $album
+     */
+    private function assertNotMigrating(Album $album): void
+    {
+        if ($album->isMigrating()) {
+            throw new GalleryException('Une migration de stockage est en cours pour cet album — réessayez une fois celle-ci terminée.');
+        }
     }
 }

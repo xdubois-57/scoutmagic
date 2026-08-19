@@ -289,6 +289,14 @@ class MigrateAlbumStorageHandlerTest extends TestCase
                 {
                     return $this->real->get($key);
                 }
+                public function size(string $key): ?int
+                {
+                    return $this->real->size($key);
+                }
+                public function getRange(string $key, int $offset, int $length): string
+                {
+                    return $this->real->getRange($key, $offset, $length);
+                }
                 public function delete(string $key): void
                 {
                     $this->real->delete($key);
@@ -337,6 +345,20 @@ class MigrateAlbumStorageHandlerTest extends TestCase
                 public function get(string $key): string
                 {
                     return $this->real->get($key) . '-corrupted';
+                }
+                // Every read path reports the SAME corrupted content, not
+                // just get(): the handler happens to verify through get()
+                // today, but a double that corrupts only that one path
+                // would let a future switch to size()/getRange() silently
+                // pass this test for the wrong reason — no mismatch
+                // detected because the double stopped simulating one.
+                public function size(string $key): ?int
+                {
+                    return strlen($this->get($key));
+                }
+                public function getRange(string $key, int $offset, int $length): string
+                {
+                    return substr($this->get($key), $offset, $length);
                 }
                 public function delete(string $key): void
                 {

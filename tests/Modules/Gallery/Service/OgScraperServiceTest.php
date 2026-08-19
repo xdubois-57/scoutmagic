@@ -59,6 +59,39 @@ class OgScraperServiceTest extends TestCase
         $this->assertNull($tags['image']);
     }
 
+    /**
+     * Some sites (and most WordPress SEO plugins) emit the OG tags with
+     * name= instead of the spec's property=. Kept from the parallel
+     * gallery-review fix on main, whose parseOgTags() improvement this
+     * class adopted.
+     */
+    public function testParseOgTagsAlsoAcceptsTheNameAttribute(): void
+    {
+        $html = '<html><head>'
+            . '<meta name="og:title" content="Camp 2026">'
+            . '<meta name="OG:IMAGE" content="https://example.org/cover.jpg">'
+            . '</head></html>';
+
+        $tags = $this->service->parseOgTags($html);
+
+        $this->assertSame('Camp 2026', $tags['title']);
+        $this->assertSame('https://example.org/cover.jpg', $tags['image']);
+    }
+
+    /**
+     * name= is a fallback for a missing property=, never an override of it:
+     * on an element carrying both, property wins.
+     */
+    public function testParseOgTagsPrefersPropertyOverNameOnTheSameElement(): void
+    {
+        $html = '<html><head><meta property="og:title" name="og:description" content="valeur"></head></html>';
+
+        $tags = $this->service->parseOgTags($html);
+
+        $this->assertSame('valeur', $tags['title']);
+        $this->assertNull($tags['description']);
+    }
+
     public function testFetchImageBytesReturnsNullForAnInvalidUrl(): void
     {
         $this->assertNull($this->service->fetchImageBytes('not-a-url'));

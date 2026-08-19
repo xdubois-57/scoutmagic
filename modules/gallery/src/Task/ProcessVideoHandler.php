@@ -13,9 +13,11 @@ use Core\Scheduler\TaskContext;
 use Core\Scheduler\TaskHandlerInterface;
 use Modules\Gallery\Repository\AlbumRepository;
 use Modules\Gallery\Repository\MediaRepository;
+use Modules\Gallery\Repository\S3SecretRepository;
 use Modules\Gallery\Repository\StorageLocationRepository;
 use Modules\Gallery\Service\GalleryException;
 use Modules\Gallery\Service\Storage\StorageBackendFactory;
+use Modules\Gallery\Service\StorageLocationService;
 use Modules\Gallery\Service\VideoProcessingService;
 
 /**
@@ -40,9 +42,25 @@ class ProcessVideoHandler implements TaskHandlerInterface
         $pdo = $context->connection->getPdo();
         $mediaRepository = new MediaRepository($pdo);
         $fileRepository = new FileRepository($pdo);
+        $albumRepository = new AlbumRepository($pdo);
 
         $media = $mediaRepository->findById($mediaId);
         if ($media === null || $media->processingStatus === 'done') {
+            return;
+        }
+
+        $album = $albumRepository->findById($media->albumId);
+        // Never write renditions into a location a migration is in the middle
+        // of moving away from — see Task\MediaProcessingGate.
+        if ($album !== null && $album->isMigrating()) {
+            if ((new MediaProcessingGate())->deferWhileMigrating('process_video', $mediaId, $album->id, $payload, $context)) {
+                return;
+            }
+            $mediaRepository->markFailed($mediaId);
+            $context->journal->log(
+                'gallery', 'video_processing_failed', 'info', 'Échec du traitement d\'une vidéo',
+                ['media_id' => $mediaId, 'album_id' => $media->albumId, 'error' => 'Migration de stockage toujours en cours.']
+            );
             return;
         }
 
@@ -84,13 +102,27 @@ class ProcessVideoHandler implements TaskHandlerInterface
                 $video->transcode($sourceTempPath, $largeTempPath, 1080);
             }
 
-            $storageLocationRepository = new StorageLocationRepository($context->connection->getPdo(), $context->encryption);
-            $album = (new AlbumRepository($context->connection->getPdo()))->findById($media->albumId);
-            $location = $album?->storageLocationId !== null ? $storageLocationRepository->findById($album->storageLocationId) : null;
+            if ($album === null) {
+                throw new GalleryException('Album introuvable pour ce média.');
+            }
+            $storageLocationRepository = new StorageLocationRepository($pdo, $context->encryption);
+            $storageBackendFactory = new StorageBackendFactory($storageLocationRepository, $context->storagePath);
+            // Resolved through the service so an album predating
+            // multi-location support (still-null storage_location_id right
+            // after an upgrade) is backfilled rather than failed outright.
+            $storageLocationService = new StorageLocationService(
+                $storageLocationRepository,
+                $albumRepository,
+                $storageBackendFactory,
+                $context->settings,
+                new S3SecretRepository($pdo, $context->encryption),
+                $context->storagePath
+            );
+            $location = $storageLocationService->resolveLocationForAlbum($album);
             if ($location === null) {
                 throw new GalleryException('Emplacement de stockage introuvable pour cet album.');
             }
-            $storage = (new StorageBackendFactory($storageLocationRepository, $context->storagePath))->create($location);
+            $storage = $storageBackendFactory->create($location);
             $thumbKey = "{$media->albumId}/thumb_{$mediaId}.jpg";
             $mediumKey = "{$media->albumId}/med_{$mediaId}.mp4";
             $storage->put($thumbKey, (string) file_get_contents($posterTempPath), 'image/jpeg');
@@ -113,8 +145,10 @@ class ProcessVideoHandler implements TaskHandlerInterface
                 $mediaId, $thumbKey, $mediumKey, $largeKey, $originalKey, $probe['width'], $probe['height'], $probe['durationSeconds']
             );
 
-            // Module spec: drop the staging original once processed,
-            // unless the admin opted to keep a served copy (above).
+            // Module spec: drop the staging original's bytes once processed,
+            // unless the admin opted to keep a served copy (above). The
+            // files-table row itself lives until the media is deleted
+            // (Service\StoredFileCleaner).
             @unlink($sourcePath);
         } catch (\Throwable $e) {
             $mediaRepository->markFailed($mediaId);

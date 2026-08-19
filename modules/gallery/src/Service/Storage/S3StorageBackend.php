@@ -26,6 +26,13 @@ class S3StorageBackend implements StorageBackendInterface
      */
     private const HEALTH_CHECK_PREFIX = '.scoutmagic-healthcheck';
 
+    /**
+     * DeleteObjects accepts at most 1000 keys per call (S3 API limit, and
+     * every compatible provider enforces it) — deletePrefix() chunks to
+     * this, and pages ListObjectsV2 for the same reason.
+     */
+    private const DELETE_BATCH_SIZE = 1000;
+
     private S3Client $client;
 
     /**
@@ -123,6 +130,43 @@ class S3StorageBackend implements StorageBackendInterface
         return (string) $result['Body'];
     }
 
+    public function size(string $key): ?int
+    {
+        try {
+            $result = $this->client->headObject([
+                'Bucket' => $this->bucket,
+                'Key' => $key,
+            ]);
+        } catch (\Throwable) {
+            return null;
+        }
+
+        $length = $result['ContentLength'] ?? null;
+        return is_numeric($length) ? (int) $length : null;
+    }
+
+    public function getRange(string $key, int $offset, int $length): string
+    {
+        if ($length <= 0) {
+            return '';
+        }
+
+        $offset = max(0, $offset);
+        $last = $offset + $length - 1;
+
+        try {
+            $result = $this->client->getObject([
+                'Bucket' => $this->bucket,
+                'Key' => $key,
+                'Range' => "bytes={$offset}-{$last}",
+            ]);
+        } catch (\Throwable $e) {
+            throw new \RuntimeException("Gallery file range not readable: {$key}", 0, $e);
+        }
+
+        return (string) $result['Body'];
+    }
+
     public function delete(string $key): void
     {
         $this->client->deleteObject([
@@ -131,22 +175,45 @@ class S3StorageBackend implements StorageBackendInterface
         ]);
     }
 
+    /**
+     * ListObjectsV2 returns at most 1000 keys per response and DeleteObjects
+     * accepts at most 1000 per call, so both sides are paged/chunked: an
+     * album at the default gallery_max_media_per_album (200) already holds up
+     * to 800 renditions, and a single unpaged pass silently left everything
+     * past the first page behind — orphaned objects the operator keeps paying
+     * for, on every album deletion and every post-migration source cleanup.
+     */
     public function deletePrefix(string $prefix): void
     {
-        $objects = $this->client->listObjectsV2([
-            'Bucket' => $this->bucket,
-            'Prefix' => rtrim($prefix, '/') . '/',
-        ]);
+        $continuationToken = null;
 
-        $keys = array_map(fn(array $object) => ['Key' => $object['Key']], $objects['Contents'] ?? []);
-        if ($keys === []) {
-            return;
-        }
+        do {
+            $request = [
+                'Bucket' => $this->bucket,
+                'Prefix' => rtrim($prefix, '/') . '/',
+            ];
+            if ($continuationToken !== null) {
+                $request['ContinuationToken'] = $continuationToken;
+            }
 
-        $this->client->deleteObjects([
-            'Bucket' => $this->bucket,
-            'Delete' => ['Objects' => $keys],
-        ]);
+            $objects = $this->client->listObjectsV2($request);
+
+            $keys = array_values(array_map(
+                fn(array $object) => ['Key' => $object['Key']],
+                $objects['Contents'] ?? []
+            ));
+            foreach (array_chunk($keys, self::DELETE_BATCH_SIZE) as $batch) {
+                $this->client->deleteObjects([
+                    'Bucket' => $this->bucket,
+                    'Delete' => ['Objects' => $batch],
+                ]);
+            }
+
+            $token = $objects['NextContinuationToken'] ?? null;
+            $continuationToken = ($objects['IsTruncated'] ?? false) && is_string($token) && $token !== ''
+                ? $token
+                : null;
+        } while ($continuationToken !== null);
     }
 
     public function url(string $key, string $ttl = '+1 hour'): string

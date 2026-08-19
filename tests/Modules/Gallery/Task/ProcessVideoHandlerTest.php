@@ -116,4 +116,72 @@ class ProcessVideoHandlerTest extends TestCase
         $this->assertSame(Media::STATUS_FAILED, $this->mediaRepository->findById($mediaId)->processingStatus);
         $this->assertSame(1, (int) $this->pdo->query("SELECT COUNT(*) FROM event_log WHERE event_type = 'video_processing_failed'")->fetchColumn());
     }
+
+    /**
+     * Same invariant as Task\ProcessPhotoHandler: never write renditions into
+     * a location Task\MigrateAlbumStorageHandler is moving away from — the
+     * post-migration source cleanup would delete them. Testable without ffmpeg
+     * because the guard sits ahead of every transcode.
+     */
+    public function testDefersAndKeepsTheMediaPendingWhileTheAlbumIsMigrating(): void
+    {
+        $mediaId = $this->createPendingVideo();
+        $targetId = (new StorageLocationRepository($this->pdo, $this->encryption))->create(
+            StorageLocation::TYPE_LOCAL, 'Cible', 'gallery2', null, null, null, null, null, null, null
+        );
+        (new AlbumRepository($this->pdo))->startMigration($this->albumId, $targetId);
+
+        (new ProcessVideoHandler())->handle(['media_id' => $mediaId], $this->buildContext());
+
+        $this->assertSame(Media::STATUS_PENDING, $this->mediaRepository->findById($mediaId)->processingStatus);
+        $this->assertSame(
+            1,
+            (int) $this->pdo->query("SELECT COUNT(*) FROM scheduled_actions WHERE task_key = 'process_video'")->fetchColumn()
+        );
+    }
+
+    public function testGivesUpAndFailsTheMediaOnceTheDeferralBudgetIsSpent(): void
+    {
+        $mediaId = $this->createPendingVideo();
+        $targetId = (new StorageLocationRepository($this->pdo, $this->encryption))->create(
+            StorageLocation::TYPE_LOCAL, 'Cible', 'gallery2', null, null, null, null, null, null, null
+        );
+        (new AlbumRepository($this->pdo))->startMigration($this->albumId, $targetId);
+
+        (new ProcessVideoHandler())->handle(['media_id' => $mediaId, 'migration_deferrals' => 10], $this->buildContext());
+
+        $this->assertSame(Media::STATUS_FAILED, $this->mediaRepository->findById($mediaId)->processingStatus);
+        $this->assertSame(
+            0,
+            (int) $this->pdo->query("SELECT COUNT(*) FROM scheduled_actions WHERE task_key = 'process_video'")->fetchColumn()
+        );
+    }
+
+    /**
+     * No temp directory may be created on the deferral path — the guard returns
+     * before any staging work starts.
+     */
+    public function testDeferringLeavesNoTemporaryDirectoryBehind(): void
+    {
+        $mediaId = $this->createPendingVideo();
+        $targetId = (new StorageLocationRepository($this->pdo, $this->encryption))->create(
+            StorageLocation::TYPE_LOCAL, 'Cible', 'gallery2', null, null, null, null, null, null, null
+        );
+        (new AlbumRepository($this->pdo))->startMigration($this->albumId, $targetId);
+
+        (new ProcessVideoHandler())->handle(['media_id' => $mediaId], $this->buildContext());
+
+        $this->assertSame([], glob(sys_get_temp_dir() . '/gallery_video_' . $mediaId . '_*') ?: []);
+    }
+
+    private function createPendingVideo(): int
+    {
+        $relativePath = 'gallery/' . $this->albumId . '/orig/test.mp4';
+        $fullPath = $this->storagePath . '/' . $relativePath;
+        mkdir(dirname($fullPath), 0755, true);
+        file_put_contents($fullPath, 'not a real video');
+        $fileId = (new FileRepository($this->pdo))->create($relativePath, 'test.mp4', 'video/mp4', 17, 'identified', 'gallery', null);
+
+        return $this->mediaRepository->create($this->albumId, Media::TYPE_VIDEO, $fileId, 0, 'test.mp4');
+    }
 }

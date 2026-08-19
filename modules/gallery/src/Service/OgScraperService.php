@@ -450,13 +450,19 @@ class OgScraperService
 
         $tags = ['title' => null, 'description' => null, 'image' => null];
         foreach ($doc->getElementsByTagName('meta') as $meta) {
-            $property = $meta->getAttribute('property');
+            // Some sites (and every WordPress SEO plugin) emit the OG tags
+            // with name= instead of the spec's property=. property wins on
+            // an element carrying both — name is a fallback for a missing
+            // property, never an override of it.
+            $property = $meta->getAttribute('property') !== ''
+                ? $meta->getAttribute('property')
+                : $meta->getAttribute('name');
             $content = trim($meta->getAttribute('content'));
             if ($content === '') {
                 continue;
             }
 
-            match ($property) {
+            match (strtolower($property)) {
                 'og:title' => $tags['title'] = $content,
                 'og:description' => $tags['description'] = $content,
                 'og:image' => $tags['image'] = $content,

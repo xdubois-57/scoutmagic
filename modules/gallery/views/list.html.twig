@@ -24,9 +24,13 @@
                             </div>
                         </div>
                     {% else %}
+                        {# The target/rel pair has to be written as real attributes: emitted from a
+                           string expression, autoescaping turns the quotes into &quot; and the browser
+                           ends up with a named target of «"_blank"» and no noopener protection at all
+                           — on a link pointing at an arbitrary third-party site. #}
                         <a href="{{ album.type == 'external' ? album.externalUrl : '/gallery/' ~ album.id }}"
                            class="text-decoration-none text-body"
-                           {{ album.type == 'external' ? 'target="_blank" rel="noopener"' : '' }}>
+                           {% if album.type == 'external' %}target="_blank" rel="noopener noreferrer"{% endif %}>
                             <div class="card h-100">
                                 <div class="bg-light d-flex align-items-center justify-content-center" style="aspect-ratio:1/1;overflow:hidden;">
                                     {% if row.cover_url %}

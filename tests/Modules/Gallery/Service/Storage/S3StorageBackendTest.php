@@ -182,4 +182,159 @@ class S3StorageBackendTest extends TestCase
 
         $this->assertNull($origin);
     }
+
+    public function testSizeReportsContentLength(): void
+    {
+        $mock = new MockHandler();
+        $mock->append(fn() => new Result(['ContentLength' => 4096]));
+
+        $this->assertSame(4096, $this->backendWithMockClient($mock)->size('1/med_1.mp4'));
+    }
+
+    public function testSizeIsNullWhenHeadObjectFails(): void
+    {
+        $mock = new MockHandler();
+        $mock->appendException(new \RuntimeException('NoSuchKey'));
+
+        $this->assertNull($this->backendWithMockClient($mock)->size('1/gone.mp4'));
+    }
+
+    public function testGetRangeSendsAByteRangeHeaderAndReturnsTheSlice(): void
+    {
+        $sent = null;
+        $mock = new MockHandler();
+        $mock->append(function ($cmd) use (&$sent) {
+            $sent = $cmd['Range'];
+            return new Result(['Body' => Utils::streamFor('234')]);
+        });
+
+        $bytes = $this->backendWithMockClient($mock)->getRange('1/med_1.mp4', 2, 3);
+
+        $this->assertSame('bytes=2-4', $sent);
+        $this->assertSame('234', $bytes);
+    }
+
+    public function testGetRangeOfZeroLengthNeverHitsTheNetwork(): void
+    {
+        $mock = new MockHandler();
+        $mock->appendException(new \RuntimeException('should not be called'));
+
+        $this->assertSame('', $this->backendWithMockClient($mock)->getRange('1/med_1.mp4', 0, 0));
+    }
+
+    public function testGetRangeWrapsASdkFailureAsARuntimeException(): void
+    {
+        $mock = new MockHandler();
+        $mock->appendException(new \RuntimeException('InvalidRange'));
+
+        $this->expectException(\RuntimeException::class);
+        $this->backendWithMockClient($mock)->getRange('1/med_1.mp4', 0, 10);
+    }
+
+    /**
+     * ListObjectsV2 caps a response at 1000 keys. An album at the default
+     * gallery_max_media_per_album already holds up to 800 renditions, and a
+     * higher limit puts it over the page size — an unpaged single pass left
+     * every key past the first page in the bucket forever.
+     */
+    public function testDeletePrefixPagesThroughEveryListedObject(): void
+    {
+        $firstPage = array_map(fn(int $i) => ['Key' => "5/a{$i}.jpg"], range(1, 1000));
+        $secondPage = array_map(fn(int $i) => ['Key' => "5/b{$i}.jpg"], range(1, 3));
+
+        $listRequests = [];
+        $deletedKeys = [];
+        $mock = new MockHandler();
+        $mock->append(function ($cmd) use (&$listRequests, $firstPage) {
+            $listRequests[] = $cmd['ContinuationToken'] ?? null;
+            return new Result([
+                'Contents' => $firstPage,
+                'IsTruncated' => true,
+                'NextContinuationToken' => 'page-2',
+            ]);
+        });
+        $mock->append(function ($cmd) use (&$deletedKeys) {
+            foreach ($cmd['Delete']['Objects'] as $object) {
+                $deletedKeys[] = $object['Key'];
+            }
+            return new Result([]);
+        });
+        $mock->append(function ($cmd) use (&$listRequests, $secondPage) {
+            $listRequests[] = $cmd['ContinuationToken'] ?? null;
+            return new Result(['Contents' => $secondPage, 'IsTruncated' => false]);
+        });
+        $mock->append(function ($cmd) use (&$deletedKeys) {
+            foreach ($cmd['Delete']['Objects'] as $object) {
+                $deletedKeys[] = $object['Key'];
+            }
+            return new Result([]);
+        });
+
+        $this->backendWithMockClient($mock)->deletePrefix('5');
+
+        $this->assertSame([null, 'page-2'], $listRequests);
+        $this->assertCount(1003, $deletedKeys);
+        $this->assertContains('5/a1000.jpg', $deletedKeys);
+        $this->assertContains('5/b3.jpg', $deletedKeys);
+    }
+
+    /**
+     * DeleteObjects itself accepts at most 1000 keys per call.
+     */
+    public function testDeletePrefixChunksDeletesToAThousandKeys(): void
+    {
+        $batchSizes = [];
+        $mock = new MockHandler();
+        $mock->append(fn() => new Result([
+            'Contents' => array_map(fn(int $i) => ['Key' => "5/a{$i}.jpg"], range(1, 1500)),
+            'IsTruncated' => false,
+        ]));
+        $mock->append(function ($cmd) use (&$batchSizes) {
+            $batchSizes[] = count($cmd['Delete']['Objects']);
+            return new Result([]);
+        });
+        $mock->append(function ($cmd) use (&$batchSizes) {
+            $batchSizes[] = count($cmd['Delete']['Objects']);
+            return new Result([]);
+        });
+
+        $this->backendWithMockClient($mock)->deletePrefix('5');
+
+        $this->assertSame([1000, 500], $batchSizes);
+    }
+
+    public function testDeletePrefixIssuesNoDeleteWhenNothingIsListed(): void
+    {
+        $mock = new MockHandler();
+        $mock->append(fn() => new Result(['Contents' => [], 'IsTruncated' => false]));
+        // A second queued response would only be consumed by a stray
+        // deleteObjects call.
+        $mock->appendException(new \RuntimeException('should not be called'));
+
+        $this->backendWithMockClient($mock)->deletePrefix('5');
+
+        $this->assertTrue(true);
+    }
+
+    /**
+     * Guards against a provider that reports IsTruncated but forgets the
+     * token — the loop must end rather than re-list the same page forever.
+     */
+    public function testDeletePrefixStopsWhenTruncatedWithoutAToken(): void
+    {
+        $listCalls = 0;
+        $mock = new MockHandler();
+        $mock->append(function () use (&$listCalls) {
+            $listCalls++;
+            return new Result([
+                'Contents' => [['Key' => '5/a1.jpg']],
+                'IsTruncated' => true,
+            ]);
+        });
+        $mock->append(fn() => new Result([]));
+
+        $this->backendWithMockClient($mock)->deletePrefix('5');
+
+        $this->assertSame(1, $listCalls);
+    }
 }
