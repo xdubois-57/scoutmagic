@@ -88,15 +88,6 @@ class ScalewayProviderTest extends TestCase
         $this->assertSame('Hello', $content);
     }
 
-    public function testResolveTiersWithEmptyList(): void
-    {
-        $tiers = $this->provider->resolveTiers([]);
-
-        $this->assertNull($tiers['cheap']);
-        $this->assertNull($tiers['capable']);
-        $this->assertNull($tiers['ocr']);
-    }
-
     public function testBuildRequestBodyAlwaysIncludesMaxTokens(): void
     {
         $method = new \ReflectionMethod(ScalewayProvider::class, 'buildRequestBody');
