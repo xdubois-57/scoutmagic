@@ -6,6 +6,7 @@ namespace Tests\Modules\Finance\Parser;
 
 use Modules\Finance\Parser\BnpParser;
 use Modules\Finance\Service\FinanceException;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 class BnpParserTest extends TestCase
@@ -149,6 +150,7 @@ class BnpParserTest extends TestCase
      *
      * @dataProvider amountFormats
      */
+    #[DataProvider('amountFormats')]
     public function testParseAmountReadsBothDecimalConventions(string $raw, float $expected): void
     {
         $path = $this->writeCsv([

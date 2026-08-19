@@ -11,6 +11,7 @@ use Modules\Finance\Repository\CategoryRepository;
 use Modules\Finance\Repository\CategoryRuleRepository;
 use Modules\Finance\Repository\TransactionRepository;
 use Modules\Finance\Service\AccountTransferCategoryService;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Finance\FinanceTestHelper;
@@ -124,6 +125,7 @@ class AccountTransferCategoryServiceTest extends TestCase
     /**
      * @dataProvider ineligibleAccounts
      */
+    #[DataProvider('ineligibleAccounts')]
     public function testSyncRemovesEverythingForAnIneligibleAccount(string $status, ?string $iban): void
     {
         $account = $this->activeBankAccount('Louveteaux', 'BE92001511757023');

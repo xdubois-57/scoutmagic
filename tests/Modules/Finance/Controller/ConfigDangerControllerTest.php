@@ -15,6 +15,7 @@ use Modules\Finance\Repository\BalanceCheckpoint;
 use Modules\Finance\Repository\BalanceCheckpointRepository;
 use Modules\Finance\Repository\TransactionAttachmentRepository;
 use Modules\Finance\Repository\TransactionRepository;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Finance\FinanceTestHelper;
@@ -104,6 +105,7 @@ class ConfigDangerControllerTest extends TestCase
     /**
      * @dataProvider wrongConfirmations
      */
+    #[DataProvider('wrongConfirmations')]
     public function testDeleteMovementsRefusesAWrongConfirmationText(string $confirmation): void
     {
         $this->createTransaction($this->accountId);

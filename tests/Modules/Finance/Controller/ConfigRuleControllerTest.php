@@ -27,6 +27,7 @@ use Modules\Finance\Service\AccountTransferCategoryService;
 use Modules\Finance\Service\BalanceService;
 use Modules\Finance\Service\CategoryRuleEngine;
 use Modules\Finance\Service\FinanceService;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Finance\FinanceTestHelper;
@@ -122,6 +123,7 @@ class ConfigRuleControllerTest extends TestCase
      *
      * @dataProvider malformedAmountRanges
      */
+    #[DataProvider('malformedAmountRanges')]
     public function testCreateRejectsAMalformedAmountRange(string $range): void
     {
         $categoryId = $this->categoryRepository->create('Alimentation');
@@ -159,6 +161,7 @@ class ConfigRuleControllerTest extends TestCase
     /**
      * @dataProvider wellFormedAmountRanges
      */
+    #[DataProvider('wellFormedAmountRanges')]
     public function testCreateAcceptsAWellFormedAmountRange(string $range): void
     {
         $categoryId = $this->categoryRepository->create('Alimentation');
