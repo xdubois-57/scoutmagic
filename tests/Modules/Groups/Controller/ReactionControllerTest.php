@@ -88,6 +88,23 @@ class ReactionControllerTest extends GroupsControllerTestCase
     }
 
     /**
+     * Same request a plain form POST sends, plus the header groups.js
+     * attaches to its fetch() — this is what tells the controller to
+     * answer with the JSON fragment instead of its usual redirect.
+     */
+    private function ajaxRequest(): Request
+    {
+        return new Request(
+            'POST',
+            '/groups/' . $this->groupId . '/posts/' . $this->postId . '/react',
+            [],
+            $_POST,
+            [],
+            ['HTTP_X_REQUESTED_WITH' => 'XMLHttpRequest']
+        );
+    }
+
+    /**
      * @return array<string, string>
      */
     private function params(?int $postId = null, ?int $replyId = null): array
@@ -146,6 +163,61 @@ class ReactionControllerTest extends GroupsControllerTestCase
 
         $this->assertSame(302, $response->getStatusCode());
         $this->assertSame('clap', ReactionRepository::forReplies($this->pdo)->findKeyFor($this->replyId, [$this->memberId]));
+    }
+
+    /**
+     * The dynamic-reactions path (groups.js): the same X-Requested-With
+     * header a fetch() sends gets JSON back — a re-rendered reactions
+     * fragment, not the redirect a plain form POST gets — so the page
+     * never has to reload for a reaction.
+     */
+    public function testReactingViaAjaxReturnsAJsonFragmentInsteadOfARedirect(): void
+    {
+        $this->withCsrf(['reaction' => 'heart']);
+
+        $response = $this->controller([$this->memberId])->react($this->ajaxRequest(), $this->params($this->postId));
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame('application/json', $response->getHeaders()['Content-Type']);
+        $body = json_decode($response->getBody(), true);
+        $this->assertSame('added', $body['outcome']);
+        $this->assertStringContainsString('heart', $body['html']);
+        $this->assertSame('heart', $this->postReactionKey($this->memberId));
+    }
+
+    public function testRemovingAReactionViaAjaxReportsRemoved(): void
+    {
+        $this->withCsrf(['reaction' => 'heart']);
+        $this->controller([$this->memberId])->react($this->request(), $this->params($this->postId));
+
+        $this->withCsrf(['reaction' => 'heart']);
+        $response = $this->controller([$this->memberId])->react($this->ajaxRequest(), $this->params($this->postId));
+
+        $body = json_decode($response->getBody(), true);
+        $this->assertSame('removed', $body['outcome']);
+        $this->assertNull($this->postReactionKey($this->memberId));
+    }
+
+    public function testReactingOnAReplyViaAjaxReturnsTheCompactFragment(): void
+    {
+        $this->withCsrf(['reaction' => 'clap']);
+
+        $response = $this->controller([$this->memberId])->reactToReply($this->ajaxRequest(), $this->params(null, $this->replyId));
+
+        $this->assertSame(200, $response->getStatusCode());
+        $body = json_decode($response->getBody(), true);
+        $this->assertSame('added', $body['outcome']);
+        $this->assertStringContainsString('groups-reactions-compact', $body['html']);
+    }
+
+    public function testAnUnknownReactionKeyViaAjaxIsStill400WithNoBody(): void
+    {
+        $this->withCsrf(['reaction' => 'rocket']);
+
+        $response = $this->controller([$this->memberId])->react($this->ajaxRequest(), $this->params($this->postId));
+
+        $this->assertSame(400, $response->getStatusCode());
+        $this->assertNull($this->postReactionKey($this->memberId));
     }
 
     /**

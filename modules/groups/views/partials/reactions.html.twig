@@ -7,7 +7,10 @@
   reply.
 
   Every button is a real form POST, so this works with no JavaScript at
-  all; show.html.twig only adds the optimistic in-place update on top.
+  all; groups.js upgrades the same POST to a fetch() and swaps this whole
+  div with the server's freshly rendered response (Controller\
+  ReactionController), so a reaction never reloads the page but still
+  waits for the server's answer before showing anything new.
 #}
 <div class="groups-reactions{{ compact ? ' groups-reactions-compact' : '' }} d-flex align-items-center flex-wrap gap-1 mt-2">
     {% if summary.entries is not empty %}

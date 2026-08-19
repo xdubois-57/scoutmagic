@@ -23,6 +23,7 @@ use Modules\Groups\Service\GroupSessionContext;
 use Modules\Groups\Service\GroupNotificationService;
 use Modules\Groups\Service\GroupSessionContextFactory;
 use Modules\Groups\Service\ReactionService;
+use Modules\Groups\Service\ReactionSummary;
 use Modules\Groups\Support\ReactionOutcome;
 use Twig\Environment;
 
@@ -63,7 +64,7 @@ class ReactionController extends AbstractController
      */
     public function react(Request $request, array $params): Response
     {
-        return $this->reactAction($request, $params, function (DiscussionGroup $group, int $memberId, string $key, GroupSessionContext $context) use ($params) {
+        return $this->reactAction($request, $params, false, function (DiscussionGroup $group, int $memberId, string $key, GroupSessionContext $context) use ($params) {
             $post = $this->postRepository->findById((int) ($params['postId'] ?? 0));
             if ($post === null || $post->groupId !== $group->id) {
                 return null;
@@ -82,7 +83,11 @@ class ReactionController extends AbstractController
                 );
             }
 
-            return $outcome;
+            return [
+                $outcome,
+                $outcome === ReactionOutcome::INVALID ? null : $this->reactionService->summaryForPost($post->id, $context->linkedMemberIds),
+                '/groups/' . $group->id . '/posts/' . $post->id . '/react',
+            ];
         });
     }
 
@@ -93,7 +98,7 @@ class ReactionController extends AbstractController
      */
     public function reactToReply(Request $request, array $params): Response
     {
-        return $this->reactAction($request, $params, function (DiscussionGroup $group, int $memberId, string $key, GroupSessionContext $context) use ($params) {
+        return $this->reactAction($request, $params, true, function (DiscussionGroup $group, int $memberId, string $key, GroupSessionContext $context) use ($params) {
             $reply = $this->replyRepository->findById((int) ($params['replyId'] ?? 0));
             if ($reply === null) {
                 return null;
@@ -117,19 +122,31 @@ class ReactionController extends AbstractController
                 );
             }
 
-            return $outcome;
+            return [
+                $outcome,
+                $outcome === ReactionOutcome::INVALID ? null : $this->reactionService->summaryForReply($reply->id, $context->linkedMemberIds),
+                '/groups/' . $group->id . '/replies/' . $reply->id . '/react',
+            ];
         });
     }
 
     /**
      * The shared shape of both reaction endpoints. $toggle returns null
-     * when the item does not belong to the authorised group (→ 404), or
-     * the toggle's own outcome (INVALID → 400).
+     * when the item does not belong to the authorised group (→ 404), or a
+     * 3-tuple [ReactionOutcome, ?ReactionSummary, string $action] once the
+     * toggle ran — the summary is null for INVALID (→ 400), since nothing
+     * was written for it to describe.
+     *
+     * A plain form POST still lands here with no special header and gets
+     * the same redirect it always has (the no-JS fallback the templates'
+     * docblocks promise); groups.js sends `X-Requested-With:
+     * XMLHttpRequest` and gets the freshly rendered reactions fragment
+     * back instead, so it can swap it in without a page reload.
      *
      * @param array<string, string> $params
-     * @param callable(DiscussionGroup, int, string, GroupSessionContext): ?ReactionOutcome $toggle
+     * @param callable(DiscussionGroup, int, string, GroupSessionContext): (null|array{0: ReactionOutcome, 1: ?ReactionSummary, 2: string}) $toggle
      */
-    private function reactAction(Request $request, array $params, callable $toggle): Response
+    private function reactAction(Request $request, array $params, bool $compact, callable $toggle): Response
     {
         if (!CsrfGuard::validateRequest()) {
             return new Response('Jeton CSRF invalide.', 403);
@@ -165,11 +182,35 @@ class ReactionController extends AbstractController
         if ($result === null) {
             return new Response('Not Found', 404);
         }
-        if ($result === ReactionOutcome::INVALID) {
+
+        [$outcome, $summary, $action] = $result;
+        if ($outcome === ReactionOutcome::INVALID) {
             return new Response('Réaction inconnue.', 400);
         }
 
-        return $this->redirect('/groups/' . $group->id);
+        if (!$this->wantsJson($request)) {
+            return $this->redirect('/groups/' . $group->id);
+        }
+
+        return $this->json([
+            'outcome' => $outcome === ReactionOutcome::ADDED ? 'added' : 'removed',
+            'html' => $this->twig->render('@groups/partials/reactions.html.twig', [
+                'summary' => $summary,
+                'action' => $action,
+                'compact' => $compact,
+            ]),
+        ]);
+    }
+
+    /**
+     * groups.js sends this header on every reaction fetch() so the
+     * endpoint knows to answer with JSON instead of a redirect — a plain
+     * form POST (no JS, or JS that failed to load) never sets it and gets
+     * the original full-page behaviour unchanged.
+     */
+    private function wantsJson(Request $request): bool
+    {
+        return $request->getServer('HTTP_X_REQUESTED_WITH') === 'XMLHttpRequest';
     }
 
     private function context(): GroupSessionContext

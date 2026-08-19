@@ -16,7 +16,7 @@
 // earlier one already detached.
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
-describe('groups.js in-place pagination and inline edit toggles', () => {
+describe('groups.js dynamic reactions, in-place pagination and inline edit toggles', () => {
     // Imported ONCE for this whole block, deliberately — not per test.
     // groups.js delegates click/change on `document` itself so it can
     // catch content a fetch() inserts after the page loaded; that is
@@ -68,6 +68,67 @@ describe('groups.js in-place pagination and inline edit toggles', () => {
         await vi.waitFor(() => expect(document.querySelector('.groups-load-more').disabled).toBe(false));
 
         expect(document.querySelector('.groups-load-more-wrapper')).not.toBeNull();
+    });
+
+    it('a reaction click fetches and swaps the reactions container with the response fragment, sending the form fields and the XHR header', async () => {
+        document.body.innerHTML = `
+            <div class="groups-reactions" id="post-9-reactions">
+                <form class="groups-reaction-form" action="/groups/1/posts/9/react" method="post">
+                    <input type="hidden" name="_csrf_token" value="tok">
+                    <input type="hidden" name="reaction" value="heart">
+                    <button type="submit">reagir</button>
+                </form>
+            </div>
+        `;
+        global.fetch = vi.fn(() => Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ outcome: 'added', html: '<div class="groups-reactions" id="post-9-reactions-updated"></div>' })
+        }));
+
+        document.querySelector('.groups-reaction-form button').click();
+        await vi.waitFor(() => expect(document.getElementById('post-9-reactions-updated')).not.toBeNull());
+
+        expect(document.getElementById('post-9-reactions')).toBeNull();
+        const [url, options] = fetch.mock.calls[0];
+        expect(url).toContain('/groups/1/posts/9/react');
+        expect(options.method).toBe('POST');
+        expect(options.headers).toEqual({ 'X-Requested-With': 'XMLHttpRequest' });
+        expect(options.body.get('reaction')).toBe('heart');
+        expect(options.body.get('_csrf_token')).toBe('tok');
+    });
+
+    it('falls back to a plain form submit when the reaction fetch fails, so a stale session still does something', async () => {
+        document.body.innerHTML = `
+            <div class="groups-reactions">
+                <form class="groups-reaction-form" action="/groups/1/posts/9/react" method="post">
+                    <input type="hidden" name="reaction" value="heart">
+                    <button type="submit">reagir</button>
+                </form>
+            </div>
+        `;
+        const form = document.querySelector('.groups-reaction-form');
+        form.submit = vi.fn();
+        global.fetch = vi.fn(() => Promise.resolve({ ok: false }));
+
+        document.querySelector('.groups-reaction-form button').click();
+        await vi.waitFor(() => expect(form.submit).toHaveBeenCalled());
+    });
+
+    it('falls back to a plain form submit when the reaction response is not valid JSON', async () => {
+        document.body.innerHTML = `
+            <div class="groups-reactions">
+                <form class="groups-reaction-form" action="/groups/1/posts/9/react" method="post">
+                    <input type="hidden" name="reaction" value="heart">
+                    <button type="submit">reagir</button>
+                </form>
+            </div>
+        `;
+        const form = document.querySelector('.groups-reaction-form');
+        form.submit = vi.fn();
+        global.fetch = vi.fn(() => Promise.resolve({ ok: true, json: () => Promise.reject(new Error('bad json')) }));
+
+        document.querySelector('.groups-reaction-form button').click();
+        await vi.waitFor(() => expect(form.submit).toHaveBeenCalled());
     });
 
     it('toggles a post into edit mode and back', async () => {

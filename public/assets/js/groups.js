@@ -4,9 +4,10 @@
  */
 
 // Groups module front-end (show.html.twig): composer media picker,
-// "Charger plus"/"Voir plus de réponses" in-place pagination, inline
-// edit toggles, reply image filename display. Pure JS, no external
-// library — same IIFE/var/fetch style as gallery.js/retro-board.js.
+// dynamic reactions, "Charger plus"/"Voir plus de réponses" in-place
+// pagination, inline edit toggles, reply image filename display. Pure
+// JS, no external library — same IIFE/var/fetch style as
+// gallery.js/retro-board.js.
 //
 // Server-supplied config comes from #groups-post-form's own data-*
 // attributes (max_media_per_post), the same convention retro-board.js
@@ -125,6 +126,43 @@
             }
         });
     })();
+
+    // A reaction button's form still posts and redirects with no JS at
+    // all (partials/reactions.html.twig's own docblock promise) — this
+    // only upgrades that same POST to a fetch() so the page never
+    // reloads. The `X-Requested-With` header is what tells
+    // Controller\ReactionController to answer with the freshly rendered
+    // fragment (JSON: {outcome, html}) instead of its usual redirect;
+    // any failure — network, non-2xx, a malformed body — falls through
+    // to the plain form submit, so a stale CSRF token or a dropped
+    // connection degrades to a page reload rather than doing nothing.
+    document.addEventListener('submit', function (event) {
+        var form = event.target.closest('.groups-reaction-form');
+        if (!form) {
+            return;
+        }
+        event.preventDefault();
+
+        var container = form.closest('.groups-reactions');
+        fetch(form.action, {
+            method: 'POST',
+            body: new FormData(form),
+            headers: { 'X-Requested-With': 'XMLHttpRequest' }
+        }).then(function (response) {
+            if (!response.ok) {
+                throw new Error('reaction request failed');
+            }
+            return response.json();
+        }).then(function (data) {
+            if (container && typeof data.html === 'string') {
+                container.outerHTML = data.html;
+            } else {
+                form.submit();
+            }
+        }).catch(function () {
+            form.submit();
+        });
+    });
 
     // "Charger plus" appends the next keyset page in place, and the inline
     // edit form toggles without leaving the feed. Both degrade to a plain
