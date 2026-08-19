@@ -240,7 +240,7 @@
                         <div class="mb-2">
                             <small class="text-muted">Clé publique (pour l'enregistrement DNS) :</small>
                             <div class="input-group input-group-sm mt-1">
-                                <input type="text" class="form-control font-monospace" value="{{ dkim_public_key }}" readonly id="dkim-pubkey-display">
+                                <input type="text" class="form-control font-monospace" value="{{ dkim_public_key }}" readonly id="dkim-pubkey-display" aria-label="Clé publique DKIM">
                                 <button type="button" class="btn btn-outline-secondary btn-copy-value" data-copy-target="dkim-pubkey-display">Copier</button>
                             </div>
                         </div>
@@ -304,7 +304,7 @@
             <p class="text-muted small">Le site exécute déjà les tâches planifiées (sauvegardes automatiques, rappels, relances d'envoi…) de façon opportuniste après chaque visite d'une page — pratique, mais peu fiable si le site reçoit peu de trafic : rien ne s'exécute tant que personne ne le consulte. Configurez une véritable tâche cron chez votre hébergeur pour que ces tâches s'exécutent à l'heure prévue, même sans visiteur.</p>
             <p class="small mb-1">Ajoutez cette ligne dans votre crontab (ou dans la section « Tâches planifiées »/« Cron » du panneau de contrôle de votre hébergeur, si disponible) :</p>
             <div class="input-group input-group-sm mt-1 mb-2">
-                <input type="text" class="form-control font-monospace" value="* * * * * php {{ cron_script_path ?? '/chemin/vers/le/site/public/cron.php' }}" readonly id="cron-line-display">
+                <input type="text" class="form-control font-monospace" value="* * * * * php {{ cron_script_path ?? '/chemin/vers/le/site/public/cron.php' }}" readonly id="cron-line-display" aria-label="Ligne crontab">
                 <button type="button" class="btn btn-outline-secondary btn-copy-value" data-copy-target="cron-line-display">Copier</button>
             </div>
             <p class="text-muted small mb-0">Le script se protège lui-même contre les exécutions simultanées et n'a besoin d'être lancé qu'une fois par minute. Remplacez <code>php</code> par le chemin complet de l'exécutable en ligne de commande si votre hébergeur en exige un précis (souvent indiqué dans son panneau de contrôle, par exemple <code>/usr/bin/php8.3</code>).</p>

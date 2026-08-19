@@ -70,7 +70,7 @@
             Instructions pour personnaliser le contenu généré (ton, ajouts, précisions).
             Le contenu par défaut et les modules actifs sont toujours inclus automatiquement.
         </p>
-        <textarea class="form-control font-monospace" id="ai-prompt" rows="6" placeholder="Nous utilisons les services Google (par exemple Drive, Gmail et Google Photos) pour stocker des documents pouvant contenir des données à caractère personnel, ainsi que des photos. Cela signifie que ces données peuvent être hébergées sur des serveurs situés aux États-Unis.
+        <textarea class="form-control font-monospace" id="ai-prompt" aria-label="Prompt de personnalisation (IA)" rows="6" placeholder="Nous utilisons les services Google (par exemple Drive, Gmail et Google Photos) pour stocker des documents pouvant contenir des données à caractère personnel, ainsi que des photos. Cela signifie que ces données peuvent être hébergées sur des serveurs situés aux États-Unis.
 Les fiches médicales sont collectées au format papier et sont utilisées uniquement dans le cadre du camp.
 L'unité dispose également d'un groupe Facebook destiné aux parents et aux anciens membres, sur lequel elle peut occasionnellement publier des photos.">{%- if prompt -%}{{ prompt }}{%- endif -%}</textarea>
         <div class="mt-3">

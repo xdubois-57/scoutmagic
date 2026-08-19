@@ -179,9 +179,9 @@
                                             <div class="section-document-row" data-id="{{ item.id }}">
                                                 {% if can_edit_section %}
                                                     <input type="text" class="form-control form-control-sm mb-1 section-document-title-input"
-                                                           value="{{ item.title }}" placeholder="Titre" data-id="{{ item.id }}">
+                                                           value="{{ item.title }}" placeholder="Titre" aria-label="Titre du document" data-id="{{ item.id }}">
                                                     <textarea class="form-control form-control-sm mb-1 section-document-description-input" rows="1"
-                                                              placeholder="Description (optionnel)" data-id="{{ item.id }}">{{ item.description }}</textarea>
+                                                              placeholder="Description (optionnel)" aria-label="Description du document" data-id="{{ item.id }}">{{ item.description }}</textarea>
                                                 {% else %}
                                                     <div class="fw-semibold">{{ item.title }}</div>
                                                     {% if item.description %}
@@ -226,8 +226,8 @@
                                 {{ csrf_field() }}
                                 <input type="hidden" name="section_id" value="{{ current_section.id }}">
                                 <div class="mb-2">
-                                    <label class="form-label small">Année scoute</label>
-                                    <select name="scout_year_id" class="form-select">
+                                    <label class="form-label small" for="section-document-add-scout-year">Année scoute</label>
+                                    <select name="scout_year_id" id="section-document-add-scout-year" class="form-select">
                                         {% for year_block in section_document_years %}
                                             <option value="{{ year_block.scout_year.id }}" {{ year_block.is_current ? 'selected' : '' }}>
                                                 {{ year_block.scout_year.label }}
@@ -236,18 +236,18 @@
                                     </select>
                                 </div>
                                 <div class="mb-2">
-                                    <label class="form-label small">Fichier</label>
+                                    <label class="form-label small" for="section-document-file-input">Fichier</label>
                                     <input type="file" name="file" class="form-control" required id="section-document-file-input"
                                            accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.odt,.ods,.odp,.txt,.csv">
                                     <div class="form-text">PDF, Word, Excel, PowerPoint, OpenDocument, texte, CSV — 20 Mo maximum.</div>
                                 </div>
                                 <div class="mb-2">
-                                    <label class="form-label small">Titre</label>
-                                    <input type="text" name="title" class="form-control" placeholder="Nom du fichier par défaut">
+                                    <label class="form-label small" for="section-document-add-title">Titre</label>
+                                    <input type="text" name="title" class="form-control" id="section-document-add-title" placeholder="Nom du fichier par défaut">
                                 </div>
                                 <div class="mb-0">
-                                    <label class="form-label small">Description</label>
-                                    <textarea name="description" class="form-control" rows="2"></textarea>
+                                    <label class="form-label small" for="section-document-add-description">Description</label>
+                                    <textarea name="description" class="form-control" id="section-document-add-description" rows="2"></textarea>
                                 </div>
                             </div>
                             <div class="modal-footer">

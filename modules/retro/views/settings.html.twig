@@ -69,7 +69,8 @@
                         Aucun connecteur IA actif — seule l'option « Désactivée » a un effet tant qu'aucun n'est configuré.
                     </div>
                 {% endif %}
-                <select class="form-select" name="retro_moderation_mode" style="max-width: 20rem;" {{ ai_available ? '' : 'disabled' }}>
+                <label class="form-label small" for="retro-moderation-mode">Mode de modération</label>
+                <select class="form-select" id="retro-moderation-mode" name="retro_moderation_mode" style="max-width: 20rem;" {{ ai_available ? '' : 'disabled' }}>
                     <option value="disabled" {{ retro_moderation_mode == 'disabled' ? 'selected' : '' }}>Désactivée</option>
                     <option value="warning" {{ retro_moderation_mode == 'warning' ? 'selected' : '' }}>Avertissement (le participant choisit)</option>
                     <option value="enforced" {{ retro_moderation_mode == 'enforced' ? 'selected' : '' }}>Obligatoire (reformulation exigée)</option>
@@ -77,7 +78,7 @@
                 {% if not ai_available %}
                     {# A disabled <select> is never submitted — mirror its value via a hidden field so
                        saving other settings on this page doesn't silently reset moderation to "disabled". #}
-                    <input type="hidden" name="retro_moderation_mode" value="{{ retro_moderation_mode }}">
+                    <input type="hidden" name="retro_moderation_mode" value="{{ retro_moderation_mode }}" aria-label="Mode de modération">
                 {% endif %}
                 <div class="form-text">
                     « Avertissement » : le participant est averti si son mot est jugé irrespectueux mais peut le publier tel quel ou accepter une reformulation suggérée par l'IA.

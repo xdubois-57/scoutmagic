@@ -8,8 +8,8 @@
         <div class="card-body">
             <div class="row g-2 align-items-end">
                 <div class="col-12 col-md-2">
-                    <label class="form-label small">Catégorie</label>
-                    <select name="category" class="form-select form-select-sm">
+                    <label class="form-label small" for="journal-filter-category">Catégorie</label>
+                    <select id="journal-filter-category" name="category" class="form-select form-select-sm">
                         <option value="">Toutes</option>
                         {% for cat in categories %}
                             <option value="{{ cat }}" {{ filter_category == cat ? 'selected' : '' }}>{{ cat }}</option>
@@ -17,36 +17,36 @@
                     </select>
                 </div>
                 <div class="col-6 col-md-2">
-                    <label class="form-label small">Niveau</label>
-                    <select name="level" class="form-select form-select-sm">
+                    <label class="form-label small" for="journal-filter-level">Niveau</label>
+                    <select id="journal-filter-level" name="level" class="form-select form-select-sm">
                         <option value="">Tous</option>
                         <option value="info" {{ filter_level == 'info' ? 'selected' : '' }}>Info</option>
                         <option value="security" {{ filter_level == 'security' ? 'selected' : '' }}>Sécurité</option>
                     </select>
                 </div>
                 <div class="col-12 col-md-3">
-                    <label class="form-label small">Recherche</label>
-                    <input type="text" name="search" class="form-control form-control-sm"
+                    <label class="form-label small" for="journal-filter-search">Recherche</label>
+                    <input type="text" id="journal-filter-search" name="search" class="form-control form-control-sm"
                            value="{{ filter_search }}" placeholder="Texte...">
                 </div>
                 <div class="col-12 col-md-3">
-                    <label class="form-label small">Email</label>
-                    <input type="email" name="email" class="form-control form-control-sm"
+                    <label class="form-label small" for="journal-filter-email">Email</label>
+                    <input type="email" id="journal-filter-email" name="email" class="form-control form-control-sm"
                            value="{{ filter_email }}" placeholder="nom@exemple.be">
                 </div>
                 <div class="col-6 col-md-2">
-                    <label class="form-label small">Adresse IP</label>
-                    <input type="text" name="ip" class="form-control form-control-sm"
+                    <label class="form-label small" for="journal-filter-ip">Adresse IP</label>
+                    <input type="text" id="journal-filter-ip" name="ip" class="form-control form-control-sm"
                            value="{{ filter_ip }}" placeholder="192.168...">
                 </div>
                 <div class="col-6 col-md-2">
-                    <label class="form-label small">Du</label>
-                    <input type="date" name="date_from" class="form-control form-control-sm"
+                    <label class="form-label small" for="journal-filter-date-from">Du</label>
+                    <input type="date" id="journal-filter-date-from" name="date_from" class="form-control form-control-sm"
                            value="{{ filter_date_from }}">
                 </div>
                 <div class="col-6 col-md-2">
-                    <label class="form-label small">Au</label>
-                    <input type="date" name="date_to" class="form-control form-control-sm"
+                    <label class="form-label small" for="journal-filter-date-to">Au</label>
+                    <input type="date" id="journal-filter-date-to" name="date_to" class="form-control form-control-sm"
                            value="{{ filter_date_to }}">
                 </div>
                 <div class="col-12 col-md-2">

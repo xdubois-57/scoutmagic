@@ -82,6 +82,7 @@
         </p>
         <div class="input-group mb-2" style="max-width:520px;">
             <input type="text" class="form-control form-control-sm" id="personal-ics-link"
+                   aria-label="Lien ICS personnel"
                    value="{{ param('base_url')|trim('/') }}/calendar/feed/personal/{{ personal_token }}.ics" readonly>
             <button type="button" class="btn btn-sm btn-outline-secondary" id="copy-personal-link">
                 <i class="bi bi-clipboard"></i> Copier

@@ -59,9 +59,9 @@
             </p>
             <form id="cfg-settings-form" class="d-flex align-items-center flex-wrap gap-2">
                 <span>Envoyer</span>
-                <input type="number" min="1" class="form-control form-control-sm" style="width:6rem;" id="cfg-batch-size" value="{{ batch_size }}">
+                <input type="number" min="1" class="form-control form-control-sm" style="width:6rem;" id="cfg-batch-size" value="{{ batch_size }}" aria-label="Nombre d'emails par envoi">
                 <span>emails toutes les</span>
-                <input type="number" min="1" class="form-control form-control-sm" style="width:6rem;" id="cfg-batch-interval">
+                <input type="number" min="1" class="form-control form-control-sm" style="width:6rem;" id="cfg-batch-interval" aria-label="Intervalle en minutes entre les envois">
                 <span id="cfg-batch-interval-label">minutes</span>
                 <button type="submit" class="btn btn-sm btn-primary ms-2">Enregistrer</button>
             </form>

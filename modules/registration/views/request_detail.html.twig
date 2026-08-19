@@ -72,10 +72,10 @@
                         {{ desired_section_label ?? 'Aucune préférence exprimée' }}
                     </div>
                     <div class="col-12">
-                        <span class="text-body-secondary small d-block mb-1">Section prévue (staff — jamais visible par la famille)</span>
+                        <label class="text-body-secondary small d-block mb-1" for="request-intended-section">Section prévue (staff — jamais visible par la famille)</label>
                         <form method="post" action="/config/inscriptions/demandes/{{ r.id }}/intended-section" class="d-flex gap-2">
                             {{ csrf_field()|raw }}
-                            <select name="intended_section_id" class="form-select form-select-sm" style="max-width:260px;">
+                            <select name="intended_section_id" id="request-intended-section" class="form-select form-select-sm" style="max-width:260px;">
                                 <option value="0">— Non défini —</option>
                                 {% for section in sections_in_branch %}
                                     <option value="{{ section.id }}" {{ r.intendedSectionId == section.id ? 'selected' : '' }}>{{ section.name ?? section.desk_code }}</option>
@@ -117,7 +117,7 @@
                         </div>
                         <form method="post" action="/config/inscriptions/demandes/{{ r.id }}/fee-category" class="d-flex gap-2">
                             {{ csrf_field()|raw }}
-                            <select name="fee_category_id" class="form-select form-select-sm" style="max-width:260px;">
+                            <select name="fee_category_id" class="form-select form-select-sm" style="max-width:260px;" aria-label="Catégorie tarifaire">
                                 <option value="0">— Non défini —</option>
                                 {% for category in fee_categories %}
                                     <option value="{{ category.id }}" {{ r.feeCategoryId == category.id ? 'selected' : '' }}>{{ category.label }}</option>
@@ -160,7 +160,7 @@
                 <p class="small text-body-secondary">Jamais visibles par la famille, jamais journalisées.</p>
                 <form method="post" action="/config/inscriptions/demandes/{{ r.id }}/notes">
                     {{ csrf_field()|raw }}
-                    <textarea name="internal_notes" class="form-control mb-2" rows="4">{{ r.internalNotes }}</textarea>
+                    <textarea name="internal_notes" class="form-control mb-2" rows="4" aria-label="Notes internes">{{ r.internalNotes }}</textarea>
                     <button type="submit" class="btn btn-sm btn-outline-primary">Enregistrer</button>
                 </form>
             </div>
@@ -213,7 +213,7 @@
                     </p>
                     <form method="post" action="/config/inscriptions/demandes/{{ r.id }}/link" class="d-flex flex-column flex-sm-row gap-2">
                         {{ csrf_field()|raw }}
-                        <input type="text" name="desk_id" class="form-control form-control-sm" style="max-width:220px;" placeholder="Numéro de tiers Desk" required>
+                        <input type="text" name="desk_id" class="form-control form-control-sm" style="max-width:220px;" placeholder="Numéro de tiers Desk" aria-label="Numéro de tiers Desk" required>
                         <button type="submit" class="btn btn-sm btn-outline-primary text-nowrap">Rapprocher et encoder</button>
                     </form>
                 </div>

@@ -120,8 +120,8 @@
                 </div>
 
                 <div>
-                    <label class="form-label small fw-semibold d-block">Clôture automatique</label>
-                    <select class="form-select" name="auto_close_delay" style="max-width: 12rem;">
+                    <label class="form-label small fw-semibold d-block" for="retro-auto-close-delay">Clôture automatique</label>
+                    <select class="form-select" id="retro-auto-close-delay" name="auto_close_delay" style="max-width: 12rem;">
                         {% for delay, label in {'none': 'Aucune', '2h': '2 heures', '24h': '24 heures', '3d': '3 jours', '7d': '7 jours'} %}
                             <option value="{{ delay }}" {{ (board ? board.autoCloseDelay : '7d') == delay ? 'selected' : '' }}>{{ label }}</option>
                         {% endfor %}

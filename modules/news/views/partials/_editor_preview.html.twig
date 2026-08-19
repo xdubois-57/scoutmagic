@@ -21,8 +21,8 @@
     {% if has_real_input %}
         <div class="news-form-section bg-body-tertiary rounded-3 p-3 p-sm-4">
             <div class="mb-3">
-                <label class="form-label">Email de contact <span class="text-danger">*</span></label>
-                <input type="email" class="form-control" value="{{ preview_contact_email }}" disabled>
+                <label class="form-label" for="news-preview-contact-email">Email de contact <span class="text-danger">*</span></label>
+                <input type="email" class="form-control" id="news-preview-contact-email" value="{{ preview_contact_email }}" disabled>
             </div>
 
             {% for row in preview_fields %}

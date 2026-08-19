@@ -78,7 +78,7 @@
             <div class="border rounded-3 p-3 d-flex align-items-center gap-3">
                 <span class="d-inline-block rounded-circle" style="width:0.7rem;height:0.7rem;background-color:{{ item.color ?? '#6c757d' }};"></span>
                 <span class="fw-semibold flex-grow-1">{{ item.section_name }}</span>
-                <select class="form-select form-select-sm visibility-select" style="max-width:220px;" data-calendar-id="{{ item.calendar.id }}">
+                <select class="form-select form-select-sm visibility-select" style="max-width:220px;" data-calendar-id="{{ item.calendar.id }}" aria-label="Visibilité du calendrier {{ item.section_name }}">
                     <option value="public" {{ item.calendar.visibility == 'public' ? 'selected' : '' }}>Public</option>
                     <option value="chief" {{ item.calendar.visibility == 'chief' ? 'selected' : '' }}>Chef</option>
                     <option value="admin" {{ item.calendar.visibility == 'admin' ? 'selected' : '' }}>Chef d'Unité</option>
@@ -109,7 +109,7 @@
                     {% if calendar.isDefault %}
                         <span class="badge bg-secondary-subtle text-secondary-emphasis">Par défaut</span>
                     {% endif %}
-                    <select class="form-select form-select-sm visibility-select ms-auto" style="max-width:220px;" data-calendar-id="{{ calendar.id }}">
+                    <select class="form-select form-select-sm visibility-select ms-auto" style="max-width:220px;" data-calendar-id="{{ calendar.id }}" aria-label="Visibilité du calendrier {{ calendar.name }}">
                         <option value="public" {{ calendar.visibility == 'public' ? 'selected' : '' }}>Public</option>
                         <option value="chief" {{ calendar.visibility == 'chief' ? 'selected' : '' }}>Chef</option>
                         <option value="admin" {{ calendar.visibility == 'admin' ? 'selected' : '' }}>Chef d'Unité</option>
@@ -117,6 +117,7 @@
                 </div>
                 <div class="input-group input-group-sm mb-2" style="max-width:520px;">
                     <input type="text" class="form-control ics-link-input" readonly
+                           aria-label="Lien ICS du calendrier {{ calendar.name }}"
                            value="{{ param('base_url')|trim('/') }}/calendar/feed/{{ calendar.icsToken }}.ics">
                     <button type="button" class="btn btn-outline-secondary copy-link-btn">
                         <i class="bi bi-clipboard"></i> Copier
@@ -159,6 +160,7 @@
             </p>
             <div class="input-group input-group-sm mb-2" style="max-width:520px;">
                 <input type="text" class="form-control" id="unit-ics-link" readonly
+                       aria-label="Lien ICS du calendrier Unité complète"
                        value="{{ param('base_url')|trim('/') }}/calendar/feed/unit/{{ unit_feed_token }}.ics">
                 <button type="button" class="btn btn-outline-secondary" id="copy-unit-link">
                     <i class="bi bi-clipboard"></i> Copier
@@ -171,8 +173,8 @@
     </div>
 
     <div class="border rounded-3 p-3 d-flex align-items-center gap-2 mb-4" id="add-calendar-form">
-        <input type="text" class="form-control form-control-sm" id="new-calendar-name" placeholder="Anniversaires" style="max-width:220px;">
-        <select class="form-select form-select-sm" id="new-calendar-visibility" style="max-width:220px;">
+        <input type="text" class="form-control form-control-sm" id="new-calendar-name" placeholder="Anniversaires" style="max-width:220px;" aria-label="Nom du calendrier">
+        <select class="form-select form-select-sm" id="new-calendar-visibility" style="max-width:220px;" aria-label="Visibilité du calendrier">
             <option value="public">Public</option>
             <option value="chief">Chef</option>
             <option value="admin">Chef d'Unité</option>
