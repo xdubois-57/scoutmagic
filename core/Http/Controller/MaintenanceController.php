@@ -19,6 +19,7 @@ use Core\Maintenance\BackupRepository;
 use Core\Maintenance\BackupService;
 use Core\Maintenance\GitHubReleaseClient;
 use Core\Maintenance\GitHubReleaseClientInterface;
+use Core\Maintenance\GitHubWebhookService;
 use Core\Maintenance\UpdateException;
 use Core\Maintenance\UpdateHistoryRepository;
 use Core\Maintenance\VersionFile;
@@ -683,6 +684,13 @@ class MaintenanceController extends AbstractController
             $this->settingService->set('auto_update_level', $level);
             $this->settingService->set('dev_update_branch', $branch);
 
+            // Development mode takes over the install path entirely — a
+            // release install still waiting for its weekly slot from before
+            // the switch must not fire later (GitHubWebhookService never
+            // schedules one while 'dev' is active, and a leftover one would
+            // silently downgrade the branch build back to the release).
+            $this->reconcilePendingScheduledInstall($enabled, $level, null, null, $userId);
+
             $this->journalService->log(
                 'core', 'auto_update_settings_changed', 'security',
                 'Préférences de mise à jour automatique modifiées (mode développement)',
@@ -707,12 +715,80 @@ class MaintenanceController extends AbstractController
         $this->settingService->set('auto_update_day', $day);
         $this->settingService->set('auto_update_time', $time);
 
+        $this->reconcilePendingScheduledInstall($enabled, $level, $day, $time, $userId);
+
         $this->journalService->log(
             'core', 'auto_update_settings_changed', 'info', 'Préférences de mise à jour automatique modifiées',
             ['enabled' => $enabled, 'level' => $level, 'day' => $day, 'time' => $time], $userId
         );
 
         return $this->json(['success' => true]);
+    }
+
+    /**
+     * Keeps the release install still waiting for its weekly slot (if any
+     * — GitHubWebhookService's SCHEDULED_INSTALL_REFERENCE) consistent
+     * with the preferences that were just saved: canceled when auto-update
+     * was turned off, the channel switched to 'dev', or the (possibly
+     * narrowed) level no longer allows that release's bump type; moved to
+     * the newly-saved day/time otherwise. Without this, "Enregistrer"
+     * silently left the pending install exactly as the OLD preferences had
+     * scheduled it — firing after the admin disabled auto-updates or
+     * switched to development mode, or at the old day/time forever.
+     */
+    private function reconcilePendingScheduledInstall(bool $enabled, string $level, ?string $day, ?string $time, ?int $userId): void
+    {
+        $pending = $this->schedulerService->find('core', 'install_update', GitHubWebhookService::SCHEDULED_INSTALL_REFERENCE);
+        if ($pending === null) {
+            return;
+        }
+
+        $payload = json_decode((string) ($pending['payload'] ?? ''), true);
+        $payload = is_array($payload) ? $payload : [];
+        $historyId = (int) ($payload['history_id'] ?? 0);
+        $history = $historyId > 0 ? $this->updateHistoryRepository->findById($historyId) : null;
+
+        $installedVersion = VersionFile::read(dirname($this->storagePath));
+        $stillWanted = $enabled
+            && $level !== 'dev'
+            && $day !== null && $time !== null
+            && $history !== null
+            && $history->status === 'pending'
+            && VersionFile::isNewerThan($history->versionTo, $installedVersion)
+            && GitHubWebhookService::isBumpAllowed($installedVersion, $history->versionTo, $level);
+
+        if ($stillWanted) {
+            $newRunAt = GitHubWebhookService::nextOccurrence($day, $time, new \DateTimeImmutable());
+            if ($newRunAt->format('Y-m-d H:i:s') === (string) $pending['run_at']) {
+                return; // Same slot — nothing to move.
+            }
+
+            $this->schedulerService->cancel((int) $pending['id']);
+            $this->schedulerService->schedule(
+                'core',
+                'install_update',
+                $newRunAt,
+                $payload,
+                GitHubWebhookService::SCHEDULED_INSTALL_REFERENCE
+            );
+            return;
+        }
+
+        $this->schedulerService->cancel((int) $pending['id']);
+        if ($history !== null && $history->status === 'pending') {
+            // Terminal status so the "Historique des mises à jour" table
+            // doesn't show this abandoned row as "En cours" forever.
+            $this->updateHistoryRepository->markFailed(
+                $historyId,
+                'Installation planifiée annulée suite au changement des préférences de mise à jour automatique.'
+            );
+        }
+
+        $this->journalService->log(
+            'core', 'auto_update_canceled', 'info',
+            'Installation automatique planifiée annulée suite au changement des préférences',
+            ['history_id' => $historyId], $userId
+        );
     }
 
     /**
