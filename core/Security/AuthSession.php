@@ -14,6 +14,12 @@ class AuthSession
 
     /**
      * Log in: store user info in session. Regenerate session ID (SECURITY.md §2).
+     *
+     * 'issued_at' is what makes server-side revocation possible: it is
+     * compared against user_accounts.sessions_valid_from on every request
+     * (Core\Security\SessionRevalidator), so a password change can end
+     * sessions that PHP's file-based session store gives us no way to
+     * enumerate and delete directly.
      */
     public static function login(int $userAccountId, string $email, string $role): void
     {
@@ -24,6 +30,7 @@ class AuthSession
             'user_account_id' => $userAccountId,
             'email' => $email,
             'role' => $role,
+            'issued_at' => time(),
         ]);
     }
 
@@ -72,6 +79,55 @@ class AuthSession
     {
         $auth = SessionStore::get(self::SESSION_KEY, []);
         return $auth['role'] ?? 'public';
+    }
+
+    /**
+     * Replace the session's cached role — used by Core\Security\
+     * SessionRevalidator when re-resolving it against current data, so a
+     * demotion takes effect on the member's next request instead of
+     * lingering until the 30-day session cookie finally expires.
+     */
+    public static function setRole(string $role): void
+    {
+        $auth = SessionStore::get(self::SESSION_KEY, []);
+        if (!isset($auth['user_account_id'])) {
+            return;
+        }
+
+        $auth['role'] = $role;
+        SessionStore::set(self::SESSION_KEY, $auth);
+    }
+
+    /**
+     * When this session was established, as a Unix timestamp. Null for a
+     * session predating this field (issued before the revocation stamp
+     * shipped) — treated as "unknown, therefore revoked" by
+     * Core\Security\SessionRevalidator whenever the account carries a
+     * sessions_valid_from at all.
+     */
+    public static function getIssuedAt(): ?int
+    {
+        $auth = SessionStore::get(self::SESSION_KEY, []);
+        $issuedAt = $auth['issued_at'] ?? null;
+
+        return is_int($issuedAt) ? $issuedAt : null;
+    }
+
+    /**
+     * Re-stamp this session as issued now. Called right after a member
+     * changes their OWN password: the change revokes every session for the
+     * account, and this exempts the tab they are actively using — the
+     * usual "you stay logged in here, everywhere else is signed out".
+     */
+    public static function refreshIssuedAt(): void
+    {
+        $auth = SessionStore::get(self::SESSION_KEY, []);
+        if (!isset($auth['user_account_id'])) {
+            return;
+        }
+
+        $auth['issued_at'] = time();
+        SessionStore::set(self::SESSION_KEY, $auth);
     }
 
     /**

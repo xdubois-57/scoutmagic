@@ -10,6 +10,25 @@ namespace Core\Security;
 
 class WebAuthnService
 {
+    /** authData flag bits (WebAuthn §6.1). */
+    private const FLAG_USER_PRESENT = 0x01;
+    private const FLAG_USER_VERIFIED = 0x04;
+    private const FLAG_ATTESTED_CREDENTIAL_DATA = 0x40;
+
+    /** COSE key labels and values (RFC 8152) used by WebAuthn. */
+    private const COSE_KTY = 1;
+    private const COSE_ALG = 3;
+    private const COSE_KTY_EC2 = 2;
+    private const COSE_KTY_RSA = 3;
+    private const COSE_ALG_ES256 = -7;
+    private const COSE_ALG_RS256 = -257;
+    private const COSE_CRV_P256 = 1;
+    private const COSE_EC2_CRV = -1;
+    private const COSE_EC2_X = -2;
+    private const COSE_EC2_Y = -3;
+    private const COSE_RSA_N = -1;
+    private const COSE_RSA_E = -2;
+
     public function __construct(
         private WebAuthnCredentialRepository $credentialRepo,
         private UserAccountRepository $userAccountRepo,
@@ -63,7 +82,11 @@ class WebAuthnService
             'authenticatorSelection' => [
                 'authenticatorAttachment' => 'platform',
                 'residentKey' => 'preferred',
-                'userVerification' => 'preferred',
+                // 'required', not 'preferred': a passkey that only proves
+                // someone touched the device lets anyone holding it
+                // unlocked authenticate as its owner. Enforced server-side
+                // too — see hasUserVerification().
+                'userVerification' => 'required',
             ],
             'excludeCredentials' => $excludeCredentials,
         ];
@@ -121,6 +144,14 @@ class WebAuthnService
             throw new \RuntimeException('Failed to parse attestation data.');
         }
 
+        // The authenticator must report it actually verified the human,
+        // matching the 'required' asked for in the options above.
+        if (($authData['flags'] & self::FLAG_USER_PRESENT) === 0
+            || ($authData['flags'] & self::FLAG_USER_VERIFIED) === 0
+        ) {
+            throw new \RuntimeException('User verification required.');
+        }
+
         // Extract credential ID and public key from authData
         $credentialId = $authData['credentialId'];
         $publicKey = $authData['publicKey'];
@@ -151,7 +182,7 @@ class WebAuthnService
             'challenge' => $this->base64UrlEncode($challenge),
             'rpId' => $this->rpId,
             'timeout' => 60000,
-            'userVerification' => 'preferred',
+            'userVerification' => 'required',
             'allowCredentials' => [], // empty for discoverable credentials
         ];
     }
@@ -208,6 +239,17 @@ class WebAuthnService
         $authenticatorData = $this->base64UrlDecode($clientResponse['response']['authenticatorData'] ?? '');
         $signature = $this->base64UrlDecode($clientResponse['response']['signature'] ?? '');
 
+        // The assertion must be for this relying party, and must carry
+        // real user verification — never presence alone.
+        if (strlen($authenticatorData) < 37
+            || !hash_equals(hash('sha256', $this->rpId, true), substr($authenticatorData, 0, 32))
+        ) {
+            return null;
+        }
+        if (!$this->hasUserVerification($authenticatorData)) {
+            return null;
+        }
+
         $clientDataHash = hash('sha256', $clientDataJSON, true);
         $signedData = $authenticatorData . $clientDataHash;
 
@@ -236,103 +278,114 @@ class WebAuthnService
     }
 
     /**
-     * Parse the authenticator data from an attestation object.
-     * Minimal CBOR parser for attestation — only handles the common case.
+     * Pull the authenticator data out of a CBOR attestation object and
+     * split out the credential it attests to.
      *
-     * @return array{credentialId: string, publicKey: string}|null
+     * @return array{credentialId: string, publicKey: string, flags: int}|null
      */
     private function parseAttestationAuthData(string $attestationObject): ?array
     {
-        // Minimal CBOR decoding: find authData in the attestation object
-        // The attestation object is CBOR-encoded. We look for the authData field.
-        // For "none" attestation, the structure is: {fmt: "none", attStmt: {}, authData: bytes}
-
-        // Simple approach: find authData by searching for the CBOR pattern
-        // authData is at least 37 bytes + credential data
-        $authDataStart = strpos($attestationObject, "\xa3"); // CBOR map(3)
-
-        if ($authDataStart === false) {
-            // Try to find authData directly — look for the 32-byte RP ID hash
-            $rpIdHash = hash('sha256', $this->rpId, true);
-            $authDataStart = strpos($attestationObject, $rpIdHash);
-            if ($authDataStart === false) {
-                return null;
-            }
-            $authData = substr($attestationObject, $authDataStart);
-        } else {
-            // CBOR map — find the authData key and extract
-            $rpIdHash = hash('sha256', $this->rpId, true);
-            $authDataStart = strpos($attestationObject, $rpIdHash);
-            if ($authDataStart === false) {
-                return null;
-            }
-            $authData = substr($attestationObject, $authDataStart);
+        try {
+            [$decoded] = CborDecoder::decodeFirst($attestationObject);
+        } catch (\RuntimeException) {
+            return null;
         }
 
-        // authData structure:
-        // 32 bytes: rpIdHash
-        // 1 byte: flags
-        // 4 bytes: signCount
-        // variable: attestedCredentialData (if flags bit 6 set)
+        if (!is_array($decoded) || !isset($decoded['authData']) || !is_string($decoded['authData'])) {
+            return null;
+        }
 
+        $authData = $decoded['authData'];
+
+        // authData layout (WebAuthn §6.1):
+        //   32 bytes rpIdHash | 1 byte flags | 4 bytes signCount
+        //   then, when the AT flag is set, attested credential data:
+        //   16 bytes AAGUID | 2 bytes credentialIdLength | credentialId | COSE key
         if (strlen($authData) < 37) {
             return null;
         }
 
+        // The credential must have been created for THIS relying party.
+        if (!hash_equals(hash('sha256', $this->rpId, true), substr($authData, 0, 32))) {
+            return null;
+        }
+
         $flags = ord($authData[32]);
-        $hasAttestedCredData = ($flags & 0x40) !== 0;
-
-        if (!$hasAttestedCredData) {
+        if (($flags & self::FLAG_ATTESTED_CREDENTIAL_DATA) === 0) {
             return null;
         }
 
-        // Attested credential data starts at offset 37
-        // 16 bytes: AAGUID
-        // 2 bytes: credentialIdLength (big-endian)
-        // N bytes: credentialId
-        // remaining: COSE public key (CBOR)
-
-        $offset = 37;
-        if (strlen($authData) < $offset + 18) {
+        $offset = 37 + 16; // skip AAGUID
+        if (strlen($authData) < $offset + 2) {
             return null;
         }
 
-        // Skip AAGUID (16 bytes)
-        $offset += 16;
-
-        // Read credential ID length
         $credIdLen = (ord($authData[$offset]) << 8) | ord($authData[$offset + 1]);
         $offset += 2;
 
-        if (strlen($authData) < $offset + $credIdLen) {
+        if ($credIdLen === 0 || strlen($authData) < $offset + $credIdLen) {
             return null;
         }
 
         $credentialId = substr($authData, $offset, $credIdLen);
         $offset += $credIdLen;
 
-        // The rest is the COSE public key (store it as-is for verification)
+        // The COSE key is re-encoded from its decoded form so what gets
+        // stored is exactly one key and nothing else — the remainder of
+        // authData can also carry an extensions map.
         $publicKey = substr($authData, $offset);
+        if ($publicKey === '') {
+            return null;
+        }
+
+        try {
+            [$coseKey, $consumed] = CborDecoder::decodeFirst($publicKey);
+        } catch (\RuntimeException) {
+            return null;
+        }
+        if (!is_array($coseKey)) {
+            return null;
+        }
+        $publicKey = substr($publicKey, 0, $consumed);
 
         return [
             'credentialId' => $credentialId,
             'publicKey' => $publicKey,
+            'flags' => $flags,
         ];
     }
 
     /**
      * Verify a signature against a COSE public key.
+     *
+     * The COSE key names its own algorithm, and only the two this service
+     * advertises in pubKeyCredParams are accepted — ES256 and RS256. RS256
+     * used to be advertised but never actually verifiable, so an
+     * authenticator that chose it registered fine and then failed every
+     * subsequent login.
      */
     private function verifySignature(string $data, string $signature, string $publicKeyBytes): bool
     {
-        // Parse COSE key to determine algorithm and extract key material
-        // For ES256 (alg -7): the key is an EC P-256 key
-        // For RS256 (alg -257): the key is an RSA key
-        // We attempt both common formats
+        try {
+            [$coseKey] = CborDecoder::decodeFirst($publicKeyBytes);
+        } catch (\RuntimeException) {
+            return false;
+        }
 
-        // Try EC (P-256) first — most common for platform authenticators
-        $pem = $this->coseKeyToPem($publicKeyBytes);
+        if (!is_array($coseKey)) {
+            return false;
+        }
 
+        $algorithm = $coseKey[self::COSE_ALG] ?? null;
+        $digest = match ($algorithm) {
+            self::COSE_ALG_ES256, self::COSE_ALG_RS256 => OPENSSL_ALGO_SHA256,
+            default => null,
+        };
+        if ($digest === null) {
+            return false;
+        }
+
+        $pem = $this->coseKeyToPem($coseKey);
         if ($pem === null) {
             return false;
         }
@@ -342,83 +395,126 @@ class WebAuthnService
             return false;
         }
 
-        // Try ES256 (ECDSA with SHA-256)
-        $result = openssl_verify($data, $signature, $key, OPENSSL_ALGO_SHA256);
-        return $result === 1;
+        return openssl_verify($data, $signature, $key, $digest) === 1;
     }
 
     /**
-     * Convert a COSE public key to PEM format.
-     * Handles ES256 (P-256) and RS256 keys.
+     * Convert a decoded COSE public key to PEM. Handles ES256 (EC P-256)
+     * and RS256 (RSA).
+     *
+     * @param array<int|string, mixed> $coseKey
      */
-    private function coseKeyToPem(string $coseKey): ?string
+    private function coseKeyToPem(array $coseKey): ?string
     {
-        // Minimal CBOR map parsing for COSE keys
-        // ES256 COSE key: {1: 2, 3: -7, -1: 1, -2: x(32), -3: y(32)}
-        // We need to extract x and y coordinates
+        $keyType = $coseKey[self::COSE_KTY] ?? null;
 
-        // Try to find the x and y coordinates by their CBOR keys
-        // CBOR key -2 (0x21) for x, -3 (0x22) for y
-        $x = $this->extractCoseCoordinate($coseKey, 0x21);
-        $y = $this->extractCoseCoordinate($coseKey, 0x22);
-
-        if ($x !== null && $y !== null && strlen($x) === 32 && strlen($y) === 32) {
-            // Build uncompressed EC point: 0x04 + x + y
-            $ecPoint = "\x04" . $x . $y;
-
-            // Wrap in ASN.1 DER for EC P-256
-            $der = $this->buildEcDer($ecPoint);
-            return "-----BEGIN PUBLIC KEY-----\n" .
-                   chunk_split(base64_encode($der), 64, "\n") .
-                   "-----END PUBLIC KEY-----\n";
-        }
-
-        return null;
-    }
-
-    /**
-     * Extract a coordinate from CBOR-encoded COSE key.
-     * Looks for the negative integer key followed by a byte string.
-     */
-    private function extractCoseCoordinate(string $data, int $negKey): ?string
-    {
-        // Search for the CBOR negative int encoding of the key
-        // CBOR negative int -2 is encoded as 0x21, -3 as 0x22
-        $len = strlen($data);
-        for ($i = 0; $i < $len - 1; $i++) {
-            if (ord($data[$i]) === $negKey) {
-                // Next should be a byte string of 32 bytes
-                $nextByte = ord($data[$i + 1]);
-                if ($nextByte === 0x58) {
-                    // 1-byte length follows
-                    if ($i + 3 < $len) {
-                        $strLen = ord($data[$i + 2]);
-                        if ($i + 3 + $strLen <= $len) {
-                            return substr($data, $i + 3, $strLen);
-                        }
-                    }
-                } elseif (($nextByte & 0xe0) === 0x40) {
-                    // Short byte string (length < 24)
-                    $strLen = $nextByte & 0x1f;
-                    if ($i + 2 + $strLen <= $len) {
-                        return substr($data, $i + 2, $strLen);
-                    }
-                }
+        if ($keyType === self::COSE_KTY_EC2) {
+            // Only P-256 pairs with ES256, and the coordinates are fixed-width.
+            if (($coseKey[self::COSE_EC2_CRV] ?? null) !== self::COSE_CRV_P256) {
+                return null;
             }
+            $x = $coseKey[self::COSE_EC2_X] ?? null;
+            $y = $coseKey[self::COSE_EC2_Y] ?? null;
+            if (!is_string($x) || !is_string($y) || strlen($x) !== 32 || strlen($y) !== 32) {
+                return null;
+            }
+
+            return self::toPem($this->buildEcDer("\x04" . $x . $y));
         }
+
+        if ($keyType === self::COSE_KTY_RSA) {
+            $modulus = $coseKey[self::COSE_RSA_N] ?? null;
+            $exponent = $coseKey[self::COSE_RSA_E] ?? null;
+            if (!is_string($modulus) || !is_string($exponent) || $modulus === '' || $exponent === '') {
+                return null;
+            }
+
+            return self::toPem($this->buildRsaDer($modulus, $exponent));
+        }
+
         return null;
     }
 
     /**
-     * Build ASN.1 DER for an EC P-256 public key.
+     * Build ASN.1 DER (SubjectPublicKeyInfo) for an EC P-256 public key.
      */
     private function buildEcDer(string $ecPoint): string
     {
-        // OID for EC + P-256: 30 59 30 13 06 07 2A 86 48 CE 3D 02 01 06 08 2A 86 48 CE 3D 03 01 07 03 42 00 <point>
-        $header = hex2bin(
-            '3059301306072a8648ce3d020106082a8648ce3d030107034200'
-        );
+        // SEQUENCE { SEQUENCE { id-ecPublicKey, prime256v1 }, BIT STRING }
+        $header = (string) hex2bin('3059301306072a8648ce3d020106082a8648ce3d030107034200');
+
         return $header . $ecPoint;
+    }
+
+    /**
+     * Build ASN.1 DER (SubjectPublicKeyInfo) for an RSA public key from its
+     * raw modulus and exponent.
+     */
+    private function buildRsaDer(string $modulus, string $exponent): string
+    {
+        $rsaPublicKey = self::derSequence(
+            self::derInteger($modulus) . self::derInteger($exponent)
+        );
+
+        // AlgorithmIdentifier { rsaEncryption, NULL }
+        $algorithm = (string) hex2bin('300d06092a864886f70d0101010500');
+
+        return self::derSequence(
+            $algorithm . self::derBitString($rsaPublicKey)
+        );
+    }
+
+    /**
+     * DER INTEGER from a big-endian unsigned byte string. Leading zero
+     * bytes are dropped, and one is re-added when the high bit is set so
+     * the value is never read back as negative.
+     */
+    private static function derInteger(string $bytes): string
+    {
+        $bytes = ltrim($bytes, "\x00");
+        if ($bytes === '') {
+            $bytes = "\x00";
+        }
+        if ((ord($bytes[0]) & 0x80) !== 0) {
+            $bytes = "\x00" . $bytes;
+        }
+
+        return "\x02" . self::derLength(strlen($bytes)) . $bytes;
+    }
+
+    private static function derSequence(string $contents): string
+    {
+        return "\x30" . self::derLength(strlen($contents)) . $contents;
+    }
+
+    private static function derBitString(string $contents): string
+    {
+        // Leading 0x00 = "no unused bits in the final byte".
+        $contents = "\x00" . $contents;
+
+        return "\x03" . self::derLength(strlen($contents)) . $contents;
+    }
+
+    private static function derLength(int $length): string
+    {
+        if ($length < 0x80) {
+            return chr($length);
+        }
+
+        $bytes = '';
+        while ($length > 0) {
+            $bytes = chr($length & 0xff) . $bytes;
+            $length >>= 8;
+        }
+
+        return chr(0x80 | strlen($bytes)) . $bytes;
+    }
+
+    private static function toPem(string $der): string
+    {
+        return "-----BEGIN PUBLIC KEY-----\n"
+            . chunk_split(base64_encode($der), 64, "\n")
+            . "-----END PUBLIC KEY-----\n";
     }
 
     /**
@@ -433,6 +529,29 @@ class WebAuthnService
                (ord($authData[34]) << 16) |
                (ord($authData[35]) << 8) |
                ord($authData[36]);
+    }
+
+    /**
+     * Whether the authenticator reported that it actually verified the
+     * human in front of it (PIN, biometric, …) rather than merely
+     * detecting a touch.
+     *
+     * Both options objects ask for userVerification 'required', but that
+     * is a request to the client, not a guarantee — the assertion has to
+     * be checked server-side or the requirement is decorative. Without
+     * this, a passkey satisfied user-PRESENCE alone, so anyone holding an
+     * unlocked device could authenticate as its owner.
+     */
+    private function hasUserVerification(string $authData): bool
+    {
+        if (strlen($authData) < 33) {
+            return false;
+        }
+
+        $flags = ord($authData[32]);
+
+        return ($flags & self::FLAG_USER_PRESENT) !== 0
+            && ($flags & self::FLAG_USER_VERIFIED) !== 0;
     }
 
     /**

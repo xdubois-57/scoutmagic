@@ -201,12 +201,187 @@ class WebAuthnServiceTest extends TestCase
     }
 
     /**
+     * userVerification is requested as 'required', but a request to the
+     * client is not a guarantee — the assertion has to be checked. Without
+     * this, a passkey satisfied user PRESENCE alone, so anyone holding an
+     * already-unlocked device could register (and then authenticate) as
+     * its owner.
+     */
+    public function testVerifyRegistrationRejectsAnAuthenticatorThatOnlyProvedPresence(): void
+    {
+        $challenge = random_bytes(32);
+        $_SESSION['webauthn_challenge'] = base64_encode($challenge);
+        $_SESSION['webauthn_user_id'] = $this->userId;
+
+        // UP | AT, but no UV.
+        $response = $this->buildRegistrationResponse($challenge, 'https://localhost', 'localhost', "\x41");
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('User verification required.');
+        $this->service->verifyRegistration($this->userId, $response, 'Presence-only key');
+    }
+
+    public function testBothOptionsObjectsRequireUserVerification(): void
+    {
+        $registration = $this->service->generateRegistrationOptions($this->userId, 'user@test.com');
+        $authentication = $this->service->generateAuthenticationOptions();
+
+        $this->assertSame('required', $registration['authenticatorSelection']['userVerification']);
+        $this->assertSame('required', $authentication['userVerification']);
+    }
+
+    /**
+     * A credential registered for a DIFFERENT relying party must not be
+     * accepted just because the rest of the response is well-formed.
+     */
+    public function testVerifyRegistrationRejectsAttestationForAnotherRelyingParty(): void
+    {
+        $challenge = random_bytes(32);
+        $_SESSION['webauthn_challenge'] = base64_encode($challenge);
+        $_SESSION['webauthn_user_id'] = $this->userId;
+
+        $response = $this->buildRegistrationResponse($challenge, 'https://localhost', 'evil.example.com');
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('Failed to parse attestation data.');
+        $this->service->verifyRegistration($this->userId, $response, 'Wrong RP');
+    }
+
+    /**
+     * RS256 was advertised in pubKeyCredParams but only ES256 could ever
+     * be verified, so an authenticator that picked RSA registered happily
+     * and then failed every single login afterwards.
+     */
+    public function testAnRs256CredentialCanBeRegisteredAndAuthenticated(): void
+    {
+        $rsa = openssl_pkey_new([
+            'private_key_bits' => 2048,
+            'private_key_type' => OPENSSL_KEYTYPE_RSA,
+        ]);
+        $this->assertNotFalse($rsa);
+        $details = openssl_pkey_get_details($rsa);
+        $this->assertIsArray($details);
+
+        $cose = $this->rsaCoseKey($details['rsa']['n'], $details['rsa']['e']);
+
+        // --- register it ---
+        $challenge = random_bytes(32);
+        $_SESSION['webauthn_challenge'] = base64_encode($challenge);
+        $_SESSION['webauthn_user_id'] = $this->userId;
+
+        $credId = str_repeat("\x33", 16);
+        $attestation = $this->buildAttestationObject('localhost', "\x45", $cose, $credId);
+        $clientData = json_encode([
+            'type' => 'webauthn.create',
+            'challenge' => $this->b64url($challenge),
+            'origin' => 'https://localhost',
+        ]);
+        $id = $this->service->verifyRegistration($this->userId, [
+            'response' => [
+                'clientDataJSON' => $this->b64url((string) $clientData),
+                'attestationObject' => $this->b64url($attestation),
+            ],
+        ], 'RSA key');
+        $this->assertGreaterThan(0, $id);
+
+        // --- then authenticate with it ---
+        $authChallenge = random_bytes(32);
+        $_SESSION['webauthn_auth_challenge'] = base64_encode($authChallenge);
+
+        $authClientData = (string) json_encode([
+            'type' => 'webauthn.get',
+            'challenge' => $this->b64url($authChallenge),
+            'origin' => 'https://localhost',
+        ]);
+        // rpIdHash | flags (UP|UV) | signCount = 1
+        $authenticatorData = hash('sha256', 'localhost', true) . "\x05" . "\x00\x00\x00\x01";
+
+        $signature = '';
+        openssl_sign($authenticatorData . hash('sha256', $authClientData, true), $signature, $rsa, OPENSSL_ALGO_SHA256);
+
+        $account = $this->service->verifyAuthentication([
+            'rawId' => $this->b64url($credId),
+            'response' => [
+                'clientDataJSON' => $this->b64url($authClientData),
+                'authenticatorData' => $this->b64url($authenticatorData),
+                'signature' => $this->b64url($signature),
+            ],
+        ]);
+
+        $this->assertNotNull($account);
+        $this->assertSame($this->userId, $account->id);
+    }
+
+    /**
+     * Authentication-side counterpart of the registration check above.
+     */
+    public function testVerifyAuthenticationRejectsAnAssertionWithoutUserVerification(): void
+    {
+        $rsa = openssl_pkey_new(['private_key_bits' => 2048, 'private_key_type' => OPENSSL_KEYTYPE_RSA]);
+        $this->assertNotFalse($rsa);
+        $details = openssl_pkey_get_details($rsa);
+        $this->assertIsArray($details);
+
+        $challenge = random_bytes(32);
+        $_SESSION['webauthn_challenge'] = base64_encode($challenge);
+        $_SESSION['webauthn_user_id'] = $this->userId;
+        $credId = str_repeat("\x44", 16);
+        $this->service->verifyRegistration($this->userId, [
+            'response' => [
+                'clientDataJSON' => $this->b64url((string) json_encode([
+                    'type' => 'webauthn.create',
+                    'challenge' => $this->b64url($challenge),
+                    'origin' => 'https://localhost',
+                ])),
+                'attestationObject' => $this->b64url($this->buildAttestationObject(
+                    'localhost', "\x45", $this->rsaCoseKey($details['rsa']['n'], $details['rsa']['e']), $credId
+                )),
+            ],
+        ], 'RSA key');
+
+        $authChallenge = random_bytes(32);
+        $_SESSION['webauthn_auth_challenge'] = base64_encode($authChallenge);
+        $authClientData = (string) json_encode([
+            'type' => 'webauthn.get',
+            'challenge' => $this->b64url($authChallenge),
+            'origin' => 'https://localhost',
+        ]);
+        // UP only (0x01) — the human was never verified.
+        $authenticatorData = hash('sha256', 'localhost', true) . "\x01" . "\x00\x00\x00\x01";
+        $signature = '';
+        openssl_sign($authenticatorData . hash('sha256', $authClientData, true), $signature, $rsa, OPENSSL_ALGO_SHA256);
+
+        $account = $this->service->verifyAuthentication([
+            'rawId' => $this->b64url($credId),
+            'response' => [
+                'clientDataJSON' => $this->b64url($authClientData),
+                'authenticatorData' => $this->b64url($authenticatorData),
+                'signature' => $this->b64url($signature),
+            ],
+        ]);
+
+        $this->assertNull($account);
+    }
+
+    /**
+     * COSE map for an RSA key: {1:3 (RSA), 3:-257 (RS256), -1:n, -2:e}.
+     */
+    private function rsaCoseKey(string $modulus, string $exponent): string
+    {
+        return "\xa4"
+            . "\x01\x03"
+            . "\x03\x39\x01\x00"
+            . "\x20" . $this->cborByteString($modulus)
+            . "\x21" . $this->cborByteString($exponent);
+    }
+
+    /**
      * Build a fake but structurally valid registration response (WebAuthn "none"
      * attestation) for the given challenge, browser origin, and rpId.
      *
      * @return array<string, mixed>
      */
-    private function buildRegistrationResponse(string $challenge, string $origin, string $rpId): array
+    private function buildRegistrationResponse(string $challenge, string $origin, string $rpId, string $flags = "\x45"): array
     {
         $clientData = json_encode([
             'type' => 'webauthn.create',
@@ -218,7 +393,7 @@ class WebAuthnServiceTest extends TestCase
         return [
             'response' => [
                 'clientDataJSON' => $this->b64url((string) $clientData),
-                'attestationObject' => $this->b64url($this->buildAttestationObject($rpId)),
+                'attestationObject' => $this->b64url($this->buildAttestationObject($rpId, $flags)),
             ],
         ];
     }
@@ -228,19 +403,27 @@ class WebAuthnServiceTest extends TestCase
         return rtrim(strtr(base64_encode($bytes), '+/', '-_'), '=');
     }
 
-    private function buildAttestationObject(string $rpId): string
-    {
+    /**
+     * $flags defaults to UP (0x01) | UV (0x04) | AT (0x40) — a real
+     * platform authenticator that verified the human, which is what the
+     * service now insists on. Pass "\x41" to simulate presence-only.
+     */
+    private function buildAttestationObject(
+        string $rpId,
+        string $flags = "\x45",
+        ?string $cose = null,
+        ?string $credId = null
+    ): string {
         $rpIdHash = hash('sha256', $rpId, true);      // 32 bytes
-        $flags = "\x41";                               // UP (0x01) | AT (0x40)
         $signCount = "\x00\x00\x00\x00";
         $aaguid = str_repeat("\x00", 16);
-        $credId = str_repeat("\x11", 16);
+        $credId ??= str_repeat("\x11", 16);
         $credIdLen = pack('n', strlen($credId));       // 2 bytes, big-endian
 
         // COSE EC P-256 public key: {1:2, 3:-7, -1:1, -2:x(32), -3:y(32)}
         $x = str_repeat("\x01", 32);
         $y = str_repeat("\x02", 32);
-        $cose = "\xA5"
+        $cose ??= "\xA5"
             . "\x01\x02"
             . "\x03\x26"
             . "\x20\x01"

@@ -68,7 +68,14 @@ class PasswordResetService
 
         $user = $this->userRepo->findByEmail($normalizedEmail);
         if ($user !== null) {
-            $resetUrl = rtrim($this->baseUrl, '/') . "/password-reset/{$tokenId}?token={$rawToken}";
+            // The token rides in the URL FRAGMENT, not the query string.
+            // A fragment is never sent to the server, so it stays out of
+            // access logs, proxy logs and any Referer header the reset page
+            // emits — all places a query-string token would land in
+            // cleartext. The page's own script lifts it out of
+            // location.hash and posts it back (see
+            // Core\Http\Controller\PasswordResetController::show()).
+            $resetUrl = rtrim($this->baseUrl, '/') . "/password-reset/{$tokenId}#{$rawToken}";
             try {
                 $this->sendResetEmail($normalizedEmail, $resetUrl);
             } catch (\Throwable) {
