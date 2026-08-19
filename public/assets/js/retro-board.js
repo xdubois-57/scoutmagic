@@ -395,4 +395,28 @@
             }
         });
     }
+
+    // --- Test seam (no behavioural effect) ---------------------------------
+    // Everything above lives inside this IIFE and is therefore module-private
+    // — unlike public/assets/js/password-complexity.js or public/sw.js,
+    // whose own globalThis lines are true no-ops. This adds ONE namespaced
+    // global so tests/js/retro-board.test.js can reach the HTML-assembly
+    // functions directly and exercise the real implementation, rather than
+    // reimplementing their logic in a test-only copy — same precedent as
+    // window.ChipPicker, window.ScoutMagicNav and
+    // news-form-builder.js's own ScoutMagicNewsFormBuilderInternals.
+    //
+    // Test-only: nothing in production reads this. voteMode/isUnitChief/
+    // canVote/status are captured once from container.dataset above and
+    // have no setter, so a test that needs a different combination
+    // re-imports this module (vi.resetModules()) against a freshly built
+    // container instead of mutating these through the seam.
+    globalThis.ScoutMagicRetroBoardInternals = {
+        escapeHtml: escapeHtml,
+        commentHtml: commentHtml,
+        buildVoteButtonsHtml: buildVoteButtonsHtml,
+        buildHideButtonHtml: buildHideButtonHtml,
+        renderColumns: renderColumns,
+        updateBudgetDisplay: updateBudgetDisplay,
+    };
 })();
