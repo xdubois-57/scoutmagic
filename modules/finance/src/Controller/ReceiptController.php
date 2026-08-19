@@ -510,12 +510,20 @@ class ReceiptController extends AbstractController
             return $this->json(['success' => false, 'error' => 'Reçu introuvable.'], 404);
         }
 
-        if ($attachment->accountId !== null) {
-            $role = Role::fromString(AuthSession::getRole());
-            $account = $this->financeService->getAccount($attachment->accountId);
-            if ($account === null || !$role->hasAccess(Role::fromString($account->roleMinView))) {
-                return $this->json(['success' => false, 'error' => 'Accès refusé.'], 403);
-            }
+        // No account means no account to check the caller against, so there
+        // is nothing that could authorize the mutation — deny rather than
+        // fall through. ReceiptService::upload() always sets an accountId,
+        // so this only bites on legacy/imported rows, but "unknown owner"
+        // must never read as "anyone may edit it" (same fail-safe posture as
+        // Core\File\FileAccessGuard's unregistered owner_type).
+        if ($attachment->accountId === null) {
+            return $this->json(['success' => false, 'error' => 'Accès refusé.'], 403);
+        }
+
+        $role = Role::fromString(AuthSession::getRole());
+        $account = $this->financeService->getAccount($attachment->accountId);
+        if ($account === null || !$role->hasAccess(Role::fromString($account->roleMinView))) {
+            return $this->json(['success' => false, 'error' => 'Accès refusé.'], 403);
         }
 
         return $attachment;

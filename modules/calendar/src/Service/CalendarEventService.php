@@ -56,13 +56,15 @@ class CalendarEventService
         ?string $location,
         ?string $description,
         ?int $createdBy,
-        bool $autoCreateRetro = false
+        bool $autoCreateRetro = false,
+        ?Role $viewerRole = null
     ): CalendarEvent {
         $title = trim($title);
         $this->validateEventFields($title, $startDate, $endDate);
         if ($this->calendarService->findById($calendarId) === null) {
             throw new CalendarException('Calendrier introuvable.');
         }
+        $this->assertCalendarEditable($calendarId, $viewerRole);
 
         $id = $this->eventRepository->create(
             $calendarId,
@@ -99,9 +101,11 @@ class CalendarEventService
         ?string $location,
         ?string $description,
         bool $autoCreateRetro = false,
-        ?int $updatedBy = null
+        ?int $updatedBy = null,
+        ?Role $viewerRole = null
     ): CalendarEvent {
-        if ($this->eventRepository->findById($id) === null) {
+        $existing = $this->eventRepository->findById($id);
+        if ($existing === null) {
             throw new CalendarException('Évènement introuvable.');
         }
 
@@ -110,6 +114,11 @@ class CalendarEventService
         if ($this->calendarService->findById($calendarId) === null) {
             throw new CalendarException('Calendrier introuvable.');
         }
+        // Both ends of the move: the calendar the event currently lives in
+        // (so it can't be dragged OUT of one the caller may not touch) and
+        // the calendar it is being moved INTO.
+        $this->assertCalendarEditable($existing->calendarId, $viewerRole);
+        $this->assertCalendarEditable($calendarId, $viewerRole);
 
         $this->eventRepository->update(
             $id,
@@ -135,15 +144,50 @@ class CalendarEventService
     /**
      * @throws CalendarException
      */
-    public function deleteEvent(int $id): void
+    public function deleteEvent(int $id, ?Role $viewerRole = null): void
     {
-        if ($this->eventRepository->findById($id) === null) {
+        $event = $this->eventRepository->findById($id);
+        if ($event === null) {
             throw new CalendarException('Évènement introuvable.');
         }
+        $this->assertCalendarEditable($event->calendarId, $viewerRole);
         $this->notificationService->cancelReminderForEvent($id);
         $this->notificationService->cancelActivityReminderForEvent($id);
         $this->retroAutoCreateService?->cancelAutoCreateForEvent($id);
         $this->eventRepository->delete($id);
+    }
+
+    /**
+     * Re-checks that $calendarId really is one this caller may write to.
+     *
+     * getEditableCalendarsForChief() already computes that set for the
+     * picker, but the write paths only verified the calendar EXISTED — and
+     * calendar_id/event_id arrive in the request body. A chief could
+     * therefore post the id of an admin-only supplementary calendar (one
+     * deliberately excluded from their editable set) and create, move or
+     * delete events in it. role_min: chief on the route is the floor, not
+     * the per-calendar boundary.
+     *
+     * $viewerRole null means there is no user to narrow against — a system
+     * caller such as Modules\SosStaff\Service\CalendarSyncService, which
+     * maintains its own calendar on the unit's behalf rather than acting
+     * for a session. Only request-driven callers pass a role.
+     *
+     * @throws CalendarException
+     */
+    private function assertCalendarEditable(int $calendarId, ?Role $viewerRole): void
+    {
+        if ($viewerRole === null) {
+            return;
+        }
+
+        foreach ($this->getEditableCalendarsForChief($viewerRole) as $calendar) {
+            if ($calendar->id === $calendarId) {
+                return;
+            }
+        }
+
+        throw new CalendarException('Calendrier introuvable.');
     }
 
     private function validateEventFields(string $title, string $startDate, ?string $endDate): void

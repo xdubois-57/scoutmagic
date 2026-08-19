@@ -328,6 +328,40 @@ class GalleryControllerTest extends TestCase
         $this->assertSame('private, no-store', $response->getHeaders()['Cache-Control']);
     }
 
+    /**
+     * Service\DelegatedAlbumService::ensureAlbum() refuses to create a
+     * delegated album on a location with a public URL, because a public URL
+     * is world-readable and defeats the access control. That invariant was
+     * only enforced at creation time — a superadmin adding an s3_public_url
+     * to the location afterwards silently turned the short-lived presign
+     * into a permanent, unauthenticated link (S3StorageBackend::url()
+     * ignores the TTL when a public URL is set). Re-asserted where the bytes
+     * are handed out.
+     */
+    public function testServeMediaRefusesADelegatedAlbumWhoseLocationBecamePublic(): void
+    {
+        $locationId = $this->createPrivateS3Location();
+        $albumId = $this->createDelegatedAlbum($locationId);
+        $mediaId = $this->createDoneMedia($albumId);
+
+        // The later superadmin edit that broke the invariant.
+        $this->pdo->prepare('UPDATE gallery_storage_locations SET s3_public_url = ? WHERE id = ?')
+            ->execute(['https://cdn.example.com', $locationId]);
+
+        $backend = $this->createMock(\Modules\Gallery\Service\Storage\StorageBackendInterface::class);
+        $backend->expects($this->never())->method('url');
+        $backend->expects($this->never())->method('get');
+        $this->storageBackendFactory->method('create')->willReturn($backend);
+        $controller = $this->controllerWithRegistry($this->allowingRegistry());
+
+        $response = $controller->serveMedia(
+            new Request('GET', '/gallery/media/' . $mediaId . '/thumb', [], [], [], []),
+            ['media_id' => (string) $mediaId, 'size' => 'thumb']
+        );
+
+        $this->assertSame(404, $response->getStatusCode());
+    }
+
     #[\PHPUnit\Framework\Attributes\DataProvider('mediaSizeProvider')]
     public function testServeMediaOnS3Returns404ForANonMemberOfADelegatedAlbum(string $size): void
     {

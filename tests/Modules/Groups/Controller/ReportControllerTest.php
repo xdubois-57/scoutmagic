@@ -53,6 +53,45 @@ class ReportControllerTest extends GroupsControllerTestCase
         $this->assertSame(0, $this->postReportCount());
     }
 
+    /**
+     * Reporting content already hidden from you adds nothing — and leaving
+     * the endpoint open lets it confirm that a hidden post still exists.
+     * Moderators, who can see it, keep the ability.
+     */
+    public function testReportingAHiddenPostIs404ForAnOrdinaryMember(): void
+    {
+        $this->postRepo->setHiddenAt($this->postId, '2026-01-02 10:00:00');
+        $this->withCsrf([]);
+
+        $response = $this->controller([$this->memberId])->reportPost($this->request(), $this->params($this->postId));
+
+        $this->assertSame(404, $response->getStatusCode());
+        $this->assertSame(0, $this->postReportCount());
+    }
+
+    public function testReportingAHiddenReplyIs404ForAnOrdinaryMember(): void
+    {
+        $this->replyRepo->setHiddenAt($this->replyId, '2026-01-02 10:00:00');
+        $this->withCsrf([]);
+
+        $response = $this->controller([$this->memberId])->reportReply($this->request(), $this->params(null, $this->replyId));
+
+        $this->assertSame(404, $response->getStatusCode());
+        $this->assertSame(0, $this->replyReportCount());
+    }
+
+    public function testAModeratorMayStillReportAHiddenPost(): void
+    {
+        $this->postRepo->setHiddenAt($this->postId, '2026-01-02 10:00:00');
+        $this->withCsrf([]);
+
+        $response = $this->controller([$this->moderatorMemberId], self::OTHER_ACCOUNT)
+            ->reportPost($this->request(), $this->params($this->postId));
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame(1, $this->postReportCount());
+    }
+
     public function testAMemberMayReportAPost(): void
     {
         $this->withCsrf([]);

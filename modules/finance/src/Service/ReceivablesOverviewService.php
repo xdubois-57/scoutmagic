@@ -8,6 +8,8 @@ declare(strict_types=1);
 
 namespace Modules\Finance\Service;
 
+use Core\Security\Role;
+use Modules\Finance\Repository\AccountRepository;
 use Modules\Finance\Repository\ExpectedReceivableRepository;
 
 /**
@@ -29,11 +31,15 @@ class ReceivablesOverviewService
 
     public function __construct(
         private ExpectedReceivableRepository $repository,
-        private ExpectedReceivableService $receivableService
+        private ExpectedReceivableService $receivableService,
+        private AccountRepository $accountRepository
     ) {
     }
 
     /**
+     * $viewerRole is the caller's effective role — receivables on accounts
+     * it cannot view are dropped entirely (see the filter below).
+     *
      * @return array<int, array{
      *     source_module: string,
      *     source_label: string,
@@ -48,12 +54,30 @@ class ReceivablesOverviewService
      *     }>
      * }>
      */
-    public function buildOverview(): array
+    public function buildOverview(Role $viewerRole): array
     {
         $overview = [];
+        $visibleAccountIds = $this->visibleAccountIds($viewerRole);
 
         foreach ($this->repository->findDistinctSourceModules() as $sourceModule) {
-            $receivables = $this->repository->findAllByModule($sourceModule);
+            // Every other finance page resolves its accounts through
+            // FinanceService::getAccountsForUser()/resolveSelectedAccount(),
+            // so an account whose role_min_view is above the viewer never
+            // appears. This page used to skip that entirely and render every
+            // row in the table, handing an intendant the label, payer
+            // communication and reconciled amounts of chief/admin-only
+            // accounts. Filtering here (rather than in the query) keeps the
+            // repository module-agnostic and covers the amounts too, since
+            // each row's amount_received is computed from its own account's
+            // movements.
+            $receivables = array_values(array_filter(
+                $this->repository->findAllByModule($sourceModule),
+                static fn($receivable) => in_array($receivable->accountId, $visibleAccountIds, true)
+            ));
+
+            if ($receivables === []) {
+                continue;
+            }
 
             // One batch call rather than getReceivableStatus() per row:
             // each of those re-read and re-decrypted every movement on the
@@ -111,6 +135,28 @@ class ReceivablesOverviewService
         }
 
         return $overview;
+    }
+
+    /**
+     * Ids of the accounts $viewerRole may see. Deliberately keyed on
+     * role_min_view alone, not on Account::STATUS_ACTIVE the way
+     * FinanceService::getAccountsForUser() is: a receivable booked against
+     * an account that has since been archived must still reconcile for
+     * someone allowed to see that account — hiding it would silently drop
+     * money from the totals rather than protect anything.
+     *
+     * @return int[]
+     */
+    private function visibleAccountIds(Role $viewerRole): array
+    {
+        $ids = [];
+        foreach ($this->accountRepository->findAllOrdered() as $account) {
+            if ($viewerRole->hasAccess(Role::fromString($account->roleMinView))) {
+                $ids[] = $account->id;
+            }
+        }
+
+        return $ids;
     }
 
     private function instanceLabel(string $sourceModule, int $referenceId): string
