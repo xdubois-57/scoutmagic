@@ -30,7 +30,7 @@
     (function initMediaPicker() {
         var form = document.getElementById('groups-post-form');
         var previews = document.getElementById('groups-media-previews');
-        var hiddenInput = document.getElementById('groups-media-hidden');
+        var hiddenInput = /** @type {HTMLInputElement} */ (document.getElementById('groups-media-hidden'));
         var countLabel = document.getElementById('groups-media-count');
         var limitWarning = document.getElementById('groups-media-limit-warning');
         if (!form || !previews || !hiddenInput) {
@@ -100,7 +100,7 @@
         // One picker only: every mobile OS already offers "take a photo"
         // inside its own file chooser, so a separate camera button was a
         // second door onto the same room.
-        var mediaInput = document.getElementById('groups-media-input');
+        var mediaInput = /** @type {HTMLInputElement} */ (document.getElementById('groups-media-input'));
         if (mediaInput) {
             mediaInput.addEventListener('change', function () {
                 if (mediaInput.files) addFiles(mediaInput.files);
@@ -116,7 +116,7 @@
     (function initLinkToggle() {
         var linkToggle = document.getElementById('groups-link-toggle');
         var linkField = document.getElementById('groups-link-field');
-        var linkInput = document.getElementById('post-link');
+        var linkInput = /** @type {HTMLInputElement} */ (document.getElementById('post-link'));
         if (!linkToggle || !linkField || !linkInput) {
             return;
         }
@@ -140,9 +140,9 @@
     // hidden and the plain dropdown (with its own "— Choisir —"
     // placeholder) works exactly as it always did.
     (function initInviteMemberSearch() {
-        var input = document.getElementById('invite-member-search');
+        var input = /** @type {HTMLInputElement} */ (document.getElementById('invite-member-search'));
         var results = document.getElementById('invite-member-results');
-        var select = document.getElementById('invite-member');
+        var select = /** @type {HTMLSelectElement} */ (document.getElementById('invite-member'));
         if (!input || !results || !select) {
             return;
         }
@@ -201,7 +201,8 @@
         // Closes the results list on an outside click without discarding
         // whatever choice was already made.
         document.addEventListener('click', function (event) {
-            if (event.target !== input && !results.contains(event.target)) {
+            var target = /** @type {Node} */ (event.target);
+            if (target !== input && !results.contains(target)) {
                 results.classList.add('d-none');
             }
         });
@@ -224,7 +225,7 @@
     function pendingMediaIds() {
         return Array.from(document.querySelectorAll(
             '[data-media-id][data-status="pending"], [data-media-id][data-status="processing"]'
-        )).map(function (el) { return el.dataset.mediaId; });
+        )).map(function (el) { return /** @type {HTMLElement} */ (el).dataset.mediaId; });
     }
 
     function pollMediaStatus() {
@@ -244,7 +245,7 @@
                 if (item.status === 'pending' || item.status === 'processing' || typeof item.html !== 'string') {
                     return;
                 }
-                var cell = document.querySelector('[data-media-id="' + item.id + '"]');
+                var cell = /** @type {HTMLElement} */ (document.querySelector('[data-media-id="' + item.id + '"]'));
                 if (cell) {
                     cell.dataset.status = item.status;
                     cell.innerHTML = item.html;
@@ -288,7 +289,8 @@
     // to the plain form submit, so a stale CSRF token or a dropped
     // connection degrades to a page reload rather than doing nothing.
     document.addEventListener('submit', function (event) {
-        var form = event.target.closest('.groups-reaction-form');
+        var target = /** @type {HTMLElement} */ (event.target);
+        var form = /** @type {HTMLFormElement} */ (target.closest('.groups-reaction-form'));
         if (!form) {
             return;
         }
@@ -320,12 +322,14 @@
     // page reload if this script never runs: the button is a real link target
     // server-side, and every action is a normal form POST.
     document.addEventListener('click', async function (event) {
+        var target = /** @type {HTMLElement} */ (event.target);
+
         // A reaction tally's own click: "who reacted, and with what"
         // (Controller\ReactionController's postReactors()/replyReactors()).
         // A plain <button> with no bootstrap data-* attributes of its own
         // — nothing here breaks if groups.js never loads, the tally just
         // stops being clickable and stays a plain summary.
-        var tally = event.target.closest('.groups-reaction-tally');
+        var tally = /** @type {HTMLElement} */ (target.closest('.groups-reaction-tally'));
         if (tally) {
             var modalEl = document.getElementById('groups-reactors-modal');
             var modalBody = document.getElementById('groups-reactors-modal-body');
@@ -348,12 +352,12 @@
             return;
         }
 
-        var loadMore = event.target.closest('.groups-load-more');
+        var loadMore = /** @type {HTMLButtonElement} */ (target.closest('.groups-load-more'));
         if (loadMore) {
             loadMore.disabled = true;
             var response = await fetch(loadMore.dataset.url, { headers: { 'X-Requested-With': 'fetch' } });
             if (response.ok) {
-                var wrapper = loadMore.closest('.groups-load-more-wrapper');
+                var wrapper = /** @type {HTMLElement} */ (loadMore.closest('.groups-load-more-wrapper'));
                 wrapper.insertAdjacentHTML('beforebegin', await response.text());
                 wrapper.remove();
                 kickOffMediaPolling();
@@ -363,14 +367,14 @@
             return;
         }
 
-        var editToggle = event.target.closest('.groups-edit-toggle');
+        var editToggle = /** @type {HTMLElement} */ (target.closest('.groups-edit-toggle'));
         if (editToggle) {
             document.getElementById('post-edit-' + editToggle.dataset.post)?.classList.remove('d-none');
             document.getElementById('post-body-' + editToggle.dataset.post)?.classList.add('d-none');
             return;
         }
 
-        var editCancel = event.target.closest('.groups-edit-cancel');
+        var editCancel = /** @type {HTMLElement} */ (target.closest('.groups-edit-cancel'));
         if (editCancel) {
             document.getElementById('post-edit-' + editCancel.dataset.post)?.classList.add('d-none');
             document.getElementById('post-body-' + editCancel.dataset.post)?.classList.remove('d-none');
@@ -382,12 +386,12 @@
         // nothing if this script never runs: the replies already rendered
         // server-side stay visible, and every action below them is a plain
         // form POST.
-        var repliesMore = event.target.closest('.groups-replies-more');
+        var repliesMore = /** @type {HTMLButtonElement} */ (target.closest('.groups-replies-more'));
         if (repliesMore) {
             repliesMore.disabled = true;
             var repliesResponse = await fetch(repliesMore.dataset.url, { headers: { 'X-Requested-With': 'fetch' } });
             if (repliesResponse.ok) {
-                var repliesWrapper = repliesMore.closest('.groups-replies-more-wrapper');
+                var repliesWrapper = /** @type {HTMLElement} */ (repliesMore.closest('.groups-replies-more-wrapper'));
                 repliesWrapper.insertAdjacentHTML('beforebegin', await repliesResponse.text());
                 repliesWrapper.remove();
                 kickOffMediaPolling();
@@ -397,14 +401,14 @@
             return;
         }
 
-        var replyEditToggle = event.target.closest('.groups-reply-edit-toggle');
+        var replyEditToggle = /** @type {HTMLElement} */ (target.closest('.groups-reply-edit-toggle'));
         if (replyEditToggle) {
             document.getElementById('reply-edit-' + replyEditToggle.dataset.reply)?.classList.remove('d-none');
             document.getElementById('reply-body-' + replyEditToggle.dataset.reply)?.classList.add('d-none');
             return;
         }
 
-        var replyEditCancel = event.target.closest('.groups-reply-edit-cancel');
+        var replyEditCancel = /** @type {HTMLElement} */ (target.closest('.groups-reply-edit-cancel'));
         if (replyEditCancel) {
             document.getElementById('reply-edit-' + replyEditCancel.dataset.reply)?.classList.add('d-none');
             document.getElementById('reply-body-' + replyEditCancel.dataset.reply)?.classList.remove('d-none');
@@ -415,7 +419,8 @@
     // preview grid (one image, not four) — this only surfaces the chosen
     // filename so the member can tell something is attached before sending.
     document.addEventListener('change', function (event) {
-        var input = event.target.closest('.groups-reply-image');
+        var eventTarget = /** @type {HTMLElement} */ (event.target);
+        var input = /** @type {HTMLInputElement} */ (eventTarget.closest('.groups-reply-image'));
         if (!input) {
             return;
         }

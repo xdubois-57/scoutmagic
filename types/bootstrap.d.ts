@@ -16,7 +16,10 @@ interface BootstrapComponentInstance {
 }
 
 declare const bootstrap: {
-    Modal: new (element: Element) => BootstrapComponentInstance;
+    Modal: {
+        new (element: Element): BootstrapComponentInstance;
+        getOrCreateInstance(element: Element): BootstrapComponentInstance;
+    };
     Collapse: {
         getOrCreateInstance(element: Element, options?: { toggle?: boolean }): BootstrapComponentInstance;
     };
