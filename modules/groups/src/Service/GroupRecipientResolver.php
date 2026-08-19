@@ -104,6 +104,44 @@ class GroupRecipientResolver
     }
 
     /**
+     * The group's moderators PLUS every site admin — the escalated
+     * audience for a report about a moderator's own content.
+     *
+     * moderatorsFor() already includes site admins, so this is currently
+     * the same set; it exists as its own method because the two answer
+     * different questions and only one of them is allowed to change. If
+     * moderatorsFor() ever narrows (a site admin opting out of routine
+     * group moderation is a reasonable future setting), the escalated
+     * audience must NOT narrow with it.
+     *
+     * @return array<int, array{userAccountId: int, memberId: ?int}>
+     */
+    public function moderatorsAndSiteAdminsFor(DiscussionGroup $group): array
+    {
+        $resolved = $this->moderatorsFor($group);
+        foreach ($this->siteAdminAccountIds() as $accountId) {
+            $resolved[] = ['userAccountId' => $accountId, 'memberId' => null];
+        }
+
+        return $this->deduplicate($resolved);
+    }
+
+    /**
+     * Whether $memberId holds the moderator flag in this group.
+     *
+     * Explicit rows only, deliberately: this answers "is the person a
+     * report is about one of the people who would judge it", and a site
+     * admin is not part of that conflict — they are the escalation
+     * target, not the thing being escalated away from.
+     */
+    public function isExplicitModerator(DiscussionGroup $group, int $memberId): bool
+    {
+        $row = $this->memberRepository->find($group->id, $memberId);
+
+        return $row !== null && $row->isModerator;
+    }
+
+    /**
      * Everyone in $group except the accounts $excludedAccountIds names —
      * how the actor is kept out of a notification that would be
      * meaningless to them ("someone replied to your post" when the someone

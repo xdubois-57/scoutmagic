@@ -2299,6 +2299,11 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
         $sectionService, $groupsGroupRepo, $groupsSectionRepo
     );
 
+    // Leaving, reopening and the creation quota (prompt 12).
+    $groupsMembershipService = new \Modules\Groups\Service\GroupMembershipService(
+        $groupsGroupRepo, $groupsMemberRepo, $settingService, $journalService
+    );
+
     // Notifications (prompt 10). The recipient resolver reads membership
     // group-first (the reverse of GroupAccessService's account-first
     // read) and resolves members to accounts through the same blind index
@@ -2377,7 +2382,7 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
         new \Modules\Groups\Controller\GroupController(
             $twig, $groupsGroupRepo, $groupsListService, $groupsAccessService, $groupsService,
             $groupsContextFactory, $sectionService, $groupsFeedService, $groupsPostMediaService,
-            $groupsAuthorOptionsService, $groupsPostRepo, $groupsSectionGroupSync
+            $groupsAuthorOptionsService, $groupsPostRepo, $groupsSectionGroupSync, $groupsMembershipService
         )
     );
     $frontController->registerController(
@@ -2408,14 +2413,16 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
         \Modules\Groups\Controller\ReportController::class,
         new \Modules\Groups\Controller\ReportController(
             $twig, $groupsGroupRepo, $groupsPostRepo, $groupsReplyRepo, $groupsAccessService,
-            $groupsReportService, $groupsContextFactory, $groupsNotificationService
+            $groupsReportService, $groupsContextFactory, $groupsNotificationService,
+            $groupsRecipientResolver
         )
     );
     $frontController->registerController(
         \Modules\Groups\Controller\GroupMemberController::class,
         new \Modules\Groups\Controller\GroupMemberController(
             $twig, $groupsGroupRepo, $groupsMemberRepo, $groupsSectionRepo, $groupsAccessService,
-            $groupsService, $groupsContextFactory, $memberService, $sectionService
+            $groupsService, $groupsContextFactory, $memberService, $sectionService,
+            $groupsMembershipService
         )
     );
 }

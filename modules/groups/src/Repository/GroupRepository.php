@@ -165,6 +165,33 @@ class GroupRepository
         return array_map([$this, 'hydrate'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
     }
 
+    /**
+     * How many OPEN, non-section groups this member has created — what the
+     * creation quota counts.
+     *
+     * Two exclusions, both deliberate. A section group
+     * (`section_id IS NOT NULL`) is created by
+     * Task\EnsureSectionGroupsHandler and by nobody else, so counting it
+     * against a person would be counting something they did not do. A
+     * closed group (`closed_at IS NOT NULL`) is read-only and on its way
+     * to the purge — the quota is about how much live clutter one person
+     * can create, not about how much they ever created.
+     *
+     * Counted on created_by_member_id, the column prompt 3 already
+     * introduced: there is exactly one notion of who created a group and
+     * this does not add a second.
+     */
+    public function countOpenCreatedBy(int $memberId): int
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT COUNT(*) FROM discussion_groups
+             WHERE created_by_member_id = ? AND section_id IS NULL AND closed_at IS NULL'
+        );
+        $stmt->execute([$memberId]);
+
+        return (int) $stmt->fetchColumn();
+    }
+
     public function delete(int $id): void
     {
         $stmt = $this->pdo->prepare('DELETE FROM discussion_groups WHERE id = ?');

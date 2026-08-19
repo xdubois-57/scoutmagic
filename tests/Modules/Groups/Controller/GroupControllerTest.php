@@ -178,6 +178,12 @@ class GroupControllerTest extends TestCase
                 ),
                 $this->groupRepo,
                 new GroupSectionRepository($this->pdo)
+            ),
+            new \Modules\Groups\Service\GroupMembershipService(
+                $this->groupRepo,
+                new GroupMemberRepository($this->pdo),
+                new \Core\Config\SettingService(new \Core\Config\SettingRepository($this->pdo)),
+                new \Core\Journal\JournalService(new \Core\Journal\JournalRepository($this->pdo))
             )
         );
     }
@@ -281,6 +287,102 @@ class GroupControllerTest extends TestCase
         );
 
         $this->assertSame(302, $response->getStatusCode());
+    }
+
+    /**
+     * The quota is about live clutter: five open invitation groups is the
+     * default ceiling, and the sixth is refused with the limit named.
+     */
+    public function testCreatingBeyondTheQuotaIsRefused(): void
+    {
+        $creator = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'QUOTA', $this->sectionId, $this->currentYearId);
+        for ($i = 0; $i < 5; $i++) {
+            $this->groupRepo->create("Groupe {$i}", null, null, $creator);
+        }
+        $_POST = ['name' => 'Un de trop', '_csrf_token' => $this->csrfToken()];
+
+        $this->controller([$creator])->create($this->postRequest(), []);
+
+        $this->assertSame(5, $this->countInvitationGroupsBy($creator));
+    }
+
+    public function testCreatingAtTheQuotaMinusOneStillWorks(): void
+    {
+        $creator = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'QUOTA2', $this->sectionId, $this->currentYearId);
+        for ($i = 0; $i < 4; $i++) {
+            $this->groupRepo->create("Groupe {$i}", null, null, $creator);
+        }
+        $_POST = ['name' => 'Le cinquième', '_csrf_token' => $this->csrfToken()];
+
+        $this->controller([$creator])->create($this->postRequest(), []);
+
+        $this->assertSame(5, $this->countInvitationGroupsBy($creator));
+    }
+
+    /**
+     * Section groups are created by the scheduled task, never by a
+     * person, so they cannot use up somebody's quota.
+     */
+    public function testSectionGroupsDoNotConsumeTheQuota(): void
+    {
+        $creator = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'QUOTA3', $this->sectionId, $this->currentYearId);
+        for ($i = 0; $i < 8; $i++) {
+            $this->groupRepo->create("Section {$i}", $this->currentYearId, $this->sectionId, $creator);
+        }
+        $_POST = ['name' => 'Sur invitation', '_csrf_token' => $this->csrfToken()];
+
+        $this->controller([$creator])->create($this->postRequest(), []);
+
+        $this->assertSame(1, $this->countInvitationGroupsBy($creator));
+    }
+
+    /**
+     * The cap is about clutter, not privilege — an admin's clutter is
+     * exactly as cluttering as anyone else's.
+     */
+    public function testASiteAdminIsNotExemptFromTheQuota(): void
+    {
+        $creator = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'QUOTA4', $this->sectionId, $this->currentYearId);
+        for ($i = 0; $i < 5; $i++) {
+            $this->groupRepo->create("Groupe {$i}", null, null, $creator);
+        }
+        $_POST = ['name' => 'Un de trop', '_csrf_token' => $this->csrfToken()];
+
+        $this->controller([$creator], 'admin')->create($this->postRequest(), []);
+
+        $this->assertSame(5, $this->countInvitationGroupsBy($creator));
+    }
+
+    /**
+     * A closed group is read-only and on its way to the purge, so it
+     * stops counting.
+     */
+    public function testAClosedGroupFreesUpQuota(): void
+    {
+        $creator = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'QUOTA5', $this->sectionId, $this->currentYearId);
+        $ids = [];
+        for ($i = 0; $i < 5; $i++) {
+            $ids[] = $this->groupRepo->create("Groupe {$i}", null, null, $creator);
+        }
+        $this->groupRepo->setClosed($ids[0], '2026-01-01 00:00:00');
+        $_POST = ['name' => 'Le remplaçant', '_csrf_token' => $this->csrfToken()];
+
+        $this->controller([$creator])->create($this->postRequest(), []);
+
+        // Six rows in total, but only five of them OPEN — which is what
+        // the quota counts, and why the sixth creation was allowed.
+        $this->assertSame(6, $this->countInvitationGroupsBy($creator));
+        $this->assertSame(5, $this->groupRepo->countOpenCreatedBy($creator));
+    }
+
+    private function countInvitationGroupsBy(int $memberId): int
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT COUNT(*) FROM discussion_groups WHERE created_by_member_id = ? AND section_id IS NULL'
+        );
+        $stmt->execute([$memberId]);
+
+        return (int) $stmt->fetchColumn();
     }
 
     /**

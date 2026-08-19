@@ -167,6 +167,18 @@ class Request
 
         $files = [];
         foreach (array_keys($raw['name']) as $index) {
+            // A file input the visitor left empty is still submitted, as
+            // an entry with UPLOAD_ERR_NO_FILE and an empty tmp_name.
+            // That is "no file", not a file — returning it made every
+            // caller believe something was attached and then fail on it
+            // (a reply composer with an optional image input reported
+            // "Type de fichier non autorisé" for every reply without
+            // one), so it is dropped here, once, rather than in each
+            // caller's own count.
+            if ((int) $raw['error'][$index] === UPLOAD_ERR_NO_FILE) {
+                continue;
+            }
+
             $files[] = [
                 'name' => (string) $raw['name'][$index],
                 'tmp_name' => (string) $raw['tmp_name'][$index],

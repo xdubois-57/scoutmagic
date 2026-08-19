@@ -169,6 +169,67 @@ class RequestTest extends TestCase
         $this->assertSame([], $request->getFiles('receipts'));
     }
 
+    /**
+     * The bug this guards against: a browser submits an <input
+     * type="file"> the visitor left empty, as an entry with
+     * UPLOAD_ERR_NO_FILE and an empty tmp_name. Returning it made every
+     * caller believe a file was attached — the groups reply composer,
+     * whose image input is optional, answered "Type de fichier non
+     * autorisé" for every reply posted without a picture.
+     */
+    public function testGetFilesSkipsAnInputTheVisitorLeftEmpty(): void
+    {
+        $_FILES['image'] = [
+            'name' => [''],
+            'tmp_name' => [''],
+            'error' => [UPLOAD_ERR_NO_FILE],
+            'size' => [0],
+            'type' => [''],
+        ];
+        $request = new Request('POST', '/', [], [], [], []);
+
+        $this->assertSame([], $request->getFiles('image'));
+    }
+
+    public function testGetFilesKeepsTheRealFilesAlongsideAnEmptySlot(): void
+    {
+        // A multi-file field where only some slots were filled — the
+        // real ones must survive, and keep their own order.
+        $_FILES['media'] = [
+            'name' => ['a.jpg', '', 'b.jpg'],
+            'tmp_name' => ['/tmp/php1', '', '/tmp/php2'],
+            'error' => [UPLOAD_ERR_OK, UPLOAD_ERR_NO_FILE, UPLOAD_ERR_OK],
+            'size' => [100, 0, 200],
+            'type' => ['image/jpeg', '', 'image/jpeg'],
+        ];
+        $request = new Request('POST', '/', [], [], [], []);
+
+        $files = $request->getFiles('media');
+
+        $this->assertCount(2, $files);
+        $this->assertSame('a.jpg', $files[0]['name']);
+        $this->assertSame('b.jpg', $files[1]['name']);
+    }
+
+    /**
+     * A genuine failure (too big, partial upload) is NOT dropped: the
+     * caller has to see it and say so, or an upload that silently
+     * vanished would look like one the visitor never made.
+     */
+    public function testGetFilesKeepsAFileThatFailedForAnyOtherReason(): void
+    {
+        $_FILES['media'] = [
+            'name' => ['big.jpg'],
+            'tmp_name' => [''],
+            'error' => [UPLOAD_ERR_INI_SIZE],
+            'size' => [0],
+            'type' => [''],
+        ];
+        $request = new Request('POST', '/', [], [], [], []);
+
+        $this->assertCount(1, $request->getFiles('media'));
+    }
+
     public function testGetFilesReturnsEmptyArrayForASingleFileField(): void
     {
         // A non-multiple <input type="file"> produces a flat entry

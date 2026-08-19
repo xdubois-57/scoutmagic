@@ -103,6 +103,28 @@
                     </div>
                 </form>
             {% endif %}
+
+            {#
+              Leaving is offered only to a member who actually holds an
+              explicit row: a derived section membership follows the Desk
+              import and cannot be left, so showing the button would be
+              offering something the server will refuse (it still refuses
+              it, with its own French explanation — this only avoids
+              inviting the click).
+            #}
+            {% if can_leave|default(false) %}
+                <hr class="my-4">
+                <form method="post" action="/groups/{{ group.id }}/leave"
+                      data-confirm="Quitter ce groupe ? Vous perdrez l'accès à ses messages, et il faudra une nouvelle invitation pour y revenir.">
+                    {{ csrf_field()|raw }}
+                    <button type="submit" class="btn btn-outline-danger d-flex align-items-center" style="min-height:44px;">
+                        <i class="bi bi-box-arrow-right me-1"></i> Quitter ce groupe
+                    </button>
+                    <p class="small text-body-secondary mt-2 mb-0">
+                        Vos messages et vos réponses restent dans le groupe.
+                    </p>
+                </form>
+            {% endif %}
         </div>
     </div>
 {% endblock %}

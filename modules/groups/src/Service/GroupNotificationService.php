@@ -12,6 +12,7 @@ use Core\Notification\NotificationService;
 use Modules\Groups\Repository\DiscussionGroup;
 use Modules\Groups\Repository\Post;
 use Modules\Groups\Repository\Reply;
+use Modules\Groups\Support\ReportedAuthor;
 
 /**
  * The module's four notification types, and everything that decides what
@@ -177,25 +178,72 @@ class GroupNotificationService
      * screen — a moderator opens the item to judge it, which is what the
      * deep link is for.
      */
-    public function itemReported(DiscussionGroup $group, int $postId, string $kind, ?int $reporterAccountId): void
-    {
+    public function itemReported(
+        DiscussionGroup $group,
+        int $postId,
+        string $kind,
+        ?int $reporterAccountId,
+        ?ReportedAuthor $author = null
+    ): void {
+        $escalated = $author !== null && $this->recipientResolver->isExplicitModerator($group, $author->memberId);
+
         $this->send(
             self::TYPE_ITEM_REPORTED,
             fn(): array => $this->recipientResolver->excluding(
-                $this->recipientResolver->moderatorsFor($group),
-                $reporterAccountId !== null ? [$reporterAccountId] : []
+                $escalated
+                    ? $this->recipientResolver->moderatorsAndSiteAdminsFor($group)
+                    : $this->recipientResolver->moderatorsFor($group),
+                $this->excludedFromReport($reporterAccountId, $author)
             ),
             [
-                'title' => 'Contenu signalé — ' . $group->name,
-                'body' => $kind === 'reply'
-                    ? 'Une réponse de ce groupe a été signalée et attend votre relecture.'
-                    : 'Un message de ce groupe a été signalé et attend votre relecture.',
+                'title' => ($escalated ? 'Contenu signalé (modérateur) — ' : 'Contenu signalé — ') . $group->name,
+                'body' => $this->reportBody($kind, $escalated),
                 'url' => $this->urlFor($group->id, $postId),
             ],
             $reporterAccountId
         );
     }
 
+    /**
+     * Who never receives a report notification: the reporter (it would
+     * tell them the outcome, which prompt 9 forbids) and — always, whether
+     * or not they moderate — the item's own AUTHOR.
+     *
+     * Notifying an author that their own message was reported would tell
+     * them a report exists, which is exactly what a reporter is promised
+     * will not happen; for a moderator-author it would additionally hand
+     * the subject of the report the message asking somebody to judge it.
+     *
+     * @return int[]
+     */
+    private function excludedFromReport(?int $reporterAccountId, ?ReportedAuthor $author): array
+    {
+        $excluded = [];
+        if ($reporterAccountId !== null) {
+            $excluded[] = $reporterAccountId;
+        }
+        if ($author !== null) {
+            $excluded[] = $author->userAccountId;
+        }
+
+        return $excluded;
+    }
+
+    private function reportBody(string $kind, bool $escalated): string
+    {
+        $item = $kind === 'reply' ? 'Une réponse' : 'Un message';
+        $verb = $kind === 'reply' ? 'signalée' : 'signalé';
+
+        if ($escalated) {
+            // Said plainly, because it is the reason a site admin is
+            // reading this at all: the group's own moderators cannot be
+            // the only people judging a report about one of them.
+            return $item . ' écrit' . ($kind === 'reply' ? 'e' : '') . ' par un modérateur de ce groupe a été '
+                . $verb . ' et attend une relecture indépendante.';
+        }
+
+        return $item . ' de ce groupe a été ' . $verb . ' et attend votre relecture.';
+    }
     /**
      * The post's author as a recipient list, minus the actor. Built from
      * the group's own audience rather than from the author's account id

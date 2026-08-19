@@ -24,6 +24,7 @@ use Modules\Groups\Repository\Reply;
 use Modules\Groups\Repository\ReplyRepository;
 use Modules\Groups\Service\GroupNotificationService;
 use Modules\Groups\Service\GroupRecipientResolver;
+use Modules\Groups\Support\ReportedAuthor;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
@@ -294,6 +295,100 @@ class GroupNotificationServiceTest extends TestCase
         $this->assertSame('/groups/' . $this->groupId . '/posts/' . $post->id, $row['url']);
     }
 
+    /**
+     * The conflict of interest prompt 12 closes: when the reported item
+     * was written by one of the group's own moderators, the report has to
+     * reach somebody outside that group's moderation.
+     */
+    public function testAReportOnAModeratorsOwnItemEscalatesToSiteAdmins(): void
+    {
+        $post = $this->post('le texte signalé');
+        $resolver = $this->escalatingResolver(moderatorAuthor: true);
+
+        $this->serviceWith($resolver)->itemReported(
+            $this->group(),
+            $post->id,
+            'post',
+            self::ACTOR_ACCOUNT,
+            new ReportedAuthor(self::AUTHOR_ACCOUNT, self::AUTHOR_MEMBER)
+        );
+
+        $row = $this->rows()[0];
+        $this->assertStringContainsString('(modérateur)', $row['title']);
+        $this->assertStringContainsString('écrit par un modérateur', $row['body']);
+        $this->assertStringContainsString('relecture indépendante', $row['body']);
+    }
+
+    public function testAReportOnAnOrdinaryMembersItemDoesNotEscalate(): void
+    {
+        $post = $this->post('le texte signalé');
+        $resolver = $this->escalatingResolver(moderatorAuthor: false);
+
+        $this->serviceWith($resolver)->itemReported(
+            $this->group(),
+            $post->id,
+            'post',
+            self::ACTOR_ACCOUNT,
+            new ReportedAuthor(self::AUTHOR_ACCOUNT, self::AUTHOR_MEMBER)
+        );
+
+        $row = $this->rows()[0];
+        $this->assertStringNotContainsString('(modérateur)', $row['title']);
+        $this->assertStringContainsString('attend votre relecture', $row['body']);
+    }
+
+    /**
+     * The item's author never hears that their own content was reported —
+     * moderator or not. Telling them would tell them a report exists,
+     * which is exactly what a reporter is promised will not happen.
+     */
+    public function testTheItemsAuthorNeverReceivesTheReportNotification(): void
+    {
+        $post = $this->post('le texte signalé');
+        // The author IS in the moderator list, so only the exclusion can
+        // keep them out of it.
+        $resolver = $this->escalatingResolver(
+            moderatorAuthor: true,
+            moderators: [
+                ['userAccountId' => self::AUTHOR_ACCOUNT, 'memberId' => self::AUTHOR_MEMBER],
+                ['userAccountId' => 70, 'memberId' => 7],
+            ]
+        );
+
+        $this->serviceWith($resolver)->itemReported(
+            $this->group(),
+            $post->id,
+            'post',
+            self::ACTOR_ACCOUNT,
+            new ReportedAuthor(self::AUTHOR_ACCOUNT, self::AUTHOR_MEMBER)
+        );
+
+        $this->assertSame([70], array_column($this->rows(), 'user_account_id'));
+    }
+
+    public function testTheReporterIsStillExcludedAlongsideTheAuthor(): void
+    {
+        $post = $this->post('le texte signalé');
+        $resolver = $this->escalatingResolver(
+            moderatorAuthor: false,
+            moderators: [
+                ['userAccountId' => self::ACTOR_ACCOUNT, 'memberId' => 8],
+                ['userAccountId' => self::AUTHOR_ACCOUNT, 'memberId' => self::AUTHOR_MEMBER],
+                ['userAccountId' => 70, 'memberId' => 7],
+            ]
+        );
+
+        $this->serviceWith($resolver)->itemReported(
+            $this->group(),
+            $post->id,
+            'post',
+            self::ACTOR_ACCOUNT,
+            new ReportedAuthor(self::AUTHOR_ACCOUNT, self::AUTHOR_MEMBER)
+        );
+
+        $this->assertSame([70], array_column($this->rows(), 'user_account_id'));
+    }
+
     public function testAReportedReplySaysItIsAReply(): void
     {
         $post = $this->post('sujet');
@@ -343,6 +438,39 @@ class GroupNotificationServiceTest extends TestCase
     }
 
     // ---- fixtures ----
+
+    /**
+     * A resolver whose escalation answer and moderator list are both
+     * fixed by the test — the two things itemReported() branches on.
+     *
+     * @param array<int, array{userAccountId: int, memberId: ?int}>|null $moderators
+     */
+    private function escalatingResolver(bool $moderatorAuthor, ?array $moderators = null): GroupRecipientResolver
+    {
+        $moderators ??= [['userAccountId' => 70, 'memberId' => 7]];
+
+        $resolver = $this->createStub(GroupRecipientResolver::class);
+        $resolver->method('isExplicitModerator')->willReturn($moderatorAuthor);
+        $resolver->method('moderatorsFor')->willReturn($moderators);
+        $resolver->method('moderatorsAndSiteAdminsFor')->willReturn($moderators);
+        $resolver->method('excluding')->willReturnCallback(
+            static function (array $list, array $excluded): array {
+                $flip = array_flip($excluded);
+                return array_values(array_filter($list, static fn(array $r): bool => !isset($flip[$r['userAccountId']])));
+            }
+        );
+
+        return $resolver;
+    }
+
+    private function serviceWith(GroupRecipientResolver $resolver): GroupNotificationService
+    {
+        return new GroupNotificationService(
+            $resolver,
+            GroupsTestHelper::reactionNoticeThrottle($this->pdo, new SettingService(new SettingRepository($this->pdo))),
+            $this->notifications
+        );
+    }
 
     /**
      * @param array<int, array{userAccountId: int, memberId: ?int}> $recipients
