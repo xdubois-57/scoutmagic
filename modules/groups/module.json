@@ -181,6 +181,15 @@
       "label": ""
     },
     {
+      "path": "/groups/{id}/media-status",
+      "method": "GET",
+      "controller": "Modules\\Groups\\Controller\\GroupController",
+      "action": "mediaStatus",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
       "path": "/groups/{id}/posts/{postId}/replies",
       "method": "GET",
       "controller": "Modules\\Groups\\Controller\\ReplyController",

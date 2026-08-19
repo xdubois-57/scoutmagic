@@ -89,7 +89,8 @@
 
             {% if row.media %}
                 <a href="/gallery/media/{{ row.media.id }}/large" target="_blank" rel="noopener"
-                   class="groups-reply-image-link d-block mt-2">
+                   class="groups-reply-image-link d-block mt-2"
+                   data-media-id="{{ row.media.id }}" data-status="{{ row.media.processingStatus }}">
                     {% include '@groups/partials/media_thumb.html.twig' with { media: row.media } %}
                 </a>
             {% endif %}

@@ -229,6 +229,57 @@ class GroupController extends AbstractController
     }
 
     /**
+     * GET /groups/{id}/media-status?ids=1,2,3 — polled by groups.js while
+     * a just-posted photo or video still shows a spinner, so the real
+     * thumbnail appears the moment the background resize (gallery's own
+     * Task\ProcessPhotoHandler/ProcessVideoHandler) finishes, without a
+     * page reload. Same 404-not-403 membership rule as every other group
+     * route; an id from another group's album, or one that no longer
+     * exists, is simply absent from the response — never a distinguishable
+     * error a caller could use to probe another group's media ids.
+     *
+     * A JSON array, not an object keyed by media id: PHP silently
+     * re-encodes an int-keyed array as a JSON array instead of an object
+     * whenever the keys happen to be sequential from 0 (json_encode has no
+     * way to tell "empty array" from "object with no numeric-looking
+     * keys" apart either), which would make the shape depend on which
+     * ids the caller happened to ask about. An array of {id, status,
+     * html} objects has no such ambiguity.
+     *
+     * @param array<string, string> $params
+     */
+    public function mediaStatus(Request $request, array $params): Response
+    {
+        $context = $this->context();
+        $group = $this->readableGroup($params, $context);
+        if ($group === null) {
+            return new Response('Not Found', 404);
+        }
+
+        $ids = array_values(array_filter(
+            array_map('intval', explode(',', (string) $request->getQuery('ids', ''))),
+            fn (int $id) => $id > 0
+        ));
+
+        $result = [];
+        foreach ($this->postMediaService->mediaByIds($group, $ids) as $media) {
+            $resolved = in_array($media->processingStatus, ['done', 'failed'], true);
+            $result[] = [
+                'id' => $media->id,
+                'status' => $media->processingStatus,
+                // Only rendered once resolved: while still pending/
+                // processing, the client already shows the spinner
+                // media_thumb.html.twig would render right back anyway.
+                'html' => $resolved
+                    ? $this->twig->render('@groups/partials/media_thumb.html.twig', ['media' => $media])
+                    : null,
+            ];
+        }
+
+        return $this->json($result);
+    }
+
+    /**
      * POST /groups — chief only (RBAC gates the route); a section group
      * when a section is chosen, an invitation group otherwise.
      *

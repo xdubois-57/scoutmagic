@@ -4,10 +4,10 @@
  */
 
 // Groups module front-end (show.html.twig): composer media picker,
-// dynamic reactions, "Charger plus"/"Voir plus de réponses" in-place
-// pagination, inline edit toggles, reply image filename display. Pure
-// JS, no external library — same IIFE/var/fetch style as
-// gallery.js/retro-board.js.
+// dynamic reactions, polling for a still-processing photo/video,
+// "Charger plus"/"Voir plus de réponses" in-place pagination, inline
+// edit toggles, reply image filename display. Pure JS, no external
+// library — same IIFE/var/fetch style as gallery.js/retro-board.js.
 //
 // Server-supplied config comes from #groups-post-form's own data-*
 // attributes (max_media_per_post), the same convention retro-board.js
@@ -127,6 +127,77 @@
         });
     })();
 
+    // Polls for a photo/video still being resized in the background so
+    // the real thumbnail appears in place the moment it is ready, with no
+    // page reload. Every 'pending'/'processing' media cell already
+    // carries data-media-id/data-status (partials/post_media_grid.html.twig,
+    // partials/reply_card.html.twig); without this script they stay
+    // spinners until the next full page load, exactly as before this
+    // existed. A plain function (not its own IIFE, unlike the blocks
+    // above) so kickOffMediaPolling() can be called again after "Charger
+    // plus"/"Voir plus de réponses" insert content that might itself
+    // carry a still-pending photo.
+    var mediaPollTimer = null;
+    var mediaPollAttempt = 0;
+    var MEDIA_POLL_DELAYS_MS = [2000, 2000, 3000, 5000, 5000, 10000, 10000, 10000, 10000, 10000, 10000, 10000];
+
+    function pendingMediaIds() {
+        return Array.from(document.querySelectorAll(
+            '[data-media-id][data-status="pending"], [data-media-id][data-status="processing"]'
+        )).map(function (el) { return el.dataset.mediaId; });
+    }
+
+    function pollMediaStatus() {
+        var feed = document.getElementById('groups-feed');
+        var ids = pendingMediaIds();
+        if (!feed || ids.length === 0) {
+            mediaPollTimer = null;
+            return;
+        }
+
+        fetch('/groups/' + feed.dataset.groupId + '/media-status?ids=' + ids.join(','), {
+            headers: { 'X-Requested-With': 'fetch' }
+        }).then(function (response) {
+            return response.ok ? response.json() : [];
+        }).then(function (items) {
+            items.forEach(function (item) {
+                if (item.status === 'pending' || item.status === 'processing' || typeof item.html !== 'string') {
+                    return;
+                }
+                var cell = document.querySelector('[data-media-id="' + item.id + '"]');
+                if (cell) {
+                    cell.dataset.status = item.status;
+                    cell.innerHTML = item.html;
+                }
+            });
+        }).catch(function () {
+            // A dropped request just gets retried on the next backoff
+            // step below — the spinner it left behind is still accurate.
+        }).finally(function () {
+            scheduleNextMediaPoll();
+        });
+    }
+
+    function scheduleNextMediaPoll() {
+        if (pendingMediaIds().length === 0 || mediaPollAttempt >= MEDIA_POLL_DELAYS_MS.length) {
+            mediaPollTimer = null;
+            return;
+        }
+        var delay = MEDIA_POLL_DELAYS_MS[mediaPollAttempt];
+        mediaPollAttempt += 1;
+        mediaPollTimer = setTimeout(pollMediaStatus, delay);
+    }
+
+    function kickOffMediaPolling() {
+        if (mediaPollTimer !== null || pendingMediaIds().length === 0) {
+            return;
+        }
+        mediaPollAttempt = 0;
+        scheduleNextMediaPoll();
+    }
+
+    kickOffMediaPolling();
+
     // A reaction button's form still posts and redirects with no JS at
     // all (partials/reactions.html.twig's own docblock promise) — this
     // only upgrades that same POST to a fetch() so the page never
@@ -177,6 +248,7 @@
                 var wrapper = loadMore.closest('.groups-load-more-wrapper');
                 wrapper.insertAdjacentHTML('beforebegin', await response.text());
                 wrapper.remove();
+                kickOffMediaPolling();
             } else {
                 loadMore.disabled = false;
             }
@@ -210,6 +282,7 @@
                 var repliesWrapper = repliesMore.closest('.groups-replies-more-wrapper');
                 repliesWrapper.insertAdjacentHTML('beforebegin', await repliesResponse.text());
                 repliesWrapper.remove();
+                kickOffMediaPolling();
             } else {
                 repliesMore.disabled = false;
             }

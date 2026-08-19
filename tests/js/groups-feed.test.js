@@ -131,6 +131,91 @@ describe('groups.js dynamic reactions, in-place pagination and inline edit toggl
         await vi.waitFor(() => expect(form.submit).toHaveBeenCalled());
     });
 
+    it('polls for a still-pending photo after "Charger plus" inserts it, and swaps it in place once processing finishes', async () => {
+        vi.useFakeTimers();
+        try {
+            document.body.innerHTML = `
+                <div id="groups-feed" data-group-id="7">
+                    <div class="groups-load-more-wrapper">
+                        <button class="groups-load-more" data-url="/groups/7/feed?cursor=abc">Charger plus</button>
+                    </div>
+                </div>
+            `;
+            global.fetch = vi.fn()
+                .mockResolvedValueOnce({
+                    ok: true,
+                    text: () => Promise.resolve(
+                        '<a class="groups-media-cell" data-media-id="42" data-status="pending">' +
+                        '<span class="spinner-border spinner-border-sm"></span></a>'
+                    )
+                })
+                .mockResolvedValueOnce({
+                    ok: true,
+                    json: () => Promise.resolve([{ id: 42, status: 'done', html: '<img alt="" src="/gallery/media/42/thumb">' }])
+                });
+
+            document.querySelector('.groups-load-more').click();
+            await vi.advanceTimersByTimeAsync(0);
+            expect(document.querySelector('[data-media-id="42"]')).not.toBeNull();
+            expect(document.querySelector('[data-media-id="42"]').dataset.status).toBe('pending');
+
+            // The first backoff tick: groups.js checks in on whatever is
+            // still pending or processing.
+            await vi.advanceTimersByTimeAsync(2000);
+
+            expect(fetch).toHaveBeenNthCalledWith(
+                2,
+                '/groups/7/media-status?ids=42',
+                { headers: { 'X-Requested-With': 'fetch' } }
+            );
+            var cell = document.querySelector('[data-media-id="42"]');
+            expect(cell.dataset.status).toBe('done');
+            expect(cell.innerHTML).toContain('/gallery/media/42/thumb');
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('keeps polling on the next backoff step when a photo is still processing, and stops once nothing is pending', async () => {
+        vi.useFakeTimers();
+        try {
+            document.body.innerHTML = `
+                <div id="groups-feed" data-group-id="7">
+                    <div class="groups-load-more-wrapper">
+                        <button class="groups-load-more" data-url="/groups/7/feed?cursor=abc">Charger plus</button>
+                    </div>
+                </div>
+            `;
+            global.fetch = vi.fn()
+                .mockResolvedValueOnce({
+                    ok: true,
+                    text: () => Promise.resolve('<a class="groups-media-cell" data-media-id="9" data-status="processing"></a>')
+                })
+                .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve([{ id: 9, status: 'processing', html: null }]) })
+                .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve([{ id: 9, status: 'done', html: '<img alt="" src="/gallery/media/9/thumb">' }]) });
+
+            document.querySelector('.groups-load-more').click();
+            await vi.advanceTimersByTimeAsync(0);
+
+            await vi.advanceTimersByTimeAsync(2000);
+            expect(fetch).toHaveBeenCalledTimes(2);
+            expect(document.querySelector('[data-media-id="9"]').dataset.status).toBe('processing');
+
+            // Still pending, so it tries again on the NEXT backoff step
+            // rather than giving up after one miss.
+            await vi.advanceTimersByTimeAsync(2000);
+            expect(fetch).toHaveBeenCalledTimes(3);
+            expect(document.querySelector('[data-media-id="9"]').dataset.status).toBe('done');
+
+            // Nothing left to poll for — one more backoff step must not
+            // fire a fourth request.
+            await vi.advanceTimersByTimeAsync(20000);
+            expect(fetch).toHaveBeenCalledTimes(3);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     it('toggles a post into edit mode and back', async () => {
         document.body.innerHTML = `
             <p id="post-body-42">Texte original</p>

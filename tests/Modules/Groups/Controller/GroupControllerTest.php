@@ -656,4 +656,92 @@ class GroupControllerTest extends TestCase
         $this->assertStringContainsString('spinner-border', $response->getBody());
         $this->assertStringContainsString('Échec du traitement', $response->getBody());
     }
+
+    /**
+     * groups.js's own poll (public/assets/js/groups.js): a still-pending
+     * cell asks again until the background resize finishes.
+     */
+    public function testMediaStatusReturns404ForANonMemberRatherThan403(): void
+    {
+        $creator = GroupsTestHelper::createMember($this->pdo, 'CGM1');
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator);
+        $outsider = GroupsTestHelper::createMember($this->pdo, 'OUTGM1');
+
+        $response = $this->controller([$outsider])
+            ->mediaStatus(new Request('GET', '/groups/' . $groupId . '/media-status', ['ids' => '1'], [], [], []), ['id' => (string) $groupId]);
+
+        $this->assertSame(404, $response->getStatusCode());
+    }
+
+    public function testMediaStatusReportsPendingMediaWithNoHtml(): void
+    {
+        $creator = GroupsTestHelper::createMember($this->pdo, 'CGM2');
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator);
+        $this->groupRepo->setGalleryAlbumId($groupId, 42);
+        $member = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'MGM2', $this->sectionId, $this->currentYearId);
+
+        $manager = $this->createMock(DelegatedAlbumManager::class);
+        $manager->expects($this->once())->method('listMedia')->with(42)->willReturn([
+            new DelegatedMedia(1, 'photo', 'processing', 0, 'a.jpg', '2026-01-01 10:00:00'),
+        ]);
+
+        $response = $this->controller([$member], 'identified', true, $manager)->mediaStatus(
+            new Request('GET', '/groups/' . $groupId . '/media-status', ['ids' => '1'], [], [], []),
+            ['id' => (string) $groupId]
+        );
+
+        $this->assertSame(200, $response->getStatusCode());
+        $body = json_decode($response->getBody(), true);
+        $this->assertSame([['id' => 1, 'status' => 'processing', 'html' => null]], $body);
+    }
+
+    public function testMediaStatusRendersTheThumbnailFragmentOnceDone(): void
+    {
+        $creator = GroupsTestHelper::createMember($this->pdo, 'CGM3');
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator);
+        $this->groupRepo->setGalleryAlbumId($groupId, 42);
+        $member = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'MGM3', $this->sectionId, $this->currentYearId);
+
+        $manager = $this->createMock(DelegatedAlbumManager::class);
+        $manager->expects($this->once())->method('listMedia')->with(42)->willReturn([
+            new DelegatedMedia(1, 'photo', 'done', 0, 'a.jpg', '2026-01-01 10:00:00'),
+            new DelegatedMedia(2, 'photo', 'failed', 1, 'b.jpg', '2026-01-01 10:00:00'),
+        ]);
+
+        $response = $this->controller([$member], 'identified', true, $manager)->mediaStatus(
+            new Request('GET', '/groups/' . $groupId . '/media-status', ['ids' => '1,2'], [], [], []),
+            ['id' => (string) $groupId]
+        );
+
+        $body = json_decode($response->getBody(), true);
+        $this->assertSame('done', $body[0]['status']);
+        $this->assertStringContainsString('/gallery/media/1/thumb', $body[0]['html']);
+        $this->assertSame('failed', $body[1]['status']);
+        $this->assertStringContainsString('Échec du traitement', $body[1]['html']);
+    }
+
+    public function testMediaStatusSilentlyOmitsAnIdNotInTheGroupsAlbum(): void
+    {
+        $creator = GroupsTestHelper::createMember($this->pdo, 'CGM4');
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator);
+        $this->groupRepo->setGalleryAlbumId($groupId, 42);
+        $member = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'MGM4', $this->sectionId, $this->currentYearId);
+
+        $manager = $this->createMock(DelegatedAlbumManager::class);
+        $manager->expects($this->once())->method('listMedia')->with(42)->willReturn([
+            new DelegatedMedia(1, 'photo', 'done', 0, 'a.jpg', '2026-01-01 10:00:00'),
+        ]);
+
+        // id 999 belongs to no album this group can see — never a
+        // distinguishable error, just absent from the response, same as
+        // every other id lookup this module scopes to an authorised group.
+        $response = $this->controller([$member], 'identified', true, $manager)->mediaStatus(
+            new Request('GET', '/groups/' . $groupId . '/media-status', ['ids' => '1,999'], [], [], []),
+            ['id' => (string) $groupId]
+        );
+
+        $body = json_decode($response->getBody(), true);
+        $this->assertCount(1, $body);
+        $this->assertSame(1, $body[0]['id']);
+    }
 }

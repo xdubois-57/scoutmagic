@@ -212,6 +212,29 @@ class PostMediaService
     }
 
     /**
+     * A handful of the group's own media by id, for the "is it done
+     * processing yet" poll (Controller\GroupController::mediaStatus()) —
+     * groups.js asks about exactly the ids still showing a spinner on the
+     * page, never the whole album. Filtered through albumMediaById()
+     * rather than a dedicated query: this module is only ever allowed to
+     * reach gallery through Api\DelegatedAlbumManager (ARCHITECTURE.md
+     * §7.5), which has no "fetch these specific ids" call, and a group's
+     * album is small enough that listing it whole and filtering here costs
+     * nothing extra a real query wouldn't already cost. An id that is not
+     * (or no longer) in this group's album is silently absent from the
+     * result, same as everywhere else in this module that resolves ids
+     * against an authorised group — it is never distinguishable from "not
+     * done yet" by the caller.
+     *
+     * @param int[] $mediaIds
+     * @return array<int, DelegatedMedia>
+     */
+    public function mediaByIds(DiscussionGroup $group, array $mediaIds): array
+    {
+        return array_intersect_key($this->albumMediaById($group), array_flip($mediaIds));
+    }
+
+    /**
      * @param int[] $postIds
      * @param array<int, DelegatedMedia> $mediaById the return of albumMediaById()
      * @return array<int, DelegatedMedia[]> postId => its media, in

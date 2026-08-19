@@ -90,7 +90,7 @@
         <hr class="my-3">
     {% endif %}
 
-    <div id="groups-feed">
+    <div id="groups-feed" data-group-id="{{ group.id }}">
         {% if posts is empty and pinned is empty %}
             <p class="text-body-secondary text-center py-5 mb-0">Aucun message dans ce groupe pour le moment.</p>
         {% else %}
