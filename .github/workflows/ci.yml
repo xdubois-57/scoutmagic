@@ -115,6 +115,82 @@ jobs:
           path: coverage/js/lcov.info
           retention-days: 1
 
+  e2e-tests:
+    name: End-to-end (browser)
+    runs-on: ubuntu-latest
+    # A blocking check like every other job here. The bound is generous
+    # enough for a cold Chromium download plus a full schema migration,
+    # and tight enough that a hung PHP server fails the run instead of
+    # occupying a runner for six hours.
+    timeout-minutes: 20
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: test_password
+          # scripts/e2e.sh creates and drops its own database
+          # (E2E_DB_NAME), so nothing needs to be pre-created here.
+          MYSQL_DATABASE: test_db
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=3
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2.37.2
+        with:
+          php-version: '8.4'
+          extensions: mbstring, pdo, pdo_mysql, openssl, imagick
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install PHP dependencies
+        run: composer install --prefer-dist --no-progress
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Install the Chromium runtime
+        # Same command developers run once locally (README.md
+        # § Tests end-to-end) — no CI-specific browser setup to drift.
+        run: npm run e2e:install
+
+      - name: Run end-to-end tests
+        # The same canonical command a developer and scripts/release.sh's
+        # E2E gate run; the orchestration lives in scripts/e2e.sh, never
+        # duplicated here. No display server is involved — Chromium runs
+        # headless and the application is served by `php -S` on a local
+        # port the harness picks itself.
+        env:
+          E2E_DB_HOST: 127.0.0.1
+          E2E_DB_PORT: 3306
+          E2E_DB_USER: root
+          E2E_DB_PASSWORD: test_password
+        run: npm run e2e
+
+      - name: Upload Playwright diagnostics
+        # Failure only: a green run produces no trace, screenshot, or
+        # video (see tests/e2e/playwright.config.js), so uploading after
+        # every run would just publish an empty report.
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-e2e-report
+          path: |
+            tests/e2e/playwright-report
+            tests/e2e/test-results
+          retention-days: 7
+
   security:
     runs-on: ubuntu-latest
 

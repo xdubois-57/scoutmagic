@@ -30,6 +30,7 @@ class RgpdContentServiceTest extends TestCase
     {
         $llmConnector = $this->createMock(LlmConnectorInterface::class);
         $llmConnector->method('isAvailable')->willReturn(true);
+        $llmConnector->method('isTierAvailable')->willReturn(true);
         $llmConnector->expects($this->once())->method('complete')
             ->with($this->callback(fn(LlmRequest $request) => $request->maxTokens === 8192))
             ->willReturn(new LlmResponse(content: '<h2>Titre</h2><p>Contenu. Unité scoute est responsable du traitement.</p>', parsed: null, inputTokens: 10, outputTokens: 20, truncated: false));
@@ -45,6 +46,7 @@ class RgpdContentServiceTest extends TestCase
     {
         $llmConnector = $this->createMock(LlmConnectorInterface::class);
         $llmConnector->method('isAvailable')->willReturn(true);
+        $llmConnector->method('isTierAvailable')->willReturn(true);
         $llmConnector->expects($this->exactly(2))->method('complete')
             ->willReturnOnConsecutiveCalls(
                 new LlmResponse(content: '<h2>Titre</h2><p>Début du contenu', parsed: null, inputTokens: 10, outputTokens: 8192, truncated: true),
@@ -62,6 +64,7 @@ class RgpdContentServiceTest extends TestCase
     {
         $llmConnector = $this->createMock(LlmConnectorInterface::class);
         $llmConnector->method('isAvailable')->willReturn(true);
+        $llmConnector->method('isTierAvailable')->willReturn(true);
 
         $capturedContinuationRequest = null;
         $llmConnector->expects($this->exactly(2))->method('complete')
@@ -85,6 +88,7 @@ class RgpdContentServiceTest extends TestCase
     {
         $llmConnector = $this->createMock(LlmConnectorInterface::class);
         $llmConnector->method('isAvailable')->willReturn(true);
+        $llmConnector->method('isTierAvailable')->willReturn(true);
         // MAX_CONTINUATIONS = 2 → 1 initial call + 2 continuations = 3 total.
         $llmConnector->expects($this->exactly(3))->method('complete')->willReturn(
             new LlmResponse(content: '<h2>Titre</h2><p>Contenu incompl', parsed: null, inputTokens: 10, outputTokens: 8192, truncated: true)
@@ -114,6 +118,7 @@ class RgpdContentServiceTest extends TestCase
 
         $llmConnector = $this->createMock(LlmConnectorInterface::class);
         $llmConnector->method('isAvailable')->willReturn(true);
+        $llmConnector->method('isTierAvailable')->willReturn(true);
         $llmConnector->method('complete')->willReturn(
             new LlmResponse(content: '<h2>Titre</h2><p>Le site traite vos données.</p>', parsed: null, inputTokens: 10, outputTokens: 20, truncated: false)
         );

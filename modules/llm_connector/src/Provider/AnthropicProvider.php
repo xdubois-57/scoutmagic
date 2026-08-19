@@ -19,10 +19,31 @@ class AnthropicProvider implements LlmProviderInterface
     private const DEFAULT_TIMEOUT = 30;
     private const API_VERSION = '2023-06-01';
 
+    /** Page size requested from /v1/models (the API's own maximum). */
+    private const MODELS_PAGE_SIZE = 1000;
+
+    /** Hard stop on pagination, so a misbehaving has_more can never loop forever. */
+    private const MAX_MODEL_PAGES = 20;
+
+    private HttpTransport $http;
+
     public function __construct(
         private string $apiEndpoint,
         private string $apiKey
     ) {
+        $this->http = new HttpTransport();
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function headers(): array
+    {
+        return [
+            'x-api-key: ' . $this->apiKey,
+            'anthropic-version: ' . self::API_VERSION,
+            'Content-Type: application/json',
+        ];
     }
 
     /**
@@ -30,19 +51,42 @@ class AnthropicProvider implements LlmProviderInterface
      */
     public function listModels(): array
     {
-        $url = rtrim($this->apiEndpoint, '/') . '/v1/models';
-        $response = $this->httpGet($url);
-
-        if (!isset($response['data']) || !is_array($response['data'])) {
-            throw LlmException::apiError('Invalid response from models endpoint.');
-        }
+        $base = rtrim($this->apiEndpoint, '/') . '/v1/models?limit=' . self::MODELS_PAGE_SIZE;
 
         $models = [];
-        foreach ($response['data'] as $model) {
-            $models[] = [
-                'id' => (string) ($model['id'] ?? ''),
-                'display_name' => (string) ($model['display_name'] ?? $model['id'] ?? ''),
-            ];
+        $afterId = null;
+
+        // This endpoint paginates (has_more / last_id, 20 per page by
+        // default). Reading only the first page silently hid every model past
+        // it — and since Controller\ConfigController::testConnection() prunes
+        // with deleteModelsNotIn(), an unread page's models were deleted from
+        // the local catalogue on every connection test.
+        for ($page = 0; $page < self::MAX_MODEL_PAGES; $page++) {
+            $url = $afterId === null ? $base : $base . '&after_id=' . rawurlencode($afterId);
+            $response = $this->http->getJson($url, $this->headers(), self::DEFAULT_TIMEOUT);
+
+            if (!isset($response['data']) || !is_array($response['data'])) {
+                throw LlmException::apiError('Invalid response from models endpoint.');
+            }
+
+            foreach ($response['data'] as $model) {
+                $id = (string) ($model['id'] ?? '');
+                if ($id === '') {
+                    // A model with no usable identifier cannot be called and
+                    // must never reach llm_provider_models.model_id.
+                    continue;
+                }
+                $models[] = [
+                    'id' => $id,
+                    'display_name' => (string) ($model['display_name'] ?? $id),
+                ];
+            }
+
+            $lastId = isset($response['last_id']) ? (string) $response['last_id'] : '';
+            if (($response['has_more'] ?? false) !== true || $lastId === '') {
+                break;
+            }
+            $afterId = $lastId;
         }
 
         return $models;
@@ -62,8 +106,10 @@ class AnthropicProvider implements LlmProviderInterface
 
         $body = $this->buildRequestBody($modelId, $content, $effectiveSystem, $options);
 
-        $response = $this->httpPost($url, $body, $timeout);
+        $response = $this->http->postJson($url, $this->headers(), $body, $timeout);
 
+        // A non-2xx never reaches this point (HttpTransport rejects it); this
+        // still catches an error object returned with a 200.
         if (isset($response['error'])) {
             $errorMsg = $response['error']['message'] ?? 'Unknown error';
             $errorType = $response['error']['type'] ?? '';
@@ -190,128 +236,5 @@ class AnthropicProvider implements LlmProviderInterface
         }
 
         return implode("\n", $texts);
-    }
-
-    /**
-     * @param array<int, string> $modelIds
-     * @return array{cheap: string|null, capable: string|null, ocr: string|null}
-     */
-    public function resolveTiers(array $modelIds): array
-    {
-        $bestHaiku = null;
-        $bestSonnet = null;
-        $bestOcr = null;
-
-        foreach ($modelIds as $id) {
-            $lower = strtolower($id);
-
-            if (str_contains($lower, 'ocr')) {
-                if ($bestOcr === null || $this->extractDate($id) > $this->extractDate($bestOcr)) {
-                    $bestOcr = $id;
-                }
-            }
-
-            if (str_contains($lower, 'haiku')) {
-                if ($bestHaiku === null || $this->extractDate($id) > $this->extractDate($bestHaiku)) {
-                    $bestHaiku = $id;
-                }
-            } elseif (str_contains($lower, 'sonnet')) {
-                if ($bestSonnet === null || $this->extractDate($id) > $this->extractDate($bestSonnet)) {
-                    $bestSonnet = $id;
-                }
-            }
-        }
-
-        return [
-            'cheap' => $bestHaiku,
-            'capable' => $bestSonnet,
-            'ocr' => $bestOcr,
-        ];
-    }
-
-    /**
-     * Extract the YYYYMMDD date suffix from an Anthropic model ID.
-     * Models with "latest" in the name are considered the most recent.
-     * e.g. "claude-3-5-haiku-20241022" → "20241022"
-     * e.g. "claude-haiku-latest" → "99999999"
-     */
-    private function extractDate(string $modelId): string
-    {
-        if (stripos($modelId, 'latest') !== false) {
-            return '99999999';
-        }
-        if (preg_match('/(\d{8})/', $modelId, $matches)) {
-            return $matches[1];
-        }
-        return '00000000';
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    private function httpGet(string $url): array
-    {
-        $context = stream_context_create([
-            'http' => [
-                'method' => 'GET',
-                'header' => implode("\r\n", [
-                    'x-api-key: ' . $this->apiKey,
-                    'anthropic-version: ' . self::API_VERSION,
-                    'Content-Type: application/json',
-                ]),
-                'timeout' => self::DEFAULT_TIMEOUT,
-                'ignore_errors' => true,
-            ],
-        ]);
-
-        $body = @file_get_contents($url, false, $context);
-
-        if ($body === false) {
-            throw LlmException::timeout();
-        }
-
-        $decoded = json_decode($body, true);
-        if (!is_array($decoded)) {
-            throw LlmException::apiError('Invalid JSON response from provider.');
-        }
-
-        return $decoded;
-    }
-
-    /**
-     * @param array<string, mixed> $data
-     * @return array<string, mixed>
-     */
-    private function httpPost(string $url, array $data, int $timeout): array
-    {
-        $jsonBody = json_encode($data, JSON_UNESCAPED_UNICODE);
-
-        $context = stream_context_create([
-            'http' => [
-                'method' => 'POST',
-                'header' => implode("\r\n", [
-                    'x-api-key: ' . $this->apiKey,
-                    'anthropic-version: ' . self::API_VERSION,
-                    'Content-Type: application/json',
-                    'Content-Length: ' . strlen($jsonBody),
-                ]),
-                'content' => $jsonBody,
-                'timeout' => $timeout,
-                'ignore_errors' => true,
-            ],
-        ]);
-
-        $body = @file_get_contents($url, false, $context);
-
-        if ($body === false) {
-            throw LlmException::timeout();
-        }
-
-        $decoded = json_decode($body, true);
-        if (!is_array($decoded)) {
-            throw LlmException::apiError('Invalid JSON response from provider.');
-        }
-
-        return $decoded;
     }
 }

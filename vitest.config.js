@@ -19,7 +19,14 @@ export default defineConfig({
             reporter: ['text', 'lcov'],
             reportsDirectory: 'coverage/js',
             // Only first-party JavaScript intended for testing is measured.
-            include: ['public/assets/js/**/*.js'],
+            // public/sw.js is listed explicitly: it is first-party and
+            // unit-tested (tests/js/sw.test.js), but it deliberately sits at
+            // the web root rather than under assets/ (a service worker's scope
+            // is its own directory — see the comment at the top of sw.js), so
+            // the assets glob below would never reach it. Without this entry it
+            // was excluded from coverage entirely, which meant its 477 lines
+            // were not merely untested but not counted as untested.
+            include: ['public/assets/js/**/*.js', 'public/sw.js'],
             exclude: [
                 // Third-party vendored libraries (Bootstrap, Chart.js, ...)
                 // are never first-party coverage — see AGENTS.md.

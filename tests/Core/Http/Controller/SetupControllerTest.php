@@ -44,6 +44,21 @@ class SetupControllerTest extends TestCase
         if (session_status() !== PHP_SESSION_ACTIVE) {
             @session_start();
         }
+
+        // A known-empty session per test. session_destroy() in tearDown() ends
+        // the session but does NOT clear the $_SESSION superglobal inside the
+        // running process, so without this reset every test inherits whatever
+        // the previous one left behind, and the file's behaviour depends on
+        // execution order.
+        $_SESSION = [];
+
+        // Most tests here drive the wizard's actual work (save, test-db,
+        // install-database, backup-and-empty-db, download-backup, ...), and
+        // every one of those endpoints requires a verified installation token
+        // while the site is uninitialized. Granting it by default is what the
+        // gate tests already assume: they unset() it explicitly to assert the
+        // refusal, which only means something if something set it first.
+        $_SESSION['setup_token_verified'] = true;
     }
 
     protected function tearDown(): void
@@ -52,6 +67,7 @@ class SetupControllerTest extends TestCase
         if (session_status() === PHP_SESSION_ACTIVE) {
             session_destroy();
         }
+        $_SESSION = [];
     }
 
     /**

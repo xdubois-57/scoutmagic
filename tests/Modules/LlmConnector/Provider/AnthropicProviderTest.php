@@ -65,51 +65,6 @@ class AnthropicProviderTest extends TestCase
         $provider->listModels();
     }
 
-    public function testResolveTiersPicksMostRecentHaikuAndSonnet(): void
-    {
-        $models = [
-            'claude-3-haiku-20240307',
-            'claude-3-5-haiku-20241022',
-            'claude-3-sonnet-20240229',
-            'claude-3-5-sonnet-20241022',
-            'claude-sonnet-4-20250514',
-            'claude-3-opus-20240229',
-        ];
-
-        $tiers = $this->provider->resolveTiers($models);
-
-        $this->assertSame('claude-3-5-haiku-20241022', $tiers['cheap']);
-        $this->assertSame('claude-sonnet-4-20250514', $tiers['capable']);
-    }
-
-    public function testResolveTiersReturnsNullWhenNoMatch(): void
-    {
-        $models = ['claude-3-opus-20240229'];
-
-        $tiers = $this->provider->resolveTiers($models);
-
-        $this->assertNull($tiers['cheap']);
-        $this->assertNull($tiers['capable']);
-    }
-
-    public function testResolveTiersWithSingleHaikuOnly(): void
-    {
-        $models = ['claude-3-haiku-20240307'];
-
-        $tiers = $this->provider->resolveTiers($models);
-
-        $this->assertSame('claude-3-haiku-20240307', $tiers['cheap']);
-        $this->assertNull($tiers['capable']);
-    }
-
-    public function testResolveTiersWithEmptyList(): void
-    {
-        $tiers = $this->provider->resolveTiers([]);
-
-        $this->assertNull($tiers['cheap']);
-        $this->assertNull($tiers['capable']);
-    }
-
     public function testBuildRequestBodyDefaultsMaxTokensTo4096(): void
     {
         $method = new \ReflectionMethod(AnthropicProvider::class, 'buildRequestBody');

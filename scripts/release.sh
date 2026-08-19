@@ -3,12 +3,13 @@ set -euo pipefail
 
 # Usage: ./scripts/release.sh [--minor|--major] [--notes-file <path>]
 #                             [--skip-security-gate] [--skip-tests-gate]
-#                             [--skip-dependency-check] [--skip-deployment-check]
-#                             [--skip-sonar-gate]
+#                             [--skip-e2e-gate] [--skip-dependency-check]
+#                             [--skip-deployment-check] [--skip-sonar-gate]
 # Default: increments patch level, computes release notes from the commit
 # list (fetched via the same GitHub API `--generate-notes` itself calls),
 # and requires the deployment gate, the security gate, the tests gate,
-# the dependency freshness gate, and the SonarQube Cloud gate to all pass.
+# the end-to-end gate, the dependency freshness gate, and the SonarQube
+# Cloud gate to all pass.
 # Whichever notes are used (this auto-generated list, or --notes-file's
 # content), a "Vérifications effectuées" section reporting every gate's
 # outcome (verified, with details, or bypassed) is always appended at the
@@ -25,6 +26,14 @@ set -euo pipefail
 #                               unit tests (npm run test:coverage).
 #                               Emergency use only — prints a warning. See
 #                               check_tests_gate.
+#   --skip-e2e-gate            Bypass the end-to-end browser test
+#                               (npm run e2e). Emergency use only — prints
+#                               a warning. Separate from --skip-tests-gate
+#                               on purpose: this is the only gate needing
+#                               a MySQL server and a Chromium binary, and
+#                               a releaser missing either must not have to
+#                               drop PHPStan/PHPUnit/Vitest to get past it.
+#                               See check_e2e_gate.
 #   --skip-dependency-check    Bypass the outdated-dependency check
 #                               (direct Composer packages + every
 #                               vendored front-end library — Bootstrap,
@@ -45,6 +54,7 @@ BUMP="patch"
 NOTES_FILE=""
 SKIP_SECURITY_GATE=0
 SKIP_TESTS_GATE=0
+SKIP_E2E_GATE=0
 SKIP_DEPENDENCY_CHECK=0
 SKIP_DEPLOYMENT_CHECK=0
 SKIP_SONAR_GATE=0
@@ -61,12 +71,13 @@ while [[ $# -gt 0 ]]; do
             ;;
         --skip-security-gate) SKIP_SECURITY_GATE=1; shift ;;
         --skip-tests-gate) SKIP_TESTS_GATE=1; shift ;;
+        --skip-e2e-gate) SKIP_E2E_GATE=1; shift ;;
         --skip-dependency-check) SKIP_DEPENDENCY_CHECK=1; shift ;;
         --skip-deployment-check) SKIP_DEPLOYMENT_CHECK=1; shift ;;
         --skip-sonar-gate) SKIP_SONAR_GATE=1; shift ;;
         *)
             echo "ERROR: unknown argument: $1" >&2
-            echo "Usage: $0 [--minor|--major] [--notes-file <path>] [--skip-security-gate] [--skip-tests-gate] [--skip-dependency-check] [--skip-deployment-check] [--skip-sonar-gate]" >&2
+            echo "Usage: $0 [--minor|--major] [--notes-file <path>] [--skip-security-gate] [--skip-tests-gate] [--skip-e2e-gate] [--skip-dependency-check] [--skip-deployment-check] [--skip-sonar-gate]" >&2
             exit 1
             ;;
     esac
@@ -296,6 +307,37 @@ check_tests_gate() {
     echo "Tests gate OK: PHPStan, PHPUnit, and JavaScript unit tests passed."
 }
 
+# ---------------------------------------------------------------
+# End-to-end gate — mirrors CI's `e2e-tests` job: the real application,
+# served through public/index.php by `php -S`, driven by a headless
+# Chromium (Playwright) against a throwaway database. Runs BEFORE any git
+# commit/tag, same reasoning as every other gate.
+#
+# This is the only gate that proves the composition root in
+# public/index.php actually boots — PHPStan checks its argument types
+# statically and PHPUnit never executes it at all, which is exactly how a
+# TypeError on every request once shipped (AGENTS.md § Static analysis).
+#
+# Delegates wholesale to `npm run e2e` (scripts/e2e.sh): the release must
+# exercise the identical orchestration a developer and CI do, never a
+# second copy of it that can drift. That script provisions and tears down
+# its own instance, database, and port — nothing is left running here.
+#
+# Fail-closed on a missing npm/node_modules, same reasoning as the tests
+# gate above: silently running `npm ci` here would mask an improperly
+# prepared release environment instead of surfacing it.
+# ---------------------------------------------------------------
+check_e2e_gate() {
+    command -v npm &> /dev/null || { echo "ERROR: npm is required for the end-to-end gate (see package.json/README.md § Tests end-to-end) — install Node.js LTS, or re-run with --skip-e2e-gate (emergency use only)." >&2; exit 1; }
+    [[ -d node_modules ]] || { echo "ERROR: node_modules/ not found — run 'npm ci' first (see README.md § Développement), or re-run with --skip-e2e-gate (emergency use only)." >&2; exit 1; }
+
+    echo "Running end-to-end browser tests (npm run e2e)..."
+    npm run e2e
+
+    E2E_GATE_REPORT_LINE="vérifié — la page d'accueil publique démarre et s'affiche dans un vrai navigateur (Playwright/Chromium, via \`public/index.php\`)."
+    echo "E2E gate OK: the application boots and renders in a real browser."
+}
+
 # Checks one vendored front-end library's committed file against its
 # latest upstream GitHub release. There's no npm/package manager for any
 # of these (AGENTS.md's frontend rules — CSS/JS build tools are banned),
@@ -401,6 +443,15 @@ else
     check_tests_gate
 fi
 GATE_REPORT="${GATE_REPORT}- **Tests** : ${TESTS_GATE_REPORT_LINE}
+"
+
+if [[ "${SKIP_E2E_GATE}" -eq 1 ]]; then
+    echo "WARNING: --skip-e2e-gate used — the end-to-end browser test (npm run e2e) was NOT run for this release, so nothing verified that the application actually boots and renders. Emergency use only: run it immediately after publishing and fix any failure." >&2
+    E2E_GATE_REPORT_LINE="ignoré (\`--skip-e2e-gate\`) — test navigateur de bout en bout non exécuté, à vérifier manuellement."
+else
+    check_e2e_gate
+fi
+GATE_REPORT="${GATE_REPORT}- **Tests de bout en bout** : ${E2E_GATE_REPORT_LINE}
 "
 
 if [[ "${SKIP_DEPENDENCY_CHECK}" -eq 1 ]]; then

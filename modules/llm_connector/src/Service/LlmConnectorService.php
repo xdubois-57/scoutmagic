@@ -44,32 +44,38 @@ class LlmConnectorService implements LlmConnectorInterface
 
     public function isAvailable(): bool
     {
-        $provider = $this->providerRepo->findFirstActive();
+        $provider = $this->activeProvider();
         if ($provider === null) {
             return false;
         }
 
-        $cheapModel = $this->modelRepo->findByProviderAndTier($provider['id'], LlmTier::CHEAP);
-        $capableModel = $this->modelRepo->findByProviderAndTier($provider['id'], LlmTier::CAPABLE);
-        $ocrModel = $this->modelRepo->findByProviderAndTier($provider['id'], LlmTier::OCR);
+        foreach (LlmTier::cases() as $tier) {
+            if ($this->modelRepo->findByProviderAndTier($provider['id'], $tier) !== null) {
+                return true;
+            }
+        }
 
-        return $cheapModel !== null || $capableModel !== null || $ocrModel !== null;
+        return false;
+    }
+
+    public function isTierAvailable(LlmTier $tier): bool
+    {
+        $provider = $this->activeProvider();
+        if ($provider === null) {
+            return false;
+        }
+
+        return $this->resolveModel($provider['id'], $tier) !== null;
     }
 
     public function complete(LlmRequest $request): LlmResponse
     {
-        $provider = $this->providerRepo->findFirstActive();
+        $provider = $this->activeProvider();
         if ($provider === null) {
             throw LlmException::noProvider();
         }
 
-        $model = $this->modelRepo->findByProviderAndTier($provider['id'], $request->tier);
-        
-        // Fallback: if OCR tier is requested but no OCR model is assigned, use CHEAP
-        if ($model === null && $request->tier === LlmTier::OCR) {
-            $model = $this->modelRepo->findByProviderAndTier($provider['id'], LlmTier::CHEAP);
-        }
-        
+        $model = $this->resolveModel($provider['id'], $request->tier);
         if ($model === null) {
             throw LlmException::noModel($request->tier);
         }
@@ -137,6 +143,48 @@ class LlmConnectorService implements LlmConnectorInterface
             outputTokens: $providerResponse->outputTokens,
             truncated: $providerResponse->truncated
         );
+    }
+
+    /**
+     * The active provider, or null when there is none — including when its
+     * stored API key cannot be decrypted.
+     *
+     * ProviderRepository decrypts the key eagerly, so a wrong/rotated
+     * encryption key makes findFirstActive() throw DecryptionException. That
+     * used to escape isAvailable(), which several callers invoke while
+     * rendering a page: it turned an unusable API key into a 500 on the
+     * PUBLIC retrospective board (Modules\Retro\Controller\
+     * RetroBoardController::show()), the news editor and the gallery config
+     * page. An unreadable key means "no AI", never "the site is down".
+     *
+     * @return array{id: int, name: string, driver: string, api_endpoint: string, api_key: string}|null
+     */
+    private function activeProvider(): ?array
+    {
+        try {
+            return $this->providerRepo->findFirstActive();
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    /**
+     * The model backing a tier, applying the OCR → CHEAP fallback (no OCR
+     * model assigned still leaves a real chat model to read a receipt with).
+     * Shared by complete() and isTierAvailable() so the two can never
+     * disagree about whether a tier is usable.
+     *
+     * @return array{id: int, provider_id: int, model_id: string, display_name: string}|null
+     */
+    private function resolveModel(int $providerId, LlmTier $tier): ?array
+    {
+        $model = $this->modelRepo->findByProviderAndTier($providerId, $tier);
+
+        if ($model === null && $tier === LlmTier::OCR) {
+            $model = $this->modelRepo->findByProviderAndTier($providerId, LlmTier::CHEAP);
+        }
+
+        return $model;
     }
 
     /**

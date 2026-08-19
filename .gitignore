@@ -42,6 +42,14 @@ phpunit-report.xml
 coverage/
 *.vitest-temp/
 
+# Playwright end-to-end output (tests/e2e/, scripts/e2e.sh — generated
+# locally, in CI, and by the release E2E gate, never committed). The
+# throwaway application instance and its database live outside the repo
+# entirely (a mktemp directory) and are removed by the harness itself.
+tests/e2e/test-results/
+tests/e2e/playwright-report/
+tests/e2e/.playwright-artifacts-*/
+
 # PHPStan cache
 storage/temp/phpstan/
 

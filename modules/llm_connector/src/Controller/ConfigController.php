@@ -48,12 +48,21 @@ class ConfigController extends AbstractController
 
         $providers = $this->providerRepo->findAll();
 
-        // Group providers and models by driver
+        // Group providers and models by driver. On the rare install that
+        // already carries two rows for one driver (nothing enforced
+        // uniqueness before), keep the lowest id — that is the row
+        // ProviderRepository::findFirstActive() and findByDriver() both pick,
+        // so the page shows the provider actually in use rather than a
+        // shadowed duplicate.
         $providersByDriver = [];
         $modelsByDriver = [];
         foreach ($providers as $provider) {
-            $providersByDriver[$provider['driver']] = $provider;
-            $modelsByDriver[$provider['driver']] = $this->modelRepo->findByProvider($provider['id']);
+            $driver = $provider['driver'];
+            if (isset($providersByDriver[$driver]) && $providersByDriver[$driver]['id'] <= $provider['id']) {
+                continue;
+            }
+            $providersByDriver[$driver] = $provider;
+            $modelsByDriver[$driver] = $this->modelRepo->findByProvider($provider['id']);
         }
 
         $activeProvider = null;
@@ -123,19 +132,49 @@ class ConfigController extends AbstractController
             return $this->json(['success' => false, 'error' => 'Driver invalide.']);
         }
 
-        // Deactivate all providers first, then activate the one being saved
-        $this->providerRepo->deactivateAll();
-
-        if ($providerId !== null && $providerId > 0) {
-            // Update existing — apiKey null means "keep existing"
-            $keyToStore = $apiKey !== '' ? $apiKey : null;
-            $this->providerRepo->update($providerId, $name, $driver, $apiEndpoint, $keyToStore, true);
-        } else {
-            if ($apiKey === '') {
-                return $this->json(['success' => false, 'error' => 'La clé API est obligatoire pour un nouveau fournisseur.']);
-            }
-            $providerId = $this->providerRepo->create($name, $driver, $apiEndpoint, $apiKey, true);
+        if (!$this->isValidEndpoint($apiEndpoint)) {
+            return $this->json(['success' => false, 'error' => "L'adresse de l'API doit être une URL https valide."]);
         }
+
+        // The page is one-provider-per-driver, but the client only sends an
+        // id when its dropdown already knew about a saved provider. Without
+        // this, a save that lost the id created a second row for the same
+        // driver — invisible in the UI (which keys by driver) yet still
+        // reachable by findFirstActive()'s id ASC ordering.
+        if (($providerId === null || $providerId <= 0)) {
+            $existing = $this->providerRepo->findByDriver($driver);
+            if ($existing !== null) {
+                $providerId = $existing['id'];
+            }
+        }
+
+        // Every validation happens BEFORE the deactivate-then-activate block
+        // below. Deactivating first meant a rejected save (missing API key,
+        // unknown id) still turned every provider off: the administrator saw
+        // an error, assumed nothing had changed, and every AI feature on the
+        // site went quiet until the next successful save.
+        if ($providerId !== null && $providerId > 0) {
+            if ($this->providerRepo->findById($providerId) === null) {
+                return $this->json(['success' => false, 'error' => 'Fournisseur introuvable.']);
+            }
+        } elseif ($apiKey === '') {
+            return $this->json(['success' => false, 'error' => 'La clé API est obligatoire pour un nouveau fournisseur.']);
+        }
+
+        // "Exactly one active provider" is maintained by a deactivate-then-
+        // activate pair, so the two writes belong in one transaction — a
+        // failure between them would otherwise leave no provider active.
+        $this->providerRepo->transactional(function () use (&$providerId, $name, $driver, $apiEndpoint, $apiKey): void {
+            $this->providerRepo->deactivateAll();
+
+            if ($providerId !== null && $providerId > 0) {
+                // Update existing — apiKey null means "keep existing"
+                $keyToStore = $apiKey !== '' ? $apiKey : null;
+                $this->providerRepo->update($providerId, $name, $driver, $apiEndpoint, $keyToStore, true);
+            } else {
+                $providerId = $this->providerRepo->create($name, $driver, $apiEndpoint, $apiKey, true);
+            }
+        });
 
         $this->journalService->log(
             'llm_connector',
@@ -233,6 +272,24 @@ class ConfigController extends AbstractController
             ['id' => 'mistral', 'label' => 'Mistral AI', 'default_endpoint' => 'https://api.mistral.ai'],
             ['id' => 'scaleway', 'label' => 'Scaleway', 'default_endpoint' => 'https://api.scaleway.ai'],
         ];
+    }
+
+    /**
+     * The endpoint is concatenated into a URL and handed to the HTTP layer,
+     * so it must be a real https URL with a host — not merely non-empty. The
+     * dropdown only supplies a default client-side; the posted value is
+     * whatever the client chose to send.
+     */
+    private function isValidEndpoint(string $apiEndpoint): bool
+    {
+        if (filter_var($apiEndpoint, FILTER_VALIDATE_URL) === false) {
+            return false;
+        }
+
+        $scheme = parse_url($apiEndpoint, PHP_URL_SCHEME);
+        $host = parse_url($apiEndpoint, PHP_URL_HOST);
+
+        return $scheme === 'https' && is_string($host) && $host !== '';
     }
 
     private function createDriver(string $driver, string $apiEndpoint, string $apiKey): \Modules\LlmConnector\Provider\LlmProviderInterface
