@@ -51,7 +51,11 @@ class RgpdConfigController extends AbstractController
             }
         }
 
-        $llmAvailable = in_array('llm_connector', $this->moduleManager->getEnabledModuleIds(), true);
+        // Real availability, not just "the module is installed": an enabled
+        // llm_connector with no provider configured (or no model on the
+        // CAPABLE tier this document is generated on) used to still show the
+        // "Générer" button, and only fail after the click.
+        $llmAvailable = $this->rgpdContentService->isAvailable();
 
         return $this->render('config/rgpd.html.twig', [
             'mode' => $mode,
@@ -134,6 +138,13 @@ class RgpdConfigController extends AbstractController
 
         if (!in_array('llm_connector', $this->moduleManager->getEnabledModuleIds(), true)) {
             return $this->json(['success' => false, 'error' => 'Module IA non activé.'], 400);
+        }
+
+        if (!$this->rgpdContentService->isAvailable()) {
+            return $this->json([
+                'success' => false,
+                'error' => "Aucun fournisseur IA utilisable n'est configuré pour la génération de ce document.",
+            ], 400);
         }
 
         // Wrap the ENTIRE flow (generation + auto-save) so that ANY exception,
