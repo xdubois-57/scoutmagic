@@ -18,6 +18,7 @@ use Modules\Finance\Repository\Attachment;
 use Modules\Finance\Repository\AttachmentRepository;
 use Modules\Finance\Repository\TransactionAttachmentRepository;
 use Modules\Finance\Repository\TransactionRepository;
+use Modules\Finance\Service\ReceiptDateNormalizer;
 use Modules\Finance\Service\ReceiptMatchingService;
 use Modules\LlmConnector\Api\LlmException;
 use Modules\LlmConnector\Api\LlmRequest;
@@ -136,7 +137,7 @@ class ExtractReceiptDataHandler implements TaskHandlerInterface
         }
 
         $amount = isset($parsed['amount']) && is_numeric($parsed['amount']) ? (float) $parsed['amount'] : null;
-        $date = isset($parsed['date']) && is_string($parsed['date']) ? $this->normalizeDate($parsed['date']) : null;
+        $date = isset($parsed['date']) && is_string($parsed['date']) ? ReceiptDateNormalizer::normalize($parsed['date']) : null;
         $merchant = isset($parsed['merchant']) && is_string($parsed['merchant']) && trim($parsed['merchant']) !== ''
             ? mb_substr(trim($parsed['merchant']), 0, 255)
             : null;
@@ -241,45 +242,6 @@ class ExtractReceiptDataHandler implements TaskHandlerInterface
     {
         return "\n\nNom du fichier envoyé par l'utilisateur (peut contenir des indices utiles, ex. nom du magasin) : "
             . $originalFilename;
-    }
-
-    /**
-     * The prompt asks for AAAA-MM-JJ (ISO 8601), but a model's
-     * compliance with a requested string format is never guaranteed —
-     * observed in practice returning e.g. "27/10/2026" or an ISO
-     * datetime with a time component despite the instruction. Silently
-     * discarding anything that isn't exactly "YYYY-MM-DD" threw away a
-     * real, usable date the model had actually extracted correctly in
-     * most cases. This tolerates an ISO date/datetime and the European
-     * DD/MM/YYYY-style format (the convention on the receipts this
-     * module reads) — returns null only when nothing recognizable, or
-     * not a real calendar date, is found.
-     */
-    private function normalizeDate(string $rawDate): ?string
-    {
-        $value = trim($rawDate);
-        if ($value === '') {
-            return null;
-        }
-
-        if (preg_match('/^(\d{4})-(\d{2})-(\d{2})/', $value, $m) === 1) {
-            return $this->validDateOrNull((int) $m[1], (int) $m[2], (int) $m[3]);
-        }
-
-        if (preg_match('#^(\d{1,2})[./-](\d{1,2})[./-](\d{4})$#', $value, $m) === 1) {
-            return $this->validDateOrNull((int) $m[3], (int) $m[2], (int) $m[1]);
-        }
-
-        return null;
-    }
-
-    private function validDateOrNull(int $year, int $month, int $day): ?string
-    {
-        if (!checkdate($month, $day, $year)) {
-            return null;
-        }
-
-        return sprintf('%04d-%02d-%02d', $year, $month, $day);
     }
 
     /**

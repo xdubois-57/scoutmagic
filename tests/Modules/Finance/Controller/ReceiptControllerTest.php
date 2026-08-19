@@ -81,7 +81,7 @@ class ReceiptControllerTest extends TestCase
 
         $this->storagePath = sys_get_temp_dir() . '/finance_receipt_controller_test_' . uniqid();
         $fileStorage = new EncryptedFileStorageService(new FileRepository($this->pdo), $encryption, $this->storagePath);
-        $receiptService = new ReceiptService($this->attachmentRepository, $this->accountRepository, $this->transactionAttachmentRepository, $fileStorage);
+        $receiptService = new ReceiptService($this->attachmentRepository, $this->accountRepository, $this->transactionAttachmentRepository, $fileStorage, $this->transactionRepository);
         $extractionService = new ReceiptExtractionService(new SchedulerService(new SchedulerRepository($this->pdo)), null);
         $journalService = new JournalService(new JournalRepository($this->pdo));
 

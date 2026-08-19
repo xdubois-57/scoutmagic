@@ -78,7 +78,7 @@ class MovementControllerTest extends TestCase
             $settingService, $categoryRuleRepository, $accountTransferCategoryService
         );
         $fileStorage = new EncryptedFileStorageService(new FileRepository($this->pdo), $encryption, sys_get_temp_dir() . '/finance_movement_test_' . uniqid());
-        $receiptService = new ReceiptService($attachmentRepository, $this->accountRepository, $transactionAttachmentRepository, $fileStorage);
+        $receiptService = new ReceiptService($attachmentRepository, $this->accountRepository, $transactionAttachmentRepository, $fileStorage, $this->transactionRepository);
         $receiptExtractionService = new \Modules\Finance\Service\ReceiptExtractionService(
             new \Core\Scheduler\SchedulerService(new \Core\Scheduler\SchedulerRepository($this->pdo)), null
         );

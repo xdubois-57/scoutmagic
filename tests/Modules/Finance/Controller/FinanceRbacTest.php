@@ -146,7 +146,7 @@ class FinanceRbacTest extends TestCase
             $receiptMatchingService, $this->bulkCategorizationService
         );
         $fileStorage = new EncryptedFileStorageService(new FileRepository($this->pdo), $encryption, sys_get_temp_dir() . '/finance_rbac_test_' . uniqid());
-        $this->receiptService = new ReceiptService($this->attachmentRepository, $accountRepository, $this->transactionAttachmentRepository, $fileStorage);
+        $this->receiptService = new ReceiptService($this->attachmentRepository, $accountRepository, $this->transactionAttachmentRepository, $fileStorage, $this->transactionRepository);
         $this->receiptExtractionService = new ReceiptExtractionService($this->schedulerService, null);
 
         $templateDir = dirname(__DIR__, 4) . '/core/View/templates';

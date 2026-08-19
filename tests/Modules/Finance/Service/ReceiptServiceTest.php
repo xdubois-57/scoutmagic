@@ -12,6 +12,7 @@ use Modules\Finance\Repository\AccountRepository;
 use Modules\Finance\Repository\Attachment;
 use Modules\Finance\Repository\AttachmentRepository;
 use Modules\Finance\Repository\TransactionAttachmentRepository;
+use Modules\Finance\Repository\TransactionRepository;
 use Modules\Finance\Service\FinanceException;
 use Modules\Finance\Service\ReceiptService;
 use PHPUnit\Framework\TestCase;
@@ -30,6 +31,7 @@ class ReceiptServiceTest extends TestCase
     private AttachmentRepository $attachmentRepository;
     private TransactionAttachmentRepository $transactionAttachmentRepository;
     private EncryptedFileStorageService $fileStorage;
+    private TransactionRepository $transactionRepository;
     private string $storagePath;
     private ?int $sharedFiscalYearId = null;
     private int $accountId;
@@ -43,10 +45,11 @@ class ReceiptServiceTest extends TestCase
         $this->accountRepository = new AccountRepository($this->pdo, $encryption);
         $this->attachmentRepository = new AttachmentRepository($this->pdo, $encryption);
         $this->transactionAttachmentRepository = new TransactionAttachmentRepository($this->pdo);
+        $this->transactionRepository = new TransactionRepository($this->pdo, $encryption);
         $this->storagePath = sys_get_temp_dir() . '/finance_receipt_service_test_' . uniqid();
         $this->fileStorage = new EncryptedFileStorageService(new FileRepository($this->pdo), $encryption, $this->storagePath);
 
-        $this->service = new ReceiptService($this->attachmentRepository, $this->accountRepository, $this->transactionAttachmentRepository, $this->fileStorage);
+        $this->service = new ReceiptService($this->attachmentRepository, $this->accountRepository, $this->transactionAttachmentRepository, $this->fileStorage, $this->transactionRepository);
 
         $this->accountId = $this->accountRepository->create('Compte', Account::TYPE_BANK, null, null, null, 'intendant');
     }
@@ -70,14 +73,14 @@ class ReceiptServiceTest extends TestCase
         rmdir($dir);
     }
 
-    private function createTransaction(): int
+    private function createTransaction(?int $accountId = null): int
     {
         if ($this->sharedFiscalYearId === null) {
             $this->sharedFiscalYearId = FinanceTestHelper::createScoutYear($this->pdo, '2026-2027', '2026-09-01', '2027-08-31');
         }
 
         $stmt = $this->pdo->prepare('INSERT INTO finance_transactions (account_id, fiscal_year_id, transaction_date, label, amount, source) VALUES (?, ?, ?, ?, ?, ?)');
-        $stmt->execute([$this->accountId, $this->sharedFiscalYearId, '2026-10-01', 'x', -1.0, 'manual']);
+        $stmt->execute([$accountId ?? $this->accountId, $this->sharedFiscalYearId, '2026-10-01', 'x', -1.0, 'manual']);
         return (int) $this->pdo->lastInsertId();
     }
 
@@ -195,6 +198,66 @@ class ReceiptServiceTest extends TestCase
     {
         $this->expectException(FinanceException::class);
         $this->service->associate(9999, [1]);
+    }
+
+    /**
+     * Regression: the transaction ids arrive straight from the client's
+     * JSON body and used to be inserted with no check at all, while the
+     * caller had only ever been authorized against the *receipt*. Linking
+     * a receipt to a movement on another account then exposed that
+     * movement's decrypted label/amount/date through
+     * Controller\ReceiptController::movements().
+     */
+    public function testAssociateRefusesAMovementFromAnotherAccount(): void
+    {
+        $otherAccountId = $this->accountRepository->create('Autre compte', Account::TYPE_BANK, null, null, null, 'admin');
+        $foreignTransactionId = $this->createTransaction($otherAccountId);
+        $attachment = $this->service->upload('content', 'application/pdf', 'a.pdf', $this->accountId, null, null, 1);
+
+        try {
+            $this->service->associate($attachment->id, [$foreignTransactionId]);
+            $this->fail('associate() must reject a movement belonging to another account');
+        } catch (FinanceException $e) {
+            $this->assertStringContainsString('autre compte', $e->getMessage());
+        }
+
+        $this->assertSame([], $this->transactionAttachmentRepository->findTransactionIdsForAttachment($attachment->id));
+    }
+
+    public function testAssociateRefusesAnUnknownMovement(): void
+    {
+        $attachment = $this->service->upload('content', 'application/pdf', 'a.pdf', $this->accountId, null, null, 1);
+
+        try {
+            $this->service->associate($attachment->id, [999999]);
+            $this->fail('associate() must reject an unknown movement');
+        } catch (FinanceException $e) {
+            $this->assertStringContainsString('introuvable', $e->getMessage());
+        }
+
+        $this->assertSame([], $this->transactionAttachmentRepository->findTransactionIdsForAttachment($attachment->id));
+    }
+
+    /**
+     * One bad id in the batch rejects the whole call rather than leaving
+     * the valid ones behind — a partially-applied association would be
+     * invisible to the caller, who only ever sees the error.
+     */
+    public function testAssociateIsAllOrNothingWhenOneIdIsInvalid(): void
+    {
+        $otherAccountId = $this->accountRepository->create('Autre compte', Account::TYPE_BANK, null, null, null, 'admin');
+        $validTransactionId = $this->createTransaction();
+        $foreignTransactionId = $this->createTransaction($otherAccountId);
+        $attachment = $this->service->upload('content', 'application/pdf', 'a.pdf', $this->accountId, null, null, 1);
+
+        try {
+            $this->service->associate($attachment->id, [$validTransactionId, $foreignTransactionId]);
+            $this->fail('associate() must reject the whole batch');
+        } catch (FinanceException) {
+            // expected
+        }
+
+        $this->assertSame([], $this->transactionAttachmentRepository->findTransactionIdsForAttachment($attachment->id));
     }
 
     public function testDissociateRemovesOneLink(): void
