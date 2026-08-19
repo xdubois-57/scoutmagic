@@ -850,6 +850,91 @@ class MaintenanceControllerTest extends TestCase
         $this->assertFalse($decoded['success']);
     }
 
+    // --- reconciliation of the pending weekly-slot install on save ---
+
+    /**
+     * @return array{0: int, 1: int} [historyId, actionId]
+     */
+    private function seedPendingScheduledInstall(string $versionTo): array
+    {
+        $historyId = $this->updateHistoryRepository->create('0.0.0', $versionTo, false, null);
+        $actionId = $this->schedulerRepository->create(
+            'core',
+            'install_update',
+            '2099-01-04 03:00:00',
+            json_encode(['history_id' => $historyId, 'download_url' => 'https://example.test/artifact.zip', 'source_type' => 'release']),
+            'scheduled_install'
+        );
+
+        return [$historyId, $actionId];
+    }
+
+    public function testSaveAutoUpdatePreferencesSwitchingToDevCancelsThePendingScheduledInstall(): void
+    {
+        [$historyId, $actionId] = $this->seedPendingScheduledInstall('2.4.2');
+
+        $request = $this->jsonRequest(['enabled' => true, 'level' => 'dev', 'branch' => 'main', '_csrf_token' => $this->csrfToken()]);
+        $response = $this->controller->saveAutoUpdatePreferences($request, []);
+
+        $this->assertTrue(json_decode($response->getBody(), true)['success']);
+        $this->assertSame('canceled', $this->schedulerRepository->findById($actionId)['status']);
+        $this->assertSame('failed', $this->updateHistoryRepository->findById($historyId)->status);
+    }
+
+    public function testSaveAutoUpdatePreferencesDisablingAutoUpdatesCancelsThePendingScheduledInstall(): void
+    {
+        [$historyId, $actionId] = $this->seedPendingScheduledInstall('2.4.2');
+
+        $request = $this->jsonRequest(['enabled' => false, 'level' => 'major', 'day' => 'monday', 'time' => '03:00', '_csrf_token' => $this->csrfToken()]);
+        $response = $this->controller->saveAutoUpdatePreferences($request, []);
+
+        $this->assertTrue(json_decode($response->getBody(), true)['success']);
+        $this->assertSame('canceled', $this->schedulerRepository->findById($actionId)['status']);
+        $this->assertSame('failed', $this->updateHistoryRepository->findById($historyId)->status);
+    }
+
+    public function testSaveAutoUpdatePreferencesMovesThePendingScheduledInstallToTheNewSlot(): void
+    {
+        // No VERSION file at dirname(storagePath) → installed is 0.0.0, so
+        // 0.0.0 → 2.4.2 is a major bump: allowed at level 'major'.
+        [$historyId, $actionId] = $this->seedPendingScheduledInstall('2.4.2');
+
+        $request = $this->jsonRequest(['enabled' => true, 'level' => 'major', 'day' => 'friday', 'time' => '22:30', '_csrf_token' => $this->csrfToken()]);
+        $response = $this->controller->saveAutoUpdatePreferences($request, []);
+
+        $this->assertTrue(json_decode($response->getBody(), true)['success']);
+        $this->assertSame('canceled', $this->schedulerRepository->findById($actionId)['status']);
+        // The target release is still wanted — its history row stays pending.
+        $this->assertSame('pending', $this->updateHistoryRepository->findById($historyId)->status);
+
+        $moved = $this->schedulerRepository->findByModuleAndKey('core', 'install_update', 'scheduled_install');
+        $this->assertNotNull($moved);
+        $payload = json_decode((string) $moved['payload'], true);
+        $this->assertSame($historyId, $payload['history_id']);
+        $this->assertSame('https://example.test/artifact.zip', $payload['download_url']);
+
+        // run_at is stored in the server's timezone; the configured slot is
+        // Brussels wall-clock time — convert back to check day + time.
+        $runAtLocal = (new \DateTimeImmutable((string) $moved['run_at']))
+            ->setTimezone(new \DateTimeZone('Europe/Brussels'));
+        $this->assertSame('5', $runAtLocal->format('N'), 'must land on a Friday (Brussels)');
+        $this->assertSame('22:30', $runAtLocal->format('H:i'));
+    }
+
+    public function testSaveAutoUpdatePreferencesCancelsAPendingInstallNoLongerAllowedByTheNarrowedLevel(): void
+    {
+        // 0.0.0 → 0.1.0 is a minor bump — no longer allowed once the admin
+        // narrows the level to 'patch'.
+        [$historyId, $actionId] = $this->seedPendingScheduledInstall('0.1.0');
+
+        $request = $this->jsonRequest(['enabled' => true, 'level' => 'patch', 'day' => 'monday', 'time' => '03:00', '_csrf_token' => $this->csrfToken()]);
+        $response = $this->controller->saveAutoUpdatePreferences($request, []);
+
+        $this->assertTrue(json_decode($response->getBody(), true)['success']);
+        $this->assertSame('canceled', $this->schedulerRepository->findById($actionId)['status']);
+        $this->assertSame('failed', $this->updateHistoryRepository->findById($historyId)->status);
+    }
+
     // --- "Vérifier maintenant" (POST /config/maintenance/update/check-now) ---
 
     public function testCheckForUpdatesNowValidatesCsrf(): void

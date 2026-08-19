@@ -55,6 +55,8 @@ class GitHubWebhookServiceTest extends TestCase
     private function fakeClient(bool $composerLockChanged = false, ?\Throwable $throws = null, ?ReleaseInfo $latestRelease = null): GitHubReleaseClientInterface
     {
         return new class ($composerLockChanged, $throws, $latestRelease) implements GitHubReleaseClientInterface {
+            public ?string $lastCompareBase = null;
+
             public function __construct(private bool $changed, private ?\Throwable $throws, private ?ReleaseInfo $latestRelease)
             {
             }
@@ -71,6 +73,7 @@ class GitHubWebhookServiceTest extends TestCase
 
             public function composerLockChanged(string $base, string $head): bool
             {
+                $this->lastCompareBase = $base;
                 if ($this->throws !== null) {
                     throw $this->throws;
                 }
@@ -217,6 +220,47 @@ class GitHubWebhookServiceTest extends TestCase
         $this->assertSame(['status' => 'ok'], $result);
         $count = (int) $this->pdo->query("SELECT COUNT(*) FROM scheduled_actions WHERE task_key = 'install_update'")->fetchColumn();
         $this->assertSame(1, $count);
+    }
+
+    /**
+     * The reported production bug: a dev build's version components parse
+     * as 0.0.0, so classifying the bump type called EVERY release a major
+     * bump — an admin who switched the channel from 'dev' back to the
+     * default 'minor' (or 'patch') never got the release installed at all
+     * ('version_type_not_allowed' on every event and daily check). Moving
+     * off a dev build must be allowed at any stable level.
+     */
+    public function testHandleReleaseEventSchedulesAReleaseOverAnInstalledDevBuildEvenAtPatchLevel(): void
+    {
+        file_put_contents($this->basePath . '/VERSION', "dev-a1b2c3d\n");
+        $this->settings->set('auto_update_enabled', '1');
+        $this->settings->set('auto_update_level', 'patch');
+        $this->settings->clearCache();
+
+        $result = $this->service()->handleReleaseEvent($this->releasePayload('v3.0.0'));
+
+        $this->assertSame(['status' => 'ok'], $result);
+        $scheduled = $this->schedulerRepository->findByModuleAndKey('core', 'install_update', 'scheduled_install');
+        $this->assertNotNull($scheduled);
+    }
+
+    /**
+     * "vdev-{sha}" is never a real tag — the composer.lock compare for an
+     * installed dev build must run from the commit sha itself, not from a
+     * "v" + VERSION ref that always 404s (and therefore always reported
+     * "dependencies changed" on a dev-build → release transition).
+     */
+    public function testHandleReleaseEventComparesComposerLockFromTheDevBuildCommitSha(): void
+    {
+        file_put_contents($this->basePath . '/VERSION', "dev-a1b2c3d\n");
+        $this->settings->set('auto_update_enabled', '1');
+        $this->settings->set('auto_update_level', 'minor');
+        $this->settings->clearCache();
+
+        $client = $this->fakeClient();
+        $this->service($client)->handleReleaseEvent($this->releasePayload('v3.0.0'));
+
+        $this->assertSame('a1b2c3d', $client->lastCompareBase);
     }
 
     public function testHandleReleaseEventIgnoredWhenAutoUpdateDisabled(): void
@@ -519,5 +563,65 @@ class GitHubWebhookServiceTest extends TestCase
         $result = $this->service()->handlePushEvent(['ref' => 'refs/heads/main', 'after' => '', 'repository' => ['full_name' => 'owner/repo']]);
 
         $this->assertSame(['status' => 'ignored', 'reason' => 'invalid_payload'], $result);
+    }
+
+    // --- isBumpAllowed() ---
+
+    public function testIsBumpAllowedGatesSemverBumpsByLevel(): void
+    {
+        $this->assertTrue(GitHubWebhookService::isBumpAllowed('2.4.1', '2.4.2', 'patch'));
+        $this->assertFalse(GitHubWebhookService::isBumpAllowed('2.4.1', '2.5.0', 'patch'));
+        $this->assertTrue(GitHubWebhookService::isBumpAllowed('2.4.1', '2.5.0', 'minor'));
+        $this->assertFalse(GitHubWebhookService::isBumpAllowed('2.4.1', '3.0.0', 'minor'));
+        $this->assertTrue(GitHubWebhookService::isBumpAllowed('2.4.1', '3.0.0', 'major'));
+    }
+
+    public function testIsBumpAllowedAlwaysAllowsLeavingAnInstalledDevBuild(): void
+    {
+        $this->assertTrue(GitHubWebhookService::isBumpAllowed('dev-a1b2c3d', '2.4.2', 'patch'));
+        $this->assertTrue(GitHubWebhookService::isBumpAllowed('dev-a1b2c3d', '3.0.0', 'minor'));
+    }
+
+    // --- nextOccurrence() ---
+
+    /**
+     * The configured slot is wall-clock Brussels time, never the server's
+     * PHP timezone (frequently UTC on shared hosting): "monday 03:00" is
+     * 02:00 UTC in winter (CET, +01:00)…
+     */
+    public function testNextOccurrenceInterpretsTheSlotInBrusselsWinterTime(): void
+    {
+        // Wednesday 2026-01-07 noon UTC → next Monday is 2026-01-12.
+        $now = new \DateTimeImmutable('2026-01-07 12:00:00', new \DateTimeZone('UTC'));
+
+        $runAt = GitHubWebhookService::nextOccurrence('monday', '03:00', $now);
+
+        $this->assertSame('2026-01-12 02:00:00', $runAt->format('Y-m-d H:i:s'));
+        $this->assertSame('UTC', $runAt->getTimezone()->getName(), 'must be converted back to the caller\'s timezone for naive run_at storage');
+    }
+
+    /**
+     * …and 01:00 UTC in summer (CEST, +02:00) — the DST shift must follow
+     * the local wall clock, not a fixed offset.
+     */
+    public function testNextOccurrenceInterpretsTheSlotInBrusselsSummerTime(): void
+    {
+        // Wednesday 2026-07-08 noon UTC → next Monday is 2026-07-13.
+        $now = new \DateTimeImmutable('2026-07-08 12:00:00', new \DateTimeZone('UTC'));
+
+        $runAt = GitHubWebhookService::nextOccurrence('monday', '03:00', $now);
+
+        $this->assertSame('2026-07-13 01:00:00', $runAt->format('Y-m-d H:i:s'));
+    }
+
+    public function testNextOccurrencePushesANearImmediateSlotAFullWeekOut(): void
+    {
+        // Monday 2026-01-12 01:58 UTC = 02:58 Brussels — the "monday 03:00"
+        // slot is only 2 minutes away, inside the 5-minute guard.
+        $now = new \DateTimeImmutable('2026-01-12 01:58:00', new \DateTimeZone('UTC'));
+
+        $runAt = GitHubWebhookService::nextOccurrence('monday', '03:00', $now);
+
+        $this->assertSame('2026-01-19 02:00:00', $runAt->format('Y-m-d H:i:s'));
     }
 }
