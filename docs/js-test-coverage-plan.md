@@ -1,10 +1,49 @@
 # JavaScript unit test coverage — gap analysis and implementation plan
 
-**Status:** plan only, no code changes.
+**Status:** steps 0, 1, 2 and P1.1 implemented — see §0 below. Remainder still plan.
 **Revision:** §3 and §7 rewritten after a challenge to the original "don't test DOM wiring"
 position. That position was wrong; §7 now carries the measurement that settles it.
 **Scope:** first-party browser JavaScript (`public/assets/js/*.js` + `public/sw.js`).
 **Measured on:** branch `claude/js-test-coverage-plan-hks4bw`, at `b5b9fa4`.
+
+---
+
+## 0. Progress
+
+| Item | State | Result |
+| --- | --- | --- |
+| §4.1 `coverage.include` widened to `public/sw.js` | **done** | sw.js is measured for the first time |
+| **P1.2** `sw.js` whitelist bug + `tests/js/sw.test.js` | **done** | Bug fixed; 33 tests; sw.js 0 % → 63.9 % stmts, 100 % branch |
+| **§7** `notification-badge.js`, `settings.js` wiring specs | **done** | 17 tests; 100 % and 97.7 % stmts |
+| **P1.1** `news-form-builder.js` sanitizer | **done** | 37 tests, mutation-checked; file 0 % → 27.5 % stmts |
+| **P1.3 + P1.4** `retro-board.js` + escaping consolidation | open | |
+| **P1.5** CSRF/endpoint contract sweep (§7.4) | open | |
+| **P2.x** | open | |
+
+**Measured now:** 6 spec files, **97 tests**, JS **15.17 %** statements / **73.39 %** branch /
+34.21 % functions — from 2 files, 10 tests, 1.83 % / 46 % / 19.35 % at the start.
+
+Statement coverage understates the change here. Branch coverage went 46 % → 73.39 % because
+the work targeted decision-dense code; and the denominator grew when `sw.js` entered the
+measurement, so the 1.83 % → 15.17 % move is against a *larger* codebase than the baseline
+number described.
+
+### 0.1 Practice worth carrying into the remaining steps: mutation-check security tests
+
+The sanitizer suite passed 36/36 on first run, which for security-critical code is a reason
+for suspicion rather than confidence. Eight deliberate breaks were introduced one at a time
+to see whether the suite could actually fail. Seven were caught. The eighth was not:
+
+Deleting the `name.indexOf('on') === 0` guard in `sanitizeHtmlAttributes()` broke **nothing**,
+because no per-tag allowlist contains an attribute starting with `on`, so the allowlist check
+already rejects every handler. The guard is pure defence-in-depth, and therefore invisible to
+any test that goes through `sanitizeHtml()`. A test now drives `sanitizeHtmlAttributes()`
+against a deliberately doctored allowlist to pin that layer on its own merits, so it cannot be
+deleted as "redundant" without a failure.
+
+The general lesson for P1.3 and P1.5: **a green security suite proves nothing until you have
+watched it go red.** Break the thing on purpose first. It costs minutes and it is the only way
+to find an assertion that cannot fail.
 
 ---
 
@@ -40,13 +79,14 @@ not**, including every large, complex, and security-relevant one.
 
 ## 2. Current state, per file
 
-Sorted by Sonar `uncovered_lines`. `cog` = Sonar cognitive complexity. `import-safe` =
+Sorted by Sonar `uncovered_lines`. **Coverage column updated for the four files done in §0**;
+the Sonar `Uncov.` column is the pre-work baseline. `cog` = Sonar cognitive complexity. `import-safe` =
 whether `import`ing the file into a bare jsdom document succeeds (verified empirically —
 see §4.2).
 
 | File | Lines | Uncov. | cog | Cov. | import-safe |
 | --- | --- | --- | --- | --- | --- |
-| `news-form-builder.js` | 1053 | 942 | **323** | 0 % | yes |
+| `news-form-builder.js` | 1053 | 942 | **323** | **27.5 %** | yes |
 | `maintenance.js` | 602 | 552 | **150** | 0 % | yes |
 | `setup.js` | 467 | 433 | – | 0 % | **no** |
 | `retro-board.js` | 385 | 346 | **168** | 0 % | yes |
@@ -59,13 +99,13 @@ see §4.2).
 | `list-editor.js` | 159 | 149 | 62 | 0 % | yes |
 | `offline-prefetch.js` | 161 | 147 | 38 | 0 % | yes |
 | `push-notifications.js` | 144 | 130 | 40 | 0 % | yes |
-| `sw.js` | 477 | 123 | 43 | 0 % | n/a (see §4.1) |
+| `sw.js` | 477 | 123 | 43 | **63.9 %** | yes (verified) |
 | `editable.js` | 108 | 99 | – | 0 % | yes |
-| `settings.js` | 99 | 88 | 18 | 0 % | yes |
+| `settings.js` | 99 | 88 | 18 | **97.7 %** | yes |
 | `offline-cache.js` | 95 | 86 | 12 | 0 % | yes |
 | `rich-text-field.js` | 87 | 79 | 25 | 0 % | yes |
 | `notification-preferences.js` | 85 | 78 | 20 | 0 % | yes |
-| `notification-badge.js` | 77 | 70 | 31 | 0 % | yes |
+| `notification-badge.js` | 77 | 70 | 31 | **100 %** | yes |
 | `retro-config.js` | 68 | 63 | 26 | 0 % | yes |
 | `breadcrumb.js` | 70 | 62 | 17 | 0 % | yes |
 | `nav.js` | 55 | 47 | – | 0 % | yes |
