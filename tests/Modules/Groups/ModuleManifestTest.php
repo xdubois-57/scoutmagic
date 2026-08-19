@@ -95,6 +95,34 @@ class ModuleManifestTest extends TestCase
         );
     }
 
+    /**
+     * Regression guard: every PostController route once declared its
+     * controller as "Modules\\\\Groups\\\\Controller\\\\PostController"
+     * in the JSON source — valid JSON, but the doubled escaping decodes
+     * to a class name containing literal double backslashes, which never
+     * matches Core\Http\FrontController's registered-instance lookup
+     * (keyed by the real, single-backslash ::class constant) nor
+     * class_exists(). ModuleManifest never validates this itself (a
+     * malformed but syntactically valid string parses fine), so the
+     * break only ever surfaced as a fatal "Class ... not found" the
+     * moment a visitor actually hit one of those routes in production —
+     * this asserts every declared controller is the genuine, loadable
+     * class instead.
+     */
+    public function testEveryRoutesControllerClassActuallyExists(): void
+    {
+        foreach ($this->manifest->routes as $route) {
+            $this->assertTrue(
+                class_exists($route['controller']),
+                "{$route['method']} {$route['path']} declares a controller that does not exist: {$route['controller']}"
+            );
+            $this->assertTrue(
+                is_subclass_of($route['controller'], \Core\Http\Controller\AbstractController::class),
+                "{$route['controller']} must extend AbstractController"
+            );
+        }
+    }
+
     public function testItDeclaresNoOfflinePageNoCookieAndNoStorage(): void
     {
         // Group content is private: it never goes into the offline cache

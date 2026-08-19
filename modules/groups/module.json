@@ -132,7 +132,7 @@
     {
       "path": "/groups/{id}/feed",
       "method": "GET",
-      "controller": "Modules\\\\Groups\\\\Controller\\\\PostController",
+      "controller": "Modules\\Groups\\Controller\\PostController",
       "action": "feed",
       "menu": "espace_animes",
       "role_min": "identified",
@@ -141,7 +141,7 @@
     {
       "path": "/groups/{id}/posts",
       "method": "POST",
-      "controller": "Modules\\\\Groups\\\\Controller\\\\PostController",
+      "controller": "Modules\\Groups\\Controller\\PostController",
       "action": "create",
       "menu": "espace_animes",
       "role_min": "identified",
@@ -150,7 +150,7 @@
     {
       "path": "/groups/{id}/posts/{postId}/edit",
       "method": "POST",
-      "controller": "Modules\\\\Groups\\\\Controller\\\\PostController",
+      "controller": "Modules\\Groups\\Controller\\PostController",
       "action": "edit",
       "menu": "espace_animes",
       "role_min": "identified",
@@ -159,7 +159,7 @@
     {
       "path": "/groups/{id}/posts/{postId}/delete",
       "method": "POST",
-      "controller": "Modules\\\\Groups\\\\Controller\\\\PostController",
+      "controller": "Modules\\Groups\\Controller\\PostController",
       "action": "delete",
       "menu": "espace_animes",
       "role_min": "identified",
@@ -168,7 +168,7 @@
     {
       "path": "/groups/{id}/posts/{postId}/pin",
       "method": "POST",
-      "controller": "Modules\\\\Groups\\\\Controller\\\\PostController",
+      "controller": "Modules\\Groups\\Controller\\PostController",
       "action": "pin",
       "menu": "espace_animes",
       "role_min": "identified",
@@ -177,7 +177,7 @@
     {
       "path": "/groups/{id}/posts/{postId}/unpin",
       "method": "POST",
-      "controller": "Modules\\\\Groups\\\\Controller\\\\PostController",
+      "controller": "Modules\\Groups\\Controller\\PostController",
       "action": "unpin",
       "menu": "espace_animes",
       "role_min": "identified",
