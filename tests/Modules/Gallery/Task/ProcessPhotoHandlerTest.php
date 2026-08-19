@@ -152,6 +152,110 @@ class ProcessPhotoHandlerTest extends TestCase
         $this->assertTrue(true);
     }
 
+    /**
+     * Task\MigrateAlbumStorageHandler copies the album's renditions and then
+     * deletes the source prefix. A processing task running in that window
+     * writes its renditions to the source — already copied past — and the
+     * final cleanup deletes them, leaving a permanently broken media row. The
+     * task must stand aside and come back instead.
+     */
+    public function testDefersAndKeepsTheMediaPendingWhileTheAlbumIsMigrating(): void
+    {
+        $fileId = $this->createOriginalFile();
+        $mediaId = $this->mediaRepository->create($this->albumId, Media::TYPE_PHOTO, $fileId, 0, 'test.jpg');
+        $albumRepository = new AlbumRepository($this->pdo);
+        $targetId = (new StorageLocationRepository($this->pdo, $this->encryption))->create(
+            StorageLocation::TYPE_LOCAL, 'Cible', 'gallery2', null, null, null, null, null, null, null
+        );
+        $albumRepository->startMigration($this->albumId, $targetId);
+
+        (new ProcessPhotoHandler())->handle(['media_id' => $mediaId], $this->buildContext());
+
+        $this->assertSame(Media::STATUS_PENDING, $this->mediaRepository->findById($mediaId)->processingStatus);
+        $this->assertNull($this->mediaRepository->findById($mediaId)->thumbPath);
+        $this->assertSame(
+            1,
+            (int) $this->pdo->query("SELECT COUNT(*) FROM scheduled_actions WHERE task_key = 'process_photo'")->fetchColumn()
+        );
+    }
+
+    public function testTheDeferredTaskCarriesAnIncrementedCounter(): void
+    {
+        $fileId = $this->createOriginalFile();
+        $mediaId = $this->mediaRepository->create($this->albumId, Media::TYPE_PHOTO, $fileId, 0, 'test.jpg');
+        $targetId = (new StorageLocationRepository($this->pdo, $this->encryption))->create(
+            StorageLocation::TYPE_LOCAL, 'Cible', 'gallery2', null, null, null, null, null, null, null
+        );
+        (new AlbumRepository($this->pdo))->startMigration($this->albumId, $targetId);
+
+        (new ProcessPhotoHandler())->handle(['media_id' => $mediaId, 'migration_deferrals' => 3], $this->buildContext());
+
+        $payload = (string) $this->pdo->query("SELECT payload FROM scheduled_actions WHERE task_key = 'process_photo'")->fetchColumn();
+        $this->assertStringContainsString('"migration_deferrals":4', $payload);
+    }
+
+    /**
+     * A migration wedged on 'in_progress' (its handler killed mid-run) must not
+     * re-queue the same task forever.
+     */
+    public function testGivesUpAndFailsTheMediaOnceTheDeferralBudgetIsSpent(): void
+    {
+        $fileId = $this->createOriginalFile();
+        $mediaId = $this->mediaRepository->create($this->albumId, Media::TYPE_PHOTO, $fileId, 0, 'test.jpg');
+        $targetId = (new StorageLocationRepository($this->pdo, $this->encryption))->create(
+            StorageLocation::TYPE_LOCAL, 'Cible', 'gallery2', null, null, null, null, null, null, null
+        );
+        (new AlbumRepository($this->pdo))->startMigration($this->albumId, $targetId);
+
+        (new ProcessPhotoHandler())->handle(['media_id' => $mediaId, 'migration_deferrals' => 10], $this->buildContext());
+
+        $this->assertSame(Media::STATUS_FAILED, $this->mediaRepository->findById($mediaId)->processingStatus);
+        $this->assertSame(
+            0,
+            (int) $this->pdo->query("SELECT COUNT(*) FROM scheduled_actions WHERE task_key = 'process_photo'")->fetchColumn()
+        );
+    }
+
+    public function testProcessesNormallyOnceAMigrationHasFailed(): void
+    {
+        $fileId = $this->createOriginalFile();
+        $mediaId = $this->mediaRepository->create($this->albumId, Media::TYPE_PHOTO, $fileId, 0, 'test.jpg');
+        $albumRepository = new AlbumRepository($this->pdo);
+        $targetId = (new StorageLocationRepository($this->pdo, $this->encryption))->create(
+            StorageLocation::TYPE_LOCAL, 'Cible', 'gallery2', null, null, null, null, null, null, null
+        );
+        $albumRepository->startMigration($this->albumId, $targetId);
+        // A failed migration leaves the source fully intact, so processing is
+        // safe again immediately.
+        $albumRepository->failMigration($this->albumId, 'boom');
+
+        (new ProcessPhotoHandler())->handle(['media_id' => $mediaId], $this->buildContext());
+
+        $this->assertSame(Media::STATUS_DONE, $this->mediaRepository->findById($mediaId)->processingStatus);
+    }
+
+    /**
+     * The genuine upgrade window: an album created before multi-location
+     * support has a null storage_location_id and no location row exists yet.
+     * Reading gallery_albums.storage_location_id directly failed every single
+     * media with "Emplacement de stockage introuvable"; resolving through
+     * Service\StorageLocationService runs the backfill instead.
+     */
+    public function testBackfillsALegacyAlbumThatHasNoStorageLocationYet(): void
+    {
+        $this->pdo->exec('UPDATE gallery_albums SET storage_location_id = NULL WHERE id = ' . $this->albumId);
+        $this->pdo->exec('DELETE FROM gallery_storage_locations');
+        $fileId = $this->createOriginalFile();
+        $mediaId = $this->mediaRepository->create($this->albumId, Media::TYPE_PHOTO, $fileId, 0, 'test.jpg');
+
+        (new ProcessPhotoHandler())->handle(['media_id' => $mediaId], $this->buildContext());
+
+        $media = $this->mediaRepository->findById($mediaId);
+        $this->assertSame(Media::STATUS_DONE, $media->processingStatus);
+        $this->assertNotNull((new AlbumRepository($this->pdo))->findById($this->albumId)?->storageLocationId);
+        $this->assertTrue(is_file($this->storagePath . '/gallery/' . $media->thumbPath));
+    }
+
     public function testIsANoOpWhenAlreadyDone(): void
     {
         $fileId = $this->createOriginalFile();

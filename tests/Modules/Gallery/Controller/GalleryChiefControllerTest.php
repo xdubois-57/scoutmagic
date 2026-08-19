@@ -52,6 +52,13 @@ class GalleryChiefControllerTest extends TestCase
     private int $authorId;
     private int $scoutYearId;
     private int $locationId;
+    private int $sectionId;
+    private Environment $twig;
+    private AlbumService $albumService;
+    private MediaService $mediaService;
+    private SectionService $sectionService;
+    private SettingService $settingService;
+    private StorageLocationService $storageLocationService;
 
     protected function setUp(): void
     {
@@ -92,6 +99,11 @@ class GalleryChiefControllerTest extends TestCase
             $this->mediaRepository, $this->albumRepository, $uploadHandler, $schedulerService,
             $settingService, $accessService, $storageBackendFactory, $storageLocationService, $this->createMock(FfmpegAvailability::class)
         );
+        $this->albumService = $albumService;
+        $this->mediaService = $mediaService;
+        $this->sectionService = $sectionService;
+        $this->settingService = $settingService;
+        $this->storageLocationService = $storageLocationService;
 
         $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES ('2025-2026', '2025-09-01', '2026-08-31', 1)");
         $this->scoutYearId = (int) $this->pdo->lastInsertId();
@@ -103,6 +115,12 @@ class GalleryChiefControllerTest extends TestCase
         $this->locationId = $storageLocationRepository->create(
             StorageLocation::TYPE_LOCAL, 'Stockage local', 'gallery', null, null, null, null, null, null, null
         );
+
+        $this->pdo->exec("INSERT INTO age_branches (desk_code, label, sort_order) VALUES ('LOU', 'Louveteaux', 1)");
+        $branchId = (int) $this->pdo->lastInsertId();
+        $stmt = $this->pdo->prepare('INSERT INTO sections (age_branch_id, desk_code, name) VALUES (?, ?, ?)');
+        $stmt->execute([$branchId, 'MEUTE_A', 'Meute A']);
+        $this->sectionId = (int) $this->pdo->lastInsertId();
 
         $templateDir = dirname(__DIR__, 4) . '/core/View/templates';
         $moduleViews = dirname(__DIR__, 4) . '/modules/gallery/views';
@@ -124,6 +142,7 @@ class GalleryChiefControllerTest extends TestCase
         $twig->addFunction(new TwigFunction('file_url', fn() => ''));
         $twig->addFilter(new \Twig\TwigFilter('french_date', fn($d) => (string) $d));
 
+        $this->twig = $twig;
         $this->controller = new GalleryChiefController(
             $twig, $albumService, $mediaService, $this->mediaRepository, $accessService, $sectionService, $settingService,
             $storageLocationRepository, $storageLocationService
@@ -145,6 +164,32 @@ class GalleryChiefControllerTest extends TestCase
         $token = bin2hex(random_bytes(32));
         $_SESSION['_csrf_token'] = $token;
         return $token;
+    }
+
+    /**
+     * A controller wired to an access service that refuses every album — the
+     * "a chief who does not manage this section" case. The album/media
+     * services keep the permissive mock, so what is under test is the
+     * controller's own guard, not theirs.
+     */
+    private function controllerDenyingEveryAlbum(): GalleryChiefController
+    {
+        $accessService = $this->createMock(GalleryAccessService::class);
+        $accessService->method('canManageAlbum')->willReturn(false);
+        $accessService->method('getManagedSectionIds')->willReturn([]);
+
+        return new GalleryChiefController(
+            $this->twig, $this->albumService, $this->mediaService, $this->mediaRepository, $accessService,
+            $this->sectionService, $this->settingService, $this->storageLocationRepository, $this->storageLocationService
+        );
+    }
+
+    private function createExternalAlbum(): int
+    {
+        return $this->albumRepository->create(
+            Album::TYPE_EXTERNAL, 'Album externe', null, '2026-01-01', null, $this->scoutYearId,
+            'https://photos.example.org/album', null, $this->authorId
+        );
     }
 
     private function createLocalAlbum(): int
@@ -227,6 +272,103 @@ class GalleryChiefControllerTest extends TestCase
         $response = $this->controller->store($request, []);
 
         $this->assertSame(422, $response->getStatusCode());
+    }
+
+    /**
+     * module.json's role_min only says "a chief"; WHICH sections that chief
+     * manages is this module's own rule, enforced on every write path but not
+     * here — so the form used to render another section's whole media grid to
+     * a chief who cannot touch any of it, contradicting the can_edit flag
+     * manage() computes for the very link that leads here.
+     */
+    public function testEditReturns403WhenTheChiefDoesNotManageTheAlbumsSection(): void
+    {
+        $id = $this->createLocalAlbum();
+
+        $response = $this->controllerDenyingEveryAlbum()->edit(
+            new Request('GET', '/gallery/' . $id . '/edit', [], [], [], []),
+            ['id' => (string) $id]
+        );
+
+        $this->assertSame(403, $response->getStatusCode());
+    }
+
+    public function testEditStillReturns404ForAnUnknownAlbumEvenWhenAccessIsDenied(): void
+    {
+        $response = $this->controllerDenyingEveryAlbum()->edit(
+            new Request('GET', '/gallery/999/edit', [], [], [], []),
+            ['id' => '999']
+        );
+
+        $this->assertSame(404, $response->getStatusCode());
+    }
+
+    public function testEditIsAllowedForAManagedAlbum(): void
+    {
+        $id = $this->createLocalAlbum();
+
+        $response = $this->controller->edit(
+            new Request('GET', '/gallery/' . $id . '/edit', [], [], [], []),
+            ['id' => (string) $id]
+        );
+
+        $this->assertSame(200, $response->getStatusCode());
+    }
+
+    /**
+     * The delete button used to be nested inside the "type == local" block, so
+     * there was simply no way to delete an external album from the UI even
+     * though the route always accepted it.
+     */
+    public function testEditRendersTheDeleteButtonForAnExternalAlbum(): void
+    {
+        $id = $this->createExternalAlbum();
+
+        $body = $this->controller->edit(
+            new Request('GET', '/gallery/' . $id . '/edit', [], [], [], []),
+            ['id' => (string) $id]
+        )->getBody();
+
+        $this->assertStringContainsString('gallery-delete-album', $body);
+        $this->assertStringContainsString('/gallery/' . $id . '/delete', $body);
+    }
+
+    public function testEditStillRendersTheDeleteButtonForALocalAlbum(): void
+    {
+        $id = $this->createLocalAlbum();
+
+        $body = $this->controller->edit(
+            new Request('GET', '/gallery/' . $id . '/edit', [], [], [], []),
+            ['id' => (string) $id]
+        )->getBody();
+
+        $this->assertStringContainsString('gallery-delete-album', $body);
+    }
+
+    /**
+     * The list used to print a hardcoded "Section spécifique" for every scoped
+     * album, so it never told a chief which section an album belonged to.
+     */
+    public function testManageShowsTheRealSectionName(): void
+    {
+        $this->albumRepository->create(
+            Album::TYPE_LOCAL, 'Camp meute', null, '2026-01-01', $this->sectionId, $this->scoutYearId,
+            null, $this->locationId, $this->authorId
+        );
+
+        $body = $this->controller->manage(new Request('GET', '/gallery/manage', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('Meute A', $body);
+        $this->assertStringNotContainsString('Section spécifique', $body);
+    }
+
+    public function testManageLabelsAUnitWideAlbumAsSuch(): void
+    {
+        $this->createLocalAlbum();
+
+        $body = $this->controller->manage(new Request('GET', '/gallery/manage', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString("Toute l'unité", $body);
     }
 
     public function testEditReturns404ForUnknownAlbum(): void

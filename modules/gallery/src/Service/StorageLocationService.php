@@ -57,10 +57,37 @@ class StorageLocationService
 
         $legacyBackend = (string) $this->settingService->get('gallery_storage_backend', 'gallery', 'local');
 
+        try {
+            $locationId = $this->createBackfillLocation($legacyBackend);
+        } catch (\PDOException) {
+            // Two concurrent first-ever requests both saw an empty table; the
+            // UNIQUE index on label rejected the loser's insert. Adopt
+            // whatever the winner created rather than failing the request.
+            $existing = $this->storageLocationRepository->findDefault();
+            if ($existing === null) {
+                return;
+            }
+            $locationId = $existing->id;
+        }
+
+        foreach ($this->albumRepository->findAll() as $album) {
+            if ($album->isLocal() && $album->storageLocationId === null) {
+                $this->albumRepository->setStorageLocationId($album->id, $locationId);
+            }
+        }
+    }
+
+    /**
+     * The one row ensureLegacyLocationBackfilled() creates: either carried
+     * over from the retired single-location settings, or a plain local
+     * default on a fresh install.
+     */
+    private function createBackfillLocation(string $legacyBackend): int
+    {
         if ($legacyBackend === 's3') {
             $publicUrl = (string) $this->settingService->get('gallery_s3_public_url', 'gallery', '');
             $provider = (string) $this->settingService->get('gallery_s3_provider', 'gallery', '');
-            $locationId = $this->storageLocationRepository->create(
+            return $this->storageLocationRepository->create(
                 StorageLocation::TYPE_S3,
                 'Configuration existante',
                 null,
@@ -72,27 +99,22 @@ class StorageLocationService
                 $publicUrl !== '' ? $publicUrl : null,
                 $this->legacyS3SecretRepository->get()
             );
-        } else {
-            $subdir = (string) $this->settingService->get('gallery_storage_local_subdir', 'gallery', 'gallery');
-            $locationId = $this->storageLocationRepository->create(
-                StorageLocation::TYPE_LOCAL,
-                'Stockage local',
-                $subdir !== '' ? $subdir : 'gallery',
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null
-            );
         }
 
-        foreach ($this->albumRepository->findAll() as $album) {
-            if ($album->isLocal() && $album->storageLocationId === null) {
-                $this->albumRepository->setStorageLocationId($album->id, $locationId);
-            }
-        }
+        $subdir = (string) $this->settingService->get('gallery_storage_local_subdir', 'gallery', 'gallery');
+
+        return $this->storageLocationRepository->create(
+            StorageLocation::TYPE_LOCAL,
+            'Stockage local',
+            $subdir !== '' ? $subdir : 'gallery',
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null
+        );
     }
 
     /**

@@ -51,9 +51,15 @@ class GalleryChiefController extends AbstractController
     {
         [$role, $email] = $this->currentIdentity();
 
+        $sectionLabels = $this->sectionLabels();
         $albums = array_map(fn(Album $a) => [
             'album' => $a,
             'can_edit' => $this->accessService->canManageAlbum($role, $a->sectionId, $email),
+            // The list used to render a hardcoded "Section spécifique" for
+            // every scoped album, so it never told a chief WHICH section.
+            'section_label' => $a->sectionId !== null
+                ? ($sectionLabels[$a->sectionId] ?? 'Section inconnue')
+                : null,
         ], $this->albumService->findAllForManage());
 
         $this->storageLocationService->ensureLegacyLocationBackfilled();
@@ -120,6 +126,16 @@ class GalleryChiefController extends AbstractController
         $album = $this->albumService->findById((int) $params['id']);
         if ($album === null) {
             return new Response('Not Found', 404);
+        }
+        // module.json's role_min only says "a chief"; which SECTIONS that
+        // chief manages is this module's own rule (Service\
+        // GalleryAccessService), and every write path already enforces it.
+        // Without it here, the form rendered another section's whole media
+        // grid to a chief who cannot touch any of it — and contradicted the
+        // can_edit flag manage() computes for the very link that leads here.
+        [$role, $email] = $this->currentIdentity();
+        if (!$this->accessService->canManageAlbum($role, $album->sectionId, $email)) {
+            return new Response('Forbidden', 403);
         }
 
         return $this->render('@gallery/album_form.html.twig', $this->formContext($album));
@@ -327,6 +343,19 @@ class GalleryChiefController extends AbstractController
             'og_description' => $album->ogDescription,
             'og_image_url' => $album->ogImageFileId !== null ? '/files/' . $album->ogImageFileId : null,
         ]);
+    }
+
+    /**
+     * @return array<int, string> section id => display name
+     */
+    private function sectionLabels(): array
+    {
+        $labels = [];
+        foreach ($this->sectionService->getAllWithBranches() as $section) {
+            $labels[(int) $section['id']] = (string) ($section['name'] ?? $section['desk_code'] ?? '');
+        }
+
+        return $labels;
     }
 
     /**

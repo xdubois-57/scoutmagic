@@ -27,6 +27,18 @@ class AlbumService
     private const OG_IMAGE_ALLOWED_MIMES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
     private const OG_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 
+    /**
+     * Mirror gallery_albums' own column widths (schema.sql): the forms cap
+     * these client-side, but a direct POST didn't, and an over-long value
+     * reached MySQL in strict mode as a PDOException — a 500 where the user
+     * should simply be told the field is too long.
+     */
+    private const MAX_TITLE_LENGTH = 255;
+    private const MAX_SUBTITLE_LENGTH = 255;
+    private const MAX_EXTERNAL_URL_LENGTH = 500;
+    private const MAX_OG_TITLE_LENGTH = 255;
+    private const MAX_OG_IMAGE_URL_LENGTH = 500;
+
     public function __construct(
         private AlbumRepository $albumRepository,
         private MediaRepository $mediaRepository,
@@ -40,7 +52,8 @@ class AlbumService
         private SchedulerService $schedulerService,
         private UploadHandler $uploadHandler,
         private ?NotificationService $notificationService = null,
-        private ?UserAccountRepository $userAccountRepository = null
+        private ?UserAccountRepository $userAccountRepository = null,
+        private ?StoredFileCleaner $storedFileCleaner = null
     ) {
     }
 
@@ -87,9 +100,14 @@ class AlbumService
         if (!$this->accessService->canManageAlbum($role, $sectionId, $email)) {
             throw new GalleryException('Vous ne gérez pas cette section.');
         }
-        if ($type === Album::TYPE_EXTERNAL && ($externalUrl === null || trim($externalUrl) === '')) {
-            throw new GalleryException('Un lien est obligatoire pour un album externe.');
+        if ($type === Album::TYPE_EXTERNAL) {
+            $externalUrl = $this->normalizeExternalUrl($externalUrl);
+        } else {
+            // A local album has no link of its own; never let one be smuggled
+            // in on the side.
+            $externalUrl = null;
         }
+        $this->assertValidLength($subtitle, self::MAX_SUBTITLE_LENGTH, 'Le sous-titre');
         // The storage location is never chosen by the caller — a local
         // album always uses the current default location. Changing it
         // afterward is a superadmin-triggered migration (Configuration >
@@ -117,18 +135,21 @@ class AlbumService
         if (trim($title) === '') {
             $ogTitle = $ogTags['title'] ?? '';
             if ($type === Album::TYPE_EXTERNAL && trim($ogTitle) !== '') {
-                $title = trim($ogTitle);
+                // The scraped title is third-party text of unbounded length —
+                // truncate rather than reject, the chief never typed it.
+                $title = (string) $this->clamp(trim($ogTitle), self::MAX_TITLE_LENGTH);
             } else {
                 $this->assertValidTitle($title);
             }
         }
+        $this->assertValidLength($title, self::MAX_TITLE_LENGTH, 'Le titre');
 
         $scoutYearId = $this->scoutYearService->getCurrentYear()['id'];
         $id = $this->albumRepository->create($type, $title, $subtitle, $albumDate, $sectionId, $scoutYearId, $externalUrl, $storageLocationId, $createdBy);
 
         if ($ogTags !== null) {
             $ogImageFileId = $this->cacheOgImage($id, $ogTags['image'], $createdBy);
-            $this->albumRepository->updateOgMetadata($id, $ogTags['title'], $ogTags['description'], $ogTags['image'], $ogImageFileId);
+            $this->persistOgMetadata($id, $ogTags, $ogImageFileId);
         }
 
         $created = $this->albumRepository->findById($id);
@@ -186,13 +207,15 @@ class AlbumService
             throw new GalleryException('Album introuvable.');
         }
         $this->assertValidTitle($title);
+        $this->assertValidLength($title, self::MAX_TITLE_LENGTH, 'Le titre');
+        $this->assertValidLength($subtitle, self::MAX_SUBTITLE_LENGTH, 'Le sous-titre');
         if (!$this->accessService->canManageAlbum($role, $existing->sectionId, $email)
             || !$this->accessService->canManageAlbum($role, $sectionId, $email)) {
             throw new GalleryException('Vous ne gérez pas cette section.');
         }
-        if ($existing->type === Album::TYPE_EXTERNAL && ($externalUrl === null || trim($externalUrl) === '')) {
-            throw new GalleryException('Un lien est obligatoire pour un album externe.');
-        }
+        $externalUrl = $existing->type === Album::TYPE_EXTERNAL
+            ? $this->normalizeExternalUrl($externalUrl)
+            : null;
 
         $this->albumRepository->update($id, $title, $subtitle, $albumDate, $sectionId, $externalUrl);
 
@@ -200,11 +223,15 @@ class AlbumService
             $tags = $this->fetchOgTagsBestEffort($externalUrl);
             if ($tags !== null) {
                 $ogImageFileId = $this->cacheOgImage($id, $tags['image'], $existing->createdBy);
-                $this->albumRepository->updateOgMetadata($id, $tags['title'], $tags['description'], $tags['image'], $ogImageFileId);
+                $this->persistOgMetadata($id, $tags, $ogImageFileId);
+                $this->discardSupersededOgImage($existing->ogImageFileId, $ogImageFileId);
             }
         }
 
-        return $this->albumRepository->findById($id);
+        $updated = $this->albumRepository->findById($id);
+        \assert($updated !== null);
+
+        return $updated;
     }
 
     /**
@@ -227,6 +254,10 @@ class AlbumService
             throw new GalleryException('Une migration est en cours pour cet album — réessayez une fois celle-ci terminée.');
         }
 
+        // Read the media rows before anything is removed — their file_ids are
+        // the only handle on the staging originals still on disk.
+        $media = $this->mediaRepository->findByAlbumId($id);
+
         if ($album->isLocal()) {
             $location = $this->storageLocationService->resolveLocationForAlbum($album);
             if ($location !== null) {
@@ -234,7 +265,21 @@ class AlbumService
             }
         }
 
+        // Explicit rather than relying on gallery_media's ON DELETE CASCADE:
+        // files(id) is referenced by gallery_media.file_id with no ON DELETE
+        // clause, so every child row has to be gone before the originals can
+        // be reclaimed below — and doing it here makes the outcome identical
+        // whether or not the engine actually enforces the cascade.
+        foreach ($media as $row) {
+            $this->mediaRepository->delete($row->id);
+        }
+
         $this->albumRepository->delete($id);
+
+        foreach ($media as $row) {
+            $this->storedFileCleaner?->delete($row->fileId);
+        }
+        $this->storedFileCleaner?->delete($album->ogImageFileId);
     }
 
     /**
@@ -249,6 +294,9 @@ class AlbumService
         }
         if (!$this->accessService->canManageAlbum($role, $album->sectionId, $email)) {
             throw new GalleryException('Vous ne gérez pas cette section.');
+        }
+        if ($album->isMigrating()) {
+            throw new GalleryException('Une migration de stockage est en cours pour cet album — réessayez une fois celle-ci terminée.');
         }
 
         $media = $this->mediaRepository->findById($mediaId);
@@ -277,9 +325,13 @@ class AlbumService
 
         $tags = $this->ogScraperService->fetch($album->externalUrl);
         $ogImageFileId = $this->cacheOgImage($albumId, $tags['image'], $album->createdBy);
-        $this->albumRepository->updateOgMetadata($albumId, $tags['title'], $tags['description'], $tags['image'], $ogImageFileId);
+        $this->persistOgMetadata($albumId, $tags, $ogImageFileId);
+        $this->discardSupersededOgImage($album->ogImageFileId, $ogImageFileId);
 
-        return $this->albumRepository->findById($albumId);
+        $refreshed = $this->albumRepository->findById($albumId);
+        \assert($refreshed !== null);
+
+        return $refreshed;
     }
 
     /**
@@ -324,7 +376,7 @@ class AlbumService
     }
 
     /**
-     * @return array{title: string, description: string, image: string}|null null on any fetch failure
+     * @return array{title: ?string, description: ?string, image: ?string}|null null on any fetch failure
      */
     private function fetchOgTagsBestEffort(string $url): ?array
     {
@@ -377,6 +429,88 @@ class AlbumService
             return null;
         } finally {
             @unlink($tmpPath);
+        }
+    }
+
+    /**
+     * Caches the scraped OG metadata, clipped to the widths of the columns
+     * holding it (og_title VARCHAR(255), og_image_url VARCHAR(500);
+     * og_description is TEXT and needs no cap). Third-party pages can put
+     * anything in those tags, and truncating is right here where rejecting
+     * would not be: nobody on this side typed these values, and a clipped
+     * preview beats a PDOException on album save.
+     *
+     * Clipping happens at persistence, never before cacheOgImage() — that one
+     * has to fetch the FULL og:image URL, and a truncated one fetches nothing.
+     *
+     * @param array{title: ?string, description: ?string, image: ?string} $tags
+     */
+    private function persistOgMetadata(int $albumId, array $tags, ?int $ogImageFileId): void
+    {
+        $this->albumRepository->updateOgMetadata(
+            $albumId,
+            $this->clamp($tags['title'], self::MAX_OG_TITLE_LENGTH),
+            $tags['description'],
+            $this->clamp($tags['image'], self::MAX_OG_IMAGE_URL_LENGTH),
+            $ogImageFileId
+        );
+    }
+
+    private function clamp(?string $value, int $max): ?string
+    {
+        return $value !== null ? mb_substr($value, 0, $max) : null;
+    }
+
+    /**
+     * Frees the `files` row a previous og:image lived in once a newer one has
+     * replaced it on the album — otherwise every "Rafraîchir l'aperçu" click
+     * and every URL change left another orphaned image behind.
+     */
+    private function discardSupersededOgImage(?int $previousFileId, ?int $currentFileId): void
+    {
+        if ($previousFileId === null || $previousFileId === $currentFileId) {
+            return;
+        }
+
+        $this->storedFileCleaner?->delete($previousFileId);
+    }
+
+    /**
+     * An external album's link is rendered as an ordinary href on the member
+     * gallery (views/list.html.twig) and the member page, so the scheme is an
+     * allowlist, not a formality: FILTER_VALIDATE_URL happily accepts
+     * "javascript:alert(1)", which would be stored XSS against every
+     * identified member from a chief-level account. http(s) only — the same
+     * set Service\OgScraperService will actually fetch.
+     *
+     * @throws GalleryException on a missing, over-long or non-http(s) URL
+     */
+    private function normalizeExternalUrl(?string $externalUrl): string
+    {
+        $externalUrl = trim((string) $externalUrl);
+        if ($externalUrl === '') {
+            throw new GalleryException('Un lien est obligatoire pour un album externe.');
+        }
+        $this->assertValidLength($externalUrl, self::MAX_EXTERNAL_URL_LENGTH, 'Le lien');
+
+        $scheme = parse_url($externalUrl, PHP_URL_SCHEME);
+        if (!is_string($scheme) || !in_array(strtolower($scheme), ['http', 'https'], true)) {
+            throw new GalleryException('Le lien doit commencer par http:// ou https://.');
+        }
+        if (parse_url($externalUrl, PHP_URL_HOST) === null) {
+            throw new GalleryException('Ce lien n\'est pas une adresse web valide.');
+        }
+
+        return $externalUrl;
+    }
+
+    /**
+     * @throws GalleryException when $value is longer than the column holding it
+     */
+    private function assertValidLength(?string $value, int $max, string $label): void
+    {
+        if ($value !== null && mb_strlen($value) > $max) {
+            throw new GalleryException("{$label} ne peut pas dépasser {$max} caractères.");
         }
     }
 

@@ -2101,6 +2101,9 @@ if (in_array('gallery', $moduleManager->getEnabledModuleIds(), true)) {
     // §7.5), same reused instance as RGPD content generation above — the
     // "Expliquer avec l'IA" button is simply hidden when it's unavailable.
     $galleryS3ErrorExplainerService = new \Modules\Gallery\Service\S3ErrorExplainerService($llmConnectorForRgpd);
+    // Reclaims the `files` row + bytes behind a media's staging original and
+    // an external album's cached og:image once nothing references them.
+    $galleryStoredFileCleaner = new \Modules\Gallery\Service\StoredFileCleaner($fileRepository, $storagePath);
     $galleryStorageLocationService = new \Modules\Gallery\Service\StorageLocationService(
         $galleryStorageLocationRepo, $galleryAlbumRepo, $galleryStorageBackendFactory, $settingService,
         $galleryS3SecretRepo, $storagePath
@@ -2110,11 +2113,12 @@ if (in_array('gallery', $moduleManager->getEnabledModuleIds(), true)) {
         $galleryAlbumRepo, $galleryMediaRepo, $galleryAccessService, $galleryOgScraperService,
         $galleryStorageBackendFactory, $galleryStorageLocationRepo, $galleryStorageLocationService,
         $scoutYearService, $settingService, $schedulerService, $uploadHandler,
-        $notificationService, $userAccountRepo
+        $notificationService, $userAccountRepo, $galleryStoredFileCleaner
     );
     $galleryMediaService = new \Modules\Gallery\Service\MediaService(
         $galleryMediaRepo, $galleryAlbumRepo, $uploadHandler, $schedulerService, $settingService,
-        $galleryAccessService, $galleryStorageBackendFactory, $galleryStorageLocationService, $galleryFfmpegAvailability
+        $galleryAccessService, $galleryStorageBackendFactory, $galleryStorageLocationService,
+        $galleryFfmpegAvailability, $galleryStoredFileCleaner
     );
 
     $frontController->registerController(

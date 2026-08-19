@@ -15,10 +15,15 @@
         return meta ? meta.content : '';
     }
 
+    // textContent -> innerHTML escapes &, < and > but NOT quotes, and several
+    // call sites below interpolate into a title="..." attribute — a provider
+    // error message containing a double quote could break out of it. Quotes
+    // are escaped explicitly so the helper is safe in both text and attribute
+    // position.
     function escapeHtml(str) {
         var div = document.createElement('div');
-        div.textContent = str;
-        return div.innerHTML;
+        div.textContent = str === null || str === undefined ? '' : String(str);
+        return div.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
     }
 
     function postJson(url, body) {
@@ -26,7 +31,11 @@
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(Object.assign({}, body, { _csrf_token: csrf() }))
-        }).then(function (res) { return res.json(); });
+        }).then(function (res) {
+            return res.json().catch(function () {
+                return { success: false, error: 'Réponse inattendue du serveur.' };
+            });
+        });
     }
 
     // ------------------------------------------------------------------
@@ -152,7 +161,13 @@
             if (explainWrap) explainWrap.classList.add('d-none');
             if (explainResult) explainResult.innerHTML = '';
 
+            // location_id lets the server fall back to the secret already
+            // stored for this location: on the edit form the secret field is
+            // deliberately left blank ("laisser vide pour conserver la clé
+            // actuelle"), so testing an existing location otherwise sent an
+            // empty secret and could only ever fail on authentication.
             postJson('/config/gallery/test-connection', {
+                location_id: parseInt(testBtn.dataset.locationId || '0', 10) || 0,
                 endpoint: document.getElementById('s3-endpoint').value,
                 region: document.getElementById('s3-region').value,
                 bucket: document.getElementById('s3-bucket').value,

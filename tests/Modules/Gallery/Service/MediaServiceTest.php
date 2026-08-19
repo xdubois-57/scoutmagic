@@ -24,6 +24,7 @@ use Modules\Gallery\Service\GalleryException;
 use Modules\Gallery\Service\MediaService;
 use Modules\Gallery\Service\Storage\StorageBackendFactory;
 use Modules\Gallery\Service\StorageLocationService;
+use Modules\Gallery\Service\StoredFileCleaner;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Tests\Modules\Gallery\GalleryTestHelper;
@@ -45,6 +46,8 @@ class MediaServiceTest extends TestCase
     private int $albumId;
     private int $authorId;
     private string $storagePath;
+    private FileRepository $fileRepository;
+    private StoredFileCleaner $storedFileCleaner;
 
     protected function setUp(): void
     {
@@ -58,7 +61,9 @@ class MediaServiceTest extends TestCase
         $this->storagePath = sys_get_temp_dir() . '/gallery_media_test_' . uniqid();
         mkdir($this->storagePath, 0755, true);
         $this->storageBackendFactory = new StorageBackendFactory($this->storageLocationRepository, $this->storagePath);
-        $uploadHandler = new UploadHandler(new FileRepository($this->pdo), sys_get_temp_dir());
+        $this->fileRepository = new FileRepository($this->pdo);
+        $uploadHandler = new UploadHandler($this->fileRepository, sys_get_temp_dir());
+        $this->storedFileCleaner = new StoredFileCleaner($this->fileRepository, sys_get_temp_dir());
         $schedulerService = new SchedulerService(new SchedulerRepository($this->pdo));
         $this->settingService = $this->createMock(SettingService::class);
         $this->settingService->method('get')->willReturnCallback(fn($key, $module, $default) => $default);
@@ -74,7 +79,7 @@ class MediaServiceTest extends TestCase
         $this->service = new MediaService(
             $this->mediaRepository, $this->albumRepository, $uploadHandler, $schedulerService,
             $this->settingService, $this->accessService, $this->storageBackendFactory,
-            $this->storageLocationService, $ffmpegAvailability
+            $this->storageLocationService, $ffmpegAvailability, $this->storedFileCleaner
         );
 
         $stmt = $this->pdo->prepare('INSERT INTO user_accounts (email_encrypted, email_blind_index) VALUES (?, ?)');
@@ -88,6 +93,13 @@ class MediaServiceTest extends TestCase
             StorageLocation::TYPE_LOCAL, 'Stockage local', 'gallery', null, null, null, null, null, null, null
         );
         $this->albumId = $this->albumRepository->create(Album::TYPE_LOCAL, 'Camp', null, '2026-01-01', null, $scoutYearId, null, $locationId, $this->authorId);
+    }
+
+    private function otherLocationId(): int
+    {
+        return $this->storageLocationRepository->create(
+            StorageLocation::TYPE_LOCAL, 'Cible ' . uniqid(), 'gallery2', null, null, null, null, null, null, null
+        );
     }
 
     private function fakeUploadedImage(): array
@@ -140,19 +152,43 @@ class MediaServiceTest extends TestCase
         $this->service->upload($album, $this->fakeUploadedImage(), Role::CHIEF, 'chief@test.com', $this->authorId);
     }
 
-    public function testUploadRejectsWhenOverQuota(): void
+    private function serviceWithMaxMedia(int $maxMedia): MediaService
     {
         $settingService = $this->createMock(SettingService::class);
-        $settingService->method('get')->willReturnCallback(fn($key, $module, $default) => $key === 'gallery_max_media_per_album' ? 0 : $default);
-        $service = new MediaService(
-            $this->mediaRepository, $this->albumRepository, new UploadHandler(new FileRepository($this->pdo), sys_get_temp_dir()),
-            new SchedulerService(new SchedulerRepository($this->pdo)), $settingService, $this->accessService,
-            $this->storageBackendFactory, $this->storageLocationService, $this->createMock(FfmpegAvailability::class)
+        $settingService->method('get')->willReturnCallback(
+            fn($key, $module, $default) => $key === 'gallery_max_media_per_album' ? $maxMedia : $default
         );
+
+        return new MediaService(
+            $this->mediaRepository, $this->albumRepository, new UploadHandler($this->fileRepository, sys_get_temp_dir()),
+            new SchedulerService(new SchedulerRepository($this->pdo)), $settingService, $this->accessService,
+            $this->storageBackendFactory, $this->storageLocationService, $this->createMock(FfmpegAvailability::class),
+            $this->storedFileCleaner
+        );
+    }
+
+    public function testUploadRejectsWhenOverQuota(): void
+    {
+        $service = $this->serviceWithMaxMedia(1);
         $album = $this->albumRepository->findById($this->albumId);
+        $service->upload($album, $this->fakeUploadedImage(), Role::CHIEF, 'chief@test.com', $this->authorId);
 
         $this->expectException(GalleryException::class);
         $service->upload($album, $this->fakeUploadedImage(), Role::CHIEF, 'chief@test.com', $this->authorId);
+    }
+
+    /**
+     * A limit of 0 (or a blank saved value) used to silently refuse every
+     * single upload with "Cet album a atteint la limite de 0 médias" —
+     * technically true, and completely unactionable for a chief.
+     */
+    public function testUploadReportsAMisconfiguredLimitRatherThanAFullAlbum(): void
+    {
+        $album = $this->albumRepository->findById($this->albumId);
+
+        $this->expectException(GalleryException::class);
+        $this->expectExceptionMessageMatches('/mal configur/');
+        $this->serviceWithMaxMedia(0)->upload($album, $this->fakeUploadedImage(), Role::CHIEF, 'chief@test.com', $this->authorId);
     }
 
     public function testDeleteRemovesTheMediaRow(): void
@@ -184,6 +220,148 @@ class MediaServiceTest extends TestCase
 
         $this->expectException(GalleryException::class);
         $this->service->reorder($album, [999999], Role::CHIEF, 'chief@test.com');
+    }
+
+    /**
+     * array_intersect keeps duplicates from its first argument, so [7, 7, 7]
+     * against a three-media album passed the count check and then rewrote
+     * media #7's rank three times, leaving the other two where they were.
+     */
+    public function testReorderRejectsADuplicatedIdList(): void
+    {
+        $album = $this->albumRepository->findById($this->albumId);
+        $first = $this->service->upload($album, $this->fakeUploadedImage(), Role::CHIEF, 'chief@test.com', $this->authorId);
+        $this->service->upload($album, $this->fakeUploadedImage(), Role::CHIEF, 'chief@test.com', $this->authorId);
+        $this->service->upload($album, $this->fakeUploadedImage(), Role::CHIEF, 'chief@test.com', $this->authorId);
+
+        $this->expectException(GalleryException::class);
+        $this->service->reorder($album, [$first->id, $first->id, $first->id], Role::CHIEF, 'chief@test.com');
+    }
+
+    public function testReorderRejectsAPartialListPaddedWithDuplicates(): void
+    {
+        $album = $this->albumRepository->findById($this->albumId);
+        $a = $this->service->upload($album, $this->fakeUploadedImage(), Role::CHIEF, 'chief@test.com', $this->authorId);
+        $b = $this->service->upload($album, $this->fakeUploadedImage(), Role::CHIEF, 'chief@test.com', $this->authorId);
+        $this->service->upload($album, $this->fakeUploadedImage(), Role::CHIEF, 'chief@test.com', $this->authorId);
+
+        $this->expectException(GalleryException::class);
+        $this->service->reorder($album, [$a->id, $b->id, $b->id], Role::CHIEF, 'chief@test.com');
+    }
+
+    public function testReorderAppliesAValidPermutation(): void
+    {
+        $album = $this->albumRepository->findById($this->albumId);
+        $a = $this->service->upload($album, $this->fakeUploadedImage(), Role::CHIEF, 'chief@test.com', $this->authorId);
+        $b = $this->service->upload($album, $this->fakeUploadedImage(), Role::CHIEF, 'chief@test.com', $this->authorId);
+
+        $this->service->reorder($album, [$b->id, $a->id], Role::CHIEF, 'chief@test.com');
+
+        $ordered = $this->mediaRepository->findByAlbumId($this->albumId);
+        $this->assertSame($b->id, $ordered[0]->id);
+        $this->assertSame($a->id, $ordered[1]->id);
+    }
+
+    /**
+     * A media uploaded mid-migration is processed against the album's source
+     * location, which Task\MigrateAlbumStorageHandler has already copied
+     * past — the post-migration source cleanup then deletes its renditions,
+     * leaving a permanently broken row.
+     */
+    public function testUploadIsRejectedWhileTheAlbumIsMigrating(): void
+    {
+        $this->albumRepository->startMigration($this->albumId, $this->otherLocationId());
+        $album = $this->albumRepository->findById($this->albumId);
+
+        $this->expectException(GalleryException::class);
+        $this->expectExceptionMessageMatches('/migration/i');
+        $this->service->upload($album, $this->fakeUploadedImage(), Role::CHIEF, 'chief@test.com', $this->authorId);
+    }
+
+    public function testDeleteIsRejectedWhileTheAlbumIsMigrating(): void
+    {
+        $album = $this->albumRepository->findById($this->albumId);
+        $media = $this->service->upload($album, $this->fakeUploadedImage(), Role::CHIEF, 'chief@test.com', $this->authorId);
+        $this->albumRepository->startMigration($this->albumId, $this->otherLocationId());
+
+        $this->expectException(GalleryException::class);
+        $this->service->delete($media, $this->albumRepository->findById($this->albumId), Role::CHIEF, 'chief@test.com');
+    }
+
+    public function testReorderIsRejectedWhileTheAlbumIsMigrating(): void
+    {
+        $album = $this->albumRepository->findById($this->albumId);
+        $media = $this->service->upload($album, $this->fakeUploadedImage(), Role::CHIEF, 'chief@test.com', $this->authorId);
+        $this->albumRepository->startMigration($this->albumId, $this->otherLocationId());
+
+        $this->expectException(GalleryException::class);
+        $this->service->reorder($this->albumRepository->findById($this->albumId), [$media->id], Role::CHIEF, 'chief@test.com');
+    }
+
+    public function testUploadIsAllowedAgainOnceAMigrationHasFailed(): void
+    {
+        $this->albumRepository->startMigration($this->albumId, $this->otherLocationId());
+        $this->albumRepository->failMigration($this->albumId, 'boom');
+        $album = $this->albumRepository->findById($this->albumId);
+
+        $media = $this->service->upload($album, $this->fakeUploadedImage(), Role::CHIEF, 'chief@test.com', $this->authorId);
+
+        // A failed migration leaves the source fully intact, so the album is
+        // still perfectly writable.
+        $this->assertSame(Media::STATUS_PENDING, $media->processingStatus);
+    }
+
+    /**
+     * The staging original of a media that never finished processing (or
+     * failed) stayed on disk and in the files table forever — up to
+     * gallery_max_video_upload_mb per row, and nothing ever came back for it.
+     */
+    public function testDeleteAlsoRemovesTheOriginalFileRowAndItsBytes(): void
+    {
+        $album = $this->albumRepository->findById($this->albumId);
+        $media = $this->service->upload($album, $this->fakeUploadedImage(), Role::CHIEF, 'chief@test.com', $this->authorId);
+        $file = $this->fileRepository->findById($media->fileId);
+        $this->assertNotNull($file);
+        $originalPath = sys_get_temp_dir() . '/' . $file->relativePath;
+        $this->assertFileExists($originalPath);
+
+        $this->service->delete($media, $this->albumRepository->findById($this->albumId), Role::CHIEF, 'chief@test.com');
+
+        $this->assertNull($this->fileRepository->findById($media->fileId));
+        $this->assertFileDoesNotExist($originalPath);
+    }
+
+    /**
+     * COUNT(*)-derived ranks collide with an existing sort_order as soon as
+     * anything has been deleted from the album.
+     */
+    public function testUploadAfterADeletionDoesNotReuseAnExistingSortOrder(): void
+    {
+        $album = $this->albumRepository->findById($this->albumId);
+        $first = $this->service->upload($album, $this->fakeUploadedImage(), Role::CHIEF, 'chief@test.com', $this->authorId);
+        $second = $this->service->upload($album, $this->fakeUploadedImage(), Role::CHIEF, 'chief@test.com', $this->authorId);
+        $this->service->delete($first, $this->albumRepository->findById($this->albumId), Role::CHIEF, 'chief@test.com');
+
+        $third = $this->service->upload(
+            $this->albumRepository->findById($this->albumId), $this->fakeUploadedImage(), Role::CHIEF, 'chief@test.com', $this->authorId
+        );
+
+        $this->assertNotSame($second->sortOrder, $third->sortOrder);
+        $this->assertSame(2, $third->sortOrder);
+    }
+
+    public function testPathForSizeMapsEveryKnownRenditionAndNothingElse(): void
+    {
+        $album = $this->albumRepository->findById($this->albumId);
+        $media = $this->service->upload($album, $this->fakeUploadedImage(), Role::CHIEF, 'chief@test.com', $this->authorId);
+        $this->mediaRepository->markPhotoDone($media->id, 'thumb.jpg', 'med.jpg', 'lg.jpg', 10, 10);
+        $stored = $this->mediaRepository->findById($media->id);
+
+        $this->assertSame('thumb.jpg', MediaService::pathForSize($stored, 'thumb'));
+        $this->assertSame('med.jpg', MediaService::pathForSize($stored, 'medium'));
+        $this->assertSame('lg.jpg', MediaService::pathForSize($stored, 'large'));
+        $this->assertNull(MediaService::pathForSize($stored, 'original'));
+        $this->assertNull(MediaService::pathForSize($stored, 'nope'));
     }
 
     public function testResolveUrlReturnsNullWhenNotYetProcessed(): void

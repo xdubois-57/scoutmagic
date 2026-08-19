@@ -132,7 +132,8 @@
                         <div class="form-text">Si vide, les médias sont servis via une URL signée temporaire.</div>
                     </div>
                     <div class="col-12">
-                        <button type="button" class="btn btn-outline-secondary btn-sm" id="s3-test-connection">
+                        <button type="button" class="btn btn-outline-secondary btn-sm" id="s3-test-connection"
+                                data-location-id="{{ location.id ?? '' }}">
                             <i class="bi bi-plug"></i> Tester la connexion
                         </button>
                         <div id="s3-test-result" class="mt-2"></div>

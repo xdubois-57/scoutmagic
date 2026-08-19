@@ -29,6 +29,24 @@ use Twig\Environment;
 
 class GalleryConfigController extends AbstractController
 {
+    /**
+     * Accepted range per numeric setting, mirroring the form's own min
+     * attributes. Core\Config\SettingService only checks that a 'number'
+     * setting is numeric — it happily stores '', '0' or '-5', and those land
+     * as a hard 0 at every read site: gallery_max_media_per_album = 0 refused
+     * every upload ("limite de 0 médias") and gallery_photo_max_dimension = 0
+     * asked GD for a 0x0 canvas, failing every photo in the album.
+     *
+     * @var array<string, array{min: int, max: int, label: string}>
+     */
+    private const NUMERIC_SETTINGS = [
+        'gallery_max_media_per_album' => ['min' => 1, 'max' => 10000, 'label' => 'Le nombre maximum de médias par album'],
+        'gallery_max_photo_upload_mb' => ['min' => 1, 'max' => 1024, 'label' => 'La taille maximale par photo (Mo)'],
+        'gallery_photo_max_dimension' => ['min' => 500, 'max' => 20000, 'label' => 'La dimension maximale des photos (px)'],
+        'gallery_max_video_upload_mb' => ['min' => 1, 'max' => 65536, 'label' => 'La taille maximale par vidéo (Mo)'],
+        'gallery_max_video_duration_sec' => ['min' => 1, 'max' => 86400, 'label' => 'La durée maximale par vidéo (s)'],
+    ];
+
     public function __construct(
         protected Environment $twig,
         private SettingService $settingService,
@@ -69,15 +87,26 @@ class GalleryConfigController extends AbstractController
             return $this->render('@gallery/config.html.twig', $context)->setStatusCode(403);
         }
 
-        $textKeys = [
-            'gallery_max_media_per_album', 'gallery_max_photo_upload_mb', 'gallery_photo_max_dimension',
-            'gallery_max_video_upload_mb', 'gallery_max_video_duration_sec',
-        ];
         $booleanKeys = ['gallery_allow_external', 'gallery_allow_video', 'gallery_keep_original_video'];
 
+        // Validate every numeric field up front, so a single bad value can't
+        // leave half the settings written and half not.
+        $numericValues = [];
+        foreach (self::NUMERIC_SETTINGS as $key => $bounds) {
+            $raw = trim((string) $request->getBody($key, ''));
+            if ($raw === '' || preg_match('/^\d+$/', $raw) !== 1) {
+                return $this->saveError("{$bounds['label']} doit être un nombre entier.");
+            }
+            $value = (int) $raw;
+            if ($value < $bounds['min'] || $value > $bounds['max']) {
+                return $this->saveError("{$bounds['label']} doit être comprise entre {$bounds['min']} et {$bounds['max']}.");
+            }
+            $numericValues[$key] = (string) $value;
+        }
+
         try {
-            foreach ($textKeys as $key) {
-                $this->settingService->set($key, (string) $request->getBody($key, ''), 'gallery');
+            foreach ($numericValues as $key => $value) {
+                $this->settingService->set($key, $value, 'gallery');
             }
             foreach ($booleanKeys as $key) {
                 $this->settingService->set($key, $request->getBody($key) !== null ? '1' : '0', 'gallery');
@@ -97,6 +126,18 @@ class GalleryConfigController extends AbstractController
     }
 
     /**
+     * Re-renders the config page with a validation message, HTTP 422 — same
+     * shape as the catch-all below it.
+     */
+    private function saveError(string $message): Response
+    {
+        $context = $this->buildContext();
+        $context['submit_error'] = $message;
+
+        return $this->render('@gallery/config.html.twig', $context)->setStatusCode(422);
+    }
+
+    /**
      * POST /config/gallery/test-connection — builds a throwaway S3 client
      * from the submitted (not necessarily saved) form values, so the admin
      * can verify credentials before committing them to a new or edited
@@ -112,12 +153,26 @@ class GalleryConfigController extends AbstractController
             return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
         }
 
+        // The edit form deliberately leaves the secret field blank ("laisser
+        // vide pour conserver la clé actuelle"), so testing an existing
+        // location used to send an empty secret and always fail on
+        // authentication. When the caller names the location it is editing,
+        // fall back to that location's stored secret.
+        $secretKey = (string) ($data['secret_key'] ?? '');
+        if ($secretKey === '') {
+            $locationId = (int) ($data['location_id'] ?? 0);
+            $location = $locationId > 0 ? $this->storageLocationRepository->findById($locationId) : null;
+            if ($location !== null && $location->isS3()) {
+                $secretKey = (string) $this->storageLocationRepository->getSecret($location->id);
+            }
+        }
+
         $backend = new S3StorageBackend(
             (string) ($data['endpoint'] ?? ''),
             (string) ($data['region'] ?? ''),
             (string) ($data['bucket'] ?? ''),
             (string) ($data['access_key'] ?? ''),
-            (string) ($data['secret_key'] ?? '')
+            $secretKey
         );
 
         $error = $backend->testConnection();

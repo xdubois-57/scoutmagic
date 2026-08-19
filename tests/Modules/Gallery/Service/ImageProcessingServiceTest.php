@@ -75,4 +75,95 @@ class ImageProcessingServiceTest extends TestCase
         $this->expectException(GalleryException::class);
         $this->service->process('not an image', 'image/jpeg', 3000);
     }
+
+    public function testProcessRefusesAMimeTypeOutsideTheAllowedPhotoTypes(): void
+    {
+        $this->expectException(GalleryException::class);
+        $this->service->process($this->fakeJpeg(100, 100), 'image/gif', 3000);
+    }
+
+    /**
+     * The medium target used to be compared against the source's WIDTH, so a
+     * tall narrow photo (a phone screenshot, a portrait shot) was considered
+     * "already medium-sized" at any height and the grid was served the
+     * full-size image as its medium rendition.
+     */
+    public function testMediumIsDownscaledForATallNarrowPortrait(): void
+    {
+        $result = $this->service->process($this->fakeJpeg(900, 2400), 'image/jpeg', 3000);
+
+        $medium = imagecreatefromstring($result['medium']);
+        $large = imagecreatefromstring($result['large']);
+
+        $this->assertNotSame($result['medium'], $result['large']);
+        $this->assertSame(1200, imagesy($medium));
+        $this->assertSame(450, imagesx($medium));
+        $this->assertSame(2400, imagesy($large));
+    }
+
+    /**
+     * With gallery_photo_max_dimension below the medium long side, "medium"
+     * came out BIGGER than "large" — so the lightbox's "Voir en haute
+     * qualité" button actually downgraded the image.
+     */
+    public function testMediumNeverExceedsLargeWhenMaxDimensionIsBelowMediumSize(): void
+    {
+        $result = $this->service->process($this->fakeJpeg(4000, 2000), 'image/jpeg', 1000);
+
+        $medium = imagecreatefromstring($result['medium']);
+        $large = imagecreatefromstring($result['large']);
+
+        $this->assertLessThanOrEqual(
+            max(imagesx($large), imagesy($large)),
+            max(imagesx($medium), imagesy($medium))
+        );
+        $this->assertSame(1000, imagesx($large));
+        $this->assertSame($result['medium'], $result['large']);
+    }
+
+    /**
+     * gallery_photo_max_dimension is a free-form number setting: a 0 (or a
+     * blank saved value) asked GD for a 0x0 canvas, failing every photo.
+     * Controller\GalleryConfigController now refuses to store that, and this
+     * covers the service being robust to it on its own.
+     *
+     * @dataProvider nonPositiveMaxDimensions
+     */
+    public function testNonPositiveMaxDimensionFallsBackToTheSourceSize(int $maxDimension): void
+    {
+        $result = $this->service->process($this->fakeJpeg(2000, 1000), 'image/jpeg', $maxDimension);
+
+        $large = imagecreatefromstring($result['large']);
+
+        $this->assertSame(2000, imagesx($large));
+        $this->assertSame(1000, imagesy($large));
+    }
+
+    /**
+     * @return array<string, array{0: int}>
+     */
+    public static function nonPositiveMaxDimensions(): array
+    {
+        return ['zero' => [0], 'negative' => [-500]];
+    }
+
+    public function testThumbIsCappedOnTheLongSideForAPortraitSource(): void
+    {
+        $result = $this->service->process($this->fakeJpeg(1000, 3000), 'image/jpeg', 3000);
+
+        $thumb = imagecreatefromstring($result['thumb']);
+
+        $this->assertSame(300, imagesy($thumb));
+        $this->assertSame(100, imagesx($thumb));
+    }
+
+    public function testTinySourceStillProducesAValidThumb(): void
+    {
+        $result = $this->service->process($this->fakeJpeg(1, 1), 'image/jpeg', 3000);
+
+        $thumb = imagecreatefromstring($result['thumb']);
+
+        $this->assertSame(1, imagesx($thumb));
+        $this->assertSame(1, imagesy($thumb));
+    }
 }
