@@ -102,6 +102,44 @@ class GroupMemberController extends AbstractController
     }
 
     /**
+     * GET /groups/{id}/member-search?q=… — moderator only. The top 10
+     * matches by first name, last name or totem, restricted to exactly
+     * the same pool `invite_candidates` already offers (candidatePool())
+     * — never an open search across the whole unit, so a moderator
+     * typing into the box can only ever find someone the plain dropdown
+     * already offered them.
+     *
+     * @param array<string, string> $params
+     */
+    public function search(Request $request, array $params): Response
+    {
+        $context = $this->context();
+        $group = $this->readableGroup($params, $context);
+        if ($group === null) {
+            return new Response('Not Found', 404);
+        }
+        if (!$this->accessService->canModerate($group, $context)) {
+            return new Response('Seul un modérateur du groupe peut effectuer cette action.', 403);
+        }
+
+        $query = trim((string) $request->getQuery('q', ''));
+        if ($query === '') {
+            return $this->json([]);
+        }
+
+        $scoutYearId = $group->scoutYearId ?? $context->effectiveScoutYearId;
+        $matches = array_values(array_filter(
+            $this->candidatePool($group, $scoutYearId),
+            fn(MemberProfile $p) => $this->matchesQuery($p, $query)
+        ));
+
+        return $this->json(array_map(fn(MemberProfile $p) => [
+            'id' => $p->memberId,
+            'label' => $this->searchLabel($p),
+        ], array_slice($matches, 0, 10)));
+    }
+
+    /**
      * POST /groups/{id}/invite-member
      *
      * @param array<string, string> $params
@@ -298,7 +336,7 @@ class GroupMemberController extends AbstractController
      */
     private function inviteCandidates(DiscussionGroup $group, int $scoutYearId): array
     {
-        $alreadyIn = array_map(fn(GroupMember $m) => $m->memberId, $this->memberRepository->findByGroup($group->id));
+        $alreadyIn = $this->alreadyInMemberIds($group);
 
         $groups = [];
         foreach ($this->sectionService->getAllWithBranches() as $section) {
@@ -323,6 +361,72 @@ class GroupMemberController extends AbstractController
         }
 
         return $groups;
+    }
+
+    /**
+     * The same pool as inviteCandidates(), flattened rather than grouped
+     * by section — what search() filters against. A member reachable
+     * through more than one function (e.g. staff of one section, animé of
+     * another) is kept once, not once per source.
+     *
+     * @return array<int, MemberProfile>
+     */
+    private function candidatePool(DiscussionGroup $group, int $scoutYearId): array
+    {
+        $alreadyIn = $this->alreadyInMemberIds($group);
+
+        $byMemberId = [];
+        foreach ($this->sectionService->getAllWithBranches() as $section) {
+            $sectionId = (int) $section['id'];
+            foreach (array_merge(
+                $this->sectionService->getSectionStaff($sectionId, $scoutYearId),
+                $this->sectionService->getSectionAnimes($sectionId, $scoutYearId)
+            ) as $profile) {
+                if (!in_array($profile->memberId, $alreadyIn, true)) {
+                    $byMemberId[$profile->memberId] = $profile;
+                }
+            }
+        }
+
+        return array_values($byMemberId);
+    }
+
+    /**
+     * @return int[]
+     */
+    private function alreadyInMemberIds(DiscussionGroup $group): array
+    {
+        return array_map(fn(GroupMember $m) => $m->memberId, $this->memberRepository->findByGroup($group->id));
+    }
+
+    /**
+     * Matches search() the same simple, accent-sensitive case-insensitive
+     * substring way Modules\Finance\Controller\DashboardController's own
+     * attachment search already does — first name, last name or totem,
+     * any one of the three is enough.
+     */
+    private function matchesQuery(MemberProfile $profile, string $query): bool
+    {
+        foreach ([$profile->firstName, $profile->lastName, $profile->totem ?? ''] as $field) {
+            if ($field !== '' && mb_stripos($field, $query) !== false) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * "Akéla (Marie Dupont)" when there is a totem, the plain name
+     * otherwise — same two-identity shape Service\PostAuthorResolver's
+     * own author label uses, so a search result reads the same way a
+     * post's author already does.
+     */
+    private function searchLabel(MemberProfile $profile): string
+    {
+        $fullName = trim($profile->firstName . ' ' . $profile->lastName);
+
+        return $profile->totem !== null && $profile->totem !== '' ? $profile->totem . ' (' . $fullName . ')' : $fullName;
     }
 
     /**

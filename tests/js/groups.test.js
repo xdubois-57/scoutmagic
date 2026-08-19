@@ -148,3 +148,100 @@ describe('groups.js "Lien" toggle', () => {
         expect(input.value).toBe('');
     });
 });
+
+describe('groups.js invite-member search (members.html.twig)', () => {
+    beforeEach(() => {
+        document.body.innerHTML = `
+            <input type="text" class="d-none" id="invite-member-search" data-search-url="/groups/1/member-search">
+            <ul class="d-none" id="invite-member-results"></ul>
+            <select id="invite-member">
+                <option value="" selected>— Choisir —</option>
+                <option value="7">Akéla</option>
+            </select>
+        `;
+    });
+
+    it('swaps the plain dropdown for the search box on load', async () => {
+        await loadGroups();
+
+        expect(document.getElementById('invite-member-search').classList.contains('d-none')).toBe(false);
+        expect(document.getElementById('invite-member-results').classList.contains('d-none')).toBe(false);
+        expect(document.getElementById('invite-member').classList.contains('d-none')).toBe(true);
+    });
+
+    it('does nothing for a one-character query, without calling fetch', async () => {
+        await loadGroups();
+        global.fetch = vi.fn();
+
+        const input = document.getElementById('invite-member-search');
+        input.value = 'a';
+        input.dispatchEvent(new Event('input'));
+        await vi.waitFor(() => expect(document.getElementById('invite-member-results').classList.contains('d-none')).toBe(true));
+
+        expect(fetch).not.toHaveBeenCalled();
+    });
+
+    it('fetches and lists matches, debounced, with the XHR header', async () => {
+        vi.useFakeTimers();
+        try {
+            await loadGroups();
+            global.fetch = vi.fn(() => Promise.resolve({
+                ok: true,
+                json: () => Promise.resolve([{ id: 7, label: 'Akéla (Marie Dupont)' }])
+            }));
+
+            const input = document.getElementById('invite-member-search');
+            input.value = 'ak';
+            input.dispatchEvent(new Event('input'));
+            await vi.advanceTimersByTimeAsync(250);
+
+            expect(fetch).toHaveBeenCalledWith(
+                '/groups/1/member-search?q=ak',
+                { headers: { 'X-Requested-With': 'XMLHttpRequest' } }
+            );
+            const results = document.getElementById('invite-member-results');
+            expect(results.children).toHaveLength(1);
+            expect(results.children[0].textContent).toBe('Akéla (Marie Dupont)');
+            expect(results.classList.contains('d-none')).toBe(false);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('clicking a result selects it on the real <select> and fills the search box', async () => {
+        vi.useFakeTimers();
+        try {
+            await loadGroups();
+            global.fetch = vi.fn(() => Promise.resolve({
+                ok: true,
+                json: () => Promise.resolve([{ id: 7, label: 'Akéla (Marie Dupont)' }])
+            }));
+
+            const input = document.getElementById('invite-member-search');
+            input.value = 'ak';
+            input.dispatchEvent(new Event('input'));
+            await vi.advanceTimersByTimeAsync(250);
+
+            document.querySelector('#invite-member-results li').click();
+
+            expect(document.getElementById('invite-member').value).toBe('7');
+            expect(input.value).toBe('Akéla (Marie Dupont)');
+            expect(document.getElementById('invite-member-results').classList.contains('d-none')).toBe(true);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('typing again after a pick clears the stale selection', async () => {
+        await loadGroups();
+        document.getElementById('invite-member').value = '7';
+
+        // A single character stays below the two-character search
+        // threshold, so this only exercises the reset — no fetch() to mock.
+        const input = document.getElementById('invite-member-search');
+        input.value = 'b';
+        input.dispatchEvent(new Event('input'));
+
+        expect(document.getElementById('invite-member').value).toBe('');
+    });
+});

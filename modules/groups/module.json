@@ -109,6 +109,15 @@
       "label": ""
     },
     {
+      "path": "/groups/{id}/member-search",
+      "method": "GET",
+      "controller": "Modules\\Groups\\Controller\\GroupMemberController",
+      "action": "search",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
       "path": "/groups/{id}/invite-member",
       "method": "POST",
       "controller": "Modules\\Groups\\Controller\\GroupMemberController",

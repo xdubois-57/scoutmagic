@@ -84,11 +84,25 @@
             {% endif %}
 
             {% if can_moderate and invite_candidates is not empty %}
+                {#
+                  groups.js swaps this <select> for a search-as-you-type
+                  box (nom/prénom/totem, GET /groups/{id}/member-search) —
+                  it stays the actual form control either way, JS only
+                  ever sets .value on it when a search result is clicked,
+                  so the POST below never changes shape. A placeholder
+                  option so nothing submits by accident before a real
+                  choice is made, with or without JS.
+                #}
                 <form method="post" action="/groups/{{ group.id }}/invite-member" class="row g-2 mt-3">
                     {{ csrf_field()|raw }}
-                    <div class="col-12 col-md-8">
-                        <label class="form-label small mb-1" for="invite-member">Inviter un membre</label>
+                    <div class="col-12 col-md-8 position-relative">
+                        <label class="form-label small mb-1" for="invite-member-search">Inviter un membre</label>
+                        <input type="text" class="form-control d-none" id="invite-member-search"
+                               data-search-url="/groups/{{ group.id }}/member-search"
+                               autocomplete="off" placeholder="Rechercher par nom, prénom ou totem…">
+                        <ul class="list-group mt-1 d-none position-absolute w-100" style="z-index:5;" id="invite-member-results"></ul>
                         <select class="form-select" id="invite-member" name="member_id" style="min-height:44px;">
+                            <option value="" selected>— Choisir —</option>
                             {% for group_option in invite_candidates %}
                                 <optgroup label="{{ group_option.section }}">
                                     {% for profile in group_option.members %}
@@ -127,4 +141,8 @@
             {% endif %}
         </div>
     </div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/assets/js/groups.js" defer nonce="{{ csp_nonce }}"></script>
 {% endblock %}

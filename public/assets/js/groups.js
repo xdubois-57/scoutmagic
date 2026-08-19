@@ -3,11 +3,15 @@
  * Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
  */
 
-// Groups module front-end (show.html.twig): composer media picker,
-// dynamic reactions, polling for a still-processing photo/video,
-// "Charger plus"/"Voir plus de réponses" in-place pagination, inline
-// edit toggles, reply image filename display. Pure JS, no external
-// library — same IIFE/var/fetch style as gallery.js/retro-board.js.
+// Groups module front-end: composer media picker, dynamic reactions,
+// polling for a still-processing photo/video, "Charger plus"/"Voir plus
+// de réponses" in-place pagination, inline edit toggles, reply image
+// filename display (show.html.twig), and the invite-member search box
+// (members.html.twig). Pure JS, no external library — same IIFE/var/
+// fetch style as gallery.js/retro-board.js. Every block below guards on
+// its own DOM elements first, so the same script loads on both pages
+// (and any future one) with no effect from whichever page's markup is
+// actually absent.
 //
 // Server-supplied config comes from #groups-post-form's own data-*
 // attributes (max_media_per_post), the same convention retro-board.js
@@ -123,6 +127,82 @@
                 linkInput.value = '';
             } else {
                 linkInput.focus();
+            }
+        });
+    })();
+
+    // members.html.twig's invite form: a search-as-you-type box in place
+    // of the giant <select>'s dropdown. The <select> itself stays the
+    // real form control throughout — this only ever sets its .value when
+    // a search result is clicked — so the form still POSTs member_id
+    // exactly as before, and nothing here changes what the server
+    // validates. Without JS, or if it fails to load, the box stays
+    // hidden and the plain dropdown (with its own "— Choisir —"
+    // placeholder) works exactly as it always did.
+    (function initInviteMemberSearch() {
+        var input = document.getElementById('invite-member-search');
+        var results = document.getElementById('invite-member-results');
+        var select = document.getElementById('invite-member');
+        if (!input || !results || !select) {
+            return;
+        }
+
+        input.classList.remove('d-none');
+        results.classList.remove('d-none');
+        select.classList.add('d-none');
+
+        var searchTimer = null;
+
+        function showResults(members) {
+            results.innerHTML = '';
+            members.forEach(function (member) {
+                var item = document.createElement('li');
+                item.className = 'list-group-item list-group-item-action';
+                item.style.cursor = 'pointer';
+                item.textContent = member.label;
+                item.addEventListener('click', function () {
+                    select.value = member.id;
+                    input.value = member.label;
+                    results.innerHTML = '';
+                    results.classList.add('d-none');
+                });
+                results.appendChild(item);
+            });
+            results.classList.toggle('d-none', members.length === 0);
+        }
+
+        input.addEventListener('input', function () {
+            clearTimeout(searchTimer);
+            // Typing again after picking someone means that choice may no
+            // longer match what's visible — clear it so a stray click on
+            // "Inviter" cannot submit a stale member_id the text box no
+            // longer names.
+            select.value = '';
+
+            var query = input.value.trim();
+            if (query.length < 2) {
+                results.innerHTML = '';
+                results.classList.add('d-none');
+                return;
+            }
+
+            searchTimer = setTimeout(function () {
+                fetch(input.dataset.searchUrl + '?q=' + encodeURIComponent(query), {
+                    headers: { 'X-Requested-With': 'XMLHttpRequest' }
+                }).then(function (response) {
+                    return response.ok ? response.json() : [];
+                }).then(showResults).catch(function () {
+                    results.innerHTML = '';
+                    results.classList.add('d-none');
+                });
+            }, 250);
+        });
+
+        // Closes the results list on an outside click without discarding
+        // whatever choice was already made.
+        document.addEventListener('click', function (event) {
+            if (event.target !== input && !results.contains(event.target)) {
+                results.classList.add('d-none');
             }
         });
     })();
