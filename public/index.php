@@ -903,6 +903,18 @@ $memberEmailService = new \Core\Member\MemberEmailService(
 $scoutYearResolver = new ScoutYearResolver($scoutYearService, $settingService, $memberYearRepo);
 $scoutYearAdminService = new ScoutYearAdminService($settingService);
 
+// "Membres par section" (core, role_min intendant) — read-only roster of
+// every section's animateurs/intendants/animés, with a generic
+// year-over-year movement classification (Core\Member\Movement, reusable
+// beyond this one page) and an exhaustive, role-gated Excel export
+// (Core\Member\Export, also reusable beyond this one page).
+$memberMovementRepository = new \Core\Member\Movement\MemberMovementRepository($pdo);
+$memberMovementClassifier = new \Core\Member\Movement\MemberMovementClassifierService($memberMovementRepository, $scoutYearService);
+$sectionRosterRepository = new \Core\Member\SectionRosterRepository($pdo);
+$sectionRosterService = new \Core\Member\SectionRosterService($sectionRosterRepository, $encryptionService, $memberEmailRepository, $memberMovementClassifier);
+$memberExportRowBuilder = new \Core\Member\Export\MemberExportRowBuilder($sectionRosterRepository, $sectionService, $scoutYearService, $encryptionService, $memberEmailRepository, $memberMovementClassifier);
+$memberExportService = new \Core\Member\Export\MemberExportService();
+
 // Create file services
 $storagePath = dirname(__DIR__) . '/storage';
 $fileRepository = new FileRepository($pdo);
@@ -1096,6 +1108,7 @@ $menuBuilder->addPage(MenuBuilder::MENU_NOTRE_UNITE, 'Contact', '/contact', 'pub
 $menuBuilder->addPage(MenuBuilder::MENU_NOTRE_UNITE, 'Sections', '/sections', 'public', 30);
 $menuBuilder->addPage(MenuBuilder::MENU_NOTRE_UNITE, 'Protection des données', '/rgpd', 'public', 40);
 $menuBuilder->addPage(MenuBuilder::MENU_ESPACE_CHEFS, 'Staffs', '/chefs/staffs', 'intendant', 10);
+$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_CHEFS, 'Membres par section', '/chefs/membres', 'intendant', 11);
 // Configuration générale — shrunk to just the configuration-mode toggle,
 // moved here from the Configuration menu and widened from superadmin to
 // admin (see /config-mode/activate|deactivate's own role_min and
@@ -1464,6 +1477,8 @@ $router->addRoute('POST', '/config/rgpd/reset', RgpdConfigController::class, 're
 // Staffs
 $router->addRoute('GET', '/chefs/staffs', StaffsController::class, 'index', 'intendant', ['label' => 'Staffs', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_CHEFS)]]);
 $router->addRoute('POST', '/chefs/staffs/badge-toggle', StaffsController::class, 'toggleBadge', 'chief');
+$router->addRoute('GET', '/chefs/membres', \Core\Http\Controller\SectionRosterController::class, 'index', 'intendant', ['label' => 'Membres par section', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_CHEFS)]]);
+$router->addRoute('GET', '/chefs/membres/export', \Core\Http\Controller\SectionRosterController::class, 'export', 'intendant');
 $router->addRoute('POST', '/chefs/staffs/documents', \Core\Http\Controller\SectionDocumentController::class, 'add', 'chief');
 $router->addRoute('POST', '/chefs/staffs/documents/reorder', \Core\Http\Controller\SectionDocumentController::class, 'reorder', 'chief');
 $router->addRoute('POST', '/chefs/staffs/documents/delete', \Core\Http\Controller\SectionDocumentController::class, 'delete', 'chief');
@@ -1657,6 +1672,9 @@ $frontController->registerController(
     new \Core\Http\Controller\MemberEmailAddressController($twig, $memberEmailService, $memberService)
 );
 $frontController->registerController(StaffsController::class, new StaffsController($twig, $sectionService, $memberService, $scoutYearResolver, $journalService, $badgeService, $unitStaffSectionService, $sectionDocumentService, $settingService));
+$frontController->registerController(\Core\Http\Controller\SectionRosterController::class, new \Core\Http\Controller\SectionRosterController(
+    $twig, $sectionService, $sectionRosterService, $memberExportRowBuilder, $memberExportService, $scoutYearResolver, $journalService
+));
 $frontController->registerController(\Core\Http\Controller\SectionDocumentController::class, new \Core\Http\Controller\SectionDocumentController($twig, $sectionDocumentService));
 $frontController->registerController(ConfigModeController::class, new ConfigModeController($twig));
 $editableContentController = new EditableContentController($twig, $editableContentService);
@@ -2288,6 +2306,14 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
         \Modules\Groups\Repository\ReactionRepository::forReplies($pdo),
         $groupsActivityService
     );
+    // "Who reacted, and with what" — the dialog behind a reaction tally's
+    // own click. A separate, read-only service from $groupsReactionService
+    // above (Service\ReactorListService's own docblock explains why).
+    $groupsReactorListService = new \Modules\Groups\Service\ReactorListService(
+        \Modules\Groups\Repository\ReactionRepository::forPosts($pdo),
+        \Modules\Groups\Repository\ReactionRepository::forReplies($pdo),
+        $memberService
+    );
     $groupsAuthorResolver = new \Modules\Groups\Service\PostAuthorResolver($memberService, $userAccountRepo);
     // One group per visible, active section per scout year (prompt 11).
     // Injected into the list controller so the page itself heals a
@@ -2406,7 +2432,8 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
         \Modules\Groups\Controller\ReactionController::class,
         new \Modules\Groups\Controller\ReactionController(
             $twig, $groupsGroupRepo, $groupsPostRepo, $groupsReplyRepo, $groupsAccessService,
-            $groupsReactionService, $groupsContextFactory, $groupsNotificationService
+            $groupsReactionService, $groupsContextFactory, $groupsNotificationService,
+            $groupsReactorListService
         )
     );
     $frontController->registerController(

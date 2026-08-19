@@ -1,0 +1,45 @@
+{#
+  Moderator-only, shown on the group's own page only (show.html.twig
+  passes `can_moderate`; members.html.twig's own inclusion of
+  group_header.html.twig deliberately does not, and this partial is never
+  included there either — same "only on the group's own page" rule as the
+  close/reopen buttons in group_header.html.twig).
+
+  Plain <details>/<summary> disclosure, no JS: editing is not a frequent
+  action, and this needs nothing dynamic — unlike the composer or the
+  reactions above it, there is no reason to spend a script on it.
+
+  The scout-year checkbox is only offered for an invitation group
+  (`group.sectionId is null`) — a section group's year is derived from
+  its section (schema.sql) and Service\GroupService::edit() ignores the
+  field either way, but not offering it at all is the honest UI: nothing
+  here would do anything for a section group.
+#}
+{% if can_moderate|default(false) %}
+    <details class="mb-3">
+        <summary class="btn btn-outline-secondary d-inline-flex align-items-center" style="min-height:44px;list-style:none;cursor:pointer;">
+            <i class="bi bi-pencil me-1"></i> Modifier le groupe
+        </summary>
+        <form method="post" action="/groups/{{ group.id }}/edit" class="card card-body mt-2" style="max-width:420px;">
+            {{ csrf_field()|raw }}
+            <label class="form-label small mb-1" for="group-edit-name">Nom du groupe</label>
+            <input type="text" class="form-control mb-2" id="group-edit-name" name="name"
+                   maxlength="150" required style="min-height:44px;" value="{{ group.name }}">
+
+            {% if group.sectionId is null %}
+                <div class="form-check d-flex align-items-center gap-2 mb-2" style="min-height:44px;">
+                    <input class="form-check-input mt-0" type="checkbox" value="1" id="group-edit-tie-year" name="tie_to_year"
+                           {{ group.scoutYearId is not null ? 'checked' : '' }}>
+                    <label class="form-check-label small d-flex align-items-center" for="group-edit-tie-year" style="min-height:44px;">
+                        Limiter ce groupe sur invitation à l'année scoute en cours
+                    </label>
+                </div>
+                <p class="small text-body-secondary">
+                    Un groupe lié à une année devient une archive l'année suivante et n'accepte plus de nouvelle publication.
+                </p>
+            {% endif %}
+
+            <button type="submit" class="btn btn-primary" style="min-height:44px;">Enregistrer</button>
+        </form>
+    </details>
+{% endif %}

@@ -97,6 +97,99 @@ class PostLinkService
     }
 
     /**
+     * The live card groups.js shows while composing, before anything is
+     * saved (module spec: no manual "Lien" field — the first URL typed in
+     * the body is detected automatically, and this is what shows a
+     * preview for it as-you-type). Nothing here is written: no
+     * discussion_group_post_links row, no stored files row — only
+     * attach() (called again, independently, once the post is actually
+     * submitted — Controller\PostController::create()) persists anything.
+     * The image travels back as a data: URI instead of a stored file, so
+     * there is nothing to clean up if the draft is abandoned, the URL is
+     * edited again, or the post is never submitted at all.
+     *
+     * Same throttle bucket as attach() — SECURITY.md §17's protection is
+     * about the total outbound-fetch rate, not which caller triggered it,
+     * so a live preview and the post's own final fetch both draw from the
+     * same per-member allowance (module spec's Q4 answer: groups.js
+     * debounces this on pause/blur/paste specifically so a live preview
+     * cannot race a member's own submit for the window's last slot).
+     *
+     * @return array{url: string, title: ?string, description: ?string, image_data_uri: ?string}
+     */
+    public function livePreview(string $url, int $memberId): array
+    {
+        if (!$this->throttleService->allowFetch($memberId)) {
+            return ['url' => $url, 'title' => null, 'description' => null, 'image_data_uri' => null];
+        }
+
+        $preview = $this->linkPreviewFetcher->fetch($url);
+
+        return [
+            'url' => $url,
+            'title' => $preview?->title,
+            'description' => $preview?->description,
+            'image_data_uri' => $preview?->imageBytes !== null ? self::dataUri($preview->imageBytes) : null,
+        ];
+    }
+
+    /**
+     * The first http(s) URL substring in free text, already validated
+     * (isValidUrl()), or null — the automatic detection this whole
+     * feature replaces the old manual "Lien" field with: reads the way a
+     * person would pick "the link" out of a sentence, trimming trailing
+     * punctuation a SENTENCE carries but a URL never does (a closing
+     * parenthesis, a full stop, a comma) the same way most chat apps
+     * linkify text.
+     */
+    public static function firstUrlIn(string $text): ?string
+    {
+        if (!preg_match('/https?:\/\/[^\s<>"\']+/u', $text, $matches)) {
+            return null;
+        }
+
+        $url = rtrim($matches[0], ".,;:!?)]}'\"");
+
+        return self::isValidUrl($url) ? $url : null;
+    }
+
+    /**
+     * Removes $url from $text, once a preview card is going to represent
+     * it instead — Facebook-style: the link never appears twice, once as
+     * plain text and once as the card underneath it. Collapses the gap
+     * left behind (trailing spaces on a line, a run of blank lines) rather
+     * than leaving whitespace artifacts where the URL used to sit.
+     */
+    public static function stripUrl(string $text, string $url): string
+    {
+        $stripped = str_replace($url, '', $text);
+        $stripped = preg_replace('/[ \t]{2,}/', ' ', $stripped) ?? $stripped;
+        $stripped = preg_replace('/[ \t]*\n[ \t]*/', "\n", $stripped) ?? $stripped;
+        $stripped = preg_replace('/\n{3,}/', "\n\n", $stripped) ?? $stripped;
+
+        return trim($stripped);
+    }
+
+    /**
+     * A data: URI for a live preview's image — never stored, so the MIME
+     * type has to be sniffed from the bytes themselves (Core\File\
+     * UploadHandler's own finfo-based check, applied here to an in-memory
+     * buffer instead of an uploaded file) rather than trusted from
+     * whatever content-type the remote server happened to send. Returns
+     * null for anything outside the same allow-list a stored preview
+     * image is already held to.
+     */
+    private static function dataUri(string $bytes): ?string
+    {
+        $mime = (new \finfo(FILEINFO_MIME_TYPE))->buffer($bytes);
+        if ($mime === false || !in_array($mime, self::IMAGE_ALLOWED_MIMES, true)) {
+            return null;
+        }
+
+        return 'data:' . $mime . ';base64,' . base64_encode($bytes);
+    }
+
+    /**
      * Deletes the post's link row and its cached image (row + stored
      * object), if any — called by Controller\PostController::delete()
      * BEFORE the post row itself is removed, exactly like

@@ -61,6 +61,33 @@ class ScoutYearService
     }
 
     /**
+     * Find a scout year by its exact label (e.g. "2025-2026") — never
+     * creates one, unlike ensureYear(). Used where "does this year already
+     * exist" must be answered without side effects (e.g. resolving the
+     * previous scout year for a historical comparison, where fabricating a
+     * not-yet-imported year would be wrong).
+     *
+     * @return array{id: int, label: string, start_date: string, end_date: string}|null
+     */
+    public function findByLabel(string $label): ?array
+    {
+        $stmt = $this->pdo->prepare('SELECT * FROM scout_years WHERE label = ?');
+        $stmt->execute([$label]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+        if ($row === false) {
+            return null;
+        }
+
+        return [
+            'id' => (int) $row['id'],
+            'label' => (string) $row['label'],
+            'start_date' => (string) $row['start_date'],
+            'end_date' => (string) $row['end_date'],
+        ];
+    }
+
+    /**
      * Get all scout years, ordered by start_date ascending (oldest first).
      *
      * @return array<int, array{id: int, label: string, start_date: string, end_date: string}>

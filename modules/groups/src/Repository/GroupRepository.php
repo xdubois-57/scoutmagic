@@ -71,6 +71,23 @@ class GroupRepository
         $stmt->execute([$closedAt, $id]);
     }
 
+    public function rename(int $id, string $name): void
+    {
+        $stmt = $this->pdo->prepare('UPDATE discussion_groups SET name = ? WHERE id = ?');
+        $stmt->execute([$name, $id]);
+    }
+
+    /**
+     * Links or unlinks an invitation group to a scout year — never called
+     * for a section group (Service\GroupService::edit() is the actual
+     * enforcement of that; see its own docblock).
+     */
+    public function setScoutYearId(int $id, ?int $scoutYearId): void
+    {
+        $stmt = $this->pdo->prepare('UPDATE discussion_groups SET scout_year_id = ? WHERE id = ?');
+        $stmt->execute([$scoutYearId, $id]);
+    }
+
     /**
      * Caches the group's delegated gallery album id, resolved by
      * Service\PostMediaService::ensureAlbumId(). Idempotent to call twice

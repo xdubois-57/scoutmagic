@@ -35,6 +35,17 @@
    route's static `label` for a dynamic page title (a member's name, an
    article title...); the current page is never itself a link.
 
+   `breadcrumb_trail` (a controller context variable, never a module.json
+   declaration) is a DIFFERENT thing from `parents` above, deliberately:
+   each entry is `{label, url}` and renders as a real link. This is safe
+   only because it is never a menu category — it names a specific,
+   unambiguous ancestor PAGE within the same controller's own page family
+   (e.g. a group's page linking back to "Groupes", the group list), not
+   "one of several unrelated pages this menu happens to contain". The
+   controller resolves both label and url itself (a group's name, its own
+   id), so there is nothing here for a JSON manifest to declare statically
+   the way `parents` is.
+
    The home page itself declares its own breadcrumb too (label "Accueil",
    no parents) so it ends the trail the same way every other page does —
    an active, non-link "Accueil" item after the icon — rather than the
@@ -62,6 +73,11 @@
                 {% else %}
                     <li class="breadcrumb-item text-body-secondary">{{ parent }}</li>
                 {% endif %}
+            {% endfor %}
+            {% for crumb in breadcrumb_trail|default([]) %}
+                <li class="breadcrumb-item text-truncate">
+                    <a href="{{ crumb.url }}" class="text-decoration-none">{{ crumb.label }}</a>
+                </li>
             {% endfor %}
             <li class="breadcrumb-item active text-truncate" aria-current="page">
                 {{ breadcrumb_current|default(breadcrumb.label) }}

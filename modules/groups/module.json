@@ -109,6 +109,15 @@
       "label": ""
     },
     {
+      "path": "/groups/{id}/member-search",
+      "method": "GET",
+      "controller": "Modules\\Groups\\Controller\\GroupMemberController",
+      "action": "search",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
       "path": "/groups/{id}/invite-member",
       "method": "POST",
       "controller": "Modules\\Groups\\Controller\\GroupMemberController",
@@ -154,6 +163,15 @@
       "label": ""
     },
     {
+      "path": "/groups/{id}/edit",
+      "method": "POST",
+      "controller": "Modules\\Groups\\Controller\\GroupController",
+      "action": "edit",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
       "path": "/groups/{id}/close",
       "method": "POST",
       "controller": "Modules\\Groups\\Controller\\GroupController",
@@ -181,6 +199,15 @@
       "label": ""
     },
     {
+      "path": "/groups/{id}/media-status",
+      "method": "GET",
+      "controller": "Modules\\Groups\\Controller\\GroupController",
+      "action": "mediaStatus",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
       "path": "/groups/{id}/posts/{postId}/replies",
       "method": "GET",
       "controller": "Modules\\Groups\\Controller\\ReplyController",
@@ -194,6 +221,15 @@
       "method": "POST",
       "controller": "Modules\\Groups\\Controller\\PostController",
       "action": "create",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/groups/{id}/link-preview",
+      "method": "POST",
+      "controller": "Modules\\Groups\\Controller\\PostController",
+      "action": "linkPreview",
       "menu": "espace_animes",
       "role_min": "identified",
       "label": ""
@@ -275,6 +311,24 @@
       "method": "POST",
       "controller": "Modules\\Groups\\Controller\\ReactionController",
       "action": "reactToReply",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/groups/{id}/posts/{postId}/reactions",
+      "method": "GET",
+      "controller": "Modules\\Groups\\Controller\\ReactionController",
+      "action": "postReactors",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/groups/{id}/replies/{replyId}/reactions",
+      "method": "GET",
+      "controller": "Modules\\Groups\\Controller\\ReactionController",
+      "action": "replyReactors",
       "menu": "espace_animes",
       "role_min": "identified",
       "label": ""

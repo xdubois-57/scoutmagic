@@ -82,8 +82,21 @@ class GroupMemberControllerTest extends TestCase
     /**
      * @param int[] $linkedMemberIds
      */
-    private function controller(array $linkedMemberIds, string $role = 'identified'): GroupMemberController
-    {
+    /**
+     * @param array<string, mixed>|null $routeBreadcrumb see
+     *        GroupControllerTest::controller()'s own doc — same optional,
+     *        opt-in Twig global.
+     * @param MemberProfile[] $candidateProfiles who search()/
+     *        inviteCandidates() see as invitable — left empty by default,
+     *        preserving every other test's original "no sections
+     *        configured" world exactly as it always has been.
+     */
+    private function controller(
+        array $linkedMemberIds,
+        string $role = 'identified',
+        ?array $routeBreadcrumb = null,
+        array $candidateProfiles = []
+    ): GroupMemberController {
         AuthSession::login(1, 'parent@test.be', $role);
 
         $access = new GroupAccessService($this->memberRepo, $this->sectionRepo, new SectionMembershipRepository($this->pdo));
@@ -99,9 +112,11 @@ class GroupMemberControllerTest extends TestCase
         $resolver->method('getEffectiveYear')->willReturn(new EffectiveScoutYear($this->currentYearId, '2025-2026', null));
 
         $sectionService = $this->createMock(SectionService::class);
-        $sectionService->method('getAllWithBranches')->willReturn([]);
+        $sectionService->method('getAllWithBranches')->willReturn(
+            $candidateProfiles === [] ? [] : [['id' => $this->sectionId, 'name' => 'Louveteaux', 'desk_code' => 'LOU']]
+        );
         $sectionService->method('getSection')->willReturn(['id' => $this->sectionId, 'name' => 'Louveteaux', 'desk_code' => 'LOU']);
-        $sectionService->method('getSectionStaff')->willReturn([]);
+        $sectionService->method('getSectionStaff')->willReturn($candidateProfiles);
         $sectionService->method('getSectionAnimes')->willReturn([]);
 
         $twig = TwigFactory::create(
@@ -113,6 +128,9 @@ class GroupMemberControllerTest extends TestCase
                   'current_user_role' => $role, 'config_mode' => false, 'cookie_consent_given' => true,
                   'menus' => null, 'csp_nonce' => 'test'] as $key => $value) {
             $twig->addGlobal($key, $value);
+        }
+        if ($routeBreadcrumb !== null) {
+            $twig->addGlobal('route_breadcrumb', $routeBreadcrumb);
         }
         $twig->addFunction(new \Twig\TwigFunction('param', fn(...$a) => ''));
 
@@ -177,6 +195,127 @@ class GroupMemberControllerTest extends TestCase
         $body = $this->controller([$this->plainMemberId])->index(new Request('GET', '/g', [], [], [], []), $this->params())->getBody();
 
         $this->assertStringContainsString('import du Desk', $body);
+    }
+
+    /**
+     * partials/breadcrumb_bar.html.twig: "Groupes" and the group's own
+     * name both link back, same trail as GroupController's own pages.
+     */
+    public function testMembersPageBreadcrumbLinksBackToTheGroupListAndTheGroupItself(): void
+    {
+        $body = $this->controller([$this->plainMemberId], 'identified', ['label' => 'Membres', 'parents' => ['Espace animés']])
+            ->index(new Request('GET', '/g', [], [], [], []), $this->params())->getBody();
+
+        $this->assertMatchesRegularExpression('/<a href="\/groups" class="text-decoration-none">Groupes<\/a>/', $body);
+        $this->assertMatchesRegularExpression('/<a href="\/groups\/' . $this->groupId . '" class="text-decoration-none">Louveteaux<\/a>/', $body);
+        $this->assertMatchesRegularExpression('/aria-current="page">\s*Membres\s*<\/li>/', $body);
+    }
+
+    // ---- search ----
+
+    private function candidateProfile(int $memberId, string $firstName, string $lastName, ?string $totem): MemberProfile
+    {
+        return new MemberProfile(
+            $memberId * 100, $memberId, 'DESK' . $memberId, $firstName, $lastName, $totem,
+            null, null, null, null, null, null, null, null, false, false, [], [], '2025-2026'
+        );
+    }
+
+    private function searchRequest(string $query): Request
+    {
+        return new Request('GET', '/groups/' . $this->groupId . '/member-search', ['q' => $query], [], [], []);
+    }
+
+    public function testSearchMatchesByFirstNameLastNameOrTotem(): void
+    {
+        $profiles = [
+            $this->candidateProfile(11, 'Baptiste', 'Renard', 'Akéla'),
+            $this->candidateProfile(12, 'Céline', 'Baptiste', null),
+            $this->candidateProfile(13, 'Marc', 'Dupont', 'Baloo'),
+        ];
+
+        $controller = $this->controller([$this->moderatorId], 'identified', null, $profiles);
+
+        $byFirstName = json_decode($controller->search($this->searchRequest('bapt'), $this->params())->getBody(), true);
+        $this->assertCount(2, $byFirstName);
+
+        $byTotem = json_decode($controller->search($this->searchRequest('baloo'), $this->params())->getBody(), true);
+        $this->assertSame([['id' => 13, 'label' => 'Baloo (Marc Dupont)']], $byTotem);
+
+        $byLastName = json_decode($controller->search($this->searchRequest('renard'), $this->params())->getBody(), true);
+        $this->assertSame([['id' => 11, 'label' => 'Akéla (Baptiste Renard)']], $byLastName);
+    }
+
+    public function testSearchLabelHasNoTotemParenthesisWhenThereIsNoTotem(): void
+    {
+        $profiles = [$this->candidateProfile(12, 'Céline', 'Baptiste', null)];
+
+        $body = json_decode(
+            $this->controller([$this->moderatorId], 'identified', null, $profiles)
+                ->search($this->searchRequest('céline'), $this->params())->getBody(),
+            true
+        );
+
+        $this->assertSame([['id' => 12, 'label' => 'Céline Baptiste']], $body);
+    }
+
+    public function testSearchExcludesSomeoneAlreadyInTheGroup(): void
+    {
+        $profiles = [$this->candidateProfile($this->moderatorId, 'Le', 'Modérateur', 'Chef')];
+
+        // The moderator is already an explicit member of $this->groupId
+        // (createSectionGroup's own creator) — must never appear as an
+        // invite candidate for a group they are already in.
+        $body = json_decode(
+            $this->controller([$this->moderatorId], 'identified', null, $profiles)
+                ->search($this->searchRequest('chef'), $this->params())->getBody(),
+            true
+        );
+
+        $this->assertSame([], $body);
+    }
+
+    public function testSearchCapsResultsAtTen(): void
+    {
+        $profiles = array_map(
+            fn(int $i) => $this->candidateProfile(20 + $i, 'Scout' . $i, 'Renard', null),
+            range(1, 15)
+        );
+
+        $body = json_decode(
+            $this->controller([$this->moderatorId], 'identified', null, $profiles)
+                ->search($this->searchRequest('scout'), $this->params())->getBody(),
+            true
+        );
+
+        $this->assertCount(10, $body);
+    }
+
+    public function testSearchWithAnEmptyQueryReturnsNothingWithoutFiltering(): void
+    {
+        $profiles = [$this->candidateProfile(11, 'Baptiste', 'Renard', 'Akéla')];
+
+        $body = json_decode(
+            $this->controller([$this->moderatorId], 'identified', null, $profiles)
+                ->search($this->searchRequest(''), $this->params())->getBody(),
+            true
+        );
+
+        $this->assertSame([], $body);
+    }
+
+    public function testSearchIsRefusedToAnOrdinaryMember(): void
+    {
+        $response = $this->controller([$this->plainMemberId])->search($this->searchRequest('bapt'), $this->params());
+
+        $this->assertSame(403, $response->getStatusCode());
+    }
+
+    public function testSearchIs404ForANonMemberRatherThan403(): void
+    {
+        $response = $this->controller([$this->outsiderId])->search($this->searchRequest('bapt'), $this->params());
+
+        $this->assertSame(404, $response->getStatusCode());
     }
 
     public function testInviteMemberRejectsAMissingCsrfToken(): void

@@ -1,4 +1,24 @@
 {% extends 'base.html.twig' %}
+{#
+ ⚠ THIS PAGE IS THE SPECIFICATION FOR THE "scout year transition"
+ END-TO-END TEST: tests/e2e/specs/scout-year-transition.spec.js.
+
+ That test replays, in a real browser, exactly the workflow described
+ below — the four steps, their order, each button staying disabled until
+ the previous step is done, the preview that is scoped to one session, the
+ staff year that the public must not see, and the final switch that clears
+ the staff year. It reads the labels off this page rather than copying
+ them, but it cannot guess a change of plan.
+
+ **Any change to this workflow must be reflected in that test, in the same
+ change**: a step added, removed or reordered, a new blocking condition, a
+ new control, or simply rewording a label the test relies on. The step
+ wording itself comes from Core\Http\Controller\ScoutYearController::
+ buildTransitionSteps(), which carries the same reminder.
+
+ The test is blocking: it fails CI (the "End-to-end (browser)" job) and
+ scripts/release.sh's E2E gate. See README.md § Tests de bout en bout.
+#}
 {% block title %}Année scoute — {{ param('site_name') }}{% endblock %}
 {% block content %}
     <h1>Année scoute</h1>

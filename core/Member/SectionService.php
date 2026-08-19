@@ -99,6 +99,52 @@ class SectionService
     }
 
     /**
+     * Batch lookup by id, WITHOUT the is_active/is_visible filtering
+     * getAllWithBranches() applies — a caller resolving a *historical*
+     * section reference (e.g. "which section was this member in last
+     * year") must still resolve it even if that section has since gone
+     * inactive or been hidden; it never disappears from the sections
+     * table itself (§8.8: a section with no current members is deactivated,
+     * never deleted).
+     *
+     * @param int[] $sectionIds
+     * @return array<int, array{id: int, desk_code: string, name: ?string, email: ?string, age_branch_id: int, branch_name: string, branch_sort_order: int, color: ?string}> keyed by id
+     */
+    public function findByIds(array $sectionIds): array
+    {
+        $sectionIds = array_values(array_unique(array_map('intval', $sectionIds)));
+        if ($sectionIds === []) {
+            return [];
+        }
+
+        $pdo = $this->connection->getPdo();
+        $placeholders = implode(',', array_fill(0, count($sectionIds), '?'));
+        $stmt = $pdo->prepare(
+            "SELECT s.id, s.desk_code, s.name, s.email, s.age_branch_id, s.color,
+                    ab.label AS branch_name, ab.sort_order AS branch_sort_order
+             FROM sections s
+             JOIN age_branches ab ON s.age_branch_id = ab.id
+             WHERE s.id IN ($placeholders)"
+        );
+        $stmt->execute($sectionIds);
+
+        $result = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $result[(int) $row['id']] = [
+                'id' => (int) $row['id'],
+                'desk_code' => (string) $row['desk_code'],
+                'name' => $row['name'] !== null ? (string) $row['name'] : null,
+                'email' => $row['email'] !== null ? (string) $row['email'] : null,
+                'age_branch_id' => (int) $row['age_branch_id'],
+                'branch_name' => (string) $row['branch_name'],
+                'branch_sort_order' => (int) $row['branch_sort_order'],
+                'color' => $row['color'] !== null ? (string) $row['color'] : null,
+            ];
+        }
+        return $result;
+    }
+
+    /**
      * Whether $memberYearId has a function in the section identified by
      * $sectionDeskCode — used by Core\Badge\BadgeService to restrict
      * "Référent {section}" badges to Staff d'U members (UnitStaffSectionService

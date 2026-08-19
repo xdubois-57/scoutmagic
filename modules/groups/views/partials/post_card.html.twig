@@ -111,6 +111,7 @@
         {% include '@groups/partials/reactions.html.twig' with {
             summary: row.reactions,
             action: '/groups/' ~ group.id ~ '/posts/' ~ row.post.id ~ '/react',
+            reactors_url: '/groups/' ~ group.id ~ '/posts/' ~ row.post.id ~ '/reactions',
             compact: false
         } only %}
 

@@ -282,21 +282,29 @@ class PostControllerTest extends TestCase
         $this->assertSame($this->memberId, $posts[0]->authorMemberId);
     }
 
-    public function testCreateRejectsAnInvalidLinkWithoutCreatingThePostAtAll(): void
+    public function testCreatePostsAJavascriptSchemeAsPlainTextRatherThanAttachingItAsALink(): void
     {
-        $this->withCsrf(['body' => 'Regardez ça', 'link' => 'javascript:alert(1)']);
+        // No manual "Lien" field any more: firstUrlIn() only ever matches
+        // starting from an http(s):// prefix, so this is never even a
+        // link candidate — it is stored as ordinary body text (Twig's
+        // autoescaping keeps it inert on render) instead of failing the
+        // post the way an explicitly-entered invalid link used to.
+        $this->withCsrf(['body' => 'Regardez ça: javascript:alert(1)']);
 
         $response = $this->controller([$this->memberId])->create($this->request(), $this->params());
 
         $this->assertSame(302, $response->getStatusCode());
-        $this->assertSame([], $this->postRepo->findPage($this->groupId, 10));
+        $posts = $this->postRepo->findPage($this->groupId, 10);
+        $this->assertCount(1, $posts);
+        $this->assertSame('Regardez ça: javascript:alert(1)', $posts[0]->body);
+        $this->assertNull((new PostLinkRepository($this->pdo))->findForPost($posts[0]->id));
     }
 
-    public function testCreateWithAValidLinkStoresAndRendersThePreviewCard(): void
+    public function testCreateDetectsTheUrlInTheBodyStoresAndRendersThePreviewCardAndStripsItFromTheText(): void
     {
         $fetcher = $this->createMock(LinkPreviewFetcher::class);
         $fetcher->method('fetch')->willReturn(new \Modules\Gallery\Api\LinkPreview('Un super lien', 'Une belle description', null));
-        $this->withCsrf(['body' => '', 'link' => 'https://example.com/article']);
+        $this->withCsrf(['body' => 'Regarde ça: https://example.com/article trop bien']);
 
         $createResponse = $this->controller([$this->memberId], self::AUTHOR_ACCOUNT, 'identified', true, null, $fetcher)
             ->create($this->request(), $this->params());
@@ -304,6 +312,9 @@ class PostControllerTest extends TestCase
 
         $posts = $this->postRepo->findPage($this->groupId, 10);
         $this->assertCount(1, $posts);
+        // The URL itself never stays in the body once it is going to be
+        // represented by the preview card underneath — Facebook-style.
+        $this->assertSame('Regarde ça: trop bien', $posts[0]->body);
         $link = (new PostLinkRepository($this->pdo))->findForPost($posts[0]->id);
         $this->assertSame('https://example.com/article', $link->url);
         $this->assertSame('Un super lien', $link->title);
@@ -322,14 +333,22 @@ class PostControllerTest extends TestCase
         $this->assertStringContainsString('https://example.com/article', $feedResponse->getBody());
     }
 
-    public function testCreateWithNeitherBodyMediaNorLinkSavesNothingWithALinkFieldPresentButEmpty(): void
+    public function testCreateWithOnlyAUrlAndNoOtherTextIsStillPostableOnceStripped(): void
     {
-        $this->withCsrf(['body' => '', 'link' => '']);
+        // The body is empty AFTER stripping the URL, but the post is still
+        // saved — a link alone counts as content, same as it always has.
+        $fetcher = $this->createMock(LinkPreviewFetcher::class);
+        $fetcher->method('fetch')->willReturn(null);
+        $this->withCsrf(['body' => 'https://example.com/article']);
 
-        $response = $this->controller([$this->memberId])->create($this->request(), $this->params());
+        $response = $this->controller([$this->memberId], self::AUTHOR_ACCOUNT, 'identified', true, null, $fetcher)
+            ->create($this->request(), $this->params());
 
         $this->assertSame(302, $response->getStatusCode());
-        $this->assertSame([], $this->postRepo->findPage($this->groupId, 10));
+        $posts = $this->postRepo->findPage($this->groupId, 10);
+        $this->assertCount(1, $posts);
+        $this->assertSame('', $posts[0]->body);
+        $this->assertSame('https://example.com/article', (new PostLinkRepository($this->pdo))->findForPost($posts[0]->id)->url);
     }
 
     public function testCreateIsRefusedOnAClosedGroupServerSide(): void
@@ -365,6 +384,78 @@ class PostControllerTest extends TestCase
         $posts = $this->postRepo->findPage($this->groupId, 10);
         $this->assertCount(1, $posts);
         $this->assertSame($this->memberId, $posts[0]->authorMemberId, 'the forged author_member_id must be ignored');
+    }
+
+    // --- linkPreview -----------------------------------------------------
+
+    private function linkPreviewRequest(): Request
+    {
+        return new Request('POST', '/groups/' . $this->groupId . '/link-preview', [], $_POST, [], []);
+    }
+
+    public function testLinkPreviewRejectsAMissingCsrfToken(): void
+    {
+        $_POST = ['body' => 'https://example.com'];
+
+        $response = $this->controller([$this->memberId])->linkPreview($this->linkPreviewRequest(), $this->params());
+
+        $this->assertSame(403, $response->getStatusCode());
+    }
+
+    public function testLinkPreviewIs404ForANonMemberRatherThan403(): void
+    {
+        $outsider = GroupsTestHelper::createMember($this->pdo, 'OUTLP');
+        $this->withCsrf(['body' => 'https://example.com']);
+
+        $response = $this->controller([$outsider])->linkPreview($this->linkPreviewRequest(), $this->params());
+
+        $this->assertSame(404, $response->getStatusCode());
+    }
+
+    public function testLinkPreviewIsRefusedOnAClosedGroup(): void
+    {
+        $this->groupRepo->setClosed($this->groupId, '2026-02-01 00:00:00');
+        $this->withCsrf(['body' => 'https://example.com']);
+
+        $response = $this->controller([$this->memberId])->linkPreview($this->linkPreviewRequest(), $this->params());
+
+        $this->assertSame(403, $response->getStatusCode());
+    }
+
+    public function testLinkPreviewReturnsANullUrlWhenTheDraftHasNoLinkWithoutCallingTheFetcher(): void
+    {
+        $fetcher = $this->createMock(LinkPreviewFetcher::class);
+        $fetcher->expects($this->never())->method('fetch');
+        $this->withCsrf(['body' => 'Un message tout à fait normal']);
+
+        $response = $this->controller([$this->memberId], self::AUTHOR_ACCOUNT, 'identified', true, null, $fetcher)
+            ->linkPreview($this->linkPreviewRequest(), $this->params());
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame(['url' => null], json_decode($response->getBody(), true));
+    }
+
+    public function testLinkPreviewResolvesTheFirstUrlInTheDraftAndReturnsADataUriImageWithoutStoringAnything(): void
+    {
+        $fetcher = $this->createMock(LinkPreviewFetcher::class);
+        $fetcher->expects($this->once())->method('fetch')->with('https://example.com/article')
+            ->willReturn(new \Modules\Gallery\Api\LinkPreview('Titre', 'Description', base64_decode(
+                'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='
+            )));
+        $this->withCsrf(['body' => 'Regarde https://example.com/article trop bien']);
+
+        $response = $this->controller([$this->memberId], self::AUTHOR_ACCOUNT, 'identified', true, null, $fetcher)
+            ->linkPreview($this->linkPreviewRequest(), $this->params());
+
+        $this->assertSame(200, $response->getStatusCode());
+        $body = json_decode($response->getBody(), true);
+        $this->assertSame('https://example.com/article', $body['url']);
+        $this->assertSame('Titre', $body['title']);
+        $this->assertSame('Description', $body['description']);
+        $this->assertStringStartsWith('data:image/png;base64,', $body['image_data_uri']);
+
+        // A preview only — nothing was written, unlike create().
+        $this->assertSame([], $this->postRepo->findPage($this->groupId, 10));
     }
 
     // --- media -----------------------------------------------------------
