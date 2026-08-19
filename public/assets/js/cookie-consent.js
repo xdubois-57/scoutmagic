@@ -8,7 +8,7 @@ document.addEventListener('DOMContentLoaded', function () {
     if (!banner) return;
 
     function getCsrf() {
-        var meta = document.querySelector('meta[name="csrf-token"]');
+        var meta = /** @type {HTMLMetaElement} */ (document.querySelector('meta[name="csrf-token"]'));
         return meta ? meta.content : '';
     }
 

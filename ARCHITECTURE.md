@@ -945,4 +945,6 @@ Three complementary, independently-runnable automated test stacks:
 
 Frontend unit tests are a complement to, never a replacement for, PHPUnit's integration tests or the manual mobile (~375px) and desktop (~1280px) visual verification every page/component still requires — they mock the server/browser boundary precisely so they can run in isolation, which is also exactly why they can't substitute for either of those two.
 
+A fourth, non-test mechanism runs alongside these three: JavaScript static analysis (`npm run typecheck`, TypeScript's `checkJs` over `public/assets/js/`, no build step — see `AGENTS.md` § Static analysis and README.md § Analyse statique JavaScript) is the JavaScript equivalent of `vendor/bin/phpstan analyse` — it catches unresolved identifiers, wrong argument counts, and statically-detectable invalid property access *before* any test runs, which is a different guarantee than Vitest exercising behavior at runtime.
+
 Automated tests are mandatory for every feature and must be kept up to date as the codebase evolves. The RBAC guard must have explicit test coverage on every role boundary.

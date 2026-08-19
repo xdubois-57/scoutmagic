@@ -228,7 +228,7 @@
                         Quand une nouvelle version est détectée, elle sera installée automatiquement au prochain créneau prévu.
                     </p>
                     <div class="d-flex align-items-center gap-2 flex-wrap mb-3">
-                        <select class="form-select form-select-sm w-auto" id="auto-update-day">
+                        <select class="form-select form-select-sm w-auto" id="auto-update-day" aria-label="Jour de la semaine">
                             <option value="monday" {{ auto_update_day == 'monday' ? 'selected' : '' }}>Lundi</option>
                             <option value="tuesday" {{ auto_update_day == 'tuesday' ? 'selected' : '' }}>Mardi</option>
                             <option value="wednesday" {{ auto_update_day == 'wednesday' ? 'selected' : '' }}>Mercredi</option>
@@ -237,7 +237,7 @@
                             <option value="saturday" {{ auto_update_day == 'saturday' ? 'selected' : '' }}>Samedi</option>
                             <option value="sunday" {{ auto_update_day == 'sunday' ? 'selected' : '' }}>Dimanche</option>
                         </select>
-                        <input type="time" class="form-control form-control-sm w-auto" id="auto-update-time" value="{{ auto_update_time }}">
+                        <input type="time" class="form-control form-control-sm w-auto" id="auto-update-time" value="{{ auto_update_time }}" aria-label="Heure d'installation">
                     </div>
                 </div>
 
@@ -246,7 +246,7 @@
                     <p class="small text-body-secondary mb-2">
                         Chaque commit poussé sur cette branche sera installé immédiatement.
                     </p>
-                    <input type="text" class="form-control form-control-sm mb-3" id="auto-update-branch" value="{{ dev_update_branch }}" style="max-width:300px;">
+                    <input type="text" class="form-control form-control-sm mb-3" id="auto-update-branch" value="{{ dev_update_branch }}" style="max-width:300px;" aria-label="Nom de la branche">
                 </div>
             </div>
 
@@ -408,7 +408,7 @@
                     </p>
                     <form id="reset-settings-form">
                         {{ csrf_field()|raw }}
-                        <label class="form-label small">Tapez <strong>REINITIALISER</strong> pour confirmer</label>
+                        <label class="form-label small" for="reset-settings-keyword">Tapez <strong>REINITIALISER</strong> pour confirmer</label>
                         <input type="text" class="form-control form-control-sm mb-2" id="reset-settings-keyword" autocomplete="off">
                         <button type="submit" class="btn btn-outline-danger btn-sm" id="reset-settings-submit" disabled>
                             Réinitialiser les paramètres
@@ -437,7 +437,8 @@
                             </div>
                         </div>
                         <div class="mb-2" id="restore-server-picker">
-                            <select class="form-select form-select-sm" name="backup_id" {% if backups is empty %}disabled{% endif %}>
+                            <label class="visually-hidden" for="restore-backup-id">Sauvegarde à restaurer</label>
+                            <select class="form-select form-select-sm" name="backup_id" id="restore-backup-id" {% if backups is empty %}disabled{% endif %}>
                                 {% for backup in backups %}
                                     {% if backup.status == 'completed' %}
                                         <option value="{{ backup.id }}">{{ _self.backup_type_label(backup.type) }} — {{ backup.createdAt }}</option>
@@ -446,13 +447,13 @@
                             </select>
                         </div>
                         <div class="mb-2 d-none" id="restore-upload-picker">
-                            <input type="file" class="form-control form-control-sm" name="backup_file" accept=".zip">
+                            <input type="file" class="form-control form-control-sm" name="backup_file" id="restore-backup-file" accept=".zip" aria-label="Fichier de sauvegarde">
                         </div>
                         <div class="mb-2">
-                            <label class="form-label small">Mot de passe de l'archive (si chiffrée)</label>
-                            <input type="password" class="form-control form-control-sm" name="password">
+                            <label class="form-label small" for="restore-backup-password">Mot de passe de l'archive (si chiffrée)</label>
+                            <input type="password" class="form-control form-control-sm" name="password" id="restore-backup-password">
                         </div>
-                        <label class="form-label small">Tapez <strong>RESTAURER</strong> pour confirmer</label>
+                        <label class="form-label small" for="restore-backup-keyword">Tapez <strong>RESTAURER</strong> pour confirmer</label>
                         <input type="text" class="form-control form-control-sm mb-2" name="confirm_keyword" id="restore-backup-keyword" autocomplete="off">
                         <button type="submit" class="btn btn-outline-danger btn-sm" id="restore-backup-submit" disabled>
                             Restaurer
@@ -476,7 +477,7 @@
                                 Je comprends que toutes les données seront définitivement supprimées
                             </label>
                         </div>
-                        <label class="form-label small">Tapez <strong>EFFACER</strong> pour confirmer</label>
+                        <label class="form-label small" for="full-reset-keyword">Tapez <strong>EFFACER</strong> pour confirmer</label>
                         <input type="text" class="form-control form-control-sm mb-2" id="full-reset-keyword" autocomplete="off">
                         <button type="submit" class="btn btn-danger btn-sm" id="full-reset-submit" disabled>
                             Tout effacer

@@ -35,13 +35,15 @@ test('the public login page boots through public/index.php and renders its form 
     // The magic-link tab is the server-rendered default (AuthController::
     // login()'s default_login_method falls back to 'magic-link' whenever
     // no last_login_method cookie exists — always true for this freshly
-    // provisioned, never-visited instance). Its email input is the only
-    // one of the three tabs' email fields with a real <label for>
-    // association (the password tab's label lacks a `for` attribute), so
-    // this also incidentally proves accessible-name wiring rather than
-    // relying on visibility alone.
-    await expect(page.getByLabel('Adresse email')).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Envoyer le lien de connexion' })).toBeVisible();
+    // provisioned, never-visited instance). All three tabs' email fields
+    // have a real <label for> association, so the query is scoped to the
+    // magic-link tab's own container (#tab-magic-link) rather than the
+    // whole page — otherwise 'Adresse email' resolves to all three
+    // (the other two tabs are hidden via `d-none`, not absent from the
+    // DOM).
+    const magicLinkTab = page.locator('#tab-magic-link');
+    await expect(magicLinkTab.getByLabel('Adresse email')).toBeVisible();
+    await expect(magicLinkTab.getByRole('button', { name: 'Envoyer le lien de connexion' })).toBeVisible();
 
     // The mandatory RGPD consent link — real content from a real route
     // (core/View/RgpdContentService), not a static string in this template.

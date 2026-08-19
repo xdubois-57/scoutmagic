@@ -10,10 +10,15 @@
 // calculator section also runs alone on the article detail page.
 (function () {
     function csrf() {
-        var meta = document.querySelector('meta[name="csrf-token"]');
+        var meta = /** @type {HTMLMetaElement} */ (document.querySelector('meta[name="csrf-token"]'));
         return meta ? meta.content : '';
     }
 
+    /**
+     * @param {string} url
+     * @param {Object} body
+     * @returns {Promise<Object>}
+     */
     function postJson(url, body) {
         return fetch(url, {
             method: 'POST',
@@ -71,6 +76,10 @@
         return URL_SCHEME_ALLOWLIST.indexOf(schemeMatch[1]) !== -1;
     }
 
+    /**
+     * @param {Element} el
+     * @param {string} tagName
+     */
     function sanitizeHtmlAttributes(el, tagName) {
         var allowed = HTML_SANITIZER_ALLOWED_TAGS[tagName] || [];
         Array.prototype.slice.call(el.attributes).forEach(function (attr) {
@@ -155,6 +164,11 @@
         { command: 'removeFormat', icon: 'bi-eraser', title: 'Supprimer le formatage' }
     ];
 
+    /**
+     * @param {string} initialHtml
+     * @param {((html: string) => void)|null} [onChange]
+     * @returns {{wrapper: HTMLDivElement, editable: HTMLDivElement}}
+     */
     function createRichTextEditor(initialHtml, onChange) {
         var wrapper = document.createElement('div');
 
@@ -265,6 +279,11 @@
     // processed version, never the original.
     var FEATURED_IMAGE_MAX_DIMENSION = 2048;
 
+    /**
+     * @param {File} file
+     * @param {number} maxDimension
+     * @param {(blob: Blob|null) => void} callback
+     */
     function processFeaturedImage(file, maxDimension, callback) {
         var url = URL.createObjectURL(file);
         var img = new Image();
@@ -304,8 +323,8 @@
         img.src = url;
     }
 
-    var featuredImageInput = document.getElementById('image');
-    var featuredImagePreview = document.getElementById('news-image-preview');
+    var featuredImageInput = /** @type {HTMLInputElement} */ (document.getElementById('image'));
+    var featuredImagePreview = /** @type {HTMLImageElement} */ (document.getElementById('news-image-preview'));
     var featuredImagePlaceholder = document.getElementById('news-image-placeholder');
     var featuredImageLabel = document.getElementById('news-image-label');
     if (featuredImageInput) {
@@ -342,7 +361,7 @@
     // Chefs/Chefs d'Unité already require being logged in just to see the
     // page.
     function isPublicAccess() {
-        var selected = document.querySelector('input[name="visibility"]:checked');
+        var selected = /** @type {HTMLInputElement} */ (document.querySelector('input[name="visibility"]:checked'));
         var value = selected ? selected.value : 'public';
         return value === 'public' || value === 'direct_link';
     }
@@ -354,7 +373,7 @@
         var seoSection = document.getElementById('news-seo-section');
 
         function updateVisibilityUi() {
-            var selected = visibilityGroup.querySelector('input:checked');
+            var selected = /** @type {HTMLInputElement} */ (visibilityGroup.querySelector('input:checked'));
             var isDirectLink = selected && selected.value === 'direct_link';
             if (directLinkHelp) directLinkHelp.classList.toggle('d-none', !isDirectLink);
             if (seoSection) seoSection.classList.toggle('d-none', isDirectLink);
@@ -368,7 +387,7 @@
     }
 
     // --- SEO indexing toggle ---
-    var isIndexedCheckbox = document.getElementById('is_indexed');
+    var isIndexedCheckbox = /** @type {HTMLInputElement} */ (document.getElementById('is_indexed'));
     var seoFields = document.getElementById('news-seo-fields');
     if (isIndexedCheckbox && seoFields) {
         isIndexedCheckbox.addEventListener('change', function () {
@@ -379,11 +398,11 @@
     // --- AI buttons: disabled until there's a title or some article
     // content to work from (usability review) — re-checked on every title
     // keystroke and every field-content edit. ---
-    var aiSummaryBtn = document.getElementById('news-ai-summary-btn');
-    var aiKeywordsBtn = document.getElementById('news-ai-keywords-btn');
+    var aiSummaryBtn = /** @type {HTMLButtonElement} */ (document.getElementById('news-ai-summary-btn'));
+    var aiKeywordsBtn = /** @type {HTMLButtonElement} */ (document.getElementById('news-ai-keywords-btn'));
 
     function hasTitleOrContent() {
-        var titleInput = document.querySelector('input[name="title"]');
+        var titleInput = /** @type {HTMLInputElement} */ (document.querySelector('input[name="title"]'));
         var title = titleInput ? titleInput.value.trim() : '';
         if (title !== '') return true;
         return collectFieldsContentText().trim() !== '';
@@ -403,7 +422,7 @@
     // --- AI summary generation ---
     if (aiSummaryBtn) {
         aiSummaryBtn.addEventListener('click', function () {
-            var title = document.querySelector('input[name="title"]').value;
+            var title = /** @type {HTMLInputElement} */ (document.querySelector('input[name="title"]')).value;
             var bodyHtml = collectFieldsContentText();
             aiSummaryBtn.disabled = true;
             aiSummaryBtn.textContent = 'Génération…';
@@ -413,7 +432,7 @@
                     aiSummaryBtn.textContent = "Générer avec l'IA";
                     updateAiButtonsState();
                     if (data.success) {
-                        document.getElementById('summary').value = data.summary;
+                        /** @type {HTMLInputElement} */ (document.getElementById('summary')).value = data.summary;
                     } else {
                         alert(data.error || 'Erreur lors de la génération.');
                     }
@@ -424,7 +443,7 @@
     // --- AI keyword generation ---
     if (aiKeywordsBtn) {
         aiKeywordsBtn.addEventListener('click', function () {
-            var title = document.querySelector('input[name="title"]').value;
+            var title = /** @type {HTMLInputElement} */ (document.querySelector('input[name="title"]')).value;
             var bodyHtml = collectFieldsContentText();
             aiKeywordsBtn.disabled = true;
             aiKeywordsBtn.textContent = 'Génération…';
@@ -434,7 +453,7 @@
                     aiKeywordsBtn.textContent = "Générer avec l'IA";
                     updateAiButtonsState();
                     if (data.success) {
-                        document.getElementById('seo_keywords').value = data.keywords;
+                        /** @type {HTMLInputElement} */ (document.getElementById('seo_keywords')).value = data.keywords;
                     } else {
                         alert(data.error || 'Erreur lors de la génération.');
                     }
@@ -446,9 +465,9 @@
     function updateFormStateBadge() {
         var badge = document.getElementById('news-form-state-badge');
         if (!badge) return;
-        var forceClosed = document.getElementById('form_is_force_closed');
-        var opensAt = document.getElementById('form_opens_at');
-        var closesAt = document.getElementById('form_closes_at');
+        var forceClosed = /** @type {HTMLInputElement} */ (document.getElementById('form_is_force_closed'));
+        var opensAt = /** @type {HTMLInputElement} */ (document.getElementById('form_opens_at'));
+        var closesAt = /** @type {HTMLInputElement} */ (document.getElementById('form_closes_at'));
         var today = new Date().toISOString().slice(0, 10);
         var open = true;
         if (forceClosed && forceClosed.checked) open = false;
@@ -465,7 +484,7 @@
 
     function updateAccessUi() {
         var isPublic = isPublicAccess();
-        var limitSelect = document.getElementById('form_response_limit');
+        var limitSelect = /** @type {HTMLSelectElement} */ (document.getElementById('form_response_limit'));
         var publicHelp = document.getElementById('news-access-public-help');
         var membersWarning = document.getElementById('news-access-members-warning');
 
@@ -510,8 +529,8 @@
     var TYPE_LABELS = {};
     FIELD_TYPES.forEach(function (t) { TYPE_LABELS[t.type] = t.label; });
 
-    if (fieldsListEl && window.NEWS_EDITOR_DATA) {
-        fieldState = (window.NEWS_EDITOR_DATA.fields || []).map(function (f) {
+    if (fieldsListEl && /** @type {any} */ (window).NEWS_EDITOR_DATA) {
+        fieldState = (/** @type {any} */ (window).NEWS_EDITOR_DATA.fields || []).map(function (f) {
             f._key = nextKey++;
             return f;
         });
@@ -566,7 +585,7 @@
             fieldState.push(field);
             expandedKey = field._key;
             renderFieldList();
-            var labelInput = fieldsListEl.querySelector('[data-key="' + field._key + '"] .news-field-label-input');
+            var labelInput = /** @type {HTMLElement} */ (fieldsListEl.querySelector('[data-key="' + field._key + '"] .news-field-label-input'));
             if (labelInput) labelInput.focus();
         }
 
@@ -582,6 +601,10 @@
             renderFieldList();
         }
 
+        /**
+         * @param {string} key
+         * @param {number} direction
+         */
         function moveField(key, direction) {
             var index = fieldState.findIndex(function (f) { return f._key === key; });
             if (index === 0) return;
@@ -598,6 +621,10 @@
         // pattern as public/assets/js/list-editor.js) — arbitrary
         // reordering by key, driving the same fieldState array the
         // up/down buttons (mobile/touch, see buildFieldRow) also mutate.
+        /**
+         * @param {string} draggedKey
+         * @param {string} targetKey
+         */
         function moveFieldToKey(draggedKey, targetKey) {
             var fromIndex = fieldState.findIndex(function (f) { return f._key === draggedKey; });
             var toIndex = fieldState.findIndex(function (f) { return f._key === targetKey; });
@@ -611,7 +638,7 @@
         }
 
         function persistReorderIfSaved() {
-            var articleId = window.NEWS_EDITOR_DATA.articleId;
+            var articleId = /** @type {any} */ (window).NEWS_EDITOR_DATA.articleId;
             var ids = fieldState.filter(function (f) { return f.id; }).map(function (f) { return f.id; });
             if (!articleId || ids.length !== fieldState.length) return;
             postJson('/news/' + articleId + '/form/fields/reorder', { ids: ids });
@@ -850,7 +877,7 @@
             reqCheck.className = 'form-check';
             reqCheck.innerHTML = '<input class="form-check-input" type="checkbox"' + (field.is_required ? ' checked' : '') + '><label class="form-check-label">Obligatoire</label>';
             reqCheck.querySelector('input').addEventListener('change', function (e) {
-                field.is_required = e.target.checked;
+                field.is_required = /** @type {HTMLInputElement} */ (e.target).checked;
             });
             reqRow.appendChild(reqCheck);
         }
@@ -867,8 +894,9 @@
             capInput.className = 'form-control form-control-sm mt-1' + (field.capacity_max === null ? ' d-none' : '');
             capInput.value = field.capacity_max || '';
             capCheck.querySelector('input').addEventListener('change', function (e) {
-                capInput.classList.toggle('d-none', !e.target.checked);
-                field.capacity_max = e.target.checked ? (parseInt(capInput.value, 10) || 0) : null;
+                var checkedTarget = /** @type {HTMLInputElement} */ (e.target);
+                capInput.classList.toggle('d-none', !checkedTarget.checked);
+                field.capacity_max = checkedTarget.checked ? (parseInt(capInput.value, 10) || 0) : null;
             });
             capInput.addEventListener('input', function () {
                 field.capacity_max = parseInt(capInput.value, 10) || 0;
@@ -877,7 +905,7 @@
             capRow.appendChild(capInput);
             addFieldEditRow(panel, '<span class="form-text">Le nombre maximum est le cumul de toutes les réponses. Exemple : si la limite est 50 et que 48 ont déjà été réservés, le prochain répondant verra « Il reste 2 places ».</span>');
 
-            if (window.NEWS_EDITOR_DATA.financeAvailable) {
+            if (/** @type {any} */ (window).NEWS_EDITOR_DATA.financeAvailable) {
                 var priceRow = addFieldEditRow(panel, '<label class="form-label small">Prix unitaire (€)</label>');
                 var priceInput = document.createElement('input');
                 priceInput.type = 'number';
@@ -990,7 +1018,7 @@
     var editorForm = document.getElementById('news-editor-form');
     if (editorForm) {
         editorForm.addEventListener('submit', function () {
-            var fieldsInput = document.getElementById('fields_json_input');
+            var fieldsInput = /** @type {HTMLInputElement} */ (document.getElementById('fields_json_input'));
             if (fieldsInput) {
                 var serialized = fieldState.map(function (f) {
                     return {
@@ -1033,7 +1061,8 @@
         function recalcPayment() {
             var total = 0;
             var lines = [];
-            numberFields.forEach(function (input) {
+            numberFields.forEach(function (inputEl) {
+                var input = /** @type {HTMLInputElement} */ (inputEl);
                 var price = parseFloat(input.dataset.price);
                 if (!price) return;
                 var qty = parseFloat(input.value) || 0;

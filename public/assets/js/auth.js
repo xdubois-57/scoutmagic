@@ -26,17 +26,17 @@
     });
 
     function getCsrf() {
-        return document.getElementById('csrf-token').value;
+        return /** @type {HTMLInputElement} */ (document.getElementById('csrf-token')).value;
     }
 
     // --- Core\Security\HumanCheck (magic-link form only, per module spec) ---
     function humanCheckParams() {
         var params = '';
-        var token = document.querySelector('input[name="human_check_token"]');
+        var token = /** @type {HTMLInputElement} */ (document.querySelector('input[name="human_check_token"]'));
         if (token) {
             params += '&human_check_token=' + encodeURIComponent(token.value);
         }
-        var trap = document.querySelector('.hc-trap input');
+        var trap = /** @type {HTMLInputElement} */ (document.querySelector('.hc-trap input'));
         if (trap) {
             params += '&' + encodeURIComponent(trap.name) + '=' + encodeURIComponent(trap.value);
         }
@@ -45,7 +45,7 @@
 
     // --- Mandatory RGPD consent (module addendum) — one checkbox per tab, each inside its own login box. ---
     function hasRgpdConsent(tab) {
-        var checkbox = document.getElementById('rgpd-consent-checkbox-' + tab);
+        var checkbox = /** @type {HTMLInputElement} */ (document.getElementById('rgpd-consent-checkbox-' + tab));
         var error = document.getElementById('rgpd-consent-error-' + tab);
         var ok = checkbox.checked;
         error.classList.toggle('d-none', ok);
@@ -56,9 +56,9 @@
     var stateEmail = document.getElementById('state-email');
     var stateWaiting = document.getElementById('state-waiting');
     var stateConfirmed = document.getElementById('state-confirmed');
-    var sendBtn = document.getElementById('send-magic-link');
+    var sendBtn = /** @type {HTMLButtonElement} */ (document.getElementById('send-magic-link'));
     var backBtn = document.getElementById('back-btn');
-    var emailInput = document.getElementById('email');
+    var emailInput = /** @type {HTMLInputElement} */ (document.getElementById('email'));
     var emailError = document.getElementById('email-error');
     var sentEmailSpan = document.getElementById('sent-email');
     var pollingInterval = null;
@@ -186,8 +186,8 @@
     var passwordBtn = document.getElementById('password-login-btn');
     if (passwordBtn) {
         passwordBtn.addEventListener('click', async function() {
-            var email = document.getElementById('password-email').value.trim();
-            var password = document.getElementById('password-input').value;
+            var email = /** @type {HTMLInputElement} */ (document.getElementById('password-email')).value.trim();
+            var password = /** @type {HTMLInputElement} */ (document.getElementById('password-input')).value;
             var csrf = getCsrf();
 
             var errorEl = document.getElementById('password-error');
@@ -243,20 +243,20 @@
             e.preventDefault();
             forgotForm.classList.toggle('d-none');
             if (!forgotForm.classList.contains('d-none')) {
-                var prefill = document.getElementById('password-email').value.trim();
-                if (prefill) document.getElementById('forgot-password-email').value = prefill;
+                var prefill = /** @type {HTMLInputElement} */ (document.getElementById('password-email')).value.trim();
+                if (prefill) /** @type {HTMLInputElement} */ (document.getElementById('forgot-password-email')).value = prefill;
                 document.getElementById('forgot-password-email').focus();
             }
         });
 
         document.getElementById('forgot-password-submit-btn').addEventListener('click', async function () {
-            var email = document.getElementById('forgot-password-email').value.trim();
+            var email = /** @type {HTMLInputElement} */ (document.getElementById('forgot-password-email')).value.trim();
             var messageEl = document.getElementById('forgot-password-message');
             messageEl.classList.add('d-none');
 
             if (!email) return;
 
-            var btn = this;
+            var btn = /** @type {HTMLButtonElement} */ (this);
             btn.disabled = true;
             try {
                 var res = await fetch('/password-reset/request', {
@@ -283,7 +283,7 @@
     }
 
     // --- Passkey login ---
-    var passkeyBtn = document.getElementById('passkey-login-btn');
+    var passkeyBtn = /** @type {HTMLButtonElement} */ (document.getElementById('passkey-login-btn'));
     if (passkeyBtn) {
         if (!window.PublicKeyCredential) {
             passkeyBtn.disabled = true;
@@ -309,7 +309,8 @@
                     });
                 }
 
-                var credential = await navigator.credentials.get({ publicKey: options });
+                var credential = /** @type {PublicKeyCredential} */ (await navigator.credentials.get({ publicKey: options }));
+                var assertionResponse = /** @type {AuthenticatorAssertionResponse} */ (credential.response);
 
                 var verifyRes = await fetch('/login/passkey/verify', {
                     method: 'POST',
@@ -318,11 +319,11 @@
                         id: credential.id,
                         rawId: bufferToBase64(credential.rawId),
                         response: {
-                            authenticatorData: bufferToBase64(credential.response.authenticatorData),
-                            clientDataJSON: bufferToBase64(credential.response.clientDataJSON),
-                            signature: bufferToBase64(credential.response.signature),
-                            userHandle: credential.response.userHandle
-                                ? bufferToBase64(credential.response.userHandle) : null
+                            authenticatorData: bufferToBase64(assertionResponse.authenticatorData),
+                            clientDataJSON: bufferToBase64(assertionResponse.clientDataJSON),
+                            signature: bufferToBase64(assertionResponse.signature),
+                            userHandle: assertionResponse.userHandle
+                                ? bufferToBase64(assertionResponse.userHandle) : null
                         },
                         type: credential.type,
                         rgpd_consent: true

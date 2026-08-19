@@ -11,7 +11,7 @@
 // multi-location support).
 (function () {
     function csrf() {
-        var meta = document.querySelector('meta[name="csrf-token"]');
+        var meta = /** @type {HTMLMetaElement} */ (document.querySelector('meta[name="csrf-token"]'));
         return meta ? meta.content : '';
     }
 
@@ -20,12 +20,21 @@
     // error message containing a double quote could break out of it. Quotes
     // are escaped explicitly so the helper is safe in both text and attribute
     // position.
+    /**
+     * @param {string} str
+     * @returns {string}
+     */
     function escapeHtml(str) {
         var div = document.createElement('div');
         div.textContent = str === null || str === undefined ? '' : String(str);
         return div.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
     }
 
+    /**
+     * @param {string} url
+     * @param {Object} body
+     * @returns {Promise<Object>}
+     */
     function postJson(url, body) {
         return fetch(url, {
             method: 'POST',
@@ -42,11 +51,12 @@
     // Locations table (config.html.twig)
     // ------------------------------------------------------------------
     document.querySelectorAll('.gallery-location-test').forEach(function (btn) {
-        btn.addEventListener('click', function () {
-            var cell = document.querySelector('.gallery-location-status[data-location-id="' + btn.dataset.id + '"]');
-            btn.disabled = true;
-            postJson('/config/gallery/locations/' + btn.dataset.id + '/test', {}).then(function (data) {
-                btn.disabled = false;
+        var button = /** @type {HTMLButtonElement} */ (btn);
+        button.addEventListener('click', function () {
+            var cell = document.querySelector('.gallery-location-status[data-location-id="' + button.dataset.id + '"]');
+            button.disabled = true;
+            postJson('/config/gallery/locations/' + button.dataset.id + '/test', {}).then(function (data) {
+                button.disabled = false;
                 if (!cell) return;
                 if (data.success && data.ok) {
                     cell.innerHTML = '<span class="badge text-bg-success">Disponible</span>';
@@ -56,23 +66,24 @@
                     cell.innerHTML = '<span class="badge text-bg-danger">' + escapeHtml(data.error || 'Erreur') + '</span>';
                 }
             }).catch(function () {
-                btn.disabled = false;
+                button.disabled = false;
             });
         });
     });
 
     document.querySelectorAll('.gallery-location-set-default').forEach(function (btn) {
-        btn.addEventListener('click', function () {
-            btn.disabled = true;
-            postJson('/config/gallery/locations/' + btn.dataset.id + '/default', {}).then(function (data) {
+        var button = /** @type {HTMLButtonElement} */ (btn);
+        button.addEventListener('click', function () {
+            button.disabled = true;
+            postJson('/config/gallery/locations/' + button.dataset.id + '/default', {}).then(function (data) {
                 if (data.success) {
                     window.location.reload();
                 } else {
-                    btn.disabled = false;
+                    button.disabled = false;
                     alert(data.error || 'Impossible de définir cet emplacement par défaut.');
                 }
             }).catch(function () {
-                btn.disabled = false;
+                button.disabled = false;
             });
         });
     });
@@ -81,38 +92,40 @@
     // Album storage migration (config.html.twig)
     // ------------------------------------------------------------------
     document.querySelectorAll('.gallery-migrate-start').forEach(function (btn) {
-        btn.addEventListener('click', function () {
-            var select = document.querySelector('.gallery-migrate-target[data-album-id="' + btn.dataset.albumId + '"]');
+        var button = /** @type {HTMLButtonElement} */ (btn);
+        button.addEventListener('click', function () {
+            var select = /** @type {HTMLSelectElement} */ (document.querySelector('.gallery-migrate-target[data-album-id="' + button.dataset.albumId + '"]'));
             if (!select) return;
             if (!confirm('Démarrer la migration de cet album vers cet autre emplacement ? L\'album sera indisponible pour les membres pendant l\'opération.')) return;
-            btn.disabled = true;
-            postJson(btn.dataset.url, { target_location_id: parseInt(select.value, 10) }).then(function (data) {
+            button.disabled = true;
+            postJson(button.dataset.url, { target_location_id: parseInt(select.value, 10) }).then(function (data) {
                 if (data.success) {
                     window.location.reload();
                 } else {
-                    btn.disabled = false;
+                    button.disabled = false;
                     alert(data.error || 'Erreur lors du démarrage de la migration.');
                 }
             }).catch(function () {
-                btn.disabled = false;
+                button.disabled = false;
             });
         });
     });
 
     document.querySelectorAll('.gallery-location-delete').forEach(function (btn) {
-        btn.addEventListener('click', function () {
-            if (btn.disabled) return;
+        var button = /** @type {HTMLButtonElement} */ (btn);
+        button.addEventListener('click', function () {
+            if (button.disabled) return;
             if (!confirm('Supprimer cet emplacement de stockage ?')) return;
-            btn.disabled = true;
-            postJson('/config/gallery/locations/' + btn.dataset.id + '/delete', {}).then(function (data) {
+            button.disabled = true;
+            postJson('/config/gallery/locations/' + button.dataset.id + '/delete', {}).then(function (data) {
                 if (data.success) {
                     window.location.reload();
                 } else {
-                    btn.disabled = false;
+                    button.disabled = false;
                     alert(data.error || 'Suppression impossible.');
                 }
             }).catch(function () {
-                btn.disabled = false;
+                button.disabled = false;
             });
         });
     });
@@ -125,7 +138,7 @@
     var typeRadios = document.querySelectorAll('input[name="type"]');
 
     function syncType() {
-        var checked = document.querySelector('input[name="type"]:checked');
+        var checked = /** @type {HTMLInputElement} */ (document.querySelector('input[name="type"]:checked'));
         var isS3 = !!checked && checked.value === 's3';
         if (localFields) localFields.classList.toggle('d-none', isS3);
         if (s3Fields) s3Fields.classList.toggle('d-none', !isS3);
@@ -135,7 +148,7 @@
         syncType();
     }
 
-    var providerSelect = document.getElementById('s3-provider');
+    var providerSelect = /** @type {HTMLSelectElement} */ (document.getElementById('s3-provider'));
     function syncProviderHelp() {
         if (!providerSelect) return;
         document.querySelectorAll('[id^="s3-help-"]').forEach(function (el) {
@@ -147,10 +160,10 @@
         syncProviderHelp();
     }
 
-    var testBtn = document.getElementById('s3-test-connection');
+    var testBtn = /** @type {HTMLButtonElement} */ (document.getElementById('s3-test-connection'));
     var testResult = document.getElementById('s3-test-result');
     var explainWrap = document.getElementById('s3-explain-wrap');
-    var explainBtn = document.getElementById('s3-explain-ai');
+    var explainBtn = /** @type {HTMLButtonElement} */ (document.getElementById('s3-explain-ai'));
     var explainResult = document.getElementById('s3-explain-result');
     var lastError = '';
 
@@ -168,11 +181,11 @@
             // empty secret and could only ever fail on authentication.
             postJson('/config/gallery/test-connection', {
                 location_id: parseInt(testBtn.dataset.locationId || '0', 10) || 0,
-                endpoint: document.getElementById('s3-endpoint').value,
-                region: document.getElementById('s3-region').value,
-                bucket: document.getElementById('s3-bucket').value,
-                access_key: document.getElementById('s3-access-key').value,
-                secret_key: document.getElementById('s3-secret-key').value
+                endpoint: /** @type {HTMLInputElement} */ (document.getElementById('s3-endpoint')).value,
+                region: /** @type {HTMLInputElement} */ (document.getElementById('s3-region')).value,
+                bucket: /** @type {HTMLInputElement} */ (document.getElementById('s3-bucket')).value,
+                access_key: /** @type {HTMLInputElement} */ (document.getElementById('s3-access-key')).value,
+                secret_key: /** @type {HTMLInputElement} */ (document.getElementById('s3-secret-key')).value
             }).then(function (data) {
                 testBtn.disabled = false;
                 if (data.success) {
@@ -194,14 +207,14 @@
             explainBtn.disabled = true;
             explainResult.innerHTML = '<div class="alert alert-info mb-0 py-2">Analyse en cours…</div>';
 
-            var secretKey = document.getElementById('s3-secret-key').value;
+            var secretKey = /** @type {HTMLInputElement} */ (document.getElementById('s3-secret-key')).value;
 
             postJson('/config/gallery/explain-s3-error', {
-                provider: document.getElementById('s3-provider').value,
-                endpoint: document.getElementById('s3-endpoint').value,
-                region: document.getElementById('s3-region').value,
-                bucket: document.getElementById('s3-bucket').value,
-                access_key: document.getElementById('s3-access-key').value,
+                provider: /** @type {HTMLSelectElement} */ (document.getElementById('s3-provider')).value,
+                endpoint: /** @type {HTMLInputElement} */ (document.getElementById('s3-endpoint')).value,
+                region: /** @type {HTMLInputElement} */ (document.getElementById('s3-region')).value,
+                bucket: /** @type {HTMLInputElement} */ (document.getElementById('s3-bucket')).value,
+                access_key: /** @type {HTMLInputElement} */ (document.getElementById('s3-access-key')).value,
                 secret_key_length: secretKey.length,
                 error: lastError
             }).then(function (data) {

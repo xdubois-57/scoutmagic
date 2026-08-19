@@ -86,7 +86,7 @@
     var cookiesForm = document.querySelector('form[action="/cookies/save"]');
     if (cookiesForm) {
         cookiesForm.addEventListener('submit', function () {
-            var functionalCheckbox = document.getElementById('cookie-functional');
+            var functionalCheckbox = /** @type {HTMLInputElement | null} */ (document.getElementById('cookie-functional'));
             if (functionalCheckbox && !functionalCheckbox.checked) {
                 sendConfig(false);
             }

@@ -218,12 +218,25 @@ function openEditModal(dataset) {
 
 document.querySelectorAll('.calendar-day-cell--clickable').forEach(cell => {
     cell.addEventListener('click', () => openAddModal(cell.dataset.date));
+    cell.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            openAddModal(cell.dataset.date);
+        }
+    });
 });
 
 document.querySelectorAll('.calendar-event-bar--clickable').forEach(bar => {
     bar.addEventListener('click', (e) => {
         e.stopPropagation();
         openEditModal(bar.dataset);
+    });
+    bar.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            e.stopPropagation();
+            openEditModal(bar.dataset);
+        }
     });
 });
 

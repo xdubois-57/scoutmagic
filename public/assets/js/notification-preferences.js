@@ -14,12 +14,12 @@
     if (!root) return;
 
     function csrf() {
-        var meta = document.querySelector('meta[name="csrf-token"]');
+        var meta = /** @type {HTMLMetaElement | null} */ (document.querySelector('meta[name="csrf-token"]'));
         return meta ? meta.content : '';
     }
 
     // Gate the Push column on browser permission.
-    var pushToggles = root.querySelectorAll('.notification-channel-toggle[data-is-push]');
+    var pushToggles = /** @type {NodeListOf<HTMLInputElement>} */ (root.querySelectorAll('.notification-channel-toggle[data-is-push]'));
     var permissionNotice = document.getElementById('push-permission-notice');
     var pushSupported = 'Notification' in window;
     var pushGranted = pushSupported && Notification.permission === 'granted';
@@ -28,7 +28,8 @@
         if (permissionNotice) permissionNotice.classList.remove('d-none');
     }
 
-    root.querySelectorAll('.notification-channel-toggle').forEach(function (toggle) {
+    var channelToggles = /** @type {NodeListOf<HTMLInputElement>} */ (root.querySelectorAll('.notification-channel-toggle'));
+    channelToggles.forEach(function (toggle) {
         toggle.addEventListener('change', function () {
             var value = toggle.checked ? 'on' : 'off';
             fetch('/notifications/preferences', {
@@ -54,9 +55,9 @@
     });
 
     // Quiet hours + discretion — auto-saved together on any change.
-    var startInput = document.getElementById('quiet-hours-start');
-    var endInput = document.getElementById('quiet-hours-end');
-    var discretionToggle = document.getElementById('notification-discretion');
+    var startInput = /** @type {HTMLInputElement | null} */ (document.getElementById('quiet-hours-start'));
+    var endInput = /** @type {HTMLInputElement | null} */ (document.getElementById('quiet-hours-end'));
+    var discretionToggle = /** @type {HTMLInputElement | null} */ (document.getElementById('notification-discretion'));
     var savedNotice = document.getElementById('account-settings-saved-notice');
 
     function saveAccountSettings() {

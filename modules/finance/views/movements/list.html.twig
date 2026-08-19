@@ -209,6 +209,7 @@
                 <div class="modal-body">
                     <div id="attachments-list" class="d-flex flex-column gap-2 mb-3"></div>
                     <div class="d-flex gap-2 mb-2">
+                        <label class="visually-hidden" for="attachments-add-select">Associer un reçu en attente</label>
                         <select class="form-select form-select-sm" id="attachments-add-select">
                             <option value="">Associer un reçu en attente…</option>
                             {% for receipt in pending_receipts %}
@@ -221,7 +222,7 @@
                     </div>
                     <div class="text-body-secondary small text-center mb-2">— ou —</div>
                     <div class="d-flex gap-2">
-                        <input type="file" class="form-control form-control-sm" id="attachments-upload-input" accept=".pdf,.jpg,.jpeg,.png">
+                        <input type="file" class="form-control form-control-sm" id="attachments-upload-input" accept=".pdf,.jpg,.jpeg,.png" aria-label="Téléverser un reçu">
                         <button type="button" class="btn btn-sm btn-outline-primary text-nowrap" id="attachments-upload-btn">Téléverser et associer</button>
                     </div>
                     <div class="text-danger small mt-2 d-none" id="attachments-upload-error"></div>

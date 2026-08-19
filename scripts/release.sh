@@ -23,7 +23,8 @@ set -euo pipefail
 #                               Emergency use only — prints a warning. See
 #                               check_security_gate.
 #   --skip-tests-gate          Bypass phpstan/phpunit AND the JavaScript
-#                               unit tests (npm run test:coverage).
+#                               portion (npm run typecheck static analysis
+#                               + npm run test:coverage unit tests).
 #                               Emergency use only — prints a warning. See
 #                               check_tests_gate.
 #   --skip-e2e-gate            Bypass the end-to-end browser test
@@ -221,8 +222,8 @@ check_security_gate() {
 
 # ---------------------------------------------------------------
 # Tests gate — mirrors CI's `test` (PHPStan + the COMPLETE PHPUnit suite)
-# AND `javascript-tests` (Vitest) jobs. Runs BEFORE any git commit/tag,
-# same reasoning as the security gate above.
+# AND `javascript-tests` (JavaScript static analysis + Vitest) jobs. Runs
+# BEFORE any git commit/tag, same reasoning as the security gate above.
 #
 # No test group is excluded, `database` included: a release must not be
 # cut on a narrower suite than CI ran. Most of that group needs no MySQL
@@ -234,13 +235,16 @@ check_security_gate() {
 # MySQL instance (the defaults match CI's own service container:
 # 127.0.0.1:3306, database test_db, user root).
 #
-# The JavaScript portion fails closed on a missing `npm`/`node_modules`
-# rather than running `npm ci` on the releaser's behalf: silently
-# installing dependencies here would mask an improperly prepared release
-# environment (e.g. the wrong Node version, or a lockfile that was never
-# actually validated) instead of surfacing it — same fail-closed
-# philosophy as every other gate in this script. Run `npm ci` yourself
-# first (see README.md § Développement) if this fails.
+# The JavaScript portion — static analysis (npm run typecheck, the
+# PHPStan-equivalent gate for public/assets/js/ — see AGENTS.md § Static
+# analysis and README.md § Analyse statique JavaScript) then unit tests
+# (npm run test:coverage), same order as CI — fails closed on a missing
+# `npm`/`node_modules` rather than running `npm ci` on the releaser's
+# behalf: silently installing dependencies here would mask an improperly
+# prepared release environment (e.g. the wrong Node version, or a
+# lockfile that was never actually validated) instead of surfacing it —
+# same fail-closed philosophy as every other gate in this script. Run
+# `npm ci` yourself first (see README.md § Développement) if this fails.
 # ---------------------------------------------------------------
 check_tests_gate() {
     local phpunit_output phpunit_summary
@@ -298,13 +302,17 @@ check_tests_gate() {
     phpunit_summary="$(sed -E $'s/\x1b\\[[0-9;]*m//g' <<< "${phpunit_output}" | { grep -E '^(OK \(|Tests: )' || true; } | tail -1)"
     [[ -n "${phpunit_summary}" ]] || phpunit_summary="résumé PHPUnit non trouvé dans la sortie"
 
-    echo "Running JavaScript unit tests (npm run test:coverage)..."
     command -v npm &> /dev/null || { echo "ERROR: npm is required for the JavaScript portion of the tests gate (see package.json/README.md § Développement) — install Node.js LTS, or re-run with --skip-tests-gate (emergency use only)." >&2; exit 1; }
     [[ -d node_modules ]] || { echo "ERROR: node_modules/ not found — run 'npm ci' first (see README.md § Développement), or re-run with --skip-tests-gate (emergency use only)." >&2; exit 1; }
+
+    echo "Running JavaScript static analysis (npm run typecheck)..."
+    npm run typecheck
+
+    echo "Running JavaScript unit tests (npm run test:coverage)..."
     npm run test:coverage
 
-    TESTS_GATE_REPORT_LINE="vérifié — PHPStan sans erreur ; PHPUnit : ${phpunit_summary} ; tests JavaScript (Vitest) : OK."
-    echo "Tests gate OK: PHPStan, PHPUnit, and JavaScript unit tests passed."
+    TESTS_GATE_REPORT_LINE="vérifié — PHPStan sans erreur ; PHPUnit : ${phpunit_summary} ; analyse statique JavaScript (npm run typecheck) : OK ; tests JavaScript (Vitest) : OK."
+    echo "Tests gate OK: PHPStan, PHPUnit, JavaScript static analysis, and JavaScript unit tests passed."
 }
 
 # ---------------------------------------------------------------
@@ -437,8 +445,8 @@ GATE_REPORT="${GATE_REPORT}- **Sécurité** : ${SECURITY_GATE_REPORT_LINE}
 "
 
 if [[ "${SKIP_TESTS_GATE}" -eq 1 ]]; then
-    echo "WARNING: --skip-tests-gate used — PHPStan, PHPUnit, AND the JavaScript unit tests (npm run test:coverage) were NOT run for this release. Emergency use only: run them immediately after publishing and fix any failure." >&2
-    TESTS_GATE_REPORT_LINE="ignoré (\`--skip-tests-gate\`) — PHPStan, PHPUnit et les tests JavaScript non exécutés, à vérifier manuellement."
+    echo "WARNING: --skip-tests-gate used — PHPStan, PHPUnit, JavaScript static analysis (npm run typecheck), AND the JavaScript unit tests (npm run test:coverage) were NOT run for this release. Emergency use only: run them immediately after publishing and fix any failure." >&2
+    TESTS_GATE_REPORT_LINE="ignoré (\`--skip-tests-gate\`) — PHPStan, PHPUnit, l'analyse statique JavaScript et les tests JavaScript non exécutés, à vérifier manuellement."
 else
     check_tests_gate
 fi

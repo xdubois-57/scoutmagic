@@ -35,7 +35,7 @@
                 save_url: '/api/rich-text-content'
             } %}
             <select class="form-select form-select-sm banner-role-min-select" style="width:auto;"
-                    data-id="{{ item.id }}" title="Visibilité minimale">
+                    data-id="{{ item.id }}" title="Visibilité minimale" aria-label="Visibilité minimale">
                 <option value="public" {{ item.role_min == 'public' ? 'selected' : '' }}>Public</option>
                 <option value="identified" {{ item.role_min == 'identified' ? 'selected' : '' }}>Identifiés</option>
                 <option value="chief" {{ item.role_min == 'chief' ? 'selected' : '' }}>Chefs</option>

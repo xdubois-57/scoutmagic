@@ -6,7 +6,7 @@
     <table style="width:100%;border-collapse:collapse;margin:16px 0;">
         {% for line in answers %}
             <tr>
-                <td style="padding:6px 8px;border-bottom:1px solid #eee;font-weight:bold;width:40%;">{{ line.label }}</td>
+                <th scope="row" style="padding:6px 8px;border-bottom:1px solid #eee;font-weight:bold;width:40%;text-align:left;">{{ line.label }}</th>
                 <td style="padding:6px 8px;border-bottom:1px solid #eee;">{{ line.value }}</td>
             </tr>
         {% endfor %}

@@ -1,0 +1,17 @@
+{
+    "compilerOptions": {
+        "target": "ES2020",
+        "lib": ["ES2022", "DOM", "DOM.Iterable"],
+        "allowJs": true,
+        "checkJs": true,
+        "noEmit": true,
+        "skipLibCheck": true,
+        "strict": false,
+        "strictNullChecks": false,
+        "noImplicitAny": false,
+        "noImplicitReturns": true,
+        "noFallthroughCasesInSwitch": true,
+        "forceConsistentCasingInFileNames": true
+    },
+    "include": ["public/assets/js/**/*.js", "types/**/*.d.ts"]
+}

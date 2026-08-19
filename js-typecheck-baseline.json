@@ -1,0 +1,5 @@
+// Pre-existing JavaScript static-analysis findings accepted as of the run
+// that generated this file — see scripts/js-typecheck.mjs. Regenerate only to
+// deliberately accept new pre-existing debt you are not fixing right now, never
+// to hide a finding your own change just introduced.
+{}
