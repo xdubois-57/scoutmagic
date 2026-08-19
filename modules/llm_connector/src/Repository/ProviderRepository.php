@@ -157,4 +157,65 @@ class ProviderRepository
     {
         $this->pdo->exec('UPDATE llm_providers SET is_active = 0');
     }
+
+    /**
+     * Run $work inside a transaction. Used for the deactivate-then-activate
+     * pair that maintains "exactly one active provider": those two writes
+     * must not be separable, or a failure between them leaves the site with
+     * no active provider at all.
+     *
+     * Tolerates an outer transaction already being open (the caller then owns
+     * the commit) rather than failing on a nested begin.
+     *
+     * @param callable(): void $work
+     */
+    public function transactional(callable $work): void
+    {
+        if ($this->pdo->inTransaction()) {
+            $work();
+            return;
+        }
+
+        $this->pdo->beginTransaction();
+        try {
+            $work();
+            $this->pdo->commit();
+        } catch (\Throwable $e) {
+            $this->pdo->rollBack();
+            throw $e;
+        }
+    }
+
+    /**
+     * The single provider row for a driver, if any.
+     *
+     * The configuration page is one-provider-per-driver by construction, but
+     * nothing in the schema enforced it: a second row for the same driver
+     * became invisible in the UI (the page keys providers by driver, so the
+     * later row overwrote the earlier one) while findFirstActive() orders by
+     * id ASC and could still pick it. Callers use this to reuse the existing
+     * row for a driver instead of silently creating a rival one.
+     *
+     * @return array{id: int, name: string, driver: string, api_endpoint: string, is_active: bool}|null
+     */
+    public function findByDriver(string $driver): ?array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT id, name, driver, api_endpoint, is_active FROM llm_providers WHERE driver = ? ORDER BY id ASC LIMIT 1'
+        );
+        $stmt->execute([$driver]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+        if ($row === false) {
+            return null;
+        }
+
+        return [
+            'id' => (int) $row['id'],
+            'name' => (string) $row['name'],
+            'driver' => (string) $row['driver'],
+            'api_endpoint' => (string) $row['api_endpoint'],
+            'is_active' => (bool) $row['is_active'],
+        ];
+    }
 }
