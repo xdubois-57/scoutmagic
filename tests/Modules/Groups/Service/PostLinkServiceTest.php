@@ -221,4 +221,140 @@ class PostLinkServiceTest extends TestCase
     {
         $this->assertTrue(PostLinkService::isValidUrl($url));
     }
+
+    /**
+     * @return iterable<string, array{string, ?string}>
+     */
+    public static function textsWithUrls(): iterable
+    {
+        yield 'plain URL alone' => ['https://example.com/page', 'https://example.com/page'];
+        yield 'URL inside a sentence' => ['Regarde ça: https://example.com/page trop bien', 'https://example.com/page'];
+        yield 'trailing full stop trimmed' => ['Voir https://example.com/page.', 'https://example.com/page'];
+        yield 'trailing closing parenthesis trimmed' => ['(voir https://example.com/page)', 'https://example.com/page'];
+        yield 'only the first of two URLs' => ['https://first.example puis https://second.example', 'https://first.example'];
+        yield 'no URL at all' => ['Un message tout à fait normal.', null];
+        yield 'empty text' => ['', null];
+        yield 'a bare scheme is not a URL' => ['Regarde http://', null];
+    }
+
+    #[DataProvider('textsWithUrls')]
+    public function testFirstUrlInFindsTheFirstWellFormedUrlOrNull(string $text, ?string $expected): void
+    {
+        $this->assertSame($expected, PostLinkService::firstUrlIn($text));
+    }
+
+    public function testFirstUrlInIgnoresAJavascriptSchemeAndStillFindsTheRealUrlAfterIt(): void
+    {
+        // The regex only ever matches starting from an http(s):// prefix,
+        // so a javascript: URI earlier in the text is never even a
+        // candidate — nothing here relies on isValidUrl() to catch a
+        // scheme the pattern itself cannot produce in the first place.
+        $this->assertSame(
+            'https://example.com/page',
+            PostLinkService::firstUrlIn('javascript:alert(1) mais regarde https://example.com/page')
+        );
+    }
+
+    public function testStripUrlRemovesTheUrlAndCollapsesTheGapItLeaves(): void
+    {
+        // The URL substring itself is removed and the double space it
+        // leaves behind is collapsed to one — the surrounding sentence
+        // text (including its own punctuation) is otherwise untouched.
+        $this->assertSame(
+            'Regarde ça: trop bien',
+            PostLinkService::stripUrl('Regarde ça: https://example.com/page trop bien', 'https://example.com/page')
+        );
+    }
+
+    public function testStripUrlRemovesEveryOccurrenceOfTheExactUrl(): void
+    {
+        $this->assertSame(
+            'Deux fois',
+            PostLinkService::stripUrl('Deux https://example.com fois https://example.com', 'https://example.com')
+        );
+    }
+
+    public function testStripUrlLeavesTheTextUnchangedWhenTheUrlIsNotPresent(): void
+    {
+        $this->assertSame('Un message', PostLinkService::stripUrl('Un message', 'https://example.com'));
+    }
+
+    public function testLivePreviewReturnsTitleDescriptionAndADataUriOnSuccessWithoutStoringAnything(): void
+    {
+        $fetcher = $this->createMock(LinkPreviewFetcher::class);
+        $fetcher->expects($this->once())->method('fetch')->with('https://example.com/a')
+            ->willReturn(new LinkPreview('Title', 'Description', $this->tinyPngBytes()));
+
+        $result = $this->service($fetcher)->livePreview('https://example.com/a', 3);
+
+        $this->assertSame('https://example.com/a', $result['url']);
+        $this->assertSame('Title', $result['title']);
+        $this->assertSame('Description', $result['description']);
+        $this->assertStringStartsWith('data:image/png;base64,', $result['image_data_uri']);
+
+        // Nothing written: this is a preview, not an attachment.
+        $this->assertNull($this->postLinkRepository->findForPost($this->postId));
+    }
+
+    public function testLivePreviewDegradesToAPlainLinkWhenNothingCouldBeResolved(): void
+    {
+        $fetcher = $this->createMock(LinkPreviewFetcher::class);
+        $fetcher->expects($this->once())->method('fetch')->willReturn(null);
+
+        $result = $this->service($fetcher)->livePreview('https://example.com/dead', 3);
+
+        $this->assertSame('https://example.com/dead', $result['url']);
+        $this->assertNull($result['title']);
+        $this->assertNull($result['image_data_uri']);
+    }
+
+    public function testLivePreviewNeverCallsFetchWhenTheMemberIsThrottled(): void
+    {
+        $throttle = new LinkFetchThrottleService(new LinkFetchLogRepository($this->pdo));
+        for ($i = 0; $i < 15; $i++) {
+            $throttle->allowFetch(3);
+        }
+
+        $fetcher = $this->createMock(LinkPreviewFetcher::class);
+        $fetcher->expects($this->never())->method('fetch');
+
+        $service = new PostLinkService(
+            $fetcher, $throttle, $this->postLinkRepository,
+            new UploadHandler($this->fileRepository, $this->storagePath), $this->fileRepository, $this->storagePath
+        );
+        $result = $service->livePreview('https://example.com/a', 3);
+
+        $this->assertSame('https://example.com/a', $result['url']);
+        $this->assertNull($result['title']);
+    }
+
+    public function testLivePreviewAndAttachDrawFromTheSameThrottleBucket(): void
+    {
+        $throttle = new LinkFetchThrottleService(new LinkFetchLogRepository($this->pdo));
+        for ($i = 0; $i < 14; $i++) {
+            $throttle->allowFetch(3);
+        }
+
+        $fetcher = $this->createMock(LinkPreviewFetcher::class);
+        $fetcher->expects($this->once())->method('fetch')->willReturn(new LinkPreview('Title', null, null));
+        $service = new PostLinkService(
+            $fetcher, $throttle, $this->postLinkRepository,
+            new UploadHandler($this->fileRepository, $this->storagePath), $this->fileRepository, $this->storagePath
+        );
+
+        // The 15th and last slot in the window — spent here, by the
+        // preview.
+        $service->livePreview('https://example.com/a', 3);
+
+        // attach()'s own fetch is refused: the shared budget is already
+        // exhausted, exactly as it would be for two attach() calls back
+        // to back.
+        $fetcher2 = $this->createMock(LinkPreviewFetcher::class);
+        $fetcher2->expects($this->never())->method('fetch');
+        $service2 = new PostLinkService(
+            $fetcher2, $throttle, $this->postLinkRepository,
+            new UploadHandler($this->fileRepository, $this->storagePath), $this->fileRepository, $this->storagePath
+        );
+        $service2->attach($this->group(), $this->postId, 'https://example.com/a', 3, 7);
+    }
 }

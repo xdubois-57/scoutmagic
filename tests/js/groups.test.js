@@ -116,36 +116,233 @@ describe('groups.js composer media picker', () => {
     });
 });
 
-describe('groups.js "Lien" toggle', () => {
+describe('groups.js live link preview', () => {
     beforeEach(() => {
+        document.head.innerHTML = '<meta name="csrf-token" content="tok">';
         document.body.innerHTML = `
-            <button type="button" id="groups-link-toggle"></button>
-            <div class="d-none" id="groups-link-field">
-                <input type="url" id="post-link" value="">
-            </div>
+            <textarea id="post-body"></textarea>
+            <div class="d-none" id="groups-link-preview" data-preview-url="/groups/1/link-preview"></div>
         `;
     });
 
-    it('reveals the link field and focuses it on first click', async () => {
-        await loadGroups();
+    function textarea() {
+        return document.getElementById('post-body');
+    }
 
-        document.getElementById('groups-link-toggle').click();
+    function preview() {
+        return document.getElementById('groups-link-preview');
+    }
 
-        expect(document.getElementById('groups-link-field').classList.contains('d-none')).toBe(false);
-        expect(document.activeElement).toBe(document.getElementById('post-link'));
+    it('does nothing for plain text with no URL — no fetch, stays hidden', async () => {
+        vi.useFakeTimers();
+        try {
+            await loadGroups();
+            global.fetch = vi.fn();
+
+            textarea().value = 'Un message sans lien';
+            textarea().dispatchEvent(new Event('input'));
+            await vi.advanceTimersByTimeAsync(800);
+
+            expect(fetch).not.toHaveBeenCalled();
+            expect(preview().classList.contains('d-none')).toBe(true);
+        } finally {
+            vi.useRealTimers();
+        }
     });
 
-    it('hides the field again and clears its value on a second click', async () => {
+    it('debounces on typing: fetches 800ms after the last keystroke, sending the CSRF header and the body form-encoded', async () => {
+        vi.useFakeTimers();
+        try {
+            await loadGroups();
+            global.fetch = vi.fn(() => Promise.resolve({
+                ok: true,
+                json: () => Promise.resolve({ url: 'https://example.org', title: 'Titre', description: null, image_data_uri: null })
+            }));
+
+            textarea().value = 'Regarde https://example.org';
+            textarea().dispatchEvent(new Event('input'));
+            await vi.advanceTimersByTimeAsync(799);
+            expect(fetch).not.toHaveBeenCalled();
+
+            await vi.advanceTimersByTimeAsync(1);
+            expect(fetch).toHaveBeenCalledWith('/groups/1/link-preview', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'X-CSRF-Token': 'tok',
+                    'X-Requested-With': 'XMLHttpRequest'
+                },
+                body: 'body=' + encodeURIComponent('Regarde https://example.org')
+            });
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('fires immediately on blur, bypassing the debounce', async () => {
         await loadGroups();
-        const toggle = document.getElementById('groups-link-toggle');
-        const input = document.getElementById('post-link');
-        toggle.click();
-        input.value = 'https://example.org';
+        global.fetch = vi.fn(() => Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ url: 'https://example.org', title: null, description: null, image_data_uri: null })
+        }));
 
-        toggle.click();
+        textarea().value = 'https://example.org';
+        textarea().dispatchEvent(new Event('blur'));
+        await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+    });
 
-        expect(document.getElementById('groups-link-field').classList.contains('d-none')).toBe(true);
-        expect(input.value).toBe('');
+    it('fires on paste, once the pasted text has actually landed in the field', async () => {
+        await loadGroups();
+        global.fetch = vi.fn(() => Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ url: 'https://example.org', title: null, description: null, image_data_uri: null })
+        }));
+
+        textarea().dispatchEvent(new Event('paste'));
+        // A real paste event fires before the browser inserts the text —
+        // simulated here by setting .value only after the event, exactly
+        // like a real paste would land one tick later.
+        textarea().value = 'https://example.org';
+        await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+    });
+
+    it('renders the resolved title, description and image as a real link card, and hostname-only when the URL cannot be parsed', async () => {
+        await loadGroups();
+        global.fetch = vi.fn(() => Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({
+                url: 'https://example.org/page',
+                title: 'Un titre',
+                description: 'Une description',
+                image_data_uri: 'data:image/png;base64,AAAA'
+            })
+        }));
+
+        textarea().value = 'https://example.org/page';
+        textarea().dispatchEvent(new Event('blur'));
+        await vi.waitFor(() => expect(preview().querySelector('a.groups-link-preview')).not.toBeNull());
+
+        const card = preview().querySelector('a.groups-link-preview');
+        expect(card.href).toBe('https://example.org/page');
+        expect(card.target).toBe('_blank');
+        expect(card.querySelector('img').src).toBe('data:image/png;base64,AAAA');
+        expect(card.textContent).toContain('example.org');
+        expect(card.textContent).toContain('Un titre');
+        expect(card.textContent).toContain('Une description');
+    });
+
+    it('falls back to a plain-link card when nothing could be resolved', async () => {
+        await loadGroups();
+        global.fetch = vi.fn(() => Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ url: 'https://example.org/page', title: null, description: null, image_data_uri: null })
+        }));
+
+        textarea().value = 'https://example.org/page';
+        textarea().dispatchEvent(new Event('blur'));
+        await vi.waitFor(() => expect(preview().querySelector('a.groups-link-preview')).not.toBeNull());
+
+        expect(preview().querySelector('img')).toBeNull();
+        expect(preview().textContent).toContain('https://example.org/page');
+    });
+
+    it('never interprets a remote title/description as HTML — textContent only, no injected tag', async () => {
+        await loadGroups();
+        global.fetch = vi.fn(() => Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({
+                url: 'https://evil.example/page',
+                title: '<img src=x onerror=alert(1)>',
+                description: '<script>alert(2)</script>',
+                image_data_uri: null
+            })
+        }));
+
+        textarea().value = 'https://evil.example/page';
+        textarea().dispatchEvent(new Event('blur'));
+        await vi.waitFor(() => expect(preview().querySelector('a.groups-link-preview')).not.toBeNull());
+
+        expect(preview().querySelector('img')).toBeNull();
+        expect(preview().querySelector('script')).toBeNull();
+        expect(preview().textContent).toContain('<img src=x onerror=alert(1)>');
+    });
+
+    it('hides the card again once the URL is edited away', async () => {
+        await loadGroups();
+        global.fetch = vi.fn()
+            .mockResolvedValueOnce({
+                ok: true,
+                json: () => Promise.resolve({ url: 'https://example.org', title: 'Titre', description: null, image_data_uri: null })
+            });
+
+        textarea().value = 'https://example.org';
+        textarea().dispatchEvent(new Event('blur'));
+        await vi.waitFor(() => expect(preview().querySelector('a.groups-link-preview')).not.toBeNull());
+
+        global.fetch = vi.fn(() => Promise.resolve({ ok: true, json: () => Promise.resolve({ url: null }) }));
+        textarea().value = 'Plus de lien ici';
+        textarea().dispatchEvent(new Event('blur'));
+        await vi.waitFor(() => expect(preview().classList.contains('d-none')).toBe(true));
+    });
+
+    it('discards a stale response that resolves after a newer request already answered', async () => {
+        await loadGroups();
+        let resolveFirst;
+        const first = new Promise((resolve) => { resolveFirst = resolve; });
+        global.fetch = vi.fn()
+            .mockImplementationOnce(() => first)
+            .mockImplementationOnce(() => Promise.resolve({
+                ok: true,
+                json: () => Promise.resolve({ url: 'https://second.example', title: 'Second', description: null, image_data_uri: null })
+            }));
+
+        textarea().value = 'https://first.example';
+        textarea().dispatchEvent(new Event('blur'));
+        await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+
+        textarea().value = 'https://second.example';
+        textarea().dispatchEvent(new Event('blur'));
+        await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+        await vi.waitFor(() => expect(preview().textContent).toContain('Second'));
+
+        // The first request finally resolves — its (now stale) answer
+        // must not overwrite the second, newer one already on screen.
+        resolveFirst({
+            ok: true,
+            json: () => Promise.resolve({ url: 'https://first.example', title: 'First', description: null, image_data_uri: null })
+        });
+        await new Promise((resolve) => setTimeout(resolve, 0));
+
+        expect(preview().textContent).toContain('Second');
+        expect(preview().textContent).not.toContain('First');
+    });
+
+    it('a later no-URL edit wins even if an earlier fetch for a real URL is still in flight when it resolves', async () => {
+        await loadGroups();
+        let resolveFirst;
+        const first = new Promise((resolve) => { resolveFirst = resolve; });
+        global.fetch = vi.fn(() => first);
+
+        textarea().value = 'https://example.org';
+        textarea().dispatchEvent(new Event('blur'));
+        await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+
+        // Edited away before the first fetch ever answers — no second
+        // fetch() at all, since there is no URL left to ask about.
+        textarea().value = 'Plus de lien ici';
+        textarea().dispatchEvent(new Event('blur'));
+        expect(preview().classList.contains('d-none')).toBe(true);
+
+        // The abandoned first fetch resolves late — its answer must stay
+        // discarded, not reopen the card the second edit already closed.
+        resolveFirst({
+            ok: true,
+            json: () => Promise.resolve({ url: 'https://example.org', title: 'Stale', description: null, image_data_uri: null })
+        });
+        await new Promise((resolve) => setTimeout(resolve, 0));
+
+        expect(preview().classList.contains('d-none')).toBe(true);
+        expect(preview().textContent).not.toContain('Stale');
     });
 });
 

@@ -121,7 +121,6 @@ class PostController extends AbstractController
 
         $body = (string) $request->getBody('body', '');
         $files = $request->getFiles('media');
-        $link = trim((string) $request->getBody('link', ''));
 
         // The ceiling is checked before anything is written — a post over
         // it is rejected whole, never silently truncated to the first
@@ -134,13 +133,15 @@ class PostController extends AbstractController
             return $this->redirect('/groups/' . $group->id);
         }
 
-        // Same "reject the whole post rather than silently drop it"
-        // posture as the media ceiling above — a link the member actually
-        // typed is either attached or the post is refused, never posted
-        // with the link quietly missing.
-        if ($link !== '' && !PostLinkService::isValidUrl($link)) {
-            FlashMessage::set('error', 'Le lien saisi n\'est pas une adresse web valide.');
-            return $this->redirect('/groups/' . $group->id);
+        // No manual "Lien" field any more (module spec): the first URL
+        // typed in the body becomes the post's link, exactly as an
+        // explicitly-entered one always has — and is removed from the
+        // stored text once it is going to be represented as a preview
+        // card instead (firstUrlIn() already only ever returns something
+        // isValidUrl() accepts, so there is nothing left to reject here).
+        $link = PostLinkService::firstUrlIn($body) ?? '';
+        if ($link !== '') {
+            $body = PostLinkService::stripUrl($body, $link);
         }
 
         if (!$this->postService->isPostable($body, count($files), $link !== '')) {
@@ -195,6 +196,49 @@ class PostController extends AbstractController
         }
 
         return $this->redirect('/groups/' . $group->id);
+    }
+
+    /**
+     * POST /groups/{id}/link-preview — the live card groups.js shows
+     * while composing (module spec: no manual "Lien" field; the first URL
+     * typed anywhere in the draft is detected and previewed automatically
+     * before the post is ever saved). Same write-permission boundary as
+     * create() — this consumes the same per-member outbound-fetch
+     * throttle a real post's own link would (Service\PostLinkService::
+     * livePreview()'s own docblock), so a caller who could not post here
+     * must not be able to spend that budget either.
+     *
+     * @param array<string, string> $params
+     */
+    public function linkPreview(Request $request, array $params): Response
+    {
+        if (!CsrfGuard::validateRequest()) {
+            return new Response('Jeton CSRF invalide.', 403);
+        }
+
+        $context = $this->context();
+        $group = $this->readableGroup($params, $context);
+        if ($group === null) {
+            return new Response('Not Found', 404);
+        }
+
+        $permission = $this->accessService->canPost($group, $context);
+        if (!$permission->allowed) {
+            return new Response($permission->message, 403);
+        }
+
+        $allowed = $this->accessService->memberIdsAllowedToPostAs($group, $context);
+        $memberId = $allowed[0] ?? 0;
+        if ($memberId === 0) {
+            return new Response('Aucun membre de ce groupe n\'est associé à votre compte.', 403);
+        }
+
+        $url = PostLinkService::firstUrlIn((string) $request->getBody('body', ''));
+        if ($url === null) {
+            return $this->json(['url' => null]);
+        }
+
+        return $this->json($this->postLinkService->livePreview($url, $memberId));
     }
 
     /**

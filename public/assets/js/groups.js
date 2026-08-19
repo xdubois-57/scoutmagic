@@ -3,15 +3,15 @@
  * Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
  */
 
-// Groups module front-end: composer media picker, dynamic reactions,
-// polling for a still-processing photo/video, "Charger plus"/"Voir plus
-// de réponses" in-place pagination, inline edit toggles, reply image
-// filename display (show.html.twig), and the invite-member search box
-// (members.html.twig). Pure JS, no external library — same IIFE/var/
-// fetch style as gallery.js/retro-board.js. Every block below guards on
-// its own DOM elements first, so the same script loads on both pages
-// (and any future one) with no effect from whichever page's markup is
-// actually absent.
+// Groups module front-end: composer media picker, the live link-preview
+// card, dynamic reactions, polling for a still-processing photo/video,
+// "Charger plus"/"Voir plus de réponses" in-place pagination, inline
+// edit toggles, reply image filename display (show.html.twig), and the
+// invite-member search box (members.html.twig). Pure JS, no external
+// library — same IIFE/var/fetch style as gallery.js/retro-board.js.
+// Every block below guards on its own DOM elements first, so the same
+// script loads on both pages (and any future one) with no effect from
+// whichever page's markup is actually absent.
 //
 // Server-supplied config comes from #groups-post-form's own data-*
 // attributes (max_media_per_post), the same convention retro-board.js
@@ -109,25 +109,174 @@
         }
     })();
 
-    // "Lien" reveals a plain URL input rather than fetching a preview
-    // client-side (module spec: no browser-side fetch) — the server
-    // resolves title/description/image synchronously on submit
-    // (Service\PostLinkService), same as every other post field.
-    (function initLinkToggle() {
-        var linkToggle = document.getElementById('groups-link-toggle');
-        var linkField = document.getElementById('groups-link-field');
-        var linkInput = /** @type {HTMLInputElement} */ (document.getElementById('post-link'));
-        if (!linkToggle || !linkField || !linkInput) {
+    // No manual "Lien" field: the first URL typed anywhere in the message
+    // is detected automatically and previewed live, exactly as it will
+    // look once the post is saved (Controller\PostController::
+    // linkPreview(), Service\PostLinkService::livePreview() — the same
+    // preview a real submit would produce, just not written anywhere
+    // yet). Debounced on typing (never per keystroke — the fetch is
+    // throttled server-side, Service\LinkFetchThrottleService, shared
+    // with the post's own final fetch on submit) and fired immediately on
+    // blur/paste, so leaving the field or pasting a link shows the card
+    // without waiting out the debounce.
+    (function initLinkPreview() {
+        var textarea = /** @type {HTMLTextAreaElement} */ (document.getElementById('post-body'));
+        var container = document.getElementById('groups-link-preview');
+        if (!textarea || !container) {
             return;
         }
 
-        linkToggle.addEventListener('click', function () {
-            var hidden = linkField.classList.toggle('d-none');
-            if (hidden) {
-                linkInput.value = '';
-            } else {
-                linkInput.focus();
+        var previewUrl = container.dataset.previewUrl;
+        var debounceTimer = null;
+        var lastRequestedBody = null;
+        var requestToken = 0;
+
+        function csrfToken() {
+            var meta = /** @type {HTMLMetaElement} */ (document.querySelector('meta[name="csrf-token"]'));
+            return meta ? meta.content : '';
+        }
+
+        function hide() {
+            container.classList.add('d-none');
+            container.innerHTML = '';
+        }
+
+        function showSpinner() {
+            container.innerHTML = '';
+            var spinner = document.createElement('span');
+            spinner.className = 'spinner-border spinner-border-sm text-body-secondary';
+            spinner.setAttribute('role', 'status');
+            spinner.setAttribute('aria-hidden', 'true');
+            container.appendChild(spinner);
+            container.classList.remove('d-none');
+        }
+
+        // Built with textContent throughout, never innerHTML string
+        // concatenation: title/description come straight from a REMOTE
+        // page's own og:title/og:description, which this member did not
+        // write and this site does not control — the same untrusted-input
+        // rule as anywhere else a value crosses a trust boundary.
+        function renderCard(data) {
+            container.innerHTML = '';
+            var card = document.createElement('a');
+            card.href = data.url;
+            card.target = '_blank';
+            card.rel = 'noopener noreferrer nofollow';
+            card.className = 'card text-decoration-none groups-link-preview';
+
+            if (data.image_data_uri) {
+                var img = document.createElement('img');
+                img.src = data.image_data_uri;
+                img.alt = '';
+                img.className = 'groups-link-preview-image';
+                card.appendChild(img);
             }
+
+            var body = document.createElement('div');
+            body.className = 'card-body py-2 px-3';
+
+            var host = document.createElement('p');
+            host.className = 'text-body-tertiary text-uppercase mb-1';
+            host.style.fontSize = '0.7rem';
+            try {
+                host.textContent = new URL(data.url).hostname;
+            } catch (e) {
+                host.textContent = data.url;
+            }
+            body.appendChild(host);
+
+            if (data.title) {
+                var title = document.createElement('p');
+                title.className = 'fw-semibold mb-1 text-body';
+                title.textContent = data.title;
+                body.appendChild(title);
+            }
+            if (data.description) {
+                var description = document.createElement('p');
+                description.className = 'text-body-secondary mb-0 groups-link-preview-description';
+                description.textContent = data.description;
+                body.appendChild(description);
+            }
+            if (!data.title && !data.description) {
+                var plain = document.createElement('p');
+                plain.className = 'text-body mb-0 text-truncate';
+                plain.textContent = data.url;
+                body.appendChild(plain);
+            }
+
+            card.appendChild(body);
+            container.appendChild(card);
+            container.classList.remove('d-none');
+        }
+
+        function fetchPreview() {
+            var body = textarea.value;
+            if (body === lastRequestedBody) {
+                return;
+            }
+            lastRequestedBody = body;
+            // Bumped unconditionally, even on the no-fetch path below: an
+            // earlier call's fetch() may still be in flight, and this
+            // call's own decision (nothing to show) has to win once it is
+            // made — not get silently overwritten a moment later when that
+            // older request finally resolves.
+            var token = ++requestToken;
+
+            // Cheap guard before spending a network round trip (and,
+            // server-side, a throttle slot only actually gets consumed
+            // once a URL is genuinely found — but there is no reason to
+            // ask at all for a message with no "http" in it whatsoever).
+            if (body.indexOf('http://') === -1 && body.indexOf('https://') === -1) {
+                hide();
+                return;
+            }
+
+            showSpinner();
+
+            fetch(previewUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'X-CSRF-Token': csrfToken(),
+                    'X-Requested-With': 'XMLHttpRequest'
+                },
+                body: 'body=' + encodeURIComponent(body)
+            }).then(function (response) {
+                return response.ok ? response.json() : { url: null };
+            }).then(function (data) {
+                // A later request may have already resolved while this
+                // one was in flight — discard a stale answer rather than
+                // flashing an outdated card back over a newer one.
+                if (token !== requestToken) {
+                    return;
+                }
+                if (data.url) {
+                    renderCard(data);
+                } else {
+                    hide();
+                }
+            }).catch(function () {
+                if (token === requestToken) {
+                    hide();
+                }
+            });
+        }
+
+        textarea.addEventListener('input', function () {
+            clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(fetchPreview, 800);
+        });
+        textarea.addEventListener('blur', function () {
+            clearTimeout(debounceTimer);
+            fetchPreview();
+        });
+        textarea.addEventListener('paste', function () {
+            // The pasted text is not yet in .value while this handler
+            // runs (paste is fired before the browser inserts it) — defer
+            // to the next tick so fetchPreview() reads the field AFTER
+            // the paste has actually landed.
+            clearTimeout(debounceTimer);
+            setTimeout(fetchPreview, 0);
         });
     })();
 

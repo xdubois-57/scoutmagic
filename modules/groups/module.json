@@ -226,6 +226,15 @@
       "label": ""
     },
     {
+      "path": "/groups/{id}/link-preview",
+      "method": "POST",
+      "controller": "Modules\\Groups\\Controller\\PostController",
+      "action": "linkPreview",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
       "path": "/groups/{id}/posts/{postId}/edit",
       "method": "POST",
       "controller": "Modules\\Groups\\Controller\\PostController",

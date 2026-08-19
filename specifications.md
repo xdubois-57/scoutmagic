@@ -474,7 +474,7 @@ A section group is tied to its scout year, which is what keeps last year's group
 
 ### 20.2 What a group holds
 
-Posts (up to 5000 characters, up to four photos or videos, and at most one link with an automatic title/description/image preview), one level of replies (up to 2000 characters, at most one image — replies are never nested), and six fixed reactions (👍 ❤️ 😂 😮 😢 👏), one per person per item. An author may edit their own post or reply for 15 minutes; an author or a moderator may delete one at any time. A moderator may pin posts to the top of the feed.
+Posts (up to 5000 characters, up to four photos or videos, and at most one link with an automatic title/description/image preview), one level of replies (up to 2000 characters, at most one image — replies are never nested), and six fixed reactions (👍 ❤️ 😂 😮 😢 👏), one per person per item. There is no separate field for a link: the first URL typed anywhere in the message is detected automatically, previewed live while composing, and removed from the stored text once its preview card is attached — the card represents it from then on. An author may edit their own post or reply for 15 minutes; an author or a moderator may delete one at any time. A moderator may pin posts to the top of the feed.
 
 Photos and videos live in a gallery album belonging to the group, never listed in the unit's own gallery and readable only by the group's members. "Galerie du groupe" shows them all on one page.
 
