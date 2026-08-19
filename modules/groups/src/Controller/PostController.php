@@ -24,6 +24,7 @@ use Modules\Groups\Service\GroupAccessService;
 use Modules\Groups\Service\GroupFeedService;
 use Modules\Groups\Service\GroupSessionContext;
 use Modules\Groups\Service\GroupSessionContextFactory;
+use Modules\Groups\Service\PostLinkService;
 use Modules\Groups\Service\PostMediaService;
 use Modules\Groups\Service\PostService;
 use Twig\Environment;
@@ -48,7 +49,8 @@ class PostController extends AbstractController
         private GroupFeedService $feedService,
         private PostService $postService,
         private GroupSessionContextFactory $contextFactory,
-        private PostMediaService $postMediaService
+        private PostMediaService $postMediaService,
+        private PostLinkService $postLinkService
     ) {
     }
 
@@ -102,6 +104,7 @@ class PostController extends AbstractController
 
         $body = (string) $request->getBody('body', '');
         $files = $request->getFiles('media');
+        $link = trim((string) $request->getBody('link', ''));
 
         // The ceiling is checked before anything is written — a post over
         // it is rejected whole, never silently truncated to the first
@@ -114,7 +117,16 @@ class PostController extends AbstractController
             return $this->redirect('/groups/' . $group->id);
         }
 
-        if (!$this->postService->isPostable($body, count($files))) {
+        // Same "reject the whole post rather than silently drop it"
+        // posture as the media ceiling above — a link the member actually
+        // typed is either attached or the post is refused, never posted
+        // with the link quietly missing.
+        if ($link !== '' && !PostLinkService::isValidUrl($link)) {
+            FlashMessage::set('error', 'Le lien saisi n\'est pas une adresse web valide.');
+            return $this->redirect('/groups/' . $group->id);
+        }
+
+        if (!$this->postService->isPostable($body, count($files), $link !== '')) {
             return $this->redirect('/groups/' . $group->id);
         }
 
@@ -142,6 +154,13 @@ class PostController extends AbstractController
                 FlashMessage::set('error', $e->getMessage());
                 return $this->redirect('/groups/' . $group->id);
             }
+        }
+
+        if ($link !== '') {
+            // Never throws — a throttled member, an unreachable page, or
+            // one with no Open Graph tags all still attach a (plain)
+            // link, so there is nothing here to roll the post back for.
+            $this->postLinkService->attach($group, $postId, $link, $authorMemberId, $context->userAccountId);
         }
 
         return $this->redirect('/groups/' . $group->id);
@@ -188,10 +207,10 @@ class PostController extends AbstractController
                 return new Response('Vous ne pouvez pas supprimer ce message.', 403);
             }
 
-            // Media first: it must be resolved from the still-existing
-            // discussion_group_post_media join rows, which the post's own
-            // deletion below cascades away.
+            // Media and link image first: both must be resolved from
+            // rows the post's own deletion below cascades away.
             $this->postMediaService->deleteAllForPost($group, $post->id);
+            $this->postLinkService->deleteForPost($post->id);
             $this->postService->delete($post);
 
             return $this->redirect('/groups/' . $group->id);

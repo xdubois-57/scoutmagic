@@ -21,6 +21,7 @@ use Modules\Groups\Controller\GroupController;
 use Modules\Groups\Repository\GroupMemberRepository;
 use Modules\Groups\Repository\GroupRepository;
 use Modules\Groups\Repository\GroupSectionRepository;
+use Modules\Groups\Repository\PostLinkRepository;
 use Modules\Groups\Repository\PostMediaRepository;
 use Modules\Groups\Repository\PostRepository;
 use Modules\Groups\Service\GroupAccessService;
@@ -144,7 +145,8 @@ class GroupControllerTest extends TestCase
             new PostMediaRepository($this->pdo), $this->groupRepo
         );
         $feedService = new GroupFeedService(
-            $postRepo, new PostAuthorResolver($this->memberService, $accountRepo), $postService, $postMediaService
+            $postRepo, new PostAuthorResolver($this->memberService, $accountRepo), $postService, $postMediaService,
+            new PostLinkRepository($this->pdo)
         );
 
         return new GroupController(

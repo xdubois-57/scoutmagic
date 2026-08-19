@@ -202,3 +202,37 @@ CREATE TABLE IF NOT EXISTS gallery_s3_secret (
     secret_key_encrypted BLOB NULL,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- gallery_link_preview_cache: the SCRAPE RESULT (title/description/raw
+-- og:image URL) for a URL, keyed by a plain SHA-256 of the URL — a URL is
+-- not personal data (SECURITY.md §5), so unlike files.owner_member_id-style
+-- lookups this needs no HMAC blind index, just a fixed-length dedup key.
+-- Consulted by Service\LinkPreviewService (the sole implementation of
+-- Api\LinkPreviewFetcher) so that two posts linking the same page — in the
+-- same group or different ones — don't each re-scrape it. Deliberately
+-- caches metadata only, never a downloaded image: the served preview image
+-- is a `files` row the CALLING module stores itself, scoped to its own
+-- access-control domain (e.g. groups' owner_type 'discussion_group' —
+-- Modules\Groups\File\GroupFileOwnershipChecker) — a shared, ungated image
+-- cached here once and reused across groups would leak a private group's
+-- link preview to a viewer with no membership in it. Re-downloading the
+-- (SSRF-protected, size-capped) image on every cache hit costs one bounded
+-- outbound fetch; it is the price of keeping each group's copy properly
+-- gated.
+--
+-- No scheduled purge task: Repository\LinkPreviewCacheRepository deletes
+-- rows past TTL_HOURS as a side effect of every write instead (same
+-- "purge opportunistically" choice as Service\StorageLocationService's own
+-- health-check caching), which is enough to bound this table's size given
+-- how infrequently group members post links — see the repository for why
+-- retro_rate_limits' dedicated scheduled task (§ that module's schema.sql)
+-- was not worth replicating here.
+CREATE TABLE IF NOT EXISTS gallery_link_preview_cache (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    url_hash CHAR(64) NOT NULL,
+    title VARCHAR(255) NULL,
+    description TEXT NULL,
+    image_url VARCHAR(500) NULL,
+    fetched_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE INDEX idx_glpc_url_hash (url_hash)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

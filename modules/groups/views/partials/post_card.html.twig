@@ -71,6 +71,7 @@
         {% endif %}
 
         {% include '@groups/partials/post_media_grid.html.twig' with { media: row.media } %}
+        {% include '@groups/partials/post_link.html.twig' with { link: row.link } %}
 
         {% if row.can_edit %}
             <form method="post" action="/groups/{{ group.id }}/posts/{{ row.post.id }}/edit"

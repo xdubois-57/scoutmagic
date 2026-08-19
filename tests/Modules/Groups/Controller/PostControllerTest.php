@@ -15,14 +15,19 @@ use Core\Security\AuthSession;
 use Core\Security\UserAccount;
 use Core\Security\UserAccountRepository;
 use Core\View\TwigFactory;
+use Core\File\FileRepository;
+use Core\File\UploadHandler;
 use Modules\Gallery\Api\DelegatedAlbum;
 use Modules\Gallery\Api\DelegatedAlbumManager;
 use Modules\Gallery\Api\DelegatedMedia;
+use Modules\Gallery\Api\LinkPreviewFetcher;
 use Modules\Gallery\Service\GalleryException;
 use Modules\Groups\Controller\PostController;
 use Modules\Groups\Repository\GroupMemberRepository;
 use Modules\Groups\Repository\GroupRepository;
 use Modules\Groups\Repository\GroupSectionRepository;
+use Modules\Groups\Repository\LinkFetchLogRepository;
+use Modules\Groups\Repository\PostLinkRepository;
 use Modules\Groups\Repository\PostMediaRepository;
 use Modules\Groups\Repository\PostRepository;
 use Modules\Groups\Service\GroupAccessService;
@@ -30,7 +35,9 @@ use Modules\Groups\Service\GroupActivityService;
 use Modules\Groups\Service\GroupFeedService;
 use Modules\Groups\Service\GroupService;
 use Modules\Groups\Service\GroupSessionContextFactory;
+use Modules\Groups\Service\LinkFetchThrottleService;
 use Modules\Groups\Service\PostAuthorResolver;
+use Modules\Groups\Service\PostLinkService;
 use Modules\Groups\Service\PostMediaService;
 use Modules\Groups\Service\PostService;
 use PHPUnit\Framework\Attributes\Group;
@@ -102,7 +109,8 @@ class PostControllerTest extends TestCase
         int $accountId = self::AUTHOR_ACCOUNT,
         string $role = 'identified',
         bool $completeProfile = true,
-        ?DelegatedAlbumManager $delegatedAlbumManager = null
+        ?DelegatedAlbumManager $delegatedAlbumManager = null,
+        ?LinkPreviewFetcher $linkPreviewFetcher = null
     ): PostController {
         AuthSession::login($accountId, 'parent@test.be', $role);
 
@@ -134,8 +142,17 @@ class PostControllerTest extends TestCase
             $delegatedAlbumManager ?? $this->createMock(DelegatedAlbumManager::class),
             new PostMediaRepository($this->pdo), $this->groupRepo
         );
+        $postLinkRepo = new PostLinkRepository($this->pdo);
+        $postLinkService = new PostLinkService(
+            $linkPreviewFetcher ?? $this->createMock(LinkPreviewFetcher::class),
+            new LinkFetchThrottleService(new LinkFetchLogRepository($this->pdo)),
+            $postLinkRepo,
+            new UploadHandler(new FileRepository($this->pdo), sys_get_temp_dir()),
+            new FileRepository($this->pdo),
+            sys_get_temp_dir()
+        );
         $feedService = new GroupFeedService(
-            $this->postRepo, new PostAuthorResolver($memberService, $accountRepo), $postService, $postMediaService
+            $this->postRepo, new PostAuthorResolver($memberService, $accountRepo), $postService, $postMediaService, $postLinkRepo
         );
 
         $twig = TwigFactory::create(
@@ -158,7 +175,8 @@ class PostControllerTest extends TestCase
             $feedService,
             $postService,
             new GroupSessionContextFactory($memberService, $accountRepo, $resolver),
-            $postMediaService
+            $postMediaService,
+            $postLinkService
         );
     }
 
@@ -254,6 +272,56 @@ class PostControllerTest extends TestCase
         $this->assertSame("Bonjour\nà tous", $posts[0]->body);
         $this->assertSame(self::AUTHOR_ACCOUNT, $posts[0]->authorUserAccountId);
         $this->assertSame($this->memberId, $posts[0]->authorMemberId);
+    }
+
+    public function testCreateRejectsAnInvalidLinkWithoutCreatingThePostAtAll(): void
+    {
+        $this->withCsrf(['body' => 'Regardez ça', 'link' => 'javascript:alert(1)']);
+
+        $response = $this->controller([$this->memberId])->create($this->request(), $this->params());
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame([], $this->postRepo->findPage($this->groupId, 10));
+    }
+
+    public function testCreateWithAValidLinkStoresAndRendersThePreviewCard(): void
+    {
+        $fetcher = $this->createMock(LinkPreviewFetcher::class);
+        $fetcher->method('fetch')->willReturn(new \Modules\Gallery\Api\LinkPreview('Un super lien', 'Une belle description', null));
+        $this->withCsrf(['body' => '', 'link' => 'https://example.com/article']);
+
+        $createResponse = $this->controller([$this->memberId], self::AUTHOR_ACCOUNT, 'identified', true, null, $fetcher)
+            ->create($this->request(), $this->params());
+        $this->assertSame(302, $createResponse->getStatusCode());
+
+        $posts = $this->postRepo->findPage($this->groupId, 10);
+        $this->assertCount(1, $posts);
+        $link = (new PostLinkRepository($this->pdo))->findForPost($posts[0]->id);
+        $this->assertSame('https://example.com/article', $link->url);
+        $this->assertSame('Un super lien', $link->title);
+
+        // And it actually renders through the real templates — not just
+        // stored — proving post_link.html.twig has no syntax error and
+        // is reachable from the feed.
+        $feedResponse = $this->controller([$this->memberId])->feed(
+            new Request('GET', '/groups/' . $this->groupId . '/feed', [], [], [], []),
+            $this->params()
+        );
+        $this->assertSame(200, $feedResponse->getStatusCode());
+        $this->assertStringContainsString('Un super lien', $feedResponse->getBody());
+        $this->assertStringContainsString('Une belle description', $feedResponse->getBody());
+        $this->assertStringContainsString('example.com', $feedResponse->getBody());
+        $this->assertStringContainsString('https://example.com/article', $feedResponse->getBody());
+    }
+
+    public function testCreateWithNeitherBodyMediaNorLinkSavesNothingWithALinkFieldPresentButEmpty(): void
+    {
+        $this->withCsrf(['body' => '', 'link' => '']);
+
+        $response = $this->controller([$this->memberId])->create($this->request(), $this->params());
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame([], $this->postRepo->findPage($this->groupId, 10));
     }
 
     public function testCreateIsRefusedOnAClosedGroupServerSide(): void

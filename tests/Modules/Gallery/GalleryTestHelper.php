@@ -82,5 +82,15 @@ class GalleryTestHelper
             secret_key_encrypted BLOB NULL,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )');
+
+        $pdo->exec('CREATE TABLE gallery_link_preview_cache (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            url_hash TEXT NOT NULL,
+            title TEXT NULL,
+            description TEXT NULL,
+            image_url TEXT NULL,
+            fetched_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(url_hash)
+        )');
     }
 }

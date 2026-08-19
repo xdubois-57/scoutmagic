@@ -10,6 +10,7 @@ namespace Modules\Groups\Service;
 
 use Modules\Groups\Repository\DiscussionGroup;
 use Modules\Groups\Repository\Post;
+use Modules\Groups\Repository\PostLinkRepository;
 use Modules\Groups\Repository\PostRepository;
 
 /**
@@ -31,7 +32,8 @@ class GroupFeedService
         private PostRepository $postRepository,
         private PostAuthorResolver $authorResolver,
         private PostService $postService,
-        private PostMediaService $postMediaService
+        private PostMediaService $postMediaService,
+        private PostLinkRepository $postLinkRepository
     ) {
     }
 
@@ -58,12 +60,13 @@ class GroupFeedService
         // on this page in one more query, never once per post.
         $mediaById = $this->postMediaService->albumMediaById($group);
         $mediaByPost = $this->postMediaService->mediaForPosts(array_map(fn(Post $p) => $p->id, $all), $mediaById);
+        $linkByPost = $this->postLinkRepository->findForPosts(array_map(fn(Post $p) => $p->id, $all));
 
         $last = $rows === [] ? null : $rows[count($rows) - 1];
 
         return new FeedPage(
-            array_map(fn(Post $p) => $this->decorate($p, $labels, $mediaByPost, $context, $canModerate), $pinned),
-            array_map(fn(Post $p) => $this->decorate($p, $labels, $mediaByPost, $context, $canModerate), $rows),
+            array_map(fn(Post $p) => $this->decorate($p, $labels, $mediaByPost, $linkByPost, $context, $canModerate), $pinned),
+            array_map(fn(Post $p) => $this->decorate($p, $labels, $mediaByPost, $linkByPost, $context, $canModerate), $rows),
             $hasMore && $last !== null ? $this->encodeCursor($last) : null
         );
     }
@@ -71,9 +74,10 @@ class GroupFeedService
     /**
      * @param array<int, array{display_name: string, account_name: string}> $labels
      * @param array<int, \Modules\Gallery\Api\DelegatedMedia[]> $mediaByPost
+     * @param array<int, \Modules\Groups\Repository\PostLink> $linkByPost
      * @return array<string, mixed>
      */
-    private function decorate(Post $post, array $labels, array $mediaByPost, GroupSessionContext $context, bool $canModerate): array
+    private function decorate(Post $post, array $labels, array $mediaByPost, array $linkByPost, GroupSessionContext $context, bool $canModerate): array
     {
         $label = $labels[$post->id] ?? ['display_name' => '', 'account_name' => ''];
 
@@ -82,6 +86,7 @@ class GroupFeedService
             'display_name' => $label['display_name'],
             'account_name' => $label['account_name'],
             'media' => $mediaByPost[$post->id] ?? [],
+            'link' => $linkByPost[$post->id] ?? null,
             // Every one of these is re-checked server-side by the action
             // itself — they only decide whether the kebab entry is shown.
             'can_edit' => $this->postService->canEdit($post, $context),

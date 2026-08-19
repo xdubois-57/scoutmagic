@@ -285,3 +285,25 @@
 .groups-gallery-grid .groups-media-cell {
     aspect-ratio: 1 / 1;
 }
+
+/* Modules\Groups\views\partials\post_link.html.twig — a post's optional
+   link preview card. The image is capped rather than aspect-ratio-boxed
+   like the media grid above: an og:image is whatever shape the linked
+   page happened to provide, and cropping a preview thumbnail can hide
+   the very thing (a poster, a logo) the preview exists to show. */
+.groups-link-preview {
+    border: 1px solid var(--bs-border-color);
+    overflow: hidden;
+}
+.groups-link-preview-image {
+    display: block;
+    width: 100%;
+    max-height: 200px;
+    object-fit: cover;
+}
+.groups-link-preview-description {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}

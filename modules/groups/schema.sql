@@ -103,12 +103,17 @@ CREATE TABLE discussion_group_members (
     CONSTRAINT fk_dgm_invited_by FOREIGN KEY (invited_by_member_id) REFERENCES members(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Text posts, and (see discussion_group_post_media below) up to four
--- media each. Replies, reactions and link previews arrive later: their
--- tables will hang off this one with ON DELETE CASCADE, which is why
--- post deletion needs no cleanup of its own here and must not grow any
--- later (deleting a post is a real DELETE — this module does not
--- soft-delete).
+-- Text posts, up to four media each (see discussion_group_post_media
+-- below) and, now, an optional single link preview (see
+-- discussion_group_post_links below). Replies and reactions still arrive
+-- later and will hang off this one with ON DELETE CASCADE exactly like
+-- both of those already do — but a bare CASCADE is no longer the whole
+-- cleanup story: both media and a link's cached image live outside this
+-- table's own CASCADE reach (gallery_media, and core's own files table
+-- respectively), so Service\PostMediaService and Service\PostLinkService
+-- each explicitly delete their own external row/stored object BEFORE a
+-- post is deleted (deleting a post is a real DELETE — this module does
+-- not soft-delete).
 CREATE TABLE discussion_group_posts (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     group_id INT UNSIGNED NOT NULL,
@@ -170,4 +175,62 @@ CREATE TABLE discussion_group_post_media (
     UNIQUE INDEX idx_dgpm_post_media (post_id, gallery_media_id),
     INDEX idx_dgpm_post (post_id, sort_order),
     CONSTRAINT fk_dgpm_post FOREIGN KEY (post_id) REFERENCES discussion_group_posts(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- One link preview per post (module spec: max one link per post — the
+-- UNIQUE index on post_id enforces it at the DB level too, not just in
+-- Service\PostLinkService). title/description/image_file_id are all
+-- nullable independently of one another: a URL with no Open Graph tags at
+-- all, or one Service\PostLinkService could not reach, still becomes a
+-- post — just a plain link with nothing else resolved (module spec:
+-- "degrade to a plain link on any failure"). The preview image is fetched
+-- through Modules\Gallery\Api\LinkPreviewFetcher (SECURITY.md §17) but
+-- stored as this module's OWN files row (owner_type
+-- File\GroupFileOwnershipChecker::OWNER_TYPE, owner_id = the group's id) —
+-- never inside the group's delegated gallery album (discussion_groups.
+-- gallery_album_id): a link preview image is not a photo/video the group
+-- posted, and gallery's own Api\LinkPreviewFetcher never stores or serves
+-- it itself (see that interface's own docblock) precisely so each group
+-- keeps its own separately access-controlled copy.
+--
+-- No FK to files: it lives in core's schema, loaded before every module's
+-- own schema.sql, so unlike gallery_media_id above (a cross-MODULE
+-- reference, no guaranteed load-order) a FK here is safe — same reasoning
+-- as e.g. gallery_media.file_id's own FK in modules/gallery/schema.sql.
+-- Service\PostLinkService deletes the files row (and its stored object)
+-- itself before a post is deleted, exactly like Service\PostMediaService
+-- does for gallery_media — the CASCADE below only ever cleans up this
+-- table's own row afterward, never the file it pointed at.
+CREATE TABLE discussion_group_post_links (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    post_id INT UNSIGNED NOT NULL,
+    url VARCHAR(2048) NOT NULL,
+    title VARCHAR(255) NULL,
+    description TEXT NULL,
+    image_file_id INT UNSIGNED NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE INDEX idx_dgpl_post (post_id),
+    CONSTRAINT fk_dgpl_post FOREIGN KEY (post_id) REFERENCES discussion_group_posts(id) ON DELETE CASCADE,
+    CONSTRAINT fk_dgpl_image_file FOREIGN KEY (image_file_id) REFERENCES files(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Per-member throttle on link-preview fetch attempts (module spec,
+-- following the retro_rate_limits precedent — see that table's own
+-- comment in modules/retro/schema.sql) — without this, posting links
+-- would let a member trigger unlimited outbound requests through the
+-- server (an SSRF-probing/DoS-against-a-third-party vector even with
+-- Service\OgScraperService's own hardening, SECURITY.md §17). Unlike
+-- retro_rate_limits, member_id is stored directly rather than an HMAC: a
+-- group post is already tied to both author identities in plain form
+-- (discussion_group_posts.author_member_id above) — there is no
+-- anonymity guarantee here to protect. Purged opportunistically by
+-- Service\LinkFetchThrottleService on every check (same "no dedicated
+-- scheduled task" choice as gallery's gallery_link_preview_cache, and for
+-- the same reason: low write volume, a fixed short retention window).
+CREATE TABLE discussion_group_link_fetch_log (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    member_id INT UNSIGNED NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_dglfl_member (member_id, created_at),
+    CONSTRAINT fk_dglfl_member FOREIGN KEY (member_id) REFERENCES members(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

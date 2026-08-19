@@ -37,7 +37,7 @@ class ModuleManifestTest extends TestCase
      */
     public function testTheVersionIsBumpedWheneverTheSchemaChanges(): void
     {
-        $this->assertSame('1.2.0', $this->manifest->version);
+        $this->assertSame('1.3.0', $this->manifest->version);
     }
 
     public function testThePostActionsAreDeclaredAsPostRoutesOnly(): void

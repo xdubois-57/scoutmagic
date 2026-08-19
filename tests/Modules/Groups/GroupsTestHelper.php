@@ -69,6 +69,24 @@ class GroupsTestHelper
             UNIQUE(post_id, gallery_media_id),
             FOREIGN KEY (post_id) REFERENCES discussion_group_posts(id) ON DELETE CASCADE
         )');
+
+        $pdo->exec('CREATE TABLE discussion_group_post_links (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            post_id INTEGER NOT NULL,
+            url TEXT NOT NULL,
+            title TEXT NULL,
+            description TEXT NULL,
+            image_file_id INTEGER NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(post_id),
+            FOREIGN KEY (post_id) REFERENCES discussion_group_posts(id) ON DELETE CASCADE
+        )');
+
+        $pdo->exec('CREATE TABLE discussion_group_link_fetch_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            member_id INTEGER NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )');
     }
 
     /**

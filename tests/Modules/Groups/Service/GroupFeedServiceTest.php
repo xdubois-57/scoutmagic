@@ -10,6 +10,7 @@ use Core\Security\UserAccountRepository;
 use Modules\Gallery\Api\DelegatedAlbumManager;
 use Modules\Groups\Repository\GroupRepository;
 use Modules\Groups\Repository\Post;
+use Modules\Groups\Repository\PostLinkRepository;
 use Modules\Groups\Repository\PostMediaRepository;
 use Modules\Groups\Repository\PostRepository;
 use Modules\Groups\Service\GroupActivityService;
@@ -54,7 +55,8 @@ class GroupFeedServiceTest extends TestCase
             $this->postRepo,
             new PostAuthorResolver($memberService, $accountRepo),
             new PostService($this->postRepo, new GroupActivityService($this->groupRepo, $this->postRepo)),
-            $this->postMediaService()
+            $this->postMediaService(),
+            new PostLinkRepository($this->pdo)
         );
 
         $this->groupId = $this->groupRepo->create('Louveteaux', null, null, 1);
@@ -245,7 +247,8 @@ class GroupFeedServiceTest extends TestCase
             $this->postRepo,
             new PostAuthorResolver($memberService, $accountRepo),
             new PostService($this->postRepo, new GroupActivityService($this->groupRepo, $this->postRepo)),
-            $this->postMediaService()
+            $this->postMediaService(),
+            new PostLinkRepository($this->pdo)
         );
 
         $this->seed(GroupFeedService::PAGE_SIZE);
