@@ -13,6 +13,28 @@ jobs:
   test:
     runs-on: ubuntu-latest
 
+    # The whole PHP suite runs in this one job, `database`-tagged tests
+    # included (phpunit.xml no longer excludes them anywhere) — which is
+    # why it needs MySQL. Most of that group actually runs on in-memory
+    # SQLite, but the six files reading TEST_DB_* below need a real
+    # server. This used to be a separate `database-tests` job with no
+    # coverage instrumentation, so those tests never reached the Clover
+    # report the sonarqube job consumes and every module tested mainly
+    # through them read as near-zero coverage on new code.
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: test_password
+          MYSQL_DATABASE: test_db
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=3
+
     steps:
       - uses: actions/checkout@v4
         with:
@@ -42,10 +64,17 @@ jobs:
         run: vendor/bin/phpstan analyse --memory-limit=512M
 
       - name: Run tests
-        # Coverage (Clover XML) and the JUnit report are generated here, once,
-        # for SonarQube Cloud to consume in the sonarqube job below — see
+        # The complete suite, with no group excluded — coverage (Clover XML)
+        # and the JUnit report are generated here, once, for SonarQube Cloud
+        # to consume in the sonarqube job below (see
         # sonar.php.coverage.reportPaths / sonar.php.tests.reportPath in
-        # sonar-project.properties. Nothing re-runs PHPUnit a second time.
+        # sonar-project.properties). Nothing re-runs PHPUnit a second time.
+        env:
+          TEST_DB_HOST: 127.0.0.1
+          TEST_DB_PORT: 3306
+          TEST_DB_NAME: test_db
+          TEST_DB_USER: root
+          TEST_DB_PASSWORD: test_password
         run: vendor/bin/phpunit --coverage-clover coverage.xml --log-junit phpunit-report.xml
 
       - name: Upload coverage and test reports for SonarQube
@@ -85,46 +114,6 @@ jobs:
           name: javascript-coverage
           path: coverage/js/lcov.info
           retention-days: 1
-
-  database-tests:
-    runs-on: ubuntu-latest
-    services:
-      mysql:
-        image: mysql:8.0
-        env:
-          MYSQL_ROOT_PASSWORD: test_password
-          MYSQL_DATABASE: test_db
-        ports:
-          - 3306:3306
-        options: >-
-          --health-cmd="mysqladmin ping"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=3
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Ghostscript (PDF rasterization for Core\File\PdfRasterizer)
-        run: sudo apt-get update && sudo apt-get install -y ghostscript
-
-      - name: Setup PHP
-        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2.37.2
-        with:
-          php-version: '8.4'
-          extensions: mbstring, pdo, pdo_mysql, openssl, imagick
-
-      - name: Install dependencies
-        run: composer install --prefer-dist --no-progress
-
-      - name: Run database tests
-        env:
-          TEST_DB_HOST: 127.0.0.1
-          TEST_DB_PORT: 3306
-          TEST_DB_NAME: test_db
-          TEST_DB_USER: root
-          TEST_DB_PASSWORD: test_password
-        run: vendor/bin/phpunit --group=database
 
   security:
     runs-on: ubuntu-latest

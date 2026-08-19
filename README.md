@@ -67,13 +67,15 @@ volontaire, sans garantie de délai.
 ```bash
 composer install
 composer serve                     # serveur de dev local (localhost:8000)
-vendor/bin/phpunit                 # exécuter les tests PHP
+vendor/bin/phpunit                 # exécuter les tests PHP (suite complète)
 vendor/bin/phpstan analyse core/   # analyse statique
 
 npm ci                             # dépendances Node (tests JS uniquement — voir Prérequis)
 npm test                           # exécuter les tests unitaires JavaScript (Vitest + jsdom)
 npm run test:coverage              # idem, avec couverture LCOV (coverage/js/lcov.info)
 ```
+
+`vendor/bin/phpunit` exécute **toute** la suite, groupe `database` compris : aucun test n'est exclu par défaut, ni en local, ni en CI, ni dans `scripts/release.sh`. La majorité de ce groupe tourne sur une base SQLite en mémoire (`Tests\DatabaseTestHelper`) et ne demande rien de particulier ; seuls les six fichiers qui lisent `TEST_DB_*` ont besoin d'une vraie instance MySQL jetable. Renseignez alors `TEST_DB_HOST` / `TEST_DB_PORT` / `TEST_DB_NAME` / `TEST_DB_USER` / `TEST_DB_PASSWORD` (la CI utilise `127.0.0.1`, `3306`, `test_db`, `root`, `test_password`). **`TEST_DB_PASSWORD` ne doit pas être vide** : les tests du formulaire d'installation (`Tests\Core\Http\Controller\SetupControllerTest`) rejouent la vraie validation du formulaire, qui rend le mot de passe de base de données obligatoire.
 
 `composer serve` encapsule `php -S` avec des valeurs `upload_max_filesize`/`post_max_size` relevées (`public/.user.ini`, utilisé en production, n'est pas pris en compte par le serveur intégré) — si vous lancez `php -S` directement à la place, les uploads de plus de 8 Mo échoueront avec une erreur 413. Augmentez les valeurs dans `scripts.serve` de `composer.json` si vous devez tester des uploads plus volumineux en local (ex. vidéos de galerie).
 
@@ -83,9 +85,8 @@ Les tests JavaScript (`tests/js/`, Vitest + jsdom) sont isolés du reste de la p
 
 Chaque push sur `main` et chaque Pull Request déclenchent `.github/workflows/ci.yml` :
 
-- **`test`** : vérification de syntaxe PHP, `vendor/bin/phpstan analyse`, puis `vendor/bin/phpunit` (hors tests `database`) avec couverture PCOV — génère `coverage.xml` (Clover) et `phpunit-report.xml` (JUnit), publiés comme artefacts pour le job `sonarqube`.
+- **`test`** : vérification de syntaxe PHP, `vendor/bin/phpstan analyse`, puis `vendor/bin/phpunit` — **la suite complète, groupe `database` compris** — avec couverture PCOV et un service MySQL. Génère `coverage.xml` (Clover) et `phpunit-report.xml` (JUnit), publiés comme artefacts pour le job `sonarqube`.
 - **`javascript-tests`** : tests unitaires JavaScript (`npm ci` puis `npm run test:coverage` — Vitest + jsdom, `tests/js/`), isolés (sans serveur PHP ni base de données) — génère `coverage/js/lcov.info`, publié comme artefact pour le job `sonarqube`. Un échec fait échouer ce check GitHub indépendamment du job `test`.
-- **`database-tests`** : tests PHPUnit du groupe `database`, avec un service MySQL.
 - **`security`** : `composer audit`.
 - **`sonarqube`** : analyse [SonarQube Cloud](https://sonarcloud.io/project/overview?id=xdubois-57_scoutmagic) (voir `sonar-project.properties`), à partir de la couverture/du rapport PHP produits par le job `test` et de la couverture JavaScript (LCOV) produite par le job `javascript-tests` — ni PHPUnit ni Vitest ne sont relancés une seconde fois. Le Quality Gate SonarQube fait échouer ce check GitHub s'il n'est pas OK (`-Dsonar.qualitygate.wait=true`).
 - **CodeQL** : analyse de code activée au niveau du dépôt (GitHub Advanced Security), indépendante de ce workflow.

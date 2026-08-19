@@ -209,12 +209,19 @@ check_security_gate() {
 }
 
 # ---------------------------------------------------------------
-# Tests gate — mirrors CI's `test` (PHPStan + non-database PHPUnit suites)
+# Tests gate — mirrors CI's `test` (PHPStan + the COMPLETE PHPUnit suite)
 # AND `javascript-tests` (Vitest) jobs. Runs BEFORE any git commit/tag,
-# same reasoning as the security gate above. Database-group tests are
-# excluded here too, exactly as phpunit.xml's default <groups><exclude>
-# does — they need a live MySQL test instance that CI provisions as a
-# service container but a local/release environment does not.
+# same reasoning as the security gate above.
+#
+# No test group is excluded, `database` included: a release must not be
+# cut on a narrower suite than CI ran. Most of that group needs no MySQL
+# (Tests\DatabaseTestHelper builds an in-memory SQLite database), but the
+# six files reading TEST_DB_* do, so the preflight below fails closed on
+# an unreachable server rather than letting a releaser discover it as ten
+# confusing "Connection refused" failures — same philosophy as the
+# npm/node_modules check further down. Point TEST_DB_* at any throwaway
+# MySQL instance (the defaults match CI's own service container:
+# 127.0.0.1:3306, database test_db, user root).
 #
 # The JavaScript portion fails closed on a missing `npm`/`node_modules`
 # rather than running `npm ci` on the releaser's behalf: silently
@@ -230,7 +237,32 @@ check_tests_gate() {
     echo "Running PHPStan..."
     vendor/bin/phpstan analyse --memory-limit=512M
 
-    echo "Running PHPUnit..."
+    echo "Checking the MySQL test instance is reachable..."
+    # An EMPTY TEST_DB_PASSWORD is rejected too, not just an unreachable
+    # server: Tests\Core\Http\Controller\SetupControllerTest drives the real
+    # first-time-setup form, whose own validation makes db_password
+    # mandatory (Core\Http\Controller\SetupController::validateFormData()) —
+    # so an empty password fails those two tests with a bare "200 is not
+    # 302" that says nothing about the actual cause.
+    php -r '
+        $host = getenv("TEST_DB_HOST") ?: "127.0.0.1";
+        $port = (int) (getenv("TEST_DB_PORT") ?: 3306);
+        $name = getenv("TEST_DB_NAME") ?: "test_db";
+        $user = getenv("TEST_DB_USER") ?: "root";
+        $pass = getenv("TEST_DB_PASSWORD") ?: "";
+        if ($pass === "") {
+            fwrite(STDERR, "  TEST_DB_PASSWORD is empty — the setup-form tests require a non-empty database password." . PHP_EOL);
+            exit(1);
+        }
+        try {
+            new PDO("mysql:host={$host};port={$port};dbname={$name}", $user, $pass);
+        } catch (Throwable $e) {
+            fwrite(STDERR, "  {$host}:{$port}/{$name} as {$user} — " . $e->getMessage() . PHP_EOL);
+            exit(1);
+        }
+    ' || { echo "ERROR: the database-group tests need a reachable MySQL test instance with a non-empty password. Start one and set TEST_DB_HOST/TEST_DB_PORT/TEST_DB_NAME/TEST_DB_USER/TEST_DB_PASSWORD (see README.md § Développement), or re-run with --skip-tests-gate (emergency use only)." >&2; exit 1; }
+
+    echo "Running PHPUnit (complete suite, database group included)..."
     # Piped through tee so the run still streams live (to stderr, since
     # stdout is captured here) rather than going silent for its whole
     # duration — pipefail (line 2) still propagates PHPUnit's own exit
