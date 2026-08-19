@@ -17,6 +17,7 @@ use Core\Member\SectionRosterEntry;
 use Core\Member\SectionRosterRepository;
 use Core\Member\SectionService;
 use Core\Security\EncryptionService;
+use Core\Service\TextNormalizerService;
 
 /**
  * Builds the canonical MemberExportRow[] for "every member (animateurs,
@@ -132,6 +133,14 @@ final class MemberExportRowBuilder
             }
         }
 
+        $phones = [];
+        if (!empty($memberYearRow['phone_encrypted'])) {
+            $phones[] = 'Téléphone : ' . TextNormalizerService::normalizePhone($this->encryption->decrypt($memberYearRow['phone_encrypted']));
+        }
+        if (!empty($memberYearRow['mobile_encrypted'])) {
+            $phones[] = 'GSM : ' . TextNormalizerService::normalizePhone($this->encryption->decrypt($memberYearRow['mobile_encrypted']));
+        }
+
         $previousSection = $movement->previousSectionId !== null ? ($sectionsById[$movement->previousSectionId] ?? null) : null;
 
         $bucketLabel = match ($entry->bucket) {
@@ -152,8 +161,7 @@ final class MemberExportRowBuilder
             gender: !empty($memberYearRow['gender_encrypted']) ? $this->encryption->decrypt($memberYearRow['gender_encrypted']) : null,
             birthDate: !empty($memberYearRow['birth_date_encrypted']) ? $this->encryption->decrypt($memberYearRow['birth_date_encrypted']) : null,
             emails: $emails,
-            phone: !empty($memberYearRow['phone_encrypted']) ? $this->encryption->decrypt($memberYearRow['phone_encrypted']) : null,
-            mobile: !empty($memberYearRow['mobile_encrypted']) ? $this->encryption->decrypt($memberYearRow['mobile_encrypted']) : null,
+            phones: $phones,
             street: $addressRow !== null && !empty($addressRow['street_encrypted']) ? $this->encryption->decrypt($addressRow['street_encrypted']) : null,
             number: $addressRow !== null && !empty($addressRow['number_encrypted']) ? $this->encryption->decrypt($addressRow['number_encrypted']) : null,
             box: $addressRow !== null && !empty($addressRow['box_encrypted']) ? $this->encryption->decrypt($addressRow['box_encrypted']) : null,

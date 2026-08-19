@@ -60,8 +60,7 @@ final class MemberExportColumns
             new MemberExportField('quali', 'Qualification', Role::INTENDANT, MemberExportField::TYPE_TEXT, fn(MemberExportRow $r) => $r->quali),
 
             new MemberExportField('emails', 'Email(s)', Role::INTENDANT, MemberExportField::TYPE_MULTI, fn(MemberExportRow $r) => $r->emails),
-            new MemberExportField('phone', 'Téléphone', Role::INTENDANT, MemberExportField::TYPE_TEXT, fn(MemberExportRow $r) => $r->phone),
-            new MemberExportField('mobile', 'GSM', Role::INTENDANT, MemberExportField::TYPE_TEXT, fn(MemberExportRow $r) => $r->mobile),
+            new MemberExportField('phones', 'Téléphone(s)', Role::INTENDANT, MemberExportField::TYPE_MULTI, fn(MemberExportRow $r) => $r->phones),
             new MemberExportField('street', 'Rue', Role::INTENDANT, MemberExportField::TYPE_TEXT, fn(MemberExportRow $r) => $r->street),
             new MemberExportField('number', 'Numéro', Role::INTENDANT, MemberExportField::TYPE_TEXT, fn(MemberExportRow $r) => $r->number),
             new MemberExportField('box', 'Boîte', Role::INTENDANT, MemberExportField::TYPE_TEXT, fn(MemberExportRow $r) => $r->box),

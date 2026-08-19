@@ -35,8 +35,7 @@ class MemberExportServiceTest extends TestCase
             'gender' => 'M',
             'birthDate' => '2015-03-21',
             'emails' => ['emile@example.com', 'parent@example.com'],
-            'phone' => '024651234',
-            'mobile' => '0470123456',
+            'phones' => ['Téléphone : 024651234', 'GSM : 0470123456'],
             'street' => 'Rue de la Station',
             'number' => '12',
             'box' => null,
@@ -111,6 +110,39 @@ class MemberExportServiceTest extends TestCase
         $value = $this->cellValueByHeader($result['spreadsheet'], 'Email(s)', 2);
 
         $this->assertSame('a@example.com; b@example.com', $value);
+        unlink($result['path']);
+    }
+
+    public function testLandlineAndMobileShareASingleTelephoneColumnCell(): void
+    {
+        $result = $this->buildAndReload([$this->row(['phones' => ['Téléphone : 024651234', 'GSM : 0470123456']])]);
+        $sheet = $result['spreadsheet']->getActiveSheet();
+
+        // Exactly one "Téléphone(s)" column — never two separate ones.
+        $headers = $this->headerRow($result['spreadsheet']);
+        $this->assertSame(1, count(array_filter($headers, fn($h) => str_starts_with((string) $h, 'Téléphone'))));
+        $this->assertNotContains('GSM', $headers);
+
+        $value = $this->cellValueByHeader($result['spreadsheet'], 'Téléphone(s)', 2);
+        $this->assertSame('Téléphone : 024651234; GSM : 0470123456', $value);
+        unlink($result['path']);
+    }
+
+    public function testASingleKnownPhoneNumberIsWrittenAlone(): void
+    {
+        $result = $this->buildAndReload([$this->row(['phones' => ['GSM : 0470123456']])]);
+        $value = $this->cellValueByHeader($result['spreadsheet'], 'Téléphone(s)', 2);
+
+        $this->assertSame('GSM : 0470123456', $value);
+        unlink($result['path']);
+    }
+
+    public function testNoKnownPhoneNumberLeavesTheCellEmpty(): void
+    {
+        $result = $this->buildAndReload([$this->row(['phones' => []])]);
+        $value = $this->cellValueByHeader($result['spreadsheet'], 'Téléphone(s)', 2);
+
+        $this->assertTrue($value === '' || $value === null);
         unlink($result['path']);
     }
 

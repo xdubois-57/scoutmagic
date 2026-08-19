@@ -103,8 +103,37 @@ class MemberExportRowBuilderTest extends TestCase
         $row = $rows[0];
 
         $this->assertCount(2, $row->emails);
-        $this->assertSame('024651234', $row->phone);
-        $this->assertSame('0470123456', $row->mobile);
+        // Landline and mobile share a single export column/cell — never
+        // two separate columns.
+        $this->assertCount(2, $row->phones);
+        $this->assertSame('Téléphone : ' . \Core\Service\TextNormalizerService::normalizePhone('024651234'), $row->phones[0]);
+        $this->assertSame('GSM : ' . \Core\Service\TextNormalizerService::normalizePhone('0470123456'), $row->phones[1]);
+    }
+
+    public function testASinglePhoneNumberProducesASingleEntry(): void
+    {
+        $branchId = $this->createBranch('LOU', 'Louveteaux', 20);
+        $sectionId = $this->createSection('LOU01', $branchId, 'Ma section');
+        $memberId = $this->insertMemberBase();
+        $memberYearId = $this->insertMemberYear($memberId, 'Alice', null, null, '0470123456');
+        $this->attachFunction($memberYearId, $sectionId, 'identified');
+
+        $rows = $this->builder->buildForSections([$sectionId], $this->scoutYearId);
+
+        $this->assertSame(['GSM : ' . \Core\Service\TextNormalizerService::normalizePhone('0470123456')], $rows[0]->phones);
+    }
+
+    public function testNoPhoneNumberProducesAnEmptyList(): void
+    {
+        $branchId = $this->createBranch('LOU', 'Louveteaux', 20);
+        $sectionId = $this->createSection('LOU01', $branchId, 'Ma section');
+        $memberId = $this->insertMemberBase();
+        $memberYearId = $this->insertMemberYear($memberId, 'Alice', null, null, null);
+        $this->attachFunction($memberYearId, $sectionId, 'identified');
+
+        $rows = $this->builder->buildForSections([$sectionId], $this->scoutYearId);
+
+        $this->assertSame([], $rows[0]->phones);
     }
 
     public function testAddressAndFunctionsAreIncludedInTheExportRow(): void

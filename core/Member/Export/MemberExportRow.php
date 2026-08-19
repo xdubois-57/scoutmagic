@@ -24,6 +24,10 @@ final class MemberExportRow
 {
     /**
      * @param string[] $emails every known email, primary (Desk) first
+     * @param string[] $phones every known phone number, landline first then
+     *        mobile — each entry already labeled ("Téléphone : ...",
+     *        "GSM : ...") since both share a single export column, exactly
+     *        like $emails share "Email(s)"
      * @param string[] $functionLabels every function this member holds this scout year, main function first
      */
     public function __construct(
@@ -38,8 +42,7 @@ final class MemberExportRow
         public readonly ?string $gender,
         public readonly ?string $birthDate,
         public readonly array $emails,
-        public readonly ?string $phone,
-        public readonly ?string $mobile,
+        public readonly array $phones,
         public readonly ?string $street,
         public readonly ?string $number,
         public readonly ?string $box,
