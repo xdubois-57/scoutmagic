@@ -1050,4 +1050,30 @@
         });
         recalcPayment();
     }
+
+    // --- Test seam (no behavioural effect) ---------------------------------
+    // Unlike public/assets/js/password-complexity.js and public/sw.js, whose
+    // own globalThis lines are true no-ops (their declarations are top-level
+    // in a classic script, so already global), everything above lives inside
+    // this IIFE and is therefore genuinely module-private. This block adds
+    // ONE namespaced global so tests/js/news-form-builder.test.js can reach
+    // the HTML sanitizer directly and exercise the real implementation rather
+    // than reimplementing its logic in a test-only copy — the same reason
+    // window.ChipPicker and window.ScoutMagicNav already exist.
+    //
+    // Test-only: nothing in production reads this, and nothing should. The
+    // sanitizer in particular must never be called from a page as a
+    // substitute for Core\Security\HtmlSanitizer's server-side pass — this
+    // is the client half of a DOM-to-DOM round trip, not a replacement.
+    globalThis.ScoutMagicNewsFormBuilderInternals = {
+        sanitizeHtml: sanitizeHtml,
+        sanitizeHtmlChildren: sanitizeHtmlChildren,
+        sanitizeHtmlAttributes: sanitizeHtmlAttributes,
+        isSafeUrlScheme: isSafeUrlScheme,
+        isPublicAccess: isPublicAccess,
+        hasTitleOrContent: hasTitleOrContent,
+        HTML_SANITIZER_ALLOWED_TAGS: HTML_SANITIZER_ALLOWED_TAGS,
+        HTML_SANITIZER_STRIP_WITH_CONTENT: HTML_SANITIZER_STRIP_WITH_CONTENT,
+        URL_SCHEME_ALLOWLIST: URL_SCHEME_ALLOWLIST,
+    };
 })();
