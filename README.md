@@ -44,7 +44,7 @@ volontaire, sans garantie de délai.
 - Journal d'audit
 - Centre de notifications avec Web Push, préférences par type (in-app/push/email), plages horaires de silence, et un mode discret
 - Sauvegardes chiffrées à la demande et automatiques, mise à jour en un clic depuis les releases GitHub, réinitialisation/restauration
-- Modules optionnels : gestion financière (import de relevés bancaires, reçus, créances), articles actualités/événements avec formulaires d'inscription et paiement, calendrier d'activités avec flux ICS, galerie photo/vidéo (stockage local ou S3), tableaux de rétrospective post-activité, trombinoscope du staff, envoi de mails groupés, bannières de la page d'accueil, statistiques des membres, transfert d'appel du numéro d'urgence de l'unité
+- Modules optionnels : gestion financière (import de relevés bancaires, reçus, créances), articles actualités/événements avec formulaires d'inscription et paiement, calendrier d'activités avec flux ICS, galerie photo/vidéo (stockage local ou S3), groupes de discussion privés par section, tableaux de rétrospective post-activité, trombinoscope du staff, envoi de mails groupés, bannières de la page d'accueil, statistiques des membres, transfert d'appel du numéro d'urgence de l'unité
 - Intégration IA optionnelle (extraction de données de reçus, génération de texte RGPD, modération des rétrospectives, résumés d'articles)
 
 ## Prérequis

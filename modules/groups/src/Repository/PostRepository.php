@@ -138,6 +138,47 @@ class PostRepository
         $stmt->execute([$id]);
     }
 
+    /**
+     * Posts whose last activity predates $cutoff — the retention purge's
+     * candidates. Pinned posts are excluded in the SQL and therefore never
+     * reachable by the purge at all, at any age (module spec): a pinned
+     * post is one somebody deliberately kept.
+     *
+     * Ordered oldest-first and bounded by $limit so a first run on a large
+     * install deletes the most overdue batch and lets the next run
+     * continue, rather than trying to delete thousands of posts (and their
+     * stored media) in one pass.
+     *
+     * @return Post[]
+     */
+    public function findPurgeable(string $cutoff, int $limit): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT * FROM discussion_group_posts
+             WHERE is_pinned = 0 AND last_activity_at < ?
+             ORDER BY last_activity_at, id
+             LIMIT ' . max(1, $limit)
+        );
+        $stmt->execute([$cutoff]);
+
+        return array_map([$this, 'hydrate'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
+    /**
+     * Every post of one group, oldest first, hidden ones included — what
+     * a whole-group purge walks to clean each post's media and link image
+     * out of storage before the CASCADE removes the rows.
+     *
+     * @return Post[]
+     */
+    public function findAllForGroup(int $groupId): array
+    {
+        $stmt = $this->pdo->prepare('SELECT * FROM discussion_group_posts WHERE group_id = ? ORDER BY id');
+        $stmt->execute([$groupId]);
+
+        return array_map([$this, 'hydrate'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
     public function setHiddenAt(int $id, ?string $hiddenAt): void
     {
         $stmt = $this->pdo->prepare('UPDATE discussion_group_posts SET hidden_at = ? WHERE id = ?');

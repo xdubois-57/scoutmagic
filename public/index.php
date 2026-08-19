@@ -2289,6 +2289,16 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
         $groupsActivityService
     );
     $groupsAuthorResolver = new \Modules\Groups\Service\PostAuthorResolver($memberService, $userAccountRepo);
+    // One group per visible, active section per scout year (prompt 11).
+    // Injected into the list controller so the page itself heals a
+    // missing group, exactly as Core\Badge\BadgeService's own sync does
+    // — the nightly Task\EnsureSectionGroupsHandler runs the same
+    // idempotent service, and there is deliberately no core hook into the
+    // Desk import.
+    $groupsSectionGroupSync = new \Modules\Groups\Service\SectionGroupSyncService(
+        $sectionService, $groupsGroupRepo, $groupsSectionRepo
+    );
+
     // Notifications (prompt 10). The recipient resolver reads membership
     // group-first (the reverse of GroupAccessService's account-first
     // read) and resolves members to accounts through the same blind index
@@ -2367,7 +2377,7 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
         new \Modules\Groups\Controller\GroupController(
             $twig, $groupsGroupRepo, $groupsListService, $groupsAccessService, $groupsService,
             $groupsContextFactory, $sectionService, $groupsFeedService, $groupsPostMediaService,
-            $groupsAuthorOptionsService, $groupsPostRepo
+            $groupsAuthorOptionsService, $groupsPostRepo, $groupsSectionGroupSync
         )
     );
     $frontController->registerController(

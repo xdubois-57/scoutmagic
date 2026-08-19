@@ -37,7 +37,7 @@ class ModuleManifestTest extends TestCase
      */
     public function testTheVersionIsBumpedWheneverTheSchemaChanges(): void
     {
-        $this->assertSame('1.6.0', $this->manifest->version);
+        $this->assertSame('1.7.0', $this->manifest->version);
     }
 
     /**
@@ -184,6 +184,9 @@ class ModuleManifestTest extends TestCase
                 'groups_report_hide_threshold',
                 'groups_ai_moderation_enabled',
                 'groups_reaction_notification_window_minutes',
+                'groups_inactivity_close_months',
+                'groups_post_retention_months',
+                'groups_closed_purge_months',
             ],
             $keys
         );
@@ -269,6 +272,49 @@ class ModuleManifestTest extends TestCase
 
         $this->assertSame('on', $byId['groups.item_reported']['channels']['in_app']);
         $this->assertSame('default_on', $byId['groups.item_reported']['channels']['push']);
+    }
+
+    /**
+     * Every retention duration is a setting with a real French
+     * description — and none of them is per group: a per-group override
+     * would let a moderator quietly opt their own group out of the
+     * retention bound.
+     */
+    public function testTheThreeLifecycleDurationsAreSettingsWithDescriptions(): void
+    {
+        $byKey = array_column($this->manifest->settings, null, 'key');
+
+        foreach ([
+            'groups_inactivity_close_months' => '12',
+            'groups_post_retention_months' => '24',
+            'groups_closed_purge_months' => '12',
+        ] as $key => $default) {
+            $this->assertArrayHasKey($key, $byKey);
+            $this->assertSame('number', $byKey[$key]['type'], "{$key} is a duration in months");
+            $this->assertSame($default, $byKey[$key]['default_value']);
+            $this->assertGreaterThan(60, mb_strlen($byKey[$key]['description']), "{$key} needs a real description");
+        }
+    }
+
+    /**
+     * The four lifecycle tasks, each declared so Core\Scheduler can find
+     * its handler. Every one of them reschedules itself — there is no
+     * first-class recurring task to declare instead.
+     */
+    public function testItDeclaresTheFourLifecycleTasks(): void
+    {
+        $byKey = array_column($this->manifest->scheduledTasks, null, 'key');
+
+        foreach ([
+            'ensure_section_groups' => \Modules\Groups\Task\EnsureSectionGroupsHandler::class,
+            'close_inactive_groups' => \Modules\Groups\Task\CloseInactiveGroupsHandler::class,
+            'purge_posts' => \Modules\Groups\Task\PurgePostsHandler::class,
+            'purge_closed_groups' => \Modules\Groups\Task\PurgeClosedGroupsHandler::class,
+        ] as $key => $handler) {
+            $this->assertArrayHasKey($key, $byKey);
+            $this->assertSame($handler, $byKey[$key]['handler']);
+            $this->assertTrue(class_exists($handler), "{$handler} must exist");
+        }
     }
 
     /**

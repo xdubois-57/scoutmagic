@@ -36,7 +36,15 @@ CREATE TABLE discussion_groups (
     -- the group (a single writer, so the column can never drift). Drives
     -- the group list ordering, and later the purge.
     last_activity_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    created_by_member_id INT UNSIGNED NOT NULL,
+    -- NULLABLE since prompt 11: a section group created automatically by
+    -- Task\EnsureSectionGroupsHandler has no creator, and naming an
+    -- arbitrary member would be a lie that also made them a moderator
+    -- (Service\GroupService::createSectionGroup() adds the creator as
+    -- one). NULL therefore reads as "created by the site", and such a
+    -- group starts with no explicit moderator — site admins moderate it
+    -- until a chief grants the flag, which is exactly what
+    -- Service\GroupAccessService::canModerate() already allows for.
+    created_by_member_id INT UNSIGNED NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     -- The group's delegated gallery album (Modules\Gallery\Api\

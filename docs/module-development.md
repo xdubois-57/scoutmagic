@@ -326,6 +326,26 @@ A module may want to use a capability offered by another module — e.g. `financ
 
 This keeps both modules independently activatable in any combination without either one breaking.
 
+## Storing media in a gallery album you own (`Modules\Gallery\Api`)
+
+A module that needs to store photos or videos should not build its own upload, thumbnail, storage-backend and retention machinery — the `gallery` module already has all of it, and its `Api` namespace exposes it as a **delegated album**: a real gallery album that belongs to your module, never listed in the gallery's own pages, whose access rule is entirely yours.
+
+```php
+$albumId = $this->delegatedAlbumManager->ensureAlbum('my_module_thing', $thingId, 'Titre', $scoutYearId, $accountId);
+$media   = $this->delegatedAlbumManager->addMedia($albumId, $uploadedFile, $accountId);   // $_FILES entry
+$all     = $this->delegatedAlbumManager->listMedia($albumId);                              // DelegatedMedia[]
+$this->delegatedAlbumManager->deleteMedia($albumId, $mediaId);                             // row + stored objects
+$this->delegatedAlbumManager->deleteAlbum($albumId);                                       // the whole album, ditto
+```
+
+- **`gallery` is a hard dependency** for this (`"requires": ["gallery"]` — see the section above), because there is no meaningful degradation: a module whose whole feature is posting photos cannot "simply do without them".
+- **Authorization is 100% yours.** `DelegatedAlbumManager` performs none: it assumes the caller already checked. You must register **two** checkers, and they must agree — `Core\File\FileOwnershipCheckerInterface` (ARCHITECTURE.md §8.3) so `/files/{id}` is gated, and `Modules\Gallery\Api\DelegatedAlbumAccessChecker` into gallery's own separate registry so the album's media are gated too. Registering only the first leaves the media reachable through gallery's own routes.
+- `videoUploadAllowed()` exists so your composer can hide the video option proactively; `addMedia()` refuses one server-side regardless, so it is a UI hint and never the check.
+- **From a scheduled task**, do not reassemble gallery's internals — `SchedulerRunner` gives your handler only a `TaskContext`, and gallery's constructors are none of your business. Use `Modules\Gallery\Api\DelegatedAlbumManagerFactory::fromTaskContext($context)`, which builds the manager on gallery's own side of the boundary. `Modules\Groups\Task\PurgeClosedGroupsHandler` is the worked example.
+- **A retention purge must delete files, not just rows.** Your module's `ON DELETE CASCADE` cannot reach gallery's tables, let alone an S3 bucket: an orphaned object left behind after its owning row is gone is a retention failure. Delete media through the API **before** deleting the rows that point at them, so a crash halfway leaves a row the next run finds again rather than bytes nothing points at.
+
+The same module publishes `Api\LinkPreviewFetcher` for Open Graph title/description/image of a user-supplied URL. Use it rather than fetching a URL yourself — `Modules\Gallery\Service\OgScraperService` is the only place in this codebase allowed to make an outbound request to a member-supplied address, and it is hardened against SSRF in ways a second implementation would not be (SECURITY.md §17).
+
 ## Database
 
 - Create a `schema.sql` in the module root with complete table definitions (not incremental migrations).

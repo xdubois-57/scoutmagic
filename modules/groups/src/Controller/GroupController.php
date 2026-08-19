@@ -29,6 +29,7 @@ use Modules\Groups\Service\GroupSessionContext;
 use Modules\Groups\Service\GroupSessionContextFactory;
 use Modules\Groups\Service\PostMediaService;
 use Modules\Groups\Service\PostService;
+use Modules\Groups\Service\SectionGroupSyncService;
 use Modules\Groups\Support\RejectedDraft;
 use Twig\Environment;
 
@@ -53,7 +54,8 @@ class GroupController extends AbstractController
         private GroupFeedService $feedService,
         private PostMediaService $postMediaService,
         private AuthorOptionsService $authorOptionsService,
-        private PostRepository $postRepository
+        private PostRepository $postRepository,
+        private ?SectionGroupSyncService $sectionGroupSyncService = null
     ) {
     }
 
@@ -65,6 +67,15 @@ class GroupController extends AbstractController
     public function index(Request $request, array $params): Response
     {
         $context = $this->context();
+
+        // Self-healing, the same pattern as Core\Badge\BadgeService::
+        // syncSectionReferentBadges(): the group list is where a missing
+        // section group would be noticed, so this is where it gets
+        // created, without waiting for tonight's task and without a core
+        // hook into the Desk import (Service\SectionGroupSyncService
+        // explains why there is none). Idempotent, so on every run after
+        // the first it is one SELECT per section and no write at all.
+        $this->sectionGroupSyncService?->sync($context->effectiveScoutYearId);
 
         return $this->render('@groups/list.html.twig', [
             'items' => $this->decorate($this->listService->findCurrent($context)),

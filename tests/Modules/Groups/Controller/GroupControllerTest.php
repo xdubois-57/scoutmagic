@@ -166,7 +166,19 @@ class GroupControllerTest extends TestCase
             $feedService,
             $postMediaService,
             new AuthorOptionsService($access, $this->memberService),
-            $postRepo
+            $postRepo,
+            // A REAL SectionService here, not the mock above: the sync's
+            // whole job is reading which sections exist, and a mock
+            // returning [] would make these tests pass by doing nothing.
+            new \Modules\Groups\Service\SectionGroupSyncService(
+                new SectionService(
+                    \Core\Database\Connection::withPdo($this->pdo),
+                    new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32)),
+                    new \Core\Badge\MemberBadgeRepository($this->pdo)
+                ),
+                $this->groupRepo,
+                new GroupSectionRepository($this->pdo)
+            )
         );
     }
 
@@ -269,6 +281,33 @@ class GroupControllerTest extends TestCase
         );
 
         $this->assertSame(302, $response->getStatusCode());
+    }
+
+    /**
+     * The self-healing half of Service\SectionGroupSyncService: the group
+     * list is where a missing section group would be noticed, so that is
+     * where it gets created — without waiting for tonight's task, and
+     * without a core hook into the Desk import.
+     */
+    public function testOpeningTheGroupListCreatesAMissingSectionGroup(): void
+    {
+        $member = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'SYNCM', $this->sectionId, $this->currentYearId);
+
+        $this->controller([$member])->index(new Request('GET', '/groups', [], [], [], []), []);
+
+        $this->assertNotNull(
+            (new GroupRepository($this->pdo))->findSectionGroup($this->sectionId, $this->currentYearId)
+        );
+    }
+
+    public function testOpeningTheGroupListTwiceStillLeavesOneGroup(): void
+    {
+        $member = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'SYNCM2', $this->sectionId, $this->currentYearId);
+
+        $this->controller([$member])->index(new Request('GET', '/groups', [], [], [], []), []);
+        $this->controller([$member])->index(new Request('GET', '/groups', [], [], [], []), []);
+
+        $this->assertSame(1, (int) $this->pdo->query('SELECT COUNT(*) FROM discussion_groups')->fetchColumn());
     }
 
     /** A section group whose creator is nobody we assert anything about. */

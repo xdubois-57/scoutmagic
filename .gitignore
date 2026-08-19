@@ -16,6 +16,7 @@ storage/maintenance/
 storage/core/
 storage/mass_mail/
 storage/section_documents/
+storage/groups/
 
 # Local configuration
 config/app.php

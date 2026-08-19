@@ -16,7 +16,7 @@ class GroupRepository
     {
     }
 
-    public function create(string $name, ?int $scoutYearId, ?int $sectionId, int $createdByMemberId): int
+    public function create(string $name, ?int $scoutYearId, ?int $sectionId, ?int $createdByMemberId): int
     {
         $now = Timestamps::now();
         $stmt = $this->pdo->prepare(
@@ -84,6 +84,87 @@ class GroupRepository
         $stmt->execute([$galleryAlbumId, $id]);
     }
 
+    /**
+     * The section group for exactly one (section, scout year) — what makes
+     * Task\EnsureSectionGroupsHandler idempotent: it asks this before
+     * creating anything, so a second run finds the group and does nothing.
+     *
+     * Matched on the section_id COLUMN (which records "this is section X's
+     * group") rather than through discussion_group_sections, so an
+     * invitation group that merely invited the same section is never
+     * mistaken for it.
+     */
+    public function findSectionGroup(int $sectionId, int $scoutYearId): ?DiscussionGroup
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT * FROM discussion_groups WHERE section_id = ? AND scout_year_id = ? ORDER BY id LIMIT 1'
+        );
+        $stmt->execute([$sectionId, $scoutYearId]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+        return is_array($row) ? $this->hydrate($row) : null;
+    }
+
+    /**
+     * Open groups whose last activity predates $cutoff — the candidates
+     * for automatic closure.
+     *
+     * Bounded by $limit and ordered oldest-first so a first run on a large
+     * install closes the most overdue groups and leaves the rest to the
+     * next run, rather than attempting everything in one pass.
+     *
+     * @return DiscussionGroup[]
+     */
+    public function findOpenInactiveBefore(string $cutoff, int $limit): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT * FROM discussion_groups
+             WHERE closed_at IS NULL AND last_activity_at < ?
+             ORDER BY last_activity_at, id
+             LIMIT ' . max(1, $limit)
+        );
+        $stmt->execute([$cutoff]);
+
+        return array_map([$this, 'hydrate'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
+    /**
+     * Groups closed before $cutoff and safe to purge — the candidates for
+     * permanent deletion.
+     *
+     * $protectedScoutYearIds are excluded outright: a group of the
+     * effective year or of a future one is never purged, however long it
+     * has been closed. Without that rule, purging a closed section group
+     * of the current year would have Task\EnsureSectionGroupsHandler
+     * recreate it on its very next run — a delete/recreate loop, which is
+     * also why this module needs no tombstone table to remember what it
+     * deleted.
+     *
+     * @param int[] $protectedScoutYearIds
+     * @return DiscussionGroup[]
+     */
+    public function findClosedBefore(string $cutoff, array $protectedScoutYearIds, int $limit): array
+    {
+        $sql = 'SELECT * FROM discussion_groups WHERE closed_at IS NOT NULL AND closed_at < ?';
+        $params = [$cutoff];
+
+        if ($protectedScoutYearIds !== []) {
+            $placeholders = implode(',', array_fill(0, count($protectedScoutYearIds), '?'));
+            // A year-less group (scout_year_id NULL) belongs to no year and
+            // is therefore never protected by this rule — NOT IN would
+            // discard it, since NULL NOT IN (…) is NULL, not true.
+            $sql .= " AND (scout_year_id IS NULL OR scout_year_id NOT IN ({$placeholders}))";
+            $params = array_merge($params, array_map('intval', array_values($protectedScoutYearIds)));
+        }
+
+        $sql .= ' ORDER BY closed_at, id LIMIT ' . max(1, $limit);
+
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute($params);
+
+        return array_map([$this, 'hydrate'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
     public function delete(int $id): void
     {
         $stmt = $this->pdo->prepare('DELETE FROM discussion_groups WHERE id = ?');
@@ -102,7 +183,7 @@ class GroupRepository
             $row['section_id'] !== null ? (int) $row['section_id'] : null,
             $row['closed_at'] !== null ? (string) $row['closed_at'] : null,
             (string) $row['last_activity_at'],
-            (int) $row['created_by_member_id'],
+            $row['created_by_member_id'] !== null ? (int) $row['created_by_member_id'] : null,
             (string) $row['created_at'],
             $row['gallery_album_id'] !== null ? (int) $row['gallery_album_id'] : null
         );

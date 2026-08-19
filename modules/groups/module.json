@@ -2,7 +2,7 @@
   "id": "groups",
   "name": "Groupes de discussion",
   "description": "Groupes de discussion privés pour l'unité : un groupe par section et par année scoute, ou des groupes sur invitation. Visibles uniquement par leurs membres.",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "enabled_by_default": false,
   "requires": [
     "gallery"
@@ -310,6 +310,27 @@
       "type": "number",
       "label": "Délai entre deux notifications de réaction",
       "description": "Durée, en minutes, pendant laquelle un message ou une réponse ne génère qu'une seule notification de réaction pour son auteur. Sans ce délai, un message qui reçoit douze réactions enverrait douze notifications. Les réactions elles-mêmes restent toutes visibles sur le message : seule la notification est regroupée."
+    },
+    {
+      "key": "groups_inactivity_close_months",
+      "default_value": "12",
+      "type": "number",
+      "label": "Clôture automatique après inactivité (mois)",
+      "description": "Nombre de mois sans aucun message, réponse ni réaction au bout desquels un groupe est clôturé automatiquement. Un groupe clôturé reste entièrement visible et consultable par ses membres : il n'accepte simplement plus de nouvelle publication. Un groupe qui n'a jamais rien contenu est compté à partir de sa date de création, pas depuis toujours."
+    },
+    {
+      "key": "groups_post_retention_months",
+      "default_value": "24",
+      "type": "number",
+      "label": "Conservation des messages (mois)",
+      "description": "Nombre de mois après la dernière activité d'un message (sa publication, une réponse ou une réaction) au bout desquels ce message est supprimé définitivement, avec ses réponses, ses réactions, ses signalements, ses photos et l'image de son lien. Les messages épinglés ne sont jamais supprimés automatiquement, quel que soit leur âge."
+    },
+    {
+      "key": "groups_closed_purge_months",
+      "default_value": "12",
+      "type": "number",
+      "label": "Suppression des groupes clôturés (mois)",
+      "description": "Nombre de mois après la clôture d'un groupe au bout desquels ce groupe est supprimé définitivement, avec tout son contenu et sa galerie. Un groupe de l'année scoute en cours ou d'une année à venir n'est jamais supprimé automatiquement, même clôturé."
     }
   ],
   "cookies": [],
@@ -317,6 +338,22 @@
     {
       "key": "purge_rate_limits",
       "handler": "Modules\\Groups\\Task\\PurgeRateLimitHandler"
+    },
+    {
+      "key": "ensure_section_groups",
+      "handler": "Modules\\Groups\\Task\\EnsureSectionGroupsHandler"
+    },
+    {
+      "key": "close_inactive_groups",
+      "handler": "Modules\\Groups\\Task\\CloseInactiveGroupsHandler"
+    },
+    {
+      "key": "purge_posts",
+      "handler": "Modules\\Groups\\Task\\PurgePostsHandler"
+    },
+    {
+      "key": "purge_closed_groups",
+      "handler": "Modules\\Groups\\Task\\PurgeClosedGroupsHandler"
     }
   ],
   "storage": {},

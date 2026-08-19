@@ -21,7 +21,7 @@ class GroupsTestHelper
             section_id INTEGER NULL,
             closed_at TEXT NULL,
             last_activity_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            created_by_member_id INTEGER NOT NULL,
+            created_by_member_id INTEGER NULL,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             gallery_album_id INTEGER NULL
