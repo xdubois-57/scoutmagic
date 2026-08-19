@@ -10,6 +10,14 @@ namespace Core\Http;
 
 class Router
 {
+    /**
+     * The only accepted role_min values — same vocabulary as
+     * Core\Security\Role and Core\Module\ModuleManifest::VALID_ROLES.
+     *
+     * @var string[]
+     */
+    private const VALID_ROLES = ['public', 'identified', 'intendant', 'chief', 'admin', 'superadmin'];
+
     /** @var array<array{method: string, path: string, controllerClass: string, action: string, roleMin: string, breadcrumb: ?array{label: string, parents: array<string>}}> */
     private array $routes = [];
 
@@ -21,8 +29,22 @@ class Router
      *   route (see partials/breadcrumb_bar.html.twig) — null when the route doesn't declare one, which is valid:
      *   the breadcrumb simply stops at the home icon for that page.
      */
-    public function addRoute(string $method, string $path, string $controllerClass, string $action, string $roleMin = 'public', ?array $breadcrumb = null): void
+    public function addRoute(string $method, string $path, string $controllerClass, string $action, string $roleMin, ?array $breadcrumb = null): void
     {
+        // Required, not defaulted. SECURITY.md §3 promises "a route without
+        // role_min is rejected at load time", and ModuleManifest enforces
+        // exactly that for module routes — but a core route registered here
+        // used to fall back to 'public', so forgetting the argument silently
+        // published the route to anonymous visitors instead of failing. The
+        // parameter is now mandatory (a missing one is a TypeError at boot),
+        // and an unrecognised value is rejected below rather than being
+        // quietly downgraded to 'public' by Role::fromString().
+        if (!in_array($roleMin, self::VALID_ROLES, true)) {
+            throw new \InvalidArgumentException(
+                "Route {$method} {$path} declares an unknown role_min '{$roleMin}'."
+            );
+        }
+
         $this->routes[] = [
             'method' => strtoupper($method),
             'path' => $path,

@@ -477,6 +477,18 @@ class GalleryController extends AbstractController
             return new Response('Not Found', 404);
         }
 
+        // Service\DelegatedAlbumService::ensureAlbum() refuses to create a
+        // delegated album on a location with a public URL, because a public
+        // URL is world-readable and defeats the access control entirely. That
+        // invariant was only enforced at creation time: a superadmin adding
+        // an s3_public_url to a location later would silently turn the short
+        // presign below into a permanent, unauthenticated link (see
+        // S3StorageBackend::url(), which ignores the TTL when a public URL is
+        // set). Re-assert it here, where the bytes are actually handed out.
+        if ($location->s3PublicUrl !== null && $location->s3PublicUrl !== '') {
+            return new Response('Not Found', 404);
+        }
+
         if ($location->isS3()) {
             // Minted fresh for this one request, never stored or logged —
             // a presigned URL is a bearer credential for as long as it

@@ -2033,7 +2033,7 @@ if (in_array('finance', $moduleManager->getEnabledModuleIds(), true)) {
     $financeSepaQrCodeForOthers = new \Modules\Finance\Service\SepaQrCodeService();
     $financeAccountForOthers = new \Modules\Finance\Service\FinanceAccountService($financeAccountRepo);
 
-    $financeReceivablesOverviewService = new \Modules\Finance\Service\ReceivablesOverviewService($financeExpectedReceivableRepo, $financeExpectedReceivableForOthers);
+    $financeReceivablesOverviewService = new \Modules\Finance\Service\ReceivablesOverviewService($financeExpectedReceivableRepo, $financeExpectedReceivableForOthers, $financeAccountRepo);
     $frontController->registerController(
         \Modules\Finance\Controller\ReceivablesController::class,
         new \Modules\Finance\Controller\ReceivablesController($twig, $financeReceivablesOverviewService)
@@ -2881,9 +2881,18 @@ if (isset($galleryAlbumService, $galleryMediaService, $galleryMediaRepo, $galler
 // RGPD configuration controller
 $frontController->registerController(RgpdConfigController::class, new RgpdConfigController($twig, $editableContentService, $rgpdContentService, $settingService, $moduleManager, $journalService));
 
-// Bypass RBAC for /setup routes when site is not initialized or explicitly allowed
-$allowSetup = (bool) $config->get('allow_setup', false);
-if (!$secretManager->isInitialized() || $allowSetup) {
+// Bypass RBAC for /setup routes ONLY while the site has no secrets yet —
+// i.e. the first-run installer, where there is no database, no account and
+// therefore nobody who could hold a role. Once initialized, every /setup
+// route is reachable by its own role_min (superadmin) like any other, so a
+// bypass here would not enable anything legitimate: it would only strip
+// authentication off the installer, whose GET leaks db/smtp/admin settings
+// and whose POST /setup/save rewrites database credentials and the admin
+// email. The previous `allow_setup` config escape hatch did exactly that on
+// a live site — an anonymous visitor could read /setup for a CSRF token and
+// then re-point the install at their own database — so it is deliberately
+// gone rather than merely defaulted to false.
+if (!$secretManager->isInitialized()) {
     $frontController->setRbacBypassPrefix('/setup');
 }
 

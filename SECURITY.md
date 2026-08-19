@@ -41,9 +41,17 @@ appliquées, mots de passe et clés gérés par l'unité déployante.
 ## 3. RBAC
 
 - RBAC guard called by Router **before** any controller code — automatically, for every route.
-- Every route must declare `role_min`. A route without `role_min` is rejected at load time.
+- Every route must declare `role_min`. A route without `role_min` is rejected at load time — `Core\Module\ModuleManifest` for module routes, and `Core\Http\Router::addRoute()` itself for core ones (the argument is mandatory, and an unrecognised role name raises rather than being silently downgraded to `public` by `Role::fromString()`).
+- The RBAC guard is switched off in exactly one place — `setRbacBypassPrefix('/setup')` — and only while `SecretManager::isInitialized()` is false, i.e. the first-run installer, where no database, account or role exists yet. Once initialized, `/setup` is reachable through its own `role_min: superadmin` like any other route, so a bypass there could only ever strip authentication (`GET /setup` leaks database/SMTP/admin settings and issues a CSRF token; `POST /setup/save` rewrites database credentials and the admin account). Pinned by `Tests\Core\Http\SetupRbacBypassWiringTest`.
 - New imported functions default to lowest role. An import never silently elevates privileges.
 - Role check is always server-side. Menu visibility is a convenience, never a security boundary.
+- **`role_min` is a floor, never the whole answer.** Any resource with its own visibility rule must re-check it in the controller or service, because the route only proves the caller's role clears the minimum:
+  - Finance accounts carry `role_min_view`; every page resolving them (dashboard, movements, receipts, import, **and the receivables reconciliation page**) filters through it, and a receipt with no account at all is denied rather than left unguarded.
+  - Calendars: a chief may only create, move or delete events in a calendar inside `CalendarEventService::getEditableCalendarsForChief()` — checked on both ends of a move, not just that the calendar exists.
+  - News articles: the visibility gate applies to every representation of an article, the poster PDF included, not only its detail page.
+  - Groups: content auto-hidden by moderation is invisible to non-moderators on *write* paths (reactions, reports) as well as reads.
+  - Gallery: a delegated album is refused if its storage location has a public URL — re-asserted when serving bytes, not only when the album is created.
+  - Ids arriving in a request body are validated against the set the UI actually offers (a form's finance account, the SOS default-number member), never trusted because the route's role was high enough.
 - `Core\Member\SectionStaffAuthorizationService` ("which sections is this account chief/animateur of") is a Controller-level narrowing on top of the route's `role_min`, not a replacement for it — same pattern as `MemberService::canAccess()` narrowing onto one member. The RBAC guard still gates the route first; this service only answers which resource(s) the already-authorized caller may act on within it.
 
 ## 4. CSRF

@@ -382,6 +382,35 @@ class ReceiptControllerTest extends TestCase
         $this->assertCount(0, $this->attachmentRepository->findActiveOrdered());
     }
 
+    /**
+     * requireVisibleAttachment() only ran the role_min_view check when the
+     * attachment HAD an account, so a null-account row (legacy/imported
+     * data) fell through with no authorization at all and any intendant
+     * could edit or archive it. "Unknown owner" must read as deny, not as
+     * "anyone may" — same fail-safe posture as Core\File\FileAccessGuard's
+     * unregistered owner_type.
+     */
+    public function testAnAttachmentWithNoAccountIsRefusedRatherThanUnguarded(): void
+    {
+        $this->controller->upload($this->uploadRequest($this->tmpPdfFile(), $this->csrfToken()), []);
+        $attachment = $this->attachmentRepository->findActiveOrdered()[0];
+        $this->pdo->prepare('UPDATE finance_attachments SET account_id = NULL WHERE id = ?')->execute([$attachment->id]);
+
+        $token = $this->csrfToken();
+        $deleted = $this->controller->delete(
+            $this->jsonRequest('DELETE', '/finance/receipts/' . $attachment->id, ['_csrf_token' => $token]),
+            ['id' => (string) $attachment->id]
+        );
+        $updated = $this->controller->update(
+            $this->jsonRequest('POST', '/finance/receipts/' . $attachment->id, ['_csrf_token' => $token, 'suggested_amount' => 5.0]),
+            ['id' => (string) $attachment->id]
+        );
+
+        $this->assertSame(403, $deleted->getStatusCode());
+        $this->assertSame(403, $updated->getStatusCode());
+        $this->assertCount(1, $this->attachmentRepository->findActiveOrdered(), 'the receipt must not have been archived');
+    }
+
     public function testDeleteReturns400ForUnknownAttachment(): void
     {
         $token = $this->csrfToken();

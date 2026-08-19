@@ -338,6 +338,61 @@ class ReactionControllerTest extends GroupsControllerTestCase
      * 403 here rather than 404, because the caller IS a member and already
      * knows the group exists.
      */
+    /**
+     * Auto-hidden content is invisible to non-moderators on every read path
+     * (the feed's SQL and GroupController::post()'s deep link), so it must
+     * not be reactable either. Before this, a member could react to a post
+     * they cannot see — notifying its author and bumping last_activity_at,
+     * which postpones the retention purge of the very content moderation
+     * hid, and confirming the post still exists.
+     */
+    public function testReactingOnAHiddenPostIs404ForAnOrdinaryMember(): void
+    {
+        $this->postRepo->setHiddenAt($this->postId, '2026-01-02 10:00:00');
+        $this->withCsrf(['reaction' => 'heart']);
+
+        $response = $this->controller([$this->memberId])->react($this->request(), $this->params($this->postId));
+
+        $this->assertSame(404, $response->getStatusCode());
+        $this->assertNull($this->postReactionKey($this->memberId), 'no reaction may be written');
+    }
+
+    public function testAModeratorMayStillReactOnAHiddenPost(): void
+    {
+        $this->postRepo->setHiddenAt($this->postId, '2026-01-02 10:00:00');
+        $this->withCsrf(['reaction' => 'heart']);
+
+        $response = $this->controller([$this->moderatorMemberId], self::OTHER_ACCOUNT)
+            ->react($this->request(), $this->params($this->postId));
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('heart', $this->postReactionKey($this->moderatorMemberId));
+    }
+
+    public function testReactingOnAHiddenReplyIs404ForAnOrdinaryMember(): void
+    {
+        $this->replyRepo->setHiddenAt($this->replyId, '2026-01-02 10:00:00');
+        $this->withCsrf(['reaction' => 'heart']);
+
+        $response = $this->controller([$this->memberId])->reactToReply($this->request(), $this->params(null, $this->replyId));
+
+        $this->assertSame(404, $response->getStatusCode());
+    }
+
+    /**
+     * A reply is only as visible as the post it hangs off: hiding the post
+     * must take its replies out of reach too.
+     */
+    public function testReactingOnAReplyWhoseParentPostIsHiddenIs404(): void
+    {
+        $this->postRepo->setHiddenAt($this->postId, '2026-01-02 10:00:00');
+        $this->withCsrf(['reaction' => 'heart']);
+
+        $response = $this->controller([$this->memberId])->reactToReply($this->request(), $this->params(null, $this->replyId));
+
+        $this->assertSame(404, $response->getStatusCode());
+    }
+
     public function testReactIsRefusedOnAClosedGroup(): void
     {
         $this->groupRepo->setClosed($this->groupId, '2026-02-01 00:00:00');
