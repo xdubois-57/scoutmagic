@@ -261,6 +261,16 @@ class ScoutYearController extends AbstractController
      * reorder entries here — the template renders whatever this returns and does
      * not hardcode steps.
      *
+     * These four steps are the specification for the "scout year
+     * transition" end-to-end test (tests/e2e/specs/scout-year-transition
+     * .spec.js), which replays the whole workflow in a real browser and
+     * blocks both CI and scripts/release.sh's E2E gate. **Changing a step
+     * — adding, removing, reordering, changing what marks it done, or
+     * rewording a title the test matches on — means updating that test in
+     * the same change.** The rendered page
+     * (core/View/templates/admin/scout_year.html.twig) carries the same
+     * reminder.
+     *
      * @param array{id: int, label: string, start_date: string, end_date: string} $targetYear
      * @param array{id: int, label: string, start_date: string, end_date: string} $publicYear
      * @return array<int, array{number: int, title: string, description: string, done: bool, action: string}>

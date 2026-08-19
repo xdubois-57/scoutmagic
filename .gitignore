@@ -33,8 +33,11 @@ Thumbs.db
 # PHPUnit test cache
 .phpunit.result.cache
 
-# SonarQube Cloud analysis artifacts (generated in CI, never committed)
+# SonarQube Cloud analysis artifacts (generated in CI, never committed).
+# coverage-e2e.xml is the end-to-end run's own Clover report, produced by
+# `E2E_COVERAGE=1 npm run e2e` (scripts/e2e.sh) next to PHPUnit's.
 coverage.xml
+coverage-e2e.xml
 phpunit-report.xml
 .scannerwork/
 
