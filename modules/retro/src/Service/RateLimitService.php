@@ -26,10 +26,19 @@ class RateLimitService
 {
     private const WINDOW_MINUTES = 10;
 
-    /** @var array<string, int> */
+    /**
+     * An action type absent from this map is unlimited (checkAndRecord()
+     * falls back to PHP_INT_MAX), so every throttled action must be listed
+     * here — adding the call site alone silently does nothing.
+     *
+     * @var array<string, int>
+     */
     private const LIMITS = [
         'comment' => 10,
         'vote' => 40,
+        // Each one is a paid LLM round-trip on a route open to anonymous
+        // visitors, so it is the tightest of the three.
+        'shorten' => 5,
     ];
 
     public function __construct(

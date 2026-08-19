@@ -82,11 +82,25 @@ class RgpdContentService
     }
 
     /**
+     * Whether AI generation can actually run — the CAPABLE tier specifically,
+     * since that is the only tier this document is ever generated on.
+     * isAvailable() alone only says "some tier is configured", so a provider
+     * offering only small models passed it and then failed inside complete()
+     * with "Aucun modèle assigné au tier « capable »" after the button had
+     * already been offered.
+     */
+    public function isAvailable(): bool
+    {
+        return $this->llmConnector !== null
+            && $this->llmConnector->isTierAvailable(LlmTier::CAPABLE);
+    }
+
+    /**
      * Generate RGPD content via AI based on active modules and user prompt
      */
     public function generateWithAi(string $userPrompt): string
     {
-        if ($this->llmConnector === null || !$this->llmConnector->isAvailable()) {
+        if (!$this->isAvailable()) {
             throw new \RuntimeException('Service IA non disponible.');
         }
 

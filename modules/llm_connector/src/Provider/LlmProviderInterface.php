@@ -11,6 +11,13 @@ namespace Modules\LlmConnector\Provider;
 /**
  * Internal interface for LLM provider implementations.
  * Private to the module — never imported by consuming modules.
+ *
+ * Deliberately carries no tier-resolution method: which model backs which
+ * tier is decided once, for every provider alike, by
+ * Service\OcrModelSelector. Each driver used to also implement its own
+ * resolveTiers() heuristic, which nothing ever called — the two disagreed
+ * (notably about the OCR tier), so editing a driver's version looked like it
+ * changed behaviour while changing nothing at all.
  */
 interface LlmProviderInterface
 {
@@ -29,12 +36,4 @@ interface LlmProviderInterface
      * @param array<string, mixed> $options Additional options (system_prompt, attachments, response_schema, timeout)
      */
     public function complete(string $modelId, string $prompt, array $options = []): ProviderResponse;
-
-    /**
-     * Given a list of model IDs, return the best model for each tier.
-     *
-     * @param array<int, string> $modelIds List of available model IDs
-     * @return array{cheap: string|null, capable: string|null, ocr: string|null}
-     */
-    public function resolveTiers(array $modelIds): array;
 }

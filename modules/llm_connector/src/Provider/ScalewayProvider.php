@@ -19,10 +19,24 @@ class ScalewayProvider implements LlmProviderInterface
 {
     private const DEFAULT_TIMEOUT = 30;
 
+    private HttpTransport $http;
+
     public function __construct(
         private string $apiEndpoint,
         private string $apiKey
     ) {
+        $this->http = new HttpTransport();
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function headers(): array
+    {
+        return [
+            'Authorization: Bearer ' . $this->apiKey,
+            'Content-Type: application/json',
+        ];
     }
 
     /**
@@ -31,7 +45,7 @@ class ScalewayProvider implements LlmProviderInterface
     public function listModels(): array
     {
         $url = rtrim($this->apiEndpoint, '/') . '/v1/models';
-        $response = $this->httpGet($url);
+        $response = $this->http->getJson($url, $this->headers(), self::DEFAULT_TIMEOUT);
 
         if (!isset($response['data']) || !is_array($response['data'])) {
             throw LlmException::apiError('Invalid response from models endpoint.');
@@ -40,6 +54,11 @@ class ScalewayProvider implements LlmProviderInterface
         $models = [];
         foreach ($response['data'] as $model) {
             $id = (string) ($model['id'] ?? '');
+            if ($id === '') {
+                // A model with no usable identifier cannot be called and must
+                // never reach llm_provider_models.model_id.
+                continue;
+            }
             $displayName = (string) ($model['name'] ?? $id);
             $models[] = [
                 'id' => $id,
@@ -69,8 +88,10 @@ class ScalewayProvider implements LlmProviderInterface
 
         $body = $this->buildRequestBody($modelId, $messages, $options);
 
-        $response = $this->httpPost($url, $body, $timeout);
+        $response = $this->http->postJson($url, $this->headers(), $body, $timeout);
 
+        // A non-2xx never reaches this point (HttpTransport rejects it);
+        // this still catches an error object returned with a 200.
         if (isset($response['error'])) {
             $errorMsg = $response['error']['message'] ?? 'Unknown error';
             throw LlmException::apiError($errorMsg);
@@ -128,56 +149,6 @@ class ScalewayProvider implements LlmProviderInterface
     }
 
     /**
-     * @param array<int, string> $modelIds
-     * @return array{cheap: string|null, capable: string|null, ocr: string|null}
-     */
-    public function resolveTiers(array $modelIds): array
-    {
-        $bestSmall = null;
-        $bestLarge = null;
-        $bestOcr = null;
-
-        foreach ($modelIds as $id) {
-            $lower = strtolower($id);
-
-            // OCR detection
-            if (str_contains($lower, 'ocr')) {
-                if ($bestOcr === null || $this->extractDate($id) > $this->extractDate($bestOcr)) {
-                    $bestOcr = $id;
-                }
-            }
-
-            // Skip non-chat models
-            if (str_contains($lower, 'embed')
-                || str_contains($lower, 'moderation')
-                || str_contains($lower, 'whisper')
-                || str_contains($lower, 'tts')
-            ) {
-                continue;
-            }
-
-            // Cheap tier: small models (mistral-small, ministral, llama-small, etc.)
-            if (str_contains($lower, 'small') || str_contains($lower, 'ministral') || str_contains($lower, 'nemo')) {
-                if ($bestSmall === null || $this->extractDate($id) > $this->extractDate($bestSmall)) {
-                    $bestSmall = $id;
-                }
-            }
-            // Capable tier: large/medium models
-            elseif (str_contains($lower, 'large') || str_contains($lower, 'medium')) {
-                if ($bestLarge === null || $this->extractDate($id) > $this->extractDate($bestLarge)) {
-                    $bestLarge = $id;
-                }
-            }
-        }
-
-        return [
-            'cheap' => $bestSmall,
-            'capable' => $bestLarge,
-            'ocr' => $bestOcr,
-        ];
-    }
-
-    /**
      * OpenAI-compatible multi-part content: image attachments as
      * image_url blocks (data URI), followed by the text prompt. Falls
      * back to a plain string when there are no image attachments,
@@ -226,90 +197,5 @@ class ScalewayProvider implements LlmProviderInterface
         }
 
         return $parts !== [] ? implode("\n\n", $parts) : null;
-    }
-
-    /**
-     * Extract a date from a model ID.
-     * Models with "latest" in the name are considered the most recent.
-     */
-    private function extractDate(string $modelId): string
-    {
-        if (stripos($modelId, 'latest') !== false) {
-            return '99999999';
-        }
-        if (preg_match('/(\d{8})/', $modelId, $matches)) {
-            return $matches[1];
-        }
-        if (preg_match('/(\d{4})$/', $modelId, $matches)) {
-            return $matches[1] . '0000';
-        }
-        return '00000000';
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    private function httpGet(string $url): array
-    {
-        $context = stream_context_create([
-            'http' => [
-                'method' => 'GET',
-                'header' => implode("\r\n", [
-                    'Authorization: Bearer ' . $this->apiKey,
-                    'Content-Type: application/json',
-                ]),
-                'timeout' => self::DEFAULT_TIMEOUT,
-                'ignore_errors' => true,
-            ],
-        ]);
-
-        $body = @file_get_contents($url, false, $context);
-
-        if ($body === false) {
-            throw LlmException::timeout();
-        }
-
-        $decoded = json_decode($body, true);
-        if (!is_array($decoded)) {
-            throw LlmException::apiError('Invalid JSON response from provider.');
-        }
-
-        return $decoded;
-    }
-
-    /**
-     * @param array<string, mixed> $data
-     * @return array<string, mixed>
-     */
-    private function httpPost(string $url, array $data, int $timeout): array
-    {
-        $jsonBody = json_encode($data, JSON_UNESCAPED_UNICODE);
-
-        $context = stream_context_create([
-            'http' => [
-                'method' => 'POST',
-                'header' => implode("\r\n", [
-                    'Authorization: Bearer ' . $this->apiKey,
-                    'Content-Type: application/json',
-                    'Content-Length: ' . strlen($jsonBody),
-                ]),
-                'content' => $jsonBody,
-                'timeout' => $timeout,
-                'ignore_errors' => true,
-            ],
-        ]);
-
-        $body = @file_get_contents($url, false, $context);
-
-        if ($body === false) {
-            throw LlmException::timeout();
-        }
-
-        $decoded = json_decode($body, true);
-        if (!is_array($decoded)) {
-            throw LlmException::apiError('Invalid JSON response from provider.');
-        }
-
-        return $decoded;
     }
 }

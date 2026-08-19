@@ -84,54 +84,6 @@ class MistralProviderTest extends TestCase
         $this->assertSame('Hello', $content);
     }
 
-    public function testResolveTiersPicksMostRecentSmallAndLarge(): void
-    {
-        $models = [
-            'mistral-small-2402',
-            'mistral-small-latest',
-            'mistral-large-2411',
-            'mistral-large-latest',
-            'mistral-medium-latest',
-            'mistral-embed',
-            'codestral-latest',
-        ];
-
-        $tiers = $this->provider->resolveTiers($models);
-
-        // "latest" is treated as most recent → extractDate returns '99999999'
-        // "2402" → '24020000', "2411" → '24110000'
-        $this->assertSame('mistral-small-latest', $tiers['cheap']);
-        $this->assertSame('mistral-large-latest', $tiers['capable']);
-    }
-
-    public function testResolveTiersReturnsNullWhenNoMatch(): void
-    {
-        $models = ['mistral-embed', 'codestral-latest'];
-
-        $tiers = $this->provider->resolveTiers($models);
-
-        $this->assertNull($tiers['cheap']);
-        $this->assertNull($tiers['capable']);
-    }
-
-    public function testResolveTiersWithEmptyList(): void
-    {
-        $tiers = $this->provider->resolveTiers([]);
-
-        $this->assertNull($tiers['cheap']);
-        $this->assertNull($tiers['capable']);
-    }
-
-    public function testResolveTiersMediumCountsAsCapable(): void
-    {
-        $models = ['mistral-medium-20250514'];
-
-        $tiers = $this->provider->resolveTiers($models);
-
-        $this->assertNull($tiers['cheap']);
-        $this->assertSame('mistral-medium-20250514', $tiers['capable']);
-    }
-
     public function testBuildRequestBodyAlwaysIncludesMaxTokens(): void
     {
         $method = new \ReflectionMethod(MistralProvider::class, 'buildRequestBody');

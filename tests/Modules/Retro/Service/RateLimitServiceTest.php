@@ -100,4 +100,36 @@ class RateLimitServiceTest extends TestCase
         $this->service->checkAndRecord($hash, 'vote');
         $this->assertTrue(true);
     }
+
+    /**
+     * checkAndRecord() falls back to PHP_INT_MAX for an action type that is
+     * not in LIMITS, so adding a call site without adding the entry throttles
+     * nothing at all. "shorten" backs a public, AI-billed route.
+     */
+    public function testShortenIsThrottled(): void
+    {
+        $hash = $this->service->identifierHash(null, 'session-shorten');
+
+        for ($i = 0; $i < 5; $i++) {
+            $this->service->checkAndRecord($hash, 'shorten');
+        }
+
+        $this->expectException(RetroException::class);
+        $this->service->checkAndRecord($hash, 'shorten');
+    }
+
+    public function testShortenLimitIsIndependentFromTheCommentLimit(): void
+    {
+        $hash = $this->service->identifierHash(null, 'session-mixed');
+
+        for ($i = 0; $i < 5; $i++) {
+            $this->service->checkAndRecord($hash, 'shorten');
+        }
+
+        // Exhausting the shorten budget must not consume the comment budget.
+        $this->service->checkAndRecord($hash, 'comment');
+
+        $this->expectException(RetroException::class);
+        $this->service->checkAndRecord($hash, 'shorten');
+    }
 }
