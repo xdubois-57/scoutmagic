@@ -10,6 +10,7 @@ use Modules\Groups\Repository\PostRepository;
 use Modules\Groups\Repository\ReactionRepository;
 use Modules\Groups\Service\GroupActivityService;
 use Modules\Groups\Service\ReactionService;
+use Modules\Groups\Support\ReactionOutcome;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
@@ -64,7 +65,10 @@ class ReactionServiceTest extends TestCase
 
     public function testAFirstReactionOnAPostIsRecorded(): void
     {
-        $this->assertTrue($this->service->toggleOnPost($this->group(), $this->postId, self::MEMBER, 'heart'));
+        $this->assertSame(
+            ReactionOutcome::ADDED,
+            $this->service->toggleOnPost($this->group(), $this->postId, self::MEMBER, 'heart')
+        );
 
         $this->assertSame('heart', $this->postReactions->findKeyFor($this->postId, [self::MEMBER]));
     }
@@ -131,7 +135,10 @@ class ReactionServiceTest extends TestCase
     #[DataProvider('invalidKeys')]
     public function testAnInvalidKeyIsRefusedAndWritesNothingOnAPost(string $key): void
     {
-        $this->assertFalse($this->service->toggleOnPost($this->group(), $this->postId, self::MEMBER, $key));
+        $this->assertSame(
+            ReactionOutcome::INVALID,
+            $this->service->toggleOnPost($this->group(), $this->postId, self::MEMBER, $key)
+        );
 
         $this->assertSame(0, $this->countRows('discussion_group_post_reactions'));
     }
@@ -139,7 +146,10 @@ class ReactionServiceTest extends TestCase
     #[DataProvider('invalidKeys')]
     public function testAnInvalidKeyIsRefusedAndWritesNothingOnAReply(string $key): void
     {
-        $this->assertFalse($this->service->toggleOnReply($this->group(), $this->replyId, $this->postId, self::MEMBER, $key));
+        $this->assertSame(
+            ReactionOutcome::INVALID,
+            $this->service->toggleOnReply($this->group(), $this->replyId, $this->postId, self::MEMBER, $key)
+        );
 
         $this->assertSame(0, $this->countRows('discussion_group_reply_reactions'));
     }

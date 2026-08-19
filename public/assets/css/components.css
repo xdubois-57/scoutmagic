@@ -373,3 +373,21 @@
     height: auto;
     border-radius: 0.5rem;
 }
+
+/* Modules\Groups — an auto-hidden post or reply, as its group's moderators
+   see it. Nobody else ever receives this markup: the row is excluded in
+   the SQL (Repository\PostRepository, Repository\ReplyRepository), so this
+   class dims a message rather than hiding one. */
+.groups-post-hidden {
+    opacity: 0.72;
+    border-style: dashed;
+}
+
+/* Modules\Groups — the message the AI moderation refused, handed back to
+   its own author with the suggested rewording. It lives in the author's
+   session for exactly one render (Support\RejectedDraft) and is never
+   stored anywhere else. */
+.groups-rejected-suggestion {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}

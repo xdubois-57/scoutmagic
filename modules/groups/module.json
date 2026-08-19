@@ -2,7 +2,7 @@
   "id": "groups",
   "name": "Groupes de discussion",
   "description": "Groupes de discussion privés pour l'unité : un groupe par section et par année scoute, ou des groupes sur invitation. Visibles uniquement par leurs membres.",
-  "version": "1.4.0",
+  "version": "1.7.0",
   "enabled_by_default": false,
   "requires": [
     "gallery"
@@ -79,6 +79,21 @@
       "label": "",
       "breadcrumb": {
         "label": "Galerie du groupe",
+        "parents": [
+          "Espace animés"
+        ]
+      }
+    },
+    {
+      "path": "/groups/{id}/posts/{postId}",
+      "method": "GET",
+      "controller": "Modules\\Groups\\Controller\\GroupController",
+      "action": "post",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": "",
+      "breadcrumb": {
+        "label": "Message",
         "parents": [
           "Espace animés"
         ]
@@ -236,12 +251,161 @@
       "menu": "espace_animes",
       "role_min": "identified",
       "label": ""
+    },
+    {
+      "path": "/groups/{id}/posts/{postId}/report",
+      "method": "POST",
+      "controller": "Modules\\Groups\\Controller\\ReportController",
+      "action": "reportPost",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/groups/{id}/posts/{postId}/restore",
+      "method": "POST",
+      "controller": "Modules\\Groups\\Controller\\ReportController",
+      "action": "restorePost",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/groups/{id}/replies/{replyId}/report",
+      "method": "POST",
+      "controller": "Modules\\Groups\\Controller\\ReportController",
+      "action": "reportReply",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/groups/{id}/replies/{replyId}/restore",
+      "method": "POST",
+      "controller": "Modules\\Groups\\Controller\\ReportController",
+      "action": "restoreReply",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
     }
   ],
-  "settings": [],
+  "settings": [
+    {
+      "key": "groups_report_hide_threshold",
+      "default_value": "2",
+      "type": "number",
+      "label": "Signalements avant masquage automatique",
+      "description": "Nombre de signalements à partir duquel un message ou une réponse est masqué automatiquement pour tout le monde, sauf pour les modérateurs du groupe. Le masquage est la seule conséquence automatique : rien n'est jamais supprimé sans l'action d'un modérateur."
+    },
+    {
+      "key": "groups_ai_moderation_enabled",
+      "default_value": "1",
+      "type": "boolean",
+      "label": "Modération automatique par IA",
+      "description": "Vérifie chaque message et chaque réponse avant publication et propose une reformulation en cas d'attaque personnelle ou de propos irrespectueux. Sans le module « Connecteur IA » actif, ce réglage n'a aucun effet : les messages sont publiés sans vérification. Le signalement par les membres et la modération humaine restent la protection principale dans tous les cas."
+    },
+    {
+      "key": "groups_reaction_notification_window_minutes",
+      "default_value": "60",
+      "type": "number",
+      "label": "Délai entre deux notifications de réaction",
+      "description": "Durée, en minutes, pendant laquelle un message ou une réponse ne génère qu'une seule notification de réaction pour son auteur. Sans ce délai, un message qui reçoit douze réactions enverrait douze notifications. Les réactions elles-mêmes restent toutes visibles sur le message : seule la notification est regroupée."
+    },
+    {
+      "key": "groups_inactivity_close_months",
+      "default_value": "12",
+      "type": "number",
+      "label": "Clôture automatique après inactivité (mois)",
+      "description": "Nombre de mois sans aucun message, réponse ni réaction au bout desquels un groupe est clôturé automatiquement. Un groupe clôturé reste entièrement visible et consultable par ses membres : il n'accepte simplement plus de nouvelle publication. Un groupe qui n'a jamais rien contenu est compté à partir de sa date de création, pas depuis toujours."
+    },
+    {
+      "key": "groups_post_retention_months",
+      "default_value": "24",
+      "type": "number",
+      "label": "Conservation des messages (mois)",
+      "description": "Nombre de mois après la dernière activité d'un message (sa publication, une réponse ou une réaction) au bout desquels ce message est supprimé définitivement, avec ses réponses, ses réactions, ses signalements, ses photos et l'image de son lien. Les messages épinglés ne sont jamais supprimés automatiquement, quel que soit leur âge."
+    },
+    {
+      "key": "groups_closed_purge_months",
+      "default_value": "12",
+      "type": "number",
+      "label": "Suppression des groupes clôturés (mois)",
+      "description": "Nombre de mois après la clôture d'un groupe au bout desquels ce groupe est supprimé définitivement, avec tout son contenu et sa galerie. Un groupe de l'année scoute en cours ou d'une année à venir n'est jamais supprimé automatiquement, même clôturé."
+    }
+  ],
   "cookies": [],
-  "scheduled_tasks": [],
+  "scheduled_tasks": [
+    {
+      "key": "purge_rate_limits",
+      "handler": "Modules\\Groups\\Task\\PurgeRateLimitHandler"
+    },
+    {
+      "key": "ensure_section_groups",
+      "handler": "Modules\\Groups\\Task\\EnsureSectionGroupsHandler"
+    },
+    {
+      "key": "close_inactive_groups",
+      "handler": "Modules\\Groups\\Task\\CloseInactiveGroupsHandler"
+    },
+    {
+      "key": "purge_posts",
+      "handler": "Modules\\Groups\\Task\\PurgePostsHandler"
+    },
+    {
+      "key": "purge_closed_groups",
+      "handler": "Modules\\Groups\\Task\\PurgeClosedGroupsHandler"
+    }
+  ],
   "storage": {},
-  "notifications": [],
+  "notifications": [
+    {
+      "id": "groups.post_published",
+      "label": "Nouveau message dans un groupe",
+      "description": "Quand un nouveau message est publié dans un de vos groupes de discussion.",
+      "group": "Groupes",
+      "role_min": "identified",
+      "channels": {
+        "in_app": "default_on",
+        "push": "default_on",
+        "email": "default_off"
+      }
+    },
+    {
+      "id": "groups.reply_received",
+      "label": "Réponse à votre message",
+      "description": "Quand quelqu'un répond à un message que vous avez publié.",
+      "group": "Groupes",
+      "role_min": "identified",
+      "channels": {
+        "in_app": "default_on",
+        "push": "default_on",
+        "email": "default_off"
+      }
+    },
+    {
+      "id": "groups.reaction_received",
+      "label": "Réaction à votre message",
+      "description": "Quand quelqu'un réagit à un de vos messages ou à une de vos réponses. Les réactions reçues coup sur coup sur un même message sont regroupées en une seule notification.",
+      "group": "Groupes",
+      "role_min": "identified",
+      "channels": {
+        "in_app": "default_on",
+        "push": "default_off",
+        "email": "default_off"
+      }
+    },
+    {
+      "id": "groups.item_reported",
+      "label": "Contenu signalé dans un groupe",
+      "description": "Quand un membre signale un message ou une réponse dans un groupe dont vous êtes modérateur. Réservé aux modérateurs du groupe : cette notification ne peut pas être désactivée dans le centre de notifications.",
+      "group": "Groupes",
+      "role_min": "identified",
+      "channels": {
+        "in_app": "on",
+        "push": "default_on",
+        "email": "default_off"
+      }
+    }
+  ],
   "offline": []
 }

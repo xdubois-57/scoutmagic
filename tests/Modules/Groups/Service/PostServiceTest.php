@@ -35,7 +35,11 @@ class PostServiceTest extends TestCase
 
         $this->groupRepo = new GroupRepository($this->pdo);
         $this->postRepo = new PostRepository($this->pdo);
-        $this->postService = new PostService($this->postRepo, new GroupActivityService($this->groupRepo, $this->postRepo));
+        $this->postService = new PostService(
+            $this->postRepo,
+            new GroupActivityService($this->groupRepo, $this->postRepo),
+            GroupsTestHelper::rateLimitService($this->pdo)
+        );
 
         $this->groupId = $this->groupRepo->create('Louveteaux', null, null, 1);
     }

@@ -24,12 +24,29 @@ class Post
         public readonly bool $isPinned,
         public readonly ?string $editedAt,
         public readonly string $lastActivityAt,
-        public readonly string $createdAt
+        public readonly string $createdAt,
+        // Trailing and defaulted so every existing positional
+        // construction of this DTO keeps working — same append-only
+        // discipline as DiscussionGroup::$galleryAlbumId.
+        public readonly ?string $hiddenAt = null,
+        public readonly bool $moderationCleared = false
     ) {
     }
 
     public function isEdited(): bool
     {
         return $this->editedAt !== null;
+    }
+
+    /**
+     * Auto-hidden by reports and not yet reviewed. Only a moderator ever
+     * sees such a post at all — the exclusion is applied in
+     * Repository\PostRepository's own queries, so this is for rendering
+     * the "masqué — en attente de modération" badge, never for deciding
+     * visibility.
+     */
+    public function isHidden(): bool
+    {
+        return $this->hiddenAt !== null;
     }
 }

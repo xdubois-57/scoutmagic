@@ -132,7 +132,8 @@ class PostMediaIntegrationTest extends TestCase
     private function postMediaService(?AlbumRepository $albumRepository = null): PostMediaService
     {
         return new PostMediaService(
-            $this->delegatedAlbumService($albumRepository), new PostMediaRepository($this->pdo), $this->groupRepo
+            $this->delegatedAlbumService($albumRepository), new PostMediaRepository($this->pdo), $this->groupRepo,
+            new \Modules\Groups\Repository\ReplyRepository($this->pdo)
         );
     }
 
@@ -342,7 +343,8 @@ class PostMediaIntegrationTest extends TestCase
                 $this->groupRepo,
                 new \Modules\Groups\Repository\PostRepository($this->pdo)
             ),
-            $this->postMediaService()
+            $this->postMediaService(),
+            GroupsTestHelper::rateLimitService($this->pdo)
         );
     }
 

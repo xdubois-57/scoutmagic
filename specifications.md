@@ -81,6 +81,7 @@ Site-wide settings, modules, functions.
 | {Member email detail} | One page per mass-mail email received, reachable only from the member's own page — subject, section, sent date, full body as actually sent |
 | Trombinoscope (module) | Every section's chief/chief-d'unité staff, grouped by section, with the section's designated "responsable" highlighted. Accepts `?section={id}` to preselect a section (also used by the member page's own link above). |
 | Galerie (module) | Photo/video albums (identified: view; chief: manage — see §4.3) |
+| Groupes (module) | Private discussion groups the caller belongs to, most recently active first, plus an Archives tab for past-year ones. A group page is a feed: pinned posts, then posts newest-activity-first, each with up to four photos/videos, an optional link preview, one level of replies, and six fixed reactions. Members report; moderators restore or delete. See §20. |
 | Notifications | Notification centre: list of received notifications (read/unread state, mark read individually or all at once), notification preferences (channel selection per type, quiet hours for push), push subscription management. Unread count shown in header badge. |
 
 ### 4.3 Espace des chefs
@@ -456,3 +457,44 @@ While the Inscriptions module is active:
 - **Step 3** (activate the staff year) shows the same count as a plain, non-blocking warning — it happens much earlier in the season and staff need time to work through the backlog, so it never stops anything.
 
 If the Inscriptions module is disabled or not installed, both steps behave exactly as they did before this module existed — nothing is blocked, no warning appears.
+
+
+## 20. Groups module — private discussion groups (module groups)
+
+Private group conversations for the unit: one group per section, created automatically, plus invitation groups a chief opens for anything else (a camp staff, a working group, a project). Not a social network — there is no directory, no public group, no self-join and no join request. A group is invisible to anyone who is not in it.
+
+### 20.1 Who is in a group
+
+Two sources, both resolved at every page load rather than copied anywhere:
+
+- **A linked section.** Everyone with a membership period in that section, for the group's scout year. A Desk import that moves a member between sections therefore takes effect immediately, in both directions.
+- **An explicit invitation.** A chief invites a member (or a whole section) individually. The same row carries the moderator flag.
+
+A section group is tied to its scout year, which is what keeps last year's group readable by exactly the people who were in it. An invitation group is tied to a year only if the chief wanted it. A site admin is an implicit moderator of every group; a chief who is not a member of a group does not see it.
+
+### 20.2 What a group holds
+
+Posts (up to 5000 characters, up to four photos or videos, and at most one link with an automatic title/description/image preview), one level of replies (up to 2000 characters, at most one image — replies are never nested), and six fixed reactions (👍 ❤️ 😂 😮 😢 👏), one per person per item. An author may edit their own post or reply for 15 minutes; an author or a moderator may delete one at any time. A moderator may pin posts to the top of the feed.
+
+Photos and videos live in a gallery album belonging to the group, never listed in the unit's own gallery and readable only by the group's members. "Galerie du groupe" shows them all on one page.
+
+### 20.3 Reporting and moderation
+
+Any member may report a post or a reply, once. Past a configurable threshold (2 by default), the item is hidden from everyone except the group's moderators, who then restore it or delete it. **Hiding is the maximum automatic consequence — nothing is ever deleted without a human deciding.** A restored item is never auto-hidden again, however many further reports arrive. The reporter is told nothing about the outcome, and who reported an item is never revealed to anyone.
+
+When the AI connector module is active, a post or reply is checked before publication for personal attacks or disrespectful language, and its author is offered a rewording. The check fails open: no provider, a timeout or an error all mean the message is published unchecked. A refused message is never stored anywhere — it is handed back to its own author and nowhere else.
+
+### 20.4 Notifications
+
+Four types, all optional per member except one: a new post in one of my groups, a reply to my post, a reaction to my post or reply (debounced, so a burst of reactions is one notification), and — for moderators only — a report needing attention, whose in-app channel cannot be switched off. No email is ever sent for any of them.
+
+### 20.5 Lifecycle and retention
+
+Four nightly tasks, each with its own admin-configurable duration and none of them overridable per group:
+
+| Task | Rule |
+|---|---|
+| Create section groups | One group per visible, active section per scout year, Staff d'U included. Idempotent, and also run whenever the group list is opened, so a missing group heals itself. Next year's groups appear as soon as that year is imported, ready for chiefs through the staff-year mechanism (§16). |
+| Close inactive groups | A group with no post, reply or reaction for `groups_inactivity_close_months` (12 by default) is closed: read-only, still fully visible to its members. A group that never held anything is counted from its creation. A moderator may also close a group by hand. |
+| Purge posts | A post is deleted `groups_post_retention_months` (24 by default) after its last activity, with its replies, reactions, reports, media and cached link image — the files themselves, not only the rows. A pinned post is never purged, at any age. |
+| Purge closed groups | A closed group is deleted `groups_closed_purge_months` (12 by default) after its closure, gallery album included. A group of the current or a future scout year is never purged. |

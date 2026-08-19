@@ -20,8 +20,10 @@ use Modules\Groups\Repository\PostRepository;
 use Modules\Groups\Repository\ReplyRepository;
 use Modules\Groups\Service\GroupAccessService;
 use Modules\Groups\Service\GroupSessionContext;
+use Modules\Groups\Service\GroupNotificationService;
 use Modules\Groups\Service\GroupSessionContextFactory;
 use Modules\Groups\Service\ReactionService;
+use Modules\Groups\Support\ReactionOutcome;
 use Twig\Environment;
 
 /**
@@ -49,7 +51,8 @@ class ReactionController extends AbstractController
         private ReplyRepository $replyRepository,
         private GroupAccessService $accessService,
         private ReactionService $reactionService,
-        private GroupSessionContextFactory $contextFactory
+        private GroupSessionContextFactory $contextFactory,
+        private ?GroupNotificationService $notificationService = null
     ) {
     }
 
@@ -60,13 +63,26 @@ class ReactionController extends AbstractController
      */
     public function react(Request $request, array $params): Response
     {
-        return $this->reactAction($request, $params, function (DiscussionGroup $group, int $memberId, string $key) use ($params) {
+        return $this->reactAction($request, $params, function (DiscussionGroup $group, int $memberId, string $key, GroupSessionContext $context) use ($params) {
             $post = $this->postRepository->findById((int) ($params['postId'] ?? 0));
             if ($post === null || $post->groupId !== $group->id) {
                 return null;
             }
 
-            return $this->reactionService->toggleOnPost($group, $post->id, $memberId, $key);
+            $outcome = $this->reactionService->toggleOnPost($group, $post->id, $memberId, $key);
+            if ($outcome === ReactionOutcome::ADDED && $context->userAccountId !== null) {
+                // Only on ADDED: taking a reaction back off must not tell
+                // the author somebody reacted, and toggling one on and off
+                // repeatedly must not be a way to buzz their phone.
+                $this->notificationService?->reactionOnPost(
+                    $group,
+                    $post,
+                    $context->userAccountId,
+                    $context->effectiveScoutYearId
+                );
+            }
+
+            return $outcome;
         });
     }
 
@@ -77,7 +93,7 @@ class ReactionController extends AbstractController
      */
     public function reactToReply(Request $request, array $params): Response
     {
-        return $this->reactAction($request, $params, function (DiscussionGroup $group, int $memberId, string $key) use ($params) {
+        return $this->reactAction($request, $params, function (DiscussionGroup $group, int $memberId, string $key, GroupSessionContext $context) use ($params) {
             $reply = $this->replyRepository->findById((int) ($params['replyId'] ?? 0));
             if ($reply === null) {
                 return null;
@@ -90,18 +106,28 @@ class ReactionController extends AbstractController
                 return null;
             }
 
-            return $this->reactionService->toggleOnReply($group, $reply->id, $post->id, $memberId, $key);
+            $outcome = $this->reactionService->toggleOnReply($group, $reply->id, $post->id, $memberId, $key);
+            if ($outcome === ReactionOutcome::ADDED && $context->userAccountId !== null) {
+                $this->notificationService?->reactionOnReply(
+                    $group,
+                    $post,
+                    $reply,
+                    $context->userAccountId,
+                    $context->effectiveScoutYearId
+                );
+            }
+
+            return $outcome;
         });
     }
 
     /**
      * The shared shape of both reaction endpoints. $toggle returns null
-     * when the item does not belong to the authorised group (→ 404), or a
-     * bool for whether the reaction key was one of the fixed six (→ 400
-     * when it was not).
+     * when the item does not belong to the authorised group (→ 404), or
+     * the toggle's own outcome (INVALID → 400).
      *
      * @param array<string, string> $params
-     * @param callable(DiscussionGroup, int, string): ?bool $toggle
+     * @param callable(DiscussionGroup, int, string, GroupSessionContext): ?ReactionOutcome $toggle
      */
     private function reactAction(Request $request, array $params, callable $toggle): Response
     {
@@ -134,12 +160,12 @@ class ReactionController extends AbstractController
         // Support\Reactions' constant map before writing anything, and
         // returns false for anything else.
         $key = (string) $request->getBody('reaction', '');
-        $result = $toggle($group, $memberId, $key);
+        $result = $toggle($group, $memberId, $key, $context);
 
         if ($result === null) {
             return new Response('Not Found', 404);
         }
-        if ($result === false) {
+        if ($result === ReactionOutcome::INVALID) {
             return new Response('Réaction inconnue.', 400);
         }
 

@@ -36,7 +36,15 @@ CREATE TABLE discussion_groups (
     -- the group (a single writer, so the column can never drift). Drives
     -- the group list ordering, and later the purge.
     last_activity_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    created_by_member_id INT UNSIGNED NOT NULL,
+    -- NULLABLE since prompt 11: a section group created automatically by
+    -- Task\EnsureSectionGroupsHandler has no creator, and naming an
+    -- arbitrary member would be a lie that also made them a moderator
+    -- (Service\GroupService::createSectionGroup() adds the creator as
+    -- one). NULL therefore reads as "created by the site", and such a
+    -- group starts with no explicit moderator — site admins moderate it
+    -- until a chief grants the flag, which is exactly what
+    -- Service\GroupAccessService::canModerate() already allows for.
+    created_by_member_id INT UNSIGNED NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     -- The group's delegated gallery album (Modules\Gallery\Api\
@@ -144,6 +152,23 @@ CREATE TABLE discussion_group_posts (
     -- breaks. Bumped later by replies and reactions.
     last_activity_at DATETIME NOT NULL,
     created_at DATETIME NOT NULL,
+    -- Set when the post reaches groups_report_hide_threshold reports
+    -- (Service\ReportService). Hiding is the MAXIMUM automatic
+    -- consequence of reporting — nothing is ever auto-deleted; a
+    -- moderator still has to decide. NULL means visible.
+    --
+    -- Enforced in the QUERY, never by hiding markup: Repository\
+    -- PostRepository's own reads take an $includeHidden flag that only a
+    -- moderator's request ever sets true, so a hidden post is absent from
+    -- the feed, from reply lists, from counts and from the group gallery
+    -- for everyone else rather than merely invisible in the HTML.
+    hidden_at DATETIME NULL,
+    -- Set once a moderator has looked at a hidden post and restored it.
+    -- Kept as its own column rather than recomputed from the report
+    -- count, because the count only ever grows: without this, one more
+    -- report would immediately re-hide what a moderator just cleared,
+    -- and the moderator's decision would silently mean nothing.
+    moderation_cleared BOOLEAN NOT NULL DEFAULT FALSE,
     -- The feed's exact ordering, so the keyset scan is index-only:
     -- pinned posts are fetched separately, the stream reads
     -- (group_id, last_activity_at DESC, id DESC).
@@ -254,6 +279,9 @@ CREATE TABLE discussion_group_replies (
     -- last_activity_at, for the same reason editing a post does not.
     edited_at DATETIME NULL,
     created_at DATETIME NOT NULL,
+    -- Same pair, same reasoning, as discussion_group_posts above.
+    hidden_at DATETIME NULL,
+    moderation_cleared BOOLEAN NOT NULL DEFAULT FALSE,
     INDEX idx_dgr_post (post_id, id),
     INDEX idx_dgr_author_member (author_member_id),
     CONSTRAINT fk_dgr_post FOREIGN KEY (post_id) REFERENCES discussion_group_posts(id) ON DELETE CASCADE,
@@ -307,6 +335,72 @@ CREATE TABLE discussion_group_reply_reactions (
     CONSTRAINT fk_dgrr_member FOREIGN KEY (member_id) REFERENCES members(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Reports: TWO tables, one per reportable kind, for exactly the reason
+-- the reaction tables above are two — a real foreign key per table, so
+-- deleting a post or a reply takes its reports with it without any
+-- application code remembering to sweep them.
+--
+-- UNIQUE (item, reporter) is the "one report per member per item" rule,
+-- enforced by the DATABASE rather than by a read-then-write: a double
+-- submit (a double-tap, a refreshed POST) would otherwise count twice and
+-- push an item over the threshold on one person's say-so.
+--
+-- No reason/comment column: a report is a bare signal, and storing free
+-- text here would put a member's words about another member into a table
+-- this module otherwise keeps entirely free of personal data
+-- (schema.sql's own header). Who reported is never revealed to anyone —
+-- the column exists only to enforce uniqueness and to let a member undo
+-- their own report.
+CREATE TABLE discussion_group_post_reports (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    post_id INT UNSIGNED NOT NULL,
+    reporter_member_id INT UNSIGNED NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE INDEX idx_dgprep_post_reporter (post_id, reporter_member_id),
+    INDEX idx_dgprep_post (post_id),
+    CONSTRAINT fk_dgprep_post FOREIGN KEY (post_id) REFERENCES discussion_group_posts(id) ON DELETE CASCADE,
+    CONSTRAINT fk_dgprep_member FOREIGN KEY (reporter_member_id) REFERENCES members(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE discussion_group_reply_reports (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    reply_id INT UNSIGNED NOT NULL,
+    reporter_member_id INT UNSIGNED NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE INDEX idx_dgrrep_reply_reporter (reply_id, reporter_member_id),
+    INDEX idx_dgrrep_reply (reply_id),
+    CONSTRAINT fk_dgrrep_reply FOREIGN KEY (reply_id) REFERENCES discussion_group_replies(id) ON DELETE CASCADE,
+    CONSTRAINT fk_dgrrep_member FOREIGN KEY (reporter_member_id) REFERENCES members(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Per-member flood protection on posting and replying — the limit
+-- deliberately deferred from prompt 4, following the retro_rate_limits
+-- precedent (see that table's comment in modules/retro/schema.sql) rather
+-- than inventing a second mechanism. Purged by
+-- Task\PurgeRateLimitHandler, exactly like retro's.
+--
+-- Deliberately NOT merged with discussion_group_link_fetch_log below,
+-- despite the similar shape: that one bounds OUTBOUND HTTP requests the
+-- server makes on a member's behalf (an SSRF/DoS-against-a-third-party
+-- concern, SECURITY.md §17), this one bounds how much CONTENT a member
+-- creates. They protect different things, have unrelated windows and
+-- ceilings, and folding them together would mean one limit silently
+-- consuming the other's budget.
+--
+-- member_id in the clear, like discussion_group_link_fetch_log and unlike
+-- retro_rate_limits' HMAC: retro hashes because its whole feature is
+-- anonymity, whereas a group post already carries both author identities
+-- in plain form (discussion_group_posts above). There is no anonymity
+-- here for a hash to protect.
+CREATE TABLE discussion_group_rate_limits (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    member_id INT UNSIGNED NOT NULL,
+    action_type ENUM('post', 'reply') NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_dgrl_lookup (member_id, action_type, created_at),
+    CONSTRAINT fk_dgrl_member FOREIGN KEY (member_id) REFERENCES members(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- Per-member throttle on link-preview fetch attempts (module spec,
 -- following the retro_rate_limits precedent — see that table's own
 -- comment in modules/retro/schema.sql) — without this, posting links
@@ -326,4 +420,39 @@ CREATE TABLE discussion_group_link_fetch_log (
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_dglfl_member (member_id, created_at),
     CONSTRAINT fk_dglfl_member FOREIGN KEY (member_id) REFERENCES members(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Debounce state for the "reaction to your message" notification, one row
+-- per item that has already produced one. A popular post picks up a dozen
+-- reactions in a minute, and a notification each would make the feature
+-- unusable rather than useful; Service\ReactionNoticeThrottle checks these
+-- rows against groups_reaction_notification_window_minutes before asking
+-- core to dispatch anything.
+--
+-- This tracks TIMING, never notifications: the notifications themselves
+-- live in core's `notifications` table and only there (ARCHITECTURE.md
+-- §8.24). Nothing here is ever read to find out what core already sent —
+-- a module must not read core's table, so it keeps its own small record of
+-- when it last asked.
+--
+-- Two tables rather than one polymorphic one, for the same reason
+-- discussion_group_post_reactions and discussion_group_reply_reactions are
+-- two (see their comment above): a single (item_type, item_id) table can
+-- carry no foreign key at all, so every deleted post would leave its
+-- debounce row behind forever. With one table per item kind, the CASCADE
+-- does the cleanup and there is no purge task to write.
+CREATE TABLE discussion_group_post_reaction_notices (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    post_id INT UNSIGNED NOT NULL,
+    notified_at DATETIME NOT NULL,
+    UNIQUE INDEX idx_dgprn_post (post_id),
+    CONSTRAINT fk_dgprn_post FOREIGN KEY (post_id) REFERENCES discussion_group_posts(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE discussion_group_reply_reaction_notices (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    reply_id INT UNSIGNED NOT NULL,
+    notified_at DATETIME NOT NULL,
+    UNIQUE INDEX idx_dgrrn_reply (reply_id),
+    CONSTRAINT fk_dgrrn_reply FOREIGN KEY (reply_id) REFERENCES discussion_group_replies(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

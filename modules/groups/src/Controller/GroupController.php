@@ -18,6 +18,7 @@ use Core\Security\CsrfGuard;
 use Core\Security\Role;
 use Modules\Groups\Repository\DiscussionGroup;
 use Modules\Groups\Repository\GroupRepository;
+use Modules\Groups\Repository\PostRepository;
 use Modules\Groups\Service\AuthorOptionsService;
 use Modules\Groups\Service\GroupAccessService;
 use Modules\Groups\Service\GroupListItem;
@@ -28,6 +29,8 @@ use Modules\Groups\Service\GroupSessionContext;
 use Modules\Groups\Service\GroupSessionContextFactory;
 use Modules\Groups\Service\PostMediaService;
 use Modules\Groups\Service\PostService;
+use Modules\Groups\Service\SectionGroupSyncService;
+use Modules\Groups\Support\RejectedDraft;
 use Twig\Environment;
 
 /**
@@ -50,7 +53,9 @@ class GroupController extends AbstractController
         private SectionService $sectionService,
         private GroupFeedService $feedService,
         private PostMediaService $postMediaService,
-        private AuthorOptionsService $authorOptionsService
+        private AuthorOptionsService $authorOptionsService,
+        private PostRepository $postRepository,
+        private ?SectionGroupSyncService $sectionGroupSyncService = null
     ) {
     }
 
@@ -62,6 +67,15 @@ class GroupController extends AbstractController
     public function index(Request $request, array $params): Response
     {
         $context = $this->context();
+
+        // Self-healing, the same pattern as Core\Badge\BadgeService::
+        // syncSectionReferentBadges(): the group list is where a missing
+        // section group would be noticed, so this is where it gets
+        // created, without waiting for tonight's task and without a core
+        // hook into the Desk import (Service\SectionGroupSyncService
+        // explains why there is none). Idempotent, so on every run after
+        // the first it is one SELECT per section and no write at all.
+        $this->sectionGroupSyncService?->sync($context->effectiveScoutYearId);
 
         return $this->render('@groups/list.html.twig', [
             'items' => $this->decorate($this->listService->findCurrent($context)),
@@ -120,7 +134,58 @@ class GroupController extends AbstractController
             'max_body_length' => PostService::MAX_BODY_LENGTH,
             'max_media_per_post' => PostMediaService::MAX_MEDIA_PER_POST,
             'video_upload_allowed' => $this->postMediaService->videoUploadAllowed(),
+            // A message the AI moderation just refused, handed back to
+            // its author so the composer is not emptied. Read-and-clear:
+            // it survives exactly this one render, and lives nowhere but
+            // this member's own session (Support\RejectedDraft).
+            'rejected_draft' => RejectedDraft::take(),
         ]);
+    }
+
+    /**
+     * GET /groups/{id}/posts/{postId} — where a notification's deep link
+     * lands.
+     *
+     * A real server route rather than a `#post-123` fragment, for one
+     * reason: a fragment is resolved by the browser and never reaches the
+     * server, so a link forwarded to somebody outside the group would
+     * render them the group page and only then fail to scroll. Here
+     * membership is re-checked before anything is rendered, and a
+     * non-member gets the module's usual 404 — never a 403, which would
+     * confirm the group exists (prompt 3's rule, unchanged).
+     *
+     * The post itself is only used to check it belongs to the authorised
+     * group; the landing page is the group's own feed, anchored on the
+     * post. Rendering one post alone would be a second, parallel rendering
+     * path for exactly the thing show() already renders.
+     *
+     * @param array<string, string> $params
+     */
+    public function post(Request $request, array $params): Response
+    {
+        $context = $this->context();
+        $group = $this->readableGroup($params, $context);
+        if ($group === null) {
+            return new Response('Not Found', 404);
+        }
+
+        $post = $this->postRepository->findById((int) ($params['postId'] ?? 0));
+        // A post id from another group is a 404, not someone else's post —
+        // the group in the URL is what was authorised.
+        if ($post === null || $post->groupId !== $group->id) {
+            return new Response('Not Found', 404);
+        }
+
+        // A hidden post is not reachable through its own deep link either,
+        // for anyone but a moderator: the notification that linked here
+        // predates the hiding, and following it must not become the way
+        // around it (prompt 9 — the hidden state is enforced in the query,
+        // and this is one more query).
+        if ($post->isHidden() && !$this->accessService->canModerate($group, $context)) {
+            return new Response('Not Found', 404);
+        }
+
+        return $this->redirect('/groups/' . $group->id . '#post-' . $post->id);
     }
 
     /**
@@ -142,7 +207,14 @@ class GroupController extends AbstractController
 
         return $this->render('@groups/gallery.html.twig', [
             'group' => $group,
-            'media' => $this->postMediaService->groupGalleryMedia($group),
+            // The media of auto-hidden posts and replies are filtered out
+            // here too: hiding a message that no longer shows its photos
+            // in the feed but still shows them one click away in the
+            // gallery would hide nothing at all.
+            'media' => $this->postMediaService->groupGalleryMedia(
+                $group,
+                $this->accessService->canModerate($group, $context)
+            ),
         ]);
     }
 

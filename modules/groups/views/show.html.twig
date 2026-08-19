@@ -9,13 +9,35 @@
 {% block content %}
     {% include '@groups/partials/group_header.html.twig' %}
 
+    {#
+      A message the AI moderation refused, given back to its own author.
+      This is the only place any part of a refused message is ever shown,
+      and it is shown only to the person who wrote it: it travelled here
+      in their own session and has already been cleared
+      (Support\RejectedDraft). Nothing about it is stored or journaled.
+    #}
+    {% if rejected_draft|default(null) %}
+        <div class="alert alert-warning" role="alert">
+            <p class="fw-semibold mb-1">Votre message n'a pas été publié</p>
+            {% if rejected_draft.suggestion %}
+                <p class="mb-1 small">Voici une reformulation possible, que vous pouvez reprendre telle quelle :</p>
+                <p class="mb-2 fst-italic groups-rejected-suggestion">{{ rejected_draft.suggestion }}</p>
+            {% endif %}
+            {% if rejected_draft.post_id %}
+                <p class="mb-0 small">Votre texte a été conservé ci-dessous, dans le champ de réponse du message concerné.</p>
+            {% else %}
+                <p class="mb-0 small">Votre texte a été conservé dans le formulaire ci-dessous.</p>
+            {% endif %}
+        </div>
+    {% endif %}
+
     {% if post_permission.allowed %}
         <form method="post" action="/groups/{{ group.id }}/posts" enctype="multipart/form-data" class="card mb-3" id="groups-post-form">
             <div class="card-body">
                 <label class="form-label small mb-1" for="post-body">Écrire un message</label>
                 {{ csrf_field()|raw }}
                 <textarea class="form-control mb-2" id="post-body" name="body" rows="3"
-                          maxlength="{{ max_body_length }}" placeholder="Votre message…"></textarea>
+                          maxlength="{{ max_body_length }}" placeholder="Votre message…">{% if rejected_draft|default(null) and not rejected_draft.post_id %}{{ rejected_draft.body }}{% endif %}</textarea>
 
                 {% if author_options is not empty %}
                     <label class="form-label small mb-1" for="post-author">Publier en tant que</label>

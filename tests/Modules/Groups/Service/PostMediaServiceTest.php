@@ -49,7 +49,7 @@ class PostMediaServiceTest extends TestCase
 
     private function service(DelegatedAlbumManager $manager): PostMediaService
     {
-        return new PostMediaService($manager, $this->postMediaRepo, $this->groupRepo);
+        return new PostMediaService($manager, $this->postMediaRepo, $this->groupRepo, new \Modules\Groups\Repository\ReplyRepository($this->pdo));
     }
 
     public function testEnsureAlbumIdCreatesTheAlbumOnFirstUseAndCachesIt(): void

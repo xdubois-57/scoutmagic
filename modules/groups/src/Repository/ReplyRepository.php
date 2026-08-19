@@ -56,17 +56,20 @@ class ReplyRepository
      *
      * @return Reply[]
      */
-    public function findPage(int $postId, int $limit, ?int $afterId = null): array
+    public function findPage(int $postId, int $limit, ?int $afterId = null, bool $includeHidden = false): array
     {
+        $hiddenClause = $includeHidden ? '' : ' AND hidden_at IS NULL';
         // LIMIT is interpolated, never bound: it is an int this class's
         // callers compute, and MySQL will not accept a bound parameter
         // there in emulation-off mode. Same precedent as
         // Repository\PostRepository::findPage().
         if ($afterId === null) {
-            $sql = 'SELECT * FROM discussion_group_replies WHERE post_id = ? ORDER BY id ASC LIMIT ' . $limit;
+            $sql = 'SELECT * FROM discussion_group_replies WHERE post_id = ?' . $hiddenClause
+                . ' ORDER BY id ASC LIMIT ' . $limit;
             $params = [$postId];
         } else {
-            $sql = 'SELECT * FROM discussion_group_replies WHERE post_id = ? AND id > ? ORDER BY id ASC LIMIT ' . $limit;
+            $sql = 'SELECT * FROM discussion_group_replies WHERE post_id = ? AND id > ?' . $hiddenClause
+                . ' ORDER BY id ASC LIMIT ' . $limit;
             $params = [$postId, $afterId];
         }
 
@@ -92,19 +95,25 @@ class ReplyRepository
      *         both keyed by post id; `replies` holds at most $perPost per
      *         post, oldest first, and `counts` the true total.
      */
-    public function findFirstForPosts(array $postIds, int $perPost): array
+    public function findFirstForPosts(array $postIds, int $perPost, bool $includeHidden = false): array
     {
         if ($postIds === []) {
             return ['replies' => [], 'counts' => []];
         }
 
         $placeholders = implode(',', array_fill(0, count($postIds), '?'));
+        // Applied INSIDE the window function's own subquery, not around
+        // it: filtering after ROW_NUMBER() would let a hidden reply
+        // consume one of the $perPost ranks and silently shorten the
+        // visible list. The count query below carries the same clause, so
+        // "3 réponses" never counts something the reader cannot see.
+        $hiddenClause = $includeHidden ? '' : ' AND hidden_at IS NULL';
 
         $stmt = $this->pdo->prepare(
             "SELECT * FROM (
                  SELECT *, ROW_NUMBER() OVER (PARTITION BY post_id ORDER BY id ASC) AS row_num
                  FROM discussion_group_replies
-                 WHERE post_id IN ({$placeholders})
+                 WHERE post_id IN ({$placeholders}){$hiddenClause}
              ) ranked
              WHERE row_num <= " . $perPost . '
              ORDER BY post_id ASC, id ASC'
@@ -118,7 +127,7 @@ class ReplyRepository
 
         $countStmt = $this->pdo->prepare(
             "SELECT post_id, COUNT(*) AS total FROM discussion_group_replies
-             WHERE post_id IN ({$placeholders}) GROUP BY post_id"
+             WHERE post_id IN ({$placeholders}){$hiddenClause} GROUP BY post_id"
         );
         $countStmt->execute($postIds);
 
@@ -130,12 +139,52 @@ class ReplyRepository
         return ['replies' => $replies, 'counts' => $counts];
     }
 
-    public function countForPost(int $postId): int
+    public function countForPost(int $postId, bool $includeHidden = false): int
     {
-        $stmt = $this->pdo->prepare('SELECT COUNT(*) FROM discussion_group_replies WHERE post_id = ?');
+        $hiddenClause = $includeHidden ? '' : ' AND hidden_at IS NULL';
+        $stmt = $this->pdo->prepare(
+            'SELECT COUNT(*) FROM discussion_group_replies WHERE post_id = ?' . $hiddenClause
+        );
         $stmt->execute([$postId]);
 
         return (int) $stmt->fetchColumn();
+    }
+
+    public function setHiddenAt(int $id, ?string $hiddenAt): void
+    {
+        $stmt = $this->pdo->prepare('UPDATE discussion_group_replies SET hidden_at = ? WHERE id = ?');
+        $stmt->execute([$hiddenAt, $id]);
+    }
+
+    /** @see Repository\PostRepository::restore() — same one-write contract. */
+    public function restore(int $id): void
+    {
+        $stmt = $this->pdo->prepare(
+            'UPDATE discussion_group_replies SET hidden_at = NULL, moderation_cleared = 1 WHERE id = ?'
+        );
+        $stmt->execute([$id]);
+    }
+
+    /**
+     * Gallery media belonging to HIDDEN replies of a group — what
+     * Service\PostMediaService subtracts from "Galerie du groupe" for a
+     * non-moderator, so a hidden reply's image does not remain reachable
+     * through the gallery after the reply itself disappeared from the
+     * feed.
+     *
+     * @return int[]
+     */
+    public function findMediaIdsForHiddenRepliesInGroup(int $groupId): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT r.gallery_media_id FROM discussion_group_replies r
+             INNER JOIN discussion_group_posts p ON p.id = r.post_id
+             WHERE p.group_id = ? AND r.gallery_media_id IS NOT NULL
+               AND (r.hidden_at IS NOT NULL OR p.hidden_at IS NOT NULL)'
+        );
+        $stmt->execute([$groupId]);
+
+        return array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN));
     }
 
     /**
@@ -182,7 +231,9 @@ class ReplyRepository
             (string) $row['body'],
             $row['gallery_media_id'] !== null ? (int) $row['gallery_media_id'] : null,
             $row['edited_at'] !== null ? (string) $row['edited_at'] : null,
-            (string) $row['created_at']
+            (string) $row['created_at'],
+            $row['hidden_at'] !== null ? (string) $row['hidden_at'] : null,
+            (bool) $row['moderation_cleared']
         );
     }
 }

@@ -2231,7 +2231,22 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
 
     $groupsPostRepo = new \Modules\Groups\Repository\PostRepository($pdo);
     $groupsActivityService = new \Modules\Groups\Service\GroupActivityService($groupsGroupRepo, $groupsPostRepo);
-    $groupsPostService = new \Modules\Groups\Service\PostService($groupsPostRepo, $groupsActivityService);
+
+    // Flood protection and the a-priori AI check (prompt 9). The
+    // moderation service is an OPTIONAL llm_connector consumer
+    // (ARCHITECTURE.md §7.5): $llmConnectorForRgpd is already null when
+    // that module is disabled, and Service\ModerationService degrades to
+    // "unavailable", which means every post is published unmoderated
+    // rather than refused. `groups` deliberately does NOT reuse retro's
+    // own moderation service — see Service\ModerationService's docblock.
+    $groupsRateLimitService = new \Modules\Groups\Service\RateLimitService(
+        new \Modules\Groups\Repository\RateLimitRepository($pdo)
+    );
+    $groupsModerationService = new \Modules\Groups\Service\ModerationService($settingService, $llmConnectorForRgpd);
+
+    $groupsPostService = new \Modules\Groups\Service\PostService(
+        $groupsPostRepo, $groupsActivityService, $groupsRateLimitService, $groupsModerationService
+    );
 
     // gallery is a hard dependency (module.json's requires) — this block
     // only ever runs when it is enabled, so $galleryDelegatedAlbumManager
@@ -2243,8 +2258,13 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
     // and GalleryController.
     \assert(isset($galleryDelegatedAlbumManager, $galleryLinkPreviewFetcher));
     $groupsPostMediaRepo = new \Modules\Groups\Repository\PostMediaRepository($pdo);
+    $groupsReplyRepo = new \Modules\Groups\Repository\ReplyRepository($pdo);
+    // The reply repository is needed here, not only by the reply stack
+    // below: the group gallery has to drop the media of hidden REPLIES as
+    // well as of hidden posts, or the very photo that got something hidden
+    // stays one click away on another page.
     $groupsPostMediaService = new \Modules\Groups\Service\PostMediaService(
-        $galleryDelegatedAlbumManager, $groupsPostMediaRepo, $groupsGroupRepo
+        $galleryDelegatedAlbumManager, $groupsPostMediaRepo, $groupsGroupRepo, $groupsReplyRepo
     );
 
     $groupsPostLinkRepo = new \Modules\Groups\Repository\PostLinkRepository($pdo);
@@ -2259,9 +2279,9 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
     // the same class over its two tables — see Repository\ReactionRepository
     // for why one class serves both, and modules/groups/schema.sql for why
     // there are two tables rather than one polymorphic one.
-    $groupsReplyRepo = new \Modules\Groups\Repository\ReplyRepository($pdo);
     $groupsReplyService = new \Modules\Groups\Service\ReplyService(
-        $groupsReplyRepo, $groupsActivityService, $groupsPostMediaService
+        $groupsReplyRepo, $groupsActivityService, $groupsPostMediaService,
+        $groupsRateLimitService, $groupsModerationService
     );
     $groupsReactionService = new \Modules\Groups\Service\ReactionService(
         \Modules\Groups\Repository\ReactionRepository::forPosts($pdo),
@@ -2269,8 +2289,55 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
         $groupsActivityService
     );
     $groupsAuthorResolver = new \Modules\Groups\Service\PostAuthorResolver($memberService, $userAccountRepo);
+    // One group per visible, active section per scout year (prompt 11).
+    // Injected into the list controller so the page itself heals a
+    // missing group, exactly as Core\Badge\BadgeService's own sync does
+    // — the nightly Task\EnsureSectionGroupsHandler runs the same
+    // idempotent service, and there is deliberately no core hook into the
+    // Desk import.
+    $groupsSectionGroupSync = new \Modules\Groups\Service\SectionGroupSyncService(
+        $sectionService, $groupsGroupRepo, $groupsSectionRepo
+    );
+
+    // Notifications (prompt 10). The recipient resolver reads membership
+    // group-first (the reverse of GroupAccessService's account-first
+    // read) and resolves members to accounts through the same blind index
+    // that backs login — no new lookup, no address decrypted on the way.
+    // $roleResolver/$scoutYearService are what let it recognise a site
+    // admin, which is a derived role and not a stored flag.
+    $groupsRecipientResolver = new \Modules\Groups\Service\GroupRecipientResolver(
+        $groupsMemberRepo,
+        $groupsSectionRepo,
+        $sectionMembershipRepository,
+        $memberYearRepo,
+        $memberEmailRepository,
+        $userAccountRepo,
+        $encryptionService,
+        $roleResolver,
+        $scoutYearService
+    );
+    $groupsNotificationService = new \Modules\Groups\Service\GroupNotificationService(
+        $groupsRecipientResolver,
+        new \Modules\Groups\Service\ReactionNoticeThrottle(
+            \Modules\Groups\Repository\ReactionNoticeRepository::forPosts($pdo),
+            \Modules\Groups\Repository\ReactionNoticeRepository::forReplies($pdo),
+            $settingService
+        ),
+        $notificationService
+    );
+
+    // Reporting and auto-hiding (prompt 9): two report tables behind one
+    // class, the same shape as the two reaction ones above.
+    $groupsReportService = new \Modules\Groups\Service\ReportService(
+        \Modules\Groups\Repository\ReportRepository::forPosts($pdo),
+        \Modules\Groups\Repository\ReportRepository::forReplies($pdo),
+        $groupsPostRepo,
+        $groupsReplyRepo,
+        $settingService,
+        $journalService
+    );
     $groupsReplyPresenter = new \Modules\Groups\Service\ReplyPresenter(
-        $groupsAuthorResolver, $groupsReplyService, $groupsReactionService
+        $groupsAuthorResolver, $groupsReplyService, $groupsReactionService, $groupsReportService
     );
     $groupsAuthorOptionsService = new \Modules\Groups\Service\AuthorOptionsService($groupsAccessService, $memberService);
 
@@ -2282,7 +2349,8 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
         $groupsPostLinkRepo,
         $groupsReplyRepo,
         $groupsReplyPresenter,
-        $groupsReactionService
+        $groupsReactionService,
+        $groupsReportService
     );
 
     // Group files are readable only by the group's own members —
@@ -2309,7 +2377,7 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
         new \Modules\Groups\Controller\GroupController(
             $twig, $groupsGroupRepo, $groupsListService, $groupsAccessService, $groupsService,
             $groupsContextFactory, $sectionService, $groupsFeedService, $groupsPostMediaService,
-            $groupsAuthorOptionsService
+            $groupsAuthorOptionsService, $groupsPostRepo, $groupsSectionGroupSync
         )
     );
     $frontController->registerController(
@@ -2317,21 +2385,30 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
         new \Modules\Groups\Controller\PostController(
             $twig, $groupsGroupRepo, $groupsPostRepo, $groupsAccessService, $groupsFeedService,
             $groupsPostService, $groupsContextFactory, $groupsPostMediaService, $groupsPostLinkService,
-            $groupsReplyService, $groupsAuthorOptionsService
+            $groupsReplyService, $groupsAuthorOptionsService, $groupsReportService,
+            $groupsNotificationService
         )
     );
     $frontController->registerController(
         \Modules\Groups\Controller\ReplyController::class,
         new \Modules\Groups\Controller\ReplyController(
             $twig, $groupsGroupRepo, $groupsPostRepo, $groupsReplyRepo, $groupsAccessService,
-            $groupsReplyService, $groupsReplyPresenter, $groupsPostMediaService, $groupsContextFactory
+            $groupsReplyService, $groupsReplyPresenter, $groupsPostMediaService, $groupsContextFactory,
+            $groupsReportService, $groupsNotificationService
         )
     );
     $frontController->registerController(
         \Modules\Groups\Controller\ReactionController::class,
         new \Modules\Groups\Controller\ReactionController(
             $twig, $groupsGroupRepo, $groupsPostRepo, $groupsReplyRepo, $groupsAccessService,
-            $groupsReactionService, $groupsContextFactory
+            $groupsReactionService, $groupsContextFactory, $groupsNotificationService
+        )
+    );
+    $frontController->registerController(
+        \Modules\Groups\Controller\ReportController::class,
+        new \Modules\Groups\Controller\ReportController(
+            $twig, $groupsGroupRepo, $groupsPostRepo, $groupsReplyRepo, $groupsAccessService,
+            $groupsReportService, $groupsContextFactory, $groupsNotificationService
         )
     );
     $frontController->registerController(

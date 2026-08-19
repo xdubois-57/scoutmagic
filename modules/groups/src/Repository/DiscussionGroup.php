@@ -21,7 +21,9 @@ class DiscussionGroup
         public readonly ?int $sectionId,
         public readonly ?string $closedAt,
         public readonly string $lastActivityAt,
-        public readonly int $createdByMemberId,
+        // NULL for a group Task\EnsureSectionGroupsHandler created — see
+        // schema.sql for why an automatic creation names no creator.
+        public readonly ?int $createdByMemberId,
         public readonly string $createdAt,
         // Last, nullable, so every existing positional construction of
         // this DTO (tests included) keeps working unchanged — same

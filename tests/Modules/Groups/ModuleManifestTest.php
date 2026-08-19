@@ -37,7 +37,7 @@ class ModuleManifestTest extends TestCase
      */
     public function testTheVersionIsBumpedWheneverTheSchemaChanges(): void
     {
-        $this->assertSame('1.4.0', $this->manifest->version);
+        $this->assertSame('1.7.0', $this->manifest->version);
     }
 
     /**
@@ -168,6 +168,167 @@ class ModuleManifestTest extends TestCase
         $this->assertSame([], $this->manifest->offline);
         $this->assertSame([], $this->manifest->cookies);
         $this->assertSame([], $this->manifest->storage);
-        $this->assertSame([], $this->manifest->settings);
+    }
+
+    /**
+     * Both settings are the module's own, and both have to keep working
+     * with the AI module absent — which is exactly what the AI one's
+     * description says out loud, since a switch that silently does
+     * nothing is worse than no switch.
+     */
+    public function testItDeclaresTheTwoModerationSettings(): void
+    {
+        $keys = array_column($this->manifest->settings, 'key');
+        $this->assertSame(
+            [
+                'groups_report_hide_threshold',
+                'groups_ai_moderation_enabled',
+                'groups_reaction_notification_window_minutes',
+                'groups_inactivity_close_months',
+                'groups_post_retention_months',
+                'groups_closed_purge_months',
+            ],
+            $keys
+        );
+
+        $byKey = array_column($this->manifest->settings, null, 'key');
+        $this->assertSame('2', $byKey['groups_report_hide_threshold']['default_value']);
+        $this->assertSame('number', $byKey['groups_report_hide_threshold']['type']);
+
+        // Default ON, and harmless when llm_connector is disabled:
+        // Service\ModerationService then simply reports itself
+        // unavailable and every message is published unchecked.
+        $this->assertSame('1', $byKey['groups_ai_moderation_enabled']['default_value']);
+        $this->assertSame('boolean', $byKey['groups_ai_moderation_enabled']['type']);
+        $this->assertStringContainsString(
+            'Connecteur IA',
+            $byKey['groups_ai_moderation_enabled']['description']
+        );
+    }
+
+    /**
+     * The four types this module can send, exactly as the preferences
+     * page will list them (grouped by `group`, labelled in French).
+     */
+    public function testItDeclaresTheFourNotificationTypes(): void
+    {
+        $byId = array_column($this->manifest->notifications, null, 'id');
+
+        $this->assertSame(
+            [
+                'groups.post_published',
+                'groups.reply_received',
+                'groups.reaction_received',
+                'groups.item_reported',
+            ],
+            array_keys($byId)
+        );
+
+        foreach ($byId as $id => $type) {
+            $this->assertSame('Groupes', $type['group'], "{$id} must sit in the Groupes preferences group");
+            $this->assertSame('identified', $type['role_min'], "{$id} audience is membership, so its floor is identified");
+            $this->assertNotSame('', trim($type['label']));
+            $this->assertNotSame('', trim($type['description']));
+        }
+    }
+
+    /**
+     * Email is off — and LOCKED off — on all four: none of these is worth
+     * an email, and a member who switched it on would get one per
+     * reaction (module spec, "do not send email for any of these").
+     */
+    public function testNoNotificationTypeCanEverSendEmail(): void
+    {
+        foreach ($this->manifest->notifications as $type) {
+            $this->assertSame('default_off', $type['channels']['email'], "{$type['id']} must not default to email");
+        }
+    }
+
+    public function testTheChannelDefaultsMatchHowNoisyEachTypeIs(): void
+    {
+        $byId = array_column($this->manifest->notifications, null, 'id');
+
+        // A new post and a reply are worth a buzz.
+        $this->assertSame('default_on', $byId['groups.post_published']['channels']['in_app']);
+        $this->assertSame('default_on', $byId['groups.post_published']['channels']['push']);
+        $this->assertSame('default_on', $byId['groups.reply_received']['channels']['push']);
+
+        // A reaction is not: it is in the centre, but it does not
+        // interrupt anyone by default.
+        $this->assertSame('default_on', $byId['groups.reaction_received']['channels']['in_app']);
+        $this->assertSame('default_off', $byId['groups.reaction_received']['channels']['push']);
+    }
+
+    /**
+     * The one locked channel in this module: a moderator must not be able
+     * to switch off the only signal that something in their group needs
+     * their attention, so the in-app channel is 'on' rather than
+     * 'default_on' — NotificationService::channelEnabled() ignores any
+     * preference row for a locked channel.
+     */
+    public function testAModeratorCannotSwitchOffTheReportNotificationInApp(): void
+    {
+        $byId = array_column($this->manifest->notifications, null, 'id');
+
+        $this->assertSame('on', $byId['groups.item_reported']['channels']['in_app']);
+        $this->assertSame('default_on', $byId['groups.item_reported']['channels']['push']);
+    }
+
+    /**
+     * Every retention duration is a setting with a real French
+     * description — and none of them is per group: a per-group override
+     * would let a moderator quietly opt their own group out of the
+     * retention bound.
+     */
+    public function testTheThreeLifecycleDurationsAreSettingsWithDescriptions(): void
+    {
+        $byKey = array_column($this->manifest->settings, null, 'key');
+
+        foreach ([
+            'groups_inactivity_close_months' => '12',
+            'groups_post_retention_months' => '24',
+            'groups_closed_purge_months' => '12',
+        ] as $key => $default) {
+            $this->assertArrayHasKey($key, $byKey);
+            $this->assertSame('number', $byKey[$key]['type'], "{$key} is a duration in months");
+            $this->assertSame($default, $byKey[$key]['default_value']);
+            $this->assertGreaterThan(60, mb_strlen($byKey[$key]['description']), "{$key} needs a real description");
+        }
+    }
+
+    /**
+     * The four lifecycle tasks, each declared so Core\Scheduler can find
+     * its handler. Every one of them reschedules itself — there is no
+     * first-class recurring task to declare instead.
+     */
+    public function testItDeclaresTheFourLifecycleTasks(): void
+    {
+        $byKey = array_column($this->manifest->scheduledTasks, null, 'key');
+
+        foreach ([
+            'ensure_section_groups' => \Modules\Groups\Task\EnsureSectionGroupsHandler::class,
+            'close_inactive_groups' => \Modules\Groups\Task\CloseInactiveGroupsHandler::class,
+            'purge_posts' => \Modules\Groups\Task\PurgePostsHandler::class,
+            'purge_closed_groups' => \Modules\Groups\Task\PurgeClosedGroupsHandler::class,
+        ] as $key => $handler) {
+            $this->assertArrayHasKey($key, $byKey);
+            $this->assertSame($handler, $byKey[$key]['handler']);
+            $this->assertTrue(class_exists($handler), "{$handler} must exist");
+        }
+    }
+
+    /**
+     * The purge that keeps discussion_group_rate_limits from growing
+     * without bound — declared here, self-rescheduling once it runs
+     * (Task\PurgeRateLimitHandler).
+     */
+    public function testItDeclaresTheRateLimitPurgeTask(): void
+    {
+        $byKey = array_column($this->manifest->scheduledTasks, null, 'key');
+        $this->assertArrayHasKey('purge_rate_limits', $byKey);
+        $this->assertSame(
+            \Modules\Groups\Task\PurgeRateLimitHandler::class,
+            $byKey['purge_rate_limits']['handler']
+        );
     }
 }

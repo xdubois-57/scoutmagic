@@ -29,12 +29,20 @@ class Reply
         public readonly string $body,
         public readonly ?int $galleryMediaId,
         public readonly ?string $editedAt,
-        public readonly string $createdAt
+        public readonly string $createdAt,
+        public readonly ?string $hiddenAt = null,
+        public readonly bool $moderationCleared = false
     ) {
     }
 
     public function isEdited(): bool
     {
         return $this->editedAt !== null;
+    }
+
+    /** @see Post::isHidden() — same contract one level down. */
+    public function isHidden(): bool
+    {
+        return $this->hiddenAt !== null;
     }
 }

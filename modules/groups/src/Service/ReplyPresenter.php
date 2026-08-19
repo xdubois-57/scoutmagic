@@ -31,7 +31,8 @@ class ReplyPresenter
     public function __construct(
         private PostAuthorResolver $authorResolver,
         private ReplyService $replyService,
-        private ReactionService $reactionService
+        private ReactionService $reactionService,
+        private ReportService $reportService
     ) {
     }
 
@@ -53,13 +54,13 @@ class ReplyPresenter
             return [];
         }
 
-        // Two batched queries for the whole set of replies, never one per
-        // reply — same no-N+1 contract as the feed's own author labels.
+        // A fixed handful of batched queries for the whole set of
+        // replies, never one per reply — same no-N+1 contract as the
+        // feed's own author labels.
         $labels = $this->authorResolver->resolve($replies, $scoutYearId);
-        $reactions = $this->reactionService->forReplies(
-            array_map(fn(Reply $r) => $r->id, $replies),
-            $context->linkedMemberIds
-        );
+        $replyIds = array_map(fn(Reply $r) => $r->id, $replies);
+        $reactions = $this->reactionService->forReplies($replyIds, $context->linkedMemberIds);
+        $reports = $this->reportService->forReplies($replyIds, $context->linkedMemberIds);
 
         return array_map(
             fn(Reply $reply) => [
@@ -76,6 +77,15 @@ class ReplyPresenter
                 ),
                 'can_edit' => $this->replyService->canEdit($reply, $context),
                 'can_delete' => $this->replyService->canDelete($reply, $context, $canModerate),
+                // Same contract as a post's: offered to everyone but the
+                // author, and only until they have used it. It says
+                // nothing about anyone else's reports or their outcome.
+                'can_report' => !isset($reports['reported'][$reply->id])
+                    && !in_array($reply->authorMemberId, $context->linkedMemberIds, true),
+                // The hidden state and the count are moderator-only, so a
+                // member never learns a reply exists but is hidden.
+                'is_hidden' => $canModerate && $reply->isHidden(),
+                'report_count' => $canModerate ? ($reports['counts'][$reply->id] ?? 0) : 0,
             ],
             $replies
         );
