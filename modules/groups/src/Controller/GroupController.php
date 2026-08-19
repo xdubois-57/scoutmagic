@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Modules\Groups\Controller;
 
 use Core\Http\Controller\AbstractController;
+use Core\Http\FlashMessage;
 use Core\Http\Request;
 use Core\Http\Response;
 use Core\Member\SectionService;
@@ -26,7 +27,9 @@ use Modules\Groups\Service\GroupFeedService;
 use Modules\Groups\Service\GroupListService;
 use Modules\Groups\Service\GroupService;
 use Modules\Groups\Service\GroupSessionContext;
+use Modules\Groups\Service\GroupMembershipService;
 use Modules\Groups\Service\GroupSessionContextFactory;
+use Modules\Groups\Service\ReopenOutcome;
 use Modules\Groups\Service\PostMediaService;
 use Modules\Groups\Service\PostService;
 use Modules\Groups\Service\SectionGroupSyncService;
@@ -55,7 +58,8 @@ class GroupController extends AbstractController
         private PostMediaService $postMediaService,
         private AuthorOptionsService $authorOptionsService,
         private PostRepository $postRepository,
-        private ?SectionGroupSyncService $sectionGroupSyncService = null
+        private ?SectionGroupSyncService $sectionGroupSyncService = null,
+        private ?GroupMembershipService $membershipService = null
     ) {
     }
 
@@ -124,6 +128,12 @@ class GroupController extends AbstractController
             'group' => $group,
             'badges' => $this->badges($group, $context),
             'can_moderate' => $canModerate,
+            // A past-year group stays a read-only archive (prompt 3), so
+            // the button is not offered — and the header says why rather
+            // than leaving a moderator wondering where it went.
+            'can_reopen' => $canModerate
+                && $group->isClosed()
+                && ($group->scoutYearId === null || $group->scoutYearId === $context->effectiveScoutYearId),
             'post_permission' => $this->accessService->canPost($group, $context),
             'pinned' => $page->pinned,
             'posts' => $page->posts,
@@ -243,6 +253,24 @@ class GroupController extends AbstractController
         $name = mb_substr($name, 0, 150);
 
         $sectionId = (int) $request->getBody('section_id', 0);
+
+        // The quota covers invitation groups only, and is checked here
+        // rather than in the service because refusing needs a French
+        // sentence naming the limit. A section group is created by the
+        // scheduled task, never by a person — a chief creating one by
+        // hand is filling a gap that task will fill anyway, so it is not
+        // clutter one person chose to make.
+        if ($sectionId === 0 && $this->membershipService !== null
+            && !$this->membershipService->canCreateAnotherGroup($creatorMemberId)
+        ) {
+            FlashMessage::set('error', sprintf(
+                'Vous avez déjà %d groupes ouverts, soit le maximum autorisé. Clôturez-en un avant d\'en créer un nouveau.',
+                $this->membershipService->creationQuota()
+            ));
+
+            return $this->redirect('/groups');
+        }
+
         if ($sectionId > 0) {
             $groupId = $this->groupService->createSectionGroup($name, $sectionId, $context->effectiveScoutYearId, $creatorMemberId);
         } else {
@@ -253,6 +281,78 @@ class GroupController extends AbstractController
         }
 
         return $this->redirect('/groups/' . $groupId);
+    }
+
+    /**
+     * POST /groups/{id}/close — moderator only.
+     *
+     * The manual counterpart of Task\CloseInactiveGroupsHandler: a
+     * project that is over does not need to wait months for the
+     * inactivity window to notice. Closing is read-only, never hiding —
+     * the group stays fully visible to its members.
+     *
+     * @param array<string, string> $params
+     */
+    public function close(Request $request, array $params): Response
+    {
+        return $this->moderatorAction($params, function (DiscussionGroup $group, GroupSessionContext $context): Response {
+            $this->membershipService?->close($group, $context->userAccountId);
+            FlashMessage::set('success', 'Le groupe est clôturé : il reste consultable, mais n\'accepte plus de nouvelle publication.');
+
+            return $this->redirect('/groups/' . $group->id);
+        });
+    }
+
+    /**
+     * POST /groups/{id}/reopen — moderator only.
+     *
+     * Without this, automatic closure would be one-way: a project group
+     * dormant between two camps would close itself and nobody could wake
+     * it up. Reopening resets last_activity_at, or the inactivity task
+     * would close it again on its very next run.
+     *
+     * @param array<string, string> $params
+     */
+    public function reopen(Request $request, array $params): Response
+    {
+        return $this->moderatorAction($params, function (DiscussionGroup $group, GroupSessionContext $context): Response {
+            if ($this->membershipService === null) {
+                return new Response('Not Found', 404);
+            }
+
+            $outcome = $this->membershipService->reopen($group, $context->effectiveScoutYearId, $context->userAccountId);
+            FlashMessage::set($outcome === ReopenOutcome::REOPENED ? 'success' : 'error', $outcome->message());
+
+            return $this->redirect('/groups/' . $group->id);
+        });
+    }
+
+    /**
+     * The shared shape of both group-state actions: CSRF, membership
+     * (404 — never 403, which would confirm the group exists), then the
+     * moderator check (403, because a member of the group already knows
+     * it exists).
+     *
+     * @param array<string, string> $params
+     * @param callable(DiscussionGroup, GroupSessionContext): Response $action
+     */
+    private function moderatorAction(array $params, callable $action): Response
+    {
+        if (!CsrfGuard::validateRequest()) {
+            return new Response('Jeton CSRF invalide.', 403);
+        }
+
+        $context = $this->context();
+        $group = $this->readableGroup($params, $context);
+        if ($group === null) {
+            return new Response('Not Found', 404);
+        }
+
+        if (!$this->accessService->canModerate($group, $context)) {
+            return new Response('Seul un modérateur du groupe peut effectuer cette action.', 403);
+        }
+
+        return $action($group, $context);
     }
 
     /**

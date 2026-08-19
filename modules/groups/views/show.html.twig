@@ -58,11 +58,6 @@
                             <input type="file" id="groups-media-input" class="visually-hidden"
                                    accept="{{ video_upload_allowed ? 'image/*,video/*' : 'image/*' }}" multiple>
                         </label>
-                        <label class="btn btn-outline-secondary d-flex align-items-center mb-0" style="min-height:44px;">
-                            <i class="bi bi-camera me-1"></i> Appareil photo
-                            <input type="file" id="groups-media-capture" class="visually-hidden"
-                                   accept="image/*" capture="environment">
-                        </label>
                         <button type="button" class="btn btn-outline-secondary d-flex align-items-center" style="min-height:44px;"
                                 id="groups-link-toggle">
                             <i class="bi bi-link-45deg me-1"></i> Lien
@@ -185,14 +180,16 @@
         sync();
     }
 
-    ['groups-media-input', 'groups-media-capture'].forEach((id) => {
-        const input = document.getElementById(id);
-        if (!input) return;
-        input.addEventListener('change', () => {
-            if (input.files) addFiles(input.files);
-            input.value = '';
+    // One picker only: every mobile OS already offers "take a photo"
+    // inside its own file chooser, so a separate camera button was a
+    // second door onto the same room.
+    const mediaInput = document.getElementById('groups-media-input');
+    if (mediaInput) {
+        mediaInput.addEventListener('change', () => {
+            if (mediaInput.files) addFiles(mediaInput.files);
+            mediaInput.value = '';
         });
-    });
+    }
 
     // "Lien" reveals a plain URL input rather than fetching a preview
     // client-side (module spec: no browser-side fetch) — the server

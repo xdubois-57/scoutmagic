@@ -34,10 +34,17 @@ class ModuleManifestTest extends TestCase
      * change without a bump is silently a no-op on every already-enabled
      * install (AGENTS.md). Editing schema.sql should break this test — the
      * fix is to bump module.json, which is the whole point.
+     *
+     * The pin has since been widened in practice to the manifest's whole
+     * declared surface (routes, settings, tasks, notification types), not
+     * only schema.sql: those are re-registered on every load and so do not
+     * strictly need a bump, but a module whose surface changed without its
+     * version moving is one nobody can tell apart from the previous
+     * release.
      */
     public function testTheVersionIsBumpedWheneverTheSchemaChanges(): void
     {
-        $this->assertSame('1.7.0', $this->manifest->version);
+        $this->assertSame('1.8.0', $this->manifest->version);
     }
 
     /**
@@ -187,6 +194,7 @@ class ModuleManifestTest extends TestCase
                 'groups_inactivity_close_months',
                 'groups_post_retention_months',
                 'groups_closed_purge_months',
+                'groups_max_created_per_member',
             ],
             $keys
         );

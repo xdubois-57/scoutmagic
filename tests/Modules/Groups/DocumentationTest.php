@@ -34,6 +34,11 @@ class DocumentationTest extends TestCase
         yield 'the ownership checker' => ['GroupFileOwnershipChecker'];
         yield 'the lifecycle tasks' => ['four self-rescheduling daily tasks'];
         yield 'why there is no Desk import hook' => ['no hook from the Desk import'];
+        yield 'the self-restore refusal' => ['never restore an item they authored'];
+        yield 'the escalation to site admins' => ['escalates to every site admin'];
+        yield 'the reopen activity reset' => ['resets `last_activity_at` to now'];
+        yield 'the last-moderator rule' => ['last explicit moderator'];
+        yield 'the creation quota' => ['groups_max_created_per_member'];
     }
 
     #[DataProvider('architectureTopics')]
@@ -50,6 +55,21 @@ class DocumentationTest extends TestCase
         // §4.2 is the Espace des animés menu table — the module's page has
         // to appear there, not only in its own section.
         $this->assertStringContainsString('| Groupes (module) |', $specs);
+    }
+
+    /**
+     * The four behaviours prompt 12 added, in the functional spec a unit's
+     * staff would actually read.
+     */
+    public function testSpecificationsCoverTheManagementActions(): void
+    {
+        $specs = $this->read('specifications.md');
+
+        $this->assertStringContainsString('never restore an item they wrote themselves', $specs);
+        $this->assertStringContainsString('cannot be left', $specs);
+        $this->assertStringContainsString('last moderator', $specs);
+        $this->assertStringContainsString('Rouvrir', $specs);
+        $this->assertStringContainsString('open, non-section', $specs);
     }
 
     public function testTheReadmeListsTheModule(): void

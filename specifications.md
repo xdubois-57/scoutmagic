@@ -480,13 +480,24 @@ Photos and videos live in a gallery album belonging to the group, never listed i
 
 ### 20.3 Reporting and moderation
 
-Any member may report a post or a reply, once. Past a configurable threshold (2 by default), the item is hidden from everyone except the group's moderators, who then restore it or delete it. **Hiding is the maximum automatic consequence — nothing is ever deleted without a human deciding.** A restored item is never auto-hidden again, however many further reports arrive. The reporter is told nothing about the outcome, and who reported an item is never revealed to anyone.
+Any member may report a post or a reply, once. Past a configurable threshold (2 by default), the item is hidden from everyone except the group's moderators, who then restore it or delete it. **A moderator may never restore an item they wrote themselves** — another moderator, or a site administrator, has to; deleting their own content stays allowed. When the reported item was written by one of the group's own moderators, the report additionally reaches every site administrator, so the group's own moderation is never the only judge of a complaint about itself. The item's author is never told their content was reported. **Hiding is the maximum automatic consequence — nothing is ever deleted without a human deciding.** A restored item is never auto-hidden again, however many further reports arrive. The reporter is told nothing about the outcome, and who reported an item is never revealed to anyone.
 
 When the AI connector module is active, a post or reply is checked before publication for personal attacks or disrespectful language, and its author is offered a rewording. The check fails open: no provider, a timeout or an error all mean the message is published unchecked. A refused message is never stored anywhere — it is handed back to its own author and nowhere else.
 
 ### 20.4 Notifications
 
 Four types, all optional per member except one: a new post in one of my groups, a reply to my post, a reaction to my post or reply (debounced, so a burst of reactions is one notification), and — for moderators only — a report needing attention, whose in-app channel cannot be switched off. No email is ever sent for any of them.
+
+### 20.4bis Managing a group
+
+| Action | Who | Rule |
+|---|---|---|
+| Modifier les membres | Moderator | Invite a member or a whole section; grant or revoke the moderator flag; remove an invited member. |
+| Quitter le groupe | Any invited member | Deletes their invitation; access is lost immediately and coming back needs a new invitation. A membership that comes from a **linked section cannot be left** — it follows the Desk import. The **last moderator** may not leave until another one is appointed; site admins do not count. Their existing posts and replies stay in the group. |
+| Clôturer | Moderator | Read-only from then on, still fully visible. |
+| Rouvrir | Moderator or site admin | Only while the group's scout year is still the current one — a past-year group stays a read-only archive. Reopening restarts the inactivity and purge clocks, so the nightly task does not close it straight back. Content already deleted by the retention purge does not come back. |
+
+An administrator caps how many **open, non-section** groups one person may have created (5 by default). Section groups are created automatically and never count; a closed group stops counting. The cap applies to administrators too.
 
 ### 20.5 Lifecycle and retention
 

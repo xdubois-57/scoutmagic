@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Modules\Groups\Controller;
 
 use Core\Http\Controller\AbstractController;
+use Core\Http\FlashMessage;
 use Core\Http\Request;
 use Core\Http\Response;
 use Core\Member\MemberProfile;
@@ -23,7 +24,9 @@ use Modules\Groups\Repository\GroupMemberRepository;
 use Modules\Groups\Repository\GroupRepository;
 use Modules\Groups\Repository\GroupSectionRepository;
 use Modules\Groups\Service\GroupAccessService;
+use Modules\Groups\Service\GroupMembershipService;
 use Modules\Groups\Service\GroupService;
+use Modules\Groups\Service\LeaveOutcome;
 use Modules\Groups\Service\GroupSessionContext;
 use Modules\Groups\Service\GroupSessionContextFactory;
 use Twig\Environment;
@@ -48,7 +51,8 @@ class GroupMemberController extends AbstractController
         private GroupService $groupService,
         private GroupSessionContextFactory $contextFactory,
         private MemberService $memberService,
-        private SectionService $sectionService
+        private SectionService $sectionService,
+        private ?GroupMembershipService $membershipService = null
     ) {
     }
 
@@ -85,6 +89,8 @@ class GroupMemberController extends AbstractController
             'can_moderate' => $canModerate,
             'invite_candidates' => $canModerate ? $this->inviteCandidates($group, $scoutYearId) : [],
             'sections' => $canModerate ? $this->sectionService->getAllWithBranches() : [],
+            // Only an explicit membership can be left — see the template.
+            'can_leave' => $this->explicitMemberId($group, $context) !== null,
         ]);
     }
 
@@ -159,6 +165,71 @@ class GroupMemberController extends AbstractController
 
             return $this->redirect('/groups/' . $group->id . '/members');
         });
+    }
+
+    /**
+     * POST /groups/{id}/leave — any member of the group, for themselves.
+     *
+     * Deliberately NOT a moderatorAction(): this is the one write here a
+     * member performs on their own membership, so it needs read access
+     * and nothing more. It is also the only one that can be refused for a
+     * reason other than authorisation — a derived membership has nothing
+     * to leave, and the group's last moderator may not walk away — which
+     * is why Service\GroupMembershipService answers with a LeaveOutcome
+     * rather than a bool.
+     *
+     * @param array<string, string> $params
+     */
+    public function leave(Request $request, array $params): Response
+    {
+        if (!CsrfGuard::validateRequest()) {
+            return new Response('Jeton CSRF invalide.', 403);
+        }
+
+        $context = $this->context();
+        $group = $this->groupRepository->findById((int) ($params['id'] ?? 0));
+        if ($group === null || !$this->accessService->canRead($group, $context) || $this->membershipService === null) {
+            return new Response('Not Found', 404);
+        }
+
+        // Which of the caller's own members is leaving: the explicit row
+        // is what a member actually holds, so the first linked member
+        // that has one. Falling back to the first allowed member makes
+        // the derived case reach the service and be refused there with
+        // its own French explanation, rather than silently 403-ing.
+        $memberId = $this->leavingMemberId($group, $context);
+        if ($memberId === null) {
+            return new Response('Aucun membre de ce groupe n\'est associé à votre compte.', 403);
+        }
+
+        $outcome = $this->membershipService->leave($group, $memberId, $context->userAccountId);
+        FlashMessage::set($outcome === LeaveOutcome::LEFT ? 'success' : 'error', $outcome->message());
+
+        // A member who just left can no longer read the group, so sending
+        // them back to it would be a 404 — the list is where they belong.
+        return $this->redirect($outcome === LeaveOutcome::LEFT ? '/groups' : '/groups/' . $group->id . '/members');
+    }
+
+    private function leavingMemberId(DiscussionGroup $group, GroupSessionContext $context): ?int
+    {
+        return $this->explicitMemberId($group, $context)
+            ?? $this->accessService->memberIdsAllowedToPostAs($group, $context)[0]
+            ?? ($context->linkedMemberIds[0] ?? null);
+    }
+
+    /**
+     * The caller's own explicit membership row in this group, if any —
+     * what "can leave" means, and what leave() removes.
+     */
+    private function explicitMemberId(DiscussionGroup $group, GroupSessionContext $context): ?int
+    {
+        foreach ($context->linkedMemberIds as $memberId) {
+            if ($this->memberRepository->find($group->id, $memberId) !== null) {
+                return $memberId;
+            }
+        }
+
+        return null;
     }
 
     /**
