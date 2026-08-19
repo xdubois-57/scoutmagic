@@ -27,7 +27,7 @@ Only a small, explicitly justified set of external dependencies is allowed:
 
 Everything else is written in-house. Composer is used for autoloading and dependency resolution during CI build — `vendor/` is built by CI and deployed via FTP; Composer is never required on the hosting server.
 
-No frontend build tools for production (Sass, webpack, an application bundler, a transpiler). Bootstrap is loaded from compiled files (CDN or `public/assets/vendor/bootstrap/` fallback). npm/Node are used, strictly as development/test tooling, to run Vitest unit tests against first-party browser JavaScript (§15) — they are never a runtime or build requirement for a deployed ScoutMagic installation, and no build step is required to run, deploy, or serve `public/assets/js/`.
+No frontend build tools for production (Sass, webpack, an application bundler, a transpiler). Bootstrap is loaded from compiled files (CDN or `public/assets/vendor/bootstrap/` fallback). npm/Node are used, strictly as development/test tooling, to run the two Node-based test stacks (§15): Vitest unit tests against first-party browser JavaScript, and Playwright end-to-end tests driving a headless Chromium against the real application. A browser automation runtime is test infrastructure, not frontend architecture — Playwright drives the site the way a visitor's browser does and compiles, bundles, or transpiles nothing. None of it is ever a runtime or build requirement for a deployed ScoutMagic installation, and no build step is required to run, deploy, or serve `public/assets/js/`.
 
 ### License
 
@@ -845,11 +845,18 @@ bootstrap/
 
 scripts/
   release.sh
+  e2e.sh           Canonical end-to-end run: provisions a throwaway install +
+                    database, serves it through the real public/index.php,
+                    runs Playwright, tears everything down (§15)
+  e2e-support.php  Its PHP half (free port, readiness polling, provisioning
+                    via the application's own SecretManager/MigrationRunner)
 
 docs/
   module-development.md
 
 tests/             Mirrors core/ and modules/ structure
+  js/              Vitest specs for public/assets/js/ (§15)
+  e2e/             Playwright end-to-end specs + playwright.config.js (§15)
 
 .github/
   workflows/
@@ -886,7 +893,7 @@ LICENSE (AGPL-3.0)
 - Create an incremental migration file — update the module's `schema.sql`.
 - Modify `schema/core.sql` for a module-specific need.
 - Write custom CSS that duplicates a Bootstrap component.
-- Introduce a frontend build tool.
+- Introduce a frontend build tool (a bundler, a Sass compiler, a transpiler — anything that turns `public/assets/` into a build output). Node-based *test* tooling is not that, and is allowed: see §1 and §15.
 - Store personal data in `VARCHAR` — use `BLOB` via `EncryptionService`.
 - Write `WHERE` on an encrypted field — use blind index.
 - Put personal data in logs, journal, or error messages.
@@ -900,10 +907,11 @@ LICENSE (AGPL-3.0)
 
 ## 15. Tests
 
-Two complementary, independently-runnable automated test stacks:
+Three complementary, independently-runnable automated test stacks:
 
 - **PHPUnit** (`tests/`, mirroring the structure of `core/` and `modules/`) — the server-side test suite: Services, Repositories (against a test database), Controllers/routes (including the RBAC boundary at every `role_min`), and the rest of the PHP application.
 - **Vitest + jsdom** (`tests/js/`) — isolated unit tests for first-party browser JavaScript (`public/assets/js/`), run under Node with a simulated DOM (jsdom): no PHP server, no MySQL, no real network. `fetch`, the Service Worker, WebAuthn, etc. are mocked where a script under test touches them. These are development/test tooling only (§1) — they exercise the real production `.js` files directly, never a reimplementation of their logic, and exist to catch regressions in deterministic, DOM-adjacent frontend logic (form validation, client-side computed state) fast and without a browser.
+- **Playwright + headless Chromium** (`tests/e2e/`) — end-to-end tests against a real, running ScoutMagic. One canonical command, `npm run e2e` (`scripts/e2e.sh`), provisions a throwaway install (its own `storage/`, its own generated secrets, its own empty database migrated from `schema/core.sql` by the real `Core\Database\MigrationRunner`), serves it with `php -S` over the **real** `public/index.php`, drives it with a real browser, and tears all of it down — on success, on failure, and on Ctrl-C. It answers the one question the other two stacks structurally cannot: *does the application boot at all?* PHPUnit instantiates controllers directly and never executes the composition root in `public/index.php`, which is exactly how a `TypeError` on every request once reached production (see AGENTS.md § Static analysis). Deliberately kept to a very small number of high-value scenarios: this is a merge-blocking CI check and a release gate (`scripts/release.sh`), so determinism matters far more than coverage. Assertions are semantic (ARIA roles, accessible names, the document title), never structural CSS selectors. Canonical documentation: README.md § Tests de bout en bout.
 
 Frontend unit tests are a complement to, never a replacement for, PHPUnit's integration tests or the manual mobile (~375px) and desktop (~1280px) visual verification every page/component still requires — they mock the server/browser boundary precisely so they can run in isolation, which is also exactly why they can't substitute for either of those two.
 
