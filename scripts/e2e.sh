@@ -323,7 +323,19 @@ while true; do
     # When coverage is on, auto_prepend_file runs the collector before the
     # application boots on every request — the only seam that exists, since
     # the code under test runs in this server process and not in the test's.
-    coverage_options=()
+    # One array built up front, never spliced from a possibly-empty one:
+    # "${array[@]}" on a declared-but-empty array is treated as an unset
+    # variable under `set -u` on bash < 4.4 (macOS's own /bin/bash is 3.2)
+    # even though it expands to nothing correctly everywhere else — always
+    # having the 5 base -d options in here keeps this array non-empty
+    # regardless of whether coverage is on, sidestepping that entirely.
+    php_options=(
+        -d display_errors=0
+        -d log_errors=1
+        -d error_log="${INSTANCE_DIR}/php-error.log"
+        -d upload_max_filesize=100M
+        -d post_max_size=110M
+    )
     if [[ -n "${COVERAGE_DIR}" ]]; then
         # pcov.directory has to span both trees the run executes PHP from:
         # the repository (core/, modules/, reached through the instance's
@@ -331,7 +343,7 @@ while true; do
         # instance's own copied public/. Their only common ancestor is /,
         # so vendor/ and node_modules/ are excluded by pattern instead —
         # otherwise every request would pay to instrument the SDKs too.
-        coverage_options=(
+        php_options+=(
             -d "auto_prepend_file=${REPO_ROOT}/scripts/e2e-coverage-prepend.php"
             -d 'pcov.enabled=1'
             -d 'pcov.directory=/'
@@ -340,12 +352,7 @@ while true; do
     fi
 
     php \
-        -d display_errors=0 \
-        -d log_errors=1 \
-        -d error_log="${INSTANCE_DIR}/php-error.log" \
-        -d upload_max_filesize=100M \
-        -d post_max_size=110M \
-        "${coverage_options[@]}" \
+        "${php_options[@]}" \
         -S "127.0.0.1:${PORT}" \
         -t "${INSTANCE_DIR}/instance/public" \
         > "${SERVER_LOG}" 2>&1 &
