@@ -45,12 +45,12 @@ class PersonalFeedServiceTest extends TestCase
         $this->encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $connection = Connection::withPdo($this->pdo);
 
-        $calendarRepository = new CalendarRepository($this->pdo);
+        $calendarRepository = new CalendarRepository($this->pdo, new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32)));
         $this->eventRepository = new CalendarEventRepository($this->pdo);
         $memberBadgeRepository = new MemberBadgeRepository($this->pdo);
         $sectionService = new SectionService($connection, $this->encryption, $memberBadgeRepository);
-        $this->calendarService = new CalendarService($calendarRepository, $this->eventRepository, $sectionService, new CalendarUnitFeedTokenRepository($this->pdo));
-        $this->tokenRepository = new CalendarPersonalTokenRepository($this->pdo);
+        $this->calendarService = new CalendarService($calendarRepository, $this->eventRepository, $sectionService, new CalendarUnitFeedTokenRepository($this->pdo, new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32))));
+        $this->tokenRepository = new CalendarPersonalTokenRepository($this->pdo, new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32)));
 
         $memberYearRepo = new MemberYearRepository($this->pdo);
         $roleResolver = new RoleResolver($memberYearRepo, $this->encryption, $this->pdo);
@@ -84,7 +84,7 @@ class PersonalFeedServiceTest extends TestCase
     private function createUserAccount(string $email): int
     {
         $stmt = $this->pdo->prepare('INSERT INTO user_accounts (email_encrypted, email_blind_index) VALUES (?, ?)');
-        $stmt->execute([$this->encryption->encrypt($email), $this->encryption->blindIndex(strtolower($email))]);
+        $stmt->execute([$this->encryption->encrypt($email, 'user_accounts.email'), $this->encryption->blindIndex(strtolower($email), 'email')]);
         return (int) $this->pdo->lastInsertId();
     }
 
@@ -102,10 +102,10 @@ class PersonalFeedServiceTest extends TestCase
         );
         $stmt->execute([
             $memberId, $this->scoutYearId,
-            $this->encryption->encrypt('Jean'),
-            $this->encryption->encrypt('Dupont'),
-            $this->encryption->encrypt($email),
-            $this->encryption->blindIndex(strtolower($email)),
+            $this->encryption->encrypt('Jean', 'member_years.first_name'),
+            $this->encryption->encrypt('Dupont', 'member_years.last_name'),
+            $this->encryption->encrypt($email, 'member_years.email'),
+            $this->encryption->blindIndex(strtolower($email), 'email'),
         ]);
         $memberYearId = (int) $this->pdo->lastInsertId();
 
@@ -145,7 +145,7 @@ class PersonalFeedServiceTest extends TestCase
         $this->createMemberWithFunction($email, $sectionId, $branchId, 'identified');
 
         $this->calendarService->ensureSectionCalendars();
-        $sectionCalendar = (new CalendarRepository($this->pdo))->findBySectionId($sectionId);
+        $sectionCalendar = (new CalendarRepository($this->pdo, new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32))))->findBySectionId($sectionId);
         $this->eventRepository->create($sectionCalendar->id, 'Réunion', '2026-03-15', null, null, null, null, null, null);
 
         $userAccountId = $this->createUserAccount($email);
@@ -164,7 +164,7 @@ class PersonalFeedServiceTest extends TestCase
         $branchId = (int) $this->pdo->query("SELECT age_branch_id FROM sections WHERE id = {$sectionId}")->fetchColumn();
         $this->createMemberWithFunction($email, $sectionId, $branchId, 'identified');
         $this->calendarService->ensureSectionCalendars();
-        $sectionCalendar = (new CalendarRepository($this->pdo))->findBySectionId($sectionId);
+        $sectionCalendar = (new CalendarRepository($this->pdo, new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32))))->findBySectionId($sectionId);
         $eventId = $this->eventRepository->create($sectionCalendar->id, 'Réunion', '2026-03-15', null, null, null, null, 'Prévoir le matériel.', null);
 
         $lookup = $this->createMock(\Modules\Retro\Api\RetroEventLinkLookupInterface::class);
@@ -189,7 +189,7 @@ class PersonalFeedServiceTest extends TestCase
         $branchId = (int) $this->pdo->query("SELECT age_branch_id FROM sections WHERE id = {$sectionId}")->fetchColumn();
         $this->createMemberWithFunction($email, $sectionId, $branchId, 'identified');
         $this->calendarService->ensureSectionCalendars();
-        $sectionCalendar = (new CalendarRepository($this->pdo))->findBySectionId($sectionId);
+        $sectionCalendar = (new CalendarRepository($this->pdo, new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32))))->findBySectionId($sectionId);
         $this->eventRepository->create($sectionCalendar->id, 'Réunion', '2026-03-15', null, null, null, null, 'Prévoir le matériel.', null);
 
         $lookup = $this->createMock(\Modules\Retro\Api\RetroEventLinkLookupInterface::class);
@@ -227,7 +227,7 @@ class PersonalFeedServiceTest extends TestCase
     {
         $sectionId = $this->createSection('BAL01', 'Renards');
         $this->calendarService->ensureSectionCalendars();
-        $sectionCalendar = (new CalendarRepository($this->pdo))->findBySectionId($sectionId);
+        $sectionCalendar = (new CalendarRepository($this->pdo, new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32))))->findBySectionId($sectionId);
         $this->eventRepository->create($sectionCalendar->id, 'Réunion', '2026-03-15', null, null, null, null, null, null);
 
         // Visitor has no linked members at all.
@@ -245,7 +245,7 @@ class PersonalFeedServiceTest extends TestCase
         $this->createMemberWithFunction($email, $sectionId, $branchId, 'chief');
 
         $this->calendarService->ensureDefaultCalendar();
-        $default = (new CalendarRepository($this->pdo))->findDefaultCalendar();
+        $default = (new CalendarRepository($this->pdo, new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32))))->findDefaultCalendar();
         $this->eventRepository->create($default->id, 'Réunion animateurs', '2026-03-15', null, null, null, null, null, null);
 
         $userAccountId = $this->createUserAccount($email);
@@ -269,7 +269,7 @@ class PersonalFeedServiceTest extends TestCase
         $this->createMemberWithFunction($email, $sectionId, $branchId, 'identified');
 
         $this->calendarService->ensureDefaultCalendar();
-        $default = (new CalendarRepository($this->pdo))->findDefaultCalendar();
+        $default = (new CalendarRepository($this->pdo, new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32))))->findDefaultCalendar();
         $this->eventRepository->create($default->id, 'Réunion animateurs', '2026-03-15', null, null, null, null, null, null);
 
         $userAccountId = $this->createUserAccount($email);
@@ -335,8 +335,8 @@ class PersonalFeedServiceTest extends TestCase
              VALUES (?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([
-            $memberId, $this->scoutYearId, $this->encryption->encrypt('CU'), $this->encryption->encrypt('Dupont'),
-            $this->encryption->encrypt($email), $this->encryption->blindIndex(strtolower($email)),
+            $memberId, $this->scoutYearId, $this->encryption->encrypt('CU', 'member_years.first_name'), $this->encryption->encrypt('Dupont', 'member_years.last_name'),
+            $this->encryption->encrypt($email, 'member_years.email'), $this->encryption->blindIndex(strtolower($email), 'email'),
         ]);
         $memberYearId = (int) $this->pdo->lastInsertId();
         $stmt = $this->pdo->prepare('INSERT INTO member_functions (member_year_id, function_id, section_id) VALUES (?, ?, NULL)');
@@ -349,7 +349,7 @@ class PersonalFeedServiceTest extends TestCase
 
         $this->calendarService->ensureSectionCalendars();
         $staffduId = $unitStaffSectionService->ensureSection();
-        $staffduCalendar = (new CalendarRepository($this->pdo))->findBySectionId($staffduId);
+        $staffduCalendar = (new CalendarRepository($this->pdo, new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32))))->findBySectionId($staffduId);
         $this->eventRepository->create($staffduCalendar->id, 'Réunion CU', '2026-03-15', null, null, null, null, null, null);
 
         $userAccountId = $this->createUserAccount($email);
@@ -375,8 +375,8 @@ class PersonalFeedServiceTest extends TestCase
 
         $ids = $this->service->resolveCalendarIdsForEmail($email, $this->scoutYearId);
 
-        $sectionCalendar = (new CalendarRepository($this->pdo))->findBySectionId($sectionId);
-        $default = (new CalendarRepository($this->pdo))->findDefaultCalendar();
+        $sectionCalendar = (new CalendarRepository($this->pdo, new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32))))->findBySectionId($sectionId);
+        $default = (new CalendarRepository($this->pdo, new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32))))->findDefaultCalendar();
         $this->assertContains($sectionCalendar->id, $ids);
         $this->assertContains($default->id, $ids);
     }

@@ -84,6 +84,15 @@
       "label": ""
     },
     {
+      "path": "/inscriptions/suivi/emails/confirm/{id}",
+      "method": "POST",
+      "controller": "Modules\\Registration\\Controller\\TrackingController",
+      "action": "confirmEmailPost",
+      "menu": "notre_unite",
+      "role_min": "public",
+      "label": ""
+    },
+    {
       "path": "/config/inscriptions",
       "method": "GET",
       "controller": "Modules\\Registration\\Controller\\RegistrationConfigController",

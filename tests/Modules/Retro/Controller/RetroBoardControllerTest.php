@@ -50,7 +50,7 @@ class RetroBoardControllerTest extends TestCase
         RetroTestHelper::createTables($this->pdo);
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
 
-        $this->boardRepository = new BoardRepository($this->pdo);
+        $this->boardRepository = new BoardRepository($this->pdo, new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32)));
         $this->commentRepository = new CommentRepository($this->pdo);
         $voteRepository = new VoteRepository($this->pdo);
         $this->rateLimitService = new RateLimitService(new RateLimitRepository($this->pdo), $encryption);

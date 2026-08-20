@@ -128,9 +128,9 @@ class MassMailServiceTest extends TestCase
         );
         $stmt->execute([
             $memberId, $scoutYearId ?? $this->scoutYearId,
-            $encryption->encrypt('John'), $encryption->encrypt('Doe'),
-            $email !== null ? $encryption->encrypt($email) : null,
-            $email !== null ? $encryption->blindIndex($email) : null,
+            $encryption->encrypt('John', 'member_years.first_name'), $encryption->encrypt('Doe', 'member_years.last_name'),
+            $email !== null ? $encryption->encrypt($email, 'member_years.email') : null,
+            $email !== null ? $encryption->blindIndex($email, 'email') : null,
             $consent ? 1 : 0,
         ]);
 

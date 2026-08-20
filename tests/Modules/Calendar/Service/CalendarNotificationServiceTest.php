@@ -55,7 +55,7 @@ class CalendarNotificationServiceTest extends TestCase
         $this->pdo = DatabaseTestHelper::createTestDatabase();
         CalendarTestHelper::createTables($this->pdo);
 
-        $this->calendarRepository = new CalendarRepository($this->pdo);
+        $this->calendarRepository = new CalendarRepository($this->pdo, new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32)));
         $this->eventRepository = new CalendarEventRepository($this->pdo);
         $sectionService = new SectionService(
             Connection::withPdo($this->pdo),
@@ -63,7 +63,7 @@ class CalendarNotificationServiceTest extends TestCase
             new MemberBadgeRepository($this->pdo)
         );
         $calendarService = new CalendarService(
-            $this->calendarRepository, $this->eventRepository, $sectionService, new CalendarUnitFeedTokenRepository($this->pdo)
+            $this->calendarRepository, $this->eventRepository, $sectionService, new CalendarUnitFeedTokenRepository($this->pdo, new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32)))
         );
 
         $this->settingService = new SettingService(new SettingRepository($this->pdo));

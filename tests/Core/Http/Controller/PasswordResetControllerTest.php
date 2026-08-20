@@ -264,7 +264,7 @@ class PasswordResetControllerTest extends TestCase
      */
     private function createRawToken(string $email): array
     {
-        $blindIndex = $this->encryption->blindIndex(strtolower($email));
+        $blindIndex = $this->encryption->blindIndex(strtolower($email), 'email');
         $rawToken = bin2hex(random_bytes(32));
         $tokenHash = password_hash($rawToken, PASSWORD_DEFAULT);
         $expiresAt = (new \DateTimeImmutable('+60 minutes'))->format('Y-m-d H:i:s');

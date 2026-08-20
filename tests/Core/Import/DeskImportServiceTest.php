@@ -52,7 +52,7 @@ class DeskImportServiceTest extends TestCase
         $stmt = $this->pdo->prepare(
             "INSERT INTO user_accounts (email_encrypted, email_blind_index, is_super_admin) VALUES (?, 'admin_idx', 1)"
         );
-        $stmt->execute([$this->encryption->encrypt('admin@example.com')]);
+        $stmt->execute([$this->encryption->encrypt('admin@example.com', 'user_accounts.email')]);
 
         $this->service = $this->createService();
     }
@@ -210,7 +210,7 @@ class DeskImportServiceTest extends TestCase
         $this->assertNotSame('Dupont', $row['last_name_encrypted']);
 
         // But decryption should work
-        $firstName = $this->encryption->decrypt($row['first_name_encrypted']);
+        $firstName = $this->encryption->decrypt($row['first_name_encrypted'], 'member_years.first_name');
         $this->assertContains($firstName, ['Jean', 'Sophie', 'Marc']);
     }
 
@@ -218,7 +218,7 @@ class DeskImportServiceTest extends TestCase
     {
         $this->importFixture();
 
-        $expectedIndex = $this->encryption->blindIndex('jean.dupont@example.com');
+        $expectedIndex = $this->encryption->blindIndex('jean.dupont@example.com', 'email');
 
         $stmt = $this->pdo->prepare('SELECT id FROM member_years WHERE email_blind_index = ?');
         $stmt->execute([$expectedIndex]);
@@ -237,7 +237,7 @@ class DeskImportServiceTest extends TestCase
         $this->assertGreaterThanOrEqual(4, $count);
 
         // Check Jean's account
-        $jeanIdx = $this->encryption->blindIndex('jean.dupont@example.com');
+        $jeanIdx = $this->encryption->blindIndex('jean.dupont@example.com', 'email');
         $stmt = $this->pdo->prepare('SELECT id FROM user_accounts WHERE email_blind_index = ?');
         $stmt->execute([$jeanIdx]);
         $this->assertNotFalse($stmt->fetch());
@@ -275,7 +275,8 @@ class DeskImportServiceTest extends TestCase
         }
 
         $expected = $this->encryption->blindIndex(
-            \Core\Member\AddressNormalizer::normalize('Rue de la Liberté', '12', null, '1000')
+            \Core\Member\AddressNormalizer::normalize('Rue de la Liberté', '12', null, '1000'),
+            'address'
         );
         $this->assertSame($expected, $blindIndexes[0]);
     }

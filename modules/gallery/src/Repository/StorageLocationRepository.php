@@ -61,7 +61,7 @@ class StorageLocationRepository
         if (is_resource($encrypted)) {
             $encrypted = stream_get_contents($encrypted);
         }
-        return $this->encryption->decrypt((string) $encrypted);
+        return $this->encryption->decrypt((string) $encrypted, 'gallery_storage_locations.secret_key');
     }
 
     /**
@@ -90,7 +90,7 @@ class StorageLocationRepository
         );
         $stmt->execute([
             $type, $label, $isFirst ? 1 : 0, $subdir, $s3Provider, $s3Endpoint, $s3Region, $s3Bucket, $s3AccessKey, $s3PublicUrl,
-            $secretKey !== null && $secretKey !== '' ? $this->encryption->encrypt($secretKey) : null,
+            $secretKey !== null && $secretKey !== '' ? $this->encryption->encrypt($secretKey, 'gallery_storage_locations.secret_key') : null,
             date('Y-m-d H:i:s'),
         ]);
         return (int) $this->pdo->lastInsertId();
@@ -157,7 +157,7 @@ class StorageLocationRepository
             );
             $stmt->execute([
                 $label, $subdir, $s3Provider, $s3Endpoint, $s3Region, $s3Bucket, $s3AccessKey, $s3PublicUrl,
-                $this->encryption->encrypt($secretKey), $id,
+                $this->encryption->encrypt($secretKey, 'gallery_storage_locations.secret_key'), $id,
             ]);
             return;
         }

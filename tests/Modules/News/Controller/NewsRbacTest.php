@@ -72,7 +72,7 @@ class NewsRbacTest extends TestCase
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
 
         $stmt = $this->pdo->prepare('INSERT INTO user_accounts (email_encrypted, email_blind_index) VALUES (?, ?)');
-        $stmt->execute([$encryption->encrypt('chief@test.com'), $encryption->blindIndex('chief@test.com')]);
+        $stmt->execute([$encryption->encrypt('chief@test.com', 'user_accounts.email'), $encryption->blindIndex('chief@test.com', 'email')]);
         $this->chiefAccountId = (int) $this->pdo->lastInsertId();
 
         $articleRepository = new ArticleRepository($this->pdo);
@@ -86,7 +86,7 @@ class NewsRbacTest extends TestCase
         $formRepository->create($this->articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'intendant', false, null);
 
         $editableContentService = new EditableContentService(new EditableContentRepository($this->pdo));
-        $shortUrlService = new ShortUrlService(new ShortUrlRepository($this->pdo));
+        $shortUrlService = new ShortUrlService(new ShortUrlRepository($this->pdo, new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32))));
         $articleService = new ArticleService($articleRepository, $formRepository, $editableContentService, $shortUrlService);
         $formService = new FormService($formRepository, new \Modules\News\Repository\FormFieldRepository($this->pdo), $articleService);
 

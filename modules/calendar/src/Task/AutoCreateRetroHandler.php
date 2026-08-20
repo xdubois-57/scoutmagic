@@ -64,12 +64,12 @@ class AutoCreateRetroHandler implements TaskHandlerInterface
             return; // deleted since scheduling
         }
 
-        $boardRepository = new BoardRepository($pdo);
+        $boardRepository = new BoardRepository($pdo, $context->encryption);
         if ($boardRepository->findByCalendarEventId($eventId) !== null) {
             return; // already linked — nothing to do
         }
 
-        $calendarRepository = new CalendarRepository($pdo);
+        $calendarRepository = new CalendarRepository($pdo, $context->encryption);
         $calendar = $calendarRepository->findById($event->calendarId);
         $calendarName = $this->resolveCalendarName($calendar, $pdo);
 

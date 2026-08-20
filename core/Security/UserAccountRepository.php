@@ -22,7 +22,7 @@ class UserAccountRepository
      */
     public function findByEmail(string $email): ?UserAccount
     {
-        $blindIndex = $this->encryption->blindIndex(strtolower($email));
+        $blindIndex = $this->encryption->blindIndex(strtolower($email), 'email');
 
         $stmt = $this->pdo->prepare(
             'SELECT * FROM user_accounts WHERE email_blind_index = ?'
@@ -34,7 +34,7 @@ class UserAccountRepository
             return null;
         }
 
-        $decryptedEmail = $this->encryption->decrypt($row['email_encrypted']);
+        $decryptedEmail = $this->encryption->decrypt($row['email_encrypted'], 'user_accounts.email');
 
         // Verify exact match (blind index collisions are theoretically possible)
         if (strtolower($decryptedEmail) !== strtolower($email)) {
@@ -59,7 +59,7 @@ class UserAccountRepository
             return null;
         }
 
-        $decryptedEmail = $this->encryption->decrypt($row['email_encrypted']);
+        $decryptedEmail = $this->encryption->decrypt($row['email_encrypted'], 'user_accounts.email');
 
         return $this->hydrate($row, $decryptedEmail);
     }
@@ -94,9 +94,9 @@ class UserAccountRepository
         foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
             $names[(int) $row['id']] = [
                 'first_name' => $row['first_name_encrypted'] !== null
-                    ? $this->encryption->decrypt($row['first_name_encrypted']) : null,
+                    ? $this->encryption->decrypt($row['first_name_encrypted'], 'user_accounts.first_name') : null,
                 'last_name' => $row['last_name_encrypted'] !== null
-                    ? $this->encryption->decrypt($row['last_name_encrypted']) : null,
+                    ? $this->encryption->decrypt($row['last_name_encrypted'], 'user_accounts.last_name') : null,
             ];
         }
 
@@ -136,7 +136,7 @@ class UserAccountRepository
             return null;
         }
 
-        $decryptedEmail = $this->encryption->decrypt($row['email_encrypted']);
+        $decryptedEmail = $this->encryption->decrypt($row['email_encrypted'], 'user_accounts.email');
 
         return $this->hydrate($row, $decryptedEmail);
     }
@@ -156,7 +156,7 @@ class UserAccountRepository
             return null;
         }
 
-        $decryptedEmail = $this->encryption->decrypt($row['email_encrypted']);
+        $decryptedEmail = $this->encryption->decrypt($row['email_encrypted'], 'user_accounts.email');
 
         return $this->hydrate($row, $decryptedEmail);
     }
@@ -168,8 +168,8 @@ class UserAccountRepository
     public function create(string $email, bool $isSuperAdmin = false): UserAccount
     {
         $normalizedEmail = strtolower($email);
-        $encryptedEmail = $this->encryption->encrypt($normalizedEmail);
-        $blindIndex = $this->encryption->blindIndex($normalizedEmail);
+        $encryptedEmail = $this->encryption->encrypt($normalizedEmail, 'user_accounts.email');
+        $blindIndex = $this->encryption->blindIndex($normalizedEmail, 'email');
 
         $stmt = $this->pdo->prepare(
             'INSERT INTO user_accounts (email_encrypted, email_blind_index, is_super_admin) VALUES (?, ?, ?)'
@@ -206,8 +206,8 @@ class UserAccountRepository
      */
     public function updateProfile(int $id, ?string $firstName, ?string $lastName): void
     {
-        $encFirstName = $firstName !== null ? $this->encryption->encrypt($firstName) : null;
-        $encLastName = $lastName !== null ? $this->encryption->encrypt($lastName) : null;
+        $encFirstName = $firstName !== null ? $this->encryption->encrypt($firstName, 'user_accounts.first_name') : null;
+        $encLastName = $lastName !== null ? $this->encryption->encrypt($lastName, 'user_accounts.last_name') : null;
 
         $stmt = $this->pdo->prepare(
             'UPDATE user_accounts SET first_name_encrypted = ?, last_name_encrypted = ? WHERE id = ?'
@@ -266,12 +266,12 @@ class UserAccountRepository
     {
         $firstName = null;
         if (!empty($row['first_name_encrypted'])) {
-            $firstName = $this->encryption->decrypt($row['first_name_encrypted']);
+            $firstName = $this->encryption->decrypt($row['first_name_encrypted'], 'user_accounts.first_name');
         }
 
         $lastName = null;
         if (!empty($row['last_name_encrypted'])) {
-            $lastName = $this->encryption->decrypt($row['last_name_encrypted']);
+            $lastName = $this->encryption->decrypt($row['last_name_encrypted'], 'user_accounts.last_name');
         }
 
         $lastLoginAt = null;

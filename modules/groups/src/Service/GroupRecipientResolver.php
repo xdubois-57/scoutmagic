@@ -341,7 +341,7 @@ class GroupRecipientResolver
         }
 
         foreach ($this->memberEmailRepository->findValidByMember($memberId) as $secondary) {
-            $indexes[] = $this->encryption->blindIndex(strtolower(trim($secondary->email)));
+            $indexes[] = $this->encryption->blindIndex(strtolower(trim($secondary->email)), 'email');
         }
 
         return array_values(array_unique($indexes));

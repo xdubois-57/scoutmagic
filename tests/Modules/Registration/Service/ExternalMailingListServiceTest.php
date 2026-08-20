@@ -78,7 +78,7 @@ class ExternalMailingListServiceTest extends TestCase
             'INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted, email_encrypted)
              VALUES (?, ?, ?, ?, ?)'
         );
-        $stmt->execute([$memberId, $this->targetYearId, $this->encryption->encrypt('X'), $this->encryption->encrypt('Y'), $this->encryption->encrypt($memberEmail)]);
+        $stmt->execute([$memberId, $this->targetYearId, $this->encryption->encrypt('X', 'member_years.first_name'), $this->encryption->encrypt('Y', 'member_years.last_name'), $this->encryption->encrypt($memberEmail, 'member_years.email')]);
 
         return $memberId;
     }

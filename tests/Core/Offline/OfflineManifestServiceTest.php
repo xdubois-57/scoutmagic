@@ -101,12 +101,12 @@ class OfflineManifestServiceTest extends TestCase
             $functionId = (int) $this->pdo->lastInsertId();
         }
 
-        $blindIndex = $this->encryption->blindIndex(strtolower(trim($email)));
+        $blindIndex = $this->encryption->blindIndex(strtolower(trim($email)), 'email');
         $stmt = $this->pdo->prepare(
             'INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted, email_encrypted, email_blind_index)
              VALUES (?, ?, ?, ?, ?, ?)'
         );
-        $stmt->execute([$memberId, $this->scoutYearId, $this->encryption->encrypt('Jean'), $this->encryption->encrypt('Dupont'), $this->encryption->encrypt($email), $blindIndex]);
+        $stmt->execute([$memberId, $this->scoutYearId, $this->encryption->encrypt('Jean', 'member_years.first_name'), $this->encryption->encrypt('Dupont', 'member_years.last_name'), $this->encryption->encrypt($email, 'member_years.email'), $blindIndex]);
         $memberYearId = (int) $this->pdo->lastInsertId();
 
         $stmt = $this->pdo->prepare('INSERT INTO member_functions (member_year_id, function_id, section_id, is_main_function) VALUES (?, ?, ?, 1)');

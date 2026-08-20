@@ -453,7 +453,7 @@ class DatabaseTestHelper
         $pdo->exec('CREATE TABLE short_urls (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             code TEXT NOT NULL UNIQUE,
-            target_url TEXT NOT NULL,
+            target_url_encrypted BLOB NOT NULL,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             created_by INTEGER,
             FOREIGN KEY (created_by) REFERENCES user_accounts(id) ON DELETE SET NULL

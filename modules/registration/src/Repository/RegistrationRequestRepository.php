@@ -55,10 +55,10 @@ class RegistrationRequestRepository
             $fields['child_last_name'],
             $fields['child_first_name'],
             $fields['birth_date']
-        ));
+        ), 'registration_name_dob');
 
         $addressNormalized = AddressNormalizer::normalize($fields['street'], $fields['number'], null, $fields['postal_code']);
-        $addressBlind = $addressNormalized !== '' ? $this->encryption->blindIndex($addressNormalized) : null;
+        $addressBlind = $addressNormalized !== '' ? $this->encryption->blindIndex($addressNormalized, 'address') : null;
 
         // The request row and its sibling links are one single unit of work:
         // a failing link (a member id that vanished between the form being
@@ -71,20 +71,20 @@ class RegistrationRequestRepository
         try {
             $id = $this->insertRequestAndSiblings([
                 $scoutYearId,
-                $this->encryption->encrypt($fields['parent_name']),
-                $this->encryption->encrypt($fields['child_last_name']),
-                $this->encryption->encrypt($fields['child_first_name']),
-                $this->encryption->encrypt($fields['gender']),
-                $this->encryption->encrypt($fields['birth_date']),
-                $this->encryption->encrypt($fields['street']),
-                $this->encryption->encrypt($fields['number']),
-                $this->encryption->encrypt($fields['postal_code']),
-                $this->encryption->encrypt($fields['city']),
-                $this->encryption->encrypt($fields['email']),
-                $this->encryption->blindIndex(self::normalizeEmail($fields['email'])),
-                $this->encryption->encrypt($fields['phone1']),
-                $fields['phone2'] !== null ? $this->encryption->encrypt($fields['phone2']) : null,
-                $fields['remarks'] !== null && $fields['remarks'] !== '' ? $this->encryption->encrypt($fields['remarks']) : null,
+                $this->encryption->encrypt($fields['parent_name'], 'registration_requests.parent_name'),
+                $this->encryption->encrypt($fields['child_last_name'], 'registration_requests.child_last_name'),
+                $this->encryption->encrypt($fields['child_first_name'], 'registration_requests.child_first_name'),
+                $this->encryption->encrypt($fields['gender'], 'registration_requests.gender'),
+                $this->encryption->encrypt($fields['birth_date'], 'registration_requests.birth_date'),
+                $this->encryption->encrypt($fields['street'], 'registration_requests.street'),
+                $this->encryption->encrypt($fields['number'], 'registration_requests.number'),
+                $this->encryption->encrypt($fields['postal_code'], 'registration_requests.postal_code'),
+                $this->encryption->encrypt($fields['city'], 'registration_requests.city'),
+                $this->encryption->encrypt($fields['email'], 'registration_requests.email'),
+                $this->encryption->blindIndex(self::normalizeEmail($fields['email']), 'registration_email'),
+                $this->encryption->encrypt($fields['phone1'], 'registration_requests.phone1'),
+                $fields['phone2'] !== null ? $this->encryption->encrypt($fields['phone2'], 'registration_requests.phone2') : null,
+                $fields['remarks'] !== null && $fields['remarks'] !== '' ? $this->encryption->encrypt($fields['remarks'], 'registration_requests.remarks') : null,
                 $nameDobBlind,
                 $desiredSectionId,
                 RegistrationRequest::STATUS_PENDING,
@@ -415,7 +415,7 @@ class RegistrationRequestRepository
     public function updateInternalNotes(int $id, ?string $notes): void
     {
         $stmt = $this->pdo->prepare('UPDATE registration_requests SET internal_notes_encrypted = ? WHERE id = ?');
-        $stmt->execute([$notes !== null && $notes !== '' ? $this->encryption->encrypt($notes) : null, $id]);
+        $stmt->execute([$notes !== null && $notes !== '' ? $this->encryption->encrypt($notes, 'registration_requests.internal_notes') : null, $id]);
     }
 
     /**
@@ -538,25 +538,25 @@ class RegistrationRequestRepository
         return new RegistrationRequest(
             id: (int) $row['id'],
             scoutYearId: (int) $row['scout_year_id'],
-            parentName: $this->encryption->decrypt($row['parent_name_encrypted']),
-            childLastName: $this->encryption->decrypt($row['child_last_name_encrypted']),
-            childFirstName: $this->encryption->decrypt($row['child_first_name_encrypted']),
-            gender: $this->encryption->decrypt($row['gender_encrypted']),
-            birthDate: $this->encryption->decrypt($row['birth_date_encrypted']),
-            street: $this->encryption->decrypt($row['street_encrypted']),
-            number: $this->encryption->decrypt($row['number_encrypted']),
-            postalCode: $this->encryption->decrypt($row['postal_code_encrypted']),
-            city: $this->encryption->decrypt($row['city_encrypted']),
-            email: $this->encryption->decrypt($row['email_encrypted']),
-            phone1: $this->encryption->decrypt($row['phone1_encrypted']),
-            phone2: $row['phone2_encrypted'] !== null ? $this->encryption->decrypt($row['phone2_encrypted']) : null,
-            remarks: $row['remarks_encrypted'] !== null ? $this->encryption->decrypt($row['remarks_encrypted']) : null,
+            parentName: $this->encryption->decrypt($row['parent_name_encrypted'], 'registration_requests.parent_name'),
+            childLastName: $this->encryption->decrypt($row['child_last_name_encrypted'], 'registration_requests.child_last_name'),
+            childFirstName: $this->encryption->decrypt($row['child_first_name_encrypted'], 'registration_requests.child_first_name'),
+            gender: $this->encryption->decrypt($row['gender_encrypted'], 'registration_requests.gender'),
+            birthDate: $this->encryption->decrypt($row['birth_date_encrypted'], 'registration_requests.birth_date'),
+            street: $this->encryption->decrypt($row['street_encrypted'], 'registration_requests.street'),
+            number: $this->encryption->decrypt($row['number_encrypted'], 'registration_requests.number'),
+            postalCode: $this->encryption->decrypt($row['postal_code_encrypted'], 'registration_requests.postal_code'),
+            city: $this->encryption->decrypt($row['city_encrypted'], 'registration_requests.city'),
+            email: $this->encryption->decrypt($row['email_encrypted'], 'registration_requests.email'),
+            phone1: $this->encryption->decrypt($row['phone1_encrypted'], 'registration_requests.phone1'),
+            phone2: $row['phone2_encrypted'] !== null ? $this->encryption->decrypt($row['phone2_encrypted'], 'registration_requests.phone2') : null,
+            remarks: $row['remarks_encrypted'] !== null ? $this->encryption->decrypt($row['remarks_encrypted'], 'registration_requests.remarks') : null,
             desiredSectionId: $row['desired_section_id'] !== null ? (int) $row['desired_section_id'] : null,
             status: (string) $row['status'],
             receivedAt: new \DateTimeImmutable((string) $row['received_at']),
             intendedSectionId: $row['intended_section_id'] !== null ? (int) $row['intended_section_id'] : null,
             feeCategoryId: $row['fee_category_id'] !== null ? (int) $row['fee_category_id'] : null,
-            internalNotes: $row['internal_notes_encrypted'] !== null ? $this->encryption->decrypt($row['internal_notes_encrypted']) : null,
+            internalNotes: $row['internal_notes_encrypted'] !== null ? $this->encryption->decrypt($row['internal_notes_encrypted'], 'registration_requests.internal_notes') : null,
             linkedMemberId: $row['linked_member_id'] !== null ? (int) $row['linked_member_id'] : null,
             acceptedEmailSentAt: $row['accepted_email_sent_at'] !== null ? new \DateTimeImmutable((string) $row['accepted_email_sent_at']) : null,
             refusedEmailSentAt: $row['refused_email_sent_at'] !== null ? new \DateTimeImmutable((string) $row['refused_email_sent_at']) : null,

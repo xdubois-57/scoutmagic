@@ -22,7 +22,8 @@ class CalendarTestHelper
             color TEXT,
             is_default INTEGER NOT NULL DEFAULT 0,
             visibility TEXT NOT NULL DEFAULT \'public\',
-            ics_token TEXT UNIQUE,
+            ics_token_encrypted BLOB,
+            ics_token_blind_index TEXT UNIQUE,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (section_id) REFERENCES sections(id)
         )');
@@ -49,14 +50,16 @@ class CalendarTestHelper
         $pdo->exec('CREATE TABLE calendar_personal_tokens (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_account_id INTEGER NOT NULL UNIQUE,
-            token TEXT NOT NULL UNIQUE,
+            token_encrypted BLOB NOT NULL,
+            token_blind_index TEXT NOT NULL UNIQUE,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (user_account_id) REFERENCES user_accounts(id)
         )');
 
         $pdo->exec('CREATE TABLE calendar_unit_feed_token (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            token TEXT NOT NULL UNIQUE,
+            token_encrypted BLOB NOT NULL,
+            token_blind_index TEXT NOT NULL UNIQUE,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )');
     }

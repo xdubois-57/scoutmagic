@@ -177,7 +177,7 @@ class PasswordResetServiceTest extends TestCase
      */
     private function createRawToken(string $email, bool $expired = false): array
     {
-        $blindIndex = $this->encryption->blindIndex(strtolower($email));
+        $blindIndex = $this->encryption->blindIndex(strtolower($email), 'email');
         $rawToken = bin2hex(random_bytes(32));
         $tokenHash = password_hash($rawToken, PASSWORD_DEFAULT);
         $expiresAt = $expired

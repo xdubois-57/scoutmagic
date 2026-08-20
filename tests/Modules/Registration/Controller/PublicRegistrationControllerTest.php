@@ -445,8 +445,8 @@ class PublicRegistrationControllerTest extends TestCase
         );
         $stmt->execute([
             $memberId, $this->publicYearId,
-            $this->encryption->encrypt($firstName), $this->encryption->encrypt($lastName),
-            $this->encryption->encrypt($email), $this->encryption->blindIndex(strtolower($email)),
+            $this->encryption->encrypt($firstName, 'member_years.first_name'), $this->encryption->encrypt($lastName, 'member_years.last_name'),
+            $this->encryption->encrypt($email, 'member_years.email'), $this->encryption->blindIndex(strtolower($email), 'email'),
         ]);
 
         return $memberId;
@@ -462,7 +462,7 @@ class PublicRegistrationControllerTest extends TestCase
     public function testSiblingCandidateNamesAreDisplayedNormalized(): void
     {
         $email = 'parent@example.com';
-        $blindIndex = $this->encryption->blindIndex(strtolower($email));
+        $blindIndex = $this->encryption->blindIndex(strtolower($email), 'email');
         $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('SIB1')");
         $memberId = (int) $this->pdo->lastInsertId();
         $stmt = $this->pdo->prepare(
@@ -471,8 +471,8 @@ class PublicRegistrationControllerTest extends TestCase
         );
         $stmt->execute([
             $memberId, $this->publicYearId,
-            $this->encryption->encrypt('MARTIN'), $this->encryption->encrypt('VAN DEN BERG'),
-            $this->encryption->encrypt($email), $blindIndex,
+            $this->encryption->encrypt('MARTIN', 'member_years.first_name'), $this->encryption->encrypt('VAN DEN BERG', 'member_years.last_name'),
+            $this->encryption->encrypt($email, 'member_years.email'), $blindIndex,
         ]);
 
         AuthSession::login(1, $email, 'identified');

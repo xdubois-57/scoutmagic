@@ -63,7 +63,7 @@ class ProviderRepository
             'name' => (string) $row['name'],
             'driver' => (string) $row['driver'],
             'api_endpoint' => (string) $row['api_endpoint'],
-            'api_key' => $this->encryption->decrypt($row['api_key']),
+            'api_key' => $this->encryption->decrypt($row['api_key'], 'llm_providers.api_key'),
             'is_active' => (bool) $row['is_active'],
             'created_at' => (string) $row['created_at'],
             'updated_at' => (string) $row['updated_at'],
@@ -90,7 +90,7 @@ class ProviderRepository
             'name' => (string) $row['name'],
             'driver' => (string) $row['driver'],
             'api_endpoint' => (string) $row['api_endpoint'],
-            'api_key' => $this->encryption->decrypt($row['api_key']),
+            'api_key' => $this->encryption->decrypt($row['api_key'], 'llm_providers.api_key'),
         ];
     }
 
@@ -108,7 +108,7 @@ class ProviderRepository
                 'name' => (string) $row['name'],
                 'driver' => (string) $row['driver'],
                 'api_endpoint' => (string) $row['api_endpoint'],
-                'api_key' => $this->encryption->decrypt($row['api_key']),
+                'api_key' => $this->encryption->decrypt($row['api_key'], 'llm_providers.api_key'),
                 'is_active' => true,
             ];
         }
@@ -118,7 +118,7 @@ class ProviderRepository
     public function create(string $name, string $driver, string $apiEndpoint, string $apiKey, bool $isActive = true): int
     {
         $now = date('Y-m-d H:i:s');
-        $encryptedKey = $this->encryption->encrypt($apiKey);
+        $encryptedKey = $this->encryption->encrypt($apiKey, 'llm_providers.api_key');
 
         $stmt = $this->pdo->prepare(
             'INSERT INTO llm_providers (name, driver, api_endpoint, api_key, is_active, created_at, updated_at)
@@ -134,7 +134,7 @@ class ProviderRepository
         $now = date('Y-m-d H:i:s');
 
         if ($apiKey !== null) {
-            $encryptedKey = $this->encryption->encrypt($apiKey);
+            $encryptedKey = $this->encryption->encrypt($apiKey, 'llm_providers.api_key');
             $stmt = $this->pdo->prepare(
                 'UPDATE llm_providers SET name = ?, driver = ?, api_endpoint = ?, api_key = ?, is_active = ?, updated_at = ? WHERE id = ?'
             );

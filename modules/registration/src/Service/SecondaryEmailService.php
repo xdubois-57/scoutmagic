@@ -98,19 +98,24 @@ class SecondaryEmailService
     }
 
     /**
-     * Public confirmation-link target — same fail-quietly contract as
+     * True when the token would currently confirm this address, WITHOUT
+     * consuming it — the GET confirmation page's check (mail scanners
+     * prefetch every link, so the bare GET must never mutate; same shape
+     * as MemberEmailService::canConfirmEmail()).
+     */
+    public function canConfirmEmail(int $emailId, string $rawToken): bool
+    {
+        return $this->verifiedPendingRow($emailId, $rawToken) !== null;
+    }
+
+    /**
+     * The confirm page's POST target — same fail-quietly contract as
      * MemberEmailService::confirmEmail() (no exceptions, no enumeration).
      */
     public function confirmEmail(int $emailId, string $rawToken): bool
     {
-        $row = $this->repository->findById($emailId);
-        if ($row === null || !$row->isPending() || $row->confirmationTokenHash === null) {
-            return false;
-        }
-        if ($row->confirmationExpiresAt === null || new \DateTimeImmutable() > $row->confirmationExpiresAt) {
-            return false;
-        }
-        if (!password_verify($rawToken, $row->confirmationTokenHash)) {
+        $row = $this->verifiedPendingRow($emailId, $rawToken);
+        if ($row === null) {
             return false;
         }
 
@@ -122,6 +127,26 @@ class SecondaryEmailService
         );
 
         return true;
+    }
+
+    /**
+     * The shared read-only verification behind canConfirmEmail() and
+     * confirmEmail(): the row, iff $rawToken is currently valid for it.
+     */
+    private function verifiedPendingRow(int $emailId, string $rawToken): ?RegistrationSecondaryEmail
+    {
+        $row = $this->repository->findById($emailId);
+        if ($row === null || !$row->isPending() || $row->confirmationTokenHash === null) {
+            return null;
+        }
+        if ($row->confirmationExpiresAt === null || new \DateTimeImmutable() > $row->confirmationExpiresAt) {
+            return null;
+        }
+        if (!password_verify($rawToken, $row->confirmationTokenHash)) {
+            return null;
+        }
+
+        return $row;
     }
 
     private function resendConfirmation(int $requestId, int $emailId): void

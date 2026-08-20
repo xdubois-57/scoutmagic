@@ -50,13 +50,13 @@ class EncryptionAuditTest extends TestCase
         $stmt->execute([
             $memberId,
             $scoutYearId,
-            $this->encryption->encrypt($plainFirstName),
-            $this->encryption->encrypt($plainLastName),
-            $this->encryption->encrypt($plainEmail),
-            $this->encryption->blindIndex($plainEmail),
-            $this->encryption->encrypt($plainPhone),
-            $this->encryption->encrypt($plainGender),
-            $this->encryption->encrypt($plainBirthDate),
+            $this->encryption->encrypt($plainFirstName, 'member_years.first_name'),
+            $this->encryption->encrypt($plainLastName, 'member_years.last_name'),
+            $this->encryption->encrypt($plainEmail, 'member_years.email'),
+            $this->encryption->blindIndex($plainEmail, 'email'),
+            $this->encryption->encrypt($plainPhone, 'member_years.phone'),
+            $this->encryption->encrypt($plainGender, 'member_years.gender'),
+            $this->encryption->encrypt($plainBirthDate, 'member_years.birth_date'),
         ]);
         $memberYearId = (int) $this->pdo->lastInsertId();
 
@@ -77,9 +77,9 @@ class EncryptionAuditTest extends TestCase
         $this->assertNotSame($plainEmail, $row['email_blind_index']);
 
         // Verify decryption works correctly
-        $this->assertSame($plainFirstName, $this->encryption->decrypt($row['first_name_encrypted']));
-        $this->assertSame($plainLastName, $this->encryption->decrypt($row['last_name_encrypted']));
-        $this->assertSame($plainEmail, $this->encryption->decrypt($row['email_encrypted']));
+        $this->assertSame($plainFirstName, $this->encryption->decrypt($row['first_name_encrypted'], 'member_years.first_name'));
+        $this->assertSame($plainLastName, $this->encryption->decrypt($row['last_name_encrypted'], 'member_years.last_name'));
+        $this->assertSame($plainEmail, $this->encryption->decrypt($row['email_encrypted'], 'member_years.email'));
     }
 
     public function testMemberAddressDataIsNotPlaintext(): void
@@ -96,8 +96,8 @@ class EncryptionAuditTest extends TestCase
         );
         $stmt->execute([
             $memberId, $scoutYearId,
-            $this->encryption->encrypt('Test'),
-            $this->encryption->encrypt('User'),
+            $this->encryption->encrypt('Test', 'member_years.first_name'),
+            $this->encryption->encrypt('User', 'member_years.last_name'),
         ]);
         $memberYearId = (int) $this->pdo->lastInsertId();
 
@@ -111,9 +111,9 @@ class EncryptionAuditTest extends TestCase
         );
         $stmt->execute([
             $memberYearId, 'Domicile',
-            $this->encryption->encrypt($plainStreet),
-            $this->encryption->encrypt($plainCity),
-            $this->encryption->encrypt($plainPostal),
+            $this->encryption->encrypt($plainStreet, 'member_addresses.street'),
+            $this->encryption->encrypt($plainCity, 'member_addresses.city'),
+            $this->encryption->encrypt($plainPostal, 'member_addresses.postal_code'),
         ]);
         $addrId = (int) $this->pdo->lastInsertId();
 
@@ -135,8 +135,8 @@ class EncryptionAuditTest extends TestCase
             'INSERT INTO user_accounts (email_encrypted, email_blind_index, is_super_admin) VALUES (?, ?, 0)'
         );
         $stmt->execute([
-            $this->encryption->encrypt($plainEmail),
-            $this->encryption->blindIndex($plainEmail),
+            $this->encryption->encrypt($plainEmail, 'user_accounts.email'),
+            $this->encryption->blindIndex($plainEmail, 'email'),
         ]);
         $userId = (int) $this->pdo->lastInsertId();
 

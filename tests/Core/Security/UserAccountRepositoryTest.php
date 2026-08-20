@@ -122,7 +122,7 @@ class UserAccountRepositoryTest extends TestCase
     public function testFindByBlindIndex(): void
     {
         $this->repo->create('find@test.com');
-        $blindIndex = $this->encryption->blindIndex('find@test.com');
+        $blindIndex = $this->encryption->blindIndex('find@test.com', 'email');
 
         $found = $this->repo->findByBlindIndex($blindIndex);
 

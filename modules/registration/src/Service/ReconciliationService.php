@@ -66,11 +66,11 @@ class ReconciliationService implements ReconciliationTrigger
             if ($row['birth_date_encrypted'] === null) {
                 continue;
             }
-            $firstName = $this->encryption->decrypt($row['first_name_encrypted']);
-            $lastName = $this->encryption->decrypt($row['last_name_encrypted']);
-            $birthDate = $this->encryption->decrypt($row['birth_date_encrypted']);
+            $firstName = $this->encryption->decrypt($row['first_name_encrypted'], 'member_years.first_name');
+            $lastName = $this->encryption->decrypt($row['last_name_encrypted'], 'member_years.last_name');
+            $birthDate = $this->encryption->decrypt($row['birth_date_encrypted'], 'member_years.birth_date');
             $normalized = RegistrationRequestRepository::normalizeForNameDobBlindIndex($lastName, $firstName, $birthDate);
-            $blindIndex = $this->encryption->blindIndex($normalized);
+            $blindIndex = $this->encryption->blindIndex($normalized, 'registration_name_dob');
             $memberIdsByBlind[$blindIndex][] = (int) $row['member_id'];
         }
 

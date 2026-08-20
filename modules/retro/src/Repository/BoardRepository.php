@@ -8,10 +8,22 @@ declare(strict_types=1);
 
 namespace Modules\Retro\Repository;
 
+use Core\Security\EncryptionService;
+
+/**
+ * The board token is a long-lived bearer credential the chief re-displays
+ * (share link, QR), so it is encrypted at rest with a blind index for
+ * lookup — same pattern as user_accounts.email — never plaintext.
+ */
 class BoardRepository
 {
-    public function __construct(private \PDO $pdo)
-    {
+    private const TOKEN_ENCRYPTION_CONTEXT = 'retro_boards.token';
+    private const TOKEN_BLIND_INDEX_PURPOSE = 'retro_board_token';
+
+    public function __construct(
+        private \PDO $pdo,
+        private EncryptionService $encryption
+    ) {
     }
 
     public function create(
@@ -35,13 +47,16 @@ class BoardRepository
     ): int {
         $stmt = $this->pdo->prepare(
             'INSERT INTO retro_boards (
-                title, board_date, calendar_event_id, token, short_code, listed, vote_mode, vote_budget,
+                title, board_date, calendar_event_id, token_encrypted, token_blind_index, short_code, listed, vote_mode, vote_budget,
                 votes_visible, anti_duplicate_mode, max_comment_length, auto_close_delay, auto_close_at, created_by,
                 close_notify_enabled, close_notify_email, link_visibility
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([
-            $title, $boardDate, $calendarEventId, $token, $shortCode, $listed ? 1 : 0, $voteMode, $voteBudget,
+            $title, $boardDate, $calendarEventId,
+            $this->encryption->encrypt($token, self::TOKEN_ENCRYPTION_CONTEXT),
+            $this->encryption->blindIndex($token, self::TOKEN_BLIND_INDEX_PURPOSE),
+            $shortCode, $listed ? 1 : 0, $voteMode, $voteBudget,
             $votesVisible ? 1 : 0, $antiDuplicateMode, $maxCommentLength, $autoCloseDelay, $autoCloseAt, $createdBy,
             $closeNotifyEnabled ? 1 : 0, $closeNotifyEmail, $linkVisibility,
         ]);
@@ -60,11 +75,17 @@ class BoardRepository
 
     public function findByToken(string $token): ?Board
     {
-        $stmt = $this->pdo->prepare('SELECT * FROM retro_boards WHERE token = ?');
-        $stmt->execute([$token]);
+        $stmt = $this->pdo->prepare('SELECT * FROM retro_boards WHERE token_blind_index = ?');
+        $stmt->execute([$this->encryption->blindIndex($token, self::TOKEN_BLIND_INDEX_PURPOSE)]);
         $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+        if ($row === false) {
+            return null;
+        }
 
-        return $row !== false ? $this->hydrate($row) : null;
+        // Verify exact match (blind index collisions are theoretically possible).
+        $board = $this->hydrate($row);
+
+        return hash_equals($board->token, $token) ? $board : null;
     }
 
     /**
@@ -167,8 +188,13 @@ class BoardRepository
 
     public function regenerateLink(int $id, string $token, ?string $shortCode): void
     {
-        $stmt = $this->pdo->prepare('UPDATE retro_boards SET token = ?, short_code = ? WHERE id = ?');
-        $stmt->execute([$token, $shortCode, $id]);
+        $stmt = $this->pdo->prepare('UPDATE retro_boards SET token_encrypted = ?, token_blind_index = ?, short_code = ? WHERE id = ?');
+        $stmt->execute([
+            $this->encryption->encrypt($token, self::TOKEN_ENCRYPTION_CONTEXT),
+            $this->encryption->blindIndex($token, self::TOKEN_BLIND_INDEX_PURPOSE),
+            $shortCode,
+            $id,
+        ]);
     }
 
     public function setAiSummary(int $id, string $summary): void
@@ -187,7 +213,7 @@ class BoardRepository
             title: (string) $row['title'],
             boardDate: (string) $row['board_date'],
             calendarEventId: $row['calendar_event_id'] !== null ? (int) $row['calendar_event_id'] : null,
-            token: (string) $row['token'],
+            token: $this->encryption->decrypt((string) $row['token_encrypted'], self::TOKEN_ENCRYPTION_CONTEXT),
             shortCode: $row['short_code'] !== null ? (string) $row['short_code'] : null,
             status: (string) $row['status'],
             listed: (bool) $row['listed'],

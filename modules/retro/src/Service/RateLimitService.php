@@ -63,7 +63,7 @@ class RateLimitService
             ? 'ip:' . $ipAddress
             : 'sid:' . ($cookieValue ?? $sessionId);
 
-        return $this->encryption->blindIndex('retro_rate_limit:' . $raw);
+        return $this->encryption->blindIndex($raw, 'retro_rate_limit');
     }
 
     /**

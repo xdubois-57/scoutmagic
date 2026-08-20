@@ -54,7 +54,7 @@ class CreateBackupHandler implements TaskHandlerInterface
             if ($rawPassword === false) {
                 throw new \RuntimeException('Mot de passe de sauvegarde illisible.');
             }
-            $password = $context->encryption->decrypt($rawPassword);
+            $password = $context->encryption->decrypt($rawPassword, 'backup_password');
 
             $basePath = dirname($context->storagePath);
             $backupService = new BackupService($context->connection, $context->storagePath, $basePath);

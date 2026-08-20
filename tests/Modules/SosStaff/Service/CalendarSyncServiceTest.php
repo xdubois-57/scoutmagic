@@ -52,7 +52,7 @@ class CalendarSyncServiceTest extends TestCase
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $connection = Connection::withPdo($this->pdo);
 
-        $calendarRepository = new CalendarRepository($this->pdo);
+        $calendarRepository = new CalendarRepository($this->pdo, new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32)));
         $this->calendarEventRepository = new CalendarEventRepository($this->pdo);
         $memberBadgeRepository = new MemberBadgeRepository($this->pdo);
         $sectionService = new SectionService($connection, $encryption, $memberBadgeRepository);
@@ -60,7 +60,7 @@ class CalendarSyncServiceTest extends TestCase
             $calendarRepository,
             $this->calendarEventRepository,
             $sectionService,
-            new CalendarUnitFeedTokenRepository($this->pdo)
+            new CalendarUnitFeedTokenRepository($this->pdo, new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32)))
         );
         $settingService = new SettingService(new SettingRepository($this->pdo));
         $settingService->register('notify_multiday_events_enabled', '0', 'boolean', 'Rappels', 'desc', 'calendar');
@@ -107,9 +107,9 @@ class CalendarSyncServiceTest extends TestCase
         );
         $stmt->execute([
             $memberId, $this->scoutYearId,
-            $encryption->encrypt('Jean'),
-            $encryption->encrypt('Dupont'),
-            $encryption->encrypt($totem),
+            $encryption->encrypt('Jean', 'member_years.first_name'),
+            $encryption->encrypt('Dupont', 'member_years.last_name'),
+            $encryption->encrypt($totem, 'member_years.totem'),
         ]);
 
         return $memberId;

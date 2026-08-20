@@ -69,7 +69,7 @@ class MemberControllerMassMailTest extends TestCase
             'INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted)
              VALUES (?, ?, ?, ?)'
         );
-        $stmt->execute([$this->memberId, $scoutYearId, $this->encryption->encrypt('John'), $this->encryption->encrypt('Doe')]);
+        $stmt->execute([$this->memberId, $scoutYearId, $this->encryption->encrypt('John', 'member_years.first_name'), $this->encryption->encrypt('Doe', 'member_years.last_name')]);
         $this->memberYearId = (int) $this->pdo->lastInsertId();
 
         AuthSession::login(1, 'chief@test.example', 'chief');

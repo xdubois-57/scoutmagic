@@ -39,8 +39,8 @@ class RegistrationSecondaryEmailRepository
         );
         $stmt->execute([
             $registrationRequestId,
-            $this->encryption->encrypt($email),
-            $this->encryption->blindIndex(RegistrationRequestRepository::normalizeEmail($email)),
+            $this->encryption->encrypt($email, 'registration_secondary_emails.email'),
+            $this->encryption->blindIndex(RegistrationRequestRepository::normalizeEmail($email), 'registration_email'),
             RegistrationSecondaryEmail::STATUS_PENDING,
             $confirmationTokenHash,
             $confirmationExpiresAt->format('Y-m-d H:i:s'),
@@ -74,7 +74,7 @@ class RegistrationSecondaryEmailRepository
 
     public function findByRequestAndEmail(int $registrationRequestId, string $email): ?RegistrationSecondaryEmail
     {
-        $blindIndex = $this->encryption->blindIndex(RegistrationRequestRepository::normalizeEmail($email));
+        $blindIndex = $this->encryption->blindIndex(RegistrationRequestRepository::normalizeEmail($email), 'registration_email');
         $stmt = $this->pdo->prepare(
             'SELECT * FROM registration_secondary_emails WHERE registration_request_id = ? AND email_blind_index = ?'
         );
@@ -137,7 +137,7 @@ class RegistrationSecondaryEmailRepository
         return new RegistrationSecondaryEmail(
             id: (int) $row['id'],
             registrationRequestId: (int) $row['registration_request_id'],
-            email: $this->encryption->decrypt($row['email_encrypted']),
+            email: $this->encryption->decrypt($row['email_encrypted'], 'registration_secondary_emails.email'),
             status: (string) $row['status'],
             confirmationTokenHash: $row['confirmation_token_hash'] !== null ? (string) $row['confirmation_token_hash'] : null,
             confirmationExpiresAt: $row['confirmation_expires_at'] !== null ? new \DateTimeImmutable((string) $row['confirmation_expires_at']) : null,

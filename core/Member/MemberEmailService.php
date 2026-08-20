@@ -213,23 +213,29 @@ class MemberEmailService
     }
 
     /**
-     * The confirmation link's target — public, unauthenticated, must fail
+     * True when the token would currently confirm this address, WITHOUT
+     * consuming it — the GET confirmation page's check. Mail scanners and
+     * link prefetchers follow every GET in an email, so the page a bare
+     * GET renders must never mutate; only the POST behind its button does
+     * (same shape as Modules\MassMail\Controller\UnsubscribeController).
+     */
+    public function canConfirmEmail(int $emailId, string $rawToken): bool
+    {
+        return $this->verifiedPendingRow($emailId, $rawToken) !== null;
+    }
+
+    /**
+     * The confirm page's POST target — public, unauthenticated, must fail
      * gracefully (no exceptions, no account enumeration), same contract as
      * Core\Security\AuthService::verifyMagicLink() returning null on any
      * failure. False for: unknown id, not pending, expired, wrong token —
      * clearing the hash in MemberEmailRepository::markValid() is what
-     * makes a second click with the same token fail here too (single-use).
+     * makes a second submit with the same token fail here too (single-use).
      */
     public function confirmEmail(int $emailId, string $rawToken): bool
     {
-        $row = $this->repository->findById($emailId);
-        if ($row === null || !$row->isPending() || $row->confirmationTokenHash === null) {
-            return false;
-        }
-        if ($row->confirmationExpiresAt === null || new \DateTimeImmutable() > $row->confirmationExpiresAt) {
-            return false;
-        }
-        if (!password_verify($rawToken, $row->confirmationTokenHash)) {
+        $row = $this->verifiedPendingRow($emailId, $rawToken);
+        if ($row === null) {
             return false;
         }
 
@@ -241,6 +247,26 @@ class MemberEmailService
         );
 
         return true;
+    }
+
+    /**
+     * The shared read-only verification behind canConfirmEmail() and
+     * confirmEmail(): the row, iff $rawToken is currently valid for it.
+     */
+    private function verifiedPendingRow(int $emailId, string $rawToken): ?MemberEmail
+    {
+        $row = $this->repository->findById($emailId);
+        if ($row === null || !$row->isPending() || $row->confirmationTokenHash === null) {
+            return null;
+        }
+        if ($row->confirmationExpiresAt === null || new \DateTimeImmutable() > $row->confirmationExpiresAt) {
+            return null;
+        }
+        if (!password_verify($rawToken, $row->confirmationTokenHash)) {
+            return null;
+        }
+
+        return $row;
     }
 
     /**

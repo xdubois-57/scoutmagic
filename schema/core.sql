@@ -781,10 +781,15 @@ CREATE TABLE update_history (
 -- and 302-redirected by GET /s/{code}. Introduced for the news module's
 -- poster QR codes and confirmation-email edit links, but reusable by any
 -- future module that needs a short, typeable/scannable link.
+-- target_url is encrypted at rest: several callers shorten URLs that
+-- embed bearer tokens (a retro board's /r/{token}, a news response's
+-- edit link), so a plaintext column would hand working credentials to
+-- any DB read even after the tokens themselves are protected. Lookup is
+-- always by code, so no blind index is needed.
 CREATE TABLE short_urls (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     code VARCHAR(10) NOT NULL UNIQUE,
-    target_url VARCHAR(500) NOT NULL,
+    target_url_encrypted BLOB NOT NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     created_by INT UNSIGNED,
     CONSTRAINT fk_su_created_by FOREIGN KEY (created_by) REFERENCES user_accounts(id) ON DELETE SET NULL

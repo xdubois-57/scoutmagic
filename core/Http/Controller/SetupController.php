@@ -1021,8 +1021,8 @@ class SetupController extends AbstractController
         $encryptionService = EncryptionService::fromEncodedKeys($encryptionKey, $blindIndexKey);
         $normalizedEmail = strtolower(trim($email));
 
-        $emailEncrypted = $encryptionService->encrypt($normalizedEmail);
-        $emailBlindIndex = $encryptionService->blindIndex($normalizedEmail);
+        $emailEncrypted = $encryptionService->encrypt($normalizedEmail, 'user_accounts.email');
+        $emailBlindIndex = $encryptionService->blindIndex($normalizedEmail, 'email');
         $passwordHash = password_hash($password, PASSWORD_DEFAULT);
 
         $pdo = $connection->getPdo();
@@ -1044,7 +1044,7 @@ class SetupController extends AbstractController
             (string) $secrets['blind_index_key']
         );
         $normalizedEmail = strtolower(trim($email));
-        $blindIndex = $encryptionService->blindIndex($normalizedEmail);
+        $blindIndex = $encryptionService->blindIndex($normalizedEmail, 'email');
         $passwordHash = password_hash($password, PASSWORD_DEFAULT);
 
         $pdo = $connection->getPdo();
@@ -1060,7 +1060,7 @@ class SetupController extends AbstractController
             $stmt->execute([$passwordHash, $existing['id']]);
         } else {
             // Create new admin account
-            $emailEncrypted = $encryptionService->encrypt($normalizedEmail);
+            $emailEncrypted = $encryptionService->encrypt($normalizedEmail, 'user_accounts.email');
             $stmt = $pdo->prepare(
                 'INSERT INTO user_accounts (email_encrypted, email_blind_index, password_hash, is_super_admin) VALUES (?, ?, ?, TRUE)'
             );

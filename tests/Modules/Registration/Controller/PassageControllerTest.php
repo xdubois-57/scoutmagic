@@ -143,7 +143,7 @@ class PassageControllerTest extends TestCase
             'INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted, birth_date_encrypted)
              VALUES (?, ?, ?, ?, ?)'
         );
-        $stmt->execute([$memberId, $this->currentYearId, $encryption->encrypt('Sacha'), $encryption->encrypt('Dupont'), $encryption->encrypt('2015-06-01')]);
+        $stmt->execute([$memberId, $this->currentYearId, $encryption->encrypt('Sacha', 'member_years.first_name'), $encryption->encrypt('Dupont', 'member_years.last_name'), $encryption->encrypt('2015-06-01', 'member_years.birth_date')]);
         $memberYearId = (int) $this->pdo->lastInsertId();
 
         $this->pdo->exec("INSERT OR IGNORE INTO functions (desk_code, label, role) VALUES ('identified', 'Fn', 'identified')");

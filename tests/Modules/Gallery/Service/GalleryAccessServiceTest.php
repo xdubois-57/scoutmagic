@@ -61,8 +61,8 @@ class GalleryAccessServiceTest extends TestCase
         );
         $stmt->execute([
             $memberId, $scoutYear['id'],
-            $this->encryption->encrypt('Jean'), $this->encryption->encrypt('Dupont'),
-            $this->encryption->encrypt($email), $this->encryption->blindIndex($email),
+            $this->encryption->encrypt('Jean', 'member_years.first_name'), $this->encryption->encrypt('Dupont', 'member_years.last_name'),
+            $this->encryption->encrypt($email, 'member_years.email'), $this->encryption->blindIndex($email, 'email'),
         ]);
         $memberYearId = (int) $this->pdo->lastInsertId();
 

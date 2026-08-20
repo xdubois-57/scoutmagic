@@ -37,7 +37,7 @@ class MemberServiceTest extends TestCase
     private function createTestMember(string $email, ?string $totem = null): int
     {
         $encryption = new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
-        $blindIndex = $encryption->blindIndex(strtolower($email));
+        $blindIndex = $encryption->blindIndex(strtolower($email), 'email');
 
         // Create member
         $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('TEST_" . uniqid() . "')");
@@ -51,11 +51,11 @@ class MemberServiceTest extends TestCase
         $stmt->execute([
             $memberId,
             $this->scoutYearId,
-            $encryption->encrypt('John'),
-            $encryption->encrypt('Doe'),
-            $encryption->encrypt($email),
+            $encryption->encrypt('John', 'member_years.first_name'),
+            $encryption->encrypt('Doe', 'member_years.last_name'),
+            $encryption->encrypt($email, 'member_years.email'),
             $blindIndex,
-            $totem ? $encryption->encrypt($totem) : null,
+            $totem ? $encryption->encrypt($totem, 'member_years.totem') : null,
         ]);
         return (int) $this->pdo->lastInsertId();
     }
@@ -88,7 +88,7 @@ class MemberServiceTest extends TestCase
         $otherYearId = (int) $this->pdo->lastInsertId();
         $otherMemberRepo = new \Core\Import\MemberYearRepository($this->pdo);
         $encryption = new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
-        $blindIndex = $encryption->blindIndex(strtolower($this->testEmail));
+        $blindIndex = $encryption->blindIndex(strtolower($this->testEmail), 'email');
         
         $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('TEST_OTHER')");
         $memberId = (int) $this->pdo->lastInsertId();
@@ -99,9 +99,9 @@ class MemberServiceTest extends TestCase
         $stmt->execute([
             $memberId,
             $otherYearId,
-            $encryption->encrypt('John'),
-            $encryption->encrypt('Doe'),
-            $encryption->encrypt($this->testEmail),
+            $encryption->encrypt('John', 'member_years.first_name'),
+            $encryption->encrypt('Doe', 'member_years.last_name'),
+            $encryption->encrypt($this->testEmail, 'member_years.email'),
             $blindIndex,
         ]);
 
@@ -142,9 +142,9 @@ class MemberServiceTest extends TestCase
         $stmt->execute([
             $memberYearId,
             'Domicile',
-            $encryption->encrypt('Rue de la Paix'),
-            $encryption->encrypt('1000'),
-            $encryption->encrypt('Bruxelles'),
+            $encryption->encrypt('Rue de la Paix', 'member_addresses.street'),
+            $encryption->encrypt('1000', 'member_addresses.postal_code'),
+            $encryption->encrypt('Bruxelles', 'member_addresses.city'),
         ]);
 
         // Add a function

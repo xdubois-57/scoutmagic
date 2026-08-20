@@ -41,8 +41,19 @@ class EncryptionService
     /**
      * Encrypt a plaintext string. Returns raw bytes (IV || ciphertext || tag).
      * Suitable for storage in a BLOB column.
+     *
+     * $context binds the ciphertext to where it lives (AES-GCM additional
+     * authenticated data): decrypt() must be called with the exact same
+     * string, so a ciphertext copied into a different column or table by
+     * an attacker with DB write access fails authentication instead of
+     * decrypting somewhere it can be read back. Convention: the storage
+     * location as "table.column" (e.g. 'user_accounts.email'), or a
+     * purpose label for non-DB uses (e.g. 'backup_password'). Every call
+     * site is expected to pass one — the '' default exists only so a
+     * missing context fails at decrypt time (tag mismatch) rather than
+     * silently binding to a wrong guess.
      */
-    public function encrypt(string $plaintext): string
+    public function encrypt(string $plaintext, string $context = ''): string
     {
         $iv = random_bytes(self::IV_LENGTH);
         $tag = '';
@@ -54,7 +65,7 @@ class EncryptionService
             OPENSSL_RAW_DATA,
             $iv,
             $tag,
-            '',
+            $context,
             self::TAG_LENGTH
         );
 
@@ -66,10 +77,12 @@ class EncryptionService
     }
 
     /**
-     * Decrypt raw bytes back to plaintext.
-     * Throws DecryptionException if the data is corrupted or the key is wrong.
+     * Decrypt raw bytes back to plaintext. $context must be the exact
+     * string the data was encrypted with (see encrypt()).
+     * Throws DecryptionException if the data is corrupted, the key is
+     * wrong, or the context doesn't match the one used to encrypt.
      */
-    public function decrypt(string $encrypted): string
+    public function decrypt(string $encrypted, string $context = ''): string
     {
         $minLength = self::IV_LENGTH + self::TAG_LENGTH;
 
@@ -87,7 +100,8 @@ class EncryptionService
             $this->encryptionKey,
             OPENSSL_RAW_DATA,
             $iv,
-            $tag
+            $tag,
+            $context
         );
 
         if ($plaintext === false) {
@@ -101,9 +115,23 @@ class EncryptionService
      * Compute a blind index (HMAC-SHA256) for exact-match searching
      * on encrypted fields (e.g. email lookup).
      * Returns hex string (64 chars) suitable for a CHAR(64) column.
+     *
+     * $purpose domain-separates indexes of different kinds: the same
+     * plaintext under two purposes yields unrelated indexes, so an
+     * attacker with DB read access cannot link a value across unrelated
+     * columns, and a value of one kind can never be confused for another.
+     * Indexes that are deliberately compared across tables (e.g. the
+     * email identity shared by user_accounts / member_years /
+     * member_emails) must share ONE purpose. The '' default keeps the
+     * legacy unlabelled form for call sites not yet migrated.
      */
-    public function blindIndex(string $value): string
+    public function blindIndex(string $value, string $purpose = ''): string
     {
-        return hash_hmac('sha256', $value, $this->blindIndexKey);
+        // "\x00" separates purpose from value unambiguously — no
+        // purpose/value pair can collide with a different split of the
+        // same concatenation (purposes never contain NUL).
+        $input = $purpose === '' ? $value : $purpose . "\x00" . $value;
+
+        return hash_hmac('sha256', $input, $this->blindIndexKey);
     }
 }

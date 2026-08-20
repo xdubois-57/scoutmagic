@@ -83,7 +83,7 @@ class ResponseServiceTest extends TestCase
             '@news/email/confirmation.html.twig' => 'html',
             '@news/email/confirmation.text.twig' => 'text',
         ]));
-        $shortUrlService = new ShortUrlService(new ShortUrlRepository($this->pdo));
+        $shortUrlService = new ShortUrlService(new ShortUrlRepository($this->pdo, new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32))));
 
         return new ResponseService(
             $this->responseRepository, $roleResolver, $sectionService,

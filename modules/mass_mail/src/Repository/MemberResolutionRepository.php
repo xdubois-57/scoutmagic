@@ -131,7 +131,7 @@ class MemberResolutionRepository
         foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
             $members[] = [
                 'member_id' => (int) $row['member_id'],
-                'email' => $row['email_encrypted'] !== null ? $this->encryption->decrypt($row['email_encrypted']) : null,
+                'email' => $row['email_encrypted'] !== null ? $this->encryption->decrypt($row['email_encrypted'], 'member_years.email') : null,
             ];
         }
         return $members;

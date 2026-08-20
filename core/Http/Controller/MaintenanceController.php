@@ -429,7 +429,7 @@ class MaintenanceController extends AbstractController
         // with the same master-key-backed service as everything else
         // sensitive, decrypted only inside CreateBackupHandler right before
         // it's needed.
-        $encryptedPassword = base64_encode($this->encryption->encrypt($password));
+        $encryptedPassword = base64_encode($this->encryption->encrypt($password, 'backup_password'));
 
         $this->schedulerService->scheduleAfter(
             'core',
@@ -577,7 +577,7 @@ class MaintenanceController extends AbstractController
         $userId = AuthSession::getUserAccountId();
         $source = (string) $request->getBody('source', 'server');
         $password = (string) $request->getBody('password', '');
-        $encryptedPassword = $password !== '' ? base64_encode($this->encryption->encrypt($password)) : null;
+        $encryptedPassword = $password !== '' ? base64_encode($this->encryption->encrypt($password, 'backup_password')) : null;
 
         $payload = ['source' => $source, 'encrypted_password' => $encryptedPassword];
 

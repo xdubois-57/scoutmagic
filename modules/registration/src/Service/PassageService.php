@@ -144,7 +144,7 @@ class PassageService
         $promoted = [];
         foreach ($candidates as $row) {
             $birthYear = MemberYearService::extractBirthYear(
-                $row['birth_date_encrypted'] !== null ? $this->encryption->decrypt($row['birth_date_encrypted']) : null
+                $row['birth_date_encrypted'] !== null ? $this->encryption->decrypt($row['birth_date_encrypted'], 'member_years.birth_date') : null
             );
             $effectiveAge = $memberYearService->getEffectiveAge($birthYear, (int) $row['scout_year_offset'], $referenceYear);
 
@@ -244,7 +244,7 @@ class PassageService
         }
 
         $nextSortOrder = $this->arrivalBranchSortOrder(
-            $row['birth_date_encrypted'] !== null ? $this->encryption->decrypt($row['birth_date_encrypted']) : null,
+            $row['birth_date_encrypted'] !== null ? $this->encryption->decrypt($row['birth_date_encrypted'], 'member_years.birth_date') : null,
             (int) $row['scout_year_offset'],
             MemberYearService::referenceYearFromScoutYearLabel($currentPublicYearLabel)
         );
@@ -580,8 +580,8 @@ class PassageService
 
     private function decryptName($firstNameEncrypted, $lastNameEncrypted): string
     {
-        $first = $firstNameEncrypted !== null ? $this->encryption->decrypt($firstNameEncrypted) : '';
-        $last = $lastNameEncrypted !== null ? $this->encryption->decrypt($lastNameEncrypted) : '';
+        $first = $firstNameEncrypted !== null ? $this->encryption->decrypt($firstNameEncrypted, 'member_years.first_name') : '';
+        $last = $lastNameEncrypted !== null ? $this->encryption->decrypt($lastNameEncrypted, 'member_years.last_name') : '';
 
         return trim($first . ' ' . $last);
     }

@@ -82,7 +82,7 @@ class NotificationServiceTest extends TestCase
     {
         $email = 'user_' . uniqid() . '@test.example';
         $stmt = $this->pdo->prepare('INSERT INTO user_accounts (email_encrypted, email_blind_index) VALUES (?, ?)');
-        $stmt->execute([$this->encryption->encrypt($email), $this->encryption->blindIndex($email)]);
+        $stmt->execute([$this->encryption->encrypt($email, 'user_accounts.email'), $this->encryption->blindIndex($email, 'email')]);
 
         return (int) $this->pdo->lastInsertId();
     }

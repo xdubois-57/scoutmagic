@@ -26,7 +26,7 @@ class CalendarEventRepositoryTest extends TestCase
         CalendarTestHelper::createTables($this->pdo);
         $this->repository = new CalendarEventRepository($this->pdo);
 
-        $calendarRepo = new CalendarRepository($this->pdo);
+        $calendarRepo = new CalendarRepository($this->pdo, new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32)));
         $this->calendarId = $calendarRepo->createSupplementaryCalendar('Animateurs', true, 'public', 'tok');
     }
 
@@ -162,7 +162,7 @@ class CalendarEventRepositoryTest extends TestCase
 
     public function testFindByCalendarIdReturnsOnlyThatCalendarsEvents(): void
     {
-        $calendarRepo = new CalendarRepository($this->pdo);
+        $calendarRepo = new CalendarRepository($this->pdo, new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32)));
         $otherCalendarId = $calendarRepo->createSupplementaryCalendar('Other', false, 'public', 'tok2');
 
         $this->repository->create($this->calendarId, 'Mine', '2026-01-01', null, null, null, null, null, null);

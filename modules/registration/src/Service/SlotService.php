@@ -268,7 +268,7 @@ class SlotService
             if ($row['birth_date_encrypted'] === null) {
                 continue;
             }
-            $birthDate = $this->encryption->decrypt($row['birth_date_encrypted']);
+            $birthDate = $this->encryption->decrypt($row['birth_date_encrypted'], 'member_years.birth_date');
             $birthYear = MemberYearService::extractBirthYear($birthDate);
             $effective = $memberYearService->getEffectiveAge($birthYear, (int) $row['scout_year_offset'], $referenceYear);
             if ($effective->branchName === null || $effective->yearInBranch === null) {

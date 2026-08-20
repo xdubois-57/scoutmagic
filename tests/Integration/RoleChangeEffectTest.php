@@ -44,13 +44,13 @@ class RoleChangeEffectTest extends TestCase
     {
         $email = 'member@test.com';
         $normalizedEmail = strtolower($email);
-        $blindIndex = $this->encryption->blindIndex($normalizedEmail);
+        $blindIndex = $this->encryption->blindIndex($normalizedEmail, 'email');
 
         // Create user account
         $stmt = $this->pdo->prepare(
             'INSERT INTO user_accounts (email_encrypted, email_blind_index, is_super_admin) VALUES (?, ?, 0)'
         );
-        $stmt->execute([$this->encryption->encrypt($normalizedEmail), $blindIndex]);
+        $stmt->execute([$this->encryption->encrypt($normalizedEmail, 'user_accounts.email'), $blindIndex]);
 
         // Create function with role=identified
         $functionId = $this->functionRepo->create('Scout', 'Scout', 'identified', true);
@@ -66,9 +66,9 @@ class RoleChangeEffectTest extends TestCase
         );
         $stmt->execute([
             $memberId, $this->scoutYearId,
-            $this->encryption->encrypt('Test'),
-            $this->encryption->encrypt('User'),
-            $this->encryption->encrypt($normalizedEmail),
+            $this->encryption->encrypt('Test', 'member_years.first_name'),
+            $this->encryption->encrypt('User', 'member_years.last_name'),
+            $this->encryption->encrypt($normalizedEmail, 'member_years.email'),
             $blindIndex,
         ]);
         $memberYearId = (int) $this->pdo->lastInsertId();
@@ -95,13 +95,13 @@ class RoleChangeEffectTest extends TestCase
     {
         $email = 'leader@test.com';
         $normalizedEmail = strtolower($email);
-        $blindIndex = $this->encryption->blindIndex($normalizedEmail);
+        $blindIndex = $this->encryption->blindIndex($normalizedEmail, 'email');
 
         // Create user account (NOT super admin)
         $stmt = $this->pdo->prepare(
             'INSERT INTO user_accounts (email_encrypted, email_blind_index, is_super_admin) VALUES (?, ?, 0)'
         );
-        $stmt->execute([$this->encryption->encrypt($normalizedEmail), $blindIndex]);
+        $stmt->execute([$this->encryption->encrypt($normalizedEmail, 'user_accounts.email'), $blindIndex]);
 
         // Create function with role=intendant
         $functionId = $this->functionRepo->create('Intendant', 'Intendant', 'intendant', true);
@@ -116,9 +116,9 @@ class RoleChangeEffectTest extends TestCase
         );
         $stmt->execute([
             $memberId, $this->scoutYearId,
-            $this->encryption->encrypt('Lead'),
-            $this->encryption->encrypt('User'),
-            $this->encryption->encrypt($normalizedEmail),
+            $this->encryption->encrypt('Lead', 'member_years.first_name'),
+            $this->encryption->encrypt('User', 'member_years.last_name'),
+            $this->encryption->encrypt($normalizedEmail, 'member_years.email'),
             $blindIndex,
         ]);
         $memberYearId = (int) $this->pdo->lastInsertId();
@@ -142,12 +142,12 @@ class RoleChangeEffectTest extends TestCase
     {
         $email = 'downgrade@test.com';
         $normalizedEmail = strtolower($email);
-        $blindIndex = $this->encryption->blindIndex($normalizedEmail);
+        $blindIndex = $this->encryption->blindIndex($normalizedEmail, 'email');
 
         $stmt = $this->pdo->prepare(
             'INSERT INTO user_accounts (email_encrypted, email_blind_index, is_super_admin) VALUES (?, ?, 0)'
         );
-        $stmt->execute([$this->encryption->encrypt($normalizedEmail), $blindIndex]);
+        $stmt->execute([$this->encryption->encrypt($normalizedEmail, 'user_accounts.email'), $blindIndex]);
 
         $functionId = $this->functionRepo->create('Animateur', 'Animateur', 'chief', true);
 
@@ -160,9 +160,9 @@ class RoleChangeEffectTest extends TestCase
         );
         $stmt->execute([
             $memberId, $this->scoutYearId,
-            $this->encryption->encrypt('Down'),
-            $this->encryption->encrypt('Grade'),
-            $this->encryption->encrypt($normalizedEmail),
+            $this->encryption->encrypt('Down', 'member_years.first_name'),
+            $this->encryption->encrypt('Grade', 'member_years.last_name'),
+            $this->encryption->encrypt($normalizedEmail, 'member_years.email'),
             $blindIndex,
         ]);
         $memberYearId = (int) $this->pdo->lastInsertId();

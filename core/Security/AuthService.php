@@ -55,7 +55,7 @@ class AuthService
     public function requestMagicLink(string $email): MagicLinkResult
     {
         $normalizedEmail = strtolower(trim($email));
-        $blindIndex = $this->encryption->blindIndex($normalizedEmail);
+        $blindIndex = $this->encryption->blindIndex($normalizedEmail, 'email');
 
         // Rate limiting
         $recentCount = $this->magicLinkRepo->countRecentByEmail($blindIndex);

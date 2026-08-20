@@ -28,7 +28,7 @@ class VoteRepositoryTest extends TestCase
         RetroTestHelper::createTables($this->pdo);
         $this->repository = new VoteRepository($this->pdo);
 
-        $boardRepository = new BoardRepository($this->pdo);
+        $boardRepository = new BoardRepository($this->pdo, new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32)));
         $this->boardId = $boardRepository->create(
             'Board', '2026-07-01', null, 'tok', null, true, 'budget', 5, true, 'cookie', 140, '7d', null, null
         );

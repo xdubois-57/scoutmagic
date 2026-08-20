@@ -73,7 +73,7 @@ class RunCategorizationRulesHandler implements TaskHandlerInterface
             new AccountRepository($pdo, $context->encryption),
             new TransactionAttachmentRepository($pdo),
             new AttachmentRepository($pdo, $context->encryption),
-            $calendarEnabled ? new CalendarRepository($pdo) : null,
+            $calendarEnabled ? new CalendarRepository($pdo, $context->encryption) : null,
             $calendarEnabled ? new CalendarEventRepository($pdo) : null
         );
 

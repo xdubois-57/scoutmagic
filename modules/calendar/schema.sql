@@ -3,9 +3,14 @@
 -- calendar_calendars: a calendar is either a "section calendar"
 -- (section_id set — one per active section, automatic, never deletable) or
 -- a "supplementary calendar" (section_id NULL — the default "Animateurs"
--- calendar plus any admin-created custom ones). ics_token is only ever set
--- on supplementary calendars: section calendars are not individually
+-- calendar plus any admin-created custom ones). The ICS token is only ever
+-- set on supplementary calendars: section calendars are not individually
 -- subscribable, only via the "unité complète" feed or a personal feed.
+-- Feed tokens are long-lived bearer credentials the user re-displays (the
+-- URL lives in their calendar app), so they are encrypted at rest with a
+-- blind index for lookup — same pattern as user_accounts.email — never
+-- hashed-only (which would make the URL undisplayable) or plaintext
+-- (which would turn any DB read into working credentials).
 CREATE TABLE IF NOT EXISTS calendar_calendars (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     section_id INT UNSIGNED NULL,
@@ -13,10 +18,11 @@ CREATE TABLE IF NOT EXISTS calendar_calendars (
     color VARCHAR(7) NULL,
     is_default BOOLEAN NOT NULL DEFAULT FALSE,
     visibility ENUM('public', 'chief', 'admin') NOT NULL DEFAULT 'public',
-    ics_token VARCHAR(64) NULL,
+    ics_token_encrypted BLOB NULL,
+    ics_token_blind_index CHAR(64) NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE INDEX idx_calendar_section (section_id),
-    UNIQUE INDEX idx_calendar_ics_token (ics_token),
+    UNIQUE INDEX idx_calendar_ics_token (ics_token_blind_index),
     CONSTRAINT fk_calendar_section FOREIGN KEY (section_id) REFERENCES sections(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -52,20 +58,24 @@ CREATE TABLE IF NOT EXISTS calendar_events (
 
 -- One row per user_account. Regeneration replaces the token in place — the
 -- old link stops matching immediately (real revocation, no history kept).
+-- Encrypted at rest + blind-indexed, same rationale as calendar_calendars.
 CREATE TABLE IF NOT EXISTS calendar_personal_tokens (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     user_account_id INT UNSIGNED NOT NULL,
-    token VARCHAR(64) NOT NULL,
+    token_encrypted BLOB NOT NULL,
+    token_blind_index CHAR(64) NOT NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE INDEX idx_personal_user (user_account_id),
-    UNIQUE INDEX idx_personal_token (token),
+    UNIQUE INDEX idx_personal_token (token_blind_index),
     CONSTRAINT fk_personal_token_user FOREIGN KEY (user_account_id) REFERENCES user_accounts(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Single global row for the "unité complète" aggregate feed token.
+-- Encrypted at rest + blind-indexed, same rationale as calendar_calendars.
 CREATE TABLE IF NOT EXISTS calendar_unit_feed_token (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    token VARCHAR(64) NOT NULL,
+    token_encrypted BLOB NOT NULL,
+    token_blind_index CHAR(64) NOT NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE INDEX idx_unit_token (token)
+    UNIQUE INDEX idx_unit_token (token_blind_index)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

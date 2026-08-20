@@ -45,7 +45,7 @@ class BoardServiceTest extends TestCase
         $this->pdo = DatabaseTestHelper::createTestDatabase();
         RetroTestHelper::createTables($this->pdo);
 
-        $this->boardRepository = new BoardRepository($this->pdo);
+        $this->boardRepository = new BoardRepository($this->pdo, new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32)));
         $this->journalService = new JournalService(new JournalRepository($this->pdo));
         $this->schedulerService = new SchedulerService(new SchedulerRepository($this->pdo));
         $this->memberService = $this->createMock(MemberService::class);

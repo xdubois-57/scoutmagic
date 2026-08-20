@@ -58,7 +58,7 @@ class HumanCheckServiceTest extends TestCase
         // Same construction as HumanCheckService::sign() (private) — 'v1'
         // is its TOKEN_VERSION constant, duplicated here deliberately
         // (same convention as CsrfGuard's '_csrf_token' literal).
-        $signature = $signatureOverride ?? $this->encryption->blindIndex('v1:' . self::FORM_KEY . ':' . $trapField . ':' . $timestamp);
+        $signature = $signatureOverride ?? $this->encryption->blindIndex('v1:' . self::FORM_KEY . ':' . $trapField . ':' . $timestamp, 'human_check_sign');
         $token = base64_encode((string) json_encode(['f' => $trapField, 't' => $timestamp, 's' => $signature]));
 
         return ['human_check_token' => $token, $trapField => $trapValue];
@@ -194,7 +194,7 @@ class HumanCheckServiceTest extends TestCase
     {
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $trapField = 'hc_test_trap';
-        $signature = $signatureOverride ?? $encryption->blindIndex('v1:' . self::FORM_KEY . ':' . $trapField . ':' . $timestamp);
+        $signature = $signatureOverride ?? $encryption->blindIndex('v1:' . self::FORM_KEY . ':' . $trapField . ':' . $timestamp, 'human_check_sign');
         $token = base64_encode((string) json_encode(['f' => $trapField, 't' => $timestamp, 's' => $signature]));
 
         return ['human_check_token' => $token, $trapField => $trapValue];

@@ -52,7 +52,7 @@ class SectionStaffAuthorizationServiceTest extends TestCase
      */
     private function createAccountWithFunction(string $email, string $functionRole, array $sectionIds): void
     {
-        $blindIndex = $this->encryption->blindIndex(strtolower(trim($email)));
+        $blindIndex = $this->encryption->blindIndex(strtolower(trim($email)), 'email');
 
         $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('" . uniqid() . "')");
         $memberId = (int) $this->pdo->lastInsertId();

@@ -31,7 +31,7 @@ class MemberService
     public function getLinkedMembers(string $email, int $scoutYearId): array
     {
         $normalizedEmail = strtolower(trim($email));
-        $blindIndex = $this->encryption->blindIndex($normalizedEmail);
+        $blindIndex = $this->encryption->blindIndex($normalizedEmail, 'email');
         $memberYearRows = $this->memberYearRepo->findAllByEmail($blindIndex, $scoutYearId);
 
         $profiles = [];
@@ -148,7 +148,7 @@ class MemberService
             return false;
         }
 
-        $userBlindIndex = $this->encryption->blindIndex(strtolower(trim($userEmail)));
+        $userBlindIndex = $this->encryption->blindIndex(strtolower(trim($userEmail)), 'email');
         return $row['email_blind_index'] === $userBlindIndex;
     }
 
@@ -180,7 +180,7 @@ class MemberService
             return false;
         }
 
-        $userBlindIndex = $this->encryption->blindIndex(strtolower(trim($email)));
+        $userBlindIndex = $this->encryption->blindIndex(strtolower(trim($email)), 'email');
         return $row['email_blind_index'] === $userBlindIndex;
     }
 
@@ -207,8 +207,8 @@ class MemberService
 
         $names = [];
         foreach ($this->memberYearRepo->findAllByMemberIds($memberIds, $scoutYearId) as $row) {
-            $totem = $row['totem_encrypted'] !== null ? $this->encryption->decrypt($row['totem_encrypted']) : null;
-            $firstName = $row['first_name_encrypted'] !== null ? $this->encryption->decrypt($row['first_name_encrypted']) : '';
+            $totem = $row['totem_encrypted'] !== null ? $this->encryption->decrypt($row['totem_encrypted'], 'member_years.totem') : null;
+            $firstName = $row['first_name_encrypted'] !== null ? $this->encryption->decrypt($row['first_name_encrypted'], 'member_years.first_name') : '';
             $displayName = $totem !== null && $totem !== '' ? $totem : $firstName;
 
             if ($displayName !== '') {
@@ -235,13 +235,13 @@ class MemberService
         foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $addrRow) {
             $addresses[] = new MemberAddress(
                 type: $addrRow['address_type'],
-                street: $addrRow['street_encrypted'] ? $this->encryption->decrypt($addrRow['street_encrypted']) : null,
-                number: $addrRow['number_encrypted'] ? $this->encryption->decrypt($addrRow['number_encrypted']) : null,
-                box: $addrRow['box_encrypted'] ? $this->encryption->decrypt($addrRow['box_encrypted']) : null,
-                complement: $addrRow['complement_encrypted'] ? $this->encryption->decrypt($addrRow['complement_encrypted']) : null,
-                postalCode: $addrRow['postal_code_encrypted'] ? $this->encryption->decrypt($addrRow['postal_code_encrypted']) : null,
-                city: $addrRow['city_encrypted'] ? $this->encryption->decrypt($addrRow['city_encrypted']) : null,
-                country: $addrRow['country_encrypted'] ? $this->encryption->decrypt($addrRow['country_encrypted']) : null,
+                street: $addrRow['street_encrypted'] ? $this->encryption->decrypt($addrRow['street_encrypted'], 'member_addresses.street') : null,
+                number: $addrRow['number_encrypted'] ? $this->encryption->decrypt($addrRow['number_encrypted'], 'member_addresses.number') : null,
+                box: $addrRow['box_encrypted'] ? $this->encryption->decrypt($addrRow['box_encrypted'], 'member_addresses.box') : null,
+                complement: $addrRow['complement_encrypted'] ? $this->encryption->decrypt($addrRow['complement_encrypted'], 'member_addresses.complement') : null,
+                postalCode: $addrRow['postal_code_encrypted'] ? $this->encryption->decrypt($addrRow['postal_code_encrypted'], 'member_addresses.postal_code') : null,
+                city: $addrRow['city_encrypted'] ? $this->encryption->decrypt($addrRow['city_encrypted'], 'member_addresses.city') : null,
+                country: $addrRow['country_encrypted'] ? $this->encryption->decrypt($addrRow['country_encrypted'], 'member_addresses.country') : null,
             );
         }
 
@@ -279,20 +279,20 @@ class MemberService
             memberYearId: (int) $row['id'],
             memberId: (int) $row['member_id'],
             deskId: $row['desk_id'],
-            firstName: $this->encryption->decrypt($row['first_name_encrypted']),
-            lastName: $this->encryption->decrypt($row['last_name_encrypted']),
-            totem: $row['totem_encrypted'] ? $this->encryption->decrypt($row['totem_encrypted']) : null,
-            quali: $row['quali_encrypted'] ? $this->encryption->decrypt($row['quali_encrypted']) : null,
-            gender: $row['gender_encrypted'] ? $this->encryption->decrypt($row['gender_encrypted']) : null,
-            birthDate: $row['birth_date_encrypted'] ? $this->encryption->decrypt($row['birth_date_encrypted']) : null,
-            phone: $row['phone_encrypted'] ? $this->encryption->decrypt($row['phone_encrypted']) : null,
-            mobile: $row['mobile_encrypted'] ? $this->encryption->decrypt($row['mobile_encrypted']) : null,
-            email: $row['email_encrypted'] ? $this->encryption->decrypt($row['email_encrypted']) : null,
-            patrol: $row['patrol_encrypted'] ? $this->encryption->decrypt($row['patrol_encrypted']) : null,
+            firstName: $this->encryption->decrypt($row['first_name_encrypted'], 'member_years.first_name'),
+            lastName: $this->encryption->decrypt($row['last_name_encrypted'], 'member_years.last_name'),
+            totem: $row['totem_encrypted'] ? $this->encryption->decrypt($row['totem_encrypted'], 'member_years.totem') : null,
+            quali: $row['quali_encrypted'] ? $this->encryption->decrypt($row['quali_encrypted'], 'member_years.quali') : null,
+            gender: $row['gender_encrypted'] ? $this->encryption->decrypt($row['gender_encrypted'], 'member_years.gender') : null,
+            birthDate: $row['birth_date_encrypted'] ? $this->encryption->decrypt($row['birth_date_encrypted'], 'member_years.birth_date') : null,
+            phone: $row['phone_encrypted'] ? $this->encryption->decrypt($row['phone_encrypted'], 'member_years.phone') : null,
+            mobile: $row['mobile_encrypted'] ? $this->encryption->decrypt($row['mobile_encrypted'], 'member_years.mobile') : null,
+            email: $row['email_encrypted'] ? $this->encryption->decrypt($row['email_encrypted'], 'member_years.email') : null,
+            patrol: $row['patrol_encrypted'] ? $this->encryption->decrypt($row['patrol_encrypted'], 'member_years.patrol') : null,
             formationLevel: $row['formation_level'],
             federationMailConsent: (bool) $row['federation_mail_consent'],
             unitMailConsent: (bool) $row['unit_mail_consent'],
-            handicap: !empty($row['handicap_encrypted']) ? $this->encryption->decrypt($row['handicap_encrypted']) : null,
+            handicap: !empty($row['handicap_encrypted']) ? $this->encryption->decrypt($row['handicap_encrypted'], 'member_years.handicap') : null,
             supplementaryInsurance: $row['supplementary_insurance'] ?? null,
             addresses: $addresses,
             functions: $functions,

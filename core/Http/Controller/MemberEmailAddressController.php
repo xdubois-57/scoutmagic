@@ -162,6 +162,13 @@ class MemberEmailAddressController extends AbstractController
      * trace or account-enumeration hint, same contract as
      * auth/password_reset.html.twig's own invalid-token state.
      *
+     * Read-only by design: mail scanners and link prefetchers follow
+     * every GET in an email, so this only shows a confirm button —
+     * confirmPost() is what acts (same shape as Modules\MassMail\
+     * Controller\UnsubscribeController; the bearer token, re-verified on
+     * the POST, is the authentication — an anonymous visitor has no
+     * session to bind a CSRF token to).
+     *
      * @param array<string, string> $params
      */
     public function confirm(Request $request, array $params): Response
@@ -169,9 +176,31 @@ class MemberEmailAddressController extends AbstractController
         $id = (int) ($params['id'] ?? 0);
         $token = (string) $request->getQuery('token', '');
 
+        $valid = $id > 0 && $token !== '' && $this->memberEmailService->canConfirmEmail($id, $token);
+
+        return $this->render('members/email_confirmed.html.twig', [
+            'state' => $valid ? 'confirm' : 'invalid',
+            'email_id' => $id,
+            'token' => $token,
+        ]);
+    }
+
+    /**
+     * POST /members/emails/confirm/{id} — the confirm page's submit, the
+     * only action that mutates (token carried as a hidden field).
+     *
+     * @param array<string, string> $params
+     */
+    public function confirmPost(Request $request, array $params): Response
+    {
+        $id = (int) ($params['id'] ?? 0);
+        $token = (string) $request->getBody('token', '');
+
         $confirmed = $id > 0 && $token !== '' && $this->memberEmailService->confirmEmail($id, $token);
 
-        return $this->render('members/email_confirmed.html.twig', ['confirmed' => $confirmed]);
+        return $this->render('members/email_confirmed.html.twig', [
+            'state' => $confirmed ? 'done' : 'invalid',
+        ]);
     }
 
     /**

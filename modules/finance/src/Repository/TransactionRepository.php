@@ -276,14 +276,14 @@ class TransactionRepository
             $fiscalYearId,
             $bankReference,
             $transactionDate,
-            $this->encryption->encrypt($label),
+            $this->encryption->encrypt($label, 'finance_transactions.label'),
             $amount,
             $categoryId,
             $categoryId !== null ? $categorySource : null,
-            $comment !== null ? $this->encryption->encrypt($comment) : null,
-            $counterpartyName !== null ? $this->encryption->encrypt($counterpartyName) : null,
-            $counterpartyAccount !== null ? $this->encryption->encrypt($counterpartyAccount) : null,
-            $extraDetails !== null ? $this->encryption->encrypt($extraDetails) : null,
+            $comment !== null ? $this->encryption->encrypt($comment, 'finance_transactions.comment') : null,
+            $counterpartyName !== null ? $this->encryption->encrypt($counterpartyName, 'finance_transactions.counterparty_name') : null,
+            $counterpartyAccount !== null ? $this->encryption->encrypt($counterpartyAccount, 'finance_transactions.counterparty_account') : null,
+            $extraDetails !== null ? $this->encryption->encrypt($extraDetails, 'finance_transactions.extra_details') : null,
             $source,
             $importedAt,
         ]);
@@ -354,7 +354,7 @@ class TransactionRepository
         $stmt->execute([
             $categoryId,
             $categoryId !== null ? Transaction::CATEGORY_SOURCE_MANUAL : null,
-            $comment !== null ? $this->encryption->encrypt($comment) : null,
+            $comment !== null ? $this->encryption->encrypt($comment, 'finance_transactions.comment') : null,
             $fiscalYearId,
             $id,
         ]);
@@ -455,15 +455,15 @@ class TransactionRepository
             fiscalYearId: (int) $row['fiscal_year_id'],
             bankReference: $row['bank_reference'] !== null ? (string) $row['bank_reference'] : null,
             transactionDate: (string) $row['transaction_date'],
-            label: $this->encryption->decrypt($row['label']),
+            label: $this->encryption->decrypt($row['label'], 'finance_transactions.label'),
             amount: (float) $row['amount'],
             categoryId: $row['category_id'] !== null ? (int) $row['category_id'] : null,
-            comment: $row['comment'] !== null ? $this->decryptOrLegacyPlaintext((string) $row['comment']) : null,
+            comment: $row['comment'] !== null ? $this->decryptOrLegacyPlaintext((string) $row['comment'], 'finance_transactions.comment') : null,
             source: (string) $row['source'],
             importedAt: $row['imported_at'] !== null ? (string) $row['imported_at'] : null,
-            counterpartyName: $row['counterparty_name'] !== null ? $this->encryption->decrypt($row['counterparty_name']) : null,
-            counterpartyAccount: $row['counterparty_account'] !== null ? $this->encryption->decrypt($row['counterparty_account']) : null,
-            extraDetails: $row['extra_details'] !== null ? $this->encryption->decrypt($row['extra_details']) : null,
+            counterpartyName: $row['counterparty_name'] !== null ? $this->encryption->decrypt($row['counterparty_name'], 'finance_transactions.counterparty_name') : null,
+            counterpartyAccount: $row['counterparty_account'] !== null ? $this->encryption->decrypt($row['counterparty_account'], 'finance_transactions.counterparty_account') : null,
+            extraDetails: $row['extra_details'] !== null ? $this->encryption->decrypt($row['extra_details'], 'finance_transactions.extra_details') : null,
             categorySource: $row['category_source'] !== null ? (string) $row['category_source'] : null
         );
     }
@@ -478,10 +478,10 @@ class TransactionRepository
      * not code the app runs itself) converts these at rest so this
      * fallback becomes a dead path in the steady state.
      */
-    private function decryptOrLegacyPlaintext(string $value): string
+    private function decryptOrLegacyPlaintext(string $value, string $context): string
     {
         try {
-            return $this->encryption->decrypt($value);
+            return $this->encryption->decrypt($value, $context);
         } catch (\Core\Security\DecryptionException) {
             return $value;
         }

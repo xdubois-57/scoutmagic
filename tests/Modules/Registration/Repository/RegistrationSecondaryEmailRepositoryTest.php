@@ -69,7 +69,7 @@ class RegistrationSecondaryEmailRepositoryTest extends TestCase
     public function testFindRequestIdsByValidBlindIndexOnlyReturnsValidRows(): void
     {
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
-        $blindIndex = $encryption->blindIndex(RegistrationRequestRepository::normalizeEmail('secondary@example.com'));
+        $blindIndex = $encryption->blindIndex(RegistrationRequestRepository::normalizeEmail('secondary@example.com'), 'registration_email');
 
         $pendingId = $this->repository->create($this->requestId, 'secondary@example.com', 'hash', new \DateTimeImmutable('+48 hours'));
         $this->assertSame([], $this->repository->findRequestIdsByValidBlindIndex($blindIndex));

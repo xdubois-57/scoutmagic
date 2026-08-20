@@ -211,7 +211,7 @@ class SessionRevalidatorTest extends TestCase
     private function createMemberWithFunction(string $email, string $functionCode, string $role): void
     {
         $normalizedEmail = strtolower($email);
-        $blindIndex = $this->encryption->blindIndex($normalizedEmail);
+        $blindIndex = $this->encryption->blindIndex($normalizedEmail, 'email');
 
         $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('desk_" . uniqid() . "')");
         $memberId = (int) $this->pdo->lastInsertId();
@@ -230,8 +230,8 @@ class SessionRevalidatorTest extends TestCase
         );
         $stmt->execute([
             $memberId, $this->scoutYearId,
-            $this->encryption->encrypt('Test'), $this->encryption->encrypt('User'),
-            $this->encryption->encrypt($normalizedEmail), $blindIndex,
+            $this->encryption->encrypt('Test', 'member_years.first_name'), $this->encryption->encrypt('User', 'member_years.last_name'),
+            $this->encryption->encrypt($normalizedEmail, 'member_years.email'), $blindIndex,
         ]);
         $memberYearId = (int) $this->pdo->lastInsertId();
 

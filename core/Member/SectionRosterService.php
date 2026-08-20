@@ -93,7 +93,7 @@ final class SectionRosterService
 
         $emails = [];
         if (!empty($memberYearRow['email_encrypted'])) {
-            $emails[] = $this->encryption->decrypt($memberYearRow['email_encrypted']);
+            $emails[] = $this->encryption->decrypt($memberYearRow['email_encrypted'], 'member_years.email');
         }
         foreach ($validSecondaryEmails as $secondary) {
             if (!in_array($secondary->email, $emails, true)) {
@@ -103,18 +103,18 @@ final class SectionRosterService
 
         $phones = [];
         if (!empty($memberYearRow['phone_encrypted'])) {
-            $phones[] = ['label' => 'Téléphone', 'value' => TextNormalizerService::normalizePhone($this->encryption->decrypt($memberYearRow['phone_encrypted']))];
+            $phones[] = ['label' => 'Téléphone', 'value' => TextNormalizerService::normalizePhone($this->encryption->decrypt($memberYearRow['phone_encrypted'], 'member_years.phone'))];
         }
         if (!empty($memberYearRow['mobile_encrypted'])) {
-            $phones[] = ['label' => 'GSM', 'value' => TextNormalizerService::normalizePhone($this->encryption->decrypt($memberYearRow['mobile_encrypted']))];
+            $phones[] = ['label' => 'GSM', 'value' => TextNormalizerService::normalizePhone($this->encryption->decrypt($memberYearRow['mobile_encrypted'], 'member_years.mobile'))];
         }
 
         return new MemberRosterRow(
             memberYearId: $entry->memberYearId,
             memberId: $entry->memberId,
-            firstName: $this->encryption->decrypt($memberYearRow['first_name_encrypted']),
-            lastName: $this->encryption->decrypt($memberYearRow['last_name_encrypted']),
-            totem: !empty($memberYearRow['totem_encrypted']) ? $this->encryption->decrypt($memberYearRow['totem_encrypted']) : null,
+            firstName: $this->encryption->decrypt($memberYearRow['first_name_encrypted'], 'member_years.first_name'),
+            lastName: $this->encryption->decrypt($memberYearRow['last_name_encrypted'], 'member_years.last_name'),
+            totem: !empty($memberYearRow['totem_encrypted']) ? $this->encryption->decrypt($memberYearRow['totem_encrypted'], 'member_years.totem') : null,
             functionLabel: $entry->functionLabel,
             bucket: $entry->bucket,
             emails: $emails,

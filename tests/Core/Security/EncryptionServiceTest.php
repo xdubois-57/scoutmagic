@@ -169,4 +169,84 @@ class EncryptionServiceTest extends TestCase
 
         $this->assertNotSame($index1, $index2);
     }
+
+    // --- AAD context binding (audit: ciphertext relocation) ---
+
+    public function testDecryptWithTheSameContextRoundTrips(): void
+    {
+        $encrypted = $this->service->encrypt('secret-key-material', 'llm_providers.api_key');
+
+        $this->assertSame('secret-key-material', $this->service->decrypt($encrypted, 'llm_providers.api_key'));
+    }
+
+    public function testDecryptWithADifferentContextFails(): void
+    {
+        // The relocation attack: a ciphertext copied into another column
+        // (here: an API key moved into a user-visible label column) must
+        // fail authentication, not decrypt where it can be read back.
+        $encrypted = $this->service->encrypt('secret-key-material', 'llm_providers.api_key');
+
+        $this->expectException(DecryptionException::class);
+        $this->service->decrypt($encrypted, 'finance_transactions.label');
+    }
+
+    public function testDecryptWithoutContextFailsForAContextBoundCiphertext(): void
+    {
+        $encrypted = $this->service->encrypt('secret', 'user_accounts.email');
+
+        $this->expectException(DecryptionException::class);
+        $this->service->decrypt($encrypted);
+    }
+
+    public function testDecryptWithAContextFailsForAContextlessCiphertext(): void
+    {
+        $encrypted = $this->service->encrypt('secret');
+
+        $this->expectException(DecryptionException::class);
+        $this->service->decrypt($encrypted, 'user_accounts.email');
+    }
+
+    public function testEmptyContextKeepsTheLegacyBehaviour(): void
+    {
+        $encrypted = $this->service->encrypt('legacy');
+
+        $this->assertSame('legacy', $this->service->decrypt($encrypted));
+    }
+
+    // --- Blind-index domain separation ---
+
+    public function testBlindIndexWithDifferentPurposesIsUnlinkable(): void
+    {
+        // The same plaintext under two purposes must yield unrelated
+        // indexes, so a DB reader cannot link a value across unrelated
+        // columns.
+        $email = $this->service->blindIndex('alice@example.com', 'email');
+        $newsContact = $this->service->blindIndex('alice@example.com', 'news_contact_email');
+
+        $this->assertNotSame($email, $newsContact);
+    }
+
+    public function testBlindIndexPurposeIsNotAPlainConcatenation(): void
+    {
+        // The NUL separator means purpose/value splits can never collide —
+        // and a purposed index never equals the legacy unlabelled index of
+        // any crafted string.
+        $this->assertNotSame(
+            $this->service->blindIndex('b', 'a'),
+            $this->service->blindIndex('a:b')
+        );
+        $this->assertNotSame(
+            $this->service->blindIndex('b', 'a'),
+            $this->service->blindIndex('ab')
+        );
+    }
+
+    public function testBlindIndexWithPurposeIsDeterministic(): void
+    {
+        $this->assertSame(
+            $this->service->blindIndex('value', 'purpose'),
+            $this->service->blindIndex('value', 'purpose')
+        );
+        $this->assertMatchesRegularExpression('/^[0-9a-f]{64}$/', $this->service->blindIndex('value', 'purpose'));
+    }
 }

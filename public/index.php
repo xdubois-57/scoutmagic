@@ -841,7 +841,7 @@ $passwordResetService = new PasswordResetService(
 // Create generic short-URL service (Core\Url) and A4 poster PDF service
 // (Core\Pdf) — not module-specific, see schema/core.sql's short_urls table
 // doc comment.
-$shortUrlRepository = new ShortUrlRepository($pdo);
+$shortUrlRepository = new ShortUrlRepository($pdo, $encryptionService);
 $shortUrlService = new ShortUrlService($shortUrlRepository);
 $posterPdfService = new PosterPdfService();
 
@@ -1366,8 +1366,10 @@ $router->addRoute('POST', '/members/{id}/emails/{email_id}/resend', \Core\Http\C
 $router->addRoute('POST', '/members/{id}/emails/{email_id}/reactivate', \Core\Http\Controller\MemberEmailAddressController::class, 'reactivate', 'identified');
 $router->addRoute('POST', '/members/{id}/emails/{email_id}/delete', \Core\Http\Controller\MemberEmailAddressController::class, 'delete', 'identified');
 // The confirmation link's target — public, unauthenticated, same reasoning
-// as /auth/verify and /password-reset/{id}.
+// as /auth/verify and /password-reset/{id}. The GET only renders a confirm
+// page (prefetch-safe); the POST behind its button is what confirms.
 $router->addRoute('GET', '/members/emails/confirm/{id}', \Core\Http\Controller\MemberEmailAddressController::class, 'confirm', 'public');
+$router->addRoute('POST', '/members/emails/confirm/{id}', \Core\Http\Controller\MemberEmailAddressController::class, 'confirmPost', 'public');
 // The email-detail route (/members/{id}/emails/{recipient_id}) is
 // registered inside the mass_mail module block below (module-owned data,
 // core only ever links to it) — it doesn't exist at all when mass_mail is
@@ -1813,10 +1815,10 @@ if (in_array('trombinoscope', $moduleManager->getEnabledModuleIds(), true)) {
 }
 
 if (in_array('calendar', $moduleManager->getEnabledModuleIds(), true)) {
-    $calendarRepo = new \Modules\Calendar\Repository\CalendarRepository($pdo);
+    $calendarRepo = new \Modules\Calendar\Repository\CalendarRepository($pdo, $encryptionService);
     $calendarEventRepo = new \Modules\Calendar\Repository\CalendarEventRepository($pdo);
-    $calendarPersonalTokenRepo = new \Modules\Calendar\Repository\CalendarPersonalTokenRepository($pdo);
-    $calendarUnitFeedTokenRepo = new \Modules\Calendar\Repository\CalendarUnitFeedTokenRepository($pdo);
+    $calendarPersonalTokenRepo = new \Modules\Calendar\Repository\CalendarPersonalTokenRepository($pdo, $encryptionService);
+    $calendarUnitFeedTokenRepo = new \Modules\Calendar\Repository\CalendarUnitFeedTokenRepository($pdo, $encryptionService);
 
     $calendarService = new \Modules\Calendar\Service\CalendarService(
         $calendarRepo, $calendarEventRepo, $sectionService, $calendarUnitFeedTokenRepo
@@ -2506,7 +2508,7 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
 }
 
 if (in_array('retro', $moduleManager->getEnabledModuleIds(), true)) {
-    $retroBoardRepo = new \Modules\Retro\Repository\BoardRepository($pdo);
+    $retroBoardRepo = new \Modules\Retro\Repository\BoardRepository($pdo, $encryptionService);
     $retroCommentRepo = new \Modules\Retro\Repository\CommentRepository($pdo);
     $retroVoteRepo = new \Modules\Retro\Repository\VoteRepository($pdo);
     $retroRateLimitRepo = new \Modules\Retro\Repository\RateLimitRepository($pdo);

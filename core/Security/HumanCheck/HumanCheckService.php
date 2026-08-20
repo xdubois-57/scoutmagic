@@ -123,7 +123,7 @@ class HumanCheckService
             // Hashed, never stored in clear — SECURITY.md: an IP address
             // is personal data. Same HMAC technique as every blind index
             // in this codebase, exact-match only, never reversible.
-            $ipHash = $this->encryption->blindIndex('human_check_ip:' . $ipAddress);
+            $ipHash = $this->encryption->blindIndex($ipAddress, 'human_check_ip');
             $windowMinutes = (int) $this->settings->get('human_check_rate_limit_window_minutes', null, 10);
             $maxAttempts = (int) $this->settings->get('human_check_rate_limit_max_attempts', null, 5);
             $since = (new \DateTimeImmutable('-' . $windowMinutes . ' minutes'))->format('Y-m-d H:i:s');
@@ -154,7 +154,7 @@ class HumanCheckService
 
     private function sign(string $formKey, string $trapField, int $timestamp): string
     {
-        return $this->encryption->blindIndex(self::TOKEN_VERSION . ':' . $formKey . ':' . $trapField . ':' . $timestamp);
+        return $this->encryption->blindIndex(self::TOKEN_VERSION . ':' . $formKey . ':' . $trapField . ':' . $timestamp, 'human_check_sign');
     }
 
     /**

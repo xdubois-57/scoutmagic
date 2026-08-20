@@ -297,7 +297,7 @@ class AttachmentRepository
     public function updateSuggestedLabel(int $id, string $suggestedLabel): void
     {
         $stmt = $this->pdo->prepare('UPDATE finance_attachments SET suggested_label = ? WHERE id = ?');
-        $stmt->execute([$this->encryption->encrypt($suggestedLabel), $id]);
+        $stmt->execute([$this->encryption->encrypt($suggestedLabel, 'finance_attachments.suggested_label'), $id]);
     }
 
     /**
@@ -308,7 +308,7 @@ class AttachmentRepository
     public function updateSuggestedDescription(int $id, string $suggestedDescription): void
     {
         $stmt = $this->pdo->prepare('UPDATE finance_attachments SET suggested_description = ? WHERE id = ?');
-        $stmt->execute([$this->encryption->encrypt($suggestedDescription), $id]);
+        $stmt->execute([$this->encryption->encrypt($suggestedDescription, 'finance_attachments.suggested_description'), $id]);
     }
 
     /**
@@ -335,14 +335,14 @@ class AttachmentRepository
             originalFilename: (string) $row['original_filename'],
             suggestedAmount: $row['suggested_amount'] !== null ? (float) $row['suggested_amount'] : null,
             suggestedDate: $row['suggested_date'] !== null ? (string) $row['suggested_date'] : null,
-            suggestedLabel: $row['suggested_label'] !== null ? $this->decryptOrLegacyPlaintext((string) $row['suggested_label']) : null,
+            suggestedLabel: $row['suggested_label'] !== null ? $this->decryptOrLegacyPlaintext((string) $row['suggested_label'], 'finance_attachments.suggested_label') : null,
             suggestedSource: $row['suggested_source'] !== null ? (string) $row['suggested_source'] : null,
             status: (string) $row['status'],
             parentAttachmentId: $row['parent_attachment_id'] !== null ? (int) $row['parent_attachment_id'] : null,
             uploadedBy: $row['uploaded_by'] !== null ? (int) $row['uploaded_by'] : null,
             uploadedAt: (string) $row['uploaded_at'],
             matchingAiAttemptedAt: $row['matching_ai_attempted_at'] !== null ? (string) $row['matching_ai_attempted_at'] : null,
-            suggestedDescription: $row['suggested_description'] !== null ? $this->decryptOrLegacyPlaintext((string) $row['suggested_description']) : null
+            suggestedDescription: $row['suggested_description'] !== null ? $this->decryptOrLegacyPlaintext((string) $row['suggested_description'], 'finance_attachments.suggested_description') : null
         );
     }
 
@@ -357,10 +357,10 @@ class AttachmentRepository
      * converts these at rest so this fallback becomes a dead path in the
      * steady state.
      */
-    private function decryptOrLegacyPlaintext(string $value): string
+    private function decryptOrLegacyPlaintext(string $value, string $context): string
     {
         try {
-            return $this->encryption->decrypt($value);
+            return $this->encryption->decrypt($value, $context);
         } catch (\Core\Security\DecryptionException) {
             return $value;
         }

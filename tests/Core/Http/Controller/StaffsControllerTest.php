@@ -167,11 +167,11 @@ class StaffsControllerTest extends TestCase
         );
         $stmt->execute([
             $memberId, $this->scoutYearId,
-            $this->encryption->encrypt($firstName),
-            $this->encryption->encrypt('Dupont'),
-            $this->encryption->encrypt($email),
-            $this->encryption->blindIndex(strtolower($email)),
-            $this->encryption->encrypt('0498765432'),
+            $this->encryption->encrypt($firstName, 'member_years.first_name'),
+            $this->encryption->encrypt('Dupont', 'member_years.last_name'),
+            $this->encryption->encrypt($email, 'member_years.email'),
+            $this->encryption->blindIndex(strtolower($email), 'email'),
+            $this->encryption->encrypt('0498765432', 'member_years.mobile'),
         ]);
         $memberYearId = (int) $this->pdo->lastInsertId();
 

@@ -45,7 +45,7 @@ class SectionStaffAuthorizationService
             return $this->sectionService->getAllWithBranches();
         }
 
-        $blindIndex = $this->encryption->blindIndex(strtolower(trim($email)));
+        $blindIndex = $this->encryption->blindIndex(strtolower(trim($email)), 'email');
         $pdo = $this->connection->getPdo();
 
         // Same trap as SectionService::getSectionStaff(): an animé's own

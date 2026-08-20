@@ -367,7 +367,7 @@ class RestoreBackupHandler implements TaskHandlerInterface
             if ($raw === false) {
                 throw new BackupException('Mot de passe de restauration illisible.');
             }
-            $password = $encryption->decrypt($raw);
+            $password = $encryption->decrypt($raw, 'backup_password');
         }
 
         $source = (string) ($payload['source'] ?? 'server');

@@ -21,7 +21,11 @@ CREATE TABLE retro_boards (
     -- Opaque token for the /r/{token} fallback URL (always present,
     -- regenerable). short_code additionally registers the same target with
     -- Core\Url\ShortUrlService when available — see Service\BoardService.
-    token VARCHAR(64) NOT NULL,
+    -- The token is a long-lived bearer credential the chief re-displays
+    -- (share link, QR), so it is encrypted at rest with a blind index for
+    -- lookup (same pattern as user_accounts.email), never plaintext.
+    token_encrypted BLOB NOT NULL,
+    token_blind_index CHAR(64) NOT NULL,
     short_code VARCHAR(20) NULL,
     status ENUM('open', 'closed', 'archived') NOT NULL DEFAULT 'open',
     listed BOOLEAN NOT NULL DEFAULT TRUE,
@@ -62,7 +66,7 @@ CREATE TABLE retro_boards (
     link_visibility ENUM('identified', 'chief', 'unit_chief', 'superadmin') NOT NULL DEFAULT 'chief',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     closed_at DATETIME NULL,
-    UNIQUE INDEX idx_retro_boards_token (token),
+    UNIQUE INDEX idx_retro_boards_token (token_blind_index),
     UNIQUE INDEX idx_retro_boards_short_code (short_code),
     INDEX idx_retro_boards_status (status),
     CONSTRAINT fk_retro_boards_created_by FOREIGN KEY (created_by) REFERENCES user_accounts(id) ON DELETE SET NULL

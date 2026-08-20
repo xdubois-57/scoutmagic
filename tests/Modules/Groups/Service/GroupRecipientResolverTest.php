@@ -338,9 +338,9 @@ class GroupRecipientResolverTest extends TestCase
         $stmt->execute([
             $memberId,
             $this->currentYearId,
-            $this->encryption->encrypt('Prénom'),
-            $this->encryption->encrypt('Nom'),
-            $this->encryption->blindIndex($email),
+            $this->encryption->encrypt('Prénom', 'member_years.first_name'),
+            $this->encryption->encrypt('Nom', 'member_years.last_name'),
+            $this->encryption->blindIndex($email, 'email'),
             '2026-01-01 00:00:00',
         ]);
     }
@@ -353,8 +353,8 @@ class GroupRecipientResolverTest extends TestCase
         );
         $stmt->execute([
             $memberId,
-            $this->encryption->encrypt($email),
-            $this->encryption->blindIndex($email),
+            $this->encryption->encrypt($email, 'member_emails.email'),
+            $this->encryption->blindIndex($email, 'email'),
             'manual',
             $status,
             '2026-01-01 00:00:00',
@@ -372,8 +372,8 @@ class GroupRecipientResolverTest extends TestCase
             'INSERT INTO user_accounts (email_encrypted, email_blind_index, created_at) VALUES (?, ?, ?)'
         );
         $stmt->execute([
-            $this->encryption->encrypt($email),
-            $this->encryption->blindIndex($email),
+            $this->encryption->encrypt($email, 'user_accounts.email'),
+            $this->encryption->blindIndex($email, 'email'),
             '2026-01-01 00:00:00',
         ]);
 
@@ -383,7 +383,7 @@ class GroupRecipientResolverTest extends TestCase
     private function accountIdFor(string $email): ?int
     {
         $stmt = $this->pdo->prepare('SELECT id FROM user_accounts WHERE email_blind_index = ?');
-        $stmt->execute([$this->encryption->blindIndex($email)]);
+        $stmt->execute([$this->encryption->blindIndex($email, 'email')]);
         $id = $stmt->fetchColumn();
 
         return $id !== false ? (int) $id : null;

@@ -50,7 +50,7 @@ class AutoCloseHandler implements TaskHandlerInterface
         }
 
         $pdo = $context->connection->getPdo();
-        $boardRepository = new BoardRepository($pdo);
+        $boardRepository = new BoardRepository($pdo, $context->encryption);
         $commentRepository = new CommentRepository($pdo);
 
         $board = $boardRepository->findById($boardId);

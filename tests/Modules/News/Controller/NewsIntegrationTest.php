@@ -89,7 +89,7 @@ class NewsIntegrationTest extends TestCase
         $this->encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
 
         $stmt = $this->pdo->prepare('INSERT INTO user_accounts (email_encrypted, email_blind_index) VALUES (?, ?)');
-        $stmt->execute([$this->encryption->encrypt('chief@test.com'), $this->encryption->blindIndex('chief@test.com')]);
+        $stmt->execute([$this->encryption->encrypt('chief@test.com', 'user_accounts.email'), $this->encryption->blindIndex('chief@test.com', 'email')]);
         $this->chiefAccountId = (int) $this->pdo->lastInsertId();
 
         $this->articleRepository = new ArticleRepository($this->pdo);
@@ -98,7 +98,7 @@ class NewsIntegrationTest extends TestCase
         $this->responseRepository = new FormResponseRepository($this->pdo, $this->encryption);
 
         $editableContentService = new EditableContentService(new EditableContentRepository($this->pdo));
-        $shortUrlService = new ShortUrlService(new ShortUrlRepository($this->pdo));
+        $shortUrlService = new ShortUrlService(new ShortUrlRepository($this->pdo, new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32))));
         $articleService = new ArticleService($this->articleRepository, $this->formRepository, $editableContentService, $shortUrlService);
         $formService = new FormService($this->formRepository, $this->fieldRepository, $articleService);
         $this->articleService = $articleService;
@@ -296,12 +296,12 @@ class NewsIntegrationTest extends TestCase
         $this->pdo->exec("INSERT INTO functions (desk_code, label, role, confirmed) VALUES ('Animateur', 'Animateur', 'chief', 1)");
         $functionId = (int) $this->pdo->lastInsertId();
 
-        $blindIndex = $this->encryption->blindIndex('chief@test.com');
+        $blindIndex = $this->encryption->blindIndex('chief@test.com', 'email');
         $stmt = $this->pdo->prepare(
             'INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted, email_encrypted, email_blind_index)
              VALUES (?, ?, ?, ?, ?, ?)'
         );
-        $stmt->execute([$memberId, $scoutYearId, $this->encryption->encrypt('Chef'), $this->encryption->encrypt('Test'), $this->encryption->encrypt('chief@test.com'), $blindIndex]);
+        $stmt->execute([$memberId, $scoutYearId, $this->encryption->encrypt('Chef', 'member_years.first_name'), $this->encryption->encrypt('Test', 'member_years.last_name'), $this->encryption->encrypt('chief@test.com', 'member_years.email'), $blindIndex]);
         $memberYearId = (int) $this->pdo->lastInsertId();
 
         $stmt = $this->pdo->prepare('INSERT INTO member_functions (member_year_id, function_id, section_id, is_main_function) VALUES (?, ?, ?, 1)');

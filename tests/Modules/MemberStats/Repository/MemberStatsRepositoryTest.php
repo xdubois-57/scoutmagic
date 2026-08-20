@@ -67,10 +67,10 @@ class MemberStatsRepositoryTest extends TestCase
         $stmt->execute([
             $memberId,
             $this->yearId,
-            $this->enc->encrypt('First'),
-            $this->enc->encrypt('Last'),
-            $this->enc->encrypt($birthDate),
-            $gender !== null ? $this->enc->encrypt($gender) : null,
+            $this->enc->encrypt('First', 'member_years.first_name'),
+            $this->enc->encrypt('Last', 'member_years.last_name'),
+            $this->enc->encrypt($birthDate, 'member_years.birth_date'),
+            $gender !== null ? $this->enc->encrypt($gender, 'member_years.gender') : null,
             $active ? 1 : 0,
         ]);
         $memberYearId = (int) $this->pdo->lastInsertId();

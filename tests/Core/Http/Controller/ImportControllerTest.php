@@ -55,7 +55,7 @@ class ImportControllerTest extends TestCase
 
         // Create admin user
         $stmt = $this->pdo->prepare("INSERT INTO user_accounts (email_encrypted, email_blind_index, is_super_admin) VALUES (?, 'admin_idx', 1)");
-        $stmt->execute([$this->encryption->encrypt('admin@test.com')]);
+        $stmt->execute([$this->encryption->encrypt('admin@test.com', 'user_accounts.email')]);
 
         $templateDir = dirname(__DIR__, 4) . '/core/View/templates';
         $twig = new Environment(new FilesystemLoader($templateDir), [

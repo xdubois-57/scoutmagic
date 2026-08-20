@@ -45,7 +45,7 @@ class DigestServiceTest extends TestCase
         $this->mailService = $this->createMock(MailService::class);
 
         $stmt = $this->pdo->prepare('INSERT INTO user_accounts (email_encrypted, email_blind_index) VALUES (?, ?)');
-        $stmt->execute([$encryption->encrypt('author@test.com'), $encryption->blindIndex('author@test.com')]);
+        $stmt->execute([$encryption->encrypt('author@test.com', 'user_accounts.email'), $encryption->blindIndex('author@test.com', 'email')]);
         $this->authorId = (int) $this->pdo->lastInsertId();
         $this->articleId = $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->authorId);
     }

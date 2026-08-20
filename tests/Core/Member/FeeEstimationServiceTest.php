@@ -49,7 +49,7 @@ class FeeEstimationServiceTest extends TestCase
         $memberYearId = (int) $this->pdo->lastInsertId();
 
         $normalized = AddressNormalizer::normalize($street, $number, $box, $postalCode);
-        $blindIndex = $this->encryption->blindIndex($normalized);
+        $blindIndex = $this->encryption->blindIndex($normalized, 'address');
 
         $stmt = $this->pdo->prepare(
             'INSERT INTO member_addresses (member_year_id, address_type, address_normalized_blind_index) VALUES (?, ?, ?)'

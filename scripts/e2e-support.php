@@ -450,8 +450,8 @@ function e2e_create_super_admin(
         . ' VALUES (?, ?, ?, TRUE)'
     );
     $statement->execute([
-        $encryptionService->encrypt($normalizedEmail),
-        $encryptionService->blindIndex($normalizedEmail),
+        $encryptionService->encrypt($normalizedEmail, 'user_accounts.email'),
+        $encryptionService->blindIndex($normalizedEmail, 'email'),
         password_hash($password, PASSWORD_DEFAULT),
     ]);
 }

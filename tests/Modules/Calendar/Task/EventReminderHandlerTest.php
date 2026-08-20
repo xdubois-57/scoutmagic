@@ -90,7 +90,7 @@ class EventReminderHandlerTest extends TestCase
         $stmt = $this->pdo->prepare('INSERT INTO sections (desk_code, age_branch_id, name) VALUES (?, ?, ?)');
         $stmt->execute(['ECL01', $branchId, 'Éclaireurs']);
         $sectionId = (int) $this->pdo->lastInsertId();
-        $this->sectionCalendarId = (new CalendarRepository($this->pdo))->createSectionCalendar($sectionId, Calendar::VISIBILITY_PUBLIC);
+        $this->sectionCalendarId = (new CalendarRepository($this->pdo, new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32))))->createSectionCalendar($sectionId, Calendar::VISIBILITY_PUBLIC);
     }
 
     private function createEvent(string $startDate): int

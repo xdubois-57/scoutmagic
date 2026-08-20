@@ -107,10 +107,10 @@ class MemberSearchControllerTest extends TestCase
         );
         $stmt->execute([
             $memberId, $this->yearId,
-            $this->enc->encrypt('jean'), $this->enc->encrypt('DUPONT'),
-            $this->enc->encrypt('renard'), $this->enc->encrypt('jean@ex.be'),
-            $this->enc->encrypt('0476123456'),
-            $birthDate !== null ? $this->enc->encrypt($birthDate) : null,
+            $this->enc->encrypt('jean', 'member_years.first_name'), $this->enc->encrypt('DUPONT', 'member_years.last_name'),
+            $this->enc->encrypt('renard', 'member_years.totem'), $this->enc->encrypt('jean@ex.be', 'member_years.email'),
+            $this->enc->encrypt('0476123456', 'member_years.mobile'),
+            $birthDate !== null ? $this->enc->encrypt($birthDate, 'member_years.birth_date') : null,
         ]);
         $memberYearId = (int) $this->pdo->lastInsertId();
 

@@ -92,8 +92,8 @@ class MemberStatsRepository
             $rows[] = [
                 'branch_label' => (string) $r['branch_label'],
                 'branch_sort_order' => (int) $r['branch_sort_order'],
-                'birth_date' => $this->decryptNullable($r['birth_date_encrypted']),
-                'gender' => $this->decryptNullable($r['gender_encrypted']),
+                'birth_date' => $this->decryptNullable($r['birth_date_encrypted'], 'member_years.birth_date'),
+                'gender' => $this->decryptNullable($r['gender_encrypted'], 'member_years.gender'),
                 'scout_year_offset' => (int) $r['scout_year_offset'],
             ];
         }
@@ -101,8 +101,8 @@ class MemberStatsRepository
         return $rows;
     }
 
-    private function decryptNullable(mixed $value): ?string
+    private function decryptNullable(mixed $value, string $context): ?string
     {
-        return $value ? $this->encryption->decrypt($value) : null;
+        return $value ? $this->encryption->decrypt($value, $context) : null;
     }
 }

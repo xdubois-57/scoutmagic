@@ -561,8 +561,8 @@ class GroupNotificationServiceTest extends TestCase
         return array_map(fn(array $row): array => [
             'user_account_id' => (int) $row['user_account_id'],
             'type_id' => (string) $row['type_id'],
-            'title' => $this->encryption->decrypt($row['title']),
-            'body' => $this->encryption->decrypt($row['body']),
+            'title' => $this->encryption->decrypt($row['title'], 'notifications.title'),
+            'body' => $this->encryption->decrypt($row['body'], 'notifications.body'),
             'url' => $row['url'],
         ], $rows);
     }

@@ -42,7 +42,7 @@ class FormServiceTest extends TestCase
         $formRepository = new FormRepository($this->pdo);
         $this->fieldRepository = new FormFieldRepository($this->pdo);
         $editableContentService = new EditableContentService(new EditableContentRepository($this->pdo));
-        $shortUrlService = new ShortUrlService(new ShortUrlRepository($this->pdo));
+        $shortUrlService = new ShortUrlService(new ShortUrlRepository($this->pdo, new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32))));
         $articleService = new ArticleService($this->articleRepository, $formRepository, $editableContentService, $shortUrlService);
 
         $this->service = new FormService($formRepository, $this->fieldRepository, $articleService);
