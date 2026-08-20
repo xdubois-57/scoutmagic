@@ -249,11 +249,17 @@ class CalendarPublicControllerTest extends TestCase
 
     public function testUpcomingEventListItemsCarryTheSameDataAttributesAsGridBars(): void
     {
-        // Real bug: the "Prochains évènements" <li> items had no data-*
+        // Real bug: the "Prochains évènements" list items had no data-*
         // attributes and no click handler at all, so clicking one did
         // nothing — the modal only ever opened from a grid bar. Both now
-        // emit the identical data-* bag (color included, since a <li> has
-        // no colored background to read it back off of like a bar does).
+        // emit the identical data-* bag (color included, since a list item
+        // has no colored background to read it back off of like a bar does).
+        //
+        // The data-* bag lives on the trigger, and the trigger is a real
+        // <button>: a list item holding block-level content cannot be one
+        // itself, and must not fake it with role/tabindex — the keyboard
+        // handler that needs is an inline attribute this site's CSP
+        // (Core\Http\Response::buildCsp()) refuses to run.
         $calendar = $this->calendarService->addCalendar('Anniversaires', 'public');
         $this->eventRepository->create($calendar->id, 'Grand jeu', '2099-01-01', null, '14:00:00', '16:00:00', 'Local scout', 'Une belle description', null);
 
@@ -262,7 +268,12 @@ class CalendarPublicControllerTest extends TestCase
 
         $body = $response->getBody();
         $this->assertStringContainsString('calendar-upcoming-event-item', $body);
-        $this->assertMatchesRegularExpression('/class="[^"]*calendar-upcoming-event-item[^"]*"\s+tabindex="0" role="button"/', $body);
+        $this->assertMatchesRegularExpression(
+            '/<button type="button" class="calendar-upcoming-event-trigger stretched-link"/',
+            $body
+        );
+        // No fake button left behind anywhere on this page.
+        $this->assertStringNotContainsString('role="button"', $body);
         $this->assertStringContainsString('data-title="Grand jeu"', $body);
         $this->assertStringContainsString('data-calendar-label="Anniversaires"', $body);
         $this->assertStringContainsString('data-start-time="14:00"', $body);
@@ -295,10 +306,15 @@ class CalendarPublicControllerTest extends TestCase
         // two copies of the modal-filling logic.
         $this->assertSame(1, substr_count($body, 'function showEventDetails('));
         $this->assertStringContainsString(
-            "document.querySelectorAll('.calendar-event-bar--clickable, .calendar-upcoming-event-item')",
+            "document.querySelectorAll('.calendar-event-bar--clickable, .calendar-upcoming-event-trigger')",
             $body
         );
         $this->assertStringContainsString("data.color", $body);
+        // Both triggers are real buttons, so Enter and Space activate them
+        // with no script: the page must carry no keyboard handler of its own
+        // for them (it used to, and an inline attribute could never work
+        // under this site's CSP anyway).
+        $this->assertStringNotContainsString("e.key === 'Enter'", $body);
     }
 
     public function testIndexDoesNotShowChiefOnlyCalendarToPublicVisitor(): void

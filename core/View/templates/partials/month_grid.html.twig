@@ -18,23 +18,36 @@
   row count by the builder — a day's cell height never grows past that cap,
   no matter how many events land on it (see day.overflow_count).
 
-  days_clickable / events_clickable (both default false) only toggle the
-  CSS hook classes (calendar-day-cell--clickable / calendar-event-bar--clickable)
-  a caller's own <script> block queries to wire up click handlers — this
-  partial never attaches any JS itself.
+  days_clickable / events_clickable (both default false) toggle the CSS hook
+  classes (calendar-day-cell--clickable / calendar-event-bar--clickable) a
+  caller's own script block queries to wire up click handlers — this partial
+  never attaches any JS itself.
+
+  They also decide the element: a plain div when the cell/bar is inert, a
+  real button element when it is actionable. Not cosmetic — a button is
+  focusable, is announced as a button, and fires on Enter and Space with no
+  script at all, where a div would need `tabindex`, `role="button"` and a
+  keyboard handler that this site's CSP (script-src 'self' 'nonce-…', see
+  Core\Http\Response::buildCsp()) cannot express as an inline attribute.
+  The button renders identically to the div it replaces — public/assets/css/
+  components.css resets its user-agent border, padding, background and font
+  in the .calendar-day-cell / .calendar-event-bar rules themselves.
 #}
 <div class="calendar-weekday-row text-body-secondary fw-semibold mb-1">
     <div>Lun</div><div>Mar</div><div>Mer</div><div>Jeu</div><div>Ven</div><div>Sam</div><div>Dim</div>
 </div>
 {% set month_bar_count = 0 %}
 {% for week in weeks %}{% set month_bar_count = month_bar_count + week.bars|length %}{% endfor %}
+{% set day_tag = days_clickable ? 'button' : 'div' %}
+{% set bar_tag = events_clickable ? 'button' : 'div' %}
 {% for week in weeks %}
     <div class="calendar-week" style="grid-template-rows: auto repeat({{ week.row_count }}, var(--calendar-bar-height));">
         {% for day in week.days %}
-            <div class="calendar-day-cell{{ days_clickable ? ' calendar-day-cell--clickable' : '' }}{{ not day.in_month ? ' is-padding' : '' }}{{ day.is_today ? ' is-today' : '' }}"
+            <{{ day_tag }} class="calendar-day-cell{{ days_clickable ? ' calendar-day-cell--clickable' : '' }}{{ not day.in_month ? ' is-padding' : '' }}{{ day.is_today ? ' is-today' : '' }}"
                  style="grid-column: {{ loop.index }}; grid-row: 1 / span {{ week.row_count + 1 }};"
                  data-date="{{ day.date }}"
-                 {%- if days_clickable %} tabindex="0" role="button" aria-label="Ajouter un évènement le {{ day.date }}"{% endif %}></div>
+                 {#- The cell is empty, so it has no text to be named by. -#}
+                 {%- if days_clickable %} type="button" aria-label="Ajouter un évènement le {{ day.date }}"{% endif %}></{{ day_tag }}>
         {% endfor %}
         {% for day in week.days %}
             <div class="calendar-day-number" style="grid-column: {{ loop.index }}; grid-row: 1;">
@@ -45,14 +58,17 @@
             </div>
         {% endfor %}
         {% for bar in week.bars %}
-            <div class="calendar-event-bar{{ events_clickable ? ' calendar-event-bar--clickable' : '' }}{{ bar.continues_before ? ' continues-before' : '' }}{{ bar.continues_after ? ' continues-after' : '' }}"
+            {#- No aria-label: the bar's own text is the label, so a button is
+                named by its content. The div needed one only because a
+                role="button" div is not named by its text. -#}
+            <{{ bar_tag }} class="calendar-event-bar{{ events_clickable ? ' calendar-event-bar--clickable' : '' }}{{ bar.continues_before ? ' continues-before' : '' }}{{ bar.continues_after ? ' continues-after' : '' }}"
                  style="grid-column: {{ bar.col_start }} / span {{ bar.col_span }}; grid-row: {{ bar.row + 2 }}; background-color: {{ bar.event.color }};"
                  title="{{ bar.event.tooltip ?? bar.event.label }}"
-                 {%- if events_clickable %} tabindex="0" role="button" aria-label="{{ bar.event.label }}"{% endif %}
+                 {%- if events_clickable %} type="button"{% endif %}
                  data-color="{{ bar.event.color }}"
                  {%- for key, value in bar.event.data %} data-{{ key }}="{{ value }}"{% endfor %}>
                 {{ bar.event.label }}
-            </div>
+            </{{ bar_tag }}>
         {% endfor %}
     </div>
 {% endfor %}

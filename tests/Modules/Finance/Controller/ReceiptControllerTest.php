@@ -250,6 +250,31 @@ class ReceiptControllerTest extends TestCase
         return $request;
     }
 
+    public function testUploadFormDropZoneIsNotAFakeButtonAndItsInputIsLabelledAndFocusable(): void
+    {
+        // The drop zone used to be a div wearing role="button" and
+        // tabindex="0", with Enter/Space handled by the page's own script.
+        // The real control was the file input inside it, hidden with d-none
+        // — which makes an element unfocusable, so the keyboard path went
+        // through the fake button alone. An inline onKeyDown attribute could
+        // never have replaced that script either: this site's CSP
+        // (Core\Http\Response::buildCsp() sends script-src 'self'
+        // 'nonce-…') refuses inline handlers.
+        //
+        // Now the input is the control it always was: labelled by the field
+        // label, visually-hidden so it stays focusable, and opening its
+        // picker on Enter and Space with no script at all.
+        $body = $this->controller->form(new Request('GET', '/finance/receipts/new', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('id="drop-zone"', $body);
+        $this->assertStringNotContainsString('role="button"', $body);
+        $this->assertStringContainsString('<label class="form-label small" for="receipt-files">', $body);
+        $this->assertMatchesRegularExpression(
+            '/<input type="file" class="visually-hidden" id="receipt-files"/',
+            $body
+        );
+    }
+
     public function testListShowsPendingReceipt(): void
     {
         $this->controller->upload($this->uploadRequest($this->tmpPdfFile(), $this->csrfToken()), []);
