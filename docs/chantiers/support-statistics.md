@@ -418,3 +418,75 @@ Le récapitulatif final se trouve en fin de fichier (IT-12).
 
 - Les collecteurs système (phpinfo, système de fichiers, commandes, serveur
   web, journaux) arrivent en IT-07.
+
+---
+
+## IT-07 — Collecteurs système
+
+### Implémenté
+
+- `PhpInfoCollector` → `phpinfo.html`.
+- `FilesystemCollector` → `filesystem.txt` (`storage/` en profondeur
+  complète ; racine, `core/`, `modules/`, `public/`, `schema/`, `config/` en
+  profondeur 2 ; `vendor/` non parcouru — présence et nombre d'entrées de
+  premier niveau seulement). Pure PHP, liens listés mais jamais suivis.
+- `CommandsCollector` → `commands.txt`.
+- `WebServerCollector` → `webserver/` (tous les `.htaccess` de
+  l'installation + liste courte de chemins candidats, sans découverte
+  « platform-aware »).
+- `LogsCollector` → `logs/` (48 h, plafond de 2 Mo par fichier, troncature
+  signalée dans `collection-status.json`).
+- `ARCHITECTURE.md` §8.42, `SECURITY.md` §6.
+
+### Décisions autonomes — dont une correction de D-05
+
+1. **`phpinfo()` est appelé avec `INFO_ALL & ~INFO_VARIABLES &
+   ~INFO_ENVIRONMENT`, et non `INFO_ALL & ~INFO_VARIABLES` comme l'écrit
+   D-05.** C'est une correction délibérée d'une **erreur factuelle du
+   document**, pas un assouplissement : `~INFO_VARIABLES` masque la section
+   « PHP Variables » (`$_SERVER`/`$_ENV`/`$_COOKIE`) mais **laisse
+   intacte** la section « Environment », qui est un drapeau séparé
+   (`INFO_ENVIRONMENT`) et qui imprime l'environnement du processus.
+   Vérifié empiriquement sur cette machine : avec `~INFO_VARIABLES` seul,
+   `phpinfo()` exposait encore des jetons d'API et des identifiants de proxy
+   injectés par la plateforme d'hébergement. Or la justification écrite de
+   D-05 cite explicitement « d'éventuels credentials d'environnement »
+   parmi ce qui doit disparaître : appliquer la constante à la lettre aurait
+   trahi l'intention littérale de la décision **et** violé `SECURITY.md`.
+   Tout le reste de la sortie (modules, directives ini, extensions, chemins,
+   limites) est conservé, exactement comme D-05 l'exige. Un test l'asserte
+   contre une vraie sortie `phpinfo()`, pas contre le nom de la constante.
+2. **La liste de `commands.txt` ne contient ni `mysqldump` ni `mysql`.**
+   Vérification dans le code réel, comme le document le demande : le dump
+   (`Core\Database\DatabaseDumper`, ifsnop/mysqldump-php) et la restauration
+   (`Core\Database\DatabaseRestorer`) sont désormais **entièrement en PHP**,
+   précisément parce que ces binaires étaient inutilisables sur l'hôte de
+   production (§8.15.1). Les sonder rapporterait sur quelque chose que
+   l'application n'appelle plus. En revanche `qpdf` et `pdftocairo` ont été
+   **ajoutés** : ce sont les deux replis de `Core\Pdf\PdfCompressor` à côté
+   de `gs`. Le docbloc de `Core\System\ExecutableLocator` mentionne encore
+   un usage `mysql`/`timeout` qui n'existe plus dans le code.
+3. **Une ligne de journal dont l'horodatage n'est pas analysable est
+   conservée.** Les formats de journaux varient trop pour traiter « pas de
+   date lisible ici » comme « ancien » ; supprimer les lignes de
+   continuation d'une trace d'appel supprimerait exactement ce qui a de la
+   valeur. Quatre formats sont reconnus (journal d'erreurs Apache, journal
+   d'erreurs PHP, journal d'accès combiné, ISO 8601).
+4. **Le plafond par fichier de journal est appliqué depuis la fin du
+   fichier** (les lignes récentes), première ligne partielle supprimée.
+5. **Les liens symboliques sont listés mais jamais suivis** dans le
+   parcours de système de fichiers : un lien vers `/` transformerait le
+   collecteur en balayage complet du disque.
+6. **`vendor/` et `node_modules/` sont exclus de la recherche de
+   `.htaccess`**, pour la même raison de volume que le collecteur de
+   système de fichiers.
+
+### Divergences constatées avec le document
+
+- D-05 (voir décision 1) — **la seule divergence de fond de tout le
+  chantier**, et elle va dans le sens de la sécurité.
+- La liste de commandes du document est obsolète (voir décision 2).
+
+### Reporté volontairement
+
+- Rien. Le paquet de support est complet à l'issue de cette itération.
