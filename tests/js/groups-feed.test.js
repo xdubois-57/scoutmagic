@@ -219,8 +219,8 @@ describe('groups.js dynamic reactions, in-place pagination and inline edit toggl
     it('a reaction tally click fetches and shows who reacted in the shared modal', async () => {
         document.body.innerHTML = `
             <button type="button" class="groups-reaction-tally" data-reactors-url="/groups/1/posts/9/reactions"></button>
-            <div class="modal" id="groups-reactors-modal"></div>
-            <div id="groups-reactors-modal-body"></div>
+            <div class="modal" id="groups-detail-modal"></div>
+            <div id="groups-detail-modal-body"></div>
         `;
         var modal = { show: vi.fn() };
         global.bootstrap = { Modal: { getOrCreateInstance: vi.fn(() => modal) } };
@@ -230,27 +230,53 @@ describe('groups.js dynamic reactions, in-place pagination and inline edit toggl
         }));
 
         document.querySelector('.groups-reaction-tally').click();
-        await vi.waitFor(() => expect(document.getElementById('groups-reactors-modal-body').innerHTML).toContain('Akéla, Baloo'));
+        await vi.waitFor(() => expect(document.getElementById('groups-detail-modal-body').innerHTML).toContain('Akéla, Baloo'));
 
         expect(fetch).toHaveBeenCalledWith(
             '/groups/1/posts/9/reactions',
             { headers: { 'X-Requested-With': 'XMLHttpRequest' } }
         );
-        expect(bootstrap.Modal.getOrCreateInstance).toHaveBeenCalledWith(document.getElementById('groups-reactors-modal'));
+        expect(bootstrap.Modal.getOrCreateInstance).toHaveBeenCalledWith(document.getElementById('groups-detail-modal'));
         expect(modal.show).toHaveBeenCalled();
     });
 
     it('shows an error in the modal when the reactors request fails', async () => {
         document.body.innerHTML = `
             <button type="button" class="groups-reaction-tally" data-reactors-url="/groups/1/posts/9/reactions"></button>
-            <div class="modal" id="groups-reactors-modal"></div>
-            <div id="groups-reactors-modal-body"></div>
+            <div class="modal" id="groups-detail-modal"></div>
+            <div id="groups-detail-modal-body"></div>
         `;
         global.bootstrap = { Modal: { getOrCreateInstance: vi.fn(() => ({ show: vi.fn() })) } };
         global.fetch = vi.fn(() => Promise.resolve({ ok: false }));
 
         document.querySelector('.groups-reaction-tally').click();
-        await vi.waitFor(() => expect(document.getElementById('groups-reactors-modal-body').textContent).toContain('Impossible de charger'));
+        await vi.waitFor(() => expect(document.getElementById('groups-detail-modal-body').textContent).toContain('Impossible de charger'));
+    });
+
+    it('a "vu par" click fills the same shared dialog and retitles it', async () => {
+        document.body.innerHTML = `
+            <button type="button" class="groups-seen-by" data-url="/groups/1/posts/9/seen-by" data-dialog-title="Vu par"></button>
+            <div class="modal" id="groups-detail-modal"></div>
+            <h2 id="groups-detail-modal-label">Réactions</h2>
+            <div id="groups-detail-modal-body"></div>
+        `;
+        global.bootstrap = { Modal: { getOrCreateInstance: vi.fn(() => ({ show: vi.fn() })) } };
+        global.fetch = vi.fn(() => Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ html: '<li>Akéla</li>' })
+        }));
+
+        document.querySelector('.groups-seen-by').click();
+        await vi.waitFor(() => expect(document.getElementById('groups-detail-modal-body').innerHTML).toContain('Akéla'));
+
+        // The dialog is shared with the reaction tallies, so the title has
+        // to follow the trigger or a "vu par" list would open under
+        // "Réactions".
+        expect(document.getElementById('groups-detail-modal-label').textContent).toBe('Vu par');
+        expect(fetch).toHaveBeenCalledWith(
+            '/groups/1/posts/9/seen-by',
+            { headers: { 'X-Requested-With': 'XMLHttpRequest' } }
+        );
     });
 
     it('toggles a post into edit mode and back', async () => {

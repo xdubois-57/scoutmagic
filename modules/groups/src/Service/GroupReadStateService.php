@@ -10,6 +10,7 @@ namespace Modules\Groups\Service;
 
 use Modules\Groups\Repository\DiscussionGroup;
 use Modules\Groups\Repository\GroupReadRepository;
+use Modules\Groups\Repository\Post;
 use Modules\Groups\Support\Timestamps;
 
 /**
@@ -66,6 +67,40 @@ class GroupReadStateService
     public function membersWhoSaw(DiscussionGroup $group, string $postCreatedAt): array
     {
         return $this->repository->membersWhoReadSince($group->id, $postCreatedAt);
+    }
+
+    /**
+     * How many OTHER members have opened the group since each of these
+     * posts was published — one query for the whole page, then compared
+     * in PHP (Repository\GroupReadRepository::readMarksForGroup()
+     * explains why that way round).
+     *
+     * The post's own author never counts towards their own post: "vu par
+     * 1" that turns out to be yourself is worse than no number at all.
+     *
+     * @param Post[] $posts
+     * @return array<int, int> post id => how many members have seen it
+     */
+    public function seenCountsForPosts(DiscussionGroup $group, array $posts): array
+    {
+        if ($posts === []) {
+            return [];
+        }
+
+        $marks = $this->repository->readMarksForGroup($group->id);
+
+        $counts = [];
+        foreach ($posts as $post) {
+            $seen = 0;
+            foreach ($marks as $memberId => $lastReadAt) {
+                if ($memberId !== $post->authorMemberId && $lastReadAt >= $post->createdAt) {
+                    $seen++;
+                }
+            }
+            $counts[$post->id] = $seen;
+        }
+
+        return $counts;
     }
 
     private function readerMemberId(DiscussionGroup $group, GroupSessionContext $context): ?int

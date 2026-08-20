@@ -126,4 +126,22 @@ class GroupReadRepositoryTest extends TestCase
 
         $this->assertSame([], $this->repository->membersWhoReadSince($this->groupId, '2026-01-01 10:00:00'));
     }
+
+    public function testReadMarksForGroupReturnsEveryMarkKeyedByMember(): void
+    {
+        $this->repository->markRead($this->groupId, 3, '2026-01-01 09:00:00');
+        $this->repository->markRead($this->groupId, 4, '2026-01-01 11:00:00');
+
+        $this->assertSame(
+            [3 => '2026-01-01 09:00:00', 4 => '2026-01-01 11:00:00'],
+            $this->repository->readMarksForGroup($this->groupId)
+        );
+    }
+
+    public function testReadMarksForGroupIsScopedToItsOwnGroup(): void
+    {
+        $this->repository->markRead($this->otherGroupId, 3, '2026-01-01 09:00:00');
+
+        $this->assertSame([], $this->repository->readMarksForGroup($this->groupId));
+    }
 }

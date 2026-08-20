@@ -2,7 +2,7 @@
   "id": "groups",
   "name": "Groupes de discussion",
   "description": "Groupes de discussion privés pour l'unité : un groupe par section et par année scoute, ou des groupes sur invitation. Visibles uniquement par leurs membres.",
-  "version": "1.11.0",
+  "version": "1.12.0",
   "enabled_by_default": false,
   "requires": [
     "gallery"
@@ -326,6 +326,15 @@
       "method": "POST",
       "controller": "Modules\\Groups\\Controller\\ReactionController",
       "action": "reactToReply",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/groups/{id}/posts/{postId}/seen-by",
+      "method": "GET",
+      "controller": "Modules\\Groups\\Controller\\PostController",
+      "action": "seenBy",
       "menu": "espace_animes",
       "role_min": "identified",
       "label": ""

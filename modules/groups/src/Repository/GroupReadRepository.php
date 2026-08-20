@@ -100,6 +100,34 @@ class GroupReadRepository
     }
 
     /**
+     * Every read mark of one group, in ONE query — member id => the last
+     * time that member opened the group.
+     *
+     * This is what makes a whole feed page's "vu par" counts cost one
+     * query instead of one per post: a group has a bounded, small
+     * membership, so the entire mark set is cheaper to fetch once and
+     * compare in PHP than to ask the database per post. The per-post
+     * question (membersWhoReadSince() below) stays for the dialog, which
+     * only ever runs for the single post somebody just opened.
+     *
+     * @return array<int, string> member id => last read timestamp
+     */
+    public function readMarksForGroup(int $groupId): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT member_id, last_read_at FROM discussion_group_reads WHERE group_id = ?'
+        );
+        $stmt->execute([$groupId]);
+
+        $marks = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $marks[(int) $row['member_id']] = (string) $row['last_read_at'];
+        }
+
+        return $marks;
+    }
+
+    /**
      * Every member who has opened $groupId at or after $since — the "seen
      * by" answer for one post, where $since is that post's own created_at.
      *

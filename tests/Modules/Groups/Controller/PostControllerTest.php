@@ -155,9 +155,14 @@ class PostControllerTest extends TestCase
         );
         $authorResolver = new PostAuthorResolver($memberService, $accountRepo);
         $stack = GroupsTestHelper::replyStack($this->pdo, $activityService, $postMediaService, $authorResolver);
+        $readStateService = new \Modules\Groups\Service\GroupReadStateService(
+            new \Modules\Groups\Repository\GroupReadRepository($this->pdo),
+            $access
+        );
         $feedService = new GroupFeedService(
             $this->postRepo, $authorResolver, $postService, $postMediaService, $postLinkRepo,
-            $stack['replyRepository'], $stack['replyPresenter'], $stack['reactionService'], $stack['reportService']
+            $stack['replyRepository'], $stack['replyPresenter'], $stack['reactionService'], $stack['reportService'],
+            $readStateService
         );
 
         $twig = TwigFactory::create(
@@ -191,7 +196,9 @@ class PostControllerTest extends TestCase
             $postLinkService,
             $stack['replyService'],
             new AuthorOptionsService($access, $memberService),
-            $stack['reportService']
+            $stack['reportService'],
+            null,
+            new \Modules\Groups\Service\SeenByService($readStateService, $memberService)
         );
     }
 
@@ -870,6 +877,129 @@ class PostControllerTest extends TestCase
         $this->withCsrf([]);
 
         $this->assertSame(404, $this->controller([$outsider])->pin($this->request(), $this->params($postId))->getStatusCode());
+    }
+
+    // --- seen by --------------------------------------------------------
+
+    private function markGroupRead(int $memberId, string $at): void
+    {
+        (new \Modules\Groups\Repository\GroupReadRepository($this->pdo))->markRead($this->groupId, $memberId, $at);
+    }
+
+    private function seenByRequest(int $postId): Request
+    {
+        return new Request('GET', '/groups/' . $this->groupId . '/posts/' . $postId . '/seen-by', [], [], [], []);
+    }
+
+    public function testTheAuthorSeesWhoOpenedTheGroupAfterTheirPost(): void
+    {
+        $postId = GroupsTestHelper::createPostAt($this->pdo, $this->groupId, 'Bonjour', '2026-01-10 10:00:00', self::AUTHOR_ACCOUNT, $this->memberId);
+        $this->markGroupRead($this->otherMemberId, '2026-01-10 11:00:00');
+
+        $response = $this->controller([$this->memberId])->seenBy($this->seenByRequest($postId), $this->params($postId));
+
+        $this->assertSame(200, $response->getStatusCode());
+        // The endpoint answers JSON ({html: …}), so the accented name is
+        // \u-escaped in the raw body — decode before asserting on it.
+        $this->assertStringContainsString('Akéla', json_decode($response->getBody(), true)['html']);
+    }
+
+    /**
+     * Somebody who opened the group BEFORE the message was published has
+     * not seen it — the whole point of comparing against created_at.
+     */
+    public function testAVisitOlderThanThePostDoesNotCount(): void
+    {
+        $postId = GroupsTestHelper::createPostAt($this->pdo, $this->groupId, 'Bonjour', '2026-01-10 10:00:00', self::AUTHOR_ACCOUNT, $this->memberId);
+        $this->markGroupRead($this->otherMemberId, '2026-01-09 09:00:00');
+
+        $html = json_decode(
+            $this->controller([$this->memberId])->seenBy($this->seenByRequest($postId), $this->params($postId))->getBody(),
+            true
+        )['html'];
+
+        $this->assertStringContainsString('Personne n\'a encore ouvert', $html);
+    }
+
+    /**
+     * The author's own visit is not a read receipt for their own message.
+     */
+    public function testTheAuthorsOwnVisitNeverCountsTowardsTheirOwnPost(): void
+    {
+        $postId = GroupsTestHelper::createPostAt($this->pdo, $this->groupId, 'Bonjour', '2026-01-10 10:00:00', self::AUTHOR_ACCOUNT, $this->memberId);
+        $this->markGroupRead($this->memberId, '2026-01-10 11:00:00');
+
+        $html = json_decode(
+            $this->controller([$this->memberId])->seenBy($this->seenByRequest($postId), $this->params($postId))->getBody(),
+            true
+        )['html'];
+
+        $this->assertStringContainsString('Personne n\'a encore ouvert', $html);
+    }
+
+    /**
+     * A read mark says where somebody has been in a conversation. Only
+     * the person asking "did my own message reach anyone?" gets that
+     * answer — a moderator included, since moderation is about what was
+     * said and not about who was reading.
+     */
+    public function testAnotherMemberGets404OnSomebodyElsesSeenByList(): void
+    {
+        $postId = GroupsTestHelper::createPostAt($this->pdo, $this->groupId, 'Bonjour', '2026-01-10 10:00:00', self::AUTHOR_ACCOUNT, $this->memberId);
+
+        $response = $this->controller([$this->otherMemberId], self::OTHER_ACCOUNT)
+            ->seenBy($this->seenByRequest($postId), $this->params($postId));
+
+        $this->assertSame(404, $response->getStatusCode());
+    }
+
+    public function testAModeratorGetsNoPrivilegedViewOfWhoRead(): void
+    {
+        $postId = GroupsTestHelper::createPostAt($this->pdo, $this->groupId, 'Bonjour', '2026-01-10 10:00:00', self::AUTHOR_ACCOUNT, $this->memberId);
+
+        $response = $this->controller([$this->moderatorMemberId], self::OTHER_ACCOUNT)
+            ->seenBy($this->seenByRequest($postId), $this->params($postId));
+
+        $this->assertSame(404, $response->getStatusCode());
+    }
+
+    public function testSeenByIs404ForANonMember(): void
+    {
+        $postId = GroupsTestHelper::createPostAt($this->pdo, $this->groupId, 'Bonjour', '2026-01-10 10:00:00', self::AUTHOR_ACCOUNT, $this->memberId);
+        $outsider = GroupsTestHelper::createMember($this->pdo, 'OUTSEEN');
+
+        $response = $this->controller([$outsider], self::OTHER_ACCOUNT)
+            ->seenBy($this->seenByRequest($postId), $this->params($postId));
+
+        $this->assertSame(404, $response->getStatusCode());
+    }
+
+    public function testSeenByIs404ForAPostFromAnotherGroup(): void
+    {
+        $otherGroupId = $this->groupService->createSectionGroup('Autre', $this->sectionId, $this->currentYearId, $this->moderatorMemberId);
+        $foreignPostId = GroupsTestHelper::createPostAt($this->pdo, $otherGroupId, 'Ailleurs', '2026-01-10 10:00:00', self::AUTHOR_ACCOUNT, $this->memberId);
+
+        $response = $this->controller([$this->memberId])
+            ->seenBy($this->seenByRequest($foreignPostId), $this->params($foreignPostId));
+
+        $this->assertSame(404, $response->getStatusCode());
+    }
+
+    /**
+     * The count on the card, not the dialog behind it: rendered for the
+     * author only, and only in the feed the author is looking at.
+     */
+    public function testTheFeedShowsTheSeenCountToTheAuthorAndToNobodyElse(): void
+    {
+        GroupsTestHelper::createPostAt($this->pdo, $this->groupId, 'Bonjour', '2026-01-10 10:00:00', self::AUTHOR_ACCOUNT, $this->memberId);
+        $this->markGroupRead($this->otherMemberId, '2026-01-10 11:00:00');
+        $feedRequest = new Request('GET', '/groups/' . $this->groupId . '/feed', [], [], [], []);
+
+        $authorBody = $this->controller([$this->memberId])->feed($feedRequest, $this->params())->getBody();
+        $otherBody = $this->controller([$this->otherMemberId], self::OTHER_ACCOUNT)->feed($feedRequest, $this->params())->getBody();
+
+        $this->assertStringContainsString('Vu par 1 membre', $authorBody);
+        $this->assertStringNotContainsString('Vu par', $otherBody);
     }
 
     // --- feed and cross-group isolation --------------------------------

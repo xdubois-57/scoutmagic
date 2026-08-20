@@ -50,26 +50,11 @@
     {% endif %}
 
     {#
-      Reactions dialog and photo viewer: the cards above carry the same
-      tallies and media cells as the feed, so they need the same two
-      shared containers. See show.html.twig for why the lightbox is
-      gallery's own rather than a second one.
+      The cards above carry the same tallies and media cells as the feed,
+      so they need the same two shared containers. See show.html.twig for
+      why the lightbox is gallery's own rather than a second one.
     #}
-    <div class="modal fade" id="groups-reactors-modal" tabindex="-1" aria-labelledby="groups-reactors-modal-label" aria-hidden="true">
-        <div class="modal-dialog modal-dialog-centered">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h2 class="modal-title h5" id="groups-reactors-modal-label">Réactions</h2>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fermer"></button>
-                </div>
-                <div class="modal-body" id="groups-reactors-modal-body">
-                    <div class="text-center py-3">
-                        <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
+    {% include '@groups/partials/detail_modal.html.twig' %}
 
     {% include '@gallery/partials/lightbox.html.twig' %}
 {% endblock %}

@@ -125,6 +125,31 @@
         {% include '@groups/partials/post_media_grid.html.twig' with { media: row.media } %}
         {% include '@groups/partials/post_link.html.twig' with { link: row.link } %}
 
+        {#
+          "Vu par N" — the author's own answer to "did this reach anyone?",
+          and shown to nobody else (Service\GroupFeedService::decorate()
+          sets the flag, Controller\PostController::seenBy() enforces it
+          again on the dialog behind it). A plain <button> with no
+          bootstrap attributes of its own: with no JS it is simply a line
+          of text that does not open, exactly like the reaction tally
+          above it.
+        #}
+        {% if row.can_see_seen_by|default(false) %}
+            <p class="mb-0 mt-2" style="font-size:0.75rem;">
+                <button type="button" class="btn btn-link p-0 border-0 text-body-tertiary text-decoration-none groups-seen-by"
+                        style="font-size:0.75rem;" aria-haspopup="dialog"
+                        data-url="/groups/{{ group.id }}/posts/{{ row.post.id }}/seen-by"
+                        data-dialog-title="Vu par">
+                    <i class="bi bi-eye me-1"></i>
+                    {% if row.seen_count|default(0) > 0 %}
+                        Vu par {{ row.seen_count }} membre{{ row.seen_count > 1 ? 's' : '' }}
+                    {% else %}
+                        Pas encore vu
+                    {% endif %}
+                </button>
+            </p>
+        {% endif %}
+
         {% include '@groups/partials/reactions.html.twig' with {
             summary: row.reactions,
             action: '/groups/' ~ group.id ~ '/posts/' ~ row.post.id ~ '/react',

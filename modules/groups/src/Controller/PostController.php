@@ -32,6 +32,7 @@ use Modules\Groups\Service\PostMediaService;
 use Modules\Groups\Service\PostService;
 use Modules\Groups\Service\ReplyService;
 use Modules\Groups\Service\ReportService;
+use Modules\Groups\Service\SeenByService;
 use Modules\Groups\Support\RejectedDraft;
 use Twig\Environment;
 
@@ -60,7 +61,8 @@ class PostController extends AbstractController
         private ReplyService $replyService,
         private AuthorOptionsService $authorOptionsService,
         private ReportService $reportService,
-        private ?GroupNotificationService $notificationService = null
+        private ?GroupNotificationService $notificationService = null,
+        private ?SeenByService $seenByService = null
     ) {
     }
 
@@ -92,6 +94,49 @@ class PostController extends AbstractController
             // render posts you cannot reply to.
             'post_permission' => $this->accessService->canPost($group, $context),
             'author_options' => $this->authorOptionsService->forGroup($group, $context),
+        ]);
+    }
+
+    /**
+     * GET /groups/{id}/posts/{postId}/seen-by — the names behind the
+     * "vu par N" line, as the same {html} shape the reactors dialog uses.
+     *
+     * Restricted to the post's OWN author, and that restriction is the
+     * feature's whole design rather than a detail of it. A read mark says
+     * where a member has been in a conversation; the one person with a
+     * legitimate claim on that is the one asking whether their own
+     * message reached anybody. A moderator gets no privileged view here
+     * either — moderation is about what was said, not about who was
+     * reading — so anyone else, moderator included, gets the module's
+     * usual 404 rather than a 403 that would confirm the post exists.
+     *
+     * @param array<string, string> $params
+     */
+    public function seenBy(Request $request, array $params): Response
+    {
+        $context = $this->context();
+        $group = $this->readableGroup($params, $context);
+        if ($group === null || $this->seenByService === null) {
+            return new Response('Not Found', 404);
+        }
+
+        $post = $this->postRepository->findById((int) ($params['postId'] ?? 0));
+        if ($post === null || $post->groupId !== $group->id) {
+            return new Response('Not Found', 404);
+        }
+
+        if (!in_array($post->authorMemberId, $context->linkedMemberIds, true)) {
+            return new Response('Not Found', 404);
+        }
+
+        return $this->json([
+            'html' => $this->twig->render('@groups/partials/seen_by_list.html.twig', [
+                'names' => $this->seenByService->namesForPost(
+                    $group,
+                    $post,
+                    $group->scoutYearId ?? $context->effectiveScoutYearId
+                ),
+            ]),
         ]);
     }
 

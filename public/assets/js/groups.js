@@ -816,29 +816,37 @@
         });
     });
 
-    // A reaction tally's own click: "who reacted, and with what"
-    // (Controller\ReactionController's postReactors()/replyReactors()).
-    // A plain <button> with no bootstrap data-* attributes of its own
-    // — nothing here breaks if groups.js never loads, the tally just
-    // stops being clickable and stays a plain summary.
-    async function handleReactionTallyClick(tally) {
-        var modalEl = document.getElementById('groups-reactors-modal');
-        var modalBody = document.getElementById('groups-reactors-modal-body');
+    // The shared "who…?" dialog: a reaction tally's "who reacted, and
+    // with what" (Controller\ReactionController's postReactors()/
+    // replyReactors()) and a post's "vu par" (Controller\PostController::
+    // seenBy()) both land here — one dialog per page, filled with
+    // whatever the trigger's own URL renders.
+    //
+    // Every trigger is a plain <button> with no bootstrap data-*
+    // attributes of its own, so nothing breaks if groups.js never loads:
+    // the line just stops being clickable and stays a plain summary.
+    async function openDetailDialog(url, title, errorText) {
+        var modalEl = document.getElementById('groups-detail-modal');
+        var modalBody = document.getElementById('groups-detail-modal-body');
         if (!modalEl || !modalBody || typeof bootstrap === 'undefined') {
             return;
+        }
+        var label = document.getElementById('groups-detail-modal-label');
+        if (label && title) {
+            label.textContent = title;
         }
         modalBody.innerHTML = '<div class="text-center py-3"><span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span></div>';
         var modal = bootstrap.Modal.getOrCreateInstance(modalEl);
         modal.show();
 
-        var reactorsResponse = await fetch(tally.dataset.reactorsUrl, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
-        if (reactorsResponse.ok) {
-            var reactorsData = await reactorsResponse.json();
-            if (typeof reactorsData.html === 'string') {
-                modalBody.innerHTML = reactorsData.html;
+        var response = await fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+        if (response.ok) {
+            var data = await response.json();
+            if (typeof data.html === 'string') {
+                modalBody.innerHTML = data.html;
             }
         } else {
-            modalBody.innerHTML = '<p class="text-danger mb-0">Impossible de charger les réactions.</p>';
+            modalBody.textContent = errorText;
         }
     }
 
@@ -915,7 +923,13 @@
 
         var tally = /** @type {HTMLElement} */ (target.closest('.groups-reaction-tally'));
         if (tally) {
-            await handleReactionTallyClick(tally);
+            await openDetailDialog(tally.dataset.reactorsUrl, 'Réactions', 'Impossible de charger les réactions.');
+            return;
+        }
+
+        var seenBy = /** @type {HTMLElement} */ (target.closest('.groups-seen-by'));
+        if (seenBy) {
+            await openDetailDialog(seenBy.dataset.url, seenBy.dataset.dialogTitle, 'Impossible de charger la liste.');
             return;
         }
 

@@ -46,7 +46,11 @@ class GroupFeedService
         private ReplyRepository $replyRepository,
         private ReplyPresenter $replyPresenter,
         private ReactionService $reactionService,
-        private ReportService $reportService
+        private ReportService $reportService,
+        // Nullable and last, like every other optional collaborator in
+        // this module: a feed renders perfectly well with no read state
+        // at all, it just shows no "vu par" line.
+        private ?GroupReadStateService $readStateService = null
     ) {
     }
 
@@ -114,6 +118,7 @@ class GroupFeedService
         $replyData = $this->replyRepository->findFirstForPosts($postIds, ReplyService::PAGE_SIZE, $canModerate);
         $postReactions = $this->reactionService->forPosts($postIds, $context->linkedMemberIds);
         $postReports = $this->reportService->forPosts($postIds, $context->linkedMemberIds);
+        $seenCounts = $this->readStateService?->seenCountsForPosts($group, $posts) ?? [];
 
         $repliesByPost = [];
         foreach ($replyData['replies'] as $postId => $replies) {
@@ -134,6 +139,7 @@ class GroupFeedService
             'reply_counts' => $replyData['counts'],
             'reactions' => $postReactions,
             'reports' => $postReports,
+            'seen_counts' => $seenCounts,
         ];
     }
 
@@ -206,6 +212,9 @@ class GroupFeedService
             'reply_counts' => [],
             'reactions' => ['counts' => [], 'own' => []],
             'reports' => ['reported' => [], 'counts' => []],
+            // A post that did not exist a moment ago has been seen by
+            // nobody, by definition — no query needed to say so.
+            'seen_counts' => [$post->id => 0],
         ];
 
         return $this->decorate($post, $page, $context, $canModerate);
@@ -223,7 +232,8 @@ class GroupFeedService
      *     replies: array<int, array<int, array<string, mixed>>>,
      *     reply_counts: array<int, int>,
      *     reactions: array{counts: array<int, array<string, int>>, own: array<int, string>},
-     *     reports: array{reported: array<int, true>, counts: array<int, int>}
+     *     reports: array{reported: array<int, true>, counts: array<int, int>},
+     *     seen_counts?: array<int, int>
      * } $page
      * @return array<string, mixed>
      */
@@ -266,6 +276,14 @@ class GroupFeedService
             // Moderators only: everything about the hidden state stays
             // behind canModerate, so a member never learns an item exists
             // but is hidden.
+            // "Vu par N", offered to the post's own author and nobody
+            // else. A read mark says where somebody has been in a
+            // conversation, and the one person with a legitimate claim on
+            // that is the one asking "did my message reach anyone?" —
+            // Controller\PostController::seenBy() enforces the same rule
+            // server-side, this only decides whether the line is drawn.
+            'can_see_seen_by' => in_array($post->authorMemberId, $context->linkedMemberIds, true),
+            'seen_count' => $page['seen_counts'][$post->id] ?? 0,
             'is_hidden' => $canModerate && $post->isHidden(),
             'report_count' => $canModerate ? ($page['reports']['counts'][$post->id] ?? 0) : 0,
         ];
