@@ -27,10 +27,18 @@ class SettingsController extends AbstractController
     // explainer, webhook status, danger-zone confirm-keyword flow, none of
     // which fit this page's plain editable-row rendering) — never shown
     // here, editable or not.
+    // The statistics/support keys are excluded for the same reason: they are
+    // managed from the dedicated Support page (Core\Http\Controller\
+    // SupportController), which pairs the switch with the explanation of what
+    // actually leaves the site — and several of them (installation id,
+    // installation date, last-send bookkeeping) are read-only facts nobody
+    // should be invited to hand-edit.
     /** @var string[] */
     private const EXCLUDED_FROM_GENERIC_PAGE = [
         'auto_update_enabled', 'auto_update_level', 'auto_update_day', 'auto_update_time',
         'dev_update_branch',
+        'statistics_enabled', 'statistics_destination', 'statistics_installation_id',
+        'support_email', 'installed_at',
     ];
 
     public function __construct(

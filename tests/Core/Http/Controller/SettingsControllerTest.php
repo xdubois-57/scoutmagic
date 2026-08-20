@@ -176,6 +176,27 @@ class SettingsControllerTest extends TestCase
         $this->assertStringContainsString('Ordinaire', $body);
     }
 
+    public function testIndexExcludesStatisticsAndSupportSettingsFromTheGenericRendering(): void
+    {
+        $this->settingService->register('statistics_enabled', '1', 'boolean', 'Envoi automatique des statistiques d\'utilisation', 'D');
+        $this->settingService->register('statistics_destination', 'https://www.scoutmagic.be', 'url', 'Destination des statistiques', 'D');
+        $this->settingService->register('statistics_installation_id', '', 'text', 'Identifiant de cette installation', 'D', null, null, null, false);
+        $this->settingService->register('support_email', 'support@scoutmagic.be', 'email', 'Adresse du support ScoutMagic', 'D', null, null, null, false);
+        $this->settingService->register('installed_at', '', 'text', 'Date d\'installation de ScoutMagic', 'D', null, null, null, false);
+        $this->settingService->register('an_ordinary_setting', 'val', 'text', 'Ordinaire', 'D');
+        $this->settingService->clearCache();
+
+        $request = new Request('GET', '/config/settings', [], [], [], []);
+        $body = $this->controller->index($request, [])->getBody();
+
+        $this->assertStringNotContainsString('Envoi automatique des statistiques', $body);
+        $this->assertStringNotContainsString('Destination des statistiques', $body);
+        $this->assertStringNotContainsString('Identifiant de cette installation', $body);
+        $this->assertStringNotContainsString('Adresse du support ScoutMagic', $body);
+        $this->assertStringNotContainsString('Date d\'installation de ScoutMagic', $body);
+        $this->assertStringContainsString('Ordinaire', $body);
+    }
+
     public function testUpdateWithInvalidCsrf(): void
     {
         $this->settingService->register('editable', 'old', 'text', 'L', 'D');
