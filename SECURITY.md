@@ -118,6 +118,8 @@ All fields identifying a natural person are encrypted (AES-256-GCM) as BLOB:
 
 Every response: `Content-Security-Policy`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Strict-Transport-Security` (if HTTPS), `Referrer-Policy: strict-origin-when-cross-origin`.
 
+The fatal-error fallback page (`Core\Http\ErrorHandler`, §22) re-emits the same header set from its own hardcoded 500 response — an uncaught throwable must never be the one response that ships without them.
+
 ## 10. Cookie consent
 
 - Cookies categorized: strictly necessary (no consent), functional (consent required), analytics (consent required).
@@ -206,3 +208,40 @@ A push notification is the one thing this site sends that renders **outside** it
 - **Never anything about who reported what.** The report notification names neither the reporter nor the reported text: a moderator opens the item to judge it, which is what the deep link is for, and the reporter is never revealed to anyone (§11's ids-only rule, applied to a second surface).
 - **A deep link is a real route, not a fragment.** `#post-123` is resolved by the browser and never reaches the server, so a forwarded notification link would render the page to somebody outside the group before failing to scroll. `GET /groups/{id}/posts/{postId}` re-checks membership — and the item's hidden state — before redirecting, and answers 404 (never 403, which would confirm the group exists) otherwise.
 - **A notification never blocks or reverses the action that triggered it.** Every dispatch is wrapped: a post that published perfectly well is not rolled back because a push could not be queued, and nothing about the message's text is logged when it fails.
+
+## 20. Self-update integrity
+
+The self-update path (`Core\Maintenance\Task\InstallUpdateHandler`) downloads an archive and unpacks it over the live PHP tree, so *where* it downloads from is as security-critical as any code in the repository. Two GitHub webhook events feed it — a published release and a dev-mode branch push (`Core\Maintenance\GitHubWebhookService`, §4's signed exception) — and both carry the download URL and the source repository as free-form JSON.
+
+- **The download URL must be a GitHub `https` URL.** `Core\Maintenance\GitHubUrlValidator` is the single allowlist: `https` scheme plus a host in a fixed set (`github.com`, `api.github.com`, `codeload.github.com`, `objects.githubusercontent.com`, `release-assets.githubusercontent.com`). It is checked in three places — before the URL is ever cached from a webhook payload (`processRelease()`), before the first byte is fetched (`download()`), and again on **every redirect hop**.
+- **Redirects are followed by hand, never delegated to the HTTP client** (`follow_location => 0`). A GitHub download legitimately redirects across GitHub's own hosts (`api.github.com` → `codeload`, `github.com/…/releases/download` → `objects.githubusercontent.com`), but a redirect to any other host aborts the download rather than being followed — the same posture as the SSRF scraper's per-hop revalidation (§17), under a low fixed hop cap.
+- **The webhook event must name the configured repository.** Both handlers gate on `isConfiguredRepository()` — `repository.full_name` compared case-insensitively to `update_github_owner`/`update_github_repo` — so a validly-signed event for an attacker-owned repository (whoever holds the webhook secret and can push to *some* repo) can never point the updater at that repo's code or zipball.
+- **A refused release never poisons the manual button.** `update_download_url` (read by the manual "Installer maintenant" action) is written only once a release is confirmed newer *and* its URL passes the allowlist — never straight from the payload, which previously let an ignored/older release overwrite it.
+- **What this does not close, and what would.** This authenticates the *source* of the artifact, not its *contents*: a compromise of the configured GitHub repository, or the webhook secret plus push access to it, still yields a trusted install. Fully closing that requires a **signed release** whose signature is verified before extraction — the remaining, larger piece of work, tracked as a known gap here rather than silently assumed away.
+
+## 21. Backup restoration safety
+
+An automatic rollback (and the manual "Restaurer" action) extracts a backup ZIP over the install tree, so a crafted archive is a code-execution vector if extraction is naive. Restore is `superadmin`-only, and the archive is validated entry-by-entry before a single file is written.
+
+- **Restore routes are `superadmin`, not `admin`.** `update/install`, `reset/settings`, `reset/full`, and `reset/restore` were raised to `role_min: superadmin` — an `admin` could otherwise reach a code-overwriting operation and effectively escalate past `superadmin`.
+- **Zip-slip and symlink-escape are rejected before extraction** (`Core\Maintenance\BackupService::assertArchiveEntriesAreSafe()`, run before `extractTo()`): absolute paths, Windows drive prefixes, any `..` segment, Unix symlink entries (detected from the entry's external attributes), and anything outside the fixed set of restorable top-level entries (`core`, `modules`, `public`, `storage`, and `database.sql`) all abort the restore.
+- **Zip-bomb guard.** The archive's total uncompressed size is capped, so a small malicious archive cannot exhaust the disk during extraction.
+
+## 22. Fatal-error handling
+
+`Core\Http\ErrorHandler` is registered as the process-wide exception, error, and shutdown handler (`public/index.php`), immediately after the autoloader and again once configuration is loaded so it is armed even for a failure during bootstrap itself.
+
+- **No stack trace or credential ever reaches the browser.** `display_errors` is forced off in production; an uncaught throwable or fatal produces a self-contained, hardcoded French 500 page that touches neither Twig nor the database (either of which may be the very thing that failed). The exception detail is written to the error log, never to the response — it is shown in the page only when the app is explicitly in debug mode, and HTML-escaped even then.
+- **The 500 page still carries the full security-header set** (§9) — an error response is not an excuse to drop `Content-Security-Policy` or `X-Frame-Options`.
+
+## 23. Spreadsheet export safety
+
+Values that originate from **unauthenticated public input** — public form answers (`modules/news`, `POST /news/{id}/form/submit` is `role_min: public`) and finance movement labels — are later written into XLSX exports an admin opens in Excel/LibreOffice. A leading `=`, `+`, `-`, or `@` in such a cell is interpreted as a formula (CSV/formula injection).
+
+- **Untrusted cells are written as explicit text**, never as general values: `setCellValueExplicit(..., DataType::TYPE_STRING)` for every attacker-influenceable string column, so a spreadsheet application never evaluates a submitted answer or label as a formula. Genuinely numeric columns (amounts) are written as `TYPE_NUMERIC`, and the one deliberate, code-controlled payment total remains a real formula built from constants — never from user input.
+
+## 24. Non-web entry points
+
+`public/cron.php` is the scheduler's command-line entry point (`ARCHITECTURE.md`'s poor-man's-cron). It runs privileged maintenance work with no session and no RBAC, so it must never be reachable over HTTP.
+
+- **CLI-only, enforced in code and in config.** The script's first executable statement refuses any non-CLI SAPI (`PHP_SAPI !== 'cli'` → `404` and exit), before the autoloader or the scheduler is ever touched. Defense in depth: `public/.htaccess` and the bootstrap-generated `.htaccess` (`bootstrap/bootstrap.php`) also `Require all denied` for `cron.php` on Apache — but the in-code guard is the authority, since `.htaccess` does not apply on nginx.

@@ -109,7 +109,7 @@ class CheckStableUpdateHandlerTest extends TestCase
     public function testHandleSkipsTheCheckWhenAutoUpdateIsDisabled(): void
     {
         $this->settings->set('auto_update_enabled', '0');
-        $release = new ReleaseInfo('v2.5.0', 'Notes', 'https://github.com/x/y/releases/tag/v2.5.0', 'https://example.test/artifact.zip');
+        $release = new ReleaseInfo('v2.5.0', 'Notes', 'https://github.com/x/y/releases/tag/v2.5.0', 'https://github.com/owner/repo/releases/download/v2.5.0/scoutmagic.zip');
         $handler = new CheckStableUpdateHandler($this->fakeClient($release));
 
         $handler->handle([], $this->context);
@@ -122,7 +122,7 @@ class CheckStableUpdateHandlerTest extends TestCase
     {
         $this->settings->set('auto_update_enabled', '1');
         $this->settings->set('auto_update_level', 'dev');
-        $release = new ReleaseInfo('v2.5.0', 'Notes', 'https://github.com/x/y/releases/tag/v2.5.0', 'https://example.test/artifact.zip');
+        $release = new ReleaseInfo('v2.5.0', 'Notes', 'https://github.com/x/y/releases/tag/v2.5.0', 'https://github.com/owner/repo/releases/download/v2.5.0/scoutmagic.zip');
         $handler = new CheckStableUpdateHandler($this->fakeClient($release));
 
         $handler->handle([], $this->context);
@@ -135,7 +135,7 @@ class CheckStableUpdateHandlerTest extends TestCase
     {
         $this->settings->set('auto_update_enabled', '1');
         $this->settings->set('auto_update_level', 'minor');
-        $release = new ReleaseInfo('v2.5.0', 'Notes', 'https://github.com/x/y/releases/tag/v2.5.0', 'https://example.test/artifact.zip');
+        $release = new ReleaseInfo('v2.5.0', 'Notes', 'https://github.com/x/y/releases/tag/v2.5.0', 'https://github.com/owner/repo/releases/download/v2.5.0/scoutmagic.zip');
         $handler = new CheckStableUpdateHandler($this->fakeClient($release));
 
         $handler->handle([], $this->context);

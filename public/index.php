@@ -4,6 +4,13 @@ declare(strict_types=1);
 
 $composerAutoloader = require_once __DIR__ . '/../vendor/autoload.php';
 
+// Arm the last-resort error handler before anything else runs — including
+// the config load and the database connect, both of which can throw and
+// would otherwise print a stack trace (with the DB password in a PDO frame)
+// on a host with display_errors on. Re-armed with the real debug flag once
+// AppConfig is available (see below).
+\Core\Http\ErrorHandler::register(false);
+
 // Self-healing safety net for the "Update from GitHub" auto-update path
 // (Core\Maintenance\Task\InstallUpdateHandler), which copies tracked
 // repository files over the live install but never runs `composer
@@ -138,6 +145,7 @@ use Core\View\TwigFactory;
 
 // Load configuration
 $config = new AppConfig(__DIR__ . '/../config/app.php');
+\Core\Http\ErrorHandler::register($config->isDebug());
 
 // Generate per-request CSP nonce
 $cspNonce = base64_encode(random_bytes(16));
@@ -1432,12 +1440,12 @@ $router->addRoute('POST', '/config/maintenance/backup/database', MaintenanceCont
 $router->addRoute('POST', '/config/maintenance/backup/full', MaintenanceController::class, 'createFullBackup', 'admin');
 $router->addRoute('POST', '/config/maintenance/backup/auto-frequency', MaintenanceController::class, 'updateAutoBackupFrequency', 'admin');
 $router->addRoute('GET', '/api/maintenance/backup-status/{id}', MaintenanceController::class, 'backupStatus', 'admin');
-$router->addRoute('POST', '/config/maintenance/update/install', MaintenanceController::class, 'installUpdate', 'admin');
+$router->addRoute('POST', '/config/maintenance/update/install', MaintenanceController::class, 'installUpdate', 'superadmin');
 $router->addRoute('POST', '/config/maintenance/update/check-now', MaintenanceController::class, 'checkForUpdatesNow', 'admin');
 $router->addRoute('GET', '/api/maintenance/update-status/{id}', MaintenanceController::class, 'updateStatus', 'admin');
-$router->addRoute('POST', '/config/maintenance/reset/settings', MaintenanceController::class, 'resetSettings', 'admin');
-$router->addRoute('POST', '/config/maintenance/reset/full', MaintenanceController::class, 'fullReset', 'admin');
-$router->addRoute('POST', '/config/maintenance/reset/restore', MaintenanceController::class, 'restoreBackup', 'admin');
+$router->addRoute('POST', '/config/maintenance/reset/settings', MaintenanceController::class, 'resetSettings', 'superadmin');
+$router->addRoute('POST', '/config/maintenance/reset/full', MaintenanceController::class, 'fullReset', 'superadmin');
+$router->addRoute('POST', '/config/maintenance/reset/restore', MaintenanceController::class, 'restoreBackup', 'superadmin');
 $router->addRoute('GET', '/api/maintenance/reset-status/{id}', MaintenanceController::class, 'resetStatus', 'admin');
 $router->addRoute('POST', '/config/maintenance/auto-update/save', MaintenanceController::class, 'saveAutoUpdatePreferences', 'admin');
 $router->addRoute('POST', '/api/maintenance/webhook-secret', MaintenanceController::class, 'generateWebhookSecret', 'admin');
@@ -2897,7 +2905,8 @@ if (!$secretManager->isInitialized()) {
 }
 
 \Core\Debug\RequestTimeline::mark('services_ready');
-$response = $frontController->handle($request);
+/** @var \Core\Http\Response $response */
+$response = \Core\Http\ErrorHandler::guard(static fn() => $frontController->handle($request));
 \Core\Debug\RequestTimeline::mark('controller_dispatch_done');
 $response->setCspNonce($cspNonce);
 

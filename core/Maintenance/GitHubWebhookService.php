@@ -96,6 +96,13 @@ class GitHubWebhookService
             return ['status' => 'ignored', 'reason' => 'invalid_payload'];
         }
 
+        // The event must be for the repository this site is configured to
+        // update from. Without this a signed event for any attacker-owned
+        // repo would install that repo's code.
+        if (!$this->isConfiguredRepository($payload)) {
+            return ['status' => 'ignored', 'reason' => 'repository_mismatch'];
+        }
+
         return $this->processRelease(
             (string) $release['tag_name'],
             (string) ($release['body'] ?? ''),
@@ -140,14 +147,30 @@ class GitHubWebhookService
         $this->settings->setInternal('update_latest_version', $latestVersion);
         $this->settings->setInternal('update_release_notes', $body);
         $this->settings->setInternal('update_release_html_url', $htmlUrl);
-        $this->settings->setInternal('update_download_url', (string) $downloadUrl);
 
         $installedVersion = VersionFile::read($this->basePath);
         $level = (string) ($this->settings->get('auto_update_level') ?: 'minor');
         if (!VersionFile::isNewerThan($latestVersion, $installedVersion, $level === 'dev')) {
+            // A release we won't install needs no download URL — the version
+            // cache above is still refreshed so the Maintenance page shows the
+            // true latest version, but nothing about the artifact is trusted.
             $this->settings->setInternal('update_dependencies_changed', '0');
             return ['status' => 'ignored', 'reason' => 'not_newer'];
         }
+
+        // Newer — the download URL is about to be trusted (cached for the
+        // manual "Installer maintenant" button and, if allowed, scheduled for
+        // an automatic install), so it must be validated first. It used to be
+        // cached before any gate straight from the webhook JSON, so a signed
+        // event could point the updater at an arbitrary host; it is now
+        // refused outright unless it is a GitHub https URL.
+        if ($downloadUrl === null) {
+            return ['status' => 'ignored', 'reason' => 'no_download_url'];
+        }
+        if (!GitHubUrlValidator::isAllowed($downloadUrl)) {
+            return ['status' => 'ignored', 'reason' => 'download_url_refused'];
+        }
+        $this->settings->setInternal('update_download_url', $downloadUrl);
 
         $dependenciesChanged = $this->composerLockChanged($installedVersion, $tagName);
         $this->settings->setInternal('update_dependencies_changed', $dependenciesChanged ? '1' : '0');
@@ -161,10 +184,6 @@ class GitHubWebhookService
             // stable release arriving while it's active is deliberately
             // never auto-installed (module spec).
             return ['status' => 'ignored', 'reason' => 'dev_mode_active'];
-        }
-
-        if ($downloadUrl === null) {
-            return ['status' => 'ignored', 'reason' => 'no_download_url'];
         }
 
         if (!self::isBumpAllowed($installedVersion, $latestVersion, $level)) {
@@ -224,6 +243,13 @@ class GitHubWebhookService
         $repoFullName = (string) ($payload['repository']['full_name'] ?? '');
         if ($sha === '' || $repoFullName === '') {
             return ['status' => 'ignored', 'reason' => 'invalid_payload'];
+        }
+
+        // The zipball URL below is built from $repoFullName; it must be the
+        // repository this site is configured to update from, or a signed
+        // push event could install any attacker-owned repo's code.
+        if (!$this->isConfiguredRepository($payload)) {
+            return ['status' => 'ignored', 'reason' => 'repository_mismatch'];
         }
 
         // Never start a second automatic install while one is already
@@ -291,13 +317,44 @@ class GitHubWebhookService
     }
 
     /**
+     * Whether the webhook payload's repository is the one this site is
+     * configured to update from (case-insensitive "owner/repo"). Both the
+     * release and push paths gate on this so a validly-signed event for a
+     * different repository can never trigger an install.
+     *
+     * @param array<string, mixed> $payload
+     */
+    private function isConfiguredRepository(array $payload): bool
+    {
+        $owner = strtolower(trim((string) ($this->settings->get('update_github_owner') ?: '')));
+        $repo = strtolower(trim((string) ($this->settings->get('update_github_repo') ?: '')));
+        if ($owner === '' || $repo === '') {
+            return false;
+        }
+
+        $repository = $payload['repository'] ?? null;
+        $fullName = is_array($repository) ? strtolower(trim((string) ($repository['full_name'] ?? ''))) : '';
+
+        return $fullName === $owner . '/' . $repo;
+    }
+
+    /**
+     * Prefer a real .zip release asset over the first asset blindly (a
+     * release can carry non-archive assets too), then fall back to the
+     * source zipball — same selection GitHubReleaseClient::selectZipAssetUrl()
+     * uses. The URL is validated against the GitHub allowlist by the caller
+     * before it is ever cached or downloaded.
+     *
      * @param array<string, mixed> $release
      */
     private function resolveReleaseDownloadUrl(array $release): ?string
     {
         $assets = $release['assets'] ?? [];
-        if (is_array($assets) && !empty($assets[0]['browser_download_url'])) {
-            return (string) $assets[0]['browser_download_url'];
+        if (is_array($assets)) {
+            $zipAsset = GitHubReleaseClient::selectZipAssetUrl($assets);
+            if ($zipAsset !== null) {
+                return $zipAsset;
+            }
         }
         if (!empty($release['zipball_url'])) {
             return (string) $release['zipball_url'];

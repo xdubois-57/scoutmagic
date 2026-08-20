@@ -28,6 +28,7 @@ use Modules\Finance\Service\FirstReceiptResolver;
 use Modules\Finance\Service\MovementPresenter;
 use Modules\Finance\Service\ReceiptExtractionService;
 use Modules\Finance\Service\ReceiptService;
+use PhpOffice\PhpSpreadsheet\Cell\DataType;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 
@@ -211,7 +212,7 @@ class MovementController extends AbstractController
 
         $columns = ['Date', 'Libellé', 'Contrepartie', 'Montant', 'Catégorie', 'Commentaire'];
         foreach ($columns as $index => $header) {
-            $sheet->setCellValue([$index + 1, 1], $header);
+            $sheet->setCellValueExplicit([$index + 1, 1], $header, DataType::TYPE_STRING);
         }
 
         $rowNum = 2;
@@ -219,12 +220,17 @@ class MovementController extends AbstractController
             $firstReceipt = $firstReceiptsByMovementId[$movement->id] ?? null;
             $category = $movement->categoryId !== null ? ($categoriesById[$movement->categoryId] ?? null) : null;
 
-            $sheet->setCellValue([1, $rowNum], $movement->transactionDate);
-            $sheet->setCellValue([2, $rowNum], $movement->label);
-            $sheet->setCellValue([3, $rowNum], MovementPresenter::counterparty($movement, $firstReceipt, $accountName));
-            $sheet->setCellValue([4, $rowNum], $movement->amount);
-            $sheet->setCellValue([5, $rowNum], $category?->name ?? '');
-            $sheet->setCellValue([6, $rowNum], $movement->comment ?? '');
+            // Text columns forced to string: label, counterparty and
+            // comment carry free text (the label/counterparty derive from an
+            // imported bank statement, whose communication field an outsider
+            // controls by sending a transfer), so a leading '=' must not turn
+            // into a live formula in the treasurer's export.
+            $sheet->setCellValueExplicit([1, $rowNum], $movement->transactionDate, DataType::TYPE_STRING);
+            $sheet->setCellValueExplicit([2, $rowNum], $movement->label, DataType::TYPE_STRING);
+            $sheet->setCellValueExplicit([3, $rowNum], MovementPresenter::counterparty($movement, $firstReceipt, $accountName), DataType::TYPE_STRING);
+            $sheet->setCellValueExplicit([4, $rowNum], (string) $movement->amount, DataType::TYPE_NUMERIC);
+            $sheet->setCellValueExplicit([5, $rowNum], $category?->name ?? '', DataType::TYPE_STRING);
+            $sheet->setCellValueExplicit([6, $rowNum], $movement->comment ?? '', DataType::TYPE_STRING);
             $rowNum++;
         }
 
