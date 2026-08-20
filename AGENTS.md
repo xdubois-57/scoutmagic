@@ -127,6 +127,16 @@ Mechanism: the TypeScript compiler used purely as a development-time checker ove
 - `schema.sql` is the single source of truth — no incremental migration files.
 - **Any edit to a module's `schema.sql` (new column, new table, changed default — anything, on any module that isn't brand new this same change) MUST bump that module's `version` in `module.json`, in the same change.** `ModuleManager::loadEnabledModules()` only re-applies a module's schema when the declared `version` is greater than the version recorded in the registry — editing `schema.sql` alone is silently a no-op on every already-enabled install (the column/table is created only on a fresh activation) and has caused real `Unknown column`/`PDOException` errors in production. `schema/core.sql` is different: it auto-migrates on every request regardless of any version, no bump needed there — this rule is specifically about *module* `schema.sql` files. Before finishing any task that touches a module's `schema.sql`, check its `module.json` version was bumped too.
 
+### Setting types
+
+`settings.setting_type` drives validation (`Core\Config\SettingService`) and rendering. Beyond the usual `text`/`textarea`/`boolean`/`number`/`select`/`email`/`url`/`tel`/`date`/`color`, one type carries a security meaning:
+
+- **`secret`** — a setting whose *value* must never be displayed or exported. It is filtered out of Configuration > Paramètres entirely (`SettingsController::index()`), and the support package's `configuration-parameters.xlsx` writes `[REDACTED]` in its place while keeping the key and label visible (ARCHITECTURE.md §8.42). Use it for any setting that is a credential, a token, or anything a screenshot of the settings page must not reveal. **No setting carries it today** — every real credential lives outside `settings` (`secrets.enc`, or an encrypted BLOB column) and should keep doing so; `secret` is the safety net for the case where that isn't practical, not an invitation to start storing credentials in `settings`.
+
+## RGPD — a new outbound flow is a documentation change
+
+Any new feature that sends data to a third party — an API call, a mail relay, a usage report, anything leaving the hosting network — requires updating `Core\View\RgpdContentService`'s default content **and** its AI system prompt in the same change, exactly as § RGPD page maintenance already requires for a new sub-processor. This holds even when the data is aggregated and carries no personal data: the site's own URL leaving the installation is a fact the RGPD page has to state (ARCHITECTURE.md §8.41), and describing it as "anonymous" when it isn't would be worse than not mentioning it at all.
+
 ## Display name convention
 
 Everywhere a member name is shown: `totem ?? first_name`. Use `{{ member|display_name }}` Twig filter. Never hardcode the logic.

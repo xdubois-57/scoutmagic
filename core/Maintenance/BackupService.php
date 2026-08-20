@@ -440,9 +440,14 @@ class BackupService implements BackupServiceInterface
      */
     private function connectionCredentials(): array
     {
-        $reflection = new \ReflectionClass($this->connection);
-        $get = fn(string $property) => $reflection->getProperty($property)->getValue($this->connection);
+        $credentials = $this->connection->dumpCredentials();
 
-        return [$get('host'), $get('port'), $get('dbName'), $get('user'), $get('password')];
+        return [
+            $credentials['host'],
+            $credentials['port'],
+            $credentials['dbName'],
+            $credentials['user'],
+            $credentials['password'],
+        ];
     }
 }

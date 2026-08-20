@@ -13,6 +13,10 @@ use Core\Security\EncryptionService;
 use Core\Statistics\InstallationIdentityService;
 use Core\Statistics\StatisticsPayloadBuilder;
 use Core\Security\SecretManager;
+use Core\Support\Collector\ConfigurationParametersCollector;
+use Core\Support\Collector\DatabaseStructureCollector;
+use Core\Support\Collector\EventJournalCollector;
+use Core\Support\Collector\ScheduledTasksCollector;
 use Core\Support\Collector\StatisticsCollector;
 use Core\Support\SupportCollectorContext;
 use Core\Support\SupportCollectorInterface;
@@ -428,5 +432,51 @@ class SupportPackageServiceTest extends TestCase
         }
         $this->assertArrayHasKey('etc/passwd', $entries);
         $this->assertArrayHasKey('absolute/path.txt', $entries);
+    }
+
+    /**
+     * Every application collector, each broken in the bluntest possible way
+     * (its table gone), must still leave a complete archive behind — the
+     * package's whole contract.
+     */
+    public function testEachApplicationCollectorFailingIndividuallyStillProducesTheArchive(): void
+    {
+        foreach (['settings', 'event_log', 'scheduled_actions'] as $table) {
+            $pdo = DatabaseTestHelper::createTestDatabase();
+            $pdo->exec('DROP TABLE ' . $table);
+
+            $connection = $this->createMock(Connection::class);
+            $connection->method('getPdo')->willReturn($pdo);
+            $connection->method('dumpCredentials')->willReturn([
+                'host' => '', 'port' => 0, 'dbName' => '', 'user' => '', 'password' => '',
+            ]);
+
+            $settings = new SettingService(new SettingRepository($this->pdo));
+            $service = new SupportPackageService(
+                $connection,
+                $settings,
+                $this->fileRepository,
+                $this->encryptedStorage,
+                $this->projectRoot,
+                $this->storagePath,
+                [
+                    $this->statisticsCollector(),
+                    new DatabaseStructureCollector(),
+                    new ConfigurationParametersCollector(),
+                    new EventJournalCollector(),
+                    new ScheduledTasksCollector(),
+                ]
+            );
+
+            $entries = $this->readArchive($service->generate(null));
+
+            $this->assertArrayHasKey('collection-status.json', $entries, "Broken table: {$table}");
+            $this->assertArrayHasKey('README.txt', $entries, "Broken table: {$table}");
+            $this->assertArrayHasKey('statistics.json', $entries, "Broken table: {$table}");
+
+            $status = json_decode($entries['collection-status.json'], true);
+            $this->assertIsArray($status);
+            $this->assertCount(5, $status['collectors'], "Broken table: {$table}");
+        }
     }
 }

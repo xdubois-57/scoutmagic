@@ -356,3 +356,65 @@ Le récapitulatif final se trouve en fin de fichier (IT-12).
 - Les collecteurs applicatifs (IT-06) et système (IT-07) ne sont pas encore
   branchés : seul `StatisticsCollector` figure dans
   `SupportPackageFactory::collectors()`, où l'ajout des suivants est une ligne.
+
+---
+
+## IT-06 — Collecteurs applicatifs
+
+### Implémenté
+
+- `DatabaseStructureCollector` → `database-structure.sql`, via un nouveau
+  mode « structure seule » de `Core\Database\DatabaseDumper::dumpStructure()`.
+  Aucun `INSERT`, vérifié par un test contre la vraie base MySQL de test.
+- `ConfigurationParametersCollector` → `configuration-parameters.xlsx`
+  (clé, module, libellé, type, valeur courante, valeur par défaut, « diffère
+  du défaut », éditable). Redaction via le nouveau `setting_type = 'secret'`.
+- `EventJournalCollector` → `event-journal.xlsx`, 48 dernières heures,
+  une colonne par champ réel de `event_log`.
+- `ScheduledTasksCollector` → `scheduled-tasks.xlsx`, une ligne par handler
+  déclaré (core + modules), dernière instance exécutée et prochaine instance
+  `pending`. Ni cadence, ni activé/désactivé, ni historique complet.
+- `Core\Scheduler\CoreTaskHandlers` — déclaration unique des handlers core,
+  utilisée par `public/index.php`, `public/cron.php` **et** le collecteur.
+- `Core\Support\SupportSpreadsheet` — écriture XLSX, toutes les cellules en
+  type chaîne explicite (SECURITY.md §23, injection de formule).
+- `SupportCollectorContext::redact()` — expurgation partagée (secrets
+  connus, caractères de contrôle, longueur bornée), utilisée par
+  `collection-status.json` **et** par `last_error`.
+- `Connection::dumpCredentials()` remplace la lecture par `ReflectionClass`
+  des propriétés privées dans `BackupService::connectionCredentials()`.
+- `AGENTS.md` (types de réglage, règle RGPD pour tout nouveau flux sortant),
+  `docs/module-development.md` (type `secret`), `ARCHITECTURE.md` §8.42.
+
+### Décisions autonomes
+
+1. **L'énumération des handlers core est un registre déclaratif**
+   (`CoreTaskHandlers`) plutôt qu'une méthode sur `SchedulerRunner`, comme le
+   suggérait le document. Motif : le collecteur tourne dans un handler de
+   tâche et n'a aucun accès à l'instance de `SchedulerRunner`. Le registre
+   résout en plus la duplication entre les deux points d'entrée — précisément
+   le bug documenté au §8.17 d'`ARCHITECTURE.md`.
+2. **Un réglage de type `secret` est masqué aussi sur la page Paramètres.**
+   Le document ne demande la redaction que dans le XLSX ; l'afficher en clair
+   sur `/config/settings` viderait le filet de sécurité de son sens.
+3. **`Connection::dumpCredentials()`** : `BackupService` lisait ces mêmes
+   propriétés privées par réflexion. Un accesseur nommé est strictement
+   meilleur (greppable, typé) et c'était le seul moyen propre de faire
+   fonctionner le collecteur de structure.
+4. **L'expurgation vit dans le contexte de collecte**, pas dans le service :
+   `last_error` avait besoin de la même règle que les motifs d'échec, et deux
+   implémentations auraient divergé.
+5. **`last_error` est expurgé puis tronqué à 300 caractères** : un message
+   PDO cite couramment les identifiants avec lesquels il a échoué.
+
+### Divergences constatées avec le document
+
+- `Core\Database\DatabaseDumper` n'exposait pas de mode « structure seule » :
+  ajouté (`dumpStructure()`), comme le document l'autorisait.
+- Le document évoque « une petite méthode sur `SchedulerRunner` » ; voir la
+  décision 1.
+
+### Reporté volontairement
+
+- Les collecteurs système (phpinfo, système de fichiers, commandes, serveur
+  web, journaux) arrivent en IT-07.

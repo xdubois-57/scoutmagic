@@ -13,6 +13,10 @@ use Core\File\FileRepository;
 use Core\Scheduler\TaskContext;
 use Core\Security\SecretManager;
 use Core\Statistics\StatisticsServiceFactory;
+use Core\Support\Collector\ConfigurationParametersCollector;
+use Core\Support\Collector\DatabaseStructureCollector;
+use Core\Support\Collector\EventJournalCollector;
+use Core\Support\Collector\ScheduledTasksCollector;
 use Core\Support\Collector\StatisticsCollector;
 
 /**
@@ -51,6 +55,10 @@ final class SupportPackageFactory
     {
         return [
             new StatisticsCollector(StatisticsServiceFactory::payloadBuilder($context)),
+            new DatabaseStructureCollector(),
+            new ConfigurationParametersCollector(),
+            new EventJournalCollector(),
+            new ScheduledTasksCollector(StatisticsServiceFactory::moduleManager($context)),
         ];
     }
 

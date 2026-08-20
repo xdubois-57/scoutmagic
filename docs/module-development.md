@@ -378,6 +378,12 @@ CREATE TABLE IF NOT EXISTS calendar_events (
 - Access in code: `$settingService->get('default_view', 'calendar')`.
 - Access in Twig: `{{ param('default_view', 'calendar') }}`.
 
+### The `secret` type
+
+`"type": "secret"` marks a setting whose **value** must never be displayed or exported: it is filtered out of the Paramètres page entirely, and the support package's `configuration-parameters.xlsx` writes `[REDACTED]` in its place while keeping the key and label visible (ARCHITECTURE.md §8.42). Everything else behaves like `text`.
+
+Reach for it only when a credential genuinely has to live in `settings`. The established pattern for a module credential is an encrypted `BLOB` column in the module's own table (`Core\Security\EncryptionService`, decrypted only in the Repository) — `llm_providers.api_key` and the SOS telephony credentials both do this, and neither is ever read by the support package because neither is in `settings`. `secret` is the safety net for the case where that isn't practical, not a reason to stop using encrypted columns.
+
 ## Cookies
 
 - Declared in `module.json` under the `cookies` section.

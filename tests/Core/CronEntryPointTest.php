@@ -54,42 +54,34 @@ class CronEntryPointTest extends TestCase
      * A core task handler registered in only one of the two entry points
      * fails silently under whichever trigger is missing it — the exact bug
      * ARCHITECTURE.md §8.17 records for create_backup, which never ran under
-     * a real crontab. Every core handler must appear in both files.
-     *
-     * @return array<int, array{0: string}>
+     * a real crontab. Both files now register from the single
+     * Core\Scheduler\CoreTaskHandlers list, and this test pins that: an
+     * entry point going back to its own hand-written list is the regression
+     * to catch.
      */
-    public static function coreTaskHandlerProvider(): array
+    public function testBothEntryPointsRegisterCoreHandlersFromTheSharedRegistry(): void
     {
-        return [
-            ['CreateBackupHandler'],
-            ['InstallUpdateHandler'],
-            ['ResetSettingsHandler'],
-            ['FullResetHandler'],
-            ['RestoreBackupHandler'],
-            ['AutoBackupHandler'],
-            ['CheckStableUpdateHandler'],
-            ['CompressSectionDocumentHandler'],
-            ['SendNotificationsHandler'],
-            ['PurgeNotificationsHandler'],
-            ['PurgeHumanCheckRateLimitsHandler'],
-            ['SendStatisticsHandler'],
-            ['GenerateSupportPackageHandler'],
-            ['PurgeSupportPackagesHandler'],
-        ];
+        $this->assertStringContainsString('CoreTaskHandlers::registerAll(', $this->index);
+        $this->assertStringContainsString('CoreTaskHandlers::registerAll(', $this->cron);
+
+        $this->assertDoesNotMatchRegularExpression(
+            "/registerHandler\(\s*'core'/",
+            $this->index,
+            'public/index.php must not hand-register core handlers alongside the shared registry.'
+        );
+        $this->assertDoesNotMatchRegularExpression(
+            "/registerHandler\(\s*'core'/",
+            $this->cron,
+            'public/cron.php must not hand-register core handlers alongside the shared registry.'
+        );
     }
 
-    #[\PHPUnit\Framework\Attributes\DataProvider('coreTaskHandlerProvider')]
-    public function testEveryCoreTaskHandlerIsRegisteredInBothEntryPoints(string $handler): void
+    public function testEveryCoreHandlerClassInTheRegistryExists(): void
     {
-        $this->assertMatchesRegularExpression(
-            '/registerHandler\(\s*\'core\',[^)]*' . preg_quote($handler, '/') . '\(\)/',
-            $this->index,
-            "public/index.php must register {$handler}"
-        );
-        $this->assertMatchesRegularExpression(
-            '/registerHandler\(\s*\'core\',[^)]*' . preg_quote($handler, '/') . '\(\)/',
-            $this->cron,
-            "public/cron.php must register {$handler}"
-        );
+        foreach (\Core\Scheduler\CoreTaskHandlers::all() as $taskKey => $handlerClass) {
+            $this->assertNotSame('', $taskKey);
+            $this->assertTrue(class_exists($handlerClass), "{$handlerClass} must exist");
+            $this->assertInstanceOf(\Core\Scheduler\TaskHandlerInterface::class, new $handlerClass());
+        }
     }
 }

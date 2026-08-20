@@ -95,7 +95,8 @@ class SupportPackageService
                 $this->connection,
                 $this->settingService,
                 $this->projectRoot,
-                $this->storagePath
+                $this->storagePath,
+                $this->secretsToRedact
             );
 
             $outcomes = [];
@@ -215,12 +216,12 @@ class SupportPackageService
             $unavailable = $context->unavailableReason();
 
             return $unavailable !== null
-                ? SupportCollectionOutcome::unavailable($collector->name(), self::redact($unavailable), $durationMs, $context->notes())
+                ? SupportCollectionOutcome::unavailable($collector->name(), $context->redact($unavailable), $durationMs, $context->notes())
                 : SupportCollectionOutcome::success($collector->name(), $durationMs, $context->notes());
         } catch (\Throwable $e) {
             return SupportCollectionOutcome::failed(
                 $collector->name(),
-                self::redact($e->getMessage()),
+                $context->redact($e->getMessage()),
                 self::elapsedMs($startedAt),
                 $context->notes()
             );
@@ -295,25 +296,6 @@ class SupportPackageService
 
         Aucun envoi automatique n'est effectué, sous aucune forme.
         TXT;
-    }
-
-    /**
-     * A collector's failure message can be anything, including an exception
-     * that quoted a value it was handling — a PDO error naming the database
-     * password is the canonical example. Every known secret is replaced
-     * before the reason reaches `collection-status.json`, on top of the
-     * usual control-character stripping and length cap.
-     */
-    private function redact(string $reason): string
-    {
-        $reason = (string) preg_replace('/[\x00-\x1F\x7F]+/u', ' ', $reason);
-        $reason = trim((string) preg_replace('/\s+/u', ' ', $reason));
-
-        foreach ($this->secretsToRedact as $secret) {
-            $reason = str_ireplace(trim($secret), '[REDACTED]', $reason);
-        }
-
-        return mb_strlen($reason) > 300 ? mb_substr($reason, 0, 300) : $reason;
     }
 
     private function writeSetting(string $key, string $value): void

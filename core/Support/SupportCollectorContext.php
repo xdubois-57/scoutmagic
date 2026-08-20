@@ -27,13 +27,46 @@ class SupportCollectorContext
 
     private ?string $unavailableReason = null;
 
+    /** @var array<int, string> */
+    private array $secretsToRedact;
+
+    /**
+     * @param array<int, string> $secretsToRedact literal secret values that
+     *        must never reach the archive — see redact()
+     */
     public function __construct(
         private \ZipArchive $archive,
         private Connection $connection,
         private SettingService $settingService,
         private string $projectRoot,
-        private string $storagePath
+        private string $storagePath,
+        array $secretsToRedact = []
     ) {
+        $this->secretsToRedact = array_values(array_filter(
+            array_map(static fn(string $secret): string => trim($secret), $secretsToRedact),
+            static fn(string $secret): bool => strlen($secret) >= 8
+        ));
+    }
+
+    /**
+     * Sanitise a free-text value before it goes into the archive: control
+     * characters collapsed, length capped, and every known secret replaced.
+     *
+     * The canonical case is a scheduled task's `last_error` — a PDO failure
+     * message routinely quotes the credentials it failed with, and this
+     * archive is destined for email. The same routine sanitises collector
+     * failure reasons in `collection-status.json`.
+     */
+    public function redact(string $value, int $maxLength = 300): string
+    {
+        $value = (string) preg_replace('/[\x00-\x1F\x7F]+/u', ' ', $value);
+        $value = trim((string) preg_replace('/\s+/u', ' ', $value));
+
+        foreach ($this->secretsToRedact as $secret) {
+            $value = str_ireplace($secret, '[REDACTED]', $value);
+        }
+
+        return mb_strlen($value) > $maxLength ? mb_substr($value, 0, $maxLength) : $value;
     }
 
     /**
