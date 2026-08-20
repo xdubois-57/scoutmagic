@@ -8,10 +8,12 @@ use Core\Config\SettingRepository;
 use Core\Config\SettingService;
 use Core\Cookie\CookieConsentService;
 use Core\Database\MigrationRunner;
+use Core\Http\Request;
 use Core\Http\Router;
 use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Module\ModuleException;
+use Core\Module\ModuleInfo;
 use Core\Module\ModuleManager;
 use Core\Module\ModuleRegistryRepository;
 use Core\Offline\OfflineWhitelist;
@@ -586,5 +588,97 @@ class ModuleManagerTest extends TestCase
         }
 
         return [];
+    }
+
+    /**
+     * @return ModuleManager
+     */
+    private function managerWithReceiverFlag(bool $isReceiver): ModuleManager
+    {
+        return new ModuleManager(
+            $this->fixturesDir,
+            $this->settingService,
+            $this->cookieConsentService,
+            $this->menuBuilder,
+            $this->registryRepo,
+            $this->migrationRunner,
+            new JournalService(new JournalRepository($this->pdo)),
+            $this->router,
+            null,
+            $this->offlineWhitelist,
+            $isReceiver
+        );
+    }
+
+    /**
+     * @param ModuleInfo[] $modules
+     * @return string[]
+     */
+    private static function moduleIdsOf(array $modules): array
+    {
+        return array_map(static fn(ModuleInfo $module): string => $module->manifest->id, $modules);
+    }
+
+    public function testAReceiverOnlyModuleIsInvisibleOnAnOrdinaryInstallation(): void
+    {
+        $ids = self::moduleIdsOf($this->managerWithReceiverFlag(false)->discoverModules());
+
+        $this->assertNotContains('receiver_only_module', $ids);
+        $this->assertContains('valid_module', $ids);
+    }
+
+    public function testAReceiverOnlyModuleIsVisibleOnTheReceiver(): void
+    {
+        $ids = self::moduleIdsOf($this->managerWithReceiverFlag(true)->discoverModules());
+
+        $this->assertContains('receiver_only_module', $ids);
+    }
+
+    public function testAReceiverOnlyModuleRegistersNoRouteOnAnOrdinaryInstallation(): void
+    {
+        $this->registryRepo->upsert('receiver_only_module', true, '1.0.0', null);
+
+        $router = new Router();
+        $manager = new ModuleManager(
+            $this->fixturesDir,
+            $this->settingService,
+            $this->cookieConsentService,
+            new MenuBuilder(Role::fromString('admin')),
+            $this->registryRepo,
+            $this->migrationRunner,
+            new JournalService(new JournalRepository($this->pdo)),
+            $router,
+            null,
+            $this->offlineWhitelist,
+            false
+        );
+        $manager->loadEnabledModules();
+
+        $this->assertNull($router->resolve(new Request('GET', '/receiver-only', [], [], [], [])));
+        $this->assertNotContains('receiver_only_module', $manager->getEnabledModuleIds());
+    }
+
+    public function testAReceiverOnlyModuleRegistersItsRouteOnTheReceiver(): void
+    {
+        $this->registryRepo->upsert('receiver_only_module', true, '1.0.0', null);
+
+        $router = new Router();
+        $manager = new ModuleManager(
+            $this->fixturesDir,
+            $this->settingService,
+            $this->cookieConsentService,
+            new MenuBuilder(Role::fromString('admin')),
+            $this->registryRepo,
+            $this->migrationRunner,
+            new JournalService(new JournalRepository($this->pdo)),
+            $router,
+            null,
+            $this->offlineWhitelist,
+            true
+        );
+        $manager->loadEnabledModules();
+
+        $this->assertNotNull($router->resolve(new Request('GET', '/receiver-only', [], [], [], [])));
+        $this->assertContains('receiver_only_module', $manager->getEnabledModuleIds());
     }
 }

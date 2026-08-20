@@ -41,6 +41,7 @@
             "Modules\\Registration\\": "modules/registration/src/",
             "Modules\\Retro\\": "modules/retro/src/",
             "Modules\\SosStaff\\": "modules/sos_staff/src/",
+            "Modules\\SupportDashboard\\": "modules/support_dashboard/src/",
             "Modules\\Trombinoscope\\": "modules/trombinoscope/src/"
         }
     },

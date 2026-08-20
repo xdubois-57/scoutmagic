@@ -1,0 +1,28 @@
+{
+  "id": "support_dashboard",
+  "name": "Tableau de bord support",
+  "description": "Réception et consultation des rapports d'utilisation envoyés par les installations ScoutMagic.",
+  "version": "1.0.0",
+  "enabled_by_default": false,
+  "receiver_only": true,
+  "routes": [
+    {
+      "path": "/api/statistics",
+      "method": "POST",
+      "controller": "Modules\\SupportDashboard\\Controller\\StatisticsIntakeController",
+      "action": "receive",
+      "menu": "notre_unite",
+      "role_min": "public",
+      "label": ""
+    }
+  ],
+  "settings": [],
+  "cookies": [],
+  "scheduled_tasks": [
+    {
+      "key": "purge_rate_limits",
+      "handler": "Modules\\SupportDashboard\\Task\\PurgeRateLimitsHandler"
+    }
+  ],
+  "storage": {}
+}

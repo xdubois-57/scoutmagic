@@ -60,9 +60,14 @@ appliquées, mots de passe et clés gérés par l'unité déployante.
 - Token bound to session, regenerated per session.
 - Two deliberate exceptions, each authenticated by something other than a session-bound token:
   - `POST /api/webhook/github` (`Core\Http\Controller\WebhookController`) — a machine-to-machine call from GitHub with no session to bind a token to. Authenticated instead by an HMAC-SHA256 signature (`X-Hub-Signature-256`, constant-time `hash_equals()` comparison) against a secret stored only in `secrets.enc`.
+  - `POST /api/statistics` (`Modules\SupportDashboard\Controller\StatisticsIntakeController`, ARCHITECTURE.md §8.43) — the usage-statistics intake on the receiving installation. A machine-to-machine call from another ScoutMagic installation, with no session to bind a token to. Authenticated instead by a bearer secret checked with `password_verify()` against a `password_hash()` stored at first registration; the secret itself is never stored in clear, in any column, in the journal, or in a response. The endpoint refuses cleartext transport, caps the body before parsing it, and rate-limits per source IP (stored as a blind index, never in clear). A rejection answers a bare status with no body, so an unknown installation is indistinguishable from a wrong secret.
   - `POST /mass-mail/unsubscribe/{id}` (`Modules\MassMail\Controller\UnsubscribeController`) — the RFC 8058 one-click unsubscribe target, reached from a mail client with no session. Authenticated by a per-recipient token carried in the link and verified constant-time against a stored SHA-256 hash (`hash_equals`). The token is 32 bytes of entropy, so a fast hash is as safe as bcrypt and avoids a per-request bcrypt on an anonymous endpoint. Idempotent, so a mailbox prefetch or a resubmit lands in the same "unsubscribed" state.
 
 ## 5. Encryption at rest
+
+### Not personal data, and stored in clear on purpose
+
+The statistics receiver (ARCHITECTURE.md §8.43) keeps each reporting installation's **instance URL** and **installation id** as plain columns. Neither identifies a natural person: a scout unit is an association, the URL is already public, and the installation id is opaque random bytes derived from nothing about anyone. Both are needed in clear for the dashboard to filter, sort and search across installations — encrypting them would force either a blind index per searchable field or full-table decryption on every page load, buying nothing. The reports themselves carry no member data at all (§8.41), so there is nothing else in that table to protect.
 
 ### Personal data
 
