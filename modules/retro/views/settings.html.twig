@@ -76,8 +76,11 @@
                     <option value="enforced" {{ retro_moderation_mode == 'enforced' ? 'selected' : '' }}>Obligatoire (reformulation exigée)</option>
                 </select>
                 {% if not ai_available %}
-                    {# A disabled <select> is never submitted — mirror its value via a hidden field so
-                       saving other settings on this page doesn't silently reset moderation to "disabled". #}
+                    {# A disabled select is never submitted — mirror its value via a hidden field so
+                       saving other settings on this page doesn't silently reset moderation to
+                       "disabled". (No literal HTML tag in this comment: Twig comments are not HTML
+                       comments, so an analyser reading the source text takes one for a real,
+                       unlabelled form control.) #}
                     <input type="hidden" name="retro_moderation_mode" value="{{ retro_moderation_mode }}" aria-label="Mode de modération">
                 {% endif %}
                 <div class="form-text">
