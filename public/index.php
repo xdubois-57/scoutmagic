@@ -776,11 +776,18 @@ $vapidSubject = $vapidSubjectEmail !== '' ? 'mailto:' . $vapidSubjectEmail : (st
 // invalid config — belt-and-braces so push notifications being broken
 // can never take the entire site down again, whatever the cause.
 try {
-    $webPush = new WebPush(['VAPID' => [
-        'subject' => $vapidSubject,
-        'publicKey' => (string) ($secrets['vapid_public_key'] ?? ''),
-        'privateKey' => (string) ($secrets['vapid_private_key'] ?? ''),
-    ]]);
+    $webPush = new WebPush(
+        ['VAPID' => [
+            'subject' => $vapidSubject,
+            'publicKey' => (string) ($secrets['vapid_public_key'] ?? ''),
+            'privateKey' => (string) ($secrets['vapid_private_key'] ?? ''),
+        ]],
+        [],
+        // Bound the outbound push request (audit M4): a slow or unreachable
+        // endpoint must not hold a request/worker open indefinitely. WebPush
+        // takes timeouts on the PSR-18 client instance, not in its options.
+        new \GuzzleHttp\Client(['connect_timeout' => 5, 'timeout' => 10])
+    );
 } catch (\Throwable $e) {
     $webPush = null;
     $journalService->log(

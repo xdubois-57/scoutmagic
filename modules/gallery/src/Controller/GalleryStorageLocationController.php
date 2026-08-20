@@ -70,12 +70,14 @@ class GalleryStorageLocationController extends AbstractController
             }
 
             if ($type === StorageLocation::TYPE_S3) {
+                $s3Endpoint = (string) $request->getBody('s3_endpoint', '');
+                $this->assertValidS3Endpoint($s3Endpoint);
                 $id = $this->storageLocationRepository->create(
                     StorageLocation::TYPE_S3,
                     $label,
                     null,
                     $this->nullableProvider($request->getBody('s3_provider')),
-                    (string) $request->getBody('s3_endpoint', ''),
+                    $s3Endpoint,
                     (string) $request->getBody('s3_region', ''),
                     (string) $request->getBody('s3_bucket', ''),
                     (string) $request->getBody('s3_access_key', ''),
@@ -155,12 +157,14 @@ class GalleryStorageLocationController extends AbstractController
             }
 
             if ($location->isS3()) {
+                $s3Endpoint = (string) $request->getBody('s3_endpoint', '');
+                $this->assertValidS3Endpoint($s3Endpoint);
                 $this->storageLocationRepository->update(
                     $location->id,
                     $label,
                     null,
                     $this->nullableProvider($request->getBody('s3_provider')),
-                    (string) $request->getBody('s3_endpoint', ''),
+                    $s3Endpoint,
                     (string) $request->getBody('s3_region', ''),
                     (string) $request->getBody('s3_bucket', ''),
                     (string) $request->getBody('s3_access_key', ''),
@@ -344,5 +348,22 @@ class GalleryStorageLocationController extends AbstractController
     {
         $value = (string) ($value ?? '');
         return trim($value) === '' ? null : $value;
+    }
+
+    /**
+     * The S3 endpoint is connected to server-side with the access key/secret,
+     * so it must be a genuine public https host: never http:// (plaintext
+     * credentials) and never an internal address a crafted value could turn
+     * into an SSRF target (audit M6). A custom port is allowed since
+     * S3-compatible providers vary. Runtime storage reads/writes trust the
+     * stored value, so this is validated at save time, not only on test.
+     *
+     * @throws GalleryException
+     */
+    private function assertValidS3Endpoint(string $endpoint): void
+    {
+        if (!\Core\Security\SsrfUrlValidator::isPublicHttpsUrl($endpoint, true)) {
+            throw new GalleryException('L\'adresse du service S3 doit être une URL https publique.');
+        }
     }
 }

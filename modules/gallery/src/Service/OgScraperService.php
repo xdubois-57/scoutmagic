@@ -336,68 +336,12 @@ class OgScraperService
      */
     protected function resolveValidatedIp(string $host): ?string
     {
-        if (filter_var($host, FILTER_VALIDATE_IP) !== false) {
-            return $this->isPublicIp($host) ? $host : null;
-        }
-
-        $records = array_merge(
-            @dns_get_record($host, DNS_A) ?: [],
-            @dns_get_record($host, DNS_AAAA) ?: []
-        );
-
-        $ips = [];
-        foreach ($records as $record) {
-            $ip = ($record['type'] ?? null) === 'AAAA' ? ($record['ipv6'] ?? null) : ($record['ip'] ?? null);
-            if (is_string($ip) && $ip !== '') {
-                $ips[] = $ip;
-            }
-        }
-
-        if ($ips === []) {
-            return null;
-        }
-
-        foreach ($ips as $ip) {
-            if (!$this->isPublicIp($ip)) {
-                return null;
-            }
-        }
-
-        return $ips[0];
-    }
-
-    /**
-     * Rejects loopback, private (RFC1918/RFC4193), link-local — including
-     * the cloud-metadata address 169.254.169.254 — and reserved ranges,
-     * for both IPv4 and IPv6, plus two shapes PHP's own filter flags don't
-     * cover: an IPv4-mapped IPv6 literal (::ffff:127.0.0.1), which is
-     * normalised to its embedded IPv4 form before re-checking, and
-     * multicast (224.0.0.0/4 and ff00::/8), which
-     * FILTER_FLAG_NO_RES_RANGE does not include.
-     */
-    private function isPublicIp(string $ip): bool
-    {
-        if (str_starts_with(strtolower($ip), '::ffff:')) {
-            $embedded = substr($ip, 7);
-            if (filter_var($embedded, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) !== false) {
-                $ip = $embedded;
-            }
-        }
-
-        if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) === false) {
-            return false;
-        }
-
-        if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) !== false) {
-            $long = ip2long($ip);
-            if ($long !== false && $long >= ip2long('224.0.0.0') && $long <= ip2long('239.255.255.255')) {
-                return false;
-            }
-        } elseif (str_starts_with(strtolower($ip), 'ff')) {
-            return false;
-        }
-
-        return true;
+        // Shared with the SSRF endpoint guard (Core\Security\SsrfUrlValidator,
+        // SECURITY.md §17/§20) so the private-range logic never drifts between
+        // the scraper and the M4/M5/M6 endpoint checks. Kept as a protected
+        // method (not an inline static call) so tests can still override just
+        // the DNS half.
+        return \Core\Security\SsrfUrlValidator::resolveHostToPublicIp($host);
     }
 
     private function looksLikeHtml(string $contentType): bool

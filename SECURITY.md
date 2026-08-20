@@ -189,6 +189,14 @@ Any feature that fetches a URL a member typed in — an album's external link, a
 - A failed or slow fetch never blocks the action that triggered it: an album still saves, a post still publishes — just without the cached title/description/image, or as a plain link.
 - Outbound fetches are throttled per member (same `identifier_hash`/short-lived-table/scheduled-purge shape as `retro_rate_limits`, §1) — a member spamming links cannot turn this into an SSRF probing tool or a way to hammer an arbitrary third party through the server.
 
+### Configured endpoints handed to a library HTTP client
+
+A second SSRF surface is a URL the user *configures* rather than one they ask the server to fetch on the spot: a Web Push subscription endpoint (any identified member), and — superadmin-only — an LLM API endpoint and an S3-compatible storage endpoint. These are POSTed/connected to server-side by a library client (WebPush, the AWS SDK), so a crafted value could target an internal service exactly as a scraped link could.
+
+- **`Core\Security\SsrfUrlValidator` is the single guard**, sharing the exact private-range/IP logic the scraper proved out (factored out so the two never drift). It enforces `https` only (no `http://`, which would also send S3 credentials in plaintext), no embedded credentials, and that **every** address the host resolves to is public (loopback, RFC1918/RFC4193, link-local incl. `169.254.169.254`, and multicast all refused, IPv4 and IPv6). It is applied before the endpoint is stored **and** re-checked on use, so a host that resolved public when saved but internal later (DNS rebinding) is still caught.
+- **The Web Push endpoint** is validated before it is ever stored, which also neutralises the delete-on-404/410 behaviour as a port/path oracle, and the push client carries a bounded connect/read timeout.
+- **What it does not do**: it validates the endpoint, it does not pin the resolved IP for the library client's own later connection — that residual DNS-rebinding window is why the check runs again at use time rather than only at save time. The LLM/S3 endpoints are superadmin-only, the highest-trust role.
+
 ## 18. Sending member-written text to an AI provider
 
 Two modules ask an LLM to look at text a member typed: `retro` (comment moderation and board summaries) and `groups` (a-priori moderation of posts and replies). In both cases the text leaves the hosting network for a third party the unit chose, which makes that provider a sub-processor and makes the exact contents of what is sent a matter of record — not an implementation detail.
