@@ -16,6 +16,7 @@ use Core\Journal\JournalService;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\Statistics\StatisticsPayloadBuilder;
+use Core\Statistics\StatisticsStateSettings;
 use Twig\Environment;
 
 /**
@@ -38,9 +39,9 @@ use Twig\Environment;
  */
 class SupportController extends AbstractController
 {
-    public const LAST_SUCCESS_SETTING = 'statistics_last_success_at';
-    public const LAST_FAILURE_SETTING = 'statistics_last_failure_at';
-    public const LAST_FAILURE_REASON_SETTING = 'statistics_last_failure_reason';
+    public const LAST_SUCCESS_SETTING = StatisticsStateSettings::LAST_SUCCESS_AT;
+    public const LAST_FAILURE_SETTING = StatisticsStateSettings::LAST_FAILURE_AT;
+    public const LAST_FAILURE_REASON_SETTING = StatisticsStateSettings::LAST_FAILURE_REASON;
 
     public function __construct(
         protected Environment $twig,

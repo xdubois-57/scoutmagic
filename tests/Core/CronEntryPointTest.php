@@ -20,10 +20,12 @@ use PHPUnit\Framework\TestCase;
 class CronEntryPointTest extends TestCase
 {
     private string $cron;
+    private string $index;
 
     protected function setUp(): void
     {
         $this->cron = (string) file_get_contents(dirname(__DIR__, 2) . '/public/cron.php');
+        $this->index = (string) file_get_contents(dirname(__DIR__, 2) . '/public/index.php');
     }
 
     public function testCronRefusesANonCliSapiBeforeDoingAnyWork(): void
@@ -46,5 +48,46 @@ class CronEntryPointTest extends TestCase
         $this->assertIsInt($processPos);
         $this->assertLessThan($autoloadPos, $guardPos, 'the SAPI guard must precede the autoloader');
         $this->assertLessThan($processPos, $guardPos, 'the SAPI guard must precede the scheduler pass');
+    }
+
+    /**
+     * A core task handler registered in only one of the two entry points
+     * fails silently under whichever trigger is missing it — the exact bug
+     * ARCHITECTURE.md §8.17 records for create_backup, which never ran under
+     * a real crontab. Every core handler must appear in both files.
+     *
+     * @return array<int, array{0: string}>
+     */
+    public static function coreTaskHandlerProvider(): array
+    {
+        return [
+            ['CreateBackupHandler'],
+            ['InstallUpdateHandler'],
+            ['ResetSettingsHandler'],
+            ['FullResetHandler'],
+            ['RestoreBackupHandler'],
+            ['AutoBackupHandler'],
+            ['CheckStableUpdateHandler'],
+            ['CompressSectionDocumentHandler'],
+            ['SendNotificationsHandler'],
+            ['PurgeNotificationsHandler'],
+            ['PurgeHumanCheckRateLimitsHandler'],
+            ['SendStatisticsHandler'],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('coreTaskHandlerProvider')]
+    public function testEveryCoreTaskHandlerIsRegisteredInBothEntryPoints(string $handler): void
+    {
+        $this->assertMatchesRegularExpression(
+            '/registerHandler\(\s*\'core\',[^)]*' . preg_quote($handler, '/') . '\(\)/',
+            $this->index,
+            "public/index.php must register {$handler}"
+        );
+        $this->assertMatchesRegularExpression(
+            '/registerHandler\(\s*\'core\',[^)]*' . preg_quote($handler, '/') . '\(\)/',
+            $this->cron,
+            "public/cron.php must register {$handler}"
+        );
     }
 }

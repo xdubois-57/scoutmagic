@@ -1296,6 +1296,7 @@ $schedulerRunner->registerHandler('core', 'compress_section_document', new \Core
 $schedulerRunner->registerHandler('core', 'send_notifications', new \Core\Notification\Task\SendNotificationsHandler());
 $schedulerRunner->registerHandler('core', 'purge_notifications', new \Core\Notification\Task\PurgeNotificationsHandler());
 $schedulerRunner->registerHandler('core', 'purge_human_check_rate_limits', new \Core\Security\HumanCheck\Task\PurgeHumanCheckRateLimitsHandler());
+$schedulerRunner->registerHandler('core', \Core\Statistics\Task\SendStatisticsHandler::TASK_KEY, new \Core\Statistics\Task\SendStatisticsHandler());
 
 // Bootstrap the recurring automatic backup — Task\AutoBackupHandler
 // re-schedules itself at the end of every run (same pattern as
@@ -1324,6 +1325,15 @@ if ($schedulerService->find('core', 'check_stable_update', 'daily') === null) {
 // HumanCheck\Task\PurgeHumanCheckRateLimitsHandler).
 if ($schedulerService->find('core', 'purge_human_check_rate_limits', \Core\Security\HumanCheck\Task\PurgeHumanCheckRateLimitsHandler::REFERENCE) === null) {
     $schedulerService->schedule('core', 'purge_human_check_rate_limits', new DateTimeImmutable(), [], \Core\Security\HumanCheck\Task\PurgeHumanCheckRateLimitsHandler::REFERENCE);
+}
+
+// Same bootstrap for the daily usage-statistics report (Core\Statistics\
+// Task\SendStatisticsHandler). The very first occurrence runs immediately;
+// every guard it can trip (reporting disabled, non-public host, this site
+// IS the receiver) is checked inside the handler, so seeding it here costs
+// nothing on an installation that will never actually report.
+if ($schedulerService->find('core', \Core\Statistics\Task\SendStatisticsHandler::TASK_KEY, \Core\Statistics\Task\SendStatisticsHandler::REFERENCE) === null) {
+    $schedulerService->schedule('core', \Core\Statistics\Task\SendStatisticsHandler::TASK_KEY, new DateTimeImmutable(), [], \Core\Statistics\Task\SendStatisticsHandler::REFERENCE);
 }
 
 // Add dynamic member entries to Espace animés — group: GROUP_DYNAMIC keeps
