@@ -353,4 +353,19 @@
         return btoa(String.fromCharCode.apply(null, new Uint8Array(buf)))
             .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
     }
+
+    // --- Test seam (no behavioural effect) ---------------------------------
+    // Everything above lives inside this IIFE and is therefore module-private.
+    // This adds ONE namespaced global so tests/js/auth.test.js can reach the
+    // base64url encode/decode helpers directly and exercise their edge cases
+    // (padding, empty buffers, URL-safe characters) exhaustively, rather than
+    // only through a fully mocked WebAuthn round-trip — same precedent as
+    // window.ChipPicker, window.ScoutMagicNav and
+    // news-form-builder.js's own ScoutMagicNewsFormBuilderInternals.
+    //
+    // Test-only: nothing in production reads this.
+    globalThis.ScoutMagicAuthInternals = {
+        base64ToBuffer: base64ToBuffer,
+        bufferToBase64: bufferToBase64,
+    };
 })();
