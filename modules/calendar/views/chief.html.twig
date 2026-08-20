@@ -206,9 +206,15 @@ function openEditModal(dataset) {
     }
     if (retroLinkWrap) {
         if (dataset.retroLink) {
-            retroLinkWrap.classList.remove('d-none');
+            // Populate before revealing: the wrap and the anchor inside it
+            // share no other content, so removing d-none before the href/
+            // text are set would briefly expose an empty, non-navigable
+            // link — every other populate+reveal pair in this codebase
+            // (e.g. modules/sos_staff/views/config.html.twig's
+            // consumer-key-validation-link) follows this same order.
             retroLinkAnchor.href = dataset.retroLink;
             retroLinkAnchor.textContent = dataset.retroLinkTitle || dataset.retroLink;
+            retroLinkWrap.classList.remove('d-none');
         } else {
             retroLinkWrap.classList.add('d-none');
         }
