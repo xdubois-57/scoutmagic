@@ -12,6 +12,7 @@ use Core\Config\ScoutYearService;
 use Core\Import\AgeBranchRepository;
 use Core\Member\MemberService;
 use Core\Member\SectionService;
+use Core\Member\TemporaryMemberProviderInterface;
 use Core\Member\UnitStaffSectionService;
 use Core\Module\StaffDirectoryProvider;
 use Core\Photo\MemberPhotoService;
@@ -57,7 +58,8 @@ class OfflineManifestService
         private ScoutYearService $scoutYearService,
         private EditableContentService $editableContentService,
         private AgeBranchRepository $ageBranchRepository,
-        private ?StaffDirectoryProvider $staffDirectoryProvider = null
+        private ?StaffDirectoryProvider $staffDirectoryProvider = null,
+        private ?TemporaryMemberProviderInterface $temporaryMemberProvider = null
     ) {
     }
 
@@ -97,7 +99,10 @@ class OfflineManifestService
 
         $linkedMembers = [];
         if ($hasMembers && $email !== null) {
-            $linkedMembers = $this->memberService->getLinkedMembers($email, $scoutYearId);
+            $linkedMembers = $this->excludeTemporaryMember(
+                $this->memberService->getLinkedMembers($email, $scoutYearId),
+                $email
+            );
             foreach ($linkedMembers as $member) {
                 $pages[] = '/members/' . $member->memberId;
             }
@@ -135,6 +140,34 @@ class OfflineManifestService
             'pages' => array_values(array_unique($pages)),
             'images' => array_values(array_unique($images)),
         ];
+    }
+
+    /**
+     * Drop the session's temporary member (ARCHITECTURE.md §8.42) from a
+     * linked-member list, deliberately.
+     *
+     * Everything else that feature touches is a live, server-side decision
+     * that disappears the moment the override does. The offline manifest is
+     * the one consumer whose output is written to the visitor's own device
+     * and outlives the session: caching another member's page and photo
+     * into an admin's browser, where they would stay readable after the
+     * override was removed, is a data-retention problem the rest of the
+     * feature simply does not have.
+     *
+     * @param \Core\Member\MemberProfile[] $linkedMembers
+     * @return \Core\Member\MemberProfile[]
+     */
+    private function excludeTemporaryMember(array $linkedMembers, string $email): array
+    {
+        $temporaryMemberYearId = $this->temporaryMemberProvider?->resolveMemberYearId($email);
+        if ($temporaryMemberYearId === null) {
+            return $linkedMembers;
+        }
+
+        return array_values(array_filter(
+            $linkedMembers,
+            static fn(\Core\Member\MemberProfile $member) => $member->memberYearId !== $temporaryMemberYearId
+        ));
     }
 
     /**

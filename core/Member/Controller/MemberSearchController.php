@@ -16,6 +16,7 @@ use Core\Member\MemberNotFoundException;
 use Core\Member\MemberService;
 use Core\Member\MemberYearService;
 use Core\Member\Service\MemberSearchService;
+use Core\Member\TemporaryMemberSession;
 use Core\ScoutYear\ScoutYearResolver;
 use Core\ScoutYear\ScoutYearSession;
 use Core\Security\AuthSession;
@@ -80,6 +81,7 @@ class MemberSearchController extends AbstractController
             'departure_leaving' => $departureStatus?->leaving ?? false,
             'departure_comment' => $departureStatus?->comment ?? '',
             'selected_member_id' => $memberId,
+            'is_temporary_member' => $memberId > 0 && TemporaryMemberSession::get() === $memberId,
             'year_label' => $effective->label,
         ]);
     }

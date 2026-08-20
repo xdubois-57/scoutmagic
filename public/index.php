@@ -104,6 +104,7 @@ use Core\Import\MappingResolver;
 use Core\Import\MemberRepository;
 use Core\Import\MemberYearRepository;
 use Core\Member\Controller\MemberSearchController;
+use Core\Member\Controller\TemporaryMemberController;
 use Core\Member\MemberService;
 use Core\Member\MemberYearService;
 use Core\Member\Repository\MemberSearchRepository;
@@ -915,7 +916,11 @@ $notificationService = new NotificationService(
     $scoutYearService
 );
 
-$memberService = new MemberService($memberYearRepo, $encryptionService, $connection);
+// The one session-aware temporary-member resolver (ARCHITECTURE.md §8.42).
+// Constructed here, in the composition root, because it is the only place
+// with a session to read: MemberService itself never touches $_SESSION.
+$temporaryMemberProvider = new \Core\Member\SessionTemporaryMemberProvider();
+$memberService = new MemberService($memberYearRepo, $encryptionService, $connection, $temporaryMemberProvider);
 $memberYearService = new MemberYearService();
 $memberSearchService = new MemberSearchService(new MemberSearchRepository($connection, $encryptionService));
 // "Won't be back next scout year" marking (ARCHITECTURE.md §8) — a plain
@@ -1051,6 +1056,7 @@ $effectiveScoutYear = $scoutYearResolver->getEffectiveYear(
 $displayName = AuthSession::getEmail() ?? '';
 $memberCount = 0;
 $linkedMembers = [];
+$temporaryMemberName = null;
 if (AuthSession::isAuthenticated()) {
     $linkedMembers = $memberService->getLinkedMembers(
         AuthSession::getEmail(),
@@ -1060,6 +1066,22 @@ if (AuthSession::isAuthenticated()) {
         $primaryMember = MemberService::getHighestRoleMember($linkedMembers);
         $displayName = $primaryMember !== null ? $primaryMember->getDisplayName() : $displayName;
         $memberCount = count($linkedMembers);
+    }
+
+    // A temporary member (ARCHITECTURE.md §8.42) takes over the header
+    // identity outright, rather than going through getHighestRoleMember():
+    // an animé carries no function at all, so the "highest role" rule would
+    // always keep showing the admin's own member and the override would be
+    // invisible in the one place it most needs to be legible. The banner
+    // right below the nav is what stops that from reading as "you are
+    // logged in as this person".
+    $temporaryMemberYearId = $temporaryMemberProvider->resolveMemberYearId(AuthSession::getEmail() ?? '');
+    foreach ($linkedMembers as $member) {
+        if ($member->memberYearId === $temporaryMemberYearId) {
+            $displayName = $member->getDisplayName();
+            $temporaryMemberName = $member->getDisplayName();
+            break;
+        }
     }
 }
 
@@ -1119,6 +1141,10 @@ $twig->addGlobal(
 $twig->addGlobal('current_user_role_label', $roleLabelMap[$currentRole] ?? 'Public');
 $twig->addGlobal('current_path', $request->getPath());
 $twig->addGlobal('config_mode', ConfigurationMode::isActive());
+// Drives the "vous agissez au nom de" banner in base.html.twig. Null
+// whenever no temporary member is active, or when one is set but does not
+// resolve against the year currently in effect (ARCHITECTURE.md §8.42).
+$twig->addGlobal('temporary_member_name', $temporaryMemberName);
 $twig->addGlobal('effective_scout_year', $effectiveScoutYear->label);
 $twig->addGlobal('effective_scout_year_id', $effectiveScoutYear->id);
 $twig->addGlobal('is_year_overridden', $effectiveScoutYear->isOverridden());
@@ -1466,6 +1492,13 @@ $router->addRoute('GET', '/admin/journal', JournalController::class, 'index', 'a
 
 // Scout year navigation and transition
 $router->addRoute('GET', '/admin/members', MemberSearchController::class, 'index', 'admin', ['label' => 'Membres', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ADMIN)]]);
+// Temporary member override (ARCHITECTURE.md §8.42). The static "remove"
+// path is registered BEFORE the parameterised "add" one: Router::resolve()
+// is first-match-wins and both patterns are four segments deep, so
+// registration order is what keeps /admin/members/temporary-access/remove
+// from being read as {id} = "temporary-access".
+$router->addRoute('POST', '/admin/members/temporary-access/remove', TemporaryMemberController::class, 'remove', 'admin');
+$router->addRoute('POST', '/admin/members/{id}/temporary-access', TemporaryMemberController::class, 'add', 'admin');
 $router->addRoute('GET', '/admin/scout-year', ScoutYearController::class, 'index', 'admin', ['label' => 'Année scoute', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ADMIN)]]);
 $router->addRoute('POST', '/admin/scout-year/preview', ScoutYearController::class, 'preview', 'admin');
 $router->addRoute('POST', '/admin/scout-year/clear-preview', ScoutYearController::class, 'clearPreview', 'admin');
@@ -1745,7 +1778,8 @@ $frontController->registerController(EditableContentController::class, $editable
 // photos in the manifest" when that module is disabled.
 $offlineManifestService = new \Core\Offline\OfflineManifestService(
     $offlineWhitelist, $memberService, $memberPhotoService, $sectionPhotoService, $sectionService,
-    $unitStaffSectionService, $scoutYearService, $editableContentService, $ageBranchRepo, null
+    $unitStaffSectionService, $scoutYearService, $editableContentService, $ageBranchRepo, null,
+    $temporaryMemberProvider
 );
 $offlineController = new OfflineController($twig, $offlineManifestService);
 $frontController->registerController(OfflineController::class, $offlineController);
@@ -1756,6 +1790,7 @@ $frontController->registerController(\Core\Http\Controller\PwaController::class,
 $frontController->registerController(JournalController::class, new JournalController($twig, $journalRepo, $userAccountRepo));
 $frontController->registerController(ScoutYearController::class, new ScoutYearController($twig, $scoutYearResolver, $scoutYearAdminService, $scoutYearService, $journalService));
 $frontController->registerController(MemberSearchController::class, new MemberSearchController($twig, $memberSearchService, $memberService, $scoutYearResolver, $memberYearService, $departureService));
+$frontController->registerController(TemporaryMemberController::class, new TemporaryMemberController($twig, $memberSearchService, $scoutYearResolver, $journalService));
 $frontController->registerController(SettingsController::class, new SettingsController($twig, $settingService, $journalService, $unitLogoService, $notificationService, $userAccountRepo));
 $frontController->registerController(ScheduledActionsController::class, new ScheduledActionsController($twig, $schedulerRepo));
 $frontController->registerController(ConfigGeneralController::class, new ConfigGeneralController($twig));
@@ -1815,7 +1850,8 @@ if (in_array('trombinoscope', $moduleManager->getEnabledModuleIds(), true)) {
         OfflineController::class,
         new OfflineController($twig, new \Core\Offline\OfflineManifestService(
             $offlineWhitelist, $memberService, $memberPhotoService, $sectionPhotoService, $sectionService,
-            $unitStaffSectionService, $scoutYearService, $editableContentService, $ageBranchRepo, $trombinoscopeService
+            $unitStaffSectionService, $scoutYearService, $editableContentService, $ageBranchRepo, $trombinoscopeService,
+            $temporaryMemberProvider
         ))
     );
 }

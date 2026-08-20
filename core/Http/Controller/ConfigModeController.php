@@ -12,6 +12,7 @@ use Core\Http\FlashMessage;
 use Core\Http\Request;
 use Core\Http\Response;
 use Core\Http\SafeRedirect;
+use Core\Member\TemporaryMemberSession;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\View\ConfigurationMode;
@@ -57,6 +58,14 @@ class ConfigModeController extends AbstractController
         }
 
         ConfigurationMode::deactivate();
+
+        // Deactivating configuration mode also drops any temporary member
+        // (ARCHITECTURE.md §8.42): the two are activated together by
+        // Core\Member\Controller\TemporaryMemberController::add(), so
+        // leaving the override behind here would keep an admin acting on
+        // someone's behalf with no banner left to tell them so.
+        TemporaryMemberSession::clear();
+
         FlashMessage::set('success', 'Mode configuration désactivé.');
 
         // The Referer is untrusted — reduce it to a same-site path so it can

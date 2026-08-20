@@ -33,7 +33,7 @@
     {% endif %}
 
     {% if detail %}
-        {% include 'admin/members/_detail_card.html.twig' with { member: detail, effective_age: effective_age } %}
+        {% include 'admin/members/_detail_card.html.twig' with { member: detail, effective_age: effective_age, is_temporary_member: is_temporary_member } %}
     {% endif %}
 {% endblock %}
 

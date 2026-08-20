@@ -207,8 +207,11 @@ class MemberEmailAddressController extends AbstractController
      * Re-verifies the requesting account is linked (blind-index email
      * match) to this exact member_year id, mirroring MemberController::
      * show()'s own $isSelf computation — deliberately never a chief/admin
-     * bypass, per this feature's spec. Returns the persistent member id
-     * on success, null when access must be denied.
+     * bypass, per this feature's spec. The one way staff reach this is an
+     * active temporary member override (ARCHITECTURE.md §8.42), which
+     * canAccess() honours precisely so an admin can act on the member's
+     * behalf. Returns the persistent member id on success, null when
+     * access must be denied.
      */
     private function requireOwnMemberId(Request $request, int $memberYearId): ?int
     {

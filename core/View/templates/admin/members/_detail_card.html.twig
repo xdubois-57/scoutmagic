@@ -92,6 +92,35 @@
             </div>
         </div>
 
+        {# Ajout temporaire (ARCHITECTURE.md §8.42) — ajoute ce membre à la
+           liste d'animés de la session en cours, pour voir le site comme il
+           le voit et agir en son nom. Rien n'est écrit en base : le retrait,
+           la déconnexion et la désactivation du mode configuration suffisent
+           à tout annuler. #}
+        <div class="mt-4">
+            <div class="form-label fw-semibold mb-1">Ajout temporaire à ma liste</div>
+            <p class="text-body-secondary small mb-2">
+                Ajoute ce membre à votre liste d'animés pour la durée de votre session,
+                afin de voir le site comme il le voit et d'agir en son nom.
+                Aucune modification n'est enregistrée : le retrait ou la déconnexion annule tout.
+            </p>
+            {% if is_temporary_member|default(false) %}
+                <form method="post" action="/admin/members/temporary-access/remove">
+                    {{ csrf_field()|raw }}
+                    <button type="submit" class="btn btn-outline-danger" style="min-height:44px;">
+                        <i class="bi bi-person-dash"></i> Retirer de ma liste
+                    </button>
+                </form>
+            {% else %}
+                <form method="post" action="/admin/members/{{ member.memberYearId }}/temporary-access">
+                    {{ csrf_field()|raw }}
+                    <button type="submit" class="btn btn-outline-primary" style="min-height:44px;">
+                        <i class="bi bi-person-plus"></i> Ajouter temporairement à ma liste
+                    </button>
+                </form>
+            {% endif %}
+        </div>
+
         {# Départ — exactly Core\Member\DepartureService, the same fact the
            registration module's "Départs" page marks (ARCHITECTURE.md
            §8.37), reachable here for any member found by search — staff

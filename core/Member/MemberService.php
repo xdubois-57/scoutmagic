@@ -15,10 +15,19 @@ use Core\Security\Role;
 
 class MemberService
 {
+    /**
+     * $temporaryMemberProvider is deliberately optional and trailing: only
+     * public/index.php's composition root has a session to resolve an
+     * override against, while scheduled tasks, module factories and the
+     * whole test suite construct this service with three arguments and get
+     * the plain email-only behavior. Same backward-compatibility shape as
+     * Core\Http\FrontController's optional OfflineWhitelist.
+     */
     public function __construct(
         private MemberYearRepository $memberYearRepo,
         private EncryptionService $encryption,
-        private Connection $connection
+        private Connection $connection,
+        private ?TemporaryMemberProviderInterface $temporaryMemberProvider = null
     ) {
     }
 
@@ -35,10 +44,55 @@ class MemberService
         $memberYearRows = $this->memberYearRepo->findAllByEmail($blindIndex, $scoutYearId);
 
         $profiles = [];
+        $seenMemberYearIds = [];
         foreach ($memberYearRows as $row) {
+            $seenMemberYearIds[] = (int) $row['id'];
             $profiles[] = $this->hydrateMemberProfile($row);
         }
+
+        $temporaryRow = $this->resolveTemporaryMemberRow($email, $scoutYearId);
+        if ($temporaryRow !== null && !in_array((int) $temporaryRow['id'], $seenMemberYearIds, true)) {
+            $profiles[] = $this->hydrateMemberProfile($temporaryRow);
+        }
+
         return $profiles;
+    }
+
+    /**
+     * The member_years row of the session's temporary member (§8.42), when
+     * there is one AND it belongs to $scoutYearId — null otherwise.
+     *
+     * The year check is what makes the override behave correctly across a
+     * scout-year preview instead of needing to be purged on every year
+     * switch: a member_years row belongs to exactly one year, so previewing
+     * another year simply stops resolving it, and switching back restores
+     * it. Callers that ask about a past year therefore never see a member
+     * temporarily added against the current one.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function resolveTemporaryMemberRow(string $email, int $scoutYearId): ?array
+    {
+        $memberYearId = $this->temporaryMemberProvider?->resolveMemberYearId($email);
+        if ($memberYearId === null) {
+            return null;
+        }
+
+        $row = $this->memberYearRepo->findById($memberYearId);
+        if ($row === null || (int) $row['scout_year_id'] !== $scoutYearId) {
+            return null;
+        }
+
+        // findAllByEmail() only ever returns is_active = 1 rows, and an
+        // injected member has to be indistinguishable from a genuinely
+        // linked one — nothing downstream expects an inactive member_year
+        // in this list. This also closes the case where a member is
+        // deactivated by a Desk import while an override still names them.
+        if ((int) ($row['is_active'] ?? 0) !== 1) {
+            return null;
+        }
+
+        return $row;
     }
 
     /**
@@ -149,7 +203,18 @@ class MemberService
         }
 
         $userBlindIndex = $this->encryption->blindIndex(strtolower(trim($userEmail)), 'email');
-        return $row['email_blind_index'] === $userBlindIndex;
+        if ($row['email_blind_index'] === $userBlindIndex) {
+            return true;
+        }
+
+        // A temporary member (ARCHITECTURE.md §8.42) passes this check too.
+        // It matters most where canAccess() is called with 'identified'
+        // rather than the caller's real role — Core\Http\Controller\
+        // MemberController::show()'s $isSelf probe, which is what decides
+        // whether the member page renders its owner-only affordances
+        // (private documents, own-photo replacement) rather than the staff
+        // view an admin would otherwise get.
+        return $this->temporaryMemberProvider?->resolveMemberYearId($userEmail) === $memberYearId;
     }
 
     /**
@@ -181,7 +246,18 @@ class MemberService
         }
 
         $userBlindIndex = $this->encryption->blindIndex(strtolower(trim($email)), 'email');
-        return $row['email_blind_index'] === $userBlindIndex;
+        if ($row['email_blind_index'] === $userBlindIndex) {
+            return true;
+        }
+
+        // A temporary member (§8.42) counts as linked here too. This is the
+        // deliberate widening of the "this is really you" boundary that
+        // feature carries: the member page's own photo upload, which has no
+        // chief/admin bypass of its own, becomes reachable while the
+        // override is active.
+        $temporaryRow = $this->resolveTemporaryMemberRow($email, $scoutYearId);
+
+        return $temporaryRow !== null && (int) $temporaryRow['member_id'] === $memberId;
     }
 
     /**

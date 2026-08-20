@@ -315,7 +315,25 @@ Three related cryptographic-hygiene layers, all sharing one goal: a database rea
 
 Mail scanners, Outlook SafeLinks, and chat-app prefetchers follow every GET in an email — a confirmation that fires on GET gets consumed by a bot before the human clicks, silently confirming addresses (and burning single-use tokens). Both email-confirmation endpoints (`/members/emails/confirm/{id}`, `/inscriptions/suivi/emails/confirm/{id}`) now follow `UnsubscribeController`'s shape: the GET verifies the token **without consuming it** and renders a confirm page; only the page's POST (token in a hidden field, re-verified, single-use) mutates. As with unsubscribe, the bearer token is the authentication — these are anonymous flows with no session to bind a CSRF token to.
 
-## 32. Deferred hardening (known, tracked)
+## 32. Temporary member addition (accepted risk)
+
+The temporary member override (ARCHITECTURE.md §8.41) lets an admin (chef d'unité) add one member to their own list of animés for the lifetime of their session, in order to see the site as that member sees it and act on their behalf. It is a support tool, and it is a deliberate, documented weakening of three boundaries that were previously written down as having no chief/admin bypass. They are recorded here as accepted risk, not as oversights.
+
+**What it does not do.** The session's RBAC role never changes: the admin keeps their own role and route access, and no route's `role_min` is evaluated any differently. Nothing is written to the database — the override is a bare `member_years.id` in the session, cleared on logout, on removal, and whenever configuration mode is deactivated. It is refused outright for any session that is not currently admin, re-checked on every call rather than once at activation, and it only ever applies to the account that set it (asking about a third party's email returns nothing).
+
+**The three widened boundaries**, each reachable only while an override is active:
+
+- **Owner-scoped files** (§6, `FileAccessGuard`): the member's private documents become readable, because `$linkedMemberIds` derives from `MemberService::getLinkedMembers()`.
+- **The member's own photo upload** (`MemberService::isLinkedToMember()`): reachable, where previously only the member themselves could replace it.
+- **`MemberService::canAccess()`**, which decides `MemberController::show()`'s `$isSelf` and gates `MemberEmailAddressController`: the member page renders its owner-only half, and the member's **secondary email addresses can be added, deleted, and reactivated** on their behalf. Since an active email address is a login identity, this is the sharpest edge of the three.
+
+**A narrow privilege escalation is possible and accepted.** `MemberService::isUnitChief()` derives from `getLinkedMembers()`, so an admin whose own membership is not a chef d'unité function — an account granted the admin role some other way — can temporarily add a chef d'unité and thereby satisfy that check, which gates retro board moderation and the banner module's configuration. The actor must already hold the admin role, so this widens what an admin can do rather than letting a non-admin in. It was accepted knowingly rather than closed by restricting the feature to members without a staff function.
+
+**What limits the damage.** Every activation and removal is journaled at level `security` (`temporary_member_added` / `temporary_member_removed`) with the acting admin's `user_account_id` and the `member_year_id` — never a name or an email — so any action taken under an override can be tied back to the real admin afterwards. A permanent, unmissable banner (*Vous agissez au nom de X*) is rendered on every page while it is active. And the offline manifest deliberately excludes the temporary member, so no data belonging to them is ever written to the admin's device where it would outlive the session.
+
+**If this needs tightening later**, in rough order of value: refuse the override for members holding a staff function (closes the escalation above); exclude the temporary member from `canAccess()` so secondary email management stays owner-only; add a TTL so a forgotten override expires on its own.
+
+## 33. Deferred hardening (known, tracked)
 
 The remaining audit items are understood and intentionally deferred — each is a UX-changing product decision or a broad template rework whose cost currently exceeds the risk it retires. Documented so they are tracked, not forgotten.
 

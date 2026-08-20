@@ -18,6 +18,7 @@ use Core\Member\MemberService;
 use Core\Member\MemberYearService;
 use Core\Member\Repository\MemberSearchRepository;
 use Core\Member\Service\MemberSearchService;
+use Core\Member\TemporaryMemberSession;
 use Core\ScoutYear\ScoutYearResolver;
 use Core\Security\AuthSession;
 use Core\Security\EncryptionService;
@@ -69,6 +70,7 @@ class MemberSearchControllerTest extends TestCase
         $twig->addGlobal('current_user_email', 'admin@test.be');
         $twig->addGlobal('current_user_role', 'admin');
         $twig->addGlobal('config_mode', false);
+        $twig->addGlobal('temporary_member_name', null);
         $twig->addGlobal('cookie_consent_given', true);
         $twig->addGlobal('menus', null);
         $twig->addGlobal('csp_nonce', 'n');
@@ -153,6 +155,43 @@ class MemberSearchControllerTest extends TestCase
         $this->seedMember();
         $body = $this->controller->index($this->get(['q' => 'zzznothing']), [])->getBody();
         $this->assertStringContainsString('Aucun membre trouvé', $body);
+    }
+
+    public function testDetailCardOffersTheTemporaryAddButton(): void
+    {
+        $id = $this->seedMember();
+
+        $body = $this->controller->index($this->get(['q' => 'dupont', 'member' => (string) $id]), [])->getBody();
+
+        $this->assertStringContainsString('Ajouter temporairement à ma liste', $body);
+        $this->assertStringContainsString("/admin/members/{$id}/temporary-access", $body);
+        $this->assertStringNotContainsString('Retirer de ma liste', $body);
+    }
+
+    public function testDetailCardOffersRemovalForTheMemberCurrentlyAdded(): void
+    {
+        $id = $this->seedMember();
+        TemporaryMemberSession::set($id);
+
+        $body = $this->controller->index($this->get(['q' => 'dupont', 'member' => (string) $id]), [])->getBody();
+
+        $this->assertStringContainsString('Retirer de ma liste', $body);
+        $this->assertStringContainsString('/admin/members/temporary-access/remove', $body);
+        $this->assertStringNotContainsString('Ajouter temporairement à ma liste', $body);
+
+        TemporaryMemberSession::clear();
+    }
+
+    public function testDetailCardOfAnotherMemberStillOffersTheAddButton(): void
+    {
+        $id = $this->seedMember();
+        TemporaryMemberSession::set($id + 1000);
+
+        $body = $this->controller->index($this->get(['q' => 'dupont', 'member' => (string) $id]), [])->getBody();
+
+        $this->assertStringContainsString('Ajouter temporairement à ma liste', $body);
+
+        TemporaryMemberSession::clear();
     }
 
     public function testDetailCardRendersForValidMember(): void

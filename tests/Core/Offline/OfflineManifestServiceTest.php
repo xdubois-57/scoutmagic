@@ -11,6 +11,7 @@ use Core\Import\AgeBranchRepository;
 use Core\Import\MemberYearRepository;
 use Core\Member\MemberService;
 use Core\Member\SectionService;
+use Core\Member\TemporaryMemberProviderInterface;
 use Core\Member\UnitStaffSectionService;
 use Core\Module\StaffDirectoryProvider;
 use Core\Offline\OfflineManifestService;
@@ -67,8 +68,10 @@ class OfflineManifestServiceTest extends TestCase
         $this->sectionId = (int) $this->pdo->lastInsertId();
     }
 
-    private function buildService(?StaffDirectoryProvider $staffDirectoryProvider = null): OfflineManifestService
-    {
+    private function buildService(
+        ?StaffDirectoryProvider $staffDirectoryProvider = null,
+        ?TemporaryMemberProviderInterface $temporaryMemberProvider = null
+    ): OfflineManifestService {
         return new OfflineManifestService(
             $this->offlineWhitelist,
             $this->memberService,
@@ -79,8 +82,40 @@ class OfflineManifestServiceTest extends TestCase
             new ScoutYearService($this->pdo),
             new EditableContentService(new EditableContentRepository($this->pdo)),
             new AgeBranchRepository($this->pdo),
-            $staffDirectoryProvider
+            $staffDirectoryProvider,
+            $temporaryMemberProvider
         );
+    }
+
+    /**
+     * A MemberService whose linked list carries an extra, temporarily-added
+     * member (ARCHITECTURE.md §8.42) plus the provider that named it — the
+     * pair the manifest has to recognise in order to drop it again.
+     *
+     * @return array{0: MemberService, 1: TemporaryMemberProviderInterface}
+     */
+    private function withTemporaryMember(int $memberYearId): array
+    {
+        $provider = new class ($memberYearId) implements TemporaryMemberProviderInterface {
+            public function __construct(private int $memberYearId)
+            {
+            }
+
+            public function resolveMemberYearId(string $email): ?int
+            {
+                return $this->memberYearId;
+            }
+        };
+
+        return [
+            new MemberService(
+                new MemberYearRepository($this->pdo),
+                $this->encryption,
+                Connection::withPdo($this->pdo),
+                $provider
+            ),
+            $provider,
+        ];
     }
 
     private function createFile(string $roleMin = 'public'): int
@@ -172,6 +207,28 @@ class OfflineManifestServiceTest extends TestCase
 
         $memberPages = array_values(array_filter($manifest['pages'], fn($p) => str_starts_with($p, '/members/')));
         $this->assertCount(2, $memberPages);
+    }
+
+    public function testTemporaryMemberIsExcludedFromTheManifest(): void
+    {
+        $this->createLinkedMember('parent@test.example', 'DESK1');
+        $this->createLinkedMember('anime@test.example', 'DESK2');
+        $temporaryMemberYearId = (int) $this->pdo->query(
+            "SELECT my.id FROM member_years my JOIN members m ON my.member_id = m.id WHERE m.desk_id = 'DESK2'"
+        )->fetchColumn();
+
+        [$memberService, $provider] = $this->withTemporaryMember($temporaryMemberYearId);
+        $this->memberService = $memberService;
+
+        // The override IS in the linked list the rest of the app sees...
+        $this->assertCount(2, $memberService->getLinkedMembers('parent@test.example', $this->scoutYearId));
+
+        // ...but never in what the browser is told to cache offline, which
+        // outlives the session that granted it.
+        $manifest = $this->buildService(null, $provider)->buildManifest(Role::IDENTIFIED, 'parent@test.example');
+
+        $memberPages = array_values(array_filter($manifest['pages'], fn($p) => str_starts_with($p, '/members/')));
+        $this->assertCount(1, $memberPages);
     }
 
     public function testMembersEntryNeverAppearsLiterally(): void
