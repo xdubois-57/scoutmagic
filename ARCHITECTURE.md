@@ -834,6 +834,26 @@ Only the skips that mean something is genuinely in the way (2 to 5) are surfaced
 
 The handler is registered in **both** `public/index.php` and `public/cron.php`, with the first occurrence seeded at boot (same one-time `if find() === null` pattern as the other self-rescheduling tasks). `Tests\Core\CronEntryPointTest` now pins every core handler's presence in both files — forgetting one has already caused a silently-never-running background task in production (§8.17).
 
+### 8.42 Support package (`Core\Support`)
+
+A diagnostic archive an administrator generates from Configuration > Support and attaches, **by hand**, to a support request. It exists because the alternative is a long email thread asking a volunteer to run commands they have no shell for.
+
+**The contract is one-sided: a package is always produced.** Every collector (`SupportCollectorInterface`) runs inside its own `try`/`catch` in `SupportPackageService`; one that throws, lacks a permission, finds no binary, or is meaningless on this platform contributes its own line to `collection-status.json` and changes nothing else. An archive missing three diagnostics still answers most support questions — an archive that failed to generate answers none. Outcomes are `success`, `failed` (with a reason) and `unavailable` (with a reason), and `unavailable` is a genuine third state rather than a softer failure: on chrooted shared hosting several system collectors report it on every run, forever, and that is the correct answer, not a fault to investigate.
+
+A collector sees only `SupportCollectorContext` — add a file by content or by copying a readable path, read the connection/settings/paths, declare itself unavailable, attach a note. It never touches the `ZipArchive`, never learns where the archive ends up, and never decides whether the package is produced. Archive paths are normalised (no leading slash, no `..`, no drive prefix) because a collector composing a path out of a filesystem entry it just scanned must not be able to write outside the archive's own tree.
+
+**Three files exist in every package**, whatever else does or does not:
+
+1. `collection-status.json` — one entry per collector attempted: name, status, concise reason, duration, notes. Reasons are stripped of control characters, capped, and **scrubbed of every known secret** before they are written: a PDO error naming the database password is the canonical way a credential would otherwise walk into an archive destined for email. The secrets are passed in by the caller (`SupportPackageFactory`, which owns `SecretManager`) and used only as replacement needles.
+2. `README.txt` — French, explaining that the archive was generated locally, what it is for, what it contains, that **nothing was transmitted automatically**, that its contents must be checked before sending, the configured support address, and the full warning about PHP configuration, server logs and filesystem diagnostics.
+3. `statistics.json` — byte-for-byte the payload of §8.41, at generation time, **even when reporting is disabled**. A unit declining automatic telemetry says nothing about whether they want the same facts in an archive they are attaching themselves.
+
+**Generation is a background task** (`core`/`generate_support_package`, scheduled at +0 s by the controller, exactly like `create_backup` in §8.15): the system collectors shell out, walk the filesystem and read logs, none of which belongs inside a page load. `requested_by_user_account_id` (§8.16) names the requester so the handler can notify them (`core.support_package_ready`), and the page polls `GET /api/support/package-status/{id}` — the scheduled action's own id and status, the same shape as `backup-status`/`update-status`.
+
+**The archive is the most sensitive artefact this codebase produces on demand**, and its storage says so: written under `storage/core/support/`, **encrypted at rest** via `Core\File\EncryptedFileStorageService`, registered as a `FileRecord` with `role_min: 'superadmin'`, served only through `/files/{id}` (which already decrypts transparently for an encrypted record). **Exactly one is ever kept** — generating replaces the previous file *and* its `FileRecord` — and `core`/`purge_support_packages` (daily, self-rescheduling) deletes it seven days after generation whether or not anyone downloaded it. Which package exists and when it was made are two `settings` rows rather than a table, since a table would hold at most one row; the generation stamp lives there rather than being read off `files.created_at` because the retention rule is this feature's own. `storage/**` is already gitignored wholesale, so the new subdirectory needed no `.gitignore` change — verified, not assumed (SECURITY.md §12).
+
+**Nothing is ever transmitted, in any form**: no email, no upload, no pre-filled `mailto:` with an attachment. The button generates, the link downloads, and the administrator decides what happens next.
+
 ## 9. Installation / bootstrap
 
 ### 9.1 First install: bootstrap.php

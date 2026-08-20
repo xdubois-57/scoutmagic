@@ -89,7 +89,7 @@ All fields identifying a natural person are encrypted (AES-256-GCM) as BLOB:
 ### Secrets
 
 - `storage/keys/master.key`: `chmod 600`, generated via `random_bytes()`.
-- `storage/config/secrets.enc`: AES-256-GCM blob with DB + SMTP credentials, plus the GitHub webhook HMAC secret (`github_webhook_secret`) — generated via Configuration > Maintenance, shown to the admin exactly once, never stored in `settings`.
+- `storage/config/secrets.enc`: AES-256-GCM blob with DB + SMTP credentials, plus the GitHub webhook HMAC secret (`github_webhook_secret`) and the usage-statistics reporting secret (`statistics_secret`, ARCHITECTURE.md §8.41 — 32 random bytes hex, generated lazily on first use, sent only as an `Authorization: Bearer` header, never in a payload body, never in `settings`, never in the journal, never handed to a view). Both are generated once and never stored anywhere they could be read back through the UI.
 - Key and blob in separate directories.
 
 ## 6. File access
@@ -101,6 +101,7 @@ All fields identifying a natural person are encrypted (AES-256-GCM) as BLOB:
 - File links via `file_url($id)` — never direct paths.
 - Upload: true MIME check, random filename, EXIF stripped, size limit, non-executable directory.
 - Access denied: 403 + journal entry (security level).
+- **The diagnostic support package** (ARCHITECTURE.md §8.42) is treated as the most sensitive artefact this codebase produces on demand, because it deliberately contains `phpinfo()` output, server logs and filesystem diagnostics: written under `storage/core/support/`, **encrypted at rest** via `Core\File\EncryptedFileStorageService`, registered with `role_min: 'superadmin'`, and reachable only through `/files/{id}`. Exactly one is kept (generating replaces the previous file and its `FileRecord`) and a daily task deletes it seven days after generation, downloaded or not. It is **never transmitted automatically** — no email, no upload, no pre-filled `mailto:` with an attachment; an administrator sends it by hand or it goes nowhere. Every reason written into its `collection-status.json` is scrubbed of every known secret first, so a collector's exception quoting a credential cannot smuggle one into an archive destined for email.
 - Finance receipts go through `FileAccessGuard` like any other file. Every receipt is tied to an account at upload time (`finance_attachments.account_id`), and its underlying file's `role_min` is set to that account's own `role_min_view` — not the module's flat `"intendant"` `storage` declaration, which is only the fallback floor for a not-yet-account-scoped case. Whenever an account's `role_min_view` is changed, every existing receipt file tied to that account is updated to match (`ConfigAccountController::syncReceiptFilesRoleMin()`), so access stays in sync retroactively.
 
 ## 7. Content editing

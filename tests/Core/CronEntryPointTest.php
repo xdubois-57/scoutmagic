@@ -73,6 +73,8 @@ class CronEntryPointTest extends TestCase
             ['PurgeNotificationsHandler'],
             ['PurgeHumanCheckRateLimitsHandler'],
             ['SendStatisticsHandler'],
+            ['GenerateSupportPackageHandler'],
+            ['PurgeSupportPackagesHandler'],
         ];
     }
 

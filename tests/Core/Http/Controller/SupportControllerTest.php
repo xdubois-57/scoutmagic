@@ -15,10 +15,14 @@ use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
+use Core\Scheduler\SchedulerRepository;
+use Core\Scheduler\SchedulerService;
 use Core\Security\SecretManager;
 use Core\Statistics\InstallationDateService;
 use Core\Statistics\InstallationIdentityService;
 use Core\Statistics\StatisticsPayloadBuilder;
+use Core\Support\SupportPackageState;
+use Core\Support\Task\GenerateSupportPackageHandler;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
 use Twig\Environment;
@@ -82,7 +86,8 @@ class SupportControllerTest extends TestCase
                 $this->pdo,
                 $this->identityService,
                 $this->projectRoot
-            )
+            ),
+            new SchedulerService(new SchedulerRepository($this->pdo))
         );
 
         $stmt = $this->pdo->prepare('INSERT INTO user_accounts (email_encrypted, email_blind_index, is_super_admin) VALUES (?, ?, 1)');
@@ -127,6 +132,8 @@ class SupportControllerTest extends TestCase
         $this->settings->register(SupportController::LAST_SUCCESS_SETTING, '', 'text', 'L', 'D', null, null, null, false);
         $this->settings->register(SupportController::LAST_FAILURE_SETTING, '', 'text', 'L', 'D', null, null, null, false);
         $this->settings->register(SupportController::LAST_FAILURE_REASON_SETTING, '', 'text', 'L', 'D', null, null, null, false);
+        $this->settings->register(SupportPackageState::FILE_ID, '', 'text', 'L', 'D', null, null, null, false);
+        $this->settings->register(SupportPackageState::GENERATED_AT, '', 'text', 'L', 'D', null, null, null, false);
         InstallationDateService::register($this->settings);
         $this->settings->clearCache();
     }
@@ -300,12 +307,113 @@ class SupportControllerTest extends TestCase
         return array_map('strval', $rows);
     }
 
+    // --- support package ---
+
+    public function testTheGenerateButtonIsOfferedEvenWhenReportingIsDisabled(): void
+    {
+        $this->settingRepository->updateValue(null, 'statistics_enabled', '0');
+        $this->settings->clearCache();
+
+        $body = $this->controller->index(new Request('GET', '/config/support', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('support-package-generate', $body);
+        $this->assertStringContainsString('Générer un paquet de support', $body);
+    }
+
+    public function testGeneratingSchedulesTheBackgroundTaskForTheRequestingSuperadmin(): void
+    {
+        $token = $this->issueCsrfToken();
+        $request = new Request('POST', '/config/support/package', [], ['_csrf_token' => $token], [], []);
+
+        $data = json_decode($this->controller->generatePackage($request, [])->getBody(), true);
+
+        $this->assertTrue($data['success']);
+        $this->assertIsInt($data['action_id']);
+
+        $stmt = $this->pdo->query('SELECT * FROM scheduled_actions');
+        $rows = $stmt !== false ? $stmt->fetchAll(\PDO::FETCH_ASSOC) : [];
+        $this->assertCount(1, $rows);
+        $this->assertSame('core', $rows[0]['module_id']);
+        $this->assertSame(GenerateSupportPackageHandler::TASK_KEY, $rows[0]['task_key']);
+        $this->assertSame($this->userId, (int) $rows[0]['requested_by_user_account_id']);
+    }
+
+    public function testGeneratingRequiresAValidCsrfToken(): void
+    {
+        $request = new Request('POST', '/config/support/package', [], ['_csrf_token' => 'wrong'], [], []);
+
+        $response = $this->controller->generatePackage($request, []);
+
+        $this->assertSame(400, $response->getStatusCode());
+        $stmt = $this->pdo->query('SELECT COUNT(*) FROM scheduled_actions');
+        $this->assertSame(0, (int) ($stmt !== false ? $stmt->fetchColumn() : 1));
+    }
+
+    public function testPackageStatusReportsProgressThenTheDownloadUrl(): void
+    {
+        $token = $this->issueCsrfToken();
+        $request = new Request('POST', '/config/support/package', [], ['_csrf_token' => $token], [], []);
+        $actionId = (int) json_decode($this->controller->generatePackage($request, [])->getBody(), true)['action_id'];
+
+        $pending = json_decode(
+            $this->controller->packageStatus(new Request('GET', '/api/support/package-status/' . $actionId, [], [], [], []), ['id' => (string) $actionId])->getBody(),
+            true
+        );
+        $this->assertSame('pending', $pending['status']);
+        $this->assertNull($pending['download_url']);
+
+        $this->pdo->prepare('UPDATE scheduled_actions SET status = ? WHERE id = ?')->execute(['done', $actionId]);
+        $this->settingRepository->updateValue(null, SupportPackageState::FILE_ID, '42');
+        $this->settings->clearCache();
+
+        $done = json_decode(
+            $this->controller->packageStatus(new Request('GET', '/api/support/package-status/' . $actionId, [], [], [], []), ['id' => (string) $actionId])->getBody(),
+            true
+        );
+        $this->assertSame('done', $done['status']);
+        $this->assertSame('/files/42', $done['download_url']);
+    }
+
+    public function testPackageStatusRefusesAnUnrelatedScheduledAction(): void
+    {
+        $this->pdo->prepare('INSERT INTO scheduled_actions (module_id, task_key, run_at, status) VALUES (?, ?, ?, ?)')
+            ->execute(['core', 'auto_backup', '2026-08-20 03:00:00', 'pending']);
+        $id = (int) $this->pdo->lastInsertId();
+
+        $response = $this->controller->packageStatus(new Request('GET', '/api/support/package-status/' . $id, [], [], [], []), ['id' => (string) $id]);
+
+        $this->assertSame(404, $response->getStatusCode());
+    }
+
+    public function testAnExistingPackageIsOfferedForDownloadOnPageLoad(): void
+    {
+        $this->settingRepository->updateValue(null, SupportPackageState::FILE_ID, '7');
+        $this->settingRepository->updateValue(null, SupportPackageState::GENERATED_AT, '2026-08-19T10:00:00+00:00');
+        $this->settings->clearCache();
+
+        $body = $this->controller->index(new Request('GET', '/config/support', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('/files/7', $body);
+        $this->assertStringContainsString('2026-08-19T10:00:00+00:00', $body);
+    }
+
+    public function testThePageNeverOffersAnAutomaticTransmission(): void
+    {
+        $body = $this->controller->index(new Request('GET', '/config/support', [], [], [], []), [])->getBody();
+
+        $this->assertStringNotContainsString('mailto:?', $body);
+        $this->assertStringNotContainsString('attachment', $body);
+        $this->assertStringContainsString('Rien n\'est jamais transmis', $body);
+    }
+
     // --- RBAC ---
 
     private function buildFrontController(): FrontController
     {
         $router = new Router();
         $router->addRoute('GET', '/config/support', SupportController::class, 'index', 'superadmin');
+        $router->addRoute('POST', '/config/support/package', SupportController::class, 'generatePackage', 'superadmin');
+        $router->addRoute('GET', '/api/support/package-status/{id}', SupportController::class, 'packageStatus', 'superadmin');
 
         $configFile = sys_get_temp_dir() . '/test_support_config_' . uniqid() . '.php';
         file_put_contents($configFile, "<?php\nreturn ['site_name' => 'Test', 'debug' => false];");
@@ -332,5 +440,24 @@ class SupportControllerTest extends TestCase
         $response = $this->buildFrontController()->handle(new Request('GET', '/config/support', [], [], [], []));
 
         $this->assertSame(403, $response->getStatusCode());
+    }
+
+    public function testAdminCanNeitherTriggerAGenerationNorPollItsStatus(): void
+    {
+        AuthSession::logout();
+        AuthSession::login($this->userId, 'admin@test.example', 'admin');
+
+        $frontController = $this->buildFrontController();
+
+        $this->assertSame(
+            403,
+            $frontController->handle(new Request('POST', '/config/support/package', [], [], [], []))->getStatusCode()
+        );
+        $this->assertSame(
+            403,
+            $frontController->handle(new Request('GET', '/api/support/package-status/1', [], [], [], []))->getStatusCode()
+        );
+        $stmt = $this->pdo->query('SELECT COUNT(*) FROM scheduled_actions');
+        $this->assertSame(0, (int) ($stmt !== false ? $stmt->fetchColumn() : 1));
     }
 }

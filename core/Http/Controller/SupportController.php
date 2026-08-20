@@ -15,8 +15,12 @@ use Core\Http\Response;
 use Core\Journal\JournalService;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
+use Core\Scheduler\SchedulerService;
 use Core\Statistics\StatisticsPayloadBuilder;
 use Core\Statistics\StatisticsStateSettings;
+use Core\Support\SupportPackageService;
+use Core\Support\SupportPackageState;
+use Core\Support\Task\GenerateSupportPackageHandler;
 use Twig\Environment;
 
 /**
@@ -47,7 +51,8 @@ class SupportController extends AbstractController
         protected Environment $twig,
         private SettingService $settingService,
         private JournalService $journalService,
-        private StatisticsPayloadBuilder $payloadBuilder
+        private StatisticsPayloadBuilder $payloadBuilder,
+        private SchedulerService $schedulerService
     ) {
     }
 
@@ -69,7 +74,72 @@ class SupportController extends AbstractController
             // deciding whether to turn it ON has to be able to read what
             // would leave the site first.
             'payload_json' => $this->payloadBuilder->buildJson(),
+            'package_file_id' => $this->currentPackageFileId(),
+            'package_generated_at' => self::nonEmpty($this->settingService->get(SupportPackageState::GENERATED_AT)),
+            'package_retention_days' => SupportPackageService::RETENTION_DAYS,
         ]);
+    }
+
+    /**
+     * POST /config/support/package (AJAX, JSON) — schedules the background
+     * generation, exactly like the Maintenance page's full backup (§8.15).
+     *
+     * Available whether or not usage reporting is enabled: refusing to help
+     * a unit diagnose their own site because they declined telemetry would
+     * be indefensible.
+     *
+     * @param array<string, string> $params
+     */
+    public function generatePackage(Request $request, array $params): Response
+    {
+        $data = json_decode($request->getRawBody(), true);
+        $token = is_array($data)
+            ? (string) ($data['_csrf_token'] ?? '')
+            : (string) $request->getBody('_csrf_token', '');
+
+        if (!CsrfGuard::validateToken($token)) {
+            return $this->json(['success' => false, 'error' => 'Jeton de sécurité invalide.'], 400);
+        }
+
+        $actionId = $this->schedulerService->scheduleAfter(
+            'core',
+            GenerateSupportPackageHandler::TASK_KEY,
+            0,
+            [],
+            null,
+            AuthSession::getUserAccountId()
+        );
+
+        return $this->json(['success' => true, 'action_id' => $actionId]);
+    }
+
+    /**
+     * GET /api/support/package-status/{id} — polled by the Support page,
+     * same shape as /api/maintenance/backup-status/{id}.
+     *
+     * @param array<string, string> $params
+     */
+    public function packageStatus(Request $request, array $params): Response
+    {
+        $action = $this->schedulerService->findById((int) ($params['id'] ?? 0));
+        if ($action === null || (string) $action['task_key'] !== GenerateSupportPackageHandler::TASK_KEY) {
+            return $this->json(['error' => 'Génération introuvable.'], 404);
+        }
+
+        $status = (string) $action['status'];
+        $fileId = $status === 'done' ? $this->currentPackageFileId() : null;
+
+        return $this->json([
+            'status' => $status,
+            'download_url' => $fileId !== null ? '/files/' . $fileId : null,
+        ]);
+    }
+
+    private function currentPackageFileId(): ?int
+    {
+        $fileId = (int) ($this->settingService->get(SupportPackageState::FILE_ID) ?? '0');
+
+        return $fileId > 0 ? $fileId : null;
     }
 
     /**
