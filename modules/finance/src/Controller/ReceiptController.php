@@ -281,8 +281,13 @@ class ReceiptController extends AbstractController
             return 'impossible de lire le fichier envoyé.';
         }
 
+        // Never trust the client-declared $file['type'] as a fallback: it is
+        // attacker-controlled and would bypass ReceiptService's MIME allowlist
+        // (audit M9). A detection failure becomes a non-allowlisted sentinel,
+        // so the service rejects it rather than storing/echoing a spoofed type.
         $finfo = new \finfo(FILEINFO_MIME_TYPE);
-        $mimeType = $finfo->buffer($content) ?: $file['type'];
+        $detected = $finfo->buffer($content);
+        $mimeType = $detected !== false ? $detected : 'application/octet-stream';
 
         try {
             $attachment = $this->receiptService->upload($content, $mimeType, $file['name'], $accountId, null, null, AuthSession::getUserAccountId());
@@ -426,8 +431,11 @@ class ReceiptController extends AbstractController
             return $this->render('@finance/receipts/form.html.twig', ['error' => 'Impossible de lire le fichier envoyé.', 'replace_id' => $id]);
         }
 
+        // Detection is the sole source of truth — no client-declared fallback
+        // (audit M9); a failure yields a sentinel the allowlist rejects.
         $finfo = new \finfo(FILEINFO_MIME_TYPE);
-        $mimeType = $finfo->buffer($content) ?: (string) ($file['type'] ?? '');
+        $detected = $finfo->buffer($content);
+        $mimeType = $detected !== false ? $detected : 'application/octet-stream';
 
         try {
             $newAttachment = $this->receiptService->replace($id, $content, $mimeType, (string) $file['name'], AuthSession::getUserAccountId());

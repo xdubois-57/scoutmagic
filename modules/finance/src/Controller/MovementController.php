@@ -392,8 +392,11 @@ class MovementController extends AbstractController
             return $this->json(['success' => false, 'error' => 'Impossible de lire le fichier envoyé.'], 400);
         }
 
+        // Detection is the sole source of truth — no client-declared fallback
+        // (audit M9); a failure yields a sentinel the allowlist rejects.
         $finfo = new \finfo(FILEINFO_MIME_TYPE);
-        $mimeType = $finfo->buffer($content) ?: $file['type'];
+        $detected = $finfo->buffer($content);
+        $mimeType = $detected !== false ? $detected : 'application/octet-stream';
 
         try {
             $attachment = $this->receiptService->upload($content, $mimeType, $file['name'], $account->id, null, null, AuthSession::getUserAccountId());

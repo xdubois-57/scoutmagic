@@ -112,6 +112,9 @@
 
                 {# Inline "forgot password" mini-form — module addendum. #}
                 <div id="forgot-password-form" class="d-none mt-3 pt-3 border-top">
+                    {# Anti-bot fields for this form's own challenge (audit M3);
+                       auth.js includes them in the /password-reset/request POST. #}
+                    {% include 'partials/human_check_fields.html.twig' with { human_check: human_check_reset } %}
                     <label class="form-label small" for="forgot-password-email">Adresse email du compte</label>
                     <input type="email" class="form-control form-control-sm mb-2" id="forgot-password-email" placeholder="nom@exemple.be">
                     <button type="button" class="btn btn-sm btn-outline-primary w-100" id="forgot-password-submit-btn">Recevoir un lien de réinitialisation</button>

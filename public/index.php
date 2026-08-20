@@ -353,6 +353,22 @@ if ($migrationIsPending) {
     $migrationStepPath = '/api/system/migration-step';
 
     if ($request->getMethod() === 'POST' && $request->getPath() === $migrationStepPath) {
+        // This endpoint runs live DDL and is reachable before any session,
+        // CSRF token or routing exists (for the whole upgrade window), so it
+        // has no session-bound CSRF token to check. Require instead a custom
+        // request header that only the progress page's own fetch() below sets
+        // (audit M12): a cross-site page cannot set a custom header on a
+        // simple request without a CORS preflight this endpoint never grants,
+        // so a forged cross-origin POST is refused here. Same technique as a
+        // classic X-Requested-With guard; it stops the browser-driven CSRF
+        // vector without needing any server-side state mid-migration.
+        if ($request->getServer('HTTP_X_SCOUTMAGIC_MIGRATION', '') !== '1') {
+            http_response_code(403);
+            header('Content-Type: application/json; charset=utf-8');
+            echo json_encode(['error' => 'forbidden']);
+            exit;
+        }
+
         // Short, foreground-safe time budget: this endpoint is called
         // repeatedly in a fast loop by the progress page below, not once
         // per page load, so each call must return quickly rather than
@@ -416,7 +432,7 @@ if ($migrationIsPending) {
   var hint = document.getElementById('hint');
 
   function step() {
-    fetch('/api/system/migration-step', { method: 'POST' })
+    fetch('/api/system/migration-step', { method: 'POST', headers: { 'X-ScoutMagic-Migration': '1' } })
       .then(function (response) { return response.json(); })
       .then(function (data) {
         var percent = Math.round((data.progress || 0) * 100);
@@ -1671,7 +1687,9 @@ $githubWebhookService = new \Core\Maintenance\GitHubWebhookService(
 $frontController->registerController(\Core\Http\Controller\WebhookController::class, new \Core\Http\Controller\WebhookController(
     $twig, $githubWebhookService, $secretManager, $journalService
 ));
-$frontController->registerController(PasswordResetController::class, new PasswordResetController($twig, $passwordResetService));
+$passwordResetController = new PasswordResetController($twig, $passwordResetService);
+$passwordResetController->setHumanCheck($humanCheckService);
+$frontController->registerController(PasswordResetController::class, $passwordResetController);
 $frontController->registerController(ShortUrlController::class, new ShortUrlController($twig, $shortUrlService));
 $frontController->registerController(ImportController::class, new ImportController($twig, $importService, $scoutYearResolver, $importJournalRepo, $functionRepo, $storagePath, $registrationReconciliation ?? null));
 $frontController->registerController(MemberController::class, new MemberController($twig, $memberService, $memberYearService, $journalService, $memberPageService, $departureService));

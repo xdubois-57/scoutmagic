@@ -259,10 +259,22 @@
             var btn = /** @type {HTMLButtonElement} */ (this);
             btn.disabled = true;
             try {
+                // Include this form's anti-bot fields (audit M3): the token and
+                // the honeypot trap (empty for a human). The trap field name is
+                // randomised per render, so read it from the DOM rather than
+                // hard-coding it.
+                var body = 'email=' + encodeURIComponent(email) + '&_csrf_token=' + encodeURIComponent(getCsrf());
+                var hcToken = document.querySelector('#forgot-password-form input[name="human_check_token"]');
+                if (hcToken) body += '&human_check_token=' + encodeURIComponent(/** @type {HTMLInputElement} */ (hcToken).value);
+                var hcTrap = document.querySelector('#forgot-password-form .hc-trap input');
+                if (hcTrap) {
+                    var trap = /** @type {HTMLInputElement} */ (hcTrap);
+                    body += '&' + encodeURIComponent(trap.name) + '=' + encodeURIComponent(trap.value);
+                }
                 var res = await fetch('/password-reset/request', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    body: 'email=' + encodeURIComponent(email) + '&_csrf_token=' + encodeURIComponent(getCsrf())
+                    body: body
                 });
                 var data = await res.json();
                 messageEl.textContent = data.success

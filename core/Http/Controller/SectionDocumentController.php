@@ -66,8 +66,11 @@ class SectionDocumentController extends AbstractController
             return $this->redirect($this->staffsUrl($sectionId));
         }
 
+        // Detection is the sole source of truth — no client-declared fallback
+        // (audit M9); a failure yields a sentinel the allowlist rejects.
         $finfo = new \finfo(FILEINFO_MIME_TYPE);
-        $mimeType = $finfo->buffer($content) ?: (string) $file['type'];
+        $detected = $finfo->buffer($content);
+        $mimeType = $detected !== false ? $detected : 'application/octet-stream';
 
         $title = trim((string) $request->getBody('title', ''));
         $description = trim((string) $request->getBody('description', ''));

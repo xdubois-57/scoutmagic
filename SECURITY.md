@@ -170,6 +170,7 @@ The fatal-error fallback page (`Core\Http\ErrorHandler`, §22) re-emits the same
 - A rejection never reveals which of the three barriers triggered — same generic French message regardless of reason, so a bot can never learn what defeated it. A rejection also never loses the visitor's input: the form is re-rendered with a fresh challenge, never a dead-end error page.
 - Every rejection is journaled as `human_check_failed` (`level: security`, context limited to which form was involved — no IP beyond the journal's own standard `ip_address` column, no honeypot content, nothing else that could identify the submitter).
 - A magic-link request (`POST /login/magic-link`) applies only the honeypot and minimum-delay barriers — `AuthService::requestMagicLink()` already rate-limits by email blind index (§8); a second, IP-scoped counter for the same abuse pattern would produce inconsistent thresholds. See `ARCHITECTURE.md` §8.31 for the full reasoning.
+- The "Mot de passe oublié" request (`POST /password-reset/request`) applies the **full** barrier set, including the per-IP rate limit. Unlike magic-link, its only downstream throttle is per-email — which a loop over random addresses never trips — and each accepted request pays a `password_hash()` and writes a token row before the account is even looked up, so an unthrottled endpoint is an unauthenticated bcrypt/row-growth sink. The per-IP barrier stops that enumeration loop at the front door; a tripped check returns the same generic success as everything else, so nothing about an address is revealed either way.
 
 ## 17. Outbound HTTP requests to user-supplied URLs
 
@@ -245,3 +246,25 @@ Values that originate from **unauthenticated public input** — public form answ
 `public/cron.php` is the scheduler's command-line entry point (`ARCHITECTURE.md`'s poor-man's-cron). It runs privileged maintenance work with no session and no RBAC, so it must never be reachable over HTTP.
 
 - **CLI-only, enforced in code and in config.** The script's first executable statement refuses any non-CLI SAPI (`PHP_SAPI !== 'cli'` → `404` and exit), before the autoloader or the scheduler is ever touched. Defense in depth: `public/.htaccess` and the bootstrap-generated `.htaccess` (`bootstrap/bootstrap.php`) also `Require all denied` for `cron.php` on Apache — but the in-code guard is the authority, since `.htaccess` does not apply on nginx.
+- **The migration-step endpoint** (`POST /api/system/migration-step`) runs live DDL and is reachable before any session, CSRF token, or routing exists — for the whole upgrade window. It has no session-bound token to check, so it instead requires a custom request header (`X-ScoutMagic-Migration`) that only the update-progress page's own `fetch()` sets. A cross-site page cannot set a custom header on a simple request without a CORS preflight this endpoint never grants, so a forged cross-origin POST is refused — the same reasoning as a classic `X-Requested-With` guard, chosen because it needs no server-side state mid-migration.
+
+## 25. Image decode limits
+
+Decoding an image allocates roughly width×height×4 bytes regardless of how small the compressed file is, so a "decompression bomb" — e.g. a ~500 KB 40000×40000 PNG asking GD for ~6.4 GB — can OOM-kill the request (or the background photo task) before any downscaling runs. Reachable by any member who can upload.
+
+- **A pixel-dimension ceiling is checked before every decode** (`Core\Image\ImageDimensionGuard`, 50 megapixels): a cheap header-only read (`getimagesize`/`getimagesizefromstring`) rejects an oversized image up front, at every GD decode site — the generic `/upload` path, all core photo processors, the gallery photo task, and the finance receipt orientation step — never after allocating for it. The ceiling clears any real photo a phone or camera produces.
+- **The PDF rasterizer** (`Core\File\PdfRasterizer`, Imagick → Ghostscript) can't use `getimagesize`, so it caps Imagick's memory/disk/width/height resource limits before reading the page; an untrusted PDF that would rasterize to a huge canvas aborts into a graceful "no thumbnail" instead.
+
+## 26. Internal redirects only
+
+Several flows echo a `return`/`return_url` parameter or the `Referer` header back into a `Location:` redirect or an `href`. Left unvalidated, `//evil.example` turns that into an open redirect — a phishing primitive that borrows the unit's trusted domain.
+
+- **`Core\Http\SafeRedirect` is the single place that decides what counts as internal.** `internalPath()` accepts only an unambiguous same-site absolute path (a single leading `/`, no scheme/host, no scheme-relative `//` or backslash trick, no control characters) and collapses anything else to a safe fallback. `internalPathFromUrl()` reduces a possibly-absolute `Referer` to its own path so a cross-origin referer can at most redirect within our own site, never off it. Applied to `/upload`'s `return_url` (reflected into both an `href` and the post-upload redirect) and to `ConfigModeController`'s `Referer`-based redirects.
+
+## 27. Uploaded-file type detection
+
+- **The declared MIME type of an upload is never trusted.** The main path (`Core\File\UploadHandler`) reads the type from the file's real content (`finfo`) and validates it against a per-caller allowlist. The secondary upload handlers (section documents, finance receipts and movements) do the same and, on a detection failure, resolve to a non-allowlisted sentinel — never the client-declared `$_FILES['type']`, which is attacker-controlled and would otherwise be stored in `files.mime_type` and reflected as the response `Content-Type`, bypassing the allowlist.
+
+## 28. HTML built in client-side scripts
+
+A few list pages build table rows in an inline `<script>` and interpolate values into attributes (`alt`/`title`/`data-*`). A `textContent`→`innerHTML` escaper handles `& < >` but **not** quotes, so a value containing `"` could break out of a double-quoted attribute and smuggle further attributes (script execution stays blocked by the nonce CSP, but `style=` injection does not). The escapers that feed an attribute context (finance receipts, mass-mail lists) escape quotes explicitly, so a filename, description, or LLM-extracted date can no longer break out. Server-side, this is a non-issue: Twig autoescapes every template value.
