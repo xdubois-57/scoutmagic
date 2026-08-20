@@ -143,7 +143,7 @@ function receiptCardHtml(r) {
 
     return '<div class="col-12 col-md-4" data-receipt-id="' + r.id + '">'
         + '<div class="border rounded-3 p-3 h-100 d-flex flex-column gap-2">'
-        + '<a href="/files/' + r.file_id + '" target="_blank">' + thumb + '</a>'
+        + '<a href="/files/' + r.file_id + '" target="_blank" rel="noopener">' + thumb + '</a>'
         + '<div class="fw-semibold text-truncate" title="' + escapeHtml(r.original_filename) + '">' + escapeHtml(r.original_filename) + '</div>'
         + '<div class="text-body-secondary small">' + escapeHtml(r.uploaded_at) + '</div>'
         + suggestedBlock

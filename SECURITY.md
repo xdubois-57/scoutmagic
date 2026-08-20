@@ -106,7 +106,7 @@ All fields identifying a natural person are encrypted (AES-256-GCM) as BLOB:
 ## 7. Content editing
 
 - Configuration mode: session-only, role re-verified on every save.
-- Rich text: sanitized with strict tag whitelist before storage.
+- Rich text: sanitized (`Core\Security\HtmlSanitizer`) with a strict tag allowlist before storage. URL-bearing attributes (`href`, and an `img`'s `src`) are checked against a **scheme allowlist** (`http`, `https`, `mailto`, `tel`, or no scheme) — never a blocklist, which always misses one (`vbscript:` survived the old `javascript:`/`data:` blocklist). Tab/CR/LF are stripped before the scheme is read so `java\tscript:` can't slip past. Comments, processing instructions and CDATA are removed rather than re-serialized. `<img>` is allowed (so the editor's image button works) with a tight attribute set and a scheme-checked `src`; the client-side twin (`news-form-builder.js`) mirrors the same allowlist.
 - Images: MIME validated, EXIF stripped, filename randomized.
 
 ## 8. Email
@@ -120,7 +120,9 @@ All fields identifying a natural person are encrypted (AES-256-GCM) as BLOB:
 
 Every response: `Content-Security-Policy`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Strict-Transport-Security` (if HTTPS), `Referrer-Policy: strict-origin-when-cross-origin`.
 
-The fatal-error fallback page (`Core\Http\ErrorHandler`, §22) re-emits the same header set from its own hardcoded 500 response — an uncaught throwable must never be the one response that ships without them.
+The fatal-error fallback page (`Core\Http\ErrorHandler`, §22) re-emits the same header set from its own hardcoded 500 response — an uncaught throwable must never be the one response that ships without them. The two other pages emitted outside the normal `Response` path do the same now: the 413 "payload too large" page and the pre-routing migration-progress page. The migration page carries an inline `<script>`, so it builds a per-render **nonce**-based CSP and tags the script with it, rather than shipping no CSP at all (which is the only reason that inline script used to run).
+
+The session CSRF token is **rotated at every privilege-change boundary** — `AuthSession::login()` and `logout()` call `CsrfGuard::rotate()` right after `session_regenerate_id(true)` — so a token minted for an anonymous visitor never carries into the authenticated session. Cross-origin `target="_blank"` links carry `rel="noopener"` (the sanitizer forces it on user content; templates set it directly).
 
 ## 10. Cookie consent
 

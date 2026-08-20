@@ -179,6 +179,13 @@ $request = Request::fromGlobals();
 // token" error further down the request lifecycle.
 if (Request::isPostTooLarge()) {
     http_response_code(413);
+    // Emit the same security header set as every routed response — an error
+    // page is not an excuse to drop CSP/X-Frame-Options/nosniff (audit
+    // hardening). This page has no inline script; its inline style attribute
+    // is covered by the CSP's style-src 'unsafe-inline'.
+    foreach ((new \Core\Http\Response(''))->getSecurityHeaders() as $hName => $hValue) {
+        header("{$hName}: {$hValue}");
+    }
     header('Content-Type: text/html; charset=utf-8');
     echo '<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><title>Fichier trop volumineux</title></head>'
         . '<body style="font-family:sans-serif;max-width:640px;margin:4rem auto;padding:0 1rem;">'
@@ -404,8 +411,16 @@ if ($migrationIsPending) {
     // persists progress after every unit of work, so the next visit (from
     // anyone) resumes exactly where this one left off instead of
     // restarting.
+    // Emit the full security header set even for this pre-routing page (audit
+    // hardening). It carries an inline <script>, so build a nonce-based CSP
+    // and tag the script with it — the previous version shipped no CSP at all,
+    // which is the only reason that inline script ran.
+    $migrationNonce = base64_encode(random_bytes(16));
+    foreach ((new \Core\Http\Response(''))->setCspNonce($migrationNonce)->getSecurityHeaders() as $hName => $hValue) {
+        header("{$hName}: {$hValue}");
+    }
     header('Content-Type: text/html; charset=utf-8');
-    echo <<<'HTML'
+    echo str_replace('__CSP_NONCE__', $migrationNonce, <<<'HTML'
 <!DOCTYPE html>
 <html lang="fr">
 <head>
@@ -426,7 +441,7 @@ if ($migrationIsPending) {
 <p>Merci de patienter, cette page se rechargera automatiquement une fois la mise à jour terminée. Vous pouvez aussi fermer cet onglet : la mise à jour reprendra à l'endroit où elle s'est arrêtée lors de votre prochaine visite.</p>
 <div class="bar-track"><div class="bar-fill" id="bar"></div></div>
 <p class="hint" id="hint">Démarrage…</p>
-<script>
+<script nonce="__CSP_NONCE__">
 (function () {
   var bar = document.getElementById('bar');
   var hint = document.getElementById('hint');
@@ -454,7 +469,7 @@ if ($migrationIsPending) {
 </script>
 </body>
 </html>
-HTML;
+HTML);
     exit;
 }
 
