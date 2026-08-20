@@ -676,6 +676,33 @@ $settingService->register('human_check_rate_limit_max_attempts', '5', 'number', 
     'Nombre maximum de soumissions de formulaires publics autorisées pour une même adresse IP dans la fenêtre de limitation, au-delà duquel les soumissions suivantes sont rejetées.',
     null, '^\d+$', null, true, 273);
 
+// Usage statistics and support package (Core\Statistics, Core\Support —
+// ARCHITECTURE.md §8.41/§8.42). All five are deliberately kept out of the
+// generic Configuration > Paramètres page (Core\Http\Controller\
+// SettingsController::EXCLUDED_FROM_GENERIC_PAGE, same treatment as the
+// auto-update settings) — they are managed from the dedicated Support
+// page, which pairs the switch with the plain-language explanation of what
+// leaves the site, something a plain editable row cannot carry.
+$settingService->register('statistics_enabled', '1', 'boolean', 'Envoi automatique des statistiques d\'utilisation',
+    'Autorise l\'envoi quotidien d\'un rapport d\'utilisation agrégé vers ScoutMagic. Le rapport contient l\'adresse de ce site, jamais de donnée de membre. Géré depuis la page Support.',
+    null, null, null, true, 280);
+$settingService->register('statistics_destination', 'https://www.scoutmagic.be', 'url', 'Destination des statistiques',
+    'Adresse du site qui reçoit les rapports d\'utilisation. À ne modifier que pour pointer vers une autre installation ScoutMagic réceptrice.',
+    null, null, null, true, 281);
+$settingService->register('statistics_installation_id', '', 'text', 'Identifiant de cette installation',
+    'Identifiant aléatoire attribué une seule fois à cette installation pour reconnaître ses rapports d\'utilisation. Il ne dérive d\'aucune donnée personnelle.',
+    null, null, null, false, 282);
+$settingService->register('support_email', 'support@scoutmagic.be', 'email', 'Adresse du support ScoutMagic',
+    'Adresse à laquelle envoyer une archive de support. Affichée sur la page Support.',
+    null, null, null, false, 283);
+// `installed_at` declares itself (Core\Statistics\InstallationDateService::
+// register()) because SetupController writes it before this file has ever
+// run — see that method's own comment. Backfilled here once for every
+// installation that predates the setting; strictly idempotent, it only
+// ever writes while the value is still empty.
+\Core\Statistics\InstallationDateService::register($settingService);
+(new \Core\Statistics\InstallationDateService($settingService, $pdo))->ensureRecorded();
+
 // Migrate non-secret settings from secrets.enc to settings table (one-time)
 if ($settingService->get('settings_migrated') !== '1') {
     $settingService->register('settings_migrated', '0', 'boolean', 'Migration effectuée',
