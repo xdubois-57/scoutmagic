@@ -123,6 +123,8 @@ class GroupFeedService
      * instead of a whole page. groups.js inserts the returned fragment
      * into the feed without a reload, which is the only reason this
      * exists — every other caller still goes through page() above.
+     *
+     * @return array<string, mixed>
      */
     public function rowForNewPost(DiscussionGroup $group, Post $post, GroupSessionContext $context, bool $canModerate): array
     {
