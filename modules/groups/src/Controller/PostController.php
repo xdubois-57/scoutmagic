@@ -27,6 +27,7 @@ use Modules\Groups\Service\GroupNotificationService;
 use Modules\Groups\Service\GroupSessionContext;
 use Modules\Groups\Service\GroupSessionContextFactory;
 use Modules\Groups\Service\GroupsException;
+use Modules\Groups\Service\MentionService;
 use Modules\Groups\Service\PostLinkService;
 use Modules\Groups\Service\PostMediaService;
 use Modules\Groups\Service\PostService;
@@ -62,7 +63,8 @@ class PostController extends AbstractController
         private AuthorOptionsService $authorOptionsService,
         private ReportService $reportService,
         private ?GroupNotificationService $notificationService = null,
-        private ?SeenByService $seenByService = null
+        private ?SeenByService $seenByService = null,
+        private ?MentionService $mentionService = null
     ) {
     }
 
@@ -95,6 +97,36 @@ class PostController extends AbstractController
             'post_permission' => $this->accessService->canPost($group, $context),
             'author_options' => $this->authorOptionsService->forGroup($group, $context),
         ]);
+    }
+
+    /**
+     * GET /groups/{id}/mention-search?q=… — the group's own members
+     * matching what is being typed after an "@", for the composer's
+     * autocomplete.
+     *
+     * Any member of the group may call it, unlike the invite box's
+     * member-search (moderator only): the names it returns are the names
+     * of people this caller already sees in the group, so it discloses
+     * nothing the members page does not. It is still scoped to this
+     * group's membership and never to the unit at large — an autocomplete
+     * that searched everybody would turn a discussion group into a
+     * directory.
+     *
+     * @param array<string, string> $params
+     */
+    public function mentionSearch(Request $request, array $params): Response
+    {
+        $context = $this->context();
+        $group = $this->readableGroup($params, $context);
+        if ($group === null || $this->mentionService === null) {
+            return new Response('Not Found', 404);
+        }
+
+        return $this->json($this->mentionService->suggest(
+            $group,
+            (string) $request->getQuery('q', ''),
+            $context->effectiveScoutYearId
+        ));
     }
 
     /**
@@ -246,6 +278,7 @@ class PostController extends AbstractController
         $created = $this->postRepository->findById($postId);
         if ($created !== null) {
             $this->notificationService?->postPublished($group, $created, $context->effectiveScoutYearId);
+            $this->notifyMentions($group, $created->id, $created->body, $created->isHidden(), $context);
         }
 
         // groups.js inserts this fragment straight into the feed instead
@@ -335,10 +368,20 @@ class PostController extends AbstractController
 
             $body = (string) $request->getBody('body', '');
             if ($this->postService->isPostable($body)) {
+                // Read BEFORE the write: whoever the message already named
+                // has already been told, and must not be told again
+                // because a typo elsewhere in it was corrected.
+                $alreadyMentioned = $this->mentionService?->resolve($group, $post->body, $context->effectiveScoutYearId) ?? [];
+
                 try {
                     $this->postService->edit($post, $body);
                 } catch (GroupsException $e) {
                     return $this->refuse($request, $e, $group->id, $body, null);
+                }
+
+                $edited = $this->postRepository->findById($post->id);
+                if ($edited !== null) {
+                    $this->notifyMentions($group, $edited->id, $edited->body, $edited->isHidden(), $context, $alreadyMentioned);
                 }
             }
 
@@ -506,6 +549,45 @@ class PostController extends AbstractController
     /**
      * @param array<string, string> $params
      */
+    /**
+     * Notifies whoever the STORED body names after an "@".
+     *
+     * Resolution happens here, from the text the database now holds,
+     * rather than from anything the request claimed — Service\
+     * MentionService's docblock says why. Never fatal, same as every
+     * other notification in this module.
+     *
+     * @param int[] $alreadyNotified member ids to leave alone, so an edit
+     *        only tells the people the edit newly named
+     */
+    private function notifyMentions(
+        DiscussionGroup $group,
+        int $postId,
+        string $body,
+        bool $suppressed,
+        GroupSessionContext $context,
+        array $alreadyNotified = []
+    ): void {
+        if ($this->mentionService === null || $this->notificationService === null || $context->userAccountId === null) {
+            return;
+        }
+
+        $mentioned = array_values(array_diff(
+            $this->mentionService->resolve($group, $body, $context->effectiveScoutYearId),
+            $alreadyNotified
+        ));
+
+        $this->notificationService->mentioned(
+            $group,
+            $postId,
+            $mentioned,
+            $body,
+            $suppressed,
+            $context->userAccountId,
+            $context->effectiveScoutYearId
+        );
+    }
+
     private function readableGroup(array $params, GroupSessionContext $context): ?DiscussionGroup
     {
         $group = $this->groupRepository->findById((int) ($params['id'] ?? 0));

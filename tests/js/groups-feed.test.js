@@ -279,6 +279,85 @@ describe('groups.js dynamic reactions, in-place pagination and inline edit toggl
         );
     });
 
+    // The "@" autocomplete. It only ever types plain text into the field:
+    // no id travels with the message, because the server resolves the
+    // names back out of the stored body (Service\MentionService).
+    describe('the @ autocomplete', () => {
+        function composer(value) {
+            document.body.innerHTML =
+                '<textarea id="post-body" data-mention-url="/groups/1/mention-search"></textarea>';
+            var field = /** @type {HTMLTextAreaElement} */ (document.getElementById('post-body'));
+            field.value = value;
+            field.setSelectionRange(value.length, value.length);
+
+            return field;
+        }
+
+        function type(field) {
+            field.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+
+        it('queries the group for what is typed after an @ and inserts the chosen name', async () => {
+            vi.useFakeTimers();
+            try {
+                global.fetch = vi.fn(() => Promise.resolve({
+                    ok: true,
+                    json: () => Promise.resolve([{ id: 4, label: 'Marie Dupont' }])
+                }));
+                var field = composer('Merci @Mar');
+
+                type(field);
+                await vi.advanceTimersByTimeAsync(300);
+
+                expect(fetch).toHaveBeenCalledWith(
+                    '/groups/1/mention-search?q=Mar',
+                    { headers: { 'X-Requested-With': 'XMLHttpRequest' } }
+                );
+
+                var option = document.querySelector('.groups-mention-option');
+                expect(option.textContent).toBe('Marie Dupont');
+
+                option.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+                expect(field.value).toBe('Merci @Marie Dupont ');
+            } finally {
+                vi.useRealTimers();
+            }
+        });
+
+        it('does not query on a bare @ — one character is not a search', async () => {
+            vi.useFakeTimers();
+            try {
+                global.fetch = vi.fn();
+                var field = composer('Merci @');
+
+                type(field);
+                await vi.advanceTimersByTimeAsync(300);
+
+                expect(fetch).not.toHaveBeenCalled();
+            } finally {
+                vi.useRealTimers();
+            }
+        });
+
+        it('ignores a field that does not opt in', async () => {
+            vi.useFakeTimers();
+            try {
+                global.fetch = vi.fn();
+                document.body.innerHTML = '<textarea id="plain"></textarea>';
+                var field = /** @type {HTMLTextAreaElement} */ (document.getElementById('plain'));
+                field.value = 'Merci @Marie';
+                field.setSelectionRange(field.value.length, field.value.length);
+
+                type(field);
+                await vi.advanceTimersByTimeAsync(300);
+
+                expect(fetch).not.toHaveBeenCalled();
+            } finally {
+                vi.useRealTimers();
+            }
+        });
+    });
+
     it('toggles a post into edit mode and back', async () => {
         document.body.innerHTML = `
             <p id="post-body-42">Texte original</p>

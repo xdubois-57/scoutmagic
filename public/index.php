@@ -2504,6 +2504,7 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
         $groupsReadStateService
     );
     $groupsSeenByService = new \Modules\Groups\Service\SeenByService($groupsReadStateService, $memberService);
+    $groupsMentionService = new \Modules\Groups\Service\MentionService($groupsRecipientResolver, $memberService);
 
     // Group files are readable only by the group's own members —
     // ARCHITECTURE.md §8.3's owner_type registry, appended here so it
@@ -2558,7 +2559,7 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
             $twig, $groupsGroupRepo, $groupsPostRepo, $groupsAccessService, $groupsFeedService,
             $groupsPostService, $groupsContextFactory, $groupsPostMediaService, $groupsPostLinkService,
             $groupsReplyService, $groupsAuthorOptionsService, $groupsReportService,
-            $groupsNotificationService, $groupsSeenByService
+            $groupsNotificationService, $groupsSeenByService, $groupsMentionService
         )
     );
     $frontController->registerController(
@@ -2566,7 +2567,7 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
         new \Modules\Groups\Controller\ReplyController(
             $twig, $groupsGroupRepo, $groupsPostRepo, $groupsReplyRepo, $groupsAccessService,
             $groupsReplyService, $groupsReplyPresenter, $groupsPostMediaService, $groupsContextFactory,
-            $groupsReportService, $groupsNotificationService
+            $groupsReportService, $groupsNotificationService, $groupsMentionService
         )
     );
     $frontController->registerController(

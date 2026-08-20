@@ -2,7 +2,7 @@
   "id": "groups",
   "name": "Groupes de discussion",
   "description": "Groupes de discussion privés pour l'unité : un groupe par section et par année scoute, ou des groupes sur invitation. Visibles uniquement par leurs membres.",
-  "version": "1.12.0",
+  "version": "1.13.0",
   "enabled_by_default": false,
   "requires": [
     "gallery"
@@ -209,6 +209,15 @@
       "method": "GET",
       "controller": "Modules\\Groups\\Controller\\PostController",
       "action": "feed",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/groups/{id}/mention-search",
+      "method": "GET",
+      "controller": "Modules\\Groups\\Controller\\PostController",
+      "action": "mentionSearch",
       "menu": "espace_animes",
       "role_min": "identified",
       "label": ""
@@ -510,6 +519,18 @@
       "channels": {
         "in_app": "default_on",
         "push": "default_off",
+        "email": "default_off"
+      }
+    },
+    {
+      "id": "groups.mentioned",
+      "label": "Vous êtes cité dans un groupe",
+      "description": "Quand quelqu'un écrit votre nom précédé d'un @ dans un message ou une réponse d'un de vos groupes. Utile si vous avez désactivé la notification de chaque nouveau message : celle-ci ne vous prévient que lorsqu'on s'adresse à vous.",
+      "group": "Groupes",
+      "role_min": "identified",
+      "channels": {
+        "in_app": "default_on",
+        "push": "default_on",
         "email": "default_off"
       }
     },

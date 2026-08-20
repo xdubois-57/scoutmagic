@@ -63,14 +63,14 @@ class GroupNotificationTypesTest extends TestCase
     }
 
     /**
-     * The four appear on the preferences page — grouped under "Groupes",
+     * They all appear on the preferences page — grouped under "Groupes",
      * with the French labels a member actually reads.
      */
-    public function testTheFourTypesReachTheRegistryUnderTheGroupesHeading(): void
+    public function testEveryTypeReachesTheRegistryUnderTheGroupesHeading(): void
     {
         $types = $this->groupsTypes();
 
-        $this->assertCount(4, $types);
+        $this->assertCount(5, $types);
         foreach ($types as $type) {
             $this->assertSame('Groupes', $type->group);
         }
@@ -80,6 +80,7 @@ class GroupNotificationTypesTest extends TestCase
                 'Nouveau message dans un groupe',
                 'Réponse à votre message',
                 'Réaction à votre message',
+                'Vous êtes cité dans un groupe',
                 'Contenu signalé dans un groupe',
             ],
             array_map(static fn(NotificationType $t): string => $t->label, array_values($types))
@@ -97,6 +98,7 @@ class GroupNotificationTypesTest extends TestCase
             GroupNotificationService::TYPE_POST_PUBLISHED,
             GroupNotificationService::TYPE_REPLY_RECEIVED,
             GroupNotificationService::TYPE_REACTION_RECEIVED,
+            GroupNotificationService::TYPE_MENTIONED,
             GroupNotificationService::TYPE_ITEM_REPORTED,
         ] as $typeId) {
             $this->assertNotNull($this->service->findType($typeId), "{$typeId} must be declared in module.json");

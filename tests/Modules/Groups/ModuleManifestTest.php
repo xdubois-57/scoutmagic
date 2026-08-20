@@ -44,7 +44,7 @@ class ModuleManifestTest extends TestCase
      */
     public function testTheVersionIsBumpedWheneverTheSchemaChanges(): void
     {
-        $this->assertSame('1.12.0', $this->manifest->version);
+        $this->assertSame('1.13.0', $this->manifest->version);
     }
 
     /**
@@ -236,10 +236,10 @@ class ModuleManifestTest extends TestCase
     }
 
     /**
-     * The four types this module can send, exactly as the preferences
-     * page will list them (grouped by `group`, labelled in French).
+     * Every type this module can send, exactly as the preferences page
+     * will list them (grouped by `group`, labelled in French).
      */
-    public function testItDeclaresTheFourNotificationTypes(): void
+    public function testItDeclaresItsNotificationTypes(): void
     {
         $byId = array_column($this->manifest->notifications, null, 'id');
 
@@ -248,6 +248,7 @@ class ModuleManifestTest extends TestCase
                 'groups.post_published',
                 'groups.reply_received',
                 'groups.reaction_received',
+                'groups.mentioned',
                 'groups.item_reported',
             ],
             array_keys($byId)
@@ -262,9 +263,9 @@ class ModuleManifestTest extends TestCase
     }
 
     /**
-     * Email is off — and LOCKED off — on all four: none of these is worth
-     * an email, and a member who switched it on would get one per
-     * reaction (module spec, "do not send email for any of these").
+     * Email is off — and LOCKED off — on every one of them: none of these
+     * is worth an email, and a member who switched it on would get one
+     * per reaction (module spec, "do not send email for any of these").
      */
     public function testNoNotificationTypeCanEverSendEmail(): void
     {
@@ -286,6 +287,10 @@ class ModuleManifestTest extends TestCase
         // interrupt anyone by default.
         $this->assertSame('default_on', $byId['groups.reaction_received']['channels']['in_app']);
         $this->assertSame('default_off', $byId['groups.reaction_received']['channels']['push']);
+
+        // Being named is: a mention is the type somebody keeps switched
+        // on precisely so they can switch the every-message one off.
+        $this->assertSame('default_on', $byId['groups.mentioned']['channels']['push']);
     }
 
     /**

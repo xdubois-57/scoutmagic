@@ -44,7 +44,18 @@
             <div class="card-body">
                 <label class="form-label small mb-1" for="post-body">Écrire un message</label>
                 {{ csrf_field()|raw }}
+                {#
+                  data-mention-url turns on the "@" autocomplete
+                  (groups.js): typing @ then a few letters offers the
+                  group's own members, and picking one inserts their name
+                  as plain text. Nothing about the mention is submitted
+                  alongside the message — the server reads the names back
+                  out of the stored body itself (Service\MentionService),
+                  so a message typed with no JavaScript at all mentions
+                  exactly the same people.
+                #}
                 <textarea class="form-control mb-2" id="post-body" name="body" rows="3"
+                          data-mention-url="/groups/{{ group.id }}/mention-search"
                           maxlength="{{ max_body_length }}" placeholder="Votre message…">{% if rejected_draft|default(null) and not rejected_draft.post_id %}{{ rejected_draft.body }}{% endif %}</textarea>
 
                 {% if author_options is not empty %}

@@ -200,8 +200,10 @@
                     <label class="visually-hidden" for="reply-body-input-{{ row.post.id }}">Répondre</label>
                     {# Refilled only for the very post whose reply was refused, and only
                        for its own author — see show.html.twig's panel. #}
+                    {# Same "@" autocomplete as the composer — see show.html.twig. #}
                     <input type="text" class="form-control form-control-sm" id="reply-body-input-{{ row.post.id }}"
                            name="body" placeholder="Répondre…" style="min-height:44px;"
+                           data-mention-url="/groups/{{ group.id }}/mention-search"
                            value="{% if rejected_draft|default(null) and rejected_draft.post_id == row.post.id %}{{ rejected_draft.body }}{% endif %}"
                            maxlength="{{ constant('Modules\\Groups\\Service\\ReplyService::MAX_BODY_LENGTH') }}">
                     <label class="btn btn-sm btn-outline-secondary d-flex align-items-center mb-0"

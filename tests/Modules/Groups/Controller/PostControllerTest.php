@@ -198,8 +198,27 @@ class PostControllerTest extends TestCase
             new AuthorOptionsService($access, $memberService),
             $stack['reportService'],
             null,
-            new \Modules\Groups\Service\SeenByService($readStateService, $memberService)
+            new \Modules\Groups\Service\SeenByService($readStateService, $memberService),
+            new \Modules\Groups\Service\MentionService(
+                $this->recipientResolverFor([$this->memberId, $this->otherMemberId]),
+                $memberService
+            )
         );
+    }
+
+    /**
+     * A stubbed recipient resolver answering "these are the group's
+     * members" — the real one reaches for blind indexes and encrypted
+     * addresses, none of which this file's fixtures set up.
+     *
+     * @param int[] $memberIds
+     */
+    private function recipientResolverFor(array $memberIds): \Modules\Groups\Service\GroupRecipientResolver
+    {
+        $resolver = $this->createStub(\Modules\Groups\Service\GroupRecipientResolver::class);
+        $resolver->method('memberIdsFor')->willReturn($memberIds);
+
+        return $resolver;
     }
 
     private function profile(int $memberId): MemberProfile
@@ -877,6 +896,62 @@ class PostControllerTest extends TestCase
         $this->withCsrf([]);
 
         $this->assertSame(404, $this->controller([$outsider])->pin($this->request(), $this->params($postId))->getStatusCode());
+    }
+
+    // --- mentions -------------------------------------------------------
+
+    private function mentionSearchRequest(string $q): Request
+    {
+        return new Request('GET', '/groups/' . $this->groupId . '/mention-search', ['q' => $q], [], [], []);
+    }
+
+    public function testMentionSearchOffersTheGroupsOwnMembers(): void
+    {
+        $response = $this->controller([$this->memberId])->mentionSearch($this->mentionSearchRequest('Ak'), $this->params());
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame(
+            [['id' => $this->memberId, 'label' => 'Akéla']],
+            json_decode($response->getBody(), true)
+        );
+    }
+
+    /**
+     * Unlike the invite box's member-search, this one is open to every
+     * member of the group — it returns names they already see on the
+     * members page — but it is still 404 for somebody outside it.
+     */
+    public function testMentionSearchIs404ForANonMember(): void
+    {
+        $outsider = GroupsTestHelper::createMember($this->pdo, 'OUTMENTION');
+
+        $response = $this->controller([$outsider], self::OTHER_ACCOUNT)
+            ->mentionSearch($this->mentionSearchRequest('Ak'), $this->params());
+
+        $this->assertSame(404, $response->getStatusCode());
+    }
+
+    public function testMentionSearchReturnsNothingForAnEmptyQuery(): void
+    {
+        $response = $this->controller([$this->memberId])->mentionSearch($this->mentionSearchRequest(''), $this->params());
+
+        $this->assertSame([], json_decode($response->getBody(), true));
+    }
+
+    /**
+     * The autocomplete is a typing aid, not the mechanism: the field
+     * carries the endpoint, and picking a name only ever types plain
+     * text into the body.
+     */
+    public function testTheComposerAndTheReplyBoxBothCarryTheMentionEndpoint(): void
+    {
+        GroupsTestHelper::createPostAt($this->pdo, $this->groupId, 'Bonjour', '2026-01-10 10:00:00', self::AUTHOR_ACCOUNT, $this->memberId);
+
+        $body = $this->controller([$this->memberId])
+            ->feed(new Request('GET', '/groups/' . $this->groupId . '/feed', [], [], [], []), $this->params())
+            ->getBody();
+
+        $this->assertStringContainsString('data-mention-url="/groups/' . $this->groupId . '/mention-search"', $body);
     }
 
     // --- seen by --------------------------------------------------------

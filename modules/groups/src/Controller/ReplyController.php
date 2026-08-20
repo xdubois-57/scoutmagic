@@ -27,6 +27,7 @@ use Modules\Groups\Service\GroupSessionContext;
 use Modules\Groups\Service\GroupNotificationService;
 use Modules\Groups\Service\GroupSessionContextFactory;
 use Modules\Groups\Service\GroupsException;
+use Modules\Groups\Service\MentionService;
 use Modules\Groups\Service\PostMediaService;
 use Modules\Groups\Service\ReplyPresenter;
 use Modules\Groups\Service\ReplyService;
@@ -57,7 +58,8 @@ class ReplyController extends AbstractController
         private PostMediaService $postMediaService,
         private GroupSessionContextFactory $contextFactory,
         private ReportService $reportService,
-        private ?GroupNotificationService $notificationService = null
+        private ?GroupNotificationService $notificationService = null,
+        private ?MentionService $mentionService = null
     ) {
     }
 
@@ -201,6 +203,11 @@ class ReplyController extends AbstractController
         $reply = $this->replyRepository->findById($replyId);
         if ($reply !== null) {
             $this->notificationService?->replyReceived($group, $post, $reply, $context->effectiveScoutYearId);
+            // Where a mention earns its keep most: a reply otherwise
+            // reaches the post's author and nobody else, so a question
+            // aimed at a third person three replies down a thread used to
+            // reach no one at all.
+            $this->notifyMentions($group, $post, $reply, $context);
         }
 
         // groups.js appends this fragment straight under the post instead
@@ -264,10 +271,21 @@ class ReplyController extends AbstractController
             // its own — the same "text alone or image alone" rule as
             // creation.
             if ($this->replyService->isReplyable($body, $reply->galleryMediaId !== null)) {
+                // Read before the write: whoever this reply already named
+                // has been told once, and an edit must not tell them
+                // again — only whoever the edit newly names.
+                $alreadyMentioned = $this->mentionService?->resolve($group, $reply->body, $context->effectiveScoutYearId) ?? [];
+
                 try {
                     $this->replyService->edit($reply, $body);
                 } catch (GroupsException $e) {
                     return $this->refuse($request, $e, $group->id, $body, $reply->postId);
+                }
+
+                $post = $this->postRepository->findById($reply->postId);
+                $edited = $this->replyRepository->findById($reply->id);
+                if ($post !== null && $edited !== null) {
+                    $this->notifyMentions($group, $post, $edited, $context, $alreadyMentioned);
                 }
             }
 
@@ -430,6 +448,42 @@ class ReplyController extends AbstractController
     /**
      * @param array<string, string> $params
      */
+    /**
+     * Notifies whoever this reply's STORED body names after an "@" — the
+     * reply's own text, resolved server-side (Service\MentionService),
+     * never a list of ids the request claimed.
+     *
+     * The deep link points at the POST, because that is where the reply
+     * lives and what a member needs to open to answer it.
+     *
+     * @param int[] $alreadyNotified member ids to leave alone, so an edit
+     *        only tells the people the edit newly named
+     */
+    private function notifyMentions(
+        DiscussionGroup $group,
+        Post $post,
+        Reply $reply,
+        GroupSessionContext $context,
+        array $alreadyNotified = []
+    ): void {
+        if ($this->mentionService === null || $this->notificationService === null || $context->userAccountId === null) {
+            return;
+        }
+
+        $this->notificationService->mentioned(
+            $group,
+            $post->id,
+            array_values(array_diff(
+                $this->mentionService->resolve($group, $reply->body, $context->effectiveScoutYearId),
+                $alreadyNotified
+            )),
+            $reply->body,
+            $reply->isHidden() || $post->isHidden(),
+            $context->userAccountId,
+            $context->effectiveScoutYearId
+        );
+    }
+
     private function readableGroup(array $params, GroupSessionContext $context): ?DiscussionGroup
     {
         $group = $this->groupRepository->findById((int) ($params['id'] ?? 0));

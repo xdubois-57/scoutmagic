@@ -544,6 +544,203 @@
         });
     })();
 
+    // The "@" autocomplete, shared by the composer and every reply box —
+    // any field carrying data-mention-url (show.html.twig, partials/
+    // post_card.html.twig).
+    //
+    // It only ever inserts PLAIN TEXT: picking a name types "@Marie
+    // Dupont" into the field and nothing else. No hidden id travels with
+    // the message, because the server resolves the names back out of the
+    // stored body itself (Service\MentionService) — which is also why a
+    // member with no JavaScript can mention somebody by simply typing
+    // their name, and why this whole block is optional.
+    (function () {
+        // One menu for the whole page, positioned under whichever field
+        // is being typed into. Appended to <body> rather than next to the
+        // field: the composer and a reply box sit in very different
+        // boxes, and an absolutely-positioned child would need each of
+        // them to be a positioning context.
+        var menu = null;
+        var activeField = null;
+        var activeStart = -1;
+        var searchTimer = null;
+
+        function closeMenu() {
+            if (menu) {
+                menu.classList.add('d-none');
+            }
+            activeField = null;
+            activeStart = -1;
+        }
+
+        function ensureMenu() {
+            if (menu) {
+                return menu;
+            }
+            menu = document.createElement('ul');
+            menu.id = 'groups-mention-menu';
+            menu.className = 'list-group shadow-sm d-none';
+            menu.style.position = 'absolute';
+            menu.style.zIndex = '1080';
+            menu.style.maxHeight = '15rem';
+            menu.style.overflowY = 'auto';
+            menu.setAttribute('role', 'listbox');
+            document.body.appendChild(menu);
+
+            return menu;
+        }
+
+        function placeMenu(field) {
+            var rect = field.getBoundingClientRect();
+            menu.style.left = (rect.left + window.scrollX) + 'px';
+            menu.style.top = (rect.bottom + window.scrollY + 2) + 'px';
+            menu.style.minWidth = rect.width + 'px';
+        }
+
+        // The "@…" being typed right before the caret, or null. Bounded to
+        // two words so a message that merely contains an "@" somewhere
+        // does not keep querying for the rest of the sentence.
+        function tokenBeforeCaret(field) {
+            var caret = field.selectionStart;
+            if (typeof caret !== 'number') {
+                return null;
+            }
+            var match = /@([\p{L}][\p{L}\-']*(?:\s[\p{L}][\p{L}\-']*)?)?$/u.exec(field.value.slice(0, caret));
+            if (!match) {
+                return null;
+            }
+
+            return { start: caret - match[0].length, query: match[1] || '' };
+        }
+
+        function insertName(label) {
+            if (!activeField || activeStart < 0) {
+                return;
+            }
+            var caret = activeField.selectionStart;
+            var before = activeField.value.slice(0, activeStart);
+            var after = activeField.value.slice(caret);
+            activeField.value = before + '@' + label + ' ' + after;
+            var newCaret = (before + '@' + label + ' ').length;
+            activeField.setSelectionRange(newCaret, newCaret);
+            activeField.focus();
+            // The composer caches drafts on its own input listener, so the
+            // inserted name has to look like typing to it.
+            activeField.dispatchEvent(new Event('input', { bubbles: true }));
+            closeMenu();
+        }
+
+        function render(members) {
+            if (members.length === 0) {
+                closeMenu();
+                return;
+            }
+            menu.innerHTML = '';
+            members.forEach(function (member, index) {
+                var item = document.createElement('li');
+                item.className = 'list-group-item list-group-item-action groups-mention-option';
+                item.style.cursor = 'pointer';
+                item.style.minHeight = '44px';
+                item.setAttribute('role', 'option');
+                item.dataset.label = member.label;
+                item.textContent = member.label;
+                if (index === 0) {
+                    item.classList.add('active');
+                }
+                menu.appendChild(item);
+            });
+            menu.classList.remove('d-none');
+        }
+
+        function highlighted() {
+            return menu && !menu.classList.contains('d-none')
+                ? /** @type {HTMLElement} */ (menu.querySelector('.groups-mention-option.active'))
+                : null;
+        }
+
+        function move(step) {
+            var current = highlighted();
+            if (!current) {
+                return;
+            }
+            var options = Array.prototype.slice.call(menu.querySelectorAll('.groups-mention-option'));
+            var next = options[(options.indexOf(current) + step + options.length) % options.length];
+            current.classList.remove('active');
+            next.classList.add('active');
+        }
+
+        document.addEventListener('input', function (event) {
+            var field = /** @type {HTMLInputElement|HTMLTextAreaElement} */ (
+                /** @type {HTMLElement} */ (event.target).closest('[data-mention-url]')
+            );
+            if (!field) {
+                return;
+            }
+
+            clearTimeout(searchTimer);
+            var token = tokenBeforeCaret(field);
+            // Two letters before querying, same floor as the invite box:
+            // "@" alone in a group of forty is not a search.
+            if (!token || token.query.length < 2) {
+                closeMenu();
+                return;
+            }
+
+            activeField = field;
+            activeStart = token.start;
+            searchTimer = setTimeout(function () {
+                fetch(field.dataset.mentionUrl + '?q=' + encodeURIComponent(token.query), {
+                    headers: { 'X-Requested-With': 'XMLHttpRequest' }
+                }).then(function (response) {
+                    return response.ok ? response.json() : [];
+                }).then(function (members) {
+                    if (activeField !== field) {
+                        return;
+                    }
+                    ensureMenu();
+                    placeMenu(field);
+                    render(members);
+                }).catch(closeMenu);
+            }, 250);
+        });
+
+        // Enter would submit a reply box and Tab would leave the field, so
+        // both are intercepted while the menu is open — and only then.
+        document.addEventListener('keydown', function (event) {
+            var option = highlighted();
+            if (!option || !activeField) {
+                return;
+            }
+
+            if (event.key === 'Escape') {
+                closeMenu();
+                return;
+            }
+            if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                event.preventDefault();
+                move(event.key === 'ArrowDown' ? 1 : -1);
+                return;
+            }
+            if (event.key === 'Enter' || event.key === 'Tab') {
+                event.preventDefault();
+                insertName(option.dataset.label);
+            }
+        });
+
+        document.addEventListener('click', function (event) {
+            var target = /** @type {HTMLElement} */ (event.target);
+            var option = /** @type {HTMLElement} */ (target.closest('.groups-mention-option'));
+            if (option) {
+                event.preventDefault();
+                insertName(option.dataset.label);
+                return;
+            }
+            if (menu && !menu.contains(target)) {
+                closeMenu();
+            }
+        });
+    })();
+
     // Polls for a photo/video still being resized in the background so
     // the real thumbnail appears in place the moment it is ready, with no
     // page reload. Every 'pending'/'processing' media cell already
