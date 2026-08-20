@@ -279,6 +279,30 @@ describe('groups.js dynamic reactions, in-place pagination and inline edit toggl
         );
     });
 
+    it('a poll vote swaps the poll block in place without reloading', async () => {
+        document.body.innerHTML = `
+            <div class="groups-poll">
+                <form class="groups-poll-form" action="/groups/1/posts/9/vote" method="post">
+                    <input type="hidden" name="option_id" value="4">
+                    <button type="submit">Samedi</button>
+                </form>
+            </div>
+        `;
+        global.fetch = vi.fn(() => Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ html: '<div class="groups-poll">3 votes</div>' })
+        }));
+
+        document.querySelector('.groups-poll-form button').click();
+
+        await vi.waitFor(() => expect(document.body.innerHTML).toContain('3 votes'));
+        // jsdom resolves form.action to an absolute URL.
+        expect(fetch).toHaveBeenCalledWith(
+            expect.stringContaining('/groups/1/posts/9/vote'),
+            expect.objectContaining({ method: 'POST' })
+        );
+    });
+
     // The "@" autocomplete. It only ever types plain text into the field:
     // no id travels with the message, because the server resolves the
     // names back out of the stored body (Service\MentionService).

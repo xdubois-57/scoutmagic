@@ -503,3 +503,61 @@ CREATE TABLE discussion_group_reads (
     CONSTRAINT fk_dgr_group FOREIGN KEY (group_id) REFERENCES discussion_groups(id) ON DELETE CASCADE,
     CONSTRAINT fk_dgr_member FOREIGN KEY (member_id) REFERENCES members(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- A poll attached to a post: "Qui vient au week-end ?" with a fixed set
+-- of answers. One poll per post at most (the UNIQUE below), because a
+-- post IS the poll's container — its author, its group, its deletion and
+-- its retention purge all come from the post, and nothing here duplicates
+-- any of them.
+--
+-- No closing date and no "closed" flag: a poll stops accepting votes for
+-- exactly the reasons a post stops accepting replies — the group was
+-- closed, or its scout year has passed — and that answer already lives in
+-- Service\GroupAccessService::canPost(). A second, poll-specific notion
+-- of "closed" would be one more thing able to disagree with it.
+--
+-- No personal data: a question and its options are member-supplied text
+-- about an activity, stored raw and escaped by Twig, never HTML
+-- (SECURITY.md §5) — the same rule as a post body.
+CREATE TABLE discussion_group_polls (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    post_id INT UNSIGNED NOT NULL,
+    question VARCHAR(300) NOT NULL,
+    created_at DATETIME NOT NULL,
+    UNIQUE INDEX idx_dgpo_post (post_id),
+    CONSTRAINT fk_dgpo_post FOREIGN KEY (post_id) REFERENCES discussion_group_posts(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- One answer a member may pick. `position` fixes the display order once
+-- and for all: the order the author typed them in is meaningful ("samedi
+-- / dimanche / les deux") and must not become the order rows happen to
+-- come back in, nor drift as votes arrive.
+CREATE TABLE discussion_group_poll_options (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    poll_id INT UNSIGNED NOT NULL,
+    label VARCHAR(150) NOT NULL,
+    position TINYINT UNSIGNED NOT NULL,
+    INDEX idx_dgpop_poll (poll_id, position),
+    CONSTRAINT fk_dgpop_poll FOREIGN KEY (poll_id) REFERENCES discussion_group_polls(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- One vote per member per poll, and changeable: the UNIQUE below is what
+-- makes "change my mind" an UPDATE rather than a second row, and what
+-- makes two tabs voting at once safe (Repository\PollRepository::vote()
+-- uses the same INSERT-then-UPDATE shape as a reaction).
+--
+-- Keyed on member_id like every other per-member row in this module, so a
+-- parent linked to two children in one group votes once as the member
+-- they post as, not twice.
+CREATE TABLE discussion_group_poll_votes (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    poll_id INT UNSIGNED NOT NULL,
+    option_id INT UNSIGNED NOT NULL,
+    member_id INT UNSIGNED NOT NULL,
+    created_at DATETIME NOT NULL,
+    UNIQUE INDEX idx_dgpv_poll_member (poll_id, member_id),
+    INDEX idx_dgpv_option (option_id),
+    CONSTRAINT fk_dgpv_poll FOREIGN KEY (poll_id) REFERENCES discussion_group_polls(id) ON DELETE CASCADE,
+    CONSTRAINT fk_dgpv_option FOREIGN KEY (option_id) REFERENCES discussion_group_poll_options(id) ON DELETE CASCADE,
+    CONSTRAINT fk_dgpv_member FOREIGN KEY (member_id) REFERENCES members(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

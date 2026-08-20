@@ -977,29 +977,45 @@
             return;
         }
 
-        // A reaction button's form still posts and redirects with no JS at
-        // all (partials/reactions.html.twig's own docblock promise) — this
-        // only upgrades that same POST to a fetch() so the page never
-        // reloads. The `X-Requested-With` header is what tells
-        // Controller\ReactionController to answer with the freshly rendered
-        // fragment (JSON: {outcome, html}) instead of its usual redirect;
-        // any failure — network, non-2xx, a malformed body — falls through
-        // to the plain form submit, so a stale CSRF token or a dropped
-        // connection degrades to a page reload rather than doing nothing.
+        // A reaction button's form still posts and redirects with no JS
+        // at all (partials/reactions.html.twig's own docblock promise) —
+        // this only upgrades that same POST to a fetch() so the page
+        // never reloads. See swapFragmentOnSubmit() below.
+        // A poll option, upgraded the same way and swapped the same way:
+        // its form posts and redirects perfectly well with no JS
+        // (partials/poll.html.twig's own docblock promise).
+        var pollForm = /** @type {HTMLFormElement} */ (target.closest('.groups-poll-form'));
+        if (pollForm) {
+            event.preventDefault();
+            swapFragmentOnSubmit(pollForm, '.groups-poll');
+            return;
+        }
+
         var form = /** @type {HTMLFormElement} */ (target.closest('.groups-reaction-form'));
         if (!form) {
             return;
         }
         event.preventDefault();
+        swapFragmentOnSubmit(form, '.groups-reactions');
+    });
 
-        var container = form.closest('.groups-reactions');
+    // Shared by a reaction button and a poll option: POST the form, then
+    // replace the block it lives in with the server's freshly rendered
+    // answer. The `X-Requested-With` header is what tells the controller
+    // to return that fragment (JSON: {html}) instead of its usual
+    // redirect; ANY failure — network, non-2xx, a malformed body — falls
+    // through to the plain form submit, so a stale CSRF token or a
+    // dropped connection degrades to a page reload rather than to
+    // nothing happening at all.
+    function swapFragmentOnSubmit(form, containerSelector) {
+        var container = form.closest(containerSelector);
         fetch(form.action, {
             method: 'POST',
             body: new FormData(form),
             headers: { 'X-Requested-With': 'XMLHttpRequest' }
         }).then(function (response) {
             if (!response.ok) {
-                throw new Error('reaction request failed');
+                throw new Error('request failed');
             }
             return response.json();
         }).then(function (data) {
@@ -1011,7 +1027,7 @@
         }).catch(function () {
             form.submit();
         });
-    });
+    }
 
     // The shared "who…?" dialog: a reaction tally's "who reacted, and
     // with what" (Controller\ReactionController's postReactors()/

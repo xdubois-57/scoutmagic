@@ -54,7 +54,8 @@ class GroupFeedService
         // Also nullable and also last, and for a stronger reason than
         // the one above: this one reaches another MODULE. With calendar
         // disabled it is simply absent and no post shows an event.
-        private ?PostEventService $eventService = null
+        private ?PostEventService $eventService = null,
+        private ?PollService $pollService = null
     ) {
     }
 
@@ -123,6 +124,7 @@ class GroupFeedService
         $postReactions = $this->reactionService->forPosts($postIds, $context->linkedMemberIds);
         $postReports = $this->reportService->forPosts($postIds, $context->linkedMemberIds);
         $seenCounts = $this->readStateService?->seenCountsForPosts($group, $posts) ?? [];
+        $polls = $this->pollService?->forPosts($postIds, $context->linkedMemberIds) ?? [];
         $events = $this->eventService?->summariesFor(
             array_map(fn(Post $p) => $p->calendarEventId, $posts),
             $context->role
@@ -149,6 +151,7 @@ class GroupFeedService
             'reports' => $postReports,
             'seen_counts' => $seenCounts,
             'events' => $events,
+            'polls' => $polls,
         ];
     }
 
@@ -225,6 +228,10 @@ class GroupFeedService
             // nobody, by definition — no query needed to say so.
             'seen_counts' => [$post->id => 0],
             'events' => $this->eventService?->summariesFor([$post->calendarEventId], $context->role) ?? [],
+            // A poll created alongside this very post: fetched, not
+            // assumed empty, because Controller\PostController::create()
+            // attaches it before rendering the fragment groups.js inserts.
+            'polls' => $this->pollService?->forPosts([$post->id], $context->linkedMemberIds) ?? [],
         ];
 
         return $this->decorate($post, $page, $context, $canModerate);
@@ -244,7 +251,8 @@ class GroupFeedService
      *     reactions: array{counts: array<int, array<string, int>>, own: array<int, string>},
      *     reports: array{reported: array<int, true>, counts: array<int, int>},
      *     seen_counts?: array<int, int>,
-     *     events?: array<int, \Modules\Calendar\Api\EventSummary>
+     *     events?: array<int, \Modules\Calendar\Api\EventSummary>,
+     *     polls?: array<int, array<string, mixed>>
      * } $page
      * @return array<string, mixed>
      */
@@ -301,6 +309,7 @@ class GroupFeedService
             'event' => $post->calendarEventId !== null
                 ? ($page['events'][$post->calendarEventId] ?? null)
                 : null,
+            'poll' => $page['polls'][$post->id] ?? null,
             'is_hidden' => $canModerate && $post->isHidden(),
             'report_count' => $canModerate ? ($page['reports']['counts'][$post->id] ?? 0) : 0,
         ];

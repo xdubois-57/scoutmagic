@@ -851,6 +851,25 @@ class GroupControllerTest extends TestCase
         $this->assertStringContainsString('/groups/' . $groupId . '/search', $body);
     }
 
+    public function testTheComposerOffersThePollBoxes(): void
+    {
+        $moderator = GroupsTestHelper::createMember($this->pdo, 'MPOLL');
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $moderator);
+
+        $body = $this->controller([$moderator])
+            ->show(new Request('GET', '/groups/' . $groupId, [], [], [], []), ['id' => (string) $groupId])
+            ->getBody();
+
+        $this->assertStringContainsString('Ajouter un sondage', $body);
+        $this->assertStringContainsString('name="poll_question"', $body);
+        // More than the minimum, so a three- or four-choice poll needs no
+        // second trip through the form.
+        $this->assertGreaterThan(
+            \Modules\Groups\Service\PollService::MIN_OPTIONS,
+            substr_count($body, 'name="poll_options[]"')
+        );
+    }
+
     // ---- linked calendar event ----
 
     private function eventLookup(?\Modules\Calendar\Api\EventSummary $event): \Modules\Calendar\Api\CalendarEventLookupInterface

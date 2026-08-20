@@ -66,6 +66,9 @@ class GroupController extends AbstractController
      */
     public const MAX_DESCRIPTION_LENGTH = 300;
 
+    /** How many poll-option boxes the composer offers — see show(). */
+    private const POLL_OPTION_SLOTS = 4;
+
     public function __construct(
         protected Environment $twig,
         private GroupRepository $groupRepository,
@@ -177,6 +180,12 @@ class GroupController extends AbstractController
             // also what hides the picker — the composer never mentions a
             // feature this install does not have.
             'event_options' => $this->eventService?->options($context) ?? [],
+            // How many option boxes the poll section offers. Four is
+            // enough for the questions a group actually asks and short
+            // enough to stay a form rather than a wall; the two beyond
+            // the minimum are labelled optional, and blank ones are
+            // dropped server-side (Service\PollService::normalise()).
+            'poll_option_slots' => self::POLL_OPTION_SLOTS,
             // A message the AI moderation just refused, handed back to
             // its author so the composer is not emptied. Read-and-clear:
             // it survives exactly this one render, and lives nowhere but

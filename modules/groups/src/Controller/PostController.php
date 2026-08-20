@@ -29,6 +29,7 @@ use Modules\Groups\Service\GroupSessionContextFactory;
 use Modules\Groups\Service\GroupsException;
 use Modules\Groups\Service\MentionService;
 use Modules\Groups\Service\PostLinkService;
+use Modules\Groups\Service\PollService;
 use Modules\Groups\Service\PostEventService;
 use Modules\Groups\Service\PostMediaService;
 use Modules\Groups\Service\PostService;
@@ -66,7 +67,8 @@ class PostController extends AbstractController
         private ?GroupNotificationService $notificationService = null,
         private ?SeenByService $seenByService = null,
         private ?MentionService $mentionService = null,
-        private ?PostEventService $eventService = null
+        private ?PostEventService $eventService = null,
+        private ?PollService $pollService = null
     ) {
     }
 
@@ -223,7 +225,20 @@ class PostController extends AbstractController
             $body = PostLinkService::stripUrl($body, $link);
         }
 
-        if (!$this->postService->isPostable($body, count($files), $link !== '')) {
+        // A poll's question is text of its own, so a post that carries
+        // one is never "empty" even with no body, no media and no link.
+        // Normalised before that check rather than after, so a half-filled
+        // poll (a question with one option) does not keep an otherwise
+        // empty post alive.
+        $poll = $this->pollService?->normalise(
+            (string) $request->getBody('poll_question', ''),
+            // An <input name="poll_options[]"> row set, so already an
+            // array — cast for the case where nothing at all was
+            // submitted, or something that is not one was.
+            (array) $request->getBody('poll_options', [])
+        );
+
+        if (!$this->postService->isPostable($body, count($files), $link !== '', $poll !== null)) {
             // Silent for a plain form POST, exactly as before — the
             // composer already disables its own submit button on an empty
             // draft, so reaching here at all means something bypassed the
@@ -272,11 +287,10 @@ class PostController extends AbstractController
             $this->postLinkService->attach($group, $postId, $link, $authorMemberId, $context->userAccountId);
         }
 
-        // Last, and only once the post is complete: notifying about a
-        // post whose media upload then failed and rolled it back would
-        // deep-link everyone to a 404. Never throws (see
-        // Service\GroupNotificationService) — a post that published fine
-        // is not undone because a notification could not go out.
+        if ($poll !== null) {
+            $this->pollService?->attachTo($postId, $poll);
+        }
+
         // The submitted id is re-resolved against the calendar's own
         // visibility rules before anything is stored — never trusted, and
         // never joined to. An id naming an event this member may not see
@@ -289,6 +303,11 @@ class PostController extends AbstractController
             $this->postRepository->setCalendarEventId($postId, $eventId);
         }
 
+        // Last, and only once the post is complete: notifying about a
+        // post whose media upload then failed and rolled it back would
+        // deep-link everyone to a 404. Never throws (see
+        // Service\GroupNotificationService) — a post that published fine
+        // is not undone because a notification could not go out.
         $created = $this->postRepository->findById($postId);
         if ($created !== null) {
             $this->notificationService?->postPublished($group, $created, $context->effectiveScoutYearId);
@@ -412,6 +431,62 @@ class PostController extends AbstractController
             }
 
             return $this->redirect('/groups/' . $group->id);
+        });
+    }
+
+    /**
+     * POST /groups/{id}/posts/{postId}/vote — one member's answer to the
+     * poll on that post.
+     *
+     * Gated on canPost(), not merely on canRead(): voting is writing, and
+     * a closed group or a past scout year refuses it for exactly the same
+     * reasons it refuses a reply. That is also why a poll carries no
+     * "closed" flag of its own — schema.sql says so.
+     *
+     * The option id is re-checked against the post's own poll inside
+     * Service\PollService, so a hand-made request cannot vote for an
+     * option belonging to another poll.
+     *
+     * @param array<string, string> $params
+     */
+    public function vote(Request $request, array $params): Response
+    {
+        return $this->postAction($params, function (DiscussionGroup $group, Post $post, GroupSessionContext $context) use ($request): Response {
+            $permission = $this->accessService->canPost($group, $context);
+            if (!$permission->allowed) {
+                return new Response($permission->message, 403);
+            }
+
+            // The member the vote is recorded under is the one this
+            // account posts as in this group — one answer per member, so
+            // a parent linked to two children in the same group votes
+            // once, not twice.
+            $memberId = $this->accessService->memberIdsAllowedToPostAs($group, $context)[0] ?? null;
+            if ($memberId === null || $this->pollService === null) {
+                return new Response('Aucun membre de ce groupe n\'est associé à votre compte.', 403);
+            }
+
+            if (!$this->pollService->vote($post->id, (int) $request->getBody('option_id', 0), $memberId)) {
+                return new Response('Ce choix n\'existe pas.', 400);
+            }
+
+            // groups.js swaps the poll fragment in place; a plain form
+            // POST still gets the redirect it always would, so voting
+            // works with no JavaScript at all.
+            if ($this->wantsJson($request)) {
+                $poll = $this->pollService->forPosts([$post->id], $context->linkedMemberIds)[$post->id] ?? null;
+
+                return $this->json([
+                    'html' => $this->twig->render('@groups/partials/poll.html.twig', [
+                        'poll' => $poll,
+                        'group' => $group,
+                        'post' => $post,
+                        'can_vote' => true,
+                    ]),
+                ]);
+            }
+
+            return $this->redirect('/groups/' . $group->id . '#post-' . $post->id);
         });
     }
 
@@ -560,9 +635,6 @@ class PostController extends AbstractController
         return $action($group, $post, $context);
     }
 
-    /**
-     * @param array<string, string> $params
-     */
     /**
      * Notifies whoever the STORED body names after an "@".
      *

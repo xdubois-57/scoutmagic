@@ -2491,6 +2491,9 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
     );
     $groupsAuthorOptionsService = new \Modules\Groups\Service\AuthorOptionsService($groupsAccessService, $memberService);
 
+    $groupsPollService = new \Modules\Groups\Service\PollService(
+        new \Modules\Groups\Repository\PollRepository($pdo)
+    );
     $groupsFeedService = new \Modules\Groups\Service\GroupFeedService(
         $groupsPostRepo,
         $groupsAuthorResolver,
@@ -2501,7 +2504,12 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
         $groupsReplyPresenter,
         $groupsReactionService,
         $groupsReportService,
-        $groupsReadStateService
+        $groupsReadStateService,
+        // No event service here: calendar's lookup does not exist yet.
+        // The block at the end of this file re-registers the two
+        // controllers that need it — see its own comment.
+        null,
+        $groupsPollService
     );
     $groupsSeenByService = new \Modules\Groups\Service\SeenByService($groupsReadStateService, $memberService);
     $groupsMentionService = new \Modules\Groups\Service\MentionService($groupsRecipientResolver, $memberService);
@@ -2559,7 +2567,7 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
             $twig, $groupsGroupRepo, $groupsPostRepo, $groupsAccessService, $groupsFeedService,
             $groupsPostService, $groupsContextFactory, $groupsPostMediaService, $groupsPostLinkService,
             $groupsReplyService, $groupsAuthorOptionsService, $groupsReportService,
-            $groupsNotificationService, $groupsSeenByService, $groupsMentionService
+            $groupsNotificationService, $groupsSeenByService, $groupsMentionService, null, $groupsPollService
         )
     );
     $frontController->registerController(
@@ -2725,7 +2733,8 @@ if (in_array('calendar', $moduleManager->getEnabledModuleIds(), true)) {
             $groupsReactionService,
             $groupsReportService,
             $groupsReadStateService,
-            $groupsPostEventService
+            $groupsPostEventService,
+            $groupsPollService
         );
         $frontController->registerController(
             \Modules\Groups\Controller\GroupController::class,
@@ -2742,7 +2751,8 @@ if (in_array('calendar', $moduleManager->getEnabledModuleIds(), true)) {
                 $twig, $groupsGroupRepo, $groupsPostRepo, $groupsAccessService, $groupsFeedService,
                 $groupsPostService, $groupsContextFactory, $groupsPostMediaService, $groupsPostLinkService,
                 $groupsReplyService, $groupsAuthorOptionsService, $groupsReportService,
-                $groupsNotificationService, $groupsSeenByService, $groupsMentionService, $groupsPostEventService
+                $groupsNotificationService, $groupsSeenByService, $groupsMentionService, $groupsPostEventService,
+                $groupsPollService
             )
         );
     }

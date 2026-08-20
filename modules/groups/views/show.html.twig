@@ -68,6 +68,37 @@
                 {% endif %}
 
                 {#
+                  A poll, folded away behind a plain <details> so the
+                  composer stays a text box for the ordinary message. No
+                  JavaScript at all: the boxes are always in the DOM, and
+                  leaving them empty is what makes a post without a poll —
+                  Service\PollService::normalise() drops the blank rows
+                  and refuses anything with fewer than two real options,
+                  so a half-filled poll is simply not a poll.
+                #}
+                <details class="mb-2">
+                    <summary class="btn btn-sm btn-outline-secondary d-inline-flex align-items-center"
+                             style="min-height:44px;list-style:none;cursor:pointer;">
+                        <i class="bi bi-bar-chart me-1"></i> Ajouter un sondage
+                    </summary>
+                    <div class="border rounded p-2 mt-2">
+                        <label class="form-label small mb-1" for="poll-question">Question</label>
+                        <input type="text" class="form-control mb-2" id="poll-question" name="poll_question"
+                               style="min-height:44px;" maxlength="{{ constant('Modules\\Groups\\Service\\PollService::MAX_QUESTION_LENGTH') }}"
+                               placeholder="Ex. : Qui vient au week-end ?">
+                        {% for i in 1..poll_option_slots %}
+                            <label class="visually-hidden" for="poll-option-{{ i }}">Choix {{ i }}</label>
+                            <input type="text" class="form-control mb-1" id="poll-option-{{ i }}" name="poll_options[]"
+                                   style="min-height:44px;" maxlength="{{ constant('Modules\\Groups\\Service\\PollService::MAX_OPTION_LENGTH') }}"
+                                   placeholder="Choix {{ i }}{{ i > 2 ? ' (facultatif)' : '' }}">
+                        {% endfor %}
+                        <p class="small text-body-secondary mb-0 mt-1">
+                            Au moins {{ constant('Modules\\Groups\\Service\\PollService::MIN_OPTIONS') }} choix. Chaque membre vote une fois et peut changer d'avis.
+                        </p>
+                    </div>
+                </details>
+
+                {#
                   Only rendered when the calendar module is enabled AND
                   has something in the window to offer — an empty picker
                   would advertise a feature this install does not have

@@ -164,10 +164,13 @@ class PostControllerTest extends TestCase
         // "calendar disabled" wiring, so every other test in this file
         // exercises the degraded path for free.
         $eventService = new \Modules\Groups\Service\PostEventService($eventLookup);
+        $pollService = new \Modules\Groups\Service\PollService(
+            new \Modules\Groups\Repository\PollRepository($this->pdo)
+        );
         $feedService = new GroupFeedService(
             $this->postRepo, $authorResolver, $postService, $postMediaService, $postLinkRepo,
             $stack['replyRepository'], $stack['replyPresenter'], $stack['reactionService'], $stack['reportService'],
-            $readStateService, $eventService
+            $readStateService, $eventService, $pollService
         );
 
         $twig = TwigFactory::create(
@@ -208,7 +211,8 @@ class PostControllerTest extends TestCase
                 $this->recipientResolverFor([$this->memberId, $this->otherMemberId]),
                 $memberService
             ),
-            $eventService
+            $eventService,
+            $pollService
         );
     }
 
@@ -902,6 +906,170 @@ class PostControllerTest extends TestCase
         $this->withCsrf([]);
 
         $this->assertSame(404, $this->controller([$outsider])->pin($this->request(), $this->params($postId))->getStatusCode());
+    }
+
+    // --- polls ----------------------------------------------------------
+
+    /**
+     * @return array<int, array{id: int, label: string}>
+     */
+    private function pollOptionsOf(int $postId): array
+    {
+        $repo = new \Modules\Groups\Repository\PollRepository($this->pdo);
+        $poll = $repo->findByPostId($postId);
+        $this->assertNotNull($poll, 'expected a poll on post ' . $postId);
+
+        return $repo->optionsForPolls([$poll['id']])[$poll['id']];
+    }
+
+    private function seedPostWithPoll(): int
+    {
+        $this->withCsrf([
+            'body' => 'Sondage',
+            'poll_question' => 'Qui vient ?',
+            'poll_options' => ['Samedi', 'Dimanche'],
+        ]);
+        $this->controller([$this->memberId])->create($this->request(), $this->params());
+
+        return $this->postRepo->findPage($this->groupId, 10)[0]->id;
+    }
+
+    public function testAPostCanCarryAPollAndTheFeedRendersIt(): void
+    {
+        $postId = $this->seedPostWithPoll();
+
+        $body = $this->controller([$this->memberId])
+            ->feed(new Request('GET', '/groups/1/feed', [], [], [], []), $this->params())
+            ->getBody();
+
+        $this->assertNotNull((new \Modules\Groups\Repository\PollRepository($this->pdo))->findByPostId($postId));
+        $this->assertStringContainsString('Qui vient ?', $body);
+        $this->assertStringContainsString('Samedi', $body);
+    }
+
+    /**
+     * A poll is text of its own, so it keeps an otherwise empty post
+     * alive — the same way a photo or a link does.
+     */
+    public function testAPollAloneIsEnoughToPublish(): void
+    {
+        $this->withCsrf([
+            'body' => '',
+            'poll_question' => 'Qui vient ?',
+            'poll_options' => ['Samedi', 'Dimanche'],
+        ]);
+
+        $this->controller([$this->memberId])->create($this->request(), $this->params());
+
+        $this->assertCount(1, $this->postRepo->findPage($this->groupId, 10));
+    }
+
+    /**
+     * A half-filled poll is not a poll, so it cannot rescue an empty
+     * post — Service\PollService::normalise() refuses it before the
+     * emptiness check runs.
+     */
+    public function testAHalfFilledPollDoesNotRescueAnEmptyPost(): void
+    {
+        $this->withCsrf(['body' => '', 'poll_question' => 'Qui vient ?', 'poll_options' => ['Samedi']]);
+
+        $this->controller([$this->memberId])->create($this->request(), $this->params());
+
+        $this->assertSame([], $this->postRepo->findPage($this->groupId, 10));
+    }
+
+    public function testAPostWithNoPollFieldsCarriesNoPoll(): void
+    {
+        $this->withCsrf(['body' => 'Juste un message']);
+
+        $this->controller([$this->memberId])->create($this->request(), $this->params());
+
+        $postId = $this->postRepo->findPage($this->groupId, 10)[0]->id;
+        $this->assertNull((new \Modules\Groups\Repository\PollRepository($this->pdo))->findByPostId($postId));
+    }
+
+    public function testAMemberVotesAndGetsTheRefreshedPollBack(): void
+    {
+        $postId = $this->seedPostWithPoll();
+        $options = $this->pollOptionsOf($postId);
+        $this->withCsrf(['option_id' => (string) $options[0]['id']]);
+
+        $response = $this->controller([$this->otherMemberId], self::OTHER_ACCOUNT)
+            ->vote($this->ajaxRequest(), $this->params($postId));
+
+        $this->assertSame(200, $response->getStatusCode());
+        $html = json_decode($response->getBody(), true)['html'];
+        $this->assertStringContainsString('1 vote', $html);
+    }
+
+    public function testAPlainFormVoteRedirectsToTheAnchoredPost(): void
+    {
+        $postId = $this->seedPostWithPoll();
+        $options = $this->pollOptionsOf($postId);
+        $this->withCsrf(['option_id' => (string) $options[0]['id']]);
+
+        $response = $this->controller([$this->otherMemberId], self::OTHER_ACCOUNT)
+            ->vote($this->request(), $this->params($postId));
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame('/groups/' . $this->groupId . '#post-' . $postId, $response->getHeaders()['Location']);
+    }
+
+    public function testVotingRejectsAMissingCsrfToken(): void
+    {
+        $postId = $this->seedPostWithPoll();
+        $options = $this->pollOptionsOf($postId);
+        $_POST = ['option_id' => (string) $options[0]['id']];
+
+        $response = $this->controller([$this->otherMemberId], self::OTHER_ACCOUNT)
+            ->vote($this->request(), $this->params($postId));
+
+        $this->assertSame(403, $response->getStatusCode());
+    }
+
+    public function testVotingIs404ForANonMember(): void
+    {
+        $postId = $this->seedPostWithPoll();
+        $options = $this->pollOptionsOf($postId);
+        $outsider = GroupsTestHelper::createMember($this->pdo, 'OUTPOLL');
+        $this->withCsrf(['option_id' => (string) $options[0]['id']]);
+
+        $response = $this->controller([$outsider], self::OTHER_ACCOUNT)->vote($this->request(), $this->params($postId));
+
+        $this->assertSame(404, $response->getStatusCode());
+    }
+
+    /**
+     * Voting is writing: a closed group refuses it for the same reason it
+     * refuses a reply, which is why a poll needs no "closed" flag of its
+     * own.
+     */
+    public function testAClosedGroupRefusesAVote(): void
+    {
+        $postId = $this->seedPostWithPoll();
+        $options = $this->pollOptionsOf($postId);
+        $this->groupRepo->setClosed($this->groupId, '2026-02-01 00:00:00');
+        $this->withCsrf(['option_id' => (string) $options[0]['id']]);
+
+        $response = $this->controller([$this->otherMemberId], self::OTHER_ACCOUNT)
+            ->vote($this->request(), $this->params($postId));
+
+        $this->assertSame(403, $response->getStatusCode());
+    }
+
+    public function testAnOptionFromAnotherPostsPollIsRefused(): void
+    {
+        $postId = $this->seedPostWithPoll();
+        $otherPostId = GroupsTestHelper::createPostAt($this->pdo, $this->groupId, 'Autre', '2026-01-02 10:00:00', self::AUTHOR_ACCOUNT, $this->memberId);
+        (new \Modules\Groups\Service\PollService(new \Modules\Groups\Repository\PollRepository($this->pdo)))
+            ->attachTo($otherPostId, ['question' => 'Autre ?', 'options' => ['Oui', 'Non']]);
+        $foreign = $this->pollOptionsOf($otherPostId)[0]['id'];
+        $this->withCsrf(['option_id' => (string) $foreign]);
+
+        $response = $this->controller([$this->otherMemberId], self::OTHER_ACCOUNT)
+            ->vote($this->request(), $this->params($postId));
+
+        $this->assertSame(400, $response->getStatusCode());
     }
 
     // --- linked calendar event ------------------------------------------

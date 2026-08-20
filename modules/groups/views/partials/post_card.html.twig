@@ -125,6 +125,12 @@
         {% include '@groups/partials/post_media_grid.html.twig' with { media: row.media } %}
         {% include '@groups/partials/post_link.html.twig' with { link: row.link } %}
         {% include '@groups/partials/post_event.html.twig' with { event: row.event|default(null) } only %}
+        {% include '@groups/partials/poll.html.twig' with {
+            poll: row.poll|default(null),
+            group: group,
+            post: row.post,
+            can_vote: post_permission.allowed|default(false)
+        } only %}
 
         {#
           "Vu par N" — the author's own answer to "did this reach anyone?",
