@@ -451,3 +451,13 @@
 .groups-composer-busy {
     opacity: 0.6;
 }
+
+/* Core\Http\Controller\SupportController — the "Aperçu de ce qui est envoyé"
+   block on Configuration > Support. The statistics payload is a couple of
+   dozen lines of JSON: capping the height keeps the rest of the page (the
+   support-package block and its warning) reachable without a long scroll,
+   and the block scrolls on its own instead. */
+.support-payload-preview {
+    max-height: 26rem;
+    overflow: auto;
+}

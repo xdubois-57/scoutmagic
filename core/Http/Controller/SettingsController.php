@@ -39,6 +39,7 @@ class SettingsController extends AbstractController
         'dev_update_branch',
         'statistics_enabled', 'statistics_destination', 'statistics_installation_id',
         'support_email', 'installed_at',
+        'statistics_last_success_at', 'statistics_last_failure_at', 'statistics_last_failure_reason',
     ];
 
     public function __construct(

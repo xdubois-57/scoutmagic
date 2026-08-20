@@ -736,6 +736,83 @@ class SetupControllerTest extends TestCase
         $this->assertSame(404, $response->getStatusCode());
     }
 
+    public function testTheUsageStatisticsCheckboxIsOfferedCheckedOnAFirstInstall(): void
+    {
+        $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath, $this->tempDir);
+        file_put_contents($this->tempDir . '/token.php', "<?php /* TOKEN: " . str_repeat('a', 64) . " */\n");
+
+        $body = $controller->index(new Request('GET', '/setup', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('name="statistics_enabled"', $body);
+        $this->assertStringContainsString('checked', $body);
+        $this->assertStringContainsString('Voir ce qui sera envoyé', $body);
+        $this->assertStringContainsString('n\'est pas anonyme', $body);
+    }
+
+    /**
+     * @group database
+     */
+    #[\PHPUnit\Framework\Attributes\Group('database')]
+    public function testFirstTimeSetupRecordsTheInstallationDateAndTheStatisticsChoice(): void
+    {
+        foreach ([['1', '1'], ['', '0']] as [$submitted, $expected]) {
+            [$pdo, $params] = $this->connectToTestDatabase();
+            $this->resetSecretsForFirstInstall();
+
+            $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath, $this->tempDir);
+            $token = \Core\Security\CsrfGuard::generateToken();
+            $_POST['_csrf_token'] = $token;
+
+            $body = array_merge($params, [
+                '_csrf_token' => $token,
+                'site_name' => 'Unité de test',
+                'short_name' => 'UT',
+                'base_url' => 'https://unite-test.example',
+                'mail_mode' => 'local',
+                'mail_from_address' => 'unite@unite-test.example',
+                'mail_from_name' => 'Unité',
+                'dkim_selector' => 's2026',
+                'admin_email' => 'admin@unite-test.example',
+                'admin_password' => 'motdepasse123',
+            ]);
+            if ($submitted !== '') {
+                $body['statistics_enabled'] = $submitted;
+            }
+
+            $response = $controller->save(new Request('POST', '/setup/save', [], $body, [], []), []);
+
+            $this->assertSame(302, $response->getStatusCode());
+            $this->assertSame('/', $response->getHeaders()['Location'] ?? null);
+
+            $settings = new SettingService(new SettingRepository($pdo));
+            $this->assertSame($expected, $settings->get('statistics_enabled'));
+
+            $installedAt = (string) $settings->get('installed_at');
+            $this->assertNotSame('', $installedAt);
+            $this->assertStringEndsWith('+00:00', $installedAt);
+
+            $this->dropAllTables($pdo);
+        }
+    }
+
+    /**
+     * A first install needs no secrets.enc and no master key; the loop above
+     * runs the whole wizard twice, so both have to be cleared between runs.
+     */
+    private function resetSecretsForFirstInstall(): void
+    {
+        foreach (['/config/secrets.enc', '/keys/master.key'] as $file) {
+            if (is_file($this->tempDir . $file)) {
+                unlink($this->tempDir . $file);
+            }
+        }
+        foreach (glob($this->tempDir . '/keys/*') ?: [] as $key) {
+            if (is_file($key)) {
+                unlink($key);
+            }
+        }
+    }
+
     /**
      * @return array{0: \PDO, 1: array<string, string>}
      */

@@ -787,6 +787,16 @@ class SetupController extends AbstractController
             InstallationDateService::register($setupSettingService);
             (new InstallationDateService($setupSettingService, $connection->getPdo()))->ensureRecorded();
 
+            // Honour the operator's usage-statistics choice straight away.
+            // Registered here rather than waiting for the composition root's
+            // own register() call, which would otherwise create the row with
+            // its default (on) and silently ignore an operator who unchecked
+            // the box.
+            $setupSettingService->register('statistics_enabled', '1', 'boolean', 'Envoi automatique des statistiques d\'utilisation',
+                'Autorise l\'envoi quotidien d\'un rapport d\'utilisation agrégé vers ScoutMagic. Le rapport contient l\'adresse de ce site, jamais de donnée de membre. Géré depuis la page Support.',
+                null, null, null, true, 280);
+            $setupSettingService->setInternal('statistics_enabled', $data['statistics_enabled']);
+
             $tokenDeleted = $this->deleteTokenFileWithWarning();
 
             FlashMessage::set(
@@ -914,6 +924,11 @@ class SetupController extends AbstractController
             'dmarc_report_email' => trim((string) $request->getBody('dmarc_report_email', '')),
             'admin_email' => trim((string) $request->getBody('admin_email', '')),
             'admin_password' => (string) $request->getBody('admin_password', ''),
+            // Usage statistics switch, first install only (Core\Statistics,
+            // ARCHITECTURE.md §8.41). An unchecked checkbox sends nothing at
+            // all, so "absent" has to mean "off" — the default-on state lives
+            // in the rendered form, not here.
+            'statistics_enabled' => (string) $request->getBody('statistics_enabled', '') === '1' ? '1' : '0',
         ];
     }
 
