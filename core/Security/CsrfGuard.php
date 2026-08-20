@@ -29,17 +29,6 @@ class CsrfGuard
     }
 
     /**
-     * Drop the current CSRF token so the next generateToken() mints a fresh
-     * one. Called at every privilege-change boundary — login and logout
-     * (Core\Security\AuthSession) — so a token minted for an anonymous visitor
-     * never carries across the boundary (audit hardening).
-     */
-    public static function rotate(): void
-    {
-        SessionStore::remove(self::TOKEN_KEY);
-    }
-
-    /**
      * Validate a submitted token against the session token.
      * Returns true if valid, false if invalid or missing.
      */

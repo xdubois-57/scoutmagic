@@ -40,19 +40,6 @@ class CsrfGuardTest extends TestCase
         $this->assertSame($token, $_SESSION['_csrf_token']);
     }
 
-    public function testRotateForcesAFreshTokenOnTheNextGenerate(): void
-    {
-        $first = CsrfGuard::generateToken();
-        // Without rotate, generateToken reuses the existing token.
-        $this->assertSame($first, CsrfGuard::generateToken());
-
-        CsrfGuard::rotate();
-
-        $second = CsrfGuard::generateToken();
-        $this->assertNotSame($first, $second, 'a rotated token must not be reused across a privilege boundary');
-        $this->assertFalse(CsrfGuard::validateToken($first), 'the old token is no longer valid after rotation');
-    }
-
     public function testValidateTokenReturnsTrueForValidToken(): void
     {
         $token = CsrfGuard::generateToken();

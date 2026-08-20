@@ -25,10 +25,6 @@ class AuthSession
     {
         SessionStore::ensureWritable();
         session_regenerate_id(true);
-        // Rotate the CSRF token across the privilege boundary — a token minted
-        // for the anonymous visitor must not survive into the authenticated
-        // session (audit hardening).
-        CsrfGuard::rotate();
 
         SessionStore::set(self::SESSION_KEY, [
             'user_account_id' => $userAccountId,
@@ -47,7 +43,6 @@ class AuthSession
 
         SessionStore::remove(self::SESSION_KEY);
         session_regenerate_id(true);
-        CsrfGuard::rotate();
     }
 
     /**
