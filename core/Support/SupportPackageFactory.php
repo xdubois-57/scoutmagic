@@ -13,11 +13,16 @@ use Core\File\FileRepository;
 use Core\Scheduler\TaskContext;
 use Core\Security\SecretManager;
 use Core\Statistics\StatisticsServiceFactory;
+use Core\Support\Collector\CommandsCollector;
 use Core\Support\Collector\ConfigurationParametersCollector;
 use Core\Support\Collector\DatabaseStructureCollector;
 use Core\Support\Collector\EventJournalCollector;
+use Core\Support\Collector\FilesystemCollector;
+use Core\Support\Collector\LogsCollector;
+use Core\Support\Collector\PhpInfoCollector;
 use Core\Support\Collector\ScheduledTasksCollector;
 use Core\Support\Collector\StatisticsCollector;
+use Core\Support\Collector\WebServerCollector;
 
 /**
  * Assembles the support-package stack from a Core\Scheduler\TaskContext —
@@ -59,6 +64,11 @@ final class SupportPackageFactory
             new ConfigurationParametersCollector(),
             new EventJournalCollector(),
             new ScheduledTasksCollector(StatisticsServiceFactory::moduleManager($context)),
+            new PhpInfoCollector(),
+            new FilesystemCollector(),
+            new CommandsCollector(),
+            new WebServerCollector(),
+            new LogsCollector(),
         ];
     }
 
