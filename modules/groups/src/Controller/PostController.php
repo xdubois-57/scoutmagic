@@ -29,6 +29,7 @@ use Modules\Groups\Service\GroupSessionContextFactory;
 use Modules\Groups\Service\GroupsException;
 use Modules\Groups\Service\MentionService;
 use Modules\Groups\Service\PostLinkService;
+use Modules\Groups\Service\PostEventService;
 use Modules\Groups\Service\PostMediaService;
 use Modules\Groups\Service\PostService;
 use Modules\Groups\Service\ReplyService;
@@ -64,7 +65,8 @@ class PostController extends AbstractController
         private ReportService $reportService,
         private ?GroupNotificationService $notificationService = null,
         private ?SeenByService $seenByService = null,
-        private ?MentionService $mentionService = null
+        private ?MentionService $mentionService = null,
+        private ?PostEventService $eventService = null
     ) {
     }
 
@@ -275,6 +277,18 @@ class PostController extends AbstractController
         // deep-link everyone to a 404. Never throws (see
         // Service\GroupNotificationService) — a post that published fine
         // is not undone because a notification could not go out.
+        // The submitted id is re-resolved against the calendar's own
+        // visibility rules before anything is stored — never trusted, and
+        // never joined to. An id naming an event this member may not see
+        // resolves to null and the post simply carries no event.
+        $eventId = $this->eventService?->resolveSubmitted(
+            (int) $request->getBody('calendar_event_id', 0) ?: null,
+            $context->role
+        );
+        if ($eventId !== null) {
+            $this->postRepository->setCalendarEventId($postId, $eventId);
+        }
+
         $created = $this->postRepository->findById($postId);
         if ($created !== null) {
             $this->notificationService?->postPublished($group, $created, $context->effectiveScoutYearId);

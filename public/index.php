@@ -2697,6 +2697,55 @@ if (in_array('calendar', $moduleManager->getEnabledModuleIds(), true)) {
             $sectionService, $memberService, $scoutYearResolver, $journalService, $settingService, $moduleManager
         )
     );
+
+    // Groups' optional "ce message parle de la réunion de samedi" link.
+    // Re-registered here rather than wired in groups' own block for the
+    // same reason PageController is re-registered there: $calendarEventLookup
+    // does not exist until this block (it needs the retro lookup, whose
+    // block runs after groups'), and groups' block runs earlier. With
+    // calendar disabled this never runs and the pair registered earlier —
+    // with no event service at all — stays in place, which is exactly the
+    // "works with the other module switched off" contract of
+    // ARCHITECTURE.md §7.5.
+    //
+    // Both constructor calls below MUST stay identical to the ones in the
+    // groups block apart from the trailing event service: a parameter
+    // added there and forgotten here would silently disable a feature on
+    // calendar-enabled installs only.
+    if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
+        $groupsPostEventService = new \Modules\Groups\Service\PostEventService($calendarEventLookup);
+        $groupsFeedService = new \Modules\Groups\Service\GroupFeedService(
+            $groupsPostRepo,
+            $groupsAuthorResolver,
+            $groupsPostService,
+            $groupsPostMediaService,
+            $groupsPostLinkRepo,
+            $groupsReplyRepo,
+            $groupsReplyPresenter,
+            $groupsReactionService,
+            $groupsReportService,
+            $groupsReadStateService,
+            $groupsPostEventService
+        );
+        $frontController->registerController(
+            \Modules\Groups\Controller\GroupController::class,
+            new \Modules\Groups\Controller\GroupController(
+                $twig, $groupsGroupRepo, $groupsListService, $groupsAccessService, $groupsService,
+                $groupsContextFactory, $sectionService, $groupsFeedService, $groupsPostMediaService,
+                $groupsAuthorOptionsService, $groupsPostRepo, $groupsSectionGroupSync, $groupsMembershipService,
+                $settingService, $groupsReadStateService, $groupsPostEventService
+            )
+        );
+        $frontController->registerController(
+            \Modules\Groups\Controller\PostController::class,
+            new \Modules\Groups\Controller\PostController(
+                $twig, $groupsGroupRepo, $groupsPostRepo, $groupsAccessService, $groupsFeedService,
+                $groupsPostService, $groupsContextFactory, $groupsPostMediaService, $groupsPostLinkService,
+                $groupsReplyService, $groupsAuthorOptionsService, $groupsReportService,
+                $groupsNotificationService, $groupsSeenByService, $groupsMentionService, $groupsPostEventService
+            )
+        );
+    }
 }
 
 if (in_array('registration', $moduleManager->getEnabledModuleIds(), true)) {

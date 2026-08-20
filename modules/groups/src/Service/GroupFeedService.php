@@ -50,7 +50,11 @@ class GroupFeedService
         // Nullable and last, like every other optional collaborator in
         // this module: a feed renders perfectly well with no read state
         // at all, it just shows no "vu par" line.
-        private ?GroupReadStateService $readStateService = null
+        private ?GroupReadStateService $readStateService = null,
+        // Also nullable and also last, and for a stronger reason than
+        // the one above: this one reaches another MODULE. With calendar
+        // disabled it is simply absent and no post shows an event.
+        private ?PostEventService $eventService = null
     ) {
     }
 
@@ -119,6 +123,10 @@ class GroupFeedService
         $postReactions = $this->reactionService->forPosts($postIds, $context->linkedMemberIds);
         $postReports = $this->reportService->forPosts($postIds, $context->linkedMemberIds);
         $seenCounts = $this->readStateService?->seenCountsForPosts($group, $posts) ?? [];
+        $events = $this->eventService?->summariesFor(
+            array_map(fn(Post $p) => $p->calendarEventId, $posts),
+            $context->role
+        ) ?? [];
 
         $repliesByPost = [];
         foreach ($replyData['replies'] as $postId => $replies) {
@@ -140,6 +148,7 @@ class GroupFeedService
             'reactions' => $postReactions,
             'reports' => $postReports,
             'seen_counts' => $seenCounts,
+            'events' => $events,
         ];
     }
 
@@ -215,6 +224,7 @@ class GroupFeedService
             // A post that did not exist a moment ago has been seen by
             // nobody, by definition — no query needed to say so.
             'seen_counts' => [$post->id => 0],
+            'events' => $this->eventService?->summariesFor([$post->calendarEventId], $context->role) ?? [],
         ];
 
         return $this->decorate($post, $page, $context, $canModerate);
@@ -233,7 +243,8 @@ class GroupFeedService
      *     reply_counts: array<int, int>,
      *     reactions: array{counts: array<int, array<string, int>>, own: array<int, string>},
      *     reports: array{reported: array<int, true>, counts: array<int, int>},
-     *     seen_counts?: array<int, int>
+     *     seen_counts?: array<int, int>,
+     *     events?: array<int, \Modules\Calendar\Api\EventSummary>
      * } $page
      * @return array<string, mixed>
      */
@@ -284,6 +295,12 @@ class GroupFeedService
             // server-side, this only decides whether the line is drawn.
             'can_see_seen_by' => in_array($post->authorMemberId, $context->linkedMemberIds, true),
             'seen_count' => $page['seen_counts'][$post->id] ?? 0,
+            // Null whenever calendar is disabled, the event was deleted,
+            // or this reader may not see the calendar it sits on — the
+            // card then simply omits the line.
+            'event' => $post->calendarEventId !== null
+                ? ($page['events'][$post->calendarEventId] ?? null)
+                : null,
             'is_hidden' => $canModerate && $post->isHidden(),
             'report_count' => $canModerate ? ($page['reports']['counts'][$post->id] ?? 0) : 0,
         ];

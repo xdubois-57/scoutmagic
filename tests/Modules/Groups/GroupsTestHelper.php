@@ -58,6 +58,7 @@ class GroupsTestHelper
             edited_at TEXT NULL,
             hidden_at TEXT NULL,
             moderation_cleared INTEGER NOT NULL DEFAULT 0,
+            calendar_event_id INTEGER NULL,
             last_activity_at TEXT NOT NULL,
             created_at TEXT NOT NULL,
             FOREIGN KEY (group_id) REFERENCES discussion_groups(id) ON DELETE CASCADE

@@ -67,6 +67,26 @@
                     </select>
                 {% endif %}
 
+                {#
+                  Only rendered when the calendar module is enabled AND
+                  has something in the window to offer — an empty picker
+                  would advertise a feature this install does not have
+                  (Service\PostEventService, Controller\GroupController::
+                  show()). Optional: "Aucun" is the default, and the id is
+                  re-resolved server-side before it is stored, so a value
+                  typed in by hand cannot attach an event the member
+                  cannot see.
+                #}
+                {% if event_options|default([]) is not empty %}
+                    <label class="form-label small mb-1" for="post-event">Lier à un événement (facultatif)</label>
+                    <select class="form-select mb-2" id="post-event" name="calendar_event_id" style="min-height:44px;">
+                        <option value="">Aucun</option>
+                        {% for event in event_options %}
+                            <option value="{{ event.id }}">{{ event.title }} — {{ event.startDate|french_date }}</option>
+                        {% endfor %}
+                    </select>
+                {% endif %}
+
                 <div id="groups-media-previews" class="d-flex flex-wrap gap-2 mb-2"></div>
                 <input type="file" name="media[]" id="groups-media-hidden" class="d-none" multiple aria-label="Fichiers média à publier">
 

@@ -1,0 +1,22 @@
+{#
+  The calendar event a post is about, when it has one and when this
+  reader may see it. `event` is a Modules\Calendar\Api\EventSummary,
+  already resolved through the calendar's own visibility rules
+  (Service\PostEventService) — null here means "no event", "the event was
+  deleted", "the calendar module is disabled", or "not for this reader",
+  and every one of those renders the same nothing.
+
+  The link goes to the calendar's month view rather than a per-event
+  page: the calendar has no such page, and pointing at the month is the
+  honest version of "go and look".
+#}
+{% if event %}
+    <p class="mb-0 mt-2">
+        <a class="d-inline-flex align-items-center gap-1 small text-decoration-none"
+           href="/calendar?month={{ event.startDate|slice(0, 7) }}">
+            <i class="bi bi-calendar-event"></i>
+            <span>{{ event.title }}</span>
+            <span class="text-body-secondary">· {{ event.startDate|french_date }}</span>
+        </a>
+    </p>
+{% endif %}

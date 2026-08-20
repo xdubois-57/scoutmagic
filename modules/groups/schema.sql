@@ -175,6 +175,16 @@ CREATE TABLE discussion_group_posts (
     -- report would immediately re-hide what a moderator just cleared,
     -- and the moderator's decision would silently mean nothing.
     moderation_cleared BOOLEAN NOT NULL DEFAULT FALSE,
+    -- An optional link to a calendar event ("on parle de la réunion de
+    -- samedi"). Deliberately NO foreign key: calendar is a separate,
+    -- independently enable-able module (ARCHITECTURE.md §7.5), and a
+    -- constraint here would make this module refuse to install without
+    -- it. A stale id — the event was deleted, or the calendar module was
+    -- switched off — simply resolves to nothing and the post renders
+    -- without the line, which is why every read of this column goes
+    -- through Modules\Calendar\Api\CalendarEventLookupInterface rather
+    -- than a join.
+    calendar_event_id INT UNSIGNED NULL,
     -- The feed's exact ordering, so the keyset scan is index-only:
     -- pinned posts are fetched separately, the stream reads
     -- (group_id, last_activity_at DESC, id DESC).

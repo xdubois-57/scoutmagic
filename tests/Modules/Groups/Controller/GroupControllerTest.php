@@ -98,7 +98,8 @@ class GroupControllerTest extends TestCase
         string $role = 'identified',
         bool $completeProfile = true,
         ?DelegatedAlbumManager $delegatedAlbumManager = null,
-        ?array $routeBreadcrumb = null
+        ?array $routeBreadcrumb = null,
+        ?\Modules\Calendar\Api\CalendarEventLookupInterface $eventLookup = null
     ): GroupController {
         AuthSession::login(1, 'parent@test.be', $role);
 
@@ -172,7 +173,12 @@ class GroupControllerTest extends TestCase
         $feedService = new GroupFeedService(
             $postRepo, $authorResolver, $postService, $postMediaService,
             new PostLinkRepository($this->pdo),
-            $stack['replyRepository'], $stack['replyPresenter'], $stack['reactionService'], $stack['reportService']
+            $stack['replyRepository'], $stack['replyPresenter'], $stack['reactionService'], $stack['reportService'],
+            null,
+            // Null lookup unless a test supplies one — production's own
+            // "calendar disabled" wiring, so every other test here
+            // exercises the degraded path for free.
+            $groupsEventService = new \Modules\Groups\Service\PostEventService($eventLookup)
         );
 
         return new GroupController(
@@ -204,7 +210,10 @@ class GroupControllerTest extends TestCase
                 new GroupMemberRepository($this->pdo),
                 new \Core\Config\SettingService(new \Core\Config\SettingRepository($this->pdo)),
                 new \Core\Journal\JournalService(new \Core\Journal\JournalRepository($this->pdo))
-            )
+            ),
+            null,
+            null,
+            $groupsEventService
         );
     }
 
@@ -840,6 +849,60 @@ class GroupControllerTest extends TestCase
             ->getBody();
 
         $this->assertStringContainsString('/groups/' . $groupId . '/search', $body);
+    }
+
+    // ---- linked calendar event ----
+
+    private function eventLookup(?\Modules\Calendar\Api\EventSummary $event): \Modules\Calendar\Api\CalendarEventLookupInterface
+    {
+        $lookup = $this->createStub(\Modules\Calendar\Api\CalendarEventLookupInterface::class);
+        $lookup->method('findEventById')->willReturn($event);
+        $lookup->method('findEventsInWindow')->willReturn($event !== null ? [$event] : []);
+
+        return $lookup;
+    }
+
+    public function testTheComposerOffersTheCalendarPickerWhenTheCalendarHasSomethingToOffer(): void
+    {
+        $moderator = GroupsTestHelper::createMember($this->pdo, 'MEVT');
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $moderator);
+        $event = new \Modules\Calendar\Api\EventSummary(9, 'Réunion de section', 'Louveteaux', '2026-03-14', '2026-03-14');
+
+        $body = $this->controller([$moderator], 'identified', true, null, null, $this->eventLookup($event))
+            ->show(new Request('GET', '/groups/' . $groupId, [], [], [], []), ['id' => (string) $groupId])
+            ->getBody();
+
+        $this->assertStringContainsString('name="calendar_event_id"', $body);
+        $this->assertStringContainsString('Réunion de section', $body);
+    }
+
+    /**
+     * With the calendar module disabled the composer never mentions the
+     * feature at all — an empty picker would advertise something this
+     * install does not have.
+     */
+    public function testTheComposerHidesThePickerWhenTheCalendarIsDisabled(): void
+    {
+        $moderator = GroupsTestHelper::createMember($this->pdo, 'MEVT2');
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $moderator);
+
+        $body = $this->controller([$moderator])
+            ->show(new Request('GET', '/groups/' . $groupId, [], [], [], []), ['id' => (string) $groupId])
+            ->getBody();
+
+        $this->assertStringNotContainsString('name="calendar_event_id"', $body);
+    }
+
+    public function testTheComposerHidesThePickerWhenTheCalendarHasNoEventInTheWindow(): void
+    {
+        $moderator = GroupsTestHelper::createMember($this->pdo, 'MEVT3');
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $moderator);
+
+        $body = $this->controller([$moderator], 'identified', true, null, null, $this->eventLookup(null))
+            ->show(new Request('GET', '/groups/' . $groupId, [], [], [], []), ['id' => (string) $groupId])
+            ->getBody();
+
+        $this->assertStringNotContainsString('name="calendar_event_id"', $body);
     }
 
     public function testShowReturns404ForAnUnknownGroup(): void
