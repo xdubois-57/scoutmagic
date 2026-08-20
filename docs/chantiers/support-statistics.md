@@ -490,3 +490,66 @@ Le récapitulatif final se trouve en fin de fichier (IT-12).
 ### Reporté volontairement
 
 - Rien. Le paquet de support est complet à l'issue de cette itération.
+
+---
+
+## IT-08 — Module receveur : réception
+
+### Implémenté
+
+- Champ de manifeste `receiver_only` (`ModuleManifest::$receiverOnly`,
+  typage strict), drapeau `$isStatisticsReceiver` sur `ModuleManager`,
+  filtrage en un seul point dans `discoverModules()`. Résolu depuis
+  `DestinationMatcher::isReceiver(base_url, statistics_destination)` dans
+  `public/index.php` **et** `public/cron.php`.
+- Module `modules/support_dashboard/` (`version 1.0.0`,
+  `enabled_by_default: false`, `receiver_only: true`) et son `schema.sql`
+  (`support_installations`, `support_report_rate_limits`).
+- `POST /api/statistics` (`role_min: public`, sans jeton CSRF — deuxième
+  exception délibérée du dépôt) : HTTPS obligatoire, plafond de corps à
+  64 Ko **avant** parsing, limitation à 10 requêtes/heure/IP (index aveugle,
+  jamais l'adresse en clair), authentification par `password_hash()` /
+  `password_verify()`, inscription à la première réception, champs inconnus
+  acceptés + avertis + conservés, champs optionnels absents en `NULL`.
+- Tâche `support_dashboard`/`purge_rate_limits` (quotidienne,
+  auto-replanifiée).
+- `ARCHITECTURE.md` §7.1 et §8.43, `SECURITY.md` §4 et §5,
+  `docs/module-development.md`.
+
+### Décisions autonomes
+
+1. **La route `/api/statistics` déclare `menu: "notre_unite"` et
+   `label: ""`.** `menu` est obligatoire dans le manifeste et doit être au
+   moins aussi permissif que `role_min: public` ; un libellé vide
+   n'enregistre aucune entrée de menu (`ModuleManager::loadModule()`).
+2. **Réponse `204 No Content` en cas d'acceptation** : « 2xx minimal, sans
+   écho du payload ». Un rejet renvoie `{"status":"rejected"}` et rien
+   d'autre — une installation inconnue est indiscernable d'un mauvais secret.
+3. **L'ordre des gardes est inversé par rapport au coût** : transport,
+   puis taille (sur la chaîne brute), puis limitation de débit, puis
+   parsing. Un corps de 1 Mo coûte un `strlen()` et n'incrémente même pas
+   le compteur de débit.
+4. **Une tâche de purge des lignes de limitation a été ajoutée** — non
+   demandée par le document, mais sans elle la table croît indéfiniment
+   (précédent : `PurgeHumanCheckRateLimitsHandler`, `PurgeRateLimitHandler`
+   du module retro).
+5. **Chaque rapport remplace toutes les colonnes dénormalisées, `NULL`
+   compris.** Un émetteur qui cesse de pouvoir mesurer quelque chose doit
+   cesser de le rapporter, pas figer sa dernière valeur connue.
+6. **`receiver_only` est typé strictement.** `"false"` (chaîne, donc vraie)
+   masquerait le module partout, avec un symptôme quasi indébogable.
+7. **`payload` est de type `JSON`** en MySQL et `TEXT` dans le miroir
+   SQLite des tests.
+
+### Divergences constatées avec le document
+
+- Le document décrit `support_report_rate_limits` comme « calque
+  `HumanCheckRateLimitRepository` » : le calque a été suivi, mais la table
+  n'a pas de colonne `form_key` (il n'y a qu'un seul formulaire ici).
+
+### Reporté volontairement
+
+- Aucune interface de consultation : la page `/support-dashboard`, les
+  filtres, les indicateurs et les graphes arrivent en IT-09.
+- Aucun dispositif de blocage ou de liste noire d'IP (hors périmètre,
+  Annexe A).

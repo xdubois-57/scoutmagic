@@ -1245,6 +1245,15 @@ $offlineWhitelist = new OfflineWhitelist();
 // Create ModuleManager (modules loaded after core routes are registered)
 $modulesDir = __DIR__ . '/../modules';
 $moduleRegistryRepo = new ModuleRegistryRepository($pdo);
+// Is THIS installation the statistics receiver (ARCHITECTURE.md §8.43)?
+// Decided from base_url vs. statistics_destination, never from the Host
+// header, and resolved here so ModuleManager receives a plain boolean
+// rather than learning what a statistics destination is.
+$isStatisticsReceiver = \Core\Statistics\DestinationMatcher::isReceiver(
+    (string) ($settingService->get('base_url') ?? ''),
+    (string) ($settingService->get('statistics_destination') ?? '')
+);
+
 $moduleManager = new ModuleManager(
     $modulesDir,
     $settingService,
@@ -1255,7 +1264,8 @@ $moduleManager = new ModuleManager(
     $journalService,
     $router,
     $notificationService,
-    $offlineWhitelist
+    $offlineWhitelist,
+    $isStatisticsReceiver
 );
 
 // Usage statistics (Core\Statistics, ARCHITECTURE.md §8.41). Built here
@@ -2593,6 +2603,33 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
             $groupsMembershipService
         )
     );
+}
+
+// Modules\SupportDashboard — the statistics receiver (ARCHITECTURE.md
+// §8.43). Only ever discovered on the receiving installation, so this block
+// is dead code everywhere else by construction.
+if (in_array('support_dashboard', $moduleManager->getEnabledModuleIds(), true)) {
+    $supportInstallationRepo = new \Modules\SupportDashboard\Repository\SupportInstallationRepository($pdo);
+    $supportRateLimitRepo = new \Modules\SupportDashboard\Repository\SupportReportRateLimitRepository($pdo);
+
+    $frontController->registerController(
+        \Modules\SupportDashboard\Controller\StatisticsIntakeController::class,
+        new \Modules\SupportDashboard\Controller\StatisticsIntakeController(
+            $twig,
+            new \Modules\SupportDashboard\Service\StatisticsIntakeService(
+                $supportInstallationRepo,
+                $supportRateLimitRepo,
+                $encryptionService,
+                $journalService
+            )
+        )
+    );
+
+    // Rate-limit rows are written on every accepted report and only ever
+    // read for the last hour — without this the table grows forever.
+    if ($schedulerService->find('support_dashboard', \Modules\SupportDashboard\Task\PurgeRateLimitsHandler::TASK_KEY, \Modules\SupportDashboard\Task\PurgeRateLimitsHandler::REFERENCE) === null) {
+        $schedulerService->schedule('support_dashboard', \Modules\SupportDashboard\Task\PurgeRateLimitsHandler::TASK_KEY, new DateTimeImmutable(), [], \Modules\SupportDashboard\Task\PurgeRateLimitsHandler::REFERENCE);
+    }
 }
 
 if (in_array('retro', $moduleManager->getEnabledModuleIds(), true)) {

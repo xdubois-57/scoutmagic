@@ -141,7 +141,15 @@ $moduleManager = new ModuleManager(
     new ModuleRegistryRepository($pdo),
     $migrationRunner,
     $journalService,
-    new Router()
+    new Router(),
+    null,
+    new \Core\Offline\OfflineWhitelist(),
+    // Same receiver resolution as public/index.php — a receiver-only
+    // module's scheduled tasks must be resolvable under a real crontab too.
+    \Core\Statistics\DestinationMatcher::isReceiver(
+        (string) ($settingService->get('base_url') ?? ''),
+        (string) ($settingService->get('statistics_destination') ?? '')
+    )
 );
 $moduleManager->loadEnabledModules();
 $runner->setModuleManager($moduleManager);
