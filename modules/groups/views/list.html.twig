@@ -64,9 +64,18 @@
     {% else %}
         <div class="list-group">
             {% for item in items %}
+                {#
+                  `has_unread` is "the group has been active since you last
+                  opened it" (Service\GroupListService) — the name is bold
+                  rather than merely badged, so the distinction survives
+                  for someone who cannot rely on the badge's colour alone.
+                #}
                 <a class="list-group-item list-group-item-action py-3" href="/groups/{{ item.group.id }}" style="min-height:44px;">
                     <div class="d-flex align-items-center gap-2 flex-wrap">
-                        <span class="fw-semibold">{{ item.group.name }}</span>
+                        <span class="{{ item.has_unread ? 'fw-bold' : 'fw-semibold' }}">{{ item.group.name }}</span>
+                        {% if item.has_unread %}
+                            <span class="badge bg-danger">Nouveau</span>
+                        {% endif %}
                         {% if item.is_moderator %}
                             <span class="badge bg-primary-subtle text-primary-emphasis">Modérateur</span>
                         {% endif %}
@@ -77,11 +86,11 @@
                             <span class="badge bg-warning-subtle text-warning-emphasis">Clôturé</span>
                         {% endif %}
                     </div>
-                    {% if item.section_names is not empty %}
-                        <p class="small text-body-secondary mb-0 mt-1">{{ item.section_names|join(', ') }}</p>
-                    {% else %}
-                        <p class="small text-body-secondary mb-0 mt-1">Sur invitation</p>
-                    {% endif %}
+                    <p class="small text-body-secondary mb-0 mt-1 d-flex flex-wrap gap-2">
+                        <span>{{ item.section_names is not empty ? item.section_names|join(', ') : 'Sur invitation' }}</span>
+                        <span aria-hidden="true">·</span>
+                        <span>Activité {{ item.group.lastActivityAt|relative_date }}</span>
+                    </p>
                 </a>
             {% endfor %}
         </div>

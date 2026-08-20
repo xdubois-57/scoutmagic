@@ -2351,8 +2351,16 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
         $groupsMemberRepo, $groupsSectionRepo, $sectionMembershipRepository
     );
     $groupsService = new \Modules\Groups\Service\GroupService($groupsGroupRepo, $groupsSectionRepo, $groupsMemberRepo);
+    // Per-member "last time I opened this group": drives the unread badge
+    // on the group list, the home page's own activity card, and a post's
+    // "vu par" list — all three read the same single mark, written once
+    // per group page view by Service\GroupReadStateService.
+    $groupsReadRepo = new \Modules\Groups\Repository\GroupReadRepository($pdo);
     $groupsListService = new \Modules\Groups\Service\GroupListService(
-        $groupsGroupRepo, $groupsSectionRepo, $groupsMemberRepo, $sectionMembershipRepository
+        $groupsGroupRepo, $groupsSectionRepo, $groupsMemberRepo, $sectionMembershipRepository, $groupsReadRepo
+    );
+    $groupsReadStateService = new \Modules\Groups\Service\GroupReadStateService(
+        $groupsReadRepo, $groupsAccessService
     );
     $groupsContextFactory = new \Modules\Groups\Service\GroupSessionContextFactory(
         $memberService, $userAccountRepo, $scoutYearResolver
@@ -2520,7 +2528,26 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
             $twig, $groupsGroupRepo, $groupsListService, $groupsAccessService, $groupsService,
             $groupsContextFactory, $sectionService, $groupsFeedService, $groupsPostMediaService,
             $groupsAuthorOptionsService, $groupsPostRepo, $groupsSectionGroupSync, $groupsMembershipService,
-            $settingService
+            $settingService, $groupsReadStateService
+        )
+    );
+
+    // Re-registers PageController with the groups activity hook — same
+    // core-hook precedent as the banner/news/trombinoscope blocks above
+    // (ARCHITECTURE.md §7.4), and the same "reuse whatever the earlier
+    // blocks already set" rule, so enabling groups never silently drops
+    // another module's homepage contribution. This block runs after all
+    // three of them, so each variable is either the real provider or the
+    // null it was initialised to.
+    $frontController->registerController(
+        PageController::class,
+        new PageController(
+            $twig, $editableContentService, $sectionRepository, $settingService, $rgpdContentService,
+            $sectionService, $unitStaffSectionService, $scoutYearService,
+            in_array('banner', $moduleManager->getEnabledModuleIds(), true) ? $bannerService : null,
+            in_array('news', $moduleManager->getEnabledModuleIds(), true) ? $newsArticleService : null,
+            $sectionResponsableProvider,
+            new \Modules\Groups\Api\HomeActivityService($groupsListService, $groupsContextFactory)
         )
     );
     $frontController->registerController(

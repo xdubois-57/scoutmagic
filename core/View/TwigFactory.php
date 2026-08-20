@@ -294,6 +294,47 @@ class TwigFactory
             return (int) $dateTime->format('j') . ' ' . $months[(int) $dateTime->format('n')] . ' ' . $dateTime->format('Y');
         }));
 
+        // "il y a 2 heures" — a coarse, French relative age for a stored
+        // UTC timestamp. Deliberately coarse: a feed only needs to answer
+        // "recently or a while ago", and a to-the-second rendering would
+        // be a value that is wrong the moment the page is cached. Falls
+        // back to the absolute date past a week, where "il y a 23 jours"
+        // stops being easier to read than the date itself.
+        $environment->addFilter(new TwigFilter('relative_date', function ($date) use ($environment) {
+            if ($date === null || $date === '') {
+                return '';
+            }
+
+            // Stored timestamps in this codebase are UTC (see e.g.
+            // Modules\Groups\Support\Timestamps) — parsed as such rather
+            // than under PHP's ambient timezone, or every age would be
+            // off by the server's offset.
+            $then = $date instanceof \DateTimeInterface
+                ? $date
+                : new \DateTimeImmutable((string) $date, new \DateTimeZone('UTC'));
+            $seconds = (new \DateTimeImmutable('now', new \DateTimeZone('UTC')))->getTimestamp() - $then->getTimestamp();
+
+            // A clock skew (or a timestamp a second into the future) reads
+            // as "just now" rather than a negative age.
+            if ($seconds < 60) {
+                return "à l'instant";
+            }
+            if ($seconds < 3600) {
+                $minutes = intdiv($seconds, 60);
+                return 'il y a ' . $minutes . ' minute' . ($minutes > 1 ? 's' : '');
+            }
+            if ($seconds < 86400) {
+                $hours = intdiv($seconds, 3600);
+                return 'il y a ' . $hours . ' heure' . ($hours > 1 ? 's' : '');
+            }
+            if ($seconds < 604800) {
+                $days = intdiv($seconds, 86400);
+                return 'il y a ' . $days . ' jour' . ($days > 1 ? 's' : '');
+            }
+
+            return 'le ' . $environment->getFilter('french_date')->getCallable()($then);
+        }));
+
         // Register markdown filter — renders release/commit notes (see
         // Core\View\MarkdownRenderer) as safe HTML instead of raw Markdown
         // syntax.

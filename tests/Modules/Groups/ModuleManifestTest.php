@@ -44,7 +44,7 @@ class ModuleManifestTest extends TestCase
      */
     public function testTheVersionIsBumpedWheneverTheSchemaChanges(): void
     {
-        $this->assertSame('1.8.0', $this->manifest->version);
+        $this->assertSame('1.9.0', $this->manifest->version);
     }
 
     /**
@@ -168,11 +168,31 @@ class ModuleManifestTest extends TestCase
         }
     }
 
-    public function testItDeclaresNoOfflinePageNoCookieAndNoStorage(): void
+    /**
+     * The group LIST is offline-cacheable; a group's CONVERSATION is
+     * deliberately not, and this test is the guard on that line.
+     *
+     * The list carries group names and activity times — enough to open the
+     * installed app on a train and see which groups exist and which have
+     * been busy. A group page carries the messages themselves, written in
+     * a space where minors write, plus their photos; a full copy of that
+     * on the device is a different privacy proposition entirely, and
+     * SECURITY.md §10 / docs/module-development.md ("if in doubt, don't
+     * declare it") both point the same way. Adding a `/groups/` child
+     * entry here should break this test — that is the point.
+     */
+    public function testItCachesTheGroupListOfflineButNeverAGroupsConversation(): void
     {
-        // Group content is private: it never goes into the offline cache
-        // (SECURITY.md §10), and the module stores no file of its own.
-        $this->assertSame([], $this->manifest->offline);
+        $this->assertSame(
+            [['path' => '/groups', 'label' => 'Groupes', 'match' => 'exact', 'role_min' => 'identified']],
+            $this->manifest->offline
+        );
+
+        $paths = array_column($this->manifest->offline, 'path');
+        $this->assertNotContains('/groups/', $paths, 'a group conversation must never be cached on the device');
+
+        // Unchanged: the module sets no cookie of its own, and stores no
+        // file outside gallery's delegated album.
         $this->assertSame([], $this->manifest->cookies);
         $this->assertSame([], $this->manifest->storage);
     }

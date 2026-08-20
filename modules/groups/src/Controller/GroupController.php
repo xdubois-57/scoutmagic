@@ -70,7 +70,8 @@ class GroupController extends AbstractController
         private PostRepository $postRepository,
         private ?SectionGroupSyncService $sectionGroupSyncService = null,
         private ?GroupMembershipService $membershipService = null,
-        private ?SettingService $settingService = null
+        private ?SettingService $settingService = null,
+        private ?GroupReadStateService $readStateService = null
     ) {
     }
 
@@ -134,6 +135,11 @@ class GroupController extends AbstractController
 
         $canModerate = $this->accessService->canModerate($group, $context);
         $page = $this->feedService->page($group, $context, $canModerate);
+
+        // Opening the group is what clears its unread badge — recorded
+        // after the feed is built, so a failure here can never cost the
+        // render, and never before, so a page that 404s marks nothing.
+        $this->readStateService?->markRead($group, $context);
 
         return $this->render('@groups/show.html.twig', [
             'group' => $group,
@@ -513,6 +519,10 @@ class GroupController extends AbstractController
             'is_moderator' => $item->isModerator,
             'is_archived' => $item->isArchived,
             'section_names' => $this->sectionNames($item->sectionIds),
+            // Never on the archives tab: a past-year group is a read-only
+            // archive, so "you have not caught up" is not a call to
+            // action there, just noise on something already finished.
+            'has_unread' => $item->hasUnread && !$item->isArchived,
         ], $items);
     }
 

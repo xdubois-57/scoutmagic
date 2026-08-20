@@ -456,3 +456,34 @@ CREATE TABLE discussion_group_reply_reaction_notices (
     UNIQUE INDEX idx_dgrrn_reply (reply_id),
     CONSTRAINT fk_dgrrn_reply FOREIGN KEY (reply_id) REFERENCES discussion_group_replies(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Per-member "last time I opened this group", the one thing an unread
+-- indicator needs. Written once per group page view
+-- (Service\GroupReadStateService, called from Controller\GroupController::
+-- show()), read in a single batched query for the whole group list and for
+-- the home page's own activity card.
+--
+-- Keyed on member_id, not on the user account: a parent linked to two
+-- children who are both in the same group has ONE reading position in that
+-- conversation, not one per child — the same identity resolution every
+-- other per-member row in this module uses (the member the account posts
+-- as, Service\GroupAccessService::memberIdsAllowedToPostAs()).
+--
+-- Deliberately a timestamp rather than a last-seen post id: a post can be
+-- deleted, and an id-based cursor pointing at a deleted row has no
+-- meaningful "everything after this" answer, while a timestamp always
+-- does. It is compared against discussion_groups.last_activity_at (the
+-- group's own single-writer activity clock) and against
+-- discussion_group_posts.created_at for the per-post "seen by" answer.
+--
+-- No personal data: two ids and a timestamp (SECURITY.md §5).
+CREATE TABLE discussion_group_reads (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    group_id INT UNSIGNED NOT NULL,
+    member_id INT UNSIGNED NOT NULL,
+    last_read_at DATETIME NOT NULL,
+    UNIQUE INDEX idx_dgr_group_member (group_id, member_id),
+    INDEX idx_dgr_member (member_id),
+    CONSTRAINT fk_dgr_group FOREIGN KEY (group_id) REFERENCES discussion_groups(id) ON DELETE CASCADE,
+    CONSTRAINT fk_dgr_member FOREIGN KEY (member_id) REFERENCES members(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

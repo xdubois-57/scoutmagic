@@ -111,6 +111,51 @@
                 link.removeAttribute('aria-disabled');
             }
         });
+        applyFormState(offline);
+
+        var banner = document.getElementById('offline-readonly-banner');
+        if (banner) {
+            banner.classList.toggle('d-none', !offline);
+        }
+    }
+
+    // Every cached page is READ ONLY while offline, and says so up front
+    // rather than letting a member fill in a form and only then discover
+    // it cannot be sent. This is the visible counterpart of layer 1b
+    // below, which already refuses EVERY form submission while offline,
+    // unconditionally — so "disable every form's submit control" is
+    // exactly the same rule, applied to the UI instead of to the event.
+    //
+    // Deliberately only the SUBMIT controls, never the fields themselves:
+    // a member may legitimately want to write a message on the train and
+    // send it when the signal comes back, and some pages cache that draft
+    // locally for exactly that (Modules\Groups' own composer does). Wiping
+    // out their ability to type would defeat the feature that makes an
+    // offline draft worth keeping.
+    //
+    // Opt-out: a form marked data-offline-safe is left alone. Nothing uses
+    // it today — it exists for a genuinely local form (a client-side
+    // filter with no action) that would otherwise be greyed out for no
+    // reason.
+    function applyFormState(offline) {
+        document.querySelectorAll('form:not([data-offline-safe])').forEach(function (form) {
+            form.classList.toggle('offline-form-disabled', offline);
+            form.querySelectorAll('button[type="submit"], input[type="submit"]').forEach(function (el) {
+                var control = /** @type {HTMLButtonElement|HTMLInputElement} */ (el);
+                // Never un-disables a control something else disabled for
+                // its own reasons (a composer mid-submit, a form still
+                // validating) — only ever releases what this took.
+                if (offline) {
+                    if (!control.disabled) {
+                        control.disabled = true;
+                        control.setAttribute('data-offline-disabled', 'true');
+                    }
+                } else if (control.hasAttribute('data-offline-disabled')) {
+                    control.disabled = false;
+                    control.removeAttribute('data-offline-disabled');
+                }
+            });
+        });
     }
 
     // Layer 1a: links. Recomputed fresh on every click (never relying on

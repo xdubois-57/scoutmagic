@@ -166,6 +166,15 @@ class GroupsTestHelper
             FOREIGN KEY (reply_id) REFERENCES discussion_group_replies(id) ON DELETE CASCADE
         )');
 
+        $pdo->exec('CREATE TABLE discussion_group_reads (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            group_id INTEGER NOT NULL,
+            member_id INTEGER NOT NULL,
+            last_read_at TEXT NOT NULL,
+            UNIQUE(group_id, member_id),
+            FOREIGN KEY (group_id) REFERENCES discussion_groups(id) ON DELETE CASCADE
+        )');
+
         $pdo->exec('CREATE TABLE discussion_group_rate_limits (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             member_id INTEGER NOT NULL,
