@@ -147,9 +147,9 @@ echo "5b. Quality Gate ERROR, no per-condition detail -> BLOCK (fail closed)"
 write_default_fake_curl "${HEAD_SHA}" "ERROR" 0 0 0 0
 run_case "quality gate error" 1
 
-echo "5c. Quality Gate ERROR, only a coverage condition failing -> PASS (ignored)"
+echo "5c. Quality Gate ERROR, only a coverage condition failing -> BLOCK (no carve-out)"
 write_default_fake_curl "${HEAD_SHA}" "ERROR" 0 0 0 0 '[{"status":"ERROR","metricKey":"new_coverage"}]'
-run_case "quality gate coverage-only error" 0
+run_case "quality gate coverage-only error" 1
 
 echo "5d. Quality Gate ERROR, coverage AND a non-coverage condition failing -> BLOCK"
 write_default_fake_curl "${HEAD_SHA}" "ERROR" 0 0 0 0 '[{"status":"ERROR","metricKey":"new_coverage"},{"status":"ERROR","metricKey":"new_reliability_rating"}]'

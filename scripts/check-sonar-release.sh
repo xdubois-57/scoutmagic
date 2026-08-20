@@ -17,17 +17,12 @@ set -euo pipefail
 #   3. any Security Hotspot is still awaiting triage (status TO_REVIEW —
 #      an unreviewed hotspot is an unresolved security question, treated
 #      the same as an active security finding), OR
-#   4. the Quality Gate computed for that analysis is not OK for any reason
-#      OTHER than a coverage condition (metricKey containing "coverage",
-#      e.g. new_coverage) — coverage failures are temporarily ignored at
-#      the project owner's explicit request (2026-08-18: this project has
-#      no coverage tooling wired up for its plain JS files yet, making the
-#      Quality Gate's coverage-on-new-code condition currently
-#      unachievable). This carve-out only fires when the API response's
-#      per-condition detail confirms EVERY failing condition is
-#      coverage-related; a non-OK status with no such detail (or with any
-#      non-coverage condition also failing) still blocks exactly as
-#      before — see check_quality_gate_blocks() below.
+#   4. the Quality Gate computed for that analysis is not OK, for any
+#      reason — including a coverage condition (e.g. new_coverage): PHP
+#      (PHPUnit + Playwright E2E) and JavaScript (Vitest) coverage are both
+#      wired into SonarQube Cloud (see sonar-project.properties), so a
+#      coverage-on-new-code failure is a real, actionable finding, not an
+#      unachievable condition.
 #
 # This is deliberately FAIL CLOSED (see README.md / AGENTS.md § Releases):
 # anything that prevents a definitive PASS answer — no token, an
@@ -203,28 +198,9 @@ if [[ -z "${QUALITY_GATE_STATUS}" ]]; then
     fail
 fi
 
-# A non-OK status only blocks when at least one FAILING condition is
-# confirmed non-coverage-related — see the coverage carve-out note atop
-# this file. No per-condition detail at all (older API shape, or an empty
-# conditions list) is treated the same as "not confirmed coverage-only",
-# i.e. still blocks: this must never accidentally widen into ignoring a
-# real, non-coverage Quality Gate failure just because the response shape
-# didn't include what we expected.
-QUALITY_GATE_BLOCKS="$(php_get "${QG_FILE}" '(function($d) {
-    if (($d["projectStatus"]["status"] ?? "") !== "ERROR") { return "0"; }
-    $failing = array_filter($d["projectStatus"]["conditions"] ?? [], fn($c) => ($c["status"] ?? "") === "ERROR");
-    if (count($failing) === 0) { return "1"; }
-    $nonCoverage = array_filter($failing, fn($c) => stripos($c["metricKey"] ?? "", "coverage") === false);
-    return count($nonCoverage) > 0 ? "1" : "0";
-})($d)')"
-QUALITY_GATE_COVERAGE_ONLY_IGNORED="$(php_get "${QG_FILE}" '(function($d) {
-    if (($d["projectStatus"]["status"] ?? "") !== "ERROR") { return "0"; }
-    $failing = array_filter($d["projectStatus"]["conditions"] ?? [], fn($c) => ($c["status"] ?? "") === "ERROR");
-    if (count($failing) === 0) { return "0"; }
-    $nonCoverage = array_filter($failing, fn($c) => stripos($c["metricKey"] ?? "", "coverage") === false);
-    return count($nonCoverage) === 0 ? "1" : "0";
-})($d)
-')"
+# Any non-OK status blocks, full stop — coverage conditions included (see
+# the header comment above).
+QUALITY_GATE_BLOCKS="$(php_get "${QG_FILE}" '($d["projectStatus"]["status"] ?? "") === "ERROR" ? "1" : "0"')"
 rm -f "${QG_FILE}"
 
 # --- 3. Unresolved SECURITY-impact issues (any severity) ---
@@ -274,9 +250,6 @@ HIGHER_KEYS="$(php_get "${HIGHER_FILE}" 'implode("\n", array_slice(array_column(
 rm -f "${HIGHER_FILE}"
 
 echo "Quality Gate: ${QUALITY_GATE_STATUS}"
-if [[ "${QUALITY_GATE_COVERAGE_ONLY_IGNORED}" == "1" ]]; then
-    echo "  (coverage-only failure — ignored for this release, see script comment)"
-fi
 echo "Security findings: ${SECURITY_TOTAL}"
 echo "HIGH findings: ${HIGH_COUNT}"
 echo "Higher-severity findings: ${HIGHER_COUNT}"
