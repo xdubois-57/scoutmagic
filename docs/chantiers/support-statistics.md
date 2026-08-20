@@ -96,3 +96,61 @@ Le récapitulatif final se trouve en fin de fichier (IT-12).
 - Les trois réglages d'état d'envoi (`statistics_last_success_at`,
   `statistics_last_failure_at`, `statistics_last_failure_reason`) sont
   déclarés en IT-03, avec la page qui les affiche.
+
+---
+
+## IT-02 — Construction du payload statistiques
+
+### Implémenté
+
+- `Core\Statistics\StatisticsPayloadBuilder` — `build(): array` et
+  `buildJson(): string`, constante `STATISTICS_SCHEMA_VERSION = 1`, structure
+  exacte demandée par le document en `snake_case` (D-17).
+- Règle « indisponible ⇒ `null` » appliquée partout, y compris pour les
+  compteurs (`active_members`/`active_sections` valent `null`, pas `0`, quand
+  l'année scoute publique n'est pas définie).
+- Chaque collecteur est isolé dans son propre `try/catch` ; `build()` ne lève
+  jamais.
+- `MailService::getDeliveryMode()` / `isDeliveryConfigured()` — deux
+  accesseurs de diagnostic qui répondent « smtp/local » et « configuré ou
+  non » sans jamais exposer hôte, port, identifiant, mot de passe ni adresse.
+- `ARCHITECTURE.md` §8.41 complété (contenu du payload, propriétés,
+  détermination de `installation.method` et de `scheduler.mode`).
+
+### Décisions autonomes
+
+1. **`usage.active_sections` est compté par jointure sur l'année publique**
+   (`member_functions` × `member_years` × `sections`, `desk_code <> 'STAFFDU'`)
+   plutôt que via `sections.is_active`. Motif : le document dit « pour l'année
+   publique », or `sections.is_active` n'est pas scopé à une année — c'est un
+   effet de bord du dernier import Desk. La jointure répond littéralement à la
+   question posée et reste exacte même si l'année publique n'est pas celle du
+   dernier import (période de transition, §8.26).
+2. **`installation.method` privilégie `storage/config/install-report.json`.**
+   `bootstrap.php` y persiste la valeur canonique (`layout` = `A` ou `B`), ce
+   que le document autorise explicitement. La détection par système de
+   fichiers (stub `index.php` racine + `public/index.php` ⇒ layout B, sinon
+   layout A) n'est qu'un repli ; sans aucun indice, la valeur est `null`.
+   Le document décrivait layout A comme « le répertoire du projet contient
+   `index.php` et `assets/` », ce qui ne correspond pas au code réel de
+   `bootstrap/bootstrap.php` (en layout A la racine projet est le *parent* du
+   document root et ne contient ni l'un ni l'autre).
+3. **`scheduler.mode` ne vaut jamais `null`.** Le document impose
+   `real_cron` / `poor_mans_cron` sans troisième valeur : l'absence de
+   `cron_last_run` *est* l'information « pas de vrai cron ».
+4. **`ModuleManager` et `MailService` sont des dépendances facultatives** du
+   constructeur. Le paquet de support (IT-05) et les tests doivent pouvoir
+   construire le payload sans câbler toute la racine de composition ; leurs
+   champs valent alors `null`, conformément à la règle générale.
+
+### Divergences constatées avec le document
+
+- L'exemple de payload du document montre `"modules": [ { "id": ..., "enabled":
+  ..., "version": ... } ]` mais aussi `"email": { "mode": "smtp" }` sans dire
+  d'où vient le mode ; la source réelle est `secrets.enc` (`mail_mode`), lue
+  via `MailService`, jamais directement.
+
+### Reporté volontairement
+
+- Aucun câblage dans `public/index.php` : le payload n'est ni affiché ni
+  envoyé à ce stade (IT-03 pour l'aperçu, IT-04 pour l'envoi).
