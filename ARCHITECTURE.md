@@ -813,6 +813,27 @@ The five settings this section introduces (`statistics_enabled`, `statistics_des
 
 Modules are sorted by id, so two builds of an unchanged installation differ only by `generated_at`; the JSON is always `JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE`, which is what makes the on-page preview readable and a diff between two days meaningful. The authentication secret is absent by construction — it is never a field, and a test asserts it appears nowhere in the serialized document.
 
+**Sending it** (`Core\Statistics\StatisticsSender`, driven by `Core\Statistics\Task\SendStatisticsHandler` — `core`/`send_statistics`, reference `daily`) is almost entirely guards. The transmission itself is one POST to `{destination}/api/statistics` with the payload as the body and the secret as an `Authorization: Bearer` header — **never** in the body — a `User-Agent` naming ScoutMagic and its version, a 10 s connect / 20 s total timeout, and `file_get_contents()` + `stream_context_create()` behind `StatisticsTransportInterface` (same precedent as `GitHubReleaseClient`; no new dependency, and every guard testable without a socket).
+
+**HTTPS or nothing.** A destination that does not start with `https://` is an immediate failure with an explicit reason, never a cleartext fallback: the bearer secret rides in a header, and a downgrade hands it to anyone on the path.
+
+The guards run in this order, each producing a journaled skip:
+
+1. `statistics_enabled` off — skipped **silently, with no journal entry at all**. A deliberate opt-out is not an event, and recording it daily would be a year of "nothing happened" per installation.
+2. Development mode (`auto_update_enabled` on and `auto_update_level` `'dev'`) — `dev_mode`.
+3. `base_url`'s host is not public — `localhost`, a bare IP literal (v4 or v6), a single-label name, or a `.local`/`.test`/`.localhost`/`.invalid`/`.internal` suffix — `non_public_host`. A staging clone reporting under the production installation's identity would silently corrupt the receiver's view of it.
+4. This installation **is** the receiver (`DestinationMatcher::isReceiver`) — `self_destination`.
+5. Maintenance in progress (D-02: a non-terminal `update_history` row, or a `pending`/`processing` `core` task among `install_update`, `restore_backup`, `full_reset`) — `maintenance_in_progress`. A database that cannot answer the question at all counts as "yes", which is the safe direction. There is deliberately **no** global maintenance mode: `InstallUpdateHandler` is itself a scheduled task, so a global gate would block itself.
+6. A report already succeeded under 24 h ago — `already_sent_today`.
+
+Only the skips that mean something is genuinely in the way (2 to 5) are surfaced on the Support page's "État des envois"; "reporting is off" and "already reported today" are the normal state of a healthy installation, and showing either as the latest problem would read as a fault.
+
+**Nothing is ever retried within a run, and nothing is ever caught up.** The handler reschedules itself at +86400 s in a `finally`, **whatever the outcome** — that single detail is what guarantees both "no second attempt the same day" (a receiver that is down is not hammered) and "an installation that skipped for weeks resumes by itself the moment the reason disappears". Re-enabling reporting triggers no backfill: no report is ever generated retroactively for a period spent disabled.
+
+**Failure reasons are redacted before they are stored.** A non-2xx answer's body is genuinely the best clue about what went wrong, so a bounded slice of it is kept — but capped at 200 characters, stripped of control characters, and **scrubbed of our own secret first**, because a receiver that echoes the bearer token back in its error message must not be able to get it written into a settings row the Support page then renders. The journal records `statistics_sent` (info, HTTP status and duration only), `statistics_send_failed` (warning, redacted reason), or `statistics_send_skipped` (info, reason).
+
+The handler is registered in **both** `public/index.php` and `public/cron.php`, with the first occurrence seeded at boot (same one-time `if find() === null` pattern as the other self-rescheduling tasks). `Tests\Core\CronEntryPointTest` now pins every core handler's presence in both files — forgetting one has already caused a silently-never-running background task in production (§8.17).
+
 ## 9. Installation / bootstrap
 
 ### 9.1 First install: bootstrap.php

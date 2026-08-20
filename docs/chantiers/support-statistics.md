@@ -216,3 +216,72 @@ Le récapitulatif final se trouve en fin de fichier (IT-12).
   l'adresse de support sont présents.
 - Aucun envoi réel : les trois réglages d'état restent vides tant qu'IT-04
   n'est pas là.
+
+---
+
+## IT-04 — Envoi quotidien planifié
+
+### Implémenté
+
+- `Core\Statistics\StatisticsSender::send(): StatisticsSendResult` — trois
+  issues (`sent` / `skipped(reason)` / `failed(reason)`), séquence de gardes
+  dans l'ordre exact du document, HTTPS obligatoire sans repli.
+- `StatisticsTransportInterface` + `StatisticsTransportResponse` +
+  `StreamStatisticsTransport` (`file_get_contents` +
+  `stream_context_create`, 10 s de connexion / 20 s au total, aucune
+  nouvelle dépendance).
+- `Core\Statistics\Task\SendStatisticsHandler` — clé `core`/`send_statistics`,
+  référence `daily`, auto-replanification à +86 400 s dans un `finally`
+  (donc dans les trois issues, et même si la composition du sender échoue),
+  enregistré **et** amorcé dans `public/index.php`, enregistré dans
+  `public/cron.php`.
+- `Core\Statistics\StatisticsServiceFactory` — reconstruit toute la pile
+  (identité, `ModuleManager` en lecture seule, payload, sender) depuis un
+  `TaskContext`.
+- `Core\Statistics\StatisticsStateSettings` — les trois clés d'état d'envoi.
+- `Tests\Core\CronEntryPointTest` — nouveau test paramétré vérifiant que
+  **chaque** handler core est enregistré dans les deux points d'entrée.
+- `ARCHITECTURE.md` §8.41 complété (transport, gardes, redaction, non-reprise).
+
+### Décisions autonomes
+
+1. **Le réglage `dev_update_enabled` n'existe pas** dans le dépôt. Le mode
+   développement est `auto_update_level === 'dev'` **et**
+   `auto_update_enabled === '1'` (§8.17 d'`ARCHITECTURE.md`) : c'est cette
+   condition qui est utilisée pour la garde `dev_mode`.
+2. **Seuls les sauts « bloquants » alimentent l'état affiché.** `disabled` et
+   `already_sent_today` sont l'état normal d'une installation en bonne santé ;
+   les écrire dans `statistics_last_failure_*` afficherait en permanence un
+   faux problème sur la page Support. Les autres sauts (`dev_mode`,
+   `non_public_host`, `self_destination`, `maintenance_in_progress`) y sont
+   bien reportés, conformément au bloc « Dernier échec ou saut ».
+3. **Une base incapable de répondre à « une maintenance est-elle en cours ? »
+   compte comme « oui »** : c'est la direction sûre, et c'est aussi le seul
+   cas où le sender préfère ne rien envoyer plutôt que d'envoyer un instantané
+   d'un état à moitié appliqué.
+4. **Un hôte à un seul label** (`https://intranet`) est traité comme non
+   public, au même titre qu'une IP littérale : le document ne le cite pas
+   explicitement mais l'intention (D-16) est claire.
+5. **Les trois clés d'état d'envoi sont sorties du contrôleur** vers
+   `Core\Statistics\StatisticsStateSettings` : le sender est un service, il ne
+   peut pas dépendre d'un contrôleur pour ses constantes (règle de couches
+   d'`ARCHITECTURE.md` §2). `SupportController` expose toujours les mêmes
+   constantes, déléguées.
+6. **`StatisticsSenderFactoryInterface`** est un point d'injection de test
+   pour le handler, exactement sur le modèle de
+   `Core\Maintenance\BackupServiceInterface` sur `FullResetHandler` — un
+   handler construit par `SchedulerRunner` avec un `new` nu n'a pas d'autre
+   couture possible.
+
+### Divergences constatées avec le document
+
+- `dev_update_enabled` (voir décision 1).
+- Le document dit « mise à jour de `statistics_last_success_at` ou du couple
+  `statistics_last_failure_at` / `_reason` » après l'envoi, sans traiter le
+  cas des sauts ; la page Support d'IT-03 promet pourtant « Dernier échec ou
+  saut ». Arbitré par la décision 2.
+
+### Reporté volontairement
+
+- Aucun bouton « envoyer maintenant » : hors périmètre, l'envoi est
+  exclusivement déclenché par le planificateur.
