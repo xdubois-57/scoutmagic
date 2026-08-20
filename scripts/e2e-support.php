@@ -437,12 +437,19 @@ function e2e_admin_password(): string
  */
 function e2e_create_super_admin(
     Core\Database\Connection $connection,
-    string $encryptionKey,
-    string $blindIndexKey,
+    string $encodedEncryptionKey,
+    string $encodedBlindIndexKey,
     string $email,
     string $password
 ): void {
-    $encryptionService = new Core\Security\EncryptionService($encryptionKey, $blindIndexKey);
+    // The keys arrive as the base64 strings written into secrets.enc, and
+    // the application decodes them at boot (EncryptionService::
+    // fromEncodedKeys, audit M1) — so this seeder must decode them the
+    // same way. Passing the base64 strings to the raw-bytes constructor
+    // derives a DIFFERENT key: the seeded row's blind index never matches
+    // a login lookup, public/index.php's admin self-heal then replaces the
+    // row without a password, and the E2E admin login fails.
+    $encryptionService = Core\Security\EncryptionService::fromEncodedKeys($encodedEncryptionKey, $encodedBlindIndexKey);
     $normalizedEmail = strtolower(trim($email));
 
     $statement = $connection->getPdo()->prepare(
