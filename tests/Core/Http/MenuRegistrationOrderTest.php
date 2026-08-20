@@ -57,7 +57,7 @@ class MenuRegistrationOrderTest extends TestCase
 
         $this->assertSame('Configuration avancée', $labels[0]);
         $this->assertSame(
-            ['Modules', 'Badges', 'Desk', 'Paramètres', 'RGPD', 'Actions planifiées', 'Maintenance', 'Notifications'],
+            ['Modules', 'Badges', 'Desk', 'Paramètres', 'RGPD', 'Actions planifiées', 'Maintenance', 'Notifications', 'Support'],
             array_slice($labels, 1)
         );
     }

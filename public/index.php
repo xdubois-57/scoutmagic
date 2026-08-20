@@ -71,6 +71,7 @@ use Core\Http\Controller\ScheduledActionsController;
 use Core\Http\Controller\ScoutYearController;
 use Core\Http\Controller\SettingsController;
 use Core\Http\Controller\SetupController;
+use Core\Http\Controller\SupportController;
 use Core\Http\Controller\ShortUrlController;
 use Core\Http\Controller\StaffsController;
 use Core\Http\Controller\UploadController;
@@ -695,6 +696,18 @@ $settingService->register('statistics_installation_id', '', 'text', 'Identifiant
 $settingService->register('support_email', 'support@scoutmagic.be', 'email', 'Adresse du support ScoutMagic',
     'Adresse à laquelle envoyer une archive de support. Affichée sur la page Support.',
     null, null, null, false, 283);
+// Send-state bookkeeping, written by the daily task and shown read-only on
+// the Support page. The failure reason is a short, redacted code — never a
+// raw server response and never the authentication secret.
+$settingService->register('statistics_last_success_at', '', 'text', 'Dernier envoi de statistiques réussi',
+    'Horodatage du dernier rapport d\'utilisation transmis avec succès. Renseigné automatiquement.',
+    null, null, null, false, 285);
+$settingService->register('statistics_last_failure_at', '', 'text', 'Dernier échec d\'envoi de statistiques',
+    'Horodatage de la dernière tentative d\'envoi ayant échoué ou ayant été sautée. Renseigné automatiquement.',
+    null, null, null, false, 286);
+$settingService->register('statistics_last_failure_reason', '', 'text', 'Motif du dernier échec d\'envoi',
+    'Motif court du dernier échec ou saut d\'envoi des statistiques. Renseigné automatiquement.',
+    null, null, null, false, 287);
 // `installed_at` declares itself (Core\Statistics\InstallationDateService::
 // register()) because SetupController writes it before this file has ever
 // run — see that method's own comment. Backfilled here once for every
@@ -1205,6 +1218,7 @@ $menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'RGPD', '/config/rgpd', '
 $menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Actions planifiées', '/config/scheduled', 'superadmin', 40);
 $menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Maintenance', '/config/maintenance', 'admin', 45);
 $menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Notifications', '/config/notifications', 'superadmin', 46);
+$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Support', '/config/support', 'superadmin', 47);
 // order 10, not a leftover "after the separator" number — GROUP_CORE
 // (addPage()'s default) already sorts this after the dynamic member
 // entries/empty-state placeholder above regardless of the numeric order,
@@ -1234,6 +1248,24 @@ $moduleManager = new ModuleManager(
     $router,
     $notificationService,
     $offlineWhitelist
+);
+
+// Usage statistics (Core\Statistics, ARCHITECTURE.md §8.41). Built here
+// because the payload needs the ModuleManager above (module list and
+// versions) and the MailService built earlier (transport mode, and whether
+// mail is configured — never the credentials themselves).
+$installationIdentityService = new \Core\Statistics\InstallationIdentityService(
+    $settingService,
+    $secretManager,
+    $journalService
+);
+$statisticsPayloadBuilder = new \Core\Statistics\StatisticsPayloadBuilder(
+    $settingService,
+    $pdo,
+    $installationIdentityService,
+    dirname(__DIR__),
+    $moduleManager,
+    $mailService
 );
 
 // Set up SchedulerRunner with ModuleManager and the context task handlers run
@@ -1497,6 +1529,10 @@ $router->addRoute('GET', '/config/settings', SettingsController::class, 'index',
 $router->addRoute('POST', '/config/settings/update', SettingsController::class, 'update', 'superadmin');
 $router->addRoute('POST', '/config/settings/logo-delete', SettingsController::class, 'deleteLogo', 'superadmin');
 $router->addRoute('POST', '/config/settings/logo-notify-ios', SettingsController::class, 'notifyIosLogoUpdate', 'superadmin');
+
+// Support (Core\Statistics, Core\Support — ARCHITECTURE.md §8.41/§8.42)
+$router->addRoute('GET', '/config/support', SupportController::class, 'index', 'superadmin', ['label' => 'Support', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]]);
+$router->addRoute('POST', '/config/support/statistics', SupportController::class, 'saveStatistics', 'superadmin');
 
 // Scheduled actions
 $router->addRoute('GET', '/config/scheduled', ScheduledActionsController::class, 'index', 'superadmin', ['label' => 'Actions planifiées', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]]);
@@ -1776,6 +1812,12 @@ $frontController->registerController(JournalController::class, new JournalContro
 $frontController->registerController(ScoutYearController::class, new ScoutYearController($twig, $scoutYearResolver, $scoutYearAdminService, $scoutYearService, $journalService));
 $frontController->registerController(MemberSearchController::class, new MemberSearchController($twig, $memberSearchService, $memberService, $scoutYearResolver, $memberYearService, $departureService));
 $frontController->registerController(SettingsController::class, new SettingsController($twig, $settingService, $journalService, $unitLogoService, $notificationService, $userAccountRepo));
+$frontController->registerController(SupportController::class, new SupportController(
+    $twig,
+    $settingService,
+    $journalService,
+    $statisticsPayloadBuilder
+));
 $frontController->registerController(ScheduledActionsController::class, new ScheduledActionsController($twig, $schedulerRepo));
 $frontController->registerController(ConfigGeneralController::class, new ConfigGeneralController($twig));
 $frontController->registerController(ConfigModulesController::class, new ConfigModulesController($twig, $moduleManager, $journalService));

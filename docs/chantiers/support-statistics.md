@@ -154,3 +154,65 @@ Le récapitulatif final se trouve en fin de fichier (IT-12).
 
 - Aucun câblage dans `public/index.php` : le payload n'est ni affiché ni
   envoyé à ce stade (IT-03 pour l'aperçu, IT-04 pour l'envoi).
+
+---
+
+## IT-03 — Page Support (core)
+
+### Implémenté
+
+- `Core\Http\Controller\SupportController` — `/config/support` (`role_min:
+  superadmin`), entrée « Support » dans le menu Configuration, et
+  `POST /config/support/statistics` (jeton CSRF obligatoire).
+- Vue `config/support.html.twig` avec les quatre blocs demandés dans l'ordre :
+  statistiques d'utilisation (interrupteur + destination + explication qui dit
+  explicitement que le rapport **n'est pas anonyme**), état des envois, aperçu
+  JSON du payload, paquet de support (adresse de support + avertissement
+  `alert-warning` intégral).
+- Trois réglages d'état d'envoi (`statistics_last_success_at`,
+  `statistics_last_failure_at`, `statistics_last_failure_reason`), non
+  éditables et exclus de la page Paramètres.
+- Case « Envoyer des statistiques d'utilisation » dans le formulaire
+  d'installation, cochée par défaut, avec dépliant « Voir ce qui sera envoyé »
+  et mention de non-anonymat ; la valeur choisie alimente `statistics_enabled`
+  en fin de parcours.
+- RGPD : section 4.1 de `core/View/rgpd_default.html` (source de
+  `RgpdContentService::getDefaultContent()`) enrichie de deux paragraphes
+  (statistiques d'utilisation, archive de diagnostic), et règle 28 ajoutée au
+  prompt système de `buildSystemPrompt()`.
+- Classe utilitaire `.support-payload-preview` dans
+  `public/assets/css/components.css` (hauteur maximale + défilement du bloc
+  d'aperçu) plutôt qu'un `style=` en ligne.
+
+### Décisions autonomes
+
+1. **Le dépliant du setup affiche toujours la liste des catégories de
+   données, jamais le payload.** À cette étape, `SetupController` n'a ni
+   connexion à la base, ni `SettingService`, ni identité d'installation : le
+   payload ne peut structurellement pas être construit. Le document prévoyait
+   déjà ce repli ; la branche « afficher le payload » aurait été du code mort.
+2. **L'interrupteur n'est journalisé que sur changement effectif.** Le
+   document demande la journalisation de l'activation/désactivation ; ré-
+   enregistrer la page sans rien changer n'est pas une décision de vie privée
+   et produirait du bruit dans le journal.
+3. **La destination est enregistrée par le même formulaire que
+   l'interrupteur**, et une URL invalide rejette la soumission entière avec un
+   message d'erreur français plutôt que d'enregistrer partiellement.
+4. **Le bloc « État des envois » affiche l'horodatage brut à côté de la date
+   en français.** Le filtre `french_date` n'affiche pas l'heure, or l'heure est
+   précisément l'information utile pour diagnostiquer un envoi quotidien.
+5. **`getDefaultContent()` lit un fichier statique** (`core/View/
+   rgpd_default.html`) : c'est ce fichier qui a été modifié, pas la méthode.
+
+### Divergences constatées avec le document
+
+- Le document parle d'un « réglage » de destination « modifiable ici » sans
+  préciser la route ; elle est portée par le même POST que l'interrupteur.
+
+### Reporté volontairement
+
+- Le bouton « Générer un paquet de support », l'indicateur de progression et
+  le lien de téléchargement arrivent en IT-05 ; seul l'avertissement et
+  l'adresse de support sont présents.
+- Aucun envoi réel : les trois réglages d'état restent vides tant qu'IT-04
+  n'est pas là.
