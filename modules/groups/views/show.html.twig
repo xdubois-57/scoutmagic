@@ -33,7 +33,8 @@
     {% endif %}
 
     {% if post_permission.allowed %}
-        <form method="post" action="/groups/{{ group.id }}/posts" enctype="multipart/form-data" class="card mb-3" id="groups-post-form" data-max-media="{{ max_media_per_post|default(4) }}">
+        <form method="post" action="/groups/{{ group.id }}/posts" enctype="multipart/form-data" class="card mb-3" id="groups-post-form"
+              data-max-media="{{ max_media_per_post|default(4) }}" data-group-id="{{ group.id }}" data-draft-ttl-minutes="{{ draft_ttl_minutes|default(60) }}">
             <div class="card-body">
                 <label class="form-label small mb-1" for="post-body">Écrire un message</label>
                 {{ csrf_field()|raw }}
@@ -80,6 +81,15 @@
                   then, and hidden again if the URL is edited away.
                 #}
                 <div class="mt-2 d-none" id="groups-link-preview" data-preview-url="/groups/{{ group.id }}/link-preview"></div>
+
+                {#
+                  Filled in by groups.js when the dynamic submit (fetch())
+                  itself fails or is refused — a stale CSRF token falls
+                  back to a real form submit instead (see groups.js), so
+                  this only ever shows a REFUSAL the server actually
+                  returned, or a genuine network/connection failure.
+                #}
+                <p class="small text-danger mt-2 mb-0 d-none" id="groups-post-error" role="alert"></p>
 
                 <button type="submit" class="btn btn-primary mt-2" style="min-height:44px;">Publier</button>
             </div>

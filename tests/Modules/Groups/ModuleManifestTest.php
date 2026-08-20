@@ -195,6 +195,7 @@ class ModuleManifestTest extends TestCase
                 'groups_post_retention_months',
                 'groups_closed_purge_months',
                 'groups_max_created_per_member',
+                'groups_draft_ttl_minutes',
             ],
             $keys
         );

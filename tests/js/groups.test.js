@@ -30,13 +30,19 @@ class FakeDataTransfer {
 
 describe('groups.js composer media picker', () => {
     beforeEach(() => {
+        localStorage.clear();
         global.DataTransfer = FakeDataTransfer;
         // jsdom does not implement createObjectURL either — stubbed so the
         // image-preview branch (an <img src="blob:...">) can run at all;
         // its actual return value is never asserted on.
         global.URL.createObjectURL = vi.fn(() => 'blob:fake');
+        // initComposer() now owns the media picker, the live link preview
+        // and the draft cache together (one merged IIFE — see groups.js's
+        // own docblock for why) and requires #post-body to exist even for
+        // tests that only exercise the media picker.
         document.body.innerHTML = `
             <form id="groups-post-form" data-max-media="2">
+                <textarea id="post-body"></textarea>
                 <div id="groups-media-previews"></div>
                 <input type="file" name="media[]" id="groups-media-hidden" class="d-none" multiple>
                 <span id="groups-media-count"></span>
@@ -116,12 +122,191 @@ describe('groups.js composer media picker', () => {
     });
 });
 
+describe('groups.js dynamic post submit and draft cache', () => {
+    beforeEach(() => {
+        localStorage.clear();
+        global.DataTransfer = FakeDataTransfer;
+        global.URL.createObjectURL = vi.fn(() => 'blob:fake');
+        document.body.innerHTML = `
+            <div id="groups-feed"></div>
+            <form id="groups-post-form" action="/groups/1/posts" data-max-media="4" data-group-id="1" data-draft-ttl-minutes="60">
+                <textarea id="post-body"></textarea>
+                <div id="groups-media-previews"></div>
+                <input type="file" name="media[]" id="groups-media-hidden" class="d-none" multiple>
+                <input type="file" id="groups-media-input" multiple>
+                <div class="d-none" id="groups-link-preview" data-preview-url="/groups/1/link-preview"></div>
+                <p class="d-none" id="groups-post-error"></p>
+                <button type="submit">Publier</button>
+            </form>
+        `;
+        Object.defineProperty(document.getElementById('groups-media-hidden'), 'files', {
+            writable: true,
+            configurable: true,
+            value: [],
+        });
+    });
+
+    function textarea() {
+        return document.getElementById('post-body');
+    }
+
+    function submit(form) {
+        form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    }
+
+    it('publishing a post inserts it at the top of the feed and resets the composer', async () => {
+        await loadGroups();
+        global.fetch = vi.fn(() => Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ html: '<article id="post-42">Bonjour</article>' })
+        }));
+
+        textarea().value = 'Bonjour';
+        submit(document.getElementById('groups-post-form'));
+        await vi.waitFor(() => expect(document.getElementById('post-42')).not.toBeNull());
+
+        expect(document.getElementById('groups-feed').firstElementChild.id).toBe('post-42');
+        expect(textarea().value).toBe('');
+        const [url, options] = fetch.mock.calls[0];
+        expect(url).toContain('/groups/1/posts');
+        expect(options.headers).toEqual({ 'X-Requested-With': 'XMLHttpRequest' });
+    });
+
+    it('disables the textarea and the submit button while the request is in flight', async () => {
+        await loadGroups();
+        let resolveFetch;
+        global.fetch = vi.fn(() => new Promise((resolve) => { resolveFetch = resolve; }));
+
+        textarea().value = 'Bonjour';
+        submit(document.getElementById('groups-post-form'));
+        await vi.waitFor(() => expect(textarea().disabled).toBe(true));
+        expect(document.querySelector('#groups-post-form button[type="submit"]').disabled).toBe(true);
+
+        resolveFetch({ ok: true, json: () => Promise.resolve({ html: '<article id="post-1"></article>' }) });
+        await vi.waitFor(() => expect(textarea().disabled).toBe(false));
+    });
+
+    it('shows a server refusal inline without clearing the draft', async () => {
+        await loadGroups();
+        global.fetch = vi.fn(() => Promise.resolve({
+            ok: false,
+            json: () => Promise.resolve({ error: 'Vous avez atteint la limite de messages.' })
+        }));
+
+        textarea().value = 'Trop de messages';
+        submit(document.getElementById('groups-post-form'));
+
+        const errorBox = document.getElementById('groups-post-error');
+        await vi.waitFor(() => expect(errorBox.classList.contains('d-none')).toBe(false));
+        expect(errorBox.textContent).toBe('Vous avez atteint la limite de messages.');
+        expect(textarea().value).toBe('Trop de messages');
+        expect(document.getElementById('groups-feed').children).toHaveLength(0);
+    });
+
+    it('shows a connection-lost message on a network failure, keeping the draft', async () => {
+        await loadGroups();
+        global.fetch = vi.fn(() => Promise.reject(new TypeError('Failed to fetch')));
+
+        textarea().value = 'Hors ligne';
+        submit(document.getElementById('groups-post-form'));
+
+        const errorBox = document.getElementById('groups-post-error');
+        await vi.waitFor(() => expect(errorBox.classList.contains('d-none')).toBe(false));
+        expect(errorBox.textContent).toContain('Connexion perdue');
+        expect(textarea().value).toBe('Hors ligne');
+    });
+
+    it('falls back to a real form submit when the response is not JSON at all', async () => {
+        await loadGroups();
+        const form = /** @type {HTMLFormElement} */ (document.getElementById('groups-post-form'));
+        form.submit = vi.fn();
+        global.fetch = vi.fn(() => Promise.resolve({ ok: false, json: () => Promise.reject(new Error('not json')) }));
+
+        textarea().value = 'Jeton périmé';
+        submit(form);
+
+        await vi.waitFor(() => expect(form.submit).toHaveBeenCalled());
+    });
+
+    it('caches the draft after typing, and restores it on the next load', async () => {
+        vi.useFakeTimers();
+        try {
+            await loadGroups();
+            textarea().value = 'Message en cours de frappe';
+            textarea().dispatchEvent(new Event('input'));
+            await vi.advanceTimersByTimeAsync(500);
+
+            expect(JSON.parse(localStorage.getItem('groups-draft-1')).body).toBe('Message en cours de frappe');
+
+            // A fresh page load: a new composer instance, over the exact
+            // same (still empty) markup — the draft must come back on its
+            // own, with no server-side rejected_draft involved.
+            await loadGroups();
+            expect(textarea().value).toBe('Message en cours de frappe');
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('does not restore a draft older than the configured TTL, and removes it', async () => {
+        localStorage.setItem('groups-draft-1', JSON.stringify({ body: 'Trop vieux', savedAt: Date.now() - 61 * 60000 }));
+
+        await loadGroups();
+
+        expect(textarea().value).toBe('');
+        expect(localStorage.getItem('groups-draft-1')).toBeNull();
+    });
+
+    it('never overwrites text the server already prefilled (a moderation rejection)', async () => {
+        localStorage.setItem('groups-draft-1', JSON.stringify({ body: 'Brouillon local', savedAt: Date.now() }));
+        textarea().value = 'Texte déjà refusé par le serveur';
+
+        await loadGroups();
+
+        expect(textarea().value).toBe('Texte déjà refusé par le serveur');
+    });
+
+    it('clears the cached draft once the post actually publishes', async () => {
+        vi.useFakeTimers();
+        try {
+            await loadGroups();
+            global.fetch = vi.fn(() => Promise.resolve({
+                ok: true,
+                json: () => Promise.resolve({ html: '<article id="post-9"></article>' })
+            }));
+
+            textarea().value = 'Bientôt publié';
+            textarea().dispatchEvent(new Event('input'));
+            await vi.advanceTimersByTimeAsync(500);
+            expect(localStorage.getItem('groups-draft-1')).not.toBeNull();
+
+            submit(document.getElementById('groups-post-form'));
+            await vi.waitFor(() => expect(document.getElementById('post-9')).not.toBeNull());
+
+            expect(localStorage.getItem('groups-draft-1')).toBeNull();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+});
+
 describe('groups.js live link preview', () => {
     beforeEach(() => {
+        localStorage.clear();
+        global.DataTransfer = FakeDataTransfer;
         document.head.innerHTML = '<meta name="csrf-token" content="tok">';
+        // initComposer() now owns the media picker, the live link preview
+        // and the draft cache together — the form/media elements are
+        // required for it to run at all, even though these tests only
+        // exercise the link-preview part.
         document.body.innerHTML = `
-            <textarea id="post-body"></textarea>
-            <div class="d-none" id="groups-link-preview" data-preview-url="/groups/1/link-preview"></div>
+            <form id="groups-post-form" data-max-media="4">
+                <textarea id="post-body"></textarea>
+                <div id="groups-media-previews"></div>
+                <input type="file" name="media[]" id="groups-media-hidden" class="d-none" multiple>
+                <input type="file" id="groups-media-input" multiple>
+                <div class="d-none" id="groups-link-preview" data-preview-url="/groups/1/link-preview"></div>
+            </form>
         `;
     });
 

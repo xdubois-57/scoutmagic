@@ -115,6 +115,33 @@ class GroupFeedService
     }
 
     /**
+     * One row, in exactly the shape decorate() builds for a page — the
+     * post PostController::create() just made has no replies, no reports
+     * and no reactions yet, so those three batched lookups are trivially
+     * empty rather than genuinely queried; its own author label, media
+     * and link still go through the real lookups, scoped to this one id
+     * instead of a whole page. groups.js inserts the returned fragment
+     * into the feed without a reload, which is the only reason this
+     * exists — every other caller still goes through page() above.
+     */
+    public function rowForNewPost(DiscussionGroup $group, Post $post, GroupSessionContext $context, bool $canModerate): array
+    {
+        $mediaById = $this->postMediaService->albumMediaById($group);
+
+        $page = [
+            'labels' => $this->authorResolver->resolve([$post], $group->scoutYearId ?? $context->effectiveScoutYearId),
+            'media' => $this->postMediaService->mediaForPosts([$post->id], $mediaById),
+            'links' => $this->postLinkRepository->findForPosts([$post->id]),
+            'replies' => [],
+            'reply_counts' => [],
+            'reactions' => ['counts' => [], 'own' => []],
+            'reports' => ['reported' => [], 'counts' => []],
+        ];
+
+        return $this->decorate($post, $page, $context, $canModerate);
+    }
+
+    /**
      * $page carries everything already resolved once for the whole page —
      * passed as one array rather than six positional parameters, which is
      * what kept this signature from growing a parameter per feature.

@@ -18,29 +18,42 @@
 // uses on its own container — an external file has no Twig
 // interpolation to lean on.
 (function () {
-    // Composer media picker: the visible <input type="file"> is a UI-only
-    // source of File objects — never submitted itself. Selected files
-    // accumulate in selectedFiles[], capped client-side at
-    // maxMedia (a convenience: the server enforces the real ceiling and
-    // rejects the whole post over it, never truncating —
-    // Service\PostMediaService::MAX_MEDIA_PER_POST). Before submit,
-    // they're copied onto the one hidden <input name="media[]"> that
-    // actually gets posted, via the DataTransfer API (the only way to
-    // programmatically set an <input>'s .files).
-    (function initMediaPicker() {
-        var form = document.getElementById('groups-post-form');
+    // The composer as a whole: the media picker, the live link-preview
+    // card, the localStorage draft cache, and the dynamic submit itself.
+    // One IIFE rather than several, because all four have to coordinate
+    // on the same reset (a published post clears the picker's own
+    // selectedFiles[], the link-preview card, AND the cached draft
+    // together) — splitting them the way earlier prompts did would need
+    // some cross-closure signalling (a custom event, or state hung off
+    // the form element) for no benefit, since none of the four is reused
+    // outside this one composer.
+    (function initComposer() {
+        var form = /** @type {HTMLFormElement} */ (document.getElementById('groups-post-form'));
         var previews = document.getElementById('groups-media-previews');
         var hiddenInput = /** @type {HTMLInputElement} */ (document.getElementById('groups-media-hidden'));
         var countLabel = document.getElementById('groups-media-count');
         var limitWarning = document.getElementById('groups-media-limit-warning');
-        if (!form || !previews || !hiddenInput) {
+        var textarea = /** @type {HTMLTextAreaElement} */ (document.getElementById('post-body'));
+        var linkPreviewContainer = document.getElementById('groups-link-preview');
+        var errorBox = document.getElementById('groups-post-error');
+        var submitBtn = /** @type {HTMLButtonElement} */ (form ? form.querySelector('button[type="submit"]') : null);
+        if (!form || !previews || !hiddenInput || !textarea) {
             return;
         }
 
         var maxMedia = parseInt(form.dataset.maxMedia, 10) || 4;
         var selectedFiles = [];
 
-        function render() {
+        // --- Media picker: the visible <input type="file"> is a UI-only
+        // source of File objects — never submitted itself. Selected files
+        // accumulate in selectedFiles[], capped client-side at maxMedia (a
+        // convenience: the server enforces the real ceiling and rejects
+        // the whole post over it, never truncating —
+        // Service\PostMediaService::MAX_MEDIA_PER_POST). Before submit,
+        // they're copied onto the one hidden <input name="media[]"> that
+        // actually gets posted, via the DataTransfer API (the only way to
+        // programmatically set an <input>'s .files).
+        function renderMediaPreviews() {
             previews.innerHTML = '';
             selectedFiles.forEach(function (file, index) {
                 var cell = document.createElement('div');
@@ -68,7 +81,7 @@
                 remove.innerHTML = '<i class="bi bi-x" style="font-size:.9rem;"></i>';
                 remove.addEventListener('click', function () {
                     selectedFiles.splice(index, 1);
-                    sync();
+                    syncMedia();
                 });
                 cell.appendChild(remove);
 
@@ -76,12 +89,12 @@
             });
         }
 
-        function sync() {
+        function syncMedia() {
             var dataTransfer = new DataTransfer();
             selectedFiles.forEach(function (file) { dataTransfer.items.add(file); });
             hiddenInput.files = dataTransfer.files;
             if (countLabel) countLabel.textContent = selectedFiles.length + ' / ' + maxMedia + ' médias';
-            render();
+            renderMediaPreviews();
         }
 
         function addFiles(fileList) {
@@ -94,7 +107,13 @@
                 selectedFiles.push(file);
             });
             if (limitWarning) limitWarning.classList.toggle('d-none', !overflowed);
-            sync();
+            syncMedia();
+        }
+
+        function resetMedia() {
+            selectedFiles = [];
+            syncMedia();
+            if (limitWarning) limitWarning.classList.add('d-none');
         }
 
         // One picker only: every mobile OS already offers "take a photo"
@@ -107,48 +126,45 @@
                 mediaInput.value = '';
             });
         }
-    })();
 
-    // No manual "Lien" field: the first URL typed anywhere in the message
-    // is detected automatically and previewed live, exactly as it will
-    // look once the post is saved (Controller\PostController::
-    // linkPreview(), Service\PostLinkService::livePreview() — the same
-    // preview a real submit would produce, just not written anywhere
-    // yet). Debounced on typing (never per keystroke — the fetch is
-    // throttled server-side, Service\LinkFetchThrottleService, shared
-    // with the post's own final fetch on submit) and fired immediately on
-    // blur/paste, so leaving the field or pasting a link shows the card
-    // without waiting out the debounce.
-    (function initLinkPreview() {
-        var textarea = /** @type {HTMLTextAreaElement} */ (document.getElementById('post-body'));
-        var container = document.getElementById('groups-link-preview');
-        if (!textarea || !container) {
-            return;
-        }
-
-        var previewUrl = container.dataset.previewUrl;
-        var debounceTimer = null;
+        // --- Live link preview: no manual "Lien" field — the first URL
+        // typed anywhere in the message is detected automatically and
+        // previewed live, exactly as it will look once the post is saved
+        // (Controller\PostController::linkPreview(),
+        // Service\PostLinkService::livePreview() — the same preview a
+        // real submit would produce, just not written anywhere yet).
+        // Debounced on typing (never per keystroke — the fetch is
+        // throttled server-side, Service\LinkFetchThrottleService, shared
+        // with the post's own final fetch on submit) and fired
+        // immediately on blur/paste, so leaving the field or pasting a
+        // link shows the card without waiting out the debounce.
+        var linkDebounceTimer = null;
         var lastRequestedBody = null;
-        var requestToken = 0;
+        var linkRequestToken = 0;
 
         function csrfToken() {
             var meta = /** @type {HTMLMetaElement} */ (document.querySelector('meta[name="csrf-token"]'));
             return meta ? meta.content : '';
         }
 
-        function hide() {
-            container.classList.add('d-none');
-            container.innerHTML = '';
+        function hideLinkPreview() {
+            if (linkPreviewContainer) {
+                linkPreviewContainer.classList.add('d-none');
+                linkPreviewContainer.innerHTML = '';
+            }
         }
 
-        function showSpinner() {
-            container.innerHTML = '';
+        function showLinkPreviewSpinner() {
+            if (!linkPreviewContainer) {
+                return;
+            }
+            linkPreviewContainer.innerHTML = '';
             var spinner = document.createElement('span');
             spinner.className = 'spinner-border spinner-border-sm text-body-secondary';
             spinner.setAttribute('role', 'status');
             spinner.setAttribute('aria-hidden', 'true');
-            container.appendChild(spinner);
-            container.classList.remove('d-none');
+            linkPreviewContainer.appendChild(spinner);
+            linkPreviewContainer.classList.remove('d-none');
         }
 
         // Built with textContent throughout, never innerHTML string
@@ -156,8 +172,11 @@
         // page's own og:title/og:description, which this member did not
         // write and this site does not control — the same untrusted-input
         // rule as anywhere else a value crosses a trust boundary.
-        function renderCard(data) {
-            container.innerHTML = '';
+        function renderLinkPreviewCard(data) {
+            if (!linkPreviewContainer) {
+                return;
+            }
+            linkPreviewContainer.innerHTML = '';
             var card = document.createElement('a');
             card.href = data.url;
             card.target = '_blank';
@@ -205,11 +224,14 @@
             }
 
             card.appendChild(body);
-            container.appendChild(card);
-            container.classList.remove('d-none');
+            linkPreviewContainer.appendChild(card);
+            linkPreviewContainer.classList.remove('d-none');
         }
 
-        function fetchPreview() {
+        function fetchLinkPreview() {
+            if (!linkPreviewContainer) {
+                return;
+            }
             var body = textarea.value;
             if (body === lastRequestedBody) {
                 return;
@@ -220,20 +242,20 @@
             // call's own decision (nothing to show) has to win once it is
             // made — not get silently overwritten a moment later when that
             // older request finally resolves.
-            var token = ++requestToken;
+            var token = ++linkRequestToken;
 
             // Cheap guard before spending a network round trip (and,
             // server-side, a throttle slot only actually gets consumed
             // once a URL is genuinely found — but there is no reason to
             // ask at all for a message with no "http" in it whatsoever).
             if (body.indexOf('http://') === -1 && body.indexOf('https://') === -1) {
-                hide();
+                hideLinkPreview();
                 return;
             }
 
-            showSpinner();
+            showLinkPreviewSpinner();
 
-            fetch(previewUrl, {
+            fetch(linkPreviewContainer.dataset.previewUrl, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/x-www-form-urlencoded',
@@ -247,36 +269,201 @@
                 // A later request may have already resolved while this
                 // one was in flight — discard a stale answer rather than
                 // flashing an outdated card back over a newer one.
-                if (token !== requestToken) {
+                if (token !== linkRequestToken) {
                     return;
                 }
                 if (data.url) {
-                    renderCard(data);
+                    renderLinkPreviewCard(data);
                 } else {
-                    hide();
+                    hideLinkPreview();
                 }
             }).catch(function () {
-                if (token === requestToken) {
-                    hide();
+                if (token === linkRequestToken) {
+                    hideLinkPreview();
                 }
             });
         }
 
+        function resetLinkPreview() {
+            hideLinkPreview();
+            lastRequestedBody = null;
+            linkRequestToken += 1;
+        }
+
+        if (linkPreviewContainer) {
+            textarea.addEventListener('input', function () {
+                clearTimeout(linkDebounceTimer);
+                linkDebounceTimer = setTimeout(fetchLinkPreview, 800);
+            });
+            textarea.addEventListener('blur', function () {
+                clearTimeout(linkDebounceTimer);
+                fetchLinkPreview();
+            });
+            textarea.addEventListener('paste', function () {
+                // The pasted text is not yet in .value while this handler
+                // runs (paste is fired before the browser inserts it) —
+                // defer to the next tick so fetchLinkPreview() reads the
+                // field AFTER the paste has actually landed.
+                clearTimeout(linkDebounceTimer);
+                setTimeout(fetchLinkPreview, 0);
+            });
+        }
+
+        // --- Draft cache: a not-yet-posted message survives a lost
+        // connection or a failed submit in the member's OWN browser
+        // (never the server), so a retry does not mean retyping
+        // everything (module spec). Text only — attached files/the link
+        // preview cannot round-trip through JSON/localStorage, and are
+        // not worth the complexity for what is, at worst, re-picking a
+        // photo. Cleared the moment a post actually publishes; never
+        // touched by the network failure path, so the draft is exactly
+        // as recoverable after a failed retry as before the first one.
+        var draftTtlMinutes = parseInt(form.dataset.draftTtlMinutes, 10) || 60;
+        var draftKey = 'groups-draft-' + (form.dataset.groupId || '0');
+        var draftSaveTimer = null;
+
+        function saveDraft() {
+            var body = textarea.value;
+            if (body.trim() === '') {
+                clearDraft();
+                return;
+            }
+            try {
+                localStorage.setItem(draftKey, JSON.stringify({ body: body, savedAt: Date.now() }));
+            } catch (e) {
+                // Storage full, disabled, or private browsing — the draft
+                // is simply not cached; nothing else here depends on it.
+            }
+        }
+
+        function clearDraft() {
+            try {
+                localStorage.removeItem(draftKey);
+            } catch (e) {
+                // Same as above.
+            }
+        }
+
+        function restoreDraft() {
+            var raw;
+            try {
+                raw = localStorage.getItem(draftKey);
+            } catch (e) {
+                return;
+            }
+            if (!raw) {
+                return;
+            }
+            var draft;
+            try {
+                draft = JSON.parse(raw);
+            } catch (e) {
+                clearDraft();
+                return;
+            }
+            if ((Date.now() - draft.savedAt) / 60000 > draftTtlMinutes) {
+                clearDraft();
+                return;
+            }
+            // Never overrides text the AI moderation just handed back for
+            // THIS composer (rejected_draft, already filled in server-side
+            // — show.html.twig) — that one is more specific than a merely
+            // locally-cached draft.
+            if (textarea.value.trim() === '') {
+                textarea.value = draft.body;
+                fetchLinkPreview();
+            }
+        }
+
         textarea.addEventListener('input', function () {
-            clearTimeout(debounceTimer);
-            debounceTimer = setTimeout(fetchPreview, 800);
+            clearTimeout(draftSaveTimer);
+            draftSaveTimer = setTimeout(saveDraft, 500);
         });
-        textarea.addEventListener('blur', function () {
-            clearTimeout(debounceTimer);
-            fetchPreview();
-        });
-        textarea.addEventListener('paste', function () {
-            // The pasted text is not yet in .value while this handler
-            // runs (paste is fired before the browser inserts it) — defer
-            // to the next tick so fetchPreview() reads the field AFTER
-            // the paste has actually landed.
-            clearTimeout(debounceTimer);
-            setTimeout(fetchPreview, 0);
+
+        restoreDraft();
+
+        // --- Dynamic submit: greys out the composer while the post
+        // publishes in the background (module spec: "no reload to
+        // publish a post"), instead of the plain form POST + redirect
+        // this degrades to on any failure below.
+        function setBusy(busy) {
+            textarea.disabled = busy;
+            if (submitBtn) submitBtn.disabled = busy;
+            form.classList.toggle('groups-composer-busy', busy);
+        }
+
+        function showComposerError(message) {
+            if (!errorBox) {
+                return;
+            }
+            errorBox.textContent = message;
+            errorBox.classList.remove('d-none');
+        }
+
+        function clearComposerError() {
+            if (errorBox) {
+                errorBox.textContent = '';
+                errorBox.classList.add('d-none');
+            }
+        }
+
+        function resetComposer() {
+            form.reset();
+            resetMedia();
+            resetLinkPreview();
+            clearComposerError();
+        }
+
+        form.addEventListener('submit', function (event) {
+            event.preventDefault();
+            clearComposerError();
+            setBusy(true);
+
+            fetch(form.action, {
+                method: 'POST',
+                body: new FormData(form),
+                headers: { 'X-Requested-With': 'XMLHttpRequest' }
+            }).then(function (response) {
+                return response.json().catch(function () { return null; }).then(function (data) {
+                    return { ok: response.ok, data: data };
+                });
+            }).then(function (result) {
+                if (result.ok && result.data && typeof result.data.html === 'string') {
+                    var feed = document.getElementById('groups-feed');
+                    if (feed) {
+                        // The post just published is the newest thing in
+                        // the group — goes at the very top of the
+                        // (non-pinned) stream, exactly where a refreshed
+                        // page would put it.
+                        feed.insertAdjacentHTML('afterbegin', result.data.html);
+                        kickOffMediaPolling();
+                    }
+                    resetComposer();
+                    clearDraft();
+                } else if (result.data && typeof result.data.error === 'string') {
+                    // A refusal the server actually returned (moderation,
+                    // rate limit, media ceiling, an empty draft slipping
+                    // past the UI) — shown inline, draft left untouched so
+                    // the member can revise and resend.
+                    showComposerError(result.data.error === 'empty' ? 'Un message ne peut pas être vide.' : result.data.error);
+                } else {
+                    // Not JSON at all (a stale CSRF token's plain-text
+                    // 403, or anything else unexpected) — fall back to
+                    // the real form submit exactly like the reaction form
+                    // does, rather than leaving the member stuck.
+                    form.submit();
+                }
+            }).catch(function () {
+                // A genuine network failure or lost connection: the
+                // draft is already cached (the debounced save above), so
+                // this only has to tell the member to retry, never to
+                // reload — a reload here would be the one thing that
+                // could actually lose what they typed if they are
+                // offline.
+                showComposerError('Connexion perdue : le message n\'a pas pu être envoyé. Il reste dans le formulaire, réessayez.');
+            }).finally(function () {
+                setBusy(false);
+            });
         });
     })();
 
@@ -428,17 +615,113 @@
 
     kickOffMediaPolling();
 
-    // A reaction button's form still posts and redirects with no JS at
-    // all (partials/reactions.html.twig's own docblock promise) — this
-    // only upgrades that same POST to a fetch() so the page never
-    // reloads. The `X-Requested-With` header is what tells
-    // Controller\ReactionController to answer with the freshly rendered
-    // fragment (JSON: {outcome, html}) instead of its usual redirect;
-    // any failure — network, non-2xx, a malformed body — falls through
-    // to the plain form submit, so a stale CSRF token or a dropped
-    // connection degrades to a page reload rather than doing nothing.
+    // Delete/reply/react all still post and redirect with no JS at all —
+    // every branch below only upgrades that same POST to a fetch() so the
+    // page never reloads, each falling back to the real form submit on
+    // anything its own JSON path does not recognise (a stale CSRF token,
+    // an unexpected response).
     document.addEventListener('submit', function (event) {
         var target = /** @type {HTMLElement} */ (event.target);
+
+        // "Supprimer" on a post: the base.html.twig confirm() dialog is
+        // handled here instead of being left to that later, separately
+        // registered listener — this one runs first (it is registered by
+        // the time base.html.twig's own script tag runs, later in the
+        // page) and would otherwise fire off the delete fetch() before
+        // the member had even answered the confirm() prompt.
+        // stopImmediatePropagation() is what stops base.html.twig's
+        // listener from then asking a second, redundant time.
+        var deleteForm = /** @type {HTMLFormElement} */ (target.closest('.groups-post-delete-form'));
+        if (deleteForm) {
+            if (deleteForm.dataset.confirm && !confirm(deleteForm.dataset.confirm)) {
+                event.preventDefault();
+                event.stopImmediatePropagation();
+                return;
+            }
+            event.preventDefault();
+            event.stopImmediatePropagation();
+
+            var article = deleteForm.closest('article');
+            fetch(deleteForm.action, {
+                method: 'POST',
+                body: new FormData(deleteForm),
+                headers: { 'X-Requested-With': 'XMLHttpRequest' }
+            }).then(function (response) {
+                if (response.ok && article) {
+                    article.remove();
+                } else {
+                    deleteForm.submit();
+                }
+            }).catch(function () {
+                deleteForm.submit();
+            });
+            return;
+        }
+
+        // Replying to a post still posts and redirects with no JS at all
+        // — this upgrades it to a fetch() exactly like a reaction's own
+        // form just below, appending the new reply under the post instead
+        // of reloading. Same X-Requested-With signal, same fallback to a
+        // real form submit on anything the JSON path does not recognise.
+        var replyForm = /** @type {HTMLFormElement} */ (target.closest('.groups-reply-form'));
+        if (replyForm) {
+            event.preventDefault();
+
+            var repliesContainer = replyForm.closest('article')?.querySelector('.groups-replies');
+            var replyError = replyForm.querySelector('.groups-reply-error');
+            var replySubmitBtn = /** @type {HTMLButtonElement} */ (replyForm.querySelector('button[type="submit"]'));
+            if (replyError) {
+                replyError.textContent = '';
+                replyError.classList.add('d-none');
+            }
+            if (replySubmitBtn) replySubmitBtn.disabled = true;
+
+            fetch(replyForm.action, {
+                method: 'POST',
+                body: new FormData(replyForm),
+                headers: { 'X-Requested-With': 'XMLHttpRequest' }
+            }).then(function (response) {
+                return response.json().catch(function () { return null; }).then(function (data) {
+                    return { ok: response.ok, data: data };
+                });
+            }).then(function (result) {
+                if (result.ok && result.data && typeof result.data.html === 'string') {
+                    if (repliesContainer) {
+                        repliesContainer.insertAdjacentHTML('beforeend', result.data.html);
+                        kickOffMediaPolling();
+                    }
+                    replyForm.reset();
+                    var replyImageName = replyForm.querySelector('.groups-reply-image-name');
+                    if (replyImageName) {
+                        replyImageName.textContent = '';
+                        replyImageName.classList.add('d-none');
+                    }
+                } else if (result.data && typeof result.data.error === 'string' && replyError) {
+                    replyError.textContent = result.data.error === 'empty' ? 'Une réponse ne peut pas être vide.' : result.data.error;
+                    replyError.classList.remove('d-none');
+                } else if (!result.data) {
+                    replyForm.submit();
+                }
+            }).catch(function () {
+                if (replyError) {
+                    replyError.textContent = 'Connexion perdue : la réponse n\'a pas pu être envoyée. Réessayez.';
+                    replyError.classList.remove('d-none');
+                }
+            }).finally(function () {
+                if (replySubmitBtn) replySubmitBtn.disabled = false;
+            });
+            return;
+        }
+
+        // A reaction button's form still posts and redirects with no JS at
+        // all (partials/reactions.html.twig's own docblock promise) — this
+        // only upgrades that same POST to a fetch() so the page never
+        // reloads. The `X-Requested-With` header is what tells
+        // Controller\ReactionController to answer with the freshly rendered
+        // fragment (JSON: {outcome, html}) instead of its usual redirect;
+        // any failure — network, non-2xx, a malformed body — falls through
+        // to the plain form submit, so a stale CSRF token or a dropped
+        // connection degrades to a page reload rather than doing nothing.
         var form = /** @type {HTMLFormElement} */ (target.closest('.groups-reaction-form'));
         if (!form) {
             return;

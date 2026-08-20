@@ -391,3 +391,13 @@
     white-space: pre-wrap;
     overflow-wrap: anywhere;
 }
+
+/* Modules\Groups — the composer while its dynamic submit (groups.js) is in
+   flight: greyed out rather than merely disabled, so publishing a post
+   reads as "in progress" instead of "broken". The textarea and submit
+   button are ALSO set .disabled by the same code (real, not just visual,
+   since a greyed-out-but-clickable button would double-submit) — this
+   class only adds the look. */
+.groups-composer-busy {
+    opacity: 0.6;
+}
