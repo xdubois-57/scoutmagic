@@ -34,6 +34,7 @@ use Modules\Groups\Service\GroupSessionContextFactory;
 use Modules\Groups\Service\PostAuthorResolver;
 use Modules\Groups\Service\PostMediaService;
 use Modules\Groups\Service\PostService;
+use Modules\Groups\Support\SearchTerm;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
@@ -619,6 +620,226 @@ class GroupControllerTest extends TestCase
             ->getBody();
 
         $this->assertStringContainsString('group-edit-tie-year', $body);
+    }
+
+    // ---- search ----
+
+    /**
+     * @param int[] $linkedMemberIds
+     */
+    private function searchBody(array $linkedMemberIds, int $groupId, string $q): string
+    {
+        return $this->controller($linkedMemberIds)
+            ->search(
+                new Request('GET', '/groups/' . $groupId . '/search', ['q' => $q], [], [], []),
+                ['id' => (string) $groupId]
+            )
+            ->getBody();
+    }
+
+    public function testSearchFindsAPostByItsOwnBody(): void
+    {
+        $moderator = GroupsTestHelper::createMember($this->pdo, 'MSEARCH');
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $moderator);
+        GroupsTestHelper::createPostAt($this->pdo, $groupId, 'Rendez-vous au local samedi', '2026-01-10 10:00:00');
+        GroupsTestHelper::createPostAt($this->pdo, $groupId, 'Bonne année à tous', '2026-01-11 10:00:00');
+
+        $body = $this->searchBody([$moderator], $groupId, 'local');
+
+        $this->assertStringContainsString('Rendez-vous au local samedi', $body);
+        $this->assertStringNotContainsString('Bonne année à tous', $body);
+    }
+
+    /**
+     * A hit inside a thread is a hit on the conversation: the POST comes
+     * back, not the reply on its own, because a reply shown without what
+     * it answers tells the reader nothing.
+     */
+    public function testSearchFindsAPostThroughAMatchingReply(): void
+    {
+        $moderator = GroupsTestHelper::createMember($this->pdo, 'MSEARCH2');
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $moderator);
+        $postId = GroupsTestHelper::createPostAt($this->pdo, $groupId, 'Programme du week-end', '2026-01-10 10:00:00');
+        GroupsTestHelper::createReplyAt($this->pdo, $postId, 'Je ramène les tentes', '2026-01-10 11:00:00');
+
+        $body = $this->searchBody([$moderator], $groupId, 'tentes');
+
+        $this->assertStringContainsString('Programme du week-end', $body);
+    }
+
+    /**
+     * A post matching both ways is one result, not two: the reply search
+     * returns ids, and the ones the body search already produced are
+     * dropped before they are fetched again.
+     */
+    public function testAPostMatchingBothInItsBodyAndInAReplyAppearsOnce(): void
+    {
+        $moderator = GroupsTestHelper::createMember($this->pdo, 'MSEARCH3');
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $moderator);
+        $postId = GroupsTestHelper::createPostAt($this->pdo, $groupId, 'Le camp approche', '2026-01-10 10:00:00');
+        GroupsTestHelper::createReplyAt($this->pdo, $postId, 'Vivement le camp', '2026-01-10 11:00:00');
+
+        $body = $this->searchBody([$moderator], $groupId, 'camp');
+
+        $this->assertSame(1, substr_count($body, 'id="post-' . $postId . '"'));
+    }
+
+    /**
+     * The module's rule everywhere: a route naming a group answers 404 to
+     * somebody who is not in it. A search box that answered 403 would
+     * confirm the group exists.
+     */
+    public function testSearchReturns404ForANonMember(): void
+    {
+        $creator = GroupsTestHelper::createMember($this->pdo, 'CSEARCH');
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator);
+        $stranger = GroupsTestHelper::createMember($this->pdo, 'XSEARCH');
+
+        $response = $this->controller([$stranger])->search(
+            new Request('GET', '/groups/' . $groupId . '/search', ['q' => 'local'], [], [], []),
+            ['id' => (string) $groupId]
+        );
+
+        $this->assertSame(404, $response->getStatusCode());
+    }
+
+    /**
+     * An auto-hidden post is excluded in the SQL for everyone but a
+     * moderator — the search box must not become the way back to a
+     * message the feed already stopped showing.
+     */
+    public function testAnAutoHiddenPostIsNotReturnedToAnOrdinaryMember(): void
+    {
+        $creator = GroupsTestHelper::createMember($this->pdo, 'CHID');
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator);
+        $member = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'MHID', $this->sectionId, $this->currentYearId);
+        $postId = GroupsTestHelper::createPostAt($this->pdo, $groupId, 'Message signalé au local', '2026-01-10 10:00:00');
+        (new PostRepository($this->pdo))->setHiddenAt($postId, '2026-01-10 12:00:00');
+
+        $this->assertStringNotContainsString('Message signalé au local', $this->searchBody([$member], $groupId, 'local'));
+        $this->assertStringContainsString('Message signalé au local', $this->searchBody([$creator], $groupId, 'local'));
+    }
+
+    /**
+     * The same rule one level down: a hidden reply must not surface the
+     * post it hangs under either.
+     */
+    public function testAHiddenReplyDoesNotSurfaceItsPost(): void
+    {
+        $creator = GroupsTestHelper::createMember($this->pdo, 'CHID2');
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator);
+        $member = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'MHID2', $this->sectionId, $this->currentYearId);
+        $postId = GroupsTestHelper::createPostAt($this->pdo, $groupId, 'Programme du week-end', '2026-01-10 10:00:00');
+        $replyId = GroupsTestHelper::createReplyAt($this->pdo, $postId, 'Insulte tentaculaire', '2026-01-10 11:00:00');
+        (new \Modules\Groups\Repository\ReplyRepository($this->pdo))->setHiddenAt($replyId, '2026-01-10 12:00:00');
+
+        $this->assertStringNotContainsString(
+            'Programme du week-end',
+            $this->searchBody([$member], $groupId, 'tentaculaire')
+        );
+    }
+
+    /**
+     * Scoping, stated as a test rather than trusted to the query: the
+     * group in the URL is the only one searched, even when the member is
+     * a member of both.
+     */
+    public function testSearchNeverReachesAnotherGroupsMessages(): void
+    {
+        $moderator = GroupsTestHelper::createMember($this->pdo, 'MSCOPE');
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $moderator);
+        $otherId = $this->groupService->createInvitationGroup('Projet', null, $moderator);
+        GroupsTestHelper::createPostAt($this->pdo, $otherId, 'Secret de l\'autre groupe', '2026-01-10 10:00:00');
+
+        $this->assertStringNotContainsString(
+            'Secret de l\'autre groupe',
+            $this->searchBody([$moderator], $groupId, 'Secret')
+        );
+    }
+
+    /**
+     * Support\SearchTerm's escaping, seen from the outside: a member
+     * typing a lone wildcard gets no results, not every message in the
+     * group.
+     */
+    public function testALoneWildcardMatchesNothingRatherThanEverything(): void
+    {
+        $moderator = GroupsTestHelper::createMember($this->pdo, 'MWILD');
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $moderator);
+        GroupsTestHelper::createPostAt($this->pdo, $groupId, 'Rendez-vous au local', '2026-01-10 10:00:00');
+
+        $body = $this->searchBody([$moderator], $groupId, '%%%');
+
+        $this->assertStringNotContainsString('Rendez-vous au local', $body);
+        $this->assertStringContainsString('Aucun message', $body);
+    }
+
+    public function testATermShorterThanTheMinimumIsRefusedRatherThanRun(): void
+    {
+        $moderator = GroupsTestHelper::createMember($this->pdo, 'MSHORT');
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $moderator);
+        GroupsTestHelper::createPostAt($this->pdo, $groupId, 'Rendez-vous au local', '2026-01-10 10:00:00');
+
+        $body = $this->searchBody([$moderator], $groupId, 'lo');
+
+        $this->assertStringContainsString('au moins ' . SearchTerm::MIN_LENGTH . ' caractères', $body);
+        $this->assertStringNotContainsString('Rendez-vous au local', $body);
+    }
+
+    public function testArrivingWithNothingTypedInvitesASearchRatherThanReportingNoResult(): void
+    {
+        $moderator = GroupsTestHelper::createMember($this->pdo, 'MEMPTY');
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $moderator);
+
+        $body = $this->searchBody([$moderator], $groupId, '');
+
+        $this->assertStringNotContainsString('Aucun message', $body);
+        $this->assertStringContainsString('Recherchez un mot', $body);
+    }
+
+    /**
+     * The term is echoed back into the box and into the "aucun résultat"
+     * line — both go through Twig's escaping like any other untrusted
+     * string.
+     */
+    public function testTheSearchTermIsEscapedWhereItIsEchoedBack(): void
+    {
+        $moderator = GroupsTestHelper::createMember($this->pdo, 'MXSS');
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $moderator);
+
+        $body = $this->searchBody([$moderator], $groupId, '<script>alert(1)</script>');
+
+        $this->assertStringNotContainsString('<script>alert(1)</script>', $body);
+        $this->assertStringContainsString('&lt;script&gt;', $body);
+    }
+
+    /**
+     * A result is something to read and then open where it was said — no
+     * reply composer is rendered on this page, so a member cannot half-
+     * answer a message out of its context.
+     */
+    public function testResultsCarryNoReplyComposerButLinkBackToTheConversation(): void
+    {
+        $moderator = GroupsTestHelper::createMember($this->pdo, 'MNOCOMP');
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $moderator);
+        $postId = GroupsTestHelper::createPostAt($this->pdo, $groupId, 'Rendez-vous au local', '2026-01-10 10:00:00');
+
+        $body = $this->searchBody([$moderator], $groupId, 'local');
+
+        $this->assertStringNotContainsString('groups-reply-form', $body);
+        $this->assertStringContainsString('/groups/' . $groupId . '#post-' . $postId, $body);
+    }
+
+    public function testTheGroupPageOffersTheSearchBox(): void
+    {
+        $moderator = GroupsTestHelper::createMember($this->pdo, 'MBOX');
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $moderator);
+
+        $body = $this->controller([$moderator])
+            ->show(new Request('GET', '/groups/' . $groupId, [], [], [], []), ['id' => (string) $groupId])
+            ->getBody();
+
+        $this->assertStringContainsString('/groups/' . $groupId . '/search', $body);
     }
 
     public function testShowReturns404ForAnUnknownGroup(): void

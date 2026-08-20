@@ -29,6 +29,14 @@ class GroupFeedService
 {
     public const PAGE_SIZE = 20;
 
+    /**
+     * A search shows one screenful of the best-matching messages and no
+     * "load more". Anything past this means the term was too broad to be
+     * worth paging through — the honest answer there is a narrower term,
+     * not page 4 of 30.
+     */
+    public const RESULT_LIMIT = 30;
+
     public function __construct(
         private PostRepository $postRepository,
         private PostAuthorResolver $authorResolver,
@@ -63,20 +71,43 @@ class GroupFeedService
         $pinned = $isFirstPage ? $this->postRepository->findPinned($group->id, $canModerate) : [];
         $all = array_merge($pinned, $rows);
 
-        // Author names for the pinned posts and the page together: still
-        // two queries, whatever the page holds.
-        $labels = $this->authorResolver->resolve($all, $group->scoutYearId ?? $context->effectiveScoutYearId);
+        $decorated = $this->resolveFor($group, $all, $context, $canModerate);
 
-        // Same "resolve once, decorate many" shape: the album's whole
-        // media list is fetched once (Service\PostMediaService::
-        // albumMediaById()), then mediaForPosts() maps it onto every post
-        // on this page in one more query, never once per post.
-        $postIds = array_map(fn(Post $p) => $p->id, $all);
+        $last = $rows === [] ? null : $rows[count($rows) - 1];
+
+        return new FeedPage(
+            array_map(fn(Post $p) => $this->decorate($p, $decorated, $context, $canModerate), $pinned),
+            array_map(fn(Post $p) => $this->decorate($p, $decorated, $context, $canModerate), $rows),
+            $hasMore && $last !== null ? $this->encodeCursor($last) : null
+        );
+    }
+
+    /**
+     * Everything a set of posts needs, resolved once for all of them —
+     * author labels, media, links, first replies, reply totals, reactions
+     * and reports — in a fixed number of queries whatever the set holds.
+     * This is the "resolve once, decorate many" shape the feed has always
+     * had; it is a method of its own so that search() below reuses it
+     * verbatim rather than growing a second, drifting copy.
+     *
+     * @param Post[] $posts
+     * @return array<string, mixed> the $page array decorate() expects
+     */
+    private function resolveFor(DiscussionGroup $group, array $posts, GroupSessionContext $context, bool $canModerate): array
+    {
+        $scoutYearId = $group->scoutYearId ?? $context->effectiveScoutYearId;
+        $labels = $this->authorResolver->resolve($posts, $scoutYearId);
+
+        // The album's whole media list is fetched once
+        // (Service\PostMediaService::albumMediaById()), then
+        // mediaForPosts() maps it onto every post in one more query,
+        // never once per post.
+        $postIds = array_map(fn(Post $p) => $p->id, $posts);
         $mediaById = $this->postMediaService->albumMediaById($group);
         $mediaByPost = $this->postMediaService->mediaForPosts($postIds, $mediaById);
         $linkByPost = $this->postLinkRepository->findForPosts($postIds);
 
-        // Replies and reactions for the whole page, never per post: the
+        // Replies and reactions for the whole set, never per post: the
         // first few replies of every post plus their true totals come back
         // in two queries (Repository\ReplyRepository::findFirstForPosts()),
         // and the post reactions in two more.
@@ -90,12 +121,12 @@ class GroupFeedService
                 $replies,
                 $context,
                 $canModerate,
-                $group->scoutYearId ?? $context->effectiveScoutYearId,
+                $scoutYearId,
                 $mediaById
             );
         }
 
-        $decorated = [
+        return [
             'labels' => $labels,
             'media' => $mediaByPost,
             'links' => $linkByPost,
@@ -104,14 +135,51 @@ class GroupFeedService
             'reactions' => $postReactions,
             'reports' => $postReports,
         ];
+    }
 
-        $last = $rows === [] ? null : $rows[count($rows) - 1];
+    /**
+     * Messages of this group matching what the member typed, newest
+     * first, rendered as exactly the same cards as the feed.
+     *
+     * A post is a hit when its own body matches OR one of its replies
+     * does — the two searches are separate queries whose results are
+     * merged here, because a reply lives in its own table and a hit on it
+     * is still a hit on the conversation it belongs to.
+     *
+     * $canModerate is threaded all the way down into both queries, so
+     * auto-hidden messages are excluded in SQL for everyone else. Nothing
+     * about visibility is decided in this method; it only passes the flag
+     * the controller computed from the authorised group.
+     *
+     * @return array<int, array<string, mixed>> decorated rows, at most RESULT_LIMIT
+     */
+    public function search(DiscussionGroup $group, GroupSessionContext $context, bool $canModerate, string $pattern): array
+    {
+        $matched = $this->postRepository->search($group->id, $pattern, self::RESULT_LIMIT, $canModerate);
 
-        return new FeedPage(
-            array_map(fn(Post $p) => $this->decorate($p, $decorated, $context, $canModerate), $pinned),
-            array_map(fn(Post $p) => $this->decorate($p, $decorated, $context, $canModerate), $rows),
-            $hasMore && $last !== null ? $this->encodeCursor($last) : null
-        );
+        // Only the posts a reply matched that the body search did not
+        // already return — asking for the rest by id keeps the two halves
+        // from ever producing the same card twice.
+        $seen = [];
+        foreach ($matched as $post) {
+            $seen[$post->id] = true;
+        }
+        $viaReplies = array_values(array_filter(
+            $this->replyRepository->searchPostIds($group->id, $pattern, self::RESULT_LIMIT, $canModerate),
+            fn (int $id) => !isset($seen[$id])
+        ));
+
+        $posts = array_merge($matched, $this->postRepository->findByIdsInGroup($group->id, $viaReplies, $canModerate));
+
+        // Re-sorted across the merge, then cut: each half came back
+        // newest-first on its own, and concatenating two sorted lists does
+        // not give a sorted one.
+        usort($posts, fn (Post $a, Post $b) => [$b->createdAt, $b->id] <=> [$a->createdAt, $a->id]);
+        $posts = array_slice($posts, 0, self::RESULT_LIMIT);
+
+        $decorated = $this->resolveFor($group, $posts, $context, $canModerate);
+
+        return array_map(fn(Post $p) => $this->decorate($p, $decorated, $context, $canModerate), $posts);
     }
 
     /**

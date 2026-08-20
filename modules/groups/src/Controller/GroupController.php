@@ -35,6 +35,7 @@ use Modules\Groups\Service\PostMediaService;
 use Modules\Groups\Service\PostService;
 use Modules\Groups\Service\SectionGroupSyncService;
 use Modules\Groups\Support\RejectedDraft;
+use Modules\Groups\Support\SearchTerm;
 use Twig\Environment;
 
 /**
@@ -182,6 +183,62 @@ class GroupController extends AbstractController
             // direct link is safe here and not for an ordinary parent.
             'breadcrumb_trail' => [['label' => 'Groupes', 'url' => '/groups']],
             'breadcrumb_current' => $group->name,
+        ]);
+    }
+
+    /**
+     * GET /groups/{id}/search?q=… — the group's own messages matching a
+     * term, rendered as the same cards the feed uses.
+     *
+     * Scoped to one group and to what this reader may see, in that order:
+     * readableGroup() applies the module's usual 404-not-403 rule first,
+     * and every query underneath is given that authorised group's id and
+     * this reader's moderator flag — a search box is exactly the kind of
+     * feature through which an auto-hidden message would otherwise leak
+     * back to the member it was hidden from.
+     *
+     * Nothing here is journaled: what somebody searched for in a group is
+     * as personal as what they wrote in it (SECURITY.md §11).
+     *
+     * @param array<string, string> $params
+     */
+    public function search(Request $request, array $params): Response
+    {
+        $context = $this->context();
+        $group = $this->readableGroup($params, $context);
+        if ($group === null) {
+            return new Response('Not Found', 404);
+        }
+
+        $query = SearchTerm::normalise((string) $request->getQuery('q', ''));
+        $usable = SearchTerm::isUsable($query);
+
+        return $this->render('@groups/search.html.twig', [
+            'group' => $group,
+            'badges' => $this->badges($group, $context),
+            'query' => $query,
+            // Three states, not two: nothing typed yet, a term too short
+            // to run, and a term that ran. The template says something
+            // different for each rather than showing "aucun résultat" to
+            // somebody who has not searched for anything.
+            'has_searched' => $query !== '',
+            'too_short' => $query !== '' && !$usable,
+            'min_length' => SearchTerm::MIN_LENGTH,
+            'result_limit' => GroupFeedService::RESULT_LIMIT,
+            'results' => $usable
+                ? $this->feedService->search(
+                    $group,
+                    $context,
+                    $this->accessService->canModerate($group, $context),
+                    SearchTerm::pattern($query)
+                )
+                : [],
+            // Same trail as gallery(): "Groupes", then this group's own
+            // page, both real links.
+            'breadcrumb_trail' => [
+                ['label' => 'Groupes', 'url' => '/groups'],
+                ['label' => $group->name, 'url' => '/groups/' . $group->id],
+            ],
         ]);
     }
 

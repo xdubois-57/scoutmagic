@@ -9,6 +9,12 @@
 {% block content %}
     {% include '@groups/partials/group_header.html.twig' %}
     {% include '@groups/partials/group_edit_form.html.twig' %}
+    {#
+      Above the composer rather than below the feed: a member arriving to
+      find something said last month should not have to scroll past every
+      message to discover that looking for it is possible.
+    #}
+    {% include '@groups/partials/search_form.html.twig' with { group: group } only %}
 
     {#
       A message the AI moderation refused, given back to its own author.

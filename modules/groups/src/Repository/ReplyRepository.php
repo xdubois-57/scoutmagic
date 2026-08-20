@@ -8,6 +8,8 @@ declare(strict_types=1);
 
 namespace Modules\Groups\Repository;
 
+use Modules\Groups\Support\SearchTerm;
+
 /**
  * Replies to a post, oldest first — the opposite direction from the post
  * stream, because a conversation reads forward.
@@ -148,6 +150,36 @@ class ReplyRepository
         $stmt->execute([$postId]);
 
         return (int) $stmt->fetchColumn();
+    }
+
+    /**
+     * The ids of the posts that carry a matching reply — ids only, not
+     * the replies themselves. A search result is a list of posts, and a
+     * post whose thread mentions the term is exactly as much of a hit as
+     * one whose own body does; showing the reply on its own, out of the
+     * conversation it answers, tells the reader nothing.
+     *
+     * Both hidden states are honoured for a non-moderator, and both in
+     * the SQL: a hidden reply must not surface its post, and a matching
+     * reply under a hidden post must not reveal that the post exists.
+     *
+     * @param string $pattern a LIKE pattern from Support\SearchTerm::pattern()
+     * @return int[]
+     */
+    public function searchPostIds(int $groupId, string $pattern, int $limit, bool $includeHidden = false): array
+    {
+        $hiddenClause = $includeHidden ? '' : ' AND r.hidden_at IS NULL AND p.hidden_at IS NULL';
+        $stmt = $this->pdo->prepare(
+            'SELECT DISTINCT r.post_id FROM discussion_group_replies r
+             INNER JOIN discussion_group_posts p ON p.id = r.post_id
+             WHERE p.group_id = ?' . $hiddenClause . "
+               AND r.body LIKE ? ESCAPE '" . SearchTerm::ESCAPE_CHARACTER . "'
+             ORDER BY r.post_id DESC
+             LIMIT " . max(1, $limit)
+        );
+        $stmt->execute([$groupId, $pattern]);
+
+        return array_map('intval', $stmt->fetchAll(\PDO::FETCH_COLUMN));
     }
 
     public function setHiddenAt(int $id, ?string $hiddenAt): void

@@ -8,6 +8,8 @@ declare(strict_types=1);
 
 namespace Modules\Groups\Repository;
 
+use Modules\Groups\Support\SearchTerm;
+
 /**
  * Feed reads and post writes.
  *
@@ -107,6 +109,68 @@ class PostRepository
         // emulation-off mode.
         $stmt = $this->pdo->prepare($sql);
         $stmt->execute($params);
+
+        return array_map([$this, 'hydrate'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
+    /**
+     * Posts of one group whose own body matches, newest first.
+     *
+     * Ordered by created_at rather than last_activity_at: a search result
+     * answers "when was this said", and a reply from this morning must
+     * not float a two-year-old message to the top of the list. Same
+     * query-level hidden exclusion as findPage() — a non-moderator cannot
+     * reach an auto-hidden post through the search box either, which is
+     * the whole reason $includeHidden is a WHERE clause and not a filter
+     * applied afterwards.
+     *
+     * Pinned posts are NOT excluded here, unlike findPage(): there is no
+     * separate pinned block in a result list to duplicate them into, and
+     * a member searching for something they remember being pinned would
+     * be baffled to not find it.
+     *
+     * @param string $pattern a LIKE pattern from Support\SearchTerm::pattern()
+     * @return Post[]
+     */
+    public function search(int $groupId, string $pattern, int $limit, bool $includeHidden = false): array
+    {
+        $hiddenClause = $includeHidden ? '' : ' AND hidden_at IS NULL';
+        $stmt = $this->pdo->prepare(
+            'SELECT * FROM discussion_group_posts
+             WHERE group_id = ?' . $hiddenClause . "
+               AND body LIKE ? ESCAPE '" . SearchTerm::ESCAPE_CHARACTER . "'
+             ORDER BY created_at DESC, id DESC
+             LIMIT " . max(1, $limit)
+        );
+        $stmt->execute([$groupId, $pattern]);
+
+        return array_map([$this, 'hydrate'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
+    /**
+     * The posts behind a set of ids, restricted to one group and to what
+     * this reader may see. $groupId is not decoration: the ids come from
+     * a reply search, and re-stating the group here is what stops a bug
+     * anywhere upstream from surfacing another group's post.
+     *
+     * @param int[] $ids
+     * @return Post[]
+     */
+    public function findByIdsInGroup(int $groupId, array $ids, bool $includeHidden = false): array
+    {
+        $ids = array_values(array_unique(array_filter($ids, fn (int $id) => $id > 0)));
+        if ($ids === []) {
+            return [];
+        }
+
+        $hiddenClause = $includeHidden ? '' : ' AND hidden_at IS NULL';
+        $placeholders = implode(',', array_fill(0, count($ids), '?'));
+        $stmt = $this->pdo->prepare(
+            "SELECT * FROM discussion_group_posts
+             WHERE group_id = ? AND id IN ({$placeholders}){$hiddenClause}
+             ORDER BY created_at DESC, id DESC"
+        );
+        $stmt->execute(array_merge([$groupId], $ids));
 
         return array_map([$this, 'hydrate'], $stmt->fetchAll(\PDO::FETCH_ASSOC));
     }
