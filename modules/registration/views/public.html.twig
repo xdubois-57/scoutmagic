@@ -159,7 +159,7 @@
 
                     {% if is_identified and sibling_candidates is not empty %}
                         <div class="mb-4">
-                            <label class="form-label d-block">Frères et sœurs déjà membres de l'unité</label>
+                            <div class="form-label d-block">Frères et sœurs déjà membres de l'unité</div>
                             {% for candidate in sibling_candidates %}
                                 <div class="form-check">
                                     <input class="form-check-input" type="checkbox" name="sibling_member_ids[]" value="{{ candidate.member_id }}" id="sibling-{{ candidate.member_id }}">

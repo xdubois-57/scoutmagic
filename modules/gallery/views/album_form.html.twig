@@ -16,7 +16,7 @@
 
                 {% if not album %}
                     <div class="mb-3">
-                        <label class="form-label small fw-semibold">Type d'album</label>
+                        <div class="form-label small fw-semibold">Type d'album</div>
                         <div class="btn-group w-100" role="group">
                             {% if allow_local %}
                                 <input type="radio" class="btn-check" name="type" id="type-local" value="local" autocomplete="off" checked>
@@ -47,7 +47,7 @@
 
                 {% if album and album.type == 'local' %}
                     <div class="mb-3">
-                        <label class="form-label small">Emplacement de stockage</label>
+                        <div class="form-label small">Emplacement de stockage</div>
                         <div class="form-control-plaintext">
                             {% set current_location = locations|filter(l => l.id == album.storageLocationId)|first %}
                             {{ current_location ? current_location.label ~ ' (' ~ (current_location.type == 's3' ? 'S3' : 'Disque local') ~ ')' : 'Non défini' }}

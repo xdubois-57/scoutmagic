@@ -35,14 +35,14 @@
             <input type="text" class="form-control form-control-sm" id="receipts-search" placeholder="Rechercher (nom de fichier, commerçant, description, date, montant...)" value="{{ search }}">
         </div>
         <div class="col-auto">
-            <label class="form-label small d-block">&nbsp;</label>
+            <div class="form-label small d-block">&nbsp;</div>
             <div class="form-check">
                 <input type="checkbox" class="form-check-input" id="receipts-pending-only" {{ pending_only ? 'checked' : '' }}>
                 <label class="form-check-label small" for="receipts-pending-only">En attente uniquement</label>
             </div>
         </div>
         <div class="col-auto">
-            <label class="form-label small d-block">&nbsp;</label>
+            <div class="form-label small d-block">&nbsp;</div>
             <button type="button" class="btn btn-sm btn-primary" id="receipts-filter-btn">Filtrer</button>
             <button type="button" class="btn btn-sm btn-outline-secondary" id="receipts-reset-btn">Réinitialiser</button>
         </div>
