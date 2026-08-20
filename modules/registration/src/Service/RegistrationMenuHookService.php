@@ -9,11 +9,13 @@ declare(strict_types=1);
 namespace Modules\Registration\Service;
 
 use Core\Config\SettingService;
-use Core\Module\EspaceAnimesEntryProvider;
+use Core\Module\MenuEntry;
+use Core\Module\MenuEntryProvider;
+use Core\View\MenuBuilder;
 use Modules\Registration\Repository\RegistrationRequest;
 
 /**
- * Core\Module\EspaceAnimesEntryProvider implementation — wired into the
+ * Core\Module\MenuEntryProvider implementation — wired into the
  * composition root only when this module is enabled (ARCHITECTURE.md
  * §7.4). One entry per request linked to the visitor's email, with two
  * exclusions the module spec calls for: an 'encoded' request never
@@ -23,7 +25,7 @@ use Modules\Registration\Repository\RegistrationRequest;
  * reached that final state — never `receivedAt`. A still-open (pending/
  * accepted) request always shows, regardless of age.
  */
-class RegistrationMenuHookService implements EspaceAnimesEntryProvider
+class RegistrationMenuHookService implements MenuEntryProvider
 {
     public function __construct(
         private TrackingService $trackingService,
@@ -31,8 +33,12 @@ class RegistrationMenuHookService implements EspaceAnimesEntryProvider
     ) {
     }
 
-    public function getEntriesForEmail(string $email): array
+    public function getMenuEntries(?string $email): array
     {
+        if ($email === null) {
+            return [];
+        }
+
         $retentionMonths = (int) ($this->settingService->get('registration_espace_animes_retention_months', 'registration') ?: 3);
         $now = new \DateTimeImmutable();
 
@@ -42,11 +48,19 @@ class RegistrationMenuHookService implements EspaceAnimesEntryProvider
                 continue;
             }
 
-            $entries[] = [
-                'label' => trim($request->childFirstName . ' ' . $request->childLastName),
-                'url' => '/inscriptions/suivi/demande/' . $request->id,
-                'subtitle' => 'Demande d\'inscription',
-            ];
+            $entries[] = new MenuEntry(
+                MenuBuilder::MENU_ESPACE_ANIMES,
+                trim($request->childFirstName . ' ' . $request->childLastName),
+                '/inscriptions/suivi/demande/' . $request->id,
+                'identified',
+                // Sorts after the core-built per-member entries, which use
+                // small orders, while staying inside GROUP_DYNAMIC so it
+                // still lands before the separator.
+                1000 + count($entries),
+                true,
+                'Demande d\'inscription',
+                MenuBuilder::GROUP_DYNAMIC
+            );
         }
 
         return $entries;

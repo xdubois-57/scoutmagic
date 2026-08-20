@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Modules\Registration\Service;
 
+use Core\View\MenuBuilder;
 use Core\Config\SettingRepository;
 use Core\Config\SettingService;
 use Core\Security\EncryptionService;
@@ -55,20 +56,20 @@ class RegistrationMenuHookServiceTest extends TestCase
         return $created['id'];
     }
 
-    public function testGetEntriesForEmailReturnsOneEntryPerLinkedPendingRequest(): void
+    public function testGetMenuEntriesReturnsOneEntryPerLinkedPendingRequest(): void
     {
         $id = $this->createRequest();
 
-        $entries = $this->hookService->getEntriesForEmail('marie@example.com');
+        $entries = $this->hookService->getMenuEntries('marie@example.com');
 
         $this->assertCount(1, $entries);
-        $this->assertSame('Léa Dupont', $entries[0]['label']);
-        $this->assertSame('/inscriptions/suivi/demande/' . $id, $entries[0]['url']);
+        $this->assertSame('Léa Dupont', $entries[0]->label);
+        $this->assertSame('/inscriptions/suivi/demande/' . $id, $entries[0]->url);
     }
 
-    public function testGetEntriesForEmailReturnsEmptyWhenNoLinkedRequest(): void
+    public function testGetMenuEntriesReturnsEmptyWhenNoLinkedRequest(): void
     {
-        $this->assertSame([], $this->hookService->getEntriesForEmail('stranger@example.com'));
+        $this->assertSame([], $this->hookService->getMenuEntries('stranger@example.com'));
     }
 
     public function testEncodedRequestNeverAppears(): void
@@ -78,7 +79,31 @@ class RegistrationMenuHookServiceTest extends TestCase
         $memberId = RegistrationTestHelper::insertMember($this->pdo, 'M1');
         $this->requestRepository->linkToMemberAndEncode($id, $memberId, new \DateTimeImmutable());
 
-        $this->assertSame([], $this->hookService->getEntriesForEmail('marie@example.com'));
+        $this->assertSame([], $this->hookService->getMenuEntries('marie@example.com'));
+    }
+
+    public function testGetMenuEntriesReturnsEmptyForAnAnonymousVisitor(): void
+    {
+        // The generalised Core\Module\MenuEntryProvider hook takes a nullable
+        // email so a module can contribute public entries; this module's
+        // entries are per-visitor, so it must opt out rather than leak
+        // every pending request to an anonymous caller.
+        $this->createRequest();
+
+        $this->assertSame([], $this->hookService->getMenuEntries(null));
+    }
+
+    public function testEntriesTargetEspaceAnimesAsDynamicEntries(): void
+    {
+        $this->createRequest();
+
+        $entry = $this->hookService->getMenuEntries('marie@example.com')[0];
+
+        $this->assertSame(MenuBuilder::MENU_ESPACE_ANIMES, $entry->menuId);
+        $this->assertSame(MenuBuilder::GROUP_DYNAMIC, $entry->group);
+        $this->assertTrue($entry->isDynamic);
+        $this->assertSame('identified', $entry->roleMin);
+        $this->assertSame("Demande d'inscription", $entry->subtitle);
     }
 
     public function testRefusedRequestDisappearsAfterRetentionWindow(): void
@@ -87,11 +112,11 @@ class RegistrationMenuHookServiceTest extends TestCase
         $recentFinalAt = new \DateTimeImmutable('-1 month');
         $this->requestRepository->updateStatus($id, 'refused', $recentFinalAt);
 
-        $this->assertCount(1, $this->hookService->getEntriesForEmail('marie@example.com'));
+        $this->assertCount(1, $this->hookService->getMenuEntries('marie@example.com'));
 
         $oldFinalAt = new \DateTimeImmutable('-4 months');
         $this->requestRepository->updateStatus($id, 'refused', $oldFinalAt);
 
-        $this->assertSame([], $this->hookService->getEntriesForEmail('marie@example.com'));
+        $this->assertSame([], $this->hookService->getMenuEntries('marie@example.com'));
     }
 }
