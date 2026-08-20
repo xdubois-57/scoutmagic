@@ -58,7 +58,9 @@ appliquées, mots de passe et clés gérés par l'unité déployante.
 
 - CSRF token on every form, verified on every POST/PUT/DELETE.
 - Token bound to session, regenerated per session.
-- One deliberate exception: `POST /api/webhook/github` (`Core\Http\Controller\WebhookController`) — a machine-to-machine call from GitHub with no session to bind a token to. Authenticated instead by an HMAC-SHA256 signature (`X-Hub-Signature-256`, constant-time `hash_equals()` comparison) against a secret stored only in `secrets.enc`.
+- Two deliberate exceptions, each authenticated by something other than a session-bound token:
+  - `POST /api/webhook/github` (`Core\Http\Controller\WebhookController`) — a machine-to-machine call from GitHub with no session to bind a token to. Authenticated instead by an HMAC-SHA256 signature (`X-Hub-Signature-256`, constant-time `hash_equals()` comparison) against a secret stored only in `secrets.enc`.
+  - `POST /mass-mail/unsubscribe/{id}` (`Modules\MassMail\Controller\UnsubscribeController`) — the RFC 8058 one-click unsubscribe target, reached from a mail client with no session. Authenticated by a per-recipient token carried in the link and verified constant-time against a stored SHA-256 hash (`hash_equals`). The token is 32 bytes of entropy, so a fast hash is as safe as bcrypt and avoids a per-request bcrypt on an anonymous endpoint. Idempotent, so a mailbox prefetch or a resubmit lands in the same "unsubscribed" state.
 
 ## 5. Encryption at rest
 
@@ -73,7 +75,7 @@ All fields identifying a natural person are encrypted (AES-256-GCM) as BLOB:
 ### Implementation
 
 - `EncryptionService`: `encrypt()`, `decrypt()`, `blindIndex()`.
-- Two keys (`APP_ENCRYPTION_KEY`, `APP_BLIND_INDEX_KEY`), never in database, never committed.
+- Two keys (`APP_ENCRYPTION_KEY`, `APP_BLIND_INDEX_KEY`), never in database, never committed. Each is 32 random bytes. `secrets.enc` is JSON and cannot hold raw bytes, so the keys are stored base64-encoded and **decoded back to raw bytes** (`EncryptionService::fromEncodedKeys()`) before use — passing the 44-character base64 string straight to OpenSSL silently truncated it to a 24-byte (192-bit) effective key, so AES-256-GCM now genuinely runs at 256 bits.
 - Blind index (HMAC-SHA256) alongside encrypted email for exact-match lookup.
 - Only Repositories call `EncryptionService`.
 

@@ -683,9 +683,17 @@ class SetupController extends AbstractController
      */
     private function handleFirstTimeSetup(array $data): Response
     {
+        // Tracks whether THIS run created the master key. generateMasterKey()
+        // refuses to overwrite an existing key and throws before creating
+        // anything, so after a full reset (which preserves master.key while
+        // deleting secrets.enc) this stays false — and cleanupFailedSetup()
+        // must NOT delete that preserved key, or every older encrypted backup
+        // becomes permanently unreadable (audit M11).
+        $masterKeyCreatedThisRun = false;
         try {
             // Generate master key
             $this->secretManager->generateMasterKey();
+            $masterKeyCreatedThisRun = true;
 
             // Generate encryption keys
             $encryptionKey = random_bytes(32);
@@ -736,7 +744,7 @@ class SetupController extends AbstractController
 
             $testResult = $connection->testConnection();
             if ($testResult !== true) {
-                $this->cleanupFailedSetup();
+                $this->cleanupFailedSetup($masterKeyCreatedThisRun);
                 FlashMessage::set('error', 'La connexion à la base de données a échoué : ' . $testResult);
                 return $this->redirect('/setup');
             }
@@ -764,7 +772,7 @@ class SetupController extends AbstractController
             $secrets['admin_email'] = strtolower(trim($data['admin_email']));
             $this->secretManager->writeSecrets($secrets);
 
-            // Create initial admin account (use base64 keys to match boot sequence)
+            // Create initial admin account (base64 keys decoded to match the boot sequence)
             $this->createAdminAccount($connection, $secrets['encryption_key'], $secrets['blind_index_key'], $data['admin_email'], $data['admin_password']);
 
             $tokenDeleted = $this->deleteTokenFileWithWarning();
@@ -777,7 +785,7 @@ class SetupController extends AbstractController
             );
             return $this->redirect('/');
         } catch (\Throwable $e) {
-            $this->cleanupFailedSetup();
+            $this->cleanupFailedSetup($masterKeyCreatedThisRun);
             FlashMessage::set('error', 'Erreur lors de l\'installation : ' . $e->getMessage());
             return $this->redirect('/setup');
         }
@@ -1007,7 +1015,10 @@ class SetupController extends AbstractController
 
     private function createAdminAccount(Connection $connection, string $encryptionKey, string $blindIndexKey, string $email, string $password): void
     {
-        $encryptionService = new EncryptionService($encryptionKey, $blindIndexKey);
+        // $encryptionKey/$blindIndexKey are the base64-encoded values stored in
+        // secrets.enc — decode to raw bytes exactly as the boot sequence does
+        // (audit M1), so the admin row is encrypted with the same real key.
+        $encryptionService = EncryptionService::fromEncodedKeys($encryptionKey, $blindIndexKey);
         $normalizedEmail = strtolower(trim($email));
 
         $emailEncrypted = $encryptionService->encrypt($normalizedEmail);
@@ -1028,7 +1039,7 @@ class SetupController extends AbstractController
      */
     private function upsertAdminAccount(Connection $connection, array $secrets, string $email, string $password): void
     {
-        $encryptionService = new EncryptionService(
+        $encryptionService = EncryptionService::fromEncodedKeys(
             (string) $secrets['encryption_key'],
             (string) $secrets['blind_index_key']
         );
@@ -1061,7 +1072,7 @@ class SetupController extends AbstractController
         $this->secretManager->writeSecrets($secrets);
     }
 
-    private function cleanupFailedSetup(): void
+    private function cleanupFailedSetup(bool $masterKeyCreatedThisRun): void
     {
         // Remove generated files on failure
         $masterKeyPath = (new \ReflectionClass($this->secretManager))->getProperty('masterKeyPath');
@@ -1070,7 +1081,11 @@ class SetupController extends AbstractController
         $masterKey = $masterKeyPath->getValue($this->secretManager);
         $secrets = $secretsPath->getValue($this->secretManager);
 
-        if (file_exists($masterKey)) {
+        // Only delete the master key if THIS run created it. A key that
+        // pre-existed (e.g. preserved across a full reset) is the sole means
+        // of decrypting older backups — never destroy it just because setup
+        // failed after finding it already there (audit M11).
+        if ($masterKeyCreatedThisRun && file_exists($masterKey)) {
             @unlink($masterKey);
         }
         if (file_exists($secrets)) {

@@ -277,9 +277,9 @@ $connection = new Connection(
     $secrets['db_password'] ?? ''
 );
 
-$encryptionService = new EncryptionService(
-    $secrets['encryption_key'] ?? '',
-    $secrets['blind_index_key'] ?? ''
+$encryptionService = EncryptionService::fromEncodedKeys(
+    (string) ($secrets['encryption_key'] ?? ''),
+    (string) ($secrets['blind_index_key'] ?? '')
 );
 
 // Release the session file lock before the heavy work (database

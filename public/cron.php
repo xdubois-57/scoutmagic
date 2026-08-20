@@ -92,9 +92,9 @@ $connection = new Connection(
 
 $pdo = $connection->getPdo();
 
-$encryptionService = new EncryptionService(
-    $secrets['encryption_key'] ?? '',
-    $secrets['blind_index_key'] ?? ''
+$encryptionService = EncryptionService::fromEncodedKeys(
+    (string) ($secrets['encryption_key'] ?? ''),
+    (string) ($secrets['blind_index_key'] ?? '')
 );
 
 // Create services

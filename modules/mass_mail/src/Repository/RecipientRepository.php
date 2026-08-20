@@ -84,7 +84,9 @@ class RecipientRepository
         if ($row === false || $row['unsubscribe_token_hash'] === null) {
             return null;
         }
-        if (!password_verify($rawToken, $row['unsubscribe_token_hash'])) {
+        // SHA-256 + constant-time compare (the token carries full entropy, so
+        // no slow KDF is needed) — see Task\SendBatchHandler for why.
+        if (!hash_equals((string) $row['unsubscribe_token_hash'], hash('sha256', $rawToken))) {
             return null;
         }
 
