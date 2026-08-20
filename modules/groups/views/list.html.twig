@@ -86,6 +86,15 @@
                             <span class="badge bg-warning-subtle text-warning-emphasis">Clôturé</span>
                         {% endif %}
                     </div>
+                    {#
+                      The moderator's one-liner, when there is one: an
+                      invitation group's name rarely says what it is for,
+                      and this is the list where that matters most.
+                      Escaped plain text, same as the name above it.
+                    #}
+                    {% if item.group.description %}
+                        <p class="small text-body-secondary mb-0 mt-1">{{ item.group.description }}</p>
+                    {% endif %}
                     <p class="small text-body-secondary mb-0 mt-1 d-flex flex-wrap gap-2">
                         <span>{{ item.section_names is not empty ? item.section_names|join(', ') : 'Sur invitation' }}</span>
                         <span aria-hidden="true">·</span>

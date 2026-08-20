@@ -31,7 +31,12 @@ class DiscussionGroup
         // own trailing owner_type/owner_id pair. Set once, lazily, by
         // Service\PostMediaService::ensureAlbumId() on the group's first
         // media post.
-        public readonly ?int $galleryAlbumId = null
+        public readonly ?int $galleryAlbumId = null,
+        // Appended last, nullable, for the same append-only reason as
+        // galleryAlbumId above: every existing positional construction of
+        // this DTO keeps working unchanged. An optional one-liner saying
+        // what the group is for, editable by a moderator.
+        public readonly ?string $description = null
     ) {
     }
 

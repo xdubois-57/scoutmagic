@@ -14,6 +14,12 @@
 CREATE TABLE discussion_groups (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(150) NOT NULL,
+    -- Optional one-liner a moderator writes to say what the group is for
+    -- ("Coordination du camp d'été 2026"). Matters most for an invitation
+    -- group, whose name alone often does not explain why it exists — a
+    -- section group's does. Plain text, never HTML: rendered escaped like
+    -- every other member-supplied string in this module.
+    description VARCHAR(300) NULL,
     -- Deliberately NULLABLE, unlike AGENTS.md's "every member-related
     -- table carries scout_year_id": a group created by invitation may be
     -- tied to a scout year or not, at the chief's choice (a unit-wide

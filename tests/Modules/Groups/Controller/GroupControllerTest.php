@@ -559,6 +559,43 @@ class GroupControllerTest extends TestCase
         $this->assertStringNotContainsString('group-edit-tie-year', $body);
     }
 
+    /**
+     * The one-liner is shown to every member, not only to the moderator
+     * who wrote it — it is on the header partial, which the members page
+     * shares, rather than inside the moderator-only edit form.
+     */
+    public function testShowDisplaysTheGroupsDescriptionToAnOrdinaryMember(): void
+    {
+        $creator = GroupsTestHelper::createMember($this->pdo, 'CDESC');
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator);
+        $this->groupRepo->setDescription($groupId, 'Coordination du camp');
+        $member = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'MDESC', $this->sectionId, $this->currentYearId);
+
+        $body = $this->controller([$member])
+            ->show(new Request('GET', '/groups/' . $groupId, [], [], [], []), ['id' => (string) $groupId])
+            ->getBody();
+
+        $this->assertStringContainsString('Coordination du camp', $body);
+    }
+
+    /**
+     * A description is member-supplied plain text: it goes through Twig's
+     * escaping like every other one in this module, never |raw.
+     */
+    public function testAGroupsDescriptionIsEscapedNotRendered(): void
+    {
+        $moderator = GroupsTestHelper::createMember($this->pdo, 'MODESC');
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $moderator);
+        $this->groupRepo->setDescription($groupId, '<script>alert(1)</script>');
+
+        $body = $this->controller([$moderator])
+            ->show(new Request('GET', '/groups/' . $groupId, [], [], [], []), ['id' => (string) $groupId])
+            ->getBody();
+
+        $this->assertStringNotContainsString('<script>alert(1)</script>', $body);
+        $this->assertStringContainsString('&lt;script&gt;', $body);
+    }
+
     public function testShowDoesNotOfferTheEditFormToAnOrdinaryMember(): void
     {
         $creator = GroupsTestHelper::createMember($this->pdo, 'CEDIT');

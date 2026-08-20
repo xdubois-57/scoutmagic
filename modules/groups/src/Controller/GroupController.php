@@ -56,6 +56,14 @@ class GroupController extends AbstractController
     private const SETTING_DRAFT_TTL_MINUTES = 'groups_draft_ttl_minutes';
     private const DEFAULT_DRAFT_TTL_MINUTES = 60;
 
+    /**
+     * Matches discussion_groups.description's own VARCHAR(300): the cut
+     * here is what keeps a pasted paragraph from being silently truncated
+     * by the database instead. One line about what the group is for, not
+     * a second place to hold a conversation.
+     */
+    public const MAX_DESCRIPTION_LENGTH = 300;
+
     public function __construct(
         protected Environment $twig,
         private GroupRepository $groupRepository,
@@ -367,8 +375,9 @@ class GroupController extends AbstractController
     }
 
     /**
-     * POST /groups/{id}/edit — moderator only. Renames the group and, for
-     * an invitation group, links or unlinks it to the current scout year
+     * POST /groups/{id}/edit — moderator only. Renames the group, sets
+     * its optional one-liner description, and, for an invitation group,
+     * links or unlinks it to the current scout year
      * — same "tie_to_year" checkbox and semantics as create() above. A
      * section group's own scout-year link is never editable (its year
      * comes from its section, schema.sql); the checkbox is not offered
@@ -387,8 +396,14 @@ class GroupController extends AbstractController
             }
             $name = mb_substr($name, 0, 150);
 
+            // An emptied field clears the description rather than leaving
+            // the old one in place — the form always carries the current
+            // value, so a blank box is a deliberate erasure.
+            $description = trim((string) $request->getBody('description', ''));
+            $description = $description === '' ? null : mb_substr($description, 0, self::MAX_DESCRIPTION_LENGTH);
+
             $scoutYearId = $request->getBody('tie_to_year') !== null ? $context->effectiveScoutYearId : null;
-            $this->groupService->edit($group, $name, $scoutYearId);
+            $this->groupService->edit($group, $name, $scoutYearId, $description);
 
             FlashMessage::set('success', 'Les informations du groupe ont été mises à jour.');
 

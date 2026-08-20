@@ -17,6 +17,7 @@ class GroupsTestHelper
         $pdo->exec('CREATE TABLE discussion_groups (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
+            description TEXT NULL,
             scout_year_id INTEGER NULL,
             section_id INTEGER NULL,
             closed_at TEXT NULL,
