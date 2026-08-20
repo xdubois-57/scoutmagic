@@ -1291,22 +1291,12 @@ $schedulerRunner->setTaskContext(new TaskContext(
     $notificationService
 ));
 
-// Core (not module) scheduled task handlers — registered directly since
-// module.json's scheduled_tasks mechanism only applies to module handlers.
-$schedulerRunner->registerHandler('core', 'create_backup', new \Core\Maintenance\Task\CreateBackupHandler());
-$schedulerRunner->registerHandler('core', 'install_update', new \Core\Maintenance\Task\InstallUpdateHandler());
-$schedulerRunner->registerHandler('core', 'reset_settings', new \Core\Maintenance\Task\ResetSettingsHandler());
-$schedulerRunner->registerHandler('core', 'full_reset', new \Core\Maintenance\Task\FullResetHandler());
-$schedulerRunner->registerHandler('core', 'restore_backup', new \Core\Maintenance\Task\RestoreBackupHandler());
-$schedulerRunner->registerHandler('core', 'auto_backup', new \Core\Maintenance\Task\AutoBackupHandler());
-$schedulerRunner->registerHandler('core', 'check_stable_update', new \Core\Maintenance\Task\CheckStableUpdateHandler());
-$schedulerRunner->registerHandler('core', 'compress_section_document', new \Core\Member\Task\CompressSectionDocumentHandler());
-$schedulerRunner->registerHandler('core', 'send_notifications', new \Core\Notification\Task\SendNotificationsHandler());
-$schedulerRunner->registerHandler('core', 'purge_notifications', new \Core\Notification\Task\PurgeNotificationsHandler());
-$schedulerRunner->registerHandler('core', 'purge_human_check_rate_limits', new \Core\Security\HumanCheck\Task\PurgeHumanCheckRateLimitsHandler());
-$schedulerRunner->registerHandler('core', \Core\Statistics\Task\SendStatisticsHandler::TASK_KEY, new \Core\Statistics\Task\SendStatisticsHandler());
-$schedulerRunner->registerHandler('core', \Core\Support\Task\GenerateSupportPackageHandler::TASK_KEY, new \Core\Support\Task\GenerateSupportPackageHandler());
-$schedulerRunner->registerHandler('core', \Core\Support\Task\PurgeSupportPackagesHandler::TASK_KEY, new \Core\Support\Task\PurgeSupportPackagesHandler());
+// Core (not module) scheduled task handlers. Declared once in
+// Core\Scheduler\CoreTaskHandlers and registered identically here and in
+// public/cron.php — hand-maintaining two lists is exactly how create_backup
+// once ended up missing from cron.php, silently failing every background
+// backup under a real crontab (§8.17).
+\Core\Scheduler\CoreTaskHandlers::registerAll($schedulerRunner);
 
 // Bootstrap the recurring automatic backup — Task\AutoBackupHandler
 // re-schedules itself at the end of every run (same pattern as

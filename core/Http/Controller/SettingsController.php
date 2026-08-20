@@ -68,6 +68,19 @@ class SettingsController extends AbstractController
             ));
         }
 
+        // A setting declared `secret` (AGENTS.md § Database) is never shown
+        // here, in any module's group. This page renders a value as plain
+        // text next to its key, so displaying one would defeat the very
+        // point of the type — the support package redacts it for exactly
+        // the same reason (ARCHITECTURE.md §8.42). No setting carries the
+        // type today; the filter exists before the first one does.
+        foreach ($groups as $groupId => $group) {
+            $groups[$groupId]['settings'] = array_values(array_filter(
+                $group['settings'],
+                static fn(array $setting): bool => ($setting['setting_type'] ?? 'text') !== 'secret'
+            ));
+        }
+
         $html = $this->twig->render('config/settings.html.twig', [
             'setting_groups' => $groups,
         ]);
