@@ -261,10 +261,11 @@ class ScoutYearController extends AbstractController
      * reorder entries here — the template renders whatever this returns and does
      * not hardcode steps.
      *
-     * These four steps are the specification for the "scout year
-     * transition" end-to-end test (tests/e2e/specs/scout-year-transition
-     * .spec.js), which replays the whole workflow in a real browser and
-     * blocks both CI and scripts/release.sh's E2E gate. **Changing a step
+     * These four steps are the specification for the "scout year transition"
+     * end-to-end test, tests/e2e/specs/scout-year-transition.spec.js — kept
+     * on one line so the filename is greppable from here — which replays the
+     * whole workflow in a real browser and blocks both CI and
+     * scripts/release.sh's E2E gate. **Changing a step
      * — adding, removing, reordering, changing what marks it done, or
      * rewording a title the test matches on — means updating that test in
      * the same change.** The rendered page
