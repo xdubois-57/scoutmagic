@@ -209,6 +209,23 @@ class PostControllerTest extends TestCase
     }
 
     /**
+     * Same request a plain form POST sends, plus the header groups.js
+     * attaches to its fetch() — the composer's own dynamic-posting path
+     * (module spec: "no reload to publish a post").
+     */
+    private function ajaxRequest(): Request
+    {
+        return new Request(
+            'POST',
+            '/groups/' . $this->groupId . '/posts',
+            [],
+            $_POST,
+            [],
+            ['HTTP_X_REQUESTED_WITH' => 'XMLHttpRequest']
+        );
+    }
+
+    /**
      * Populates $_FILES['media'] in PHP's own multi-file shape (one array
      * per property, not one array per file) — same shape a real
      * <input type="file" name="media[]" multiple> submits, which is what
@@ -280,6 +297,53 @@ class PostControllerTest extends TestCase
         $this->assertSame("Bonjour\nà tous", $posts[0]->body);
         $this->assertSame(self::AUTHOR_ACCOUNT, $posts[0]->authorUserAccountId);
         $this->assertSame($this->memberId, $posts[0]->authorMemberId);
+    }
+
+    /**
+     * The dynamic-posting path (groups.js): the same X-Requested-With
+     * header a fetch() sends gets JSON back — a rendered post-card
+     * fragment, not the redirect a plain form POST gets — so the
+     * composer never has to reload the page to publish a post.
+     */
+    public function testCreatingAPostViaAjaxReturnsAJsonFragmentInsteadOfARedirect(): void
+    {
+        $this->withCsrf(['body' => 'Bonjour à tous']);
+
+        $response = $this->controller([$this->memberId])->create($this->ajaxRequest(), $this->params());
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame('application/json', $response->getHeaders()['Content-Type']);
+        $body = json_decode($response->getBody(), true);
+        $this->assertStringContainsString('Bonjour à tous', $body['html']);
+        $this->assertCount(1, $this->postRepo->findPage($this->groupId, 10));
+    }
+
+    public function testCreatingAnEmptyPostViaAjaxIs400WithNoFlashMessage(): void
+    {
+        $this->withCsrf(['body' => '   ']);
+
+        $response = $this->controller([$this->memberId])->create($this->ajaxRequest(), $this->params());
+
+        $this->assertSame(400, $response->getStatusCode());
+        $this->assertSame([], $this->postRepo->findPage($this->groupId, 10));
+        $this->assertArrayNotHasKey('_flash_message', $_SESSION);
+    }
+
+    public function testCreatingAPostViaAjaxOverTheRateLimitReturnsTheRefusalAsJson(): void
+    {
+        $controller = $this->controller([$this->memberId]);
+        for ($i = 0; $i < 15; $i++) {
+            $this->withCsrf(['body' => 'Message ' . $i]);
+            $controller->create($this->request(), $this->params());
+        }
+
+        $this->withCsrf(['body' => 'Un de trop']);
+        $response = $controller->create($this->ajaxRequest(), $this->params());
+
+        $this->assertSame(422, $response->getStatusCode());
+        $body = json_decode($response->getBody(), true);
+        $this->assertSame('rate_limited', $body['type']);
+        $this->assertCount(15, $this->postRepo->findPage($this->groupId, 20));
     }
 
     public function testCreatePostsAJavascriptSchemeAsPlainTextRatherThanAttachingItAsALink(): void

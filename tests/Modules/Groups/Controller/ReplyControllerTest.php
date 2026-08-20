@@ -76,6 +76,23 @@ class ReplyControllerTest extends GroupsControllerTestCase
     }
 
     /**
+     * Same request a plain form POST sends, plus the header groups.js
+     * attaches to its fetch() — the reply composer's own dynamic-posting
+     * path (module spec: "no reload to add a reply").
+     */
+    private function ajaxRequest(): Request
+    {
+        return new Request(
+            'POST',
+            '/groups/' . $this->groupId . '/posts/' . $this->postId . '/replies',
+            [],
+            $_POST,
+            [],
+            ['HTTP_X_REQUESTED_WITH' => 'XMLHttpRequest']
+        );
+    }
+
+    /**
      * @return array<string, string>
      */
     private function params(?int $postId = null, ?int $replyId = null): array
@@ -133,6 +150,48 @@ class ReplyControllerTest extends GroupsControllerTestCase
         $this->assertSame('Bien reçu', $replies[0]->body);
         $this->assertSame(self::AUTHOR_ACCOUNT, $replies[0]->authorUserAccountId);
         $this->assertSame($this->memberId, $replies[0]->authorMemberId);
+    }
+
+    /**
+     * The dynamic-reply path (groups.js): the same X-Requested-With
+     * header a fetch() sends gets JSON back — a rendered reply-card
+     * fragment, not the redirect a plain form POST gets — so replying
+     * never has to reload the page.
+     */
+    public function testReplyingViaAjaxReturnsAJsonFragmentInsteadOfARedirect(): void
+    {
+        $this->withCsrf(['body' => 'Bien reçu']);
+
+        $response = $this->controller([$this->memberId])->create($this->ajaxRequest(), $this->params($this->postId));
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame('application/json', $response->getHeaders()['Content-Type']);
+        $body = json_decode($response->getBody(), true);
+        $this->assertStringContainsString('Bien reçu', $body['html']);
+        $this->assertCount(1, $this->replyRepo->findPage($this->postId, 10));
+    }
+
+    public function testAnEmptyReplyViaAjaxIs400WithNoFlashMessage(): void
+    {
+        $this->withCsrf(['body' => '   ']);
+
+        $response = $this->controller([$this->memberId])->create($this->ajaxRequest(), $this->params($this->postId));
+
+        $this->assertSame(400, $response->getStatusCode());
+        $this->assertSame(0, $this->replyRepo->countForPost($this->postId));
+        $this->assertArrayNotHasKey('_flash_message', $_SESSION);
+    }
+
+    public function testTooManyReplyImagesViaAjaxReturnsTheErrorAsJson(): void
+    {
+        $this->withImageFiles(2);
+        $this->withCsrf(['body' => 'Coucou']);
+
+        $response = $this->controller([$this->memberId])->create($this->ajaxRequest(), $this->params($this->postId));
+
+        $this->assertSame(400, $response->getStatusCode());
+        $body = json_decode($response->getBody(), true);
+        $this->assertStringContainsString('une seule image', $body['error']);
     }
 
     public function testCreateIs404ForANonMemberRatherThan403(): void

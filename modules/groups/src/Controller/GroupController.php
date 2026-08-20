@@ -8,6 +8,7 @@ declare(strict_types=1);
 
 namespace Modules\Groups\Controller;
 
+use Core\Config\SettingService;
 use Core\Http\Controller\AbstractController;
 use Core\Http\FlashMessage;
 use Core\Http\Request;
@@ -46,6 +47,15 @@ use Twig\Environment;
  */
 class GroupController extends AbstractController
 {
+    /**
+     * How long a not-yet-posted draft stays cached in the composer's own
+     * browser (never the server — module spec: "local storage cache").
+     * Floored at 1 so a stray 0/negative setting cannot make groups.js
+     * discard a draft before the member even finishes typing it.
+     */
+    private const SETTING_DRAFT_TTL_MINUTES = 'groups_draft_ttl_minutes';
+    private const DEFAULT_DRAFT_TTL_MINUTES = 60;
+
     public function __construct(
         protected Environment $twig,
         private GroupRepository $groupRepository,
@@ -59,7 +69,8 @@ class GroupController extends AbstractController
         private AuthorOptionsService $authorOptionsService,
         private PostRepository $postRepository,
         private ?SectionGroupSyncService $sectionGroupSyncService = null,
-        private ?GroupMembershipService $membershipService = null
+        private ?GroupMembershipService $membershipService = null,
+        private ?SettingService $settingService = null
     ) {
     }
 
@@ -144,6 +155,7 @@ class GroupController extends AbstractController
             'max_body_length' => PostService::MAX_BODY_LENGTH,
             'max_media_per_post' => PostMediaService::MAX_MEDIA_PER_POST,
             'video_upload_allowed' => $this->postMediaService->videoUploadAllowed(),
+            'draft_ttl_minutes' => $this->draftTtlMinutes(),
             // A message the AI moderation just refused, handed back to
             // its author so the composer is not emptied. Read-and-clear:
             // it survives exactly this one render, and lives nowhere but
@@ -464,6 +476,20 @@ class GroupController extends AbstractController
         }
 
         return $group;
+    }
+
+    /**
+     * The configured cap, floored at 1 — same posture as
+     * Service\GroupMembershipService::creationQuota() for the same
+     * reason: a 0 or negative setting must not silently disable the
+     * feature it was meant to tune.
+     */
+    private function draftTtlMinutes(): int
+    {
+        $raw = $this->settingService?->get(self::SETTING_DRAFT_TTL_MINUTES, 'groups', self::DEFAULT_DRAFT_TTL_MINUTES);
+        $configured = is_numeric($raw) ? (int) $raw : self::DEFAULT_DRAFT_TTL_MINUTES;
+
+        return max(1, $configured);
     }
 
     private function context(): GroupSessionContext

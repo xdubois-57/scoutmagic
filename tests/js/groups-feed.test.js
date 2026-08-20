@@ -325,4 +325,112 @@ describe('groups.js dynamic reactions, in-place pagination and inline edit toggl
         expect(label.textContent).toBe('');
         expect(label.classList.contains('d-none')).toBe(true);
     });
+
+    it('replying fetches and appends the new reply under the post, then resets the form', async () => {
+        document.body.innerHTML = `
+            <article>
+                <div class="groups-replies"></div>
+                <form class="groups-reply-form" action="/groups/1/posts/9/replies" method="post">
+                    <input type="text" name="body">
+                    <p class="groups-reply-image-name">photo.jpg</p>
+                    <button type="submit">Envoyer</button>
+                </form>
+            </article>
+        `;
+        document.querySelector('input[name="body"]').value = 'Bien reçu';
+        global.fetch = vi.fn(() => Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ html: '<div class="groups-reply" id="reply-5">Bien reçu</div>' })
+        }));
+
+        document.querySelector('.groups-reply-form button').click();
+        await vi.waitFor(() => expect(document.getElementById('reply-5')).not.toBeNull());
+
+        expect(document.querySelector('.groups-replies').lastElementChild.id).toBe('reply-5');
+        expect(document.querySelector('input[name="body"]').value).toBe('');
+        const imageName = document.querySelector('.groups-reply-image-name');
+        expect(imageName.textContent).toBe('');
+        expect(imageName.classList.contains('d-none')).toBe(true);
+        const [url, options] = fetch.mock.calls[0];
+        expect(url).toContain('/groups/1/posts/9/replies');
+        expect(options.headers).toEqual({ 'X-Requested-With': 'XMLHttpRequest' });
+    });
+
+    it('shows a refused reply inline, without touching the replies list', async () => {
+        document.body.innerHTML = `
+            <article>
+                <div class="groups-replies"></div>
+                <form class="groups-reply-form" action="/groups/1/posts/9/replies" method="post">
+                    <input type="text" name="body" value="Bien reçu">
+                    <p class="d-none groups-reply-error"></p>
+                    <button type="submit">Envoyer</button>
+                </form>
+            </article>
+        `;
+        global.fetch = vi.fn(() => Promise.resolve({
+            ok: false,
+            json: () => Promise.resolve({ error: 'Trop de réponses pour le moment.' })
+        }));
+
+        document.querySelector('.groups-reply-form button').click();
+
+        const errorBox = document.querySelector('.groups-reply-error');
+        await vi.waitFor(() => expect(errorBox.classList.contains('d-none')).toBe(false));
+        expect(errorBox.textContent).toBe('Trop de réponses pour le moment.');
+        expect(document.querySelector('.groups-replies').children).toHaveLength(0);
+    });
+
+    it('deleting a post asks for confirmation, and does nothing at all when cancelled', async () => {
+        document.body.innerHTML = `
+            <article id="post-9">
+                <form class="groups-post-delete-form" action="/groups/1/posts/9/delete" data-confirm="Supprimer ?">
+                    <button type="submit">Supprimer</button>
+                </form>
+            </article>
+        `;
+        global.fetch = vi.fn();
+        vi.spyOn(window, 'confirm').mockReturnValue(false);
+
+        document.querySelector('.groups-post-delete-form button').click();
+
+        expect(fetch).not.toHaveBeenCalled();
+        expect(document.getElementById('post-9')).not.toBeNull();
+    });
+
+    it('deleting a post removes its <article> immediately once confirmed', async () => {
+        document.body.innerHTML = `
+            <article id="post-9">
+                <form class="groups-post-delete-form" action="/groups/1/posts/9/delete" data-confirm="Supprimer ?">
+                    <button type="submit">Supprimer</button>
+                </form>
+            </article>
+        `;
+        global.fetch = vi.fn(() => Promise.resolve({ ok: true }));
+        vi.spyOn(window, 'confirm').mockReturnValue(true);
+
+        document.querySelector('.groups-post-delete-form button').click();
+        await vi.waitFor(() => expect(document.getElementById('post-9')).toBeNull());
+
+        const [url] = fetch.mock.calls[0];
+        expect(url).toContain('/groups/1/posts/9/delete');
+    });
+
+    it('falls back to a real form submit when the delete request fails', async () => {
+        document.body.innerHTML = `
+            <article id="post-9">
+                <form class="groups-post-delete-form" action="/groups/1/posts/9/delete" data-confirm="Supprimer ?">
+                    <button type="submit">Supprimer</button>
+                </form>
+            </article>
+        `;
+        const form = document.querySelector('.groups-post-delete-form');
+        form.submit = vi.fn();
+        global.fetch = vi.fn(() => Promise.resolve({ ok: false }));
+        vi.spyOn(window, 'confirm').mockReturnValue(true);
+
+        document.querySelector('.groups-post-delete-form button').click();
+        await vi.waitFor(() => expect(form.submit).toHaveBeenCalled());
+
+        expect(document.getElementById('post-9')).not.toBeNull();
+    });
 });

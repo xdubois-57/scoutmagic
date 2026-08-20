@@ -2458,7 +2458,8 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
         new \Modules\Groups\Controller\GroupController(
             $twig, $groupsGroupRepo, $groupsListService, $groupsAccessService, $groupsService,
             $groupsContextFactory, $sectionService, $groupsFeedService, $groupsPostMediaService,
-            $groupsAuthorOptionsService, $groupsPostRepo, $groupsSectionGroupSync, $groupsMembershipService
+            $groupsAuthorOptionsService, $groupsPostRepo, $groupsSectionGroupSync, $groupsMembershipService,
+            $settingService
         )
     );
     $frontController->registerController(

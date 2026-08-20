@@ -126,11 +126,11 @@ class PostController extends AbstractController
         // it is rejected whole, never silently truncated to the first
         // four (module spec).
         if (count($files) > PostMediaService::MAX_MEDIA_PER_POST) {
-            FlashMessage::set(
-                'error',
+            return $this->failure(
+                $request,
+                $group->id,
                 'Vous ne pouvez joindre que ' . PostMediaService::MAX_MEDIA_PER_POST . ' médias au maximum par message.'
             );
-            return $this->redirect('/groups/' . $group->id);
         }
 
         // No manual "Lien" field any more (module spec): the first URL
@@ -145,6 +145,15 @@ class PostController extends AbstractController
         }
 
         if (!$this->postService->isPostable($body, count($files), $link !== '')) {
+            // Silent for a plain form POST, exactly as before — the
+            // composer already disables its own submit button on an empty
+            // draft, so reaching here at all means something bypassed the
+            // UI. AJAX still gets a distinguishable non-2xx, with no flash
+            // message to match.
+            if ($this->wantsJson($request)) {
+                return $this->json(['error' => 'empty'], 400);
+            }
+
             return $this->redirect('/groups/' . $group->id);
         }
 
@@ -161,7 +170,7 @@ class PostController extends AbstractController
         try {
             $postId = $this->postService->create($group, $context->userAccountId, $authorMemberId, $body);
         } catch (GroupsException $e) {
-            return $this->refuse($e, $group->id, $body, null);
+            return $this->refuse($request, $e, $group->id, $body, null);
         }
 
         if ($files !== []) {
@@ -173,8 +182,7 @@ class PostController extends AbstractController
                 // then the post itself.
                 $this->postMediaService->deleteAllForPost($group, $postId);
                 $this->postRepository->delete($postId);
-                FlashMessage::set('error', $e->getMessage());
-                return $this->redirect('/groups/' . $group->id);
+                return $this->failure($request, $group->id, $e->getMessage());
             }
         }
 
@@ -193,6 +201,25 @@ class PostController extends AbstractController
         $created = $this->postRepository->findById($postId);
         if ($created !== null) {
             $this->notificationService?->postPublished($group, $created, $context->effectiveScoutYearId);
+        }
+
+        // groups.js inserts this fragment straight into the feed instead
+        // of reloading the page — the composer's own submit is the whole
+        // reason this endpoint gets an AJAX path at all (module spec: "no
+        // reload to publish a post"). $created is only null on a
+        // find-right-after-insert race so implausible no test exercises
+        // it; falling back to the redirect is still correct either way.
+        if ($this->wantsJson($request) && $created !== null) {
+            $row = $this->feedService->rowForNewPost($group, $created, $context, $this->accessService->canModerate($group, $context));
+
+            return $this->json([
+                'html' => $this->twig->render('@groups/partials/post_card.html.twig', [
+                    'row' => $row,
+                    'group' => $group,
+                    'post_permission' => $permission,
+                    'author_options' => $this->authorOptionsService->forGroup($group, $context),
+                ]),
+            ]);
         }
 
         return $this->redirect('/groups/' . $group->id);
@@ -266,7 +293,7 @@ class PostController extends AbstractController
                 try {
                     $this->postService->edit($post, $body);
                 } catch (GroupsException $e) {
-                    return $this->refuse($e, $group->id, $body, null);
+                    return $this->refuse($request, $e, $group->id, $body, null);
                 }
             }
 
@@ -281,7 +308,7 @@ class PostController extends AbstractController
      */
     public function delete(Request $request, array $params): Response
     {
-        return $this->postAction($params, function (DiscussionGroup $group, Post $post, GroupSessionContext $context) {
+        return $this->postAction($params, function (DiscussionGroup $group, Post $post, GroupSessionContext $context) use ($request) {
             $canModerate = $this->accessService->canModerate($group, $context);
             if (!$this->postService->canDelete($post, $context, $canModerate)) {
                 return new Response('Vous ne pouvez pas supprimer ce message.', 403);
@@ -305,6 +332,15 @@ class PostController extends AbstractController
             $this->postLinkService->deleteForPost($post->id);
             $this->replyService->deleteAllMediaForPost($group, $post->id);
             $this->postService->delete($post);
+
+            // groups.js removes the post's <article> from the DOM instead
+            // of reloading (module spec: "delete must be instant"); the
+            // confirm() dialog still runs first, client-side, exactly as
+            // it always has (data-confirm — this is just what the
+            // confirmed submission does afterward).
+            if ($this->wantsJson($request)) {
+                return $this->json(['deleted' => true]);
+            }
 
             return $this->redirect('/groups/' . $group->id);
         });
@@ -347,16 +383,31 @@ class PostController extends AbstractController
     }
 
     /**
-     * A refused write, told to its author and to nobody else: the reason
-     * in a flash, and their own text plus the suggested rewording handed
-     * back through the session so the composer is not emptied.
+     * A refused write, told to its author and to nobody else.
      *
-     * Nothing here is written to the database or journaled — the refused
-     * text exists only in this member's own session, for one render
-     * (Support\RejectedDraft).
+     * AJAX gets the exception's own shape back as JSON — message, type,
+     * and the AI's suggested rewording when there is one — so groups.js
+     * can show it inline without a reload; RejectedDraft is a session
+     * round-trip built for the reload path and has nothing to do here,
+     * since the composer's own text is what the client already has.
+     *
+     * A plain form POST keeps the existing behaviour: the reason in a
+     * flash, and the text plus suggestion handed back through the session
+     * (Support\RejectedDraft) so the composer is not emptied. Nothing
+     * here is ever written to the database or journaled either way — the
+     * refused text exists only in this member's own session/response, for
+     * one use.
      */
-    private function refuse(GroupsException $e, int $groupId, string $body, ?int $postId): Response
+    private function refuse(Request $request, GroupsException $e, int $groupId, string $body, ?int $postId): Response
     {
+        if ($this->wantsJson($request)) {
+            return $this->json([
+                'error' => $e->getMessage(),
+                'type' => $e->type,
+                'suggestion' => $e->suggestion,
+            ], 422);
+        }
+
         FlashMessage::set('error', $e->getMessage());
         if ($e->type === GroupsException::TYPE_OFFENSIVE) {
             RejectedDraft::set($body, $e->suggestion, $postId);
@@ -416,5 +467,34 @@ class PostController extends AbstractController
             AuthSession::getUserAccountId(),
             ScoutYearSession::getPreviewId()
         );
+    }
+
+    /**
+     * groups.js sends this header on the composer's fetch() — the same
+     * signal Controller\ReactionController's own wantsJson() answers —
+     * so create() can tell the AJAX path from a plain form POST with no
+     * JS, or JS that failed to load.
+     */
+    private function wantsJson(Request $request): bool
+    {
+        return $request->getServer('HTTP_X_REQUESTED_WITH') === 'XMLHttpRequest';
+    }
+
+    /**
+     * A write refused with a plain, human message — a full media ceiling,
+     * an unpostable empty body, a rejected upload. AJAX gets the message
+     * back as JSON with a non-2xx status, so groups.js can show it without
+     * a reload; a plain form POST gets the existing flash-and-redirect
+     * behaviour unchanged.
+     */
+    private function failure(Request $request, int $groupId, string $message, int $status = 400): Response
+    {
+        if ($this->wantsJson($request)) {
+            return $this->json(['error' => $message], $status);
+        }
+
+        FlashMessage::set('error', $message);
+
+        return $this->redirect('/groups/' . $groupId);
     }
 }
