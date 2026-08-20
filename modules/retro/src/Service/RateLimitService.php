@@ -48,14 +48,20 @@ class RateLimitService
     }
 
     /**
-     * A stable-for-this-visitor identifier: the anonymous functional
-     * cookie value when set, otherwise the PHP session id (ephemeral,
-     * resets every browser session — acceptable, this is a best-effort
-     * throttle, not a security boundary).
+     * A stable-for-this-visitor identifier, keyed on the client IP — the same
+     * non-resettable signal HumanCheck uses (SECURITY.md §16). The old key
+     * was the anonymous cookie value (falling back to the session id), both of
+     * which the client picks: discarding the cookie yielded a fresh bucket
+     * every request, so the paid LLM "shorten" endpoint had effectively no
+     * limit (audit M13). The cookie/session is now only a fallback for the
+     * rare case where no IP is available. Hashed (blind index) because an IP
+     * is personal data (SECURITY.md §11), exactly as HumanCheck stores it.
      */
-    public function identifierHash(?string $cookieValue, string $sessionId): string
+    public function identifierHash(?string $ipAddress, ?string $cookieValue, string $sessionId): string
     {
-        $raw = $cookieValue ?? $sessionId;
+        $raw = ($ipAddress !== null && $ipAddress !== '')
+            ? 'ip:' . $ipAddress
+            : 'sid:' . ($cookieValue ?? $sessionId);
 
         return $this->encryption->blindIndex('retro_rate_limit:' . $raw);
     }
