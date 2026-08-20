@@ -212,6 +212,13 @@ class ConfigController extends AbstractController
             return $this->json(['success' => false, 'error' => 'Fournisseur introuvable.']);
         }
 
+        // Re-validate at use time, not only at save time: a host that
+        // resolved to a public address when saved could resolve to an
+        // internal one now (DNS rebinding) — audit M5.
+        if (!\Core\Security\SsrfUrlValidator::isPublicHttpsUrl((string) $provider['api_endpoint'])) {
+            return $this->json(['success' => false, 'error' => 'Point de terminaison invalide.']);
+        }
+
         try {
             $driver = $this->createDriver($provider['driver'], $provider['api_endpoint'], $provider['api_key']);
             $models = $driver->listModels();
@@ -286,10 +293,11 @@ class ConfigController extends AbstractController
             return false;
         }
 
-        $scheme = parse_url($apiEndpoint, PHP_URL_SCHEME);
-        $host = parse_url($apiEndpoint, PHP_URL_HOST);
-
-        return $scheme === 'https' && is_string($host) && $host !== '';
+        // The endpoint is fetched server-side (the stored API key is sent to
+        // it), so it must be a genuine public https host — never an internal
+        // address a crafted endpoint could turn into an SSRF read primitive
+        // (audit M5). Reuses the shared private-range guard.
+        return \Core\Security\SsrfUrlValidator::isPublicHttpsUrl($apiEndpoint);
     }
 
     private function createDriver(string $driver, string $apiEndpoint, string $apiKey): \Modules\LlmConnector\Provider\LlmProviderInterface

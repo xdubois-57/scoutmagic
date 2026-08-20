@@ -123,6 +123,41 @@ class SetupControllerTest extends TestCase
         $this->assertStringContainsString('_csrf_token', $body);
     }
 
+    private function invokeCleanupFailedSetup(SetupController $controller, bool $createdThisRun): void
+    {
+        $method = new \ReflectionMethod(SetupController::class, 'cleanupFailedSetup');
+        $method->setAccessible(true);
+        $method->invoke($controller, $createdThisRun);
+    }
+
+    public function testCleanupPreservesAMasterKeyThisRunDidNotCreate(): void
+    {
+        // A full reset preserves storage/keys/master.key while removing
+        // secrets.enc, so setup re-runs as first-time and generateMasterKey()
+        // throws "refusing to overwrite" — the cleanup that follows must not
+        // delete the pre-existing key, or older encrypted backups become
+        // unreadable (audit M11).
+        $masterKeyPath = $this->tempDir . '/keys/master.key';
+        file_put_contents($masterKeyPath, str_repeat("\x01", 32));
+
+        $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath);
+        $this->invokeCleanupFailedSetup($controller, false);
+
+        $this->assertFileExists($masterKeyPath, 'a preserved master key must survive a failed re-run');
+        $this->assertSame(str_repeat("\x01", 32), file_get_contents($masterKeyPath));
+    }
+
+    public function testCleanupRemovesAMasterKeyThisRunActuallyCreated(): void
+    {
+        $masterKeyPath = $this->tempDir . '/keys/master.key';
+        file_put_contents($masterKeyPath, str_repeat("\x02", 32));
+
+        $controller = new SetupController($this->twig, $this->secretManager, $this->dkimManager, $this->schemaPath);
+        $this->invokeCleanupFailedSetup($controller, true);
+
+        $this->assertFileDoesNotExist($masterKeyPath, 'a key created by the failed run itself must be cleaned up');
+    }
+
     /**
      * The FTP-uploaded installer only ever runs where DNS/hosting already
      * point, so the base URL is knowable from the request itself — no

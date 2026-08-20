@@ -41,8 +41,16 @@
                             </div>
                         </div>
                         <div class="col-12 col-md-9">
-                            <input type="text" class="form-control form-control-lg mb-3" name="title" placeholder="Titre de l'article"
-                                   aria-label="Titre de l'article" value="{{ title_value }}" required>
+                            {# Visually hidden rather than aria-label: a real, linked label
+                               element is announced by every assistive technology and is
+                               what the rest of this codebase uses. The placeholder carries
+                               the same wording for sighted users, so nothing changes
+                               visually. (No literal HTML tag in this comment: Twig comments
+                               are not HTML comments, so an analyser reading the source text
+                               takes one for a real, unlabelled form control.) #}
+                            <label class="visually-hidden" for="news-title">Titre de l'article</label>
+                            <input type="text" class="form-control form-control-lg mb-3" id="news-title" name="title"
+                                   placeholder="Titre de l'article" value="{{ title_value }}" required>
 
                             <label class="form-label" for="summary">Résumé en une phrase <span class="text-danger">*</span></label>
                             <div class="d-flex gap-2">

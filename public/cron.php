@@ -8,6 +8,19 @@
 
 declare(strict_types=1);
 
+// CLI only. This file lives inside the document root (public/) so the same
+// PHP-FPM/CGI runtime that serves the site can run it from crontab, but a
+// web request must never reach it: public/.htaccess only rewrites paths
+// that do NOT exist on disk, so GET /cron.php would otherwise execute the
+// full scheduler pass — backups, updates, resets, journal purge — for any
+// anonymous visitor, with none of the once-per-60s throttle the in-request
+// scheduler tail in public/index.php applies. There is nothing to serve to
+// a browser here, so a non-CLI entry is a flat 404.
+if (PHP_SAPI !== 'cli') {
+    http_response_code(404);
+    exit;
+}
+
 $composerAutoloader = require_once __DIR__ . '/../vendor/autoload.php';
 
 // Same safety net as public/index.php — see Core\System\ComposerAutoloadSync's
@@ -15,6 +28,7 @@ $composerAutoloader = require_once __DIR__ . '/../vendor/autoload.php';
 // entry predates the last time vendor/ was regenerated would otherwise fail
 // with "Class not found" the moment cron runs it, even though every web
 // request already works fine.
+\Core\Http\ErrorHandler::register(false);
 \Core\System\ComposerAutoloadSync::apply($composerAutoloader, __DIR__ . '/../composer.json');
 
 use Core\Config\SettingRepository;
@@ -78,9 +92,9 @@ $connection = new Connection(
 
 $pdo = $connection->getPdo();
 
-$encryptionService = new EncryptionService(
-    $secrets['encryption_key'] ?? '',
-    $secrets['blind_index_key'] ?? ''
+$encryptionService = EncryptionService::fromEncodedKeys(
+    (string) ($secrets['encryption_key'] ?? ''),
+    (string) ($secrets['blind_index_key'] ?? '')
 );
 
 // Create services

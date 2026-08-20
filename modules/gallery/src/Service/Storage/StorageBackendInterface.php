@@ -23,6 +23,14 @@ interface StorageBackendInterface
     public function get(string $key): string;
 
     /**
+     * Absolute filesystem path of $key when the backend stores it as a local
+     * file, or null when it does not (e.g. an S3 object that would have to be
+     * downloaded first). Lets a caller stream a large local object straight
+     * off disk instead of buffering it whole in memory (audit M10).
+     */
+    public function localPath(string $key): ?string;
+
+    /**
      * Byte count of $key, or null when it can't be determined (missing
      * object, backend error) — lets a caller serve an HTTP range or refuse
      * an over-large operation without ever reading the whole object into

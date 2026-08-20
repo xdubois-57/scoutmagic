@@ -130,6 +130,13 @@ class S3StorageBackend implements StorageBackendInterface
         return (string) $result['Body'];
     }
 
+    public function localPath(string $key): ?string
+    {
+        // An S3 object is not a local file — it would have to be downloaded
+        // first, so it can't be streamed straight off disk (audit M10).
+        return null;
+    }
+
     public function size(string $key): ?int
     {
         try {

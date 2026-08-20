@@ -85,13 +85,22 @@
 
             {% if can_moderate and invite_candidates is not empty %}
                 {#
-                  groups.js swaps this <select> for a search-as-you-type
-                  box (nom/prénom/totem, GET /groups/{id}/member-search) —
-                  it stays the actual form control either way, JS only
-                  ever sets .value on it when a search result is clicked,
-                  so the POST below never changes shape. A placeholder
-                  option so nothing submits by accident before a real
-                  choice is made, with or without JS.
+                  groups.js swaps the member select below for a
+                  search-as-you-type box (nom/prénom/totem, GET
+                  /groups/{id}/member-search) — the select stays the actual
+                  form control either way, JS only ever sets .value on it
+                  when a search result is clicked, so the POST below never
+                  changes shape. A placeholder option so nothing submits by
+                  accident before a real choice is made, with or without JS.
+
+                  No literal HTML tag in this comment: Twig comments are not
+                  HTML comments, so an analyser reading the rendered-source
+                  text would take one for a real unlabelled control.
+
+                  Two controls, one field: the visible label belongs to the
+                  search box the JS reveals, and the select — the no-JS
+                  fallback, hidden from sight but not from assistive tech
+                  once JS takes over — carries its own visually-hidden one.
                 #}
                 <form method="post" action="/groups/{{ group.id }}/invite-member" class="row g-2 mt-3">
                     {{ csrf_field()|raw }}
@@ -101,6 +110,7 @@
                                data-search-url="/groups/{{ group.id }}/member-search"
                                autocomplete="off" placeholder="Rechercher par nom, prénom ou totem…">
                         <ul class="list-group mt-1 d-none position-absolute w-100" style="z-index:5;" id="invite-member-results"></ul>
+                        <label class="visually-hidden" for="invite-member">Membre à inviter</label>
                         <select class="form-select" id="invite-member" name="member_id" style="min-height:44px;">
                             <option value="" selected>— Choisir —</option>
                             {% for group_option in invite_candidates %}

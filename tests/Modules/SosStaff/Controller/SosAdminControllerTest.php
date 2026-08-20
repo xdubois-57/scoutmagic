@@ -245,6 +245,41 @@ class SosAdminControllerTest extends TestCase
         $this->assertFalse($decoded['success']);
     }
 
+    /**
+     * getDefaultNumber() resolves whatever is stored here into the live
+     * redirect target of the PUBLIC SOS line, so the member id has to be one
+     * the picker actually offers — a Staff d'U member with a known mobile.
+     * Unvalidated, an admin could point the unit's emergency number at any
+     * member's personal phone.
+     */
+    public function testUpdateDefaultNumberRejectsAMemberOutsideTheStaffRoster(): void
+    {
+        $rosterMemberId = $this->createStaffduMember('Akela', '+32470123456');
+        $token = $this->csrfToken();
+        $this->controller->updateDefaultNumber(
+            $this->jsonRequest(['member_id' => $rosterMemberId, '_csrf_token' => $token]),
+            []
+        );
+
+        // A member with no Staff d'U function at all.
+        $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('DESK_OUTSIDER')");
+        $outsiderId = (int) $this->pdo->lastInsertId();
+
+        $token = $this->csrfToken();
+        $response = $this->controller->updateDefaultNumber(
+            $this->jsonRequest(['member_id' => $outsiderId, '_csrf_token' => $token]),
+            []
+        );
+
+        $this->assertSame(400, $response->getStatusCode());
+        $this->assertFalse(json_decode($response->getBody(), true)['success']);
+        $this->assertSame(
+            '+32470123456',
+            $this->settingsService->getDefaultNumber($this->scoutYearId),
+            'the live SOS redirect must be unchanged'
+        );
+    }
+
     public function testUpdateSettingsPersistsTransitionHour(): void
     {
         $token = $this->csrfToken();

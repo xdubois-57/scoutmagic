@@ -131,6 +131,90 @@ class BackupServiceTest extends TestCase
      * @group database
      */
     #[\PHPUnit\Framework\Attributes\Group('database')]
+    public function testRestoreFilesAcceptsAGenuineBackupArchive(): void
+    {
+        // A real archive from this service round-trips cleanly through the
+        // new entry-vetting guard.
+        $zipPath = $this->service->createFileBackup(true);
+
+        $dest = sys_get_temp_dir() . '/backup_restore_' . uniqid();
+        mkdir($dest, 0755, true);
+        $service = new BackupService(
+            new Connection('127.0.0.1', 3306, 'x', 'y', ''),
+            $dest . '/storage',
+            $dest
+        );
+
+        $service->restoreFiles($zipPath);
+
+        $this->assertFileExists($dest . '/core/App.php');
+        $this->assertFileExists($dest . '/public/index.php');
+        $this->removeDirectory($dest);
+    }
+
+    public function testRestoreFilesRejectsAnEntryThatEscapesTheInstallRoot(): void
+    {
+        $zipPath = $this->maliciousZip(fn(\ZipArchive $z) => $z->addFromString('../evil.php', '<?php'));
+
+        $this->expectException(BackupException::class);
+        $this->expectExceptionMessage('chemin non autorisé');
+        $this->service->restoreFiles($zipPath);
+    }
+
+    public function testRestoreFilesRejectsAnAbsolutePathEntry(): void
+    {
+        $zipPath = $this->maliciousZip(fn(\ZipArchive $z) => $z->addFromString('/etc/cron.d/evil', 'x'));
+
+        $this->expectException(BackupException::class);
+        $this->expectExceptionMessage('chemin non autorisé');
+        $this->service->restoreFiles($zipPath);
+    }
+
+    public function testRestoreFilesRejectsAnEntryOutsideTheKnownBackupStructure(): void
+    {
+        // A well-formed relative path, but not one a real backup contains —
+        // e.g. dropping a file at the document root or into vendor/.
+        $zipPath = $this->maliciousZip(fn(\ZipArchive $z) => $z->addFromString('vendor/autoload.php', '<?php'));
+
+        $this->expectException(BackupException::class);
+        $this->expectExceptionMessage('contenu inattendu');
+        $this->service->restoreFiles($zipPath);
+    }
+
+    public function testRestoreFilesRejectsASymlinkEntry(): void
+    {
+        $zipPath = sys_get_temp_dir() . '/backup_symlink_' . uniqid() . '.zip';
+        $zip = new \ZipArchive();
+        $zip->open($zipPath, \ZipArchive::CREATE);
+        $zip->addFromString('public/link', '/etc/passwd');
+        // Stamp the entry with the Unix symlink mode (S_IFLNK) in the high
+        // 16 bits of the external attributes, the way a real symlink is
+        // recorded in a zip.
+        $zip->setExternalAttributesName('public/link', \ZipArchive::OPSYS_UNIX, (0xA000 | 0777) << 16);
+        $zip->close();
+
+        $this->expectException(BackupException::class);
+        $this->expectExceptionMessage('lien symbolique');
+        $this->service->restoreFiles($zipPath);
+    }
+
+    /**
+     * @param callable(\ZipArchive): void $addEntries
+     */
+    private function maliciousZip(callable $addEntries): string
+    {
+        $zipPath = sys_get_temp_dir() . '/backup_malicious_' . uniqid() . '.zip';
+        $zip = new \ZipArchive();
+        $zip->open($zipPath, \ZipArchive::CREATE);
+        // A plausible-looking legitimate entry alongside the hostile one, so
+        // the test proves the guard rejects the archive as a whole.
+        $zip->addFromString('core/App.php', '<?php');
+        $addEntries($zip);
+        $zip->close();
+
+        return $zipPath;
+    }
+
     public function testCreateDatabaseDumpProducesANonEmptySqlFile(): void
     {
         $service = $this->realDbService();

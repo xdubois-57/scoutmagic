@@ -26,11 +26,20 @@
                     </select>
                 </div>
                 <div class="col-12">
-                    <label class="form-label small">Reçus (PDF, JPEG ou PNG) — jusqu'à 10 à la fois</label>
-                    <div id="drop-zone" class="border border-2 border-dashed rounded-3 p-4 text-center text-body-secondary" role="button" tabindex="0">
+                    {# The drop zone is not a button and no longer pretends to be
+                       one with role/tabindex: the real control is the file input
+                       it contains, which the label above now points at. Visually
+                       hidden rather than d-none so it stays focusable — a file
+                       input opens its picker on Enter and Space natively, which
+                       is the keyboard equivalent this site's CSP would not let
+                       an inline onKeyDown attribute provide. Clicking the drop
+                       zone still opens the picker; that part is script (below)
+                       because a label element may not wrap this layout. #}
+                    <label class="form-label small" for="receipt-files">Reçus (PDF, JPEG ou PNG) — jusqu'à 10 à la fois</label>
+                    <div id="drop-zone" class="receipt-drop-zone border border-2 border-dashed rounded-3 p-4 text-center text-body-secondary">
                         <i class="bi bi-cloud-arrow-up fs-2 d-block mb-2"></i>
                         <span>Glissez-déposez vos reçus ici, ou cliquez pour parcourir</span>
-                        <input type="file" class="d-none" id="receipt-files" name="receipts[]" accept=".pdf,.jpg,.jpeg,.png" multiple aria-label="Sélectionner les reçus à téléverser">
+                        <input type="file" class="visually-hidden" id="receipt-files" name="receipts[]" accept=".pdf,.jpg,.jpeg,.png" multiple>
                     </div>
                     <ul class="list-unstyled small mt-2 mb-0" id="receipt-files-list"></ul>
                     <div class="form-text small" id="receipt-file-status"></div>
@@ -172,10 +181,12 @@ function addFiles(fileList) {
     syncInputAndRender();
 }
 
-dropZone.addEventListener('click', () => filesInput.click());
-dropZone.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' || e.key === ' ') {
-        e.preventDefault();
+// Mouse only. The keyboard path is the file input's own: it is focusable
+// (visually-hidden, not d-none) and opens its picker on Enter and Space with
+// no script. Guarded against the input's own click bubbling back up here,
+// which would reopen the picker the moment it closed.
+dropZone.addEventListener('click', (e) => {
+    if (e.target !== filesInput) {
         filesInput.click();
     }
 });

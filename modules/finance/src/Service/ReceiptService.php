@@ -245,6 +245,15 @@ class ReceiptService
             return $content;
         }
 
+        // Skip orientation correction (rather than OOM) on a decompression
+        // bomb — best-effort, like every other failure branch here; the file
+        // is served raw so it is never GD-decoded server-side again (audit M7).
+        try {
+            \Core\Image\ImageDimensionGuard::assertWithinCeilingFromString($content);
+        } catch (\Core\Image\ImageDimensionException) {
+            return $content;
+        }
+
         $image = @imagecreatefromstring($content);
         if ($image === false) {
             return $content;

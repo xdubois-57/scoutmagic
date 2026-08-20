@@ -52,7 +52,11 @@
     var HTML_SANITIZER_ALLOWED_TAGS = {
         p: [], br: [], strong: [], b: [], em: [], i: [], u: [],
         a: ['href', 'title', 'target', 'rel'],
-        ul: [], ol: [], li: [], h2: [], h3: [], h4: [], blockquote: []
+        ul: [], ol: [], li: [], h2: [], h3: [], h4: [], blockquote: [],
+        // Mirrors the PHP allowlist (Core\Security\HtmlSanitizer) so the
+        // "Insérer une image" button's <img> survives the client pass too;
+        // src is scheme-validated below.
+        img: ['src', 'alt', 'width', 'height']
     };
     var HTML_SANITIZER_STRIP_WITH_CONTENT = ['script', 'style', 'iframe', 'object', 'embed', 'form', 'textarea', 'select'];
 
@@ -88,10 +92,16 @@
                 el.removeAttribute(attr.name);
                 return;
             }
-            if (name === 'href' && !isSafeUrlScheme(attr.value)) {
+            if ((name === 'href' || name === 'src') && !isSafeUrlScheme(attr.value)) {
                 el.removeAttribute(attr.name);
             }
         });
+        if (tagName === 'img' && !el.hasAttribute('src')) {
+            if (el.parentNode) {
+                el.parentNode.removeChild(el);
+            }
+            return;
+        }
         if (tagName === 'a' && el.getAttribute('target') === '_blank') {
             el.setAttribute('rel', 'noopener noreferrer');
         }

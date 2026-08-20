@@ -84,7 +84,12 @@ class DocumentationTest extends TestCase
      */
     public function testTheModulesStorageDirectoryIsGitignored(): void
     {
-        $this->assertStringContainsString('storage/groups/', $this->read('.gitignore'));
+        // Covered by the storage/** catch-all (audit hardening) rather than a
+        // per-module line — assert the path actually resolves to ignored.
+        $root = dirname(__DIR__, 3);
+        $output = [];
+        exec('git -C ' . escapeshellarg($root) . ' check-ignore ' . escapeshellarg('storage/groups/preview.jpg') . ' 2>/dev/null', $output, $status);
+        $this->assertSame(0, $status, 'storage/groups/ content must be gitignored');
     }
 
     /**
@@ -94,19 +99,27 @@ class DocumentationTest extends TestCase
     public function testEveryModuleWritingUnderStorageIsGitignored(): void
     {
         $gitignore = $this->read('.gitignore');
-        $root = dirname(__DIR__, 3);
 
+        // A single catch-all (`storage/**`, re-including only `.gitkeep`
+        // placeholders) ignores every module's storage/<id>/ content — present
+        // AND future — so there is no per-module enumeration to forget when a
+        // new module starts writing under storage/ (audit hardening).
+        $this->assertStringContainsString('storage/**', $gitignore);
+        $this->assertStringContainsString('!storage/**/.gitkeep', $gitignore);
+
+        // The catch-all must not accidentally leave a real module's content
+        // uncovered: a sample path under each storage-writing module resolves
+        // to ignored.
+        $root = dirname(__DIR__, 3);
         foreach ((array) glob($root . '/modules/*', GLOB_ONLYDIR) as $moduleDir) {
             $moduleId = basename((string) $moduleDir);
             if (!$this->writesUnderStorage((string) $moduleDir, $moduleId)) {
                 continue;
             }
 
-            $this->assertStringContainsString(
-                "storage/{$moduleId}/",
-                $gitignore,
-                "module '{$moduleId}' writes under storage/{$moduleId}/ but .gitignore does not cover it"
-            );
+            $output = [];
+            exec('git -C ' . escapeshellarg($root) . ' check-ignore ' . escapeshellarg("storage/{$moduleId}/sample.dat") . ' 2>/dev/null', $output, $status);
+            $this->assertSame(0, $status, "module '{$moduleId}' writes under storage/{$moduleId}/ but that path is not gitignored");
         }
     }
 

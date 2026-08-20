@@ -161,6 +161,11 @@ jobs:
         with:
           php-version: '8.4'
           extensions: mbstring, pdo, pdo_mysql, openssl, imagick
+          # pcov so the `php -S` process this job drives can record which
+          # application lines the browser actually executed — see
+          # scripts/e2e-coverage-prepend.php. Without it scripts/e2e.sh
+          # fails closed rather than producing an empty report.
+          coverage: pcov
 
       - name: Setup Node
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
@@ -190,7 +195,22 @@ jobs:
           E2E_DB_PORT: 3306
           E2E_DB_USER: root
           E2E_DB_PASSWORD: test_password
+          # Produces coverage-e2e.xml (Clover) for the sonarqube job below.
+          # This is the only coverage there is for public/index.php: PHPUnit
+          # never executes the composition root, so without this the file
+          # SonarQube sees at 0% is exactly the one the browser exercises
+          # most.
+          E2E_COVERAGE: 1
         run: npm run e2e
+
+      - name: Upload end-to-end coverage for SonarQube
+        # Not `if: failure()` like the diagnostics below — this is the
+        # artifact a *successful* run exists to produce.
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-coverage
+          path: coverage-e2e.xml
+          retention-days: 1
 
       - name: Upload Playwright diagnostics
         # Failure only: a green run produces no trace, screenshot, or
@@ -225,7 +245,7 @@ jobs:
   sonarqube:
     name: SonarQube Cloud
     runs-on: ubuntu-latest
-    needs: [test, javascript-tests]
+    needs: [test, javascript-tests, e2e-tests]
     # Secrets aren't exposed to pull_request runs triggered from a fork, so
     # SONAR_TOKEN wouldn't be available there — skip cleanly instead of
     # failing the check for external contributors. Same-repo pushes and PRs
@@ -254,6 +274,16 @@ jobs:
           # coverage/js/lcov.info exactly as sonar-project.properties'
           # sonar.javascript.lcov.reportPaths expects.
           path: coverage/js
+
+      - name: Download end-to-end coverage report
+        uses: actions/download-artifact@v4
+        with:
+          name: e2e-coverage
+          # A single file, so it lands at the artifact's root — this puts
+          # it back at coverage-e2e.xml, where sonar-project.properties'
+          # sonar.php.coverage.reportPaths expects it next to PHPUnit's
+          # own coverage.xml.
+          path: .
 
       - name: SonarQube Cloud Scan
         uses: SonarSource/sonarqube-scan-action@22918119ff8e1ca75a623e15c8296b6ea4fbe28f # v8

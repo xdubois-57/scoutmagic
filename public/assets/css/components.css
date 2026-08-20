@@ -103,7 +103,21 @@
     border-left: 1px solid var(--bs-border-color, #dee2e6);
     border-top: 1px solid var(--bs-border-color, #dee2e6);
 }
+/* The two rules below carry a user-agent reset because partials/month_grid.html.twig
+   renders the cell and the bar as a real <button> when the caller makes them
+   actionable (and a plain <div> when it does not) — see that file's header for
+   why. The reset is what makes the two render identically: without it a button
+   brings its own border, padding, background, centred text and system font. */
 .calendar-day-cell {
+    appearance: none;
+    -webkit-appearance: none;
+    padding: 0;
+    background-color: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: inherit;
+    border: 0;
+    border-radius: 0;
     border-right: 1px solid var(--bs-border-color, #dee2e6);
     border-bottom: 1px solid var(--bs-border-color, #dee2e6);
 }
@@ -151,6 +165,12 @@
     color: var(--bs-secondary-color, #6c757d);
 }
 .calendar-event-bar {
+    appearance: none;
+    -webkit-appearance: none;
+    border: 0;
+    text-align: left;
+    font-family: inherit;
+    font-weight: inherit;
     margin: 1px;
     padding: 0 0.3rem;
     border-radius: 0.25rem;
@@ -177,12 +197,42 @@
     cursor: pointer;
 }
 
+/* Receipt upload drop zone (modules/finance/views/receipts/form.html.twig).
+   The real control is the visually-hidden file input inside it, so the zone
+   has to be the thing that shows focus: position:relative keeps the hidden
+   input inside the zone's own box rather than letting it be positioned
+   against some far-away ancestor, and :focus-within gives a keyboard user
+   the focus ring they would otherwise never see. */
+.receipt-drop-zone {
+    position: relative;
+}
+.receipt-drop-zone:focus-within {
+    outline: 2px solid var(--bs-primary, #0d6efd);
+    outline-offset: 2px;
+}
+
 /* "Prochains évènements" list item (modules/calendar/views/public.html.twig)
    — opens the same #eventDetailsModal as a grid bar, via the same
    showEventDetails() data-* contract. Not part of the grid itself, so it
    gets its own hook class rather than reusing .calendar-event-bar--clickable. */
 .calendar-upcoming-event-item {
     cursor: pointer;
+}
+/* The list item cannot itself be a <button> — it holds flow content (several
+   <div>s and a badge), which a button may not contain. So the event label is
+   the button, stretched by Bootstrap's .stretched-link over the whole
+   (position:relative) list item, which keeps the entire row clickable exactly
+   as before while making the real control focusable and Enter/Space-operable
+   with no script. Same user-agent reset as the grid bar above. */
+.calendar-upcoming-event-trigger {
+    appearance: none;
+    -webkit-appearance: none;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: inherit;
+    font: inherit;
+    text-align: left;
 }
 
 /* Touch-target exception to AGENTS.md's 44px minimum, deliberate and

@@ -6,17 +6,13 @@ node_modules/
 # Environment and secrets
 .env
 .sonar-token
-storage/keys/
-storage/config/
-storage/temp/
-storage/finance/
-storage/news/
-storage/gallery/
-storage/maintenance/
-storage/core/
-storage/mass_mail/
-storage/section_documents/
-storage/groups/
+# All runtime storage content is ignored so a new module writing to
+# storage/<name>/ can never produce files that are untracked but NOT ignored
+# (and so accidentally committed). .gitkeep files preserve the directory
+# structure (audit hardening).
+storage/**
+!storage/**/
+!storage/**/.gitkeep
 
 # Local configuration
 config/app.php
@@ -33,8 +29,11 @@ Thumbs.db
 # PHPUnit test cache
 .phpunit.result.cache
 
-# SonarQube Cloud analysis artifacts (generated in CI, never committed)
+# SonarQube Cloud analysis artifacts (generated in CI, never committed).
+# coverage-e2e.xml is the end-to-end run's own Clover report, produced by
+# `E2E_COVERAGE=1 npm run e2e` (scripts/e2e.sh) next to PHPUnit's.
 coverage.xml
+coverage-e2e.xml
 phpunit-report.xml
 .scannerwork/
 

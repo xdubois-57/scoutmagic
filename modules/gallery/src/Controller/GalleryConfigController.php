@@ -167,8 +167,18 @@ class GalleryConfigController extends AbstractController
             }
         }
 
+        // The endpoint is connected to server-side with the access key/secret,
+        // so it must be a genuine public https host — never http:// (which
+        // would send the credentials in plaintext) and never an internal
+        // address (SSRF) — audit M6. A custom port is allowed since
+        // S3-compatible providers vary, but the host must still be public.
+        $endpoint = (string) ($data['endpoint'] ?? '');
+        if (!\Core\Security\SsrfUrlValidator::isPublicHttpsUrl($endpoint, true)) {
+            return $this->json(['success' => false, 'error' => 'L\'adresse du service doit être une URL https publique.'], 422);
+        }
+
         $backend = new S3StorageBackend(
-            (string) ($data['endpoint'] ?? ''),
+            $endpoint,
             (string) ($data['region'] ?? ''),
             (string) ($data['bucket'] ?? ''),
             (string) ($data['access_key'] ?? ''),

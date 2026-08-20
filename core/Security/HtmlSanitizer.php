@@ -27,10 +27,24 @@ class HtmlSanitizer
         'h3' => [],
         'h4' => [],
         'blockquote' => [],
+        // The editor's "Insérer une image" button produced <img> that the
+        // sanitizer silently stripped (no 'img' key). Allowed with a tight
+        // attribute set; src is scheme-validated below so only http/https/
+        // relative URLs survive (never javascript:/data:).
+        'img' => ['src', 'alt', 'width', 'height'],
     ];
 
     /** Tags whose content is removed entirely */
     private const STRIP_WITH_CONTENT = ['script', 'style', 'iframe', 'object', 'embed', 'form', 'textarea', 'select'];
+
+    /**
+     * URL schemes an href/src may carry. An allowlist, never a blocklist: a
+     * blocklist of "dangerous" schemes (javascript:, data:, …) always misses
+     * one — vbscript: survived the old check — so only the schemes a link or
+     * image actually needs are accepted. A value with no scheme at all (a
+     * relative URL, fragment or query) is always safe.
+     */
+    private const URL_SCHEME_ALLOWLIST = ['http', 'https', 'mailto', 'tel'];
 
     /**
      * Sanitize HTML string. Removes all tags and attributes not in ALLOWED.
@@ -106,11 +120,12 @@ class HtmlSanitizer
 
                 // Recurse into allowed tags
                 $this->walkNode($child, $doc);
-            } elseif ($child instanceof \DOMText || $child instanceof \DOMComment) {
-                // Keep text nodes; remove comment nodes
-                if ($child instanceof \DOMComment) {
-                    $node->removeChild($child);
-                }
+            } elseif (!($child instanceof \DOMText)) {
+                // Keep only text nodes. Everything else here — comments,
+                // processing instructions (otherwise re-serialized verbatim),
+                // CDATA sections — has no place in sanitized rich text and is
+                // removed.
+                $node->removeChild($child);
             }
         }
     }
@@ -175,13 +190,11 @@ class HtmlSanitizer
                 continue;
             }
 
-            // Sanitize href values
-            if ($attrName === 'href') {
-                $value = strtolower(trim($attr->value));
-                if (str_starts_with($value, 'javascript:') || str_starts_with($value, 'data:')) {
-                    $toRemove[] = $attr->name;
-                    continue;
-                }
+            // Scheme-check any URL-bearing attribute (a link's href, an
+            // image's src) against the allowlist.
+            if (($attrName === 'href' || $attrName === 'src') && !$this->isSafeUrlValue($attr->value)) {
+                $toRemove[] = $attr->name;
+                continue;
             }
         }
 
@@ -189,9 +202,31 @@ class HtmlSanitizer
             $element->removeAttribute($name);
         }
 
+        // An <img> that lost its src to the scheme check is an empty, broken
+        // element — drop it rather than leave a bare <img> behind.
+        if ($tagName === 'img' && !$element->hasAttribute('src')) {
+            $element->parentNode?->removeChild($element);
+            return;
+        }
+
         // Force rel on <a> with target="_blank"
         if ($tagName === 'a' && $element->getAttribute('target') === '_blank') {
             $element->setAttribute('rel', 'noopener noreferrer');
         }
+    }
+
+    /**
+     * Whether a URL-bearing attribute value is safe: no scheme (relative), or
+     * a scheme in the allowlist. Tab/CR/LF are stripped first (browsers ignore
+     * them inside a scheme, so "java\tscript:" would otherwise slip past).
+     */
+    private function isSafeUrlValue(string $value): bool
+    {
+        $normalized = strtolower(trim((string) preg_replace('/[\t\r\n]+/', '', $value)));
+        if (preg_match('/^([a-z][a-z0-9+.-]*):/', $normalized, $m) !== 1) {
+            return true;
+        }
+
+        return in_array($m[1], self::URL_SCHEME_ALLOWLIST, true);
     }
 }

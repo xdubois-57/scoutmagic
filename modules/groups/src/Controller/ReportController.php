@@ -85,6 +85,13 @@ class ReportController extends AbstractController
             if ($post === null || $post->groupId !== $group->id) {
                 return false;
             }
+            // Already hidden from this member by moderation — reporting what
+            // you cannot see adds nothing, and leaving it open lets the
+            // endpoint confirm a hidden post still exists. Moderators, who
+            // can see it, keep the ability.
+            if ($post->isHidden() && !$this->accessService->canModerate($group, $context)) {
+                return false;
+            }
 
             if ($this->reportService->reportPost($group->id, $post->id, $memberId, $context->userAccountId)) {
                 // Only on a NEW report: a repeat submission by the same
@@ -115,6 +122,9 @@ class ReportController extends AbstractController
 
             $post = $this->postRepository->findById($reply->postId);
             if ($post === null || $post->groupId !== $group->id) {
+                return false;
+            }
+            if (($reply->isHidden() || $post->isHidden()) && !$this->accessService->canModerate($group, $context)) {
                 return false;
             }
 

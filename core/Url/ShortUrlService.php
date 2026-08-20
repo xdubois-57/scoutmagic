@@ -56,11 +56,13 @@ class ShortUrlService
     private function randomCode(): string
     {
         $alphabetLength = strlen(self::ALPHABET);
-        $bytes = random_bytes(self::CODE_LENGTH);
 
+        // random_int() is unbiased over the alphabet; the previous
+        // `ord(random_bytes) % 62` made the first 8 characters (A–H) ~25% more
+        // likely, since 256 is not a multiple of 62 (audit hardening).
         $code = '';
         for ($i = 0; $i < self::CODE_LENGTH; $i++) {
-            $code .= self::ALPHABET[ord($bytes[$i]) % $alphabetLength];
+            $code .= self::ALPHABET[random_int(0, $alphabetLength - 1)];
         }
 
         return $code;

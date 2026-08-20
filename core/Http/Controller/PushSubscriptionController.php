@@ -50,6 +50,14 @@ class PushSubscriptionController extends AbstractController
             return $this->json(['success' => false, 'error' => 'Données de souscription incomplètes.'], 400);
         }
 
+        // The push endpoint is POSTed to server-side later (NotificationService::
+        // flushQueuedPush), so a member must not be able to store an internal
+        // URL and use the delete-on-404/410 behaviour as a port/path oracle
+        // (audit M4). Only a genuine public https push endpoint is accepted.
+        if (!\Core\Security\SsrfUrlValidator::isPublicHttpsUrl($endpoint)) {
+            return $this->json(['success' => false, 'error' => 'Point de terminaison de notification invalide.'], 400);
+        }
+
         $userId = AuthSession::getUserAccountId();
         if ($userId === null) {
             return $this->json(['success' => false, 'error' => 'Non authentifié.'], 401);

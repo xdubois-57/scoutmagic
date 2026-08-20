@@ -259,10 +259,22 @@
             var btn = /** @type {HTMLButtonElement} */ (this);
             btn.disabled = true;
             try {
+                // Include this form's anti-bot fields (audit M3): the token and
+                // the honeypot trap (empty for a human). The trap field name is
+                // randomised per render, so read it from the DOM rather than
+                // hard-coding it.
+                var body = 'email=' + encodeURIComponent(email) + '&_csrf_token=' + encodeURIComponent(getCsrf());
+                var hcToken = document.querySelector('#forgot-password-form input[name="human_check_token"]');
+                if (hcToken) body += '&human_check_token=' + encodeURIComponent(/** @type {HTMLInputElement} */ (hcToken).value);
+                var hcTrap = document.querySelector('#forgot-password-form .hc-trap input');
+                if (hcTrap) {
+                    var trap = /** @type {HTMLInputElement} */ (hcTrap);
+                    body += '&' + encodeURIComponent(trap.name) + '=' + encodeURIComponent(trap.value);
+                }
                 var res = await fetch('/password-reset/request', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    body: 'email=' + encodeURIComponent(email) + '&_csrf_token=' + encodeURIComponent(getCsrf())
+                    body: body
                 });
                 var data = await res.json();
                 messageEl.textContent = data.success
@@ -353,4 +365,19 @@
         return btoa(String.fromCharCode.apply(null, new Uint8Array(buf)))
             .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
     }
+
+    // --- Test seam (no behavioural effect) ---------------------------------
+    // Everything above lives inside this IIFE and is therefore module-private.
+    // This adds ONE namespaced global so tests/js/auth.test.js can reach the
+    // base64url encode/decode helpers directly and exercise their edge cases
+    // (padding, empty buffers, URL-safe characters) exhaustively, rather than
+    // only through a fully mocked WebAuthn round-trip — same precedent as
+    // window.ChipPicker, window.ScoutMagicNav and
+    // news-form-builder.js's own ScoutMagicNewsFormBuilderInternals.
+    //
+    // Test-only: nothing in production reads this.
+    globalThis.ScoutMagicAuthInternals = {
+        base64ToBuffer: base64ToBuffer,
+        bufferToBase64: bufferToBase64,
+    };
 })();

@@ -590,7 +590,16 @@ class MigrationRunner
             mkdir($backupDir, 0755, true);
         }
 
-        $backupFile = $backupDir . '/backup_' . date('Y-m-d_H-i-s') . '.sql';
+        // A pre-migration dump is a one-time safety net for THIS migration —
+        // never read back programmatically — and used to pile up under fully
+        // predictable names (backup_<timestamp>.sql), leaving full-PII SQL
+        // dumps in storage/temp indefinitely (audit hardening). Purge any left
+        // by an earlier (now-completed) migration, and give the new one an
+        // unguessable name.
+        foreach (glob($backupDir . '/backup_*.sql') ?: [] as $stale) {
+            @unlink($stale);
+        }
+        $backupFile = $backupDir . '/backup_' . date('Y-m-d_H-i-s') . '_' . bin2hex(random_bytes(8)) . '.sql';
 
         // Get connection details via reflection (they are private)
         $host = $this->getPrivateProperty('host');

@@ -135,6 +135,27 @@ class MemberEmailServiceTest extends TestCase
         $this->assertSame(MemberEmail::SOURCE_MANUAL, $row->source);
     }
 
+    public function testAddEmailCapsTheNumberOfSelfAddedAddresses(): void
+    {
+        // Five unique addresses are allowed; the sixth is refused before it
+        // creates a row or sends a confirmation — the mail-bomb cap (audit
+        // M15). Exactly five sends.
+        $this->mailService->expects($this->exactly(5))->method('send');
+
+        for ($i = 1; $i <= 5; $i++) {
+            $this->service->addEmail($this->memberId, "addr{$i}@example.com", null);
+        }
+
+        try {
+            $this->service->addEmail($this->memberId, 'one-too-many@example.com', null);
+            $this->fail('Expected a MemberEmailException for exceeding the cap.');
+        } catch (MemberEmailException $e) {
+            $this->assertStringContainsString('maximum', $e->getMessage());
+        }
+
+        $this->assertCount(5, $this->repository->findByMember($this->memberId));
+    }
+
     public function testAddingTheSameAddressTwiceReusesTheExistingRow(): void
     {
         $this->mailService->expects($this->once())->method('send'); // only the first add sends — second is within cooldown

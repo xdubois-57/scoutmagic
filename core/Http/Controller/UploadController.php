@@ -13,6 +13,7 @@ use Core\File\UploadHandler;
 use Core\Http\FlashMessage;
 use Core\Http\Request;
 use Core\Http\Response;
+use Core\Http\SafeRedirect;
 use Core\Import\AgeBranchRepository;
 use Core\Journal\JournalService;
 use Core\Member\MemberService;
@@ -62,7 +63,10 @@ class UploadController extends AbstractController
     {
         $context = (string) $request->getQuery('context', '');
         $key = (string) $request->getQuery('key', '');
-        $returnUrl = (string) $request->getQuery('return', '/');
+        // Reflected into an href and a hidden field, and later into a redirect
+        // — constrain it to a same-site path so it can't become an open
+        // redirect (audit M17).
+        $returnUrl = SafeRedirect::internalPath((string) $request->getQuery('return', '/'));
 
         return $this->render('upload/index.html.twig', [
             'context' => $context,
@@ -85,7 +89,8 @@ class UploadController extends AbstractController
 
         $context = (string) $request->getBody('context', '');
         $key = (string) $request->getBody('key', '');
-        $returnUrl = (string) $request->getBody('return_url', '/');
+        // Same-site path only — this drives the post-upload redirect (audit M17).
+        $returnUrl = SafeRedirect::internalPath((string) $request->getBody('return_url', '/'));
 
         if (!$this->isUploadAuthorized($context, $key)) {
             return (new Response('', 403))->setBody('Forbidden.');

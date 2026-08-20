@@ -601,7 +601,7 @@ class MaintenanceController extends AbstractController
             if (!is_dir($tempDir)) {
                 mkdir($tempDir, 0755, true);
             }
-            $tempPath = $tempDir . '/' . uniqid('restore_upload_') . '.zip';
+            $tempPath = $tempDir . '/restore_upload_' . bin2hex(random_bytes(16)) . '.zip';
             if (!move_uploaded_file($file['tmp_name'], $tempPath)) {
                 FlashMessage::set('error', 'Le téléversement du fichier a échoué.');
                 return $this->redirect('/config/maintenance');

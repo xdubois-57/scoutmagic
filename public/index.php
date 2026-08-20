@@ -4,6 +4,13 @@ declare(strict_types=1);
 
 $composerAutoloader = require_once __DIR__ . '/../vendor/autoload.php';
 
+// Arm the last-resort error handler before anything else runs — including
+// the config load and the database connect, both of which can throw and
+// would otherwise print a stack trace (with the DB password in a PDO frame)
+// on a host with display_errors on. Re-armed with the real debug flag once
+// AppConfig is available (see below).
+\Core\Http\ErrorHandler::register(false);
+
 // Self-healing safety net for the "Update from GitHub" auto-update path
 // (Core\Maintenance\Task\InstallUpdateHandler), which copies tracked
 // repository files over the live install but never runs `composer
@@ -138,6 +145,7 @@ use Core\View\TwigFactory;
 
 // Load configuration
 $config = new AppConfig(__DIR__ . '/../config/app.php');
+\Core\Http\ErrorHandler::register($config->isDebug());
 
 // Generate per-request CSP nonce
 $cspNonce = base64_encode(random_bytes(16));
@@ -171,6 +179,13 @@ $request = Request::fromGlobals();
 // token" error further down the request lifecycle.
 if (Request::isPostTooLarge()) {
     http_response_code(413);
+    // Emit the same security header set as every routed response — an error
+    // page is not an excuse to drop CSP/X-Frame-Options/nosniff (audit
+    // hardening). This page has no inline script; its inline style attribute
+    // is covered by the CSP's style-src 'unsafe-inline'.
+    foreach ((new \Core\Http\Response(''))->getSecurityHeaders() as $hName => $hValue) {
+        header("{$hName}: {$hValue}");
+    }
     header('Content-Type: text/html; charset=utf-8');
     echo '<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><title>Fichier trop volumineux</title></head>'
         . '<body style="font-family:sans-serif;max-width:640px;margin:4rem auto;padding:0 1rem;">'
@@ -269,9 +284,9 @@ $connection = new Connection(
     $secrets['db_password'] ?? ''
 );
 
-$encryptionService = new EncryptionService(
-    $secrets['encryption_key'] ?? '',
-    $secrets['blind_index_key'] ?? ''
+$encryptionService = EncryptionService::fromEncodedKeys(
+    (string) ($secrets['encryption_key'] ?? ''),
+    (string) ($secrets['blind_index_key'] ?? '')
 );
 
 // Release the session file lock before the heavy work (database
@@ -345,6 +360,22 @@ if ($migrationIsPending) {
     $migrationStepPath = '/api/system/migration-step';
 
     if ($request->getMethod() === 'POST' && $request->getPath() === $migrationStepPath) {
+        // This endpoint runs live DDL and is reachable before any session,
+        // CSRF token or routing exists (for the whole upgrade window), so it
+        // has no session-bound CSRF token to check. Require instead a custom
+        // request header that only the progress page's own fetch() below sets
+        // (audit M12): a cross-site page cannot set a custom header on a
+        // simple request without a CORS preflight this endpoint never grants,
+        // so a forged cross-origin POST is refused here. Same technique as a
+        // classic X-Requested-With guard; it stops the browser-driven CSRF
+        // vector without needing any server-side state mid-migration.
+        if ($request->getServer('HTTP_X_SCOUTMAGIC_MIGRATION', '') !== '1') {
+            http_response_code(403);
+            header('Content-Type: application/json; charset=utf-8');
+            echo json_encode(['error' => 'forbidden']);
+            exit;
+        }
+
         // Short, foreground-safe time budget: this endpoint is called
         // repeatedly in a fast loop by the progress page below, not once
         // per page load, so each call must return quickly rather than
@@ -380,8 +411,16 @@ if ($migrationIsPending) {
     // persists progress after every unit of work, so the next visit (from
     // anyone) resumes exactly where this one left off instead of
     // restarting.
+    // Emit the full security header set even for this pre-routing page (audit
+    // hardening). It carries an inline <script>, so build a nonce-based CSP
+    // and tag the script with it — the previous version shipped no CSP at all,
+    // which is the only reason that inline script ran.
+    $migrationNonce = base64_encode(random_bytes(16));
+    foreach ((new \Core\Http\Response(''))->setCspNonce($migrationNonce)->getSecurityHeaders() as $hName => $hValue) {
+        header("{$hName}: {$hValue}");
+    }
     header('Content-Type: text/html; charset=utf-8');
-    echo <<<'HTML'
+    echo str_replace('__CSP_NONCE__', $migrationNonce, <<<'HTML'
 <!DOCTYPE html>
 <html lang="fr">
 <head>
@@ -402,13 +441,13 @@ if ($migrationIsPending) {
 <p>Merci de patienter, cette page se rechargera automatiquement une fois la mise à jour terminée. Vous pouvez aussi fermer cet onglet : la mise à jour reprendra à l'endroit où elle s'est arrêtée lors de votre prochaine visite.</p>
 <div class="bar-track"><div class="bar-fill" id="bar"></div></div>
 <p class="hint" id="hint">Démarrage…</p>
-<script>
+<script nonce="__CSP_NONCE__">
 (function () {
   var bar = document.getElementById('bar');
   var hint = document.getElementById('hint');
 
   function step() {
-    fetch('/api/system/migration-step', { method: 'POST' })
+    fetch('/api/system/migration-step', { method: 'POST', headers: { 'X-ScoutMagic-Migration': '1' } })
       .then(function (response) { return response.json(); })
       .then(function (data) {
         var percent = Math.round((data.progress || 0) * 100);
@@ -430,7 +469,7 @@ if ($migrationIsPending) {
 </script>
 </body>
 </html>
-HTML;
+HTML);
     exit;
 }
 
@@ -752,11 +791,18 @@ $vapidSubject = $vapidSubjectEmail !== '' ? 'mailto:' . $vapidSubjectEmail : (st
 // invalid config — belt-and-braces so push notifications being broken
 // can never take the entire site down again, whatever the cause.
 try {
-    $webPush = new WebPush(['VAPID' => [
-        'subject' => $vapidSubject,
-        'publicKey' => (string) ($secrets['vapid_public_key'] ?? ''),
-        'privateKey' => (string) ($secrets['vapid_private_key'] ?? ''),
-    ]]);
+    $webPush = new WebPush(
+        ['VAPID' => [
+            'subject' => $vapidSubject,
+            'publicKey' => (string) ($secrets['vapid_public_key'] ?? ''),
+            'privateKey' => (string) ($secrets['vapid_private_key'] ?? ''),
+        ]],
+        [],
+        // Bound the outbound push request (audit M4): a slow or unreachable
+        // endpoint must not hold a request/worker open indefinitely. WebPush
+        // takes timeouts on the PSR-18 client instance, not in its options.
+        new \GuzzleHttp\Client(['connect_timeout' => 5, 'timeout' => 10])
+    );
 } catch (\Throwable $e) {
     $webPush = null;
     $journalService->log(
@@ -902,6 +948,18 @@ $memberEmailService = new \Core\Member\MemberEmailService(
 // Scout year resolution (public / staff / session-preview priority)
 $scoutYearResolver = new ScoutYearResolver($scoutYearService, $settingService, $memberYearRepo);
 $scoutYearAdminService = new ScoutYearAdminService($settingService);
+
+// "Membres par section" (core, role_min intendant) — read-only roster of
+// every section's animateurs/intendants/animés, with a generic
+// year-over-year movement classification (Core\Member\Movement, reusable
+// beyond this one page) and an exhaustive, role-gated Excel export
+// (Core\Member\Export, also reusable beyond this one page).
+$memberMovementRepository = new \Core\Member\Movement\MemberMovementRepository($pdo);
+$memberMovementClassifier = new \Core\Member\Movement\MemberMovementClassifierService($memberMovementRepository, $scoutYearService);
+$sectionRosterRepository = new \Core\Member\SectionRosterRepository($pdo);
+$sectionRosterService = new \Core\Member\SectionRosterService($sectionRosterRepository, $encryptionService, $memberEmailRepository, $memberMovementClassifier);
+$memberExportRowBuilder = new \Core\Member\Export\MemberExportRowBuilder($sectionRosterRepository, $sectionService, $scoutYearService, $encryptionService, $memberEmailRepository, $memberMovementClassifier);
+$memberExportService = new \Core\Member\Export\MemberExportService();
 
 // Create file services
 $storagePath = dirname(__DIR__) . '/storage';
@@ -1096,6 +1154,7 @@ $menuBuilder->addPage(MenuBuilder::MENU_NOTRE_UNITE, 'Contact', '/contact', 'pub
 $menuBuilder->addPage(MenuBuilder::MENU_NOTRE_UNITE, 'Sections', '/sections', 'public', 30);
 $menuBuilder->addPage(MenuBuilder::MENU_NOTRE_UNITE, 'Protection des données', '/rgpd', 'public', 40);
 $menuBuilder->addPage(MenuBuilder::MENU_ESPACE_CHEFS, 'Staffs', '/chefs/staffs', 'intendant', 10);
+$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_CHEFS, 'Membres par section', '/chefs/membres', 'intendant', 11);
 // Configuration générale — shrunk to just the configuration-mode toggle,
 // moved here from the Configuration menu and widened from superadmin to
 // admin (see /config-mode/activate|deactivate's own role_min and
@@ -1419,12 +1478,12 @@ $router->addRoute('POST', '/config/maintenance/backup/database', MaintenanceCont
 $router->addRoute('POST', '/config/maintenance/backup/full', MaintenanceController::class, 'createFullBackup', 'admin');
 $router->addRoute('POST', '/config/maintenance/backup/auto-frequency', MaintenanceController::class, 'updateAutoBackupFrequency', 'admin');
 $router->addRoute('GET', '/api/maintenance/backup-status/{id}', MaintenanceController::class, 'backupStatus', 'admin');
-$router->addRoute('POST', '/config/maintenance/update/install', MaintenanceController::class, 'installUpdate', 'admin');
+$router->addRoute('POST', '/config/maintenance/update/install', MaintenanceController::class, 'installUpdate', 'superadmin');
 $router->addRoute('POST', '/config/maintenance/update/check-now', MaintenanceController::class, 'checkForUpdatesNow', 'admin');
 $router->addRoute('GET', '/api/maintenance/update-status/{id}', MaintenanceController::class, 'updateStatus', 'admin');
-$router->addRoute('POST', '/config/maintenance/reset/settings', MaintenanceController::class, 'resetSettings', 'admin');
-$router->addRoute('POST', '/config/maintenance/reset/full', MaintenanceController::class, 'fullReset', 'admin');
-$router->addRoute('POST', '/config/maintenance/reset/restore', MaintenanceController::class, 'restoreBackup', 'admin');
+$router->addRoute('POST', '/config/maintenance/reset/settings', MaintenanceController::class, 'resetSettings', 'superadmin');
+$router->addRoute('POST', '/config/maintenance/reset/full', MaintenanceController::class, 'fullReset', 'superadmin');
+$router->addRoute('POST', '/config/maintenance/reset/restore', MaintenanceController::class, 'restoreBackup', 'superadmin');
 $router->addRoute('GET', '/api/maintenance/reset-status/{id}', MaintenanceController::class, 'resetStatus', 'admin');
 $router->addRoute('POST', '/config/maintenance/auto-update/save', MaintenanceController::class, 'saveAutoUpdatePreferences', 'admin');
 $router->addRoute('POST', '/api/maintenance/webhook-secret', MaintenanceController::class, 'generateWebhookSecret', 'admin');
@@ -1464,6 +1523,8 @@ $router->addRoute('POST', '/config/rgpd/reset', RgpdConfigController::class, 're
 // Staffs
 $router->addRoute('GET', '/chefs/staffs', StaffsController::class, 'index', 'intendant', ['label' => 'Staffs', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_CHEFS)]]);
 $router->addRoute('POST', '/chefs/staffs/badge-toggle', StaffsController::class, 'toggleBadge', 'chief');
+$router->addRoute('GET', '/chefs/membres', \Core\Http\Controller\SectionRosterController::class, 'index', 'intendant', ['label' => 'Membres par section', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_CHEFS)]]);
+$router->addRoute('GET', '/chefs/membres/export', \Core\Http\Controller\SectionRosterController::class, 'export', 'intendant');
 $router->addRoute('POST', '/chefs/staffs/documents', \Core\Http\Controller\SectionDocumentController::class, 'add', 'chief');
 $router->addRoute('POST', '/chefs/staffs/documents/reorder', \Core\Http\Controller\SectionDocumentController::class, 'reorder', 'chief');
 $router->addRoute('POST', '/chefs/staffs/documents/delete', \Core\Http\Controller\SectionDocumentController::class, 'delete', 'chief');
@@ -1648,7 +1709,9 @@ $githubWebhookService = new \Core\Maintenance\GitHubWebhookService(
 $frontController->registerController(\Core\Http\Controller\WebhookController::class, new \Core\Http\Controller\WebhookController(
     $twig, $githubWebhookService, $secretManager, $journalService
 ));
-$frontController->registerController(PasswordResetController::class, new PasswordResetController($twig, $passwordResetService));
+$passwordResetController = new PasswordResetController($twig, $passwordResetService);
+$passwordResetController->setHumanCheck($humanCheckService);
+$frontController->registerController(PasswordResetController::class, $passwordResetController);
 $frontController->registerController(ShortUrlController::class, new ShortUrlController($twig, $shortUrlService));
 $frontController->registerController(ImportController::class, new ImportController($twig, $importService, $scoutYearResolver, $importJournalRepo, $functionRepo, $storagePath, $registrationReconciliation ?? null));
 $frontController->registerController(MemberController::class, new MemberController($twig, $memberService, $memberYearService, $journalService, $memberPageService, $departureService));
@@ -1657,6 +1720,9 @@ $frontController->registerController(
     new \Core\Http\Controller\MemberEmailAddressController($twig, $memberEmailService, $memberService)
 );
 $frontController->registerController(StaffsController::class, new StaffsController($twig, $sectionService, $memberService, $scoutYearResolver, $journalService, $badgeService, $unitStaffSectionService, $sectionDocumentService, $settingService));
+$frontController->registerController(\Core\Http\Controller\SectionRosterController::class, new \Core\Http\Controller\SectionRosterController(
+    $twig, $sectionService, $sectionRosterService, $memberExportRowBuilder, $memberExportService, $scoutYearResolver, $journalService
+));
 $frontController->registerController(\Core\Http\Controller\SectionDocumentController::class, new \Core\Http\Controller\SectionDocumentController($twig, $sectionDocumentService));
 $frontController->registerController(ConfigModeController::class, new ConfigModeController($twig));
 $editableContentController = new EditableContentController($twig, $editableContentService);
@@ -2015,7 +2081,7 @@ if (in_array('finance', $moduleManager->getEnabledModuleIds(), true)) {
     $financeSepaQrCodeForOthers = new \Modules\Finance\Service\SepaQrCodeService();
     $financeAccountForOthers = new \Modules\Finance\Service\FinanceAccountService($financeAccountRepo);
 
-    $financeReceivablesOverviewService = new \Modules\Finance\Service\ReceivablesOverviewService($financeExpectedReceivableRepo, $financeExpectedReceivableForOthers);
+    $financeReceivablesOverviewService = new \Modules\Finance\Service\ReceivablesOverviewService($financeExpectedReceivableRepo, $financeExpectedReceivableForOthers, $financeAccountRepo);
     $frontController->registerController(
         \Modules\Finance\Controller\ReceivablesController::class,
         new \Modules\Finance\Controller\ReceivablesController($twig, $financeReceivablesOverviewService)
@@ -2864,14 +2930,24 @@ if (isset($galleryAlbumService, $galleryMediaService, $galleryMediaRepo, $galler
 // RGPD configuration controller
 $frontController->registerController(RgpdConfigController::class, new RgpdConfigController($twig, $editableContentService, $rgpdContentService, $settingService, $moduleManager, $journalService));
 
-// Bypass RBAC for /setup routes when site is not initialized or explicitly allowed
-$allowSetup = (bool) $config->get('allow_setup', false);
-if (!$secretManager->isInitialized() || $allowSetup) {
+// Bypass RBAC for /setup routes ONLY while the site has no secrets yet —
+// i.e. the first-run installer, where there is no database, no account and
+// therefore nobody who could hold a role. Once initialized, every /setup
+// route is reachable by its own role_min (superadmin) like any other, so a
+// bypass here would not enable anything legitimate: it would only strip
+// authentication off the installer, whose GET leaks db/smtp/admin settings
+// and whose POST /setup/save rewrites database credentials and the admin
+// email. The previous `allow_setup` config escape hatch did exactly that on
+// a live site — an anonymous visitor could read /setup for a CSRF token and
+// then re-point the install at their own database — so it is deliberately
+// gone rather than merely defaulted to false.
+if (!$secretManager->isInitialized()) {
     $frontController->setRbacBypassPrefix('/setup');
 }
 
 \Core\Debug\RequestTimeline::mark('services_ready');
-$response = $frontController->handle($request);
+/** @var \Core\Http\Response $response */
+$response = \Core\Http\ErrorHandler::guard(static fn() => $frontController->handle($request));
 \Core\Debug\RequestTimeline::mark('controller_dispatch_done');
 $response->setCspNonce($cspNonce);
 

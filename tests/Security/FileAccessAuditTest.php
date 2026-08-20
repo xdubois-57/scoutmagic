@@ -56,4 +56,53 @@ class FileAccessAuditTest extends TestCase
             'Found a route that references storage/ directly'
         );
     }
+
+    /**
+     * The maintenance operations that overwrite the live PHP tree or wipe
+     * the install — installing an update, restoring a backup, and the two
+     * resets — must require `superadmin`, never merely `admin`. An `admin`
+     * with access to backup restore could otherwise craft an archive and
+     * escalate to code execution, effectively past `superadmin` (audit H2).
+     * Pinned here as a source-level regression guard because the route
+     * table lives in the procedural bootstrap of public/index.php, which no
+     * unit test loads directly.
+     *
+     * @return array<string, array{string}>
+     */
+    public static function superadminOnlyMaintenanceActions(): array
+    {
+        return [
+            'install update' => ['installUpdate'],
+            'restore backup' => ['restoreBackup'],
+            'reset settings' => ['resetSettings'],
+            'full reset' => ['fullReset'],
+        ];
+    }
+
+    /**
+     * @dataProvider superadminOnlyMaintenanceActions
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('superadminOnlyMaintenanceActions')]
+    public function testCodeOverwritingMaintenanceRoutesRequireSuperadmin(string $action): void
+    {
+        $contents = file_get_contents(dirname(__DIR__, 2) . '/public/index.php');
+        $this->assertNotFalse($contents);
+
+        // Match the addRoute(...) call that dispatches to this action and
+        // capture its trailing role_min argument.
+        $this->assertSame(
+            1,
+            preg_match(
+                '/addRoute\s*\([^;]*MaintenanceController::class\s*,\s*[\'"]' . preg_quote($action, '/') . '[\'"]\s*,\s*[\'"]([a-z_]+)[\'"]\s*\)/',
+                $contents,
+                $m
+            ),
+            "No addRoute registration found for MaintenanceController::{$action}()"
+        );
+        $this->assertSame(
+            'superadmin',
+            $m[1],
+            "MaintenanceController::{$action}() must be registered with role_min 'superadmin' (audit H2), got '{$m[1]}'"
+        );
+    }
 }

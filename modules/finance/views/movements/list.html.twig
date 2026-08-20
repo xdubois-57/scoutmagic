@@ -378,7 +378,7 @@ async function loadAttachments(movementId) {
         data.attachments.forEach(a => {
             const row = document.createElement('div');
             row.className = 'd-flex align-items-center gap-2 border rounded p-2';
-            let info = '<a href="/files/' + a.file_id + '" target="_blank" class="fw-semibold">' + escapeHtml(a.original_filename) + '</a>';
+            let info = '<a href="/files/' + a.file_id + '" target="_blank" rel="noopener" class="fw-semibold">' + escapeHtml(a.original_filename) + '</a>';
             if (a.suggested_amount || a.suggested_date || a.suggested_label) {
                 info += '<div class="small">'
                     + (a.suggested_amount ? Number(a.suggested_amount).toLocaleString('fr-BE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €' : '')

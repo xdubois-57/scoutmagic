@@ -434,10 +434,21 @@ class ResponseService
             $editUrl = rtrim($this->baseUrl, '/') . '/s/' . $code;
         }
 
+        // Never echo the submitter's own free-text answers back to an
+        // unverified, form-supplied address on an ANONYMOUS submission (audit
+        // M14): there both the recipient (contact_email) and the answer text
+        // are fully attacker-controlled, which would turn this DKIM-signed
+        // confirmation into a content relay — arbitrary text delivered to an
+        // arbitrary third party, authenticated as the unit's domain. An
+        // identified member's submission (traceable, rate-limited) still gets
+        // the full confirmation; the anonymous one gets a neutral receipt
+        // (title + payment summary, both unit-generated, no attacker text).
+        $answersForEmail = $response->userAccountId !== null ? $answerLines : [];
+
         $context = [
             'site_name' => $this->siteName,
             'article_title' => $article->title,
-            'answers' => $answerLines,
+            'answers' => $answersForEmail,
             'payment' => $payment,
             'edit_url' => $editUrl,
         ];

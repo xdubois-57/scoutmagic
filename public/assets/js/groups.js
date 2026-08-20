@@ -749,6 +749,53 @@
         });
     });
 
+    // A reaction tally's own click: "who reacted, and with what"
+    // (Controller\ReactionController's postReactors()/replyReactors()).
+    // A plain <button> with no bootstrap data-* attributes of its own
+    // — nothing here breaks if groups.js never loads, the tally just
+    // stops being clickable and stays a plain summary.
+    async function handleReactionTallyClick(tally) {
+        var modalEl = document.getElementById('groups-reactors-modal');
+        var modalBody = document.getElementById('groups-reactors-modal-body');
+        if (!modalEl || !modalBody || typeof bootstrap === 'undefined') {
+            return;
+        }
+        modalBody.innerHTML = '<div class="text-center py-3"><span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span></div>';
+        var modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+        modal.show();
+
+        var reactorsResponse = await fetch(tally.dataset.reactorsUrl, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+        if (reactorsResponse.ok) {
+            var reactorsData = await reactorsResponse.json();
+            if (typeof reactorsData.html === 'string') {
+                modalBody.innerHTML = reactorsData.html;
+            }
+        } else {
+            modalBody.innerHTML = '<p class="text-danger mb-0">Impossible de charger les réactions.</p>';
+        }
+    }
+
+    // Shared by "Charger plus" (the feed) and "Voir plus de réponses" (a
+    // post's replies) — both append the next keyset page in place and
+    // remove their own "more" button/wrapper the same way.
+    async function loadMoreInPlace(button, wrapperSelector) {
+        button.disabled = true;
+        var response = await fetch(button.dataset.url, { headers: { 'X-Requested-With': 'fetch' } });
+        if (response.ok) {
+            var wrapper = /** @type {HTMLElement} */ (button.closest(wrapperSelector));
+            wrapper.insertAdjacentHTML('beforebegin', await response.text());
+            wrapper.remove();
+            kickOffMediaPolling();
+        } else {
+            button.disabled = false;
+        }
+    }
+
+    function toggleEditForm(prefix, id, showEdit) {
+        document.getElementById(prefix + '-edit-' + id)?.classList.toggle('d-none', !showEdit);
+        document.getElementById(prefix + '-body-' + id)?.classList.toggle('d-none', showEdit);
+    }
+
     // "Charger plus" appends the next keyset page in place, and the inline
     // edit form toggles without leaving the feed. Both degrade to a plain
     // page reload if this script never runs: the button is a real link target
@@ -756,94 +803,47 @@
     document.addEventListener('click', async function (event) {
         var target = /** @type {HTMLElement} */ (event.target);
 
-        // A reaction tally's own click: "who reacted, and with what"
-        // (Controller\ReactionController's postReactors()/replyReactors()).
-        // A plain <button> with no bootstrap data-* attributes of its own
-        // — nothing here breaks if groups.js never loads, the tally just
-        // stops being clickable and stays a plain summary.
         var tally = /** @type {HTMLElement} */ (target.closest('.groups-reaction-tally'));
         if (tally) {
-            var modalEl = document.getElementById('groups-reactors-modal');
-            var modalBody = document.getElementById('groups-reactors-modal-body');
-            if (!modalEl || !modalBody || typeof bootstrap === 'undefined') {
-                return;
-            }
-            modalBody.innerHTML = '<div class="text-center py-3"><span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span></div>';
-            var modal = bootstrap.Modal.getOrCreateInstance(modalEl);
-            modal.show();
-
-            var reactorsResponse = await fetch(tally.dataset.reactorsUrl, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
-            if (reactorsResponse.ok) {
-                var reactorsData = await reactorsResponse.json();
-                if (typeof reactorsData.html === 'string') {
-                    modalBody.innerHTML = reactorsData.html;
-                }
-            } else {
-                modalBody.innerHTML = '<p class="text-danger mb-0">Impossible de charger les réactions.</p>';
-            }
+            await handleReactionTallyClick(tally);
             return;
         }
 
         var loadMore = /** @type {HTMLButtonElement} */ (target.closest('.groups-load-more'));
         if (loadMore) {
-            loadMore.disabled = true;
-            var response = await fetch(loadMore.dataset.url, { headers: { 'X-Requested-With': 'fetch' } });
-            if (response.ok) {
-                var wrapper = /** @type {HTMLElement} */ (loadMore.closest('.groups-load-more-wrapper'));
-                wrapper.insertAdjacentHTML('beforebegin', await response.text());
-                wrapper.remove();
-                kickOffMediaPolling();
-            } else {
-                loadMore.disabled = false;
-            }
+            await loadMoreInPlace(loadMore, '.groups-load-more-wrapper');
             return;
         }
 
         var editToggle = /** @type {HTMLElement} */ (target.closest('.groups-edit-toggle'));
         if (editToggle) {
-            document.getElementById('post-edit-' + editToggle.dataset.post)?.classList.remove('d-none');
-            document.getElementById('post-body-' + editToggle.dataset.post)?.classList.add('d-none');
+            toggleEditForm('post', editToggle.dataset.post, true);
             return;
         }
 
         var editCancel = /** @type {HTMLElement} */ (target.closest('.groups-edit-cancel'));
         if (editCancel) {
-            document.getElementById('post-edit-' + editCancel.dataset.post)?.classList.add('d-none');
-            document.getElementById('post-body-' + editCancel.dataset.post)?.classList.remove('d-none');
+            toggleEditForm('post', editCancel.dataset.post, false);
             return;
         }
 
-        // "Voir plus de réponses" — appends the next page of replies in place,
-        // exactly like "Charger plus" does for the feed itself. Degrades to
-        // nothing if this script never runs: the replies already rendered
-        // server-side stay visible, and every action below them is a plain
-        // form POST.
+        // "Voir plus de réponses" — same in-place pagination as "Charger
+        // plus" above, degrading the same way if this script never runs.
         var repliesMore = /** @type {HTMLButtonElement} */ (target.closest('.groups-replies-more'));
         if (repliesMore) {
-            repliesMore.disabled = true;
-            var repliesResponse = await fetch(repliesMore.dataset.url, { headers: { 'X-Requested-With': 'fetch' } });
-            if (repliesResponse.ok) {
-                var repliesWrapper = /** @type {HTMLElement} */ (repliesMore.closest('.groups-replies-more-wrapper'));
-                repliesWrapper.insertAdjacentHTML('beforebegin', await repliesResponse.text());
-                repliesWrapper.remove();
-                kickOffMediaPolling();
-            } else {
-                repliesMore.disabled = false;
-            }
+            await loadMoreInPlace(repliesMore, '.groups-replies-more-wrapper');
             return;
         }
 
         var replyEditToggle = /** @type {HTMLElement} */ (target.closest('.groups-reply-edit-toggle'));
         if (replyEditToggle) {
-            document.getElementById('reply-edit-' + replyEditToggle.dataset.reply)?.classList.remove('d-none');
-            document.getElementById('reply-body-' + replyEditToggle.dataset.reply)?.classList.add('d-none');
+            toggleEditForm('reply', replyEditToggle.dataset.reply, true);
             return;
         }
 
         var replyEditCancel = /** @type {HTMLElement} */ (target.closest('.groups-reply-edit-cancel'));
         if (replyEditCancel) {
-            document.getElementById('reply-edit-' + replyEditCancel.dataset.reply)?.classList.add('d-none');
-            document.getElementById('reply-body-' + replyEditCancel.dataset.reply)?.classList.remove('d-none');
+            toggleEditForm('reply', replyEditCancel.dataset.reply, false);
         }
     });
 

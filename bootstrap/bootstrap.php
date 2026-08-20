@@ -650,6 +650,12 @@ RewriteRule ^ index.php [L]
 <FilesMatch "\.(key|enc|sql|log|sqlite)$">
     Require all denied
 </FilesMatch>
+
+# The CLI scheduler entry point must never be reachable over HTTP. It
+# already refuses a non-CLI SAPI itself; this is the .htaccess belt to it.
+<Files "cron.php">
+    Require all denied
+</Files>
 HTACCESS;
 }
 

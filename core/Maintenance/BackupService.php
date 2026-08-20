@@ -244,11 +244,86 @@ class BackupService implements BackupServiceInterface
             $zip->setPassword($password);
         }
 
+        // Vet every entry BEFORE extracting over $basePath (the live install
+        // root, containing executable PHP under public/). The restore route
+        // takes an operator-uploaded ZIP, so without this an archive could
+        // scatter files anywhere the entry names point, or ship a symlink.
+        // A legitimate backup produced by createFileBackup()/
+        // createFullBackup() contains only these four top-level trees plus
+        // database.sql — anything else means "this is not our backup".
+        $this->assertArchiveEntriesAreSafe($zip);
+
         $extracted = $zip->extractTo($this->basePath);
         $zip->close();
 
         if (!$extracted) {
             throw new BackupException('L\'extraction de l\'archive a échoué (mot de passe incorrect ?).');
+        }
+    }
+
+    /** Top-level trees a legitimate ScoutMagic backup archive may contain. */
+    private const RESTORABLE_TOP_LEVEL = ['core', 'modules', 'public', 'storage'];
+
+    /** Refuse an archive whose decompressed contents exceed this (zip bomb). */
+    private const MAX_RESTORE_UNCOMPRESSED_BYTES = 4 * 1024 * 1024 * 1024;
+
+    /**
+     * @throws BackupException on any entry that escapes the install root,
+     *         is a symlink, or falls outside the known backup structure.
+     */
+    private function assertArchiveEntriesAreSafe(\ZipArchive $zip): void
+    {
+        $totalUncompressed = 0;
+
+        for ($i = 0; $i < $zip->numFiles; $i++) {
+            $stat = $zip->statIndex($i);
+            if ($stat === false) {
+                throw new BackupException('Archive de sauvegarde illisible.');
+            }
+            $name = (string) $stat['name'];
+
+            // Absolute paths, Windows drive prefixes, and any parent-dir
+            // segment. extractTo() normalizes '..' itself, but an archive
+            // that contains one is not one we produced — reject outright
+            // rather than trusting the library's normalization.
+            $normalized = str_replace('\\', '/', $name);
+            if ($normalized === ''
+                || str_starts_with($normalized, '/')
+                || preg_match('#^[A-Za-z]:#', $normalized) === 1
+                || $normalized === '..'
+                || str_starts_with($normalized, '../')
+                || str_contains($normalized, '/../')
+                || str_ends_with($normalized, '/..')
+            ) {
+                throw new BackupException('Archive de sauvegarde invalide (chemin non autorisé).');
+            }
+
+            // Symlink entries (Unix mode S_IFLNK in the high 16 bits of the
+            // external attributes) must never be restored — they would let
+            // a later write follow the link outside $basePath. statIndex()
+            // omits the external attributes, so read them explicitly.
+            $opsys = 0;
+            $attr = 0;
+            if ($zip->getExternalAttributesIndex($i, $opsys, $attr)
+                && $opsys === \ZipArchive::OPSYS_UNIX
+                && ((($attr >> 16) & 0xA000) === 0xA000)
+            ) {
+                throw new BackupException('Archive de sauvegarde invalide (lien symbolique).');
+            }
+
+            // Directory entries end in '/'. Every file must sit under one of
+            // the known top-level trees, or be the database dump itself.
+            if (!str_ends_with($normalized, '/') && $normalized !== 'database.sql') {
+                $top = explode('/', $normalized, 2)[0];
+                if (!in_array($top, self::RESTORABLE_TOP_LEVEL, true)) {
+                    throw new BackupException('Archive de sauvegarde invalide (contenu inattendu : ' . $top . ').');
+                }
+            }
+
+            $totalUncompressed += (int) $stat['size'];
+            if ($totalUncompressed > self::MAX_RESTORE_UNCOMPRESSED_BYTES) {
+                throw new BackupException('Archive de sauvegarde trop volumineuse une fois décompressée.');
+            }
         }
     }
 

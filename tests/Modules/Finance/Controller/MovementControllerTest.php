@@ -200,6 +200,31 @@ class MovementControllerTest extends TestCase
         $this->assertStringStartsWith("PK\x03\x04", $response->getBody());
     }
 
+    /**
+     * A bank-statement label is free text an outsider controls (the
+     * communication of an incoming transfer), so a leading '=' must be
+     * exported as text, never a live formula in the treasurer's XLSX.
+     */
+    public function testExportedMovementLabelsAreTextNotFormulas(): void
+    {
+        $this->createTransaction('2026-10-01', -20.0, '=HYPERLINK("https://evil.example","x")');
+
+        $response = $this->controller->exportXlsx(
+            new Request('GET', '/finance/movements/export', ['account_id' => (string) $this->accountId], [], [], []),
+            []
+        );
+
+        $tmp = tempnam(sys_get_temp_dir(), 'fin_export_') . '.xlsx';
+        file_put_contents($tmp, $response->getBody());
+        $sheet = \PhpOffice\PhpSpreadsheet\IOFactory::load($tmp)->getActiveSheet();
+        @unlink($tmp);
+
+        // Column 2 = Libellé.
+        $labelCell = $sheet->getCell([2, 2]);
+        $this->assertSame(\PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING, $labelCell->getDataType());
+        $this->assertSame('=HYPERLINK("https://evil.example","x")', $labelCell->getValue());
+    }
+
     public function testListAllFiscalYearsWhenRequested(): void
     {
         $this->createTransaction('2026-10-01', -20.0, 'Achat A');

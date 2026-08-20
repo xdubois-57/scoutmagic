@@ -979,6 +979,20 @@ PHP;
     // Layout B .htaccess content — the security-critical belt-and-braces
     // -------------------------------------------------------------------
 
+    public function testHtaccessContentDeniesTheCliSchedulerEntryPoint(): void
+    {
+        // cron.php lives in the document root under Layout B and exists on
+        // disk, so it would otherwise be served/executed on GET /cron.php.
+        // The CLI SAPI guard inside cron.php is the load-bearing control;
+        // this is the .htaccess belt to it.
+        $content = \bootstrap_htaccess_content();
+        $this->assertMatchesRegularExpression(
+            '/<Files "cron\\.php">\s*Require all denied\s*<\/Files>/',
+            $content,
+            'the generated .htaccess must deny direct web access to cron.php'
+        );
+    }
+
     public function testHtaccessContentDeniesInternalDirectoriesBeforeTheRewrite(): void
     {
         $content = \bootstrap_htaccess_content();

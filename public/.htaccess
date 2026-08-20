@@ -4,3 +4,12 @@ RewriteEngine On
 RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d
 RewriteRule ^ index.php [QSA,L]
+
+# Defense in depth for the CLI scheduler entry point. cron.php exists on
+# disk, so the rewrite above skips it and the web server would serve/run it
+# directly on GET /cron.php. cron.php itself already refuses a non-CLI SAPI
+# (see its top), so this is a belt-and-braces block for hosts that honour
+# .htaccess — the SAPI guard is the load-bearing control.
+<Files "cron.php">
+    Require all denied
+</Files>

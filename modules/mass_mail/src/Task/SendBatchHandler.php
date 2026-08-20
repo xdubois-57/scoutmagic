@@ -100,8 +100,12 @@ class SendBatchHandler implements TaskHandlerInterface
             // Desk-imported email or a secondary one — Modules\MassMail\
             // Controller\UnsubscribeController resolves the right
             // Core\Member\MemberEmail row from recipient->memberEmailId.
+            // The token is 32 bytes of entropy, so a fast hash (SHA-256 +
+            // hash_equals on verify) is as safe as bcrypt here and avoids a
+            // per-request bcrypt on an anonymous endpoint — a needless
+            // CPU-burn primitive an attacker could hammer (audit hardening).
             $rawUnsubscribeToken = bin2hex(random_bytes(32));
-            $recipientRepository->setUnsubscribeTokenHash($recipient->id, password_hash($rawUnsubscribeToken, PASSWORD_DEFAULT));
+            $recipientRepository->setUnsubscribeTokenHash($recipient->id, hash('sha256', $rawUnsubscribeToken));
             $unsubscribeUrl = rtrim((string) $context->settings->get('base_url'), '/')
                 . '/mass-mail/unsubscribe/' . $recipient->id . '?token=' . $rawUnsubscribeToken;
 

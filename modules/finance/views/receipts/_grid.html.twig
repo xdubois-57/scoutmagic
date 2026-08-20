@@ -10,7 +10,7 @@
         {% set attachment = row.attachment %}
         <div class="col-12 col-md-4" data-receipt-id="{{ attachment.id }}">
             <div class="border rounded-3 p-3 h-100 d-flex flex-column gap-2">
-                <a href="/files/{{ attachment.fileId }}" target="_blank">
+                <a href="/files/{{ attachment.fileId }}" target="_blank" rel="noopener">
                     {% if attachment.mimeType starts with 'image/' %}
                         <img src="/files/{{ attachment.fileId }}" alt="{{ attachment.originalFilename }}" class="img-fluid rounded" style="max-height:160px;object-fit:cover;width:100%;">
                     {% elseif attachment.mimeType == 'application/pdf' %}

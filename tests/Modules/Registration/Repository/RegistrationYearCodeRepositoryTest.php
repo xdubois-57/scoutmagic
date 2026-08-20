@@ -42,6 +42,22 @@ class RegistrationYearCodeRepositoryTest extends TestCase
         $this->assertFalse($this->repository->isValidActiveCode($this->scoutYearId, 'ZZZZ-ZZZZ'));
     }
 
+    /**
+     * The comparison is hash_equals()-based, which returns false on a length
+     * mismatch — so a correct PREFIX of the code must not be accepted. Pins
+     * that normalization never degrades into a partial match.
+     */
+    public function testAPrefixOfTheCorrectCodeIsRejected(): void
+    {
+        $code = $this->repository->regenerate($this->scoutYearId);
+        $normalized = str_replace('-', '', $code);
+
+        $this->assertFalse($this->repository->isValidActiveCode($this->scoutYearId, substr($normalized, 0, 4)));
+        $this->assertFalse($this->repository->isValidActiveCode($this->scoutYearId, $normalized . 'X'));
+        $this->assertFalse($this->repository->isValidActiveCode($this->scoutYearId, ''));
+        $this->assertTrue($this->repository->isValidActiveCode($this->scoutYearId, $code));
+    }
+
     public function testRegenerateInvalidatesThePreviousCodeImmediately(): void
     {
         $firstCode = $this->repository->regenerate($this->scoutYearId);

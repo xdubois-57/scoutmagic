@@ -85,6 +85,41 @@ class MemberEmailRepository
     }
 
     /**
+     * Batch variant of findValidByMember() — every currently-'valid'
+     * 'manual' row for a whole list of members in ONE query, grouped by
+     * member id. Added for pages that list many members at once (e.g. a
+     * whole unit's roster) and would otherwise call findValidByMember()
+     * once per member.
+     *
+     * @param int[] $memberIds
+     * @return array<int, MemberEmail[]> keyed by member_id; a member with
+     *         no valid secondary address is simply absent from the array
+     */
+    public function findValidByMemberIds(array $memberIds): array
+    {
+        $memberIds = array_values(array_unique(array_map('intval', $memberIds)));
+        if ($memberIds === []) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($memberIds), '?'));
+        $stmt = $this->pdo->prepare(
+            "SELECT * FROM member_emails
+             WHERE member_id IN ($placeholders) AND status = 'valid' AND source = 'manual'
+             ORDER BY member_id, created_at ASC, id ASC"
+        );
+        $stmt->execute($memberIds);
+
+        $grouped = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $memberId = (int) $row['member_id'];
+            $grouped[$memberId][] = $this->hydrate($row);
+        }
+
+        return $grouped;
+    }
+
+    /**
      * The dedupe check behind "duplicate email within the same member
      * (any status) must reuse the existing row" — and the lookup behind
      * resolving the Desk address's own status override row.

@@ -52,7 +52,11 @@ class RegistrationYearCodeRepository
             return false;
         }
 
-        return self::normalize($submittedCode) === self::normalize($code->code);
+        // Constant-time even though this code is explicitly not a security
+        // barrier (§8.35: it is dictated over the phone and only decides
+        // which scout year a submission targets) — it costs nothing and
+        // keeps every secret comparison in the codebase looking the same.
+        return hash_equals(self::normalize($code->code), self::normalize($submittedCode));
     }
 
     /**

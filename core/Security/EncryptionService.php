@@ -21,6 +21,24 @@ class EncryptionService
     }
 
     /**
+     * Build from the base64-encoded key strings held in secrets.enc. The
+     * secret store is JSON, which can't carry raw bytes, so setup
+     * base64-encodes the two 32-byte keys — and they MUST be decoded back to
+     * raw bytes here before use. Passing the 44-character base64 string
+     * straight to OpenSSL silently truncated it to the first 32 characters =
+     * 24 raw bytes, weakening AES-256-GCM to a 192-bit effective key (audit
+     * M1). The constructor still takes raw bytes, so tests (and any caller
+     * that already holds raw keys) are unaffected.
+     */
+    public static function fromEncodedKeys(string $encodedEncryptionKey, string $encodedBlindIndexKey): self
+    {
+        return new self(
+            base64_decode($encodedEncryptionKey, true) ?: '',
+            base64_decode($encodedBlindIndexKey, true) ?: ''
+        );
+    }
+
+    /**
      * Encrypt a plaintext string. Returns raw bytes (IV || ciphertext || tag).
      * Suitable for storage in a BLOB column.
      */
