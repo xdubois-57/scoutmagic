@@ -587,9 +587,48 @@
                 e.preventDefault();
                 return;
             }
+            var submitBtn = /** @type {HTMLButtonElement} */ (document.getElementById('restore-backup-submit'));
+
+            // A large uploaded archive can't ride the classic multipart POST
+            // (the document-root-wide post_max_size is small now — audit M2):
+            // send it first as ~8 MB chunks to the dedicated superadmin
+            // route, then submit the form referencing the assembled file by
+            // upload_id, with the file input cleared. Small archives keep
+            // the plain multipart POST.
+            var chunker = window.ScoutMagicChunkedUpload;
+            var fileInput = /** @type {HTMLInputElement} */ (document.getElementById('restore-backup-file'));
+            var uploadIdInput = /** @type {HTMLInputElement} */ (document.getElementById('restore-upload-id'));
+            var chunkFile = sourceUploadRadio && sourceUploadRadio.checked
+                && fileInput && fileInput.files && fileInput.files[0] ? fileInput.files[0] : null;
+            if (chunker && uploadIdInput && chunkFile && chunkFile.size > chunker.CHUNK_THRESHOLD) {
+                e.preventDefault();
+                submitBtn.disabled = true;
+                var chunkErrorEl = document.getElementById('restore-backup-error');
+                var chunkProgressEl = document.getElementById('restore-backup-progress');
+                if (chunkErrorEl) chunkErrorEl.classList.add('d-none');
+                if (chunkProgressEl) chunkProgressEl.classList.remove('d-none');
+                var csrfField = /** @type {HTMLInputElement} */ (restoreForm.querySelector('input[name="_csrf_token"]'));
+                chunker.uploadInChunks(chunkFile, '/config/maintenance/restore-upload-chunk', {
+                    csrfToken: csrfField ? csrfField.value : ''
+                }).then(function (result) {
+                    uploadIdInput.value = result.uploadId;
+                    fileInput.value = '';
+                    // .submit() bypasses this handler — no second confirm,
+                    // no second chunk pass.
+                    restoreForm.submit();
+                }).catch(function (err) {
+                    submitBtn.disabled = false;
+                    if (chunkProgressEl) chunkProgressEl.classList.add('d-none');
+                    if (chunkErrorEl) {
+                        chunkErrorEl.textContent = (err && err.message) || 'Le téléversement a échoué.';
+                        chunkErrorEl.classList.remove('d-none');
+                    }
+                });
+                return;
+            }
+
             // Classic multipart submit — the server redirects back with
             // ?restore_id={id}, picked up by the polling block below.
-            var submitBtn = /** @type {HTMLButtonElement} */ (document.getElementById('restore-backup-submit'));
             submitBtn.disabled = true;
         });
     }

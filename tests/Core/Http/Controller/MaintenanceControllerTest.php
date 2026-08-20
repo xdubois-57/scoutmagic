@@ -46,6 +46,7 @@ class MaintenanceControllerTest extends TestCase
     private SettingService $settingService;
     private SecretManager $secretManager;
     private Environment $twig;
+    private string $storagePath;
 
     /**
      * Configurable per-test — the "Vérifier maintenant" / dev-branch
@@ -85,6 +86,7 @@ class MaintenanceControllerTest extends TestCase
         $connection = new Connection('127.0.0.1', 3306, 'nonexistent_db', 'nobody', '');
         $storagePath = sys_get_temp_dir() . '/maintenance_controller_test_' . uniqid();
         mkdir($storagePath, 0755, true);
+        $this->storagePath = $storagePath;
         $backupService = new BackupService($connection, $storagePath, dirname($storagePath));
 
         $this->secretManager = new SecretManager($storagePath . '/keys/master.key', $storagePath . '/config/secrets.enc');
@@ -715,6 +717,96 @@ class MaintenanceControllerTest extends TestCase
         $response = $this->controller->restoreBackup($request, []);
 
         $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame([], $this->schedulerRepository->findByModuleAndTaskKey('core', 'restore_backup'));
+    }
+
+    // --- Restauration : envoi fragmenté (audit M2) ---
+
+    private const RESTORE_UPLOAD_ID = 'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
+
+    /**
+     * Registers $bytes as this request's uploaded chunk and returns the
+     * matching Request for POST /config/maintenance/restore-upload-chunk.
+     */
+    private function restoreChunkRequest(string $bytes, int $offset, bool $isLast, string $token): Request
+    {
+        $path = tempnam(sys_get_temp_dir(), 'restore_chunk_');
+        file_put_contents($path, $bytes);
+        $_FILES['file'] = ['name' => 'chunk', 'tmp_name' => $path, 'error' => UPLOAD_ERR_OK, 'size' => strlen($bytes), 'type' => 'application/octet-stream'];
+
+        return new Request('POST', '/config/maintenance/restore-upload-chunk', [], [
+            '_csrf_token' => $token,
+            'upload_id' => self::RESTORE_UPLOAD_ID,
+            'chunk_offset' => (string) $offset,
+            'last' => $isLast ? '1' : '0',
+        ], [], []);
+    }
+
+    public function testRestoreUploadChunkValidatesCsrf(): void
+    {
+        $response = $this->controller->restoreUploadChunk($this->restoreChunkRequest('data', 0, false, 'bad'), []);
+
+        $this->assertSame(403, $response->getStatusCode());
+        $this->assertSame([], glob($this->storagePath . '/temp/chunked_uploads/*.part') ?: []);
+
+        unset($_FILES['file']);
+    }
+
+    public function testRestoreUploadChunkRejectsAnOutOfOrderChunkWith409(): void
+    {
+        $token = $this->csrfToken();
+        $this->controller->restoreUploadChunk($this->restoreChunkRequest('abcdef', 0, false, $token), []);
+
+        $response = $this->controller->restoreUploadChunk($this->restoreChunkRequest('ghijkl', 42, false, $token), []);
+
+        $this->assertSame(409, $response->getStatusCode());
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertSame(6, $decoded['received']);
+
+        unset($_FILES['file']);
+    }
+
+    public function testRestoreBackupConsumesAChunkedUploadByItsId(): void
+    {
+        $token = $this->csrfToken();
+        $first = $this->controller->restoreUploadChunk($this->restoreChunkRequest('PK archive ', 0, false, $token), []);
+        $this->assertTrue(json_decode($first->getBody(), true)['success']);
+        $last = $this->controller->restoreUploadChunk($this->restoreChunkRequest('bytes', 11, true, $token), []);
+        $this->assertTrue(json_decode($last->getBody(), true)['success']);
+        unset($_FILES['file']);
+
+        $request = new Request('POST', '/config/maintenance/reset/restore', [], [
+            '_csrf_token' => $token, 'confirm_keyword' => 'RESTAURER', 'source' => 'upload',
+            'upload_id' => self::RESTORE_UPLOAD_ID,
+        ], [], []);
+
+        $response = $this->controller->restoreBackup($request, []);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertStringContainsString('restore_id=', $response->getHeaders()['Location'] ?? '');
+        $tasks = $this->schedulerRepository->findByModuleAndTaskKey('core', 'restore_backup');
+        $this->assertCount(1, $tasks);
+        $payload = json_decode((string) $tasks[0]['payload'], true);
+        $tempPath = (string) $payload['uploaded_temp_path'];
+        $this->assertFileExists($tempPath);
+        $this->assertSame('PK archive bytes', file_get_contents($tempPath));
+        // The assembled partial was moved, not copied.
+        $this->assertSame([], glob($this->storagePath . '/temp/chunked_uploads/*.part') ?: []);
+        @unlink($tempPath);
+    }
+
+    public function testRestoreBackupRejectsAnUnknownUploadId(): void
+    {
+        $token = $this->csrfToken();
+        $request = new Request('POST', '/config/maintenance/reset/restore', [], [
+            '_csrf_token' => $token, 'confirm_keyword' => 'RESTAURER', 'source' => 'upload',
+            'upload_id' => self::RESTORE_UPLOAD_ID,
+        ], [], []);
+
+        $response = $this->controller->restoreBackup($request, []);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertStringNotContainsString('restore_id=', $response->getHeaders()['Location'] ?? '');
         $this->assertSame([], $this->schedulerRepository->findByModuleAndTaskKey('core', 'restore_backup'));
     }
 

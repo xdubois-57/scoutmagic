@@ -1484,6 +1484,7 @@ $router->addRoute('GET', '/api/maintenance/update-status/{id}', MaintenanceContr
 $router->addRoute('POST', '/config/maintenance/reset/settings', MaintenanceController::class, 'resetSettings', 'superadmin');
 $router->addRoute('POST', '/config/maintenance/reset/full', MaintenanceController::class, 'fullReset', 'superadmin');
 $router->addRoute('POST', '/config/maintenance/reset/restore', MaintenanceController::class, 'restoreBackup', 'superadmin');
+$router->addRoute('POST', '/config/maintenance/restore-upload-chunk', MaintenanceController::class, 'restoreUploadChunk', 'superadmin');
 $router->addRoute('GET', '/api/maintenance/reset-status/{id}', MaintenanceController::class, 'resetStatus', 'admin');
 $router->addRoute('POST', '/config/maintenance/auto-update/save', MaintenanceController::class, 'saveAutoUpdatePreferences', 'admin');
 $router->addRoute('POST', '/api/maintenance/webhook-secret', MaintenanceController::class, 'generateWebhookSecret', 'admin');
@@ -2260,7 +2261,8 @@ if (in_array('gallery', $moduleManager->getEnabledModuleIds(), true)) {
         \Modules\Gallery\Controller\GalleryChiefController::class,
         new \Modules\Gallery\Controller\GalleryChiefController(
             $twig, $galleryAlbumService, $galleryMediaService, $galleryMediaRepo, $galleryAccessService,
-            $sectionService, $settingService, $galleryStorageLocationRepo, $galleryStorageLocationService
+            $sectionService, $settingService, $galleryStorageLocationRepo, $galleryStorageLocationService,
+            new \Core\File\ChunkedUploadStore($storagePath)
         )
     );
     $frontController->registerController(

@@ -54,6 +54,22 @@ class MediaService
      */
     public function upload(Album $album, array $uploadedFile, Role $role, string $email, ?int $accountId): Media
     {
+        $this->assertCanUpload($album, $role, $email);
+
+        return $this->store($album, $uploadedFile, $accountId);
+    }
+
+    /**
+     * The authorisation/state gate upload() applies, callable on its own so
+     * the chunked-upload path (Controller\GalleryChiefController) can refuse
+     * an unauthorised caller on EVERY chunk — not only once the last chunk
+     * asks for the media to be created — keeping temp-disk consumption
+     * gated exactly like the upload itself (audit M2).
+     *
+     * @throws GalleryException when this caller may not upload to this album
+     */
+    public function assertCanUpload(Album $album, Role $role, string $email): void
+    {
         if ($album->isDelegated()) {
             // Ordinary, access-checked uploads never touch a delegated
             // album — only addWithoutAuthorisationCheck() below does,
@@ -72,8 +88,6 @@ class MediaService
         // onto the target and deletes the source prefix, taking the new
         // media's renditions with it. Refuse the upload instead.
         $this->assertNotMigrating($album);
-
-        return $this->store($album, $uploadedFile, $accountId);
     }
 
     /**

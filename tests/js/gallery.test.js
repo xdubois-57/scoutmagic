@@ -174,3 +174,72 @@ describe('gallery.js media actions', () => {
         expect(window.alert.mock.calls[0][0]).toContain('serveur');
     });
 });
+
+describe('gallery.js upload zone — chunked delegation for large files (audit M2)', () => {
+    function buildUploadZone() {
+        document.head.innerHTML = '<meta name="csrf-token" content="tok">';
+        document.body.innerHTML = `
+            <div id="gallery-upload-zone" data-upload-url="/gallery/5/media">
+                <input type="file" id="gallery-upload-input" multiple>
+            </div>
+            <div id="gallery-upload-progress" class="d-none">
+                <div id="gallery-upload-progress-bar"></div>
+                <span id="gallery-upload-progress-label"></span>
+            </div>
+        `;
+    }
+
+    function selectFiles(files) {
+        const input = document.getElementById('gallery-upload-input');
+        Object.defineProperty(input, 'files', { configurable: true, value: files });
+        input.dispatchEvent(new Event('change'));
+    }
+
+    function fileOfSize(size, name) {
+        const file = new File(['x'], name);
+        Object.defineProperty(file, 'size', { value: size });
+        return file;
+    }
+
+    beforeEach(() => {
+        vi.restoreAllMocks();
+        window.alert = vi.fn();
+        delete window.ScoutMagicChunkedUpload;
+    });
+
+    it('routes a file above CHUNK_THRESHOLD through uploadInChunks with the CSRF token and its name', async () => {
+        buildUploadZone();
+        window.ScoutMagicChunkedUpload = {
+            CHUNK_THRESHOLD: 24 * 1024 * 1024,
+            // Never resolves — keeps the test clear of uploadAll's reload().
+            uploadInChunks: vi.fn(() => new Promise(() => {})),
+        };
+        await loadGallery();
+
+        selectFiles([fileOfSize(100 * 1024 * 1024, 'camp.mp4')]);
+
+        expect(window.ScoutMagicChunkedUpload.uploadInChunks).toHaveBeenCalledWith(
+            expect.anything(), '/gallery/5/media',
+            expect.objectContaining({ csrfToken: 'tok', lastFields: { name: 'camp.mp4' } }),
+        );
+    });
+
+    it('keeps a small file on the single-request XHR path', async () => {
+        buildUploadZone();
+        window.ScoutMagicChunkedUpload = {
+            CHUNK_THRESHOLD: 24 * 1024 * 1024,
+            uploadInChunks: vi.fn(),
+        };
+        const sent = [];
+        global.XMLHttpRequest = class {
+            open() {}
+            send(body) { sent.push(body); }
+        };
+        await loadGallery();
+
+        selectFiles([fileOfSize(1024, 'photo.jpg')]);
+
+        expect(window.ScoutMagicChunkedUpload.uploadInChunks).not.toHaveBeenCalled();
+        expect(sent).toHaveLength(1);
+    });
+});

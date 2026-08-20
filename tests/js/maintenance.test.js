@@ -862,6 +862,124 @@ describe('maintenance.js: "Réinitialisation" — the destructive-action gates',
         });
     });
 
+    describe('restore-backup-form submit — chunked upload of a large archive (audit M2)', () => {
+        function buildChunkedRestore() {
+            appendAll(
+                el(`<form id="restore-backup-form">
+                    <input type="hidden" name="_csrf_token" value="form-tok">
+                    <input type="hidden" name="upload_id" id="restore-upload-id" value="">
+                    <input type="file" id="restore-backup-file">
+                    <input id="restore-backup-keyword">
+                    <button type="submit" id="restore-backup-submit"></button>
+                </form>`),
+                el('<input type="radio" name="restore-source" id="restore-source-server">'),
+                el('<input type="radio" name="restore-source" id="restore-source-upload" checked>'),
+                el('<div id="restore-server-picker"></div>'),
+                el('<div id="restore-upload-picker"></div>'),
+                el('<div id="restore-backup-progress" class="d-none"></div>'),
+                el('<div id="restore-backup-error" class="d-none"></div>'),
+            );
+        }
+
+        function selectFile(size) {
+            const file = new File(['x'], 'backup.zip');
+            Object.defineProperty(file, 'size', { value: size });
+            Object.defineProperty(document.getElementById('restore-backup-file'), 'files', {
+                configurable: true, value: [file],
+            });
+        }
+
+        function submitForm() {
+            const evt = new Event('submit', { cancelable: true });
+            document.getElementById('restore-backup-form').dispatchEvent(evt);
+            return evt;
+        }
+
+        beforeEach(() => {
+            window.confirm = vi.fn(() => true);
+        });
+
+        it('intercepts the submit for a large file: chunks first, then re-submits with upload_id and no file', async () => {
+            buildChunkedRestore();
+            selectFile(100 * 1024 * 1024);
+            const nativeSubmit = vi.spyOn(HTMLFormElement.prototype, 'submit').mockImplementation(() => {});
+            let resolveUpload;
+            window.ScoutMagicChunkedUpload = {
+                CHUNK_THRESHOLD: 24 * 1024 * 1024,
+                uploadInChunks: vi.fn(() => new Promise((resolve) => { resolveUpload = resolve; })),
+            };
+            await boot();
+
+            const evt = submitForm();
+
+            expect(evt.defaultPrevented).toBe(true);
+            expect(window.ScoutMagicChunkedUpload.uploadInChunks).toHaveBeenCalledWith(
+                expect.anything(), '/config/maintenance/restore-upload-chunk',
+                expect.objectContaining({ csrfToken: 'form-tok' }),
+            );
+            expect(document.getElementById('restore-backup-progress').classList.contains('d-none')).toBe(false);
+
+            resolveUpload({ uploadId: 'f'.repeat(32), data: { success: true } });
+            await Promise.resolve(); await Promise.resolve();
+
+            expect(document.getElementById('restore-upload-id').value).toBe('f'.repeat(32));
+            expect(nativeSubmit).toHaveBeenCalledTimes(1);
+            // .submit() bypasses the handler — one confirm(), one chunk pass.
+            expect(window.confirm).toHaveBeenCalledTimes(1);
+        });
+
+        it('lets a small file ride the classic multipart POST untouched', async () => {
+            buildChunkedRestore();
+            selectFile(1024);
+            window.ScoutMagicChunkedUpload = {
+                CHUNK_THRESHOLD: 24 * 1024 * 1024,
+                uploadInChunks: vi.fn(),
+            };
+            await boot();
+
+            const evt = submitForm();
+
+            expect(evt.defaultPrevented).toBe(false);
+            expect(window.ScoutMagicChunkedUpload.uploadInChunks).not.toHaveBeenCalled();
+        });
+
+        it('does not chunk when the source is a server-side backup, whatever the picked file', async () => {
+            buildChunkedRestore();
+            selectFile(100 * 1024 * 1024);
+            document.getElementById('restore-source-upload').checked = false;
+            document.getElementById('restore-source-server').checked = true;
+            window.ScoutMagicChunkedUpload = {
+                CHUNK_THRESHOLD: 24 * 1024 * 1024,
+                uploadInChunks: vi.fn(),
+            };
+            await boot();
+
+            const evt = submitForm();
+
+            expect(evt.defaultPrevented).toBe(false);
+            expect(window.ScoutMagicChunkedUpload.uploadInChunks).not.toHaveBeenCalled();
+        });
+
+        it('shows the error and re-enables the button when chunking fails', async () => {
+            buildChunkedRestore();
+            selectFile(100 * 1024 * 1024);
+            window.ScoutMagicChunkedUpload = {
+                CHUNK_THRESHOLD: 24 * 1024 * 1024,
+                uploadInChunks: vi.fn(() => Promise.reject(new Error('Le fichier dépasse la taille maximale autorisée (500 Mo).'))),
+            };
+            await boot();
+
+            submitForm();
+            await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+
+            const errorEl = document.getElementById('restore-backup-error');
+            expect(errorEl.classList.contains('d-none')).toBe(false);
+            expect(errorEl.textContent).toBe('Le fichier dépasse la taille maximale autorisée (500 Mo).');
+            expect(/** @type {HTMLButtonElement} */ (document.getElementById('restore-backup-submit')).disabled).toBe(false);
+            expect(document.getElementById('restore-backup-progress').classList.contains('d-none')).toBe(true);
+        });
+    });
+
     describe('resume polling after a restore redirect (?restore_id=N in the URL)', () => {
         it('does nothing when the URL carries no restore_id', async () => {
             global.fetch = vi.fn();

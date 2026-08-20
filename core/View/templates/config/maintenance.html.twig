@@ -427,6 +427,11 @@
                     </p>
                     <form id="restore-backup-form" method="post" action="/config/maintenance/reset/restore" enctype="multipart/form-data">
                         {{ csrf_field()|raw }}
+                        {# Set by maintenance.js after a large archive has been
+                           sent as chunks (audit M2); the classic POST then
+                           references the assembled file instead of carrying it. #}
+                        <input type="hidden" name="upload_id" id="restore-upload-id" value="">
+
                         <div class="mb-2">
                             <div class="form-check">
                                 <input class="form-check-input" type="radio" name="source" id="restore-source-server" value="server" checked>
@@ -493,5 +498,6 @@
 {% endblock %}
 
 {% block scripts %}
+    <script src="/assets/js/chunked-upload.js" defer nonce="{{ csp_nonce }}"></script>
     <script src="/assets/js/maintenance.js" defer nonce="{{ csp_nonce }}"></script>
 {% endblock %}

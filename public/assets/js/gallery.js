@@ -180,6 +180,20 @@
         var CONCURRENCY = 5;
 
         function uploadOne(file) {
+            // Large files go up as ~8 MB chunks through the same route
+            // (audit M2 — the document-root-wide post_max_size no longer
+            // covers whole videos); small files keep the single POST.
+            var chunker = window.ScoutMagicChunkedUpload;
+            if (chunker && file.size > chunker.CHUNK_THRESHOLD) {
+                return chunker.uploadInChunks(file, uploadUrl, {
+                    csrfToken: csrf(),
+                    lastFields: { name: file.name || 'media' }
+                }).then(function (result) {
+                    return { file: file, success: true, media_id: result.data.media_id };
+                }).catch(function (err) {
+                    return { file: file, success: false, error: (err && err.message) || 'Erreur réseau.' };
+                });
+            }
             return new Promise(function (resolve) {
                 var xhr = new XMLHttpRequest();
                 var formData = new FormData();
