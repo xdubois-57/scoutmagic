@@ -153,6 +153,74 @@ class FileControllerTest extends TestCase
         $this->assertSame(0, (int) $stmt->fetchColumn());
     }
 
+    // --- thumbnail caching (audit M8) & streaming (audit M10) ---
+
+    private const BLANK_PDF = "%PDF-1.4\n"
+        . "1 0 obj<< /Type /Catalog /Pages 2 0 R >>endobj\n"
+        . "2 0 obj<< /Type /Pages /Kids [3 0 R] /Count 1 >>endobj\n"
+        . "3 0 obj<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>endobj\n"
+        . "trailer<< /Size 4 /Root 1 0 R >>\n%%EOF";
+
+    public function testThumbnailCachesTheRenderedJpegForANonEncryptedFile(): void
+    {
+        if (!class_exists(\Imagick::class)) {
+            $this->markTestSkipped('imagick extension not available.');
+        }
+
+        mkdir($this->storagePath, 0755, true);
+        file_put_contents($this->storagePath . '/doc.pdf', self::BLANK_PDF);
+        $id = $this->fileRepository->create('doc.pdf', 'doc.pdf', 'application/pdf', strlen(self::BLANK_PDF), 'public', null, null);
+
+        $first = $this->controller->thumbnail(new Request('GET', "/files/{$id}/thumbnail", [], [], [], []), ['id' => (string) $id]);
+        $this->assertSame(200, $first->getStatusCode());
+
+        $cachePath = $this->storagePath . '/temp/pdf_thumb/' . $id . '.jpg';
+        $this->assertFileExists($cachePath, 'the rendered thumbnail must be cached to disk');
+
+        // Delete the source PDF: a second call must still succeed, proving it
+        // served the cached JPEG rather than re-rasterizing.
+        unlink($this->storagePath . '/doc.pdf');
+        $second = $this->controller->thumbnail(new Request('GET', "/files/{$id}/thumbnail", [], [], [], []), ['id' => (string) $id]);
+        $this->assertSame(200, $second->getStatusCode());
+        $this->assertSame($first->getBody(), $second->getBody());
+    }
+
+    public function testThumbnailDoesNotCacheAnEncryptedFileAsPlaintext(): void
+    {
+        if (!class_exists(\Imagick::class)) {
+            $this->markTestSkipped('imagick extension not available.');
+        }
+
+        $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+        $storage = new EncryptedFileStorageService($this->fileRepository, $encryption, $this->storagePath);
+        $controller = new FileController(new Environment(new ArrayLoader([])), new FileAccessGuard($this->fileRepository, Role::PUBLIC), $this->storagePath, $storage, $this->imageVariantService);
+
+        $fileId = $storage->store(self::BLANK_PDF, 'application/pdf', 'doc.pdf', 'documents', 'public', null, null);
+        $response = $controller->thumbnail(new Request('GET', "/files/{$fileId}/thumbnail", [], [], [], []), ['id' => (string) $fileId]);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertFileDoesNotExist(
+            $this->storagePath . '/temp/pdf_thumb/' . $fileId . '.jpg',
+            'an encrypted file must never have a plaintext thumbnail cached'
+        );
+    }
+
+    public function testServeStreamsANonEncryptedFileInsteadOfBuffering(): void
+    {
+        mkdir($this->storagePath, 0755, true);
+        file_put_contents($this->storagePath . '/pic.jpg', 'the-file-bytes');
+        $id = $this->fileRepository->create('pic.jpg', 'pic.jpg', 'image/jpeg', 14, 'public', null, null);
+
+        $response = $this->controller->serve(new Request('GET', "/files/{$id}", [], [], [], []), ['id' => (string) $id]);
+
+        $this->assertSame(200, $response->getStatusCode());
+        // Streamed from disk: the in-memory body is empty and the response
+        // points at the file (audit M10).
+        $this->assertSame('', $response->getBody());
+        $this->assertSame($this->storagePath . '/pic.jpg', $response->getBodyFilePath());
+        $this->assertSame('14', $response->getHeaders()['Content-Length']);
+    }
+
     // --- variant() ---
 
     private function jpegBytes(int $width, int $height): string

@@ -42,6 +42,12 @@ class LocalStorageBackend implements StorageBackendInterface
         return $contents;
     }
 
+    public function localPath(string $key): ?string
+    {
+        $path = $this->fullPath($key);
+        return is_file($path) ? $path : null;
+    }
+
     public function size(string $key): ?int
     {
         $path = $this->fullPath($key);

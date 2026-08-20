@@ -267,6 +267,14 @@ Decoding an image allocates roughly width×height×4 bytes regardless of how sma
 
 - **A pixel-dimension ceiling is checked before every decode** (`Core\Image\ImageDimensionGuard`, 50 megapixels): a cheap header-only read (`getimagesize`/`getimagesizefromstring`) rejects an oversized image up front, at every GD decode site — the generic `/upload` path, all core photo processors, the gallery photo task, and the finance receipt orientation step — never after allocating for it. The ceiling clears any real photo a phone or camera produces.
 - **The PDF rasterizer** (`Core\File\PdfRasterizer`, Imagick → Ghostscript) can't use `getimagesize`, so it caps Imagick's memory/disk/width/height resource limits before reading the page; an untrusted PDF that would rasterize to a huge canvas aborts into a graceful "no thumbnail" instead.
+- **The public PDF-thumbnail endpoint** (`GET /files/{id}/thumbnail`, `role_min: public`, gated per file by `FileAccessGuard`) caches the rendered JPEG on disk keyed by the immutable file id, so a repeated hit serves a static file instead of re-running Imagick/Ghostscript — closing the repeatable CPU/RSS sink. The cache is written **only for non-encrypted files**: caching an encrypted file's thumbnail as plaintext would defeat encryption-at-rest, and an encrypted file is never anonymously reachable (its `role_min` gates it to intendant+), so its render cost is bounded by authorised users. **Deploy note**: Imagick shells out to Ghostscript, which can't be passed `-dSAFER` from PHP the way `Core\Pdf\PdfCompressor` does — ship a restrictive ImageMagick `policy.xml` (deny the `PDF`/`PS`/`URL`/`MSL` coders beyond the intended read, cap resources) on the host so an unpatched Ghostscript isn't a `-dSAFER`-bypass surface.
+
+## Serving large files
+
+`Core\Http\Response` can stream its body from a file on disk (`setBodyFile()`, `readfile()` at send time) instead of holding it whole in memory. Without it, a large download had to be materialised as a PHP string first (a ~1 GB RSS spike for a gallery ZIP, up to a 2 GB video read into a string).
+
+- **Plain files stream.** `GET /files/{id}` for a non-encrypted file, and the no-`Range` gallery-media fallback for a local object, stream straight off disk; the finished gallery ZIP is streamed from its temp file (and the Response deletes it after sending) rather than read back into a string. `Range` requests for media were already served in capped 8 MB windows.
+- **Encrypted files can't stream, so they're capped.** An AES-256-GCM blob authenticates the whole file against one tag, so the plaintext must exist whole in memory at least once — there is no way to emit verified bytes incrementally without reframing the storage format. Instead the ciphertext size is checked up front and a file past a fixed ceiling is refused, bounding the memory one request can force. Real encrypted files (receipts, documents) are capped far lower at upload.
 
 ## 26. Internal redirects only
 

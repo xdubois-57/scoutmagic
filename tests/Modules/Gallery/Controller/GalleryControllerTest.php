@@ -574,14 +574,16 @@ class GalleryControllerTest extends TestCase
         $this->assertSame(200, $response->getStatusCode());
         $this->assertSame('application/zip', $response->getHeaders()['Content-Type']);
 
-        $tmp = tempnam(sys_get_temp_dir(), 'zip_assert_');
-        file_put_contents($tmp, $response->getBody());
+        // The archive is streamed straight off disk now (audit M10), so read
+        // it from the response's body file rather than the in-memory body.
+        $zipPath = $response->getBodyFilePath();
+        $this->assertNotNull($zipPath);
         $zip = new \ZipArchive();
-        $zip->open($tmp);
+        $zip->open((string) $zipPath);
         $this->assertSame(1, $zip->numFiles);
         $this->assertSame('fake-large-image-bytes', $zip->getFromIndex(0));
         $zip->close();
-        unlink($tmp);
+        @unlink((string) $zipPath);
     }
 
     public function testShowMarksAMigratingAlbumUnavailableAndHidesMedia(): void
@@ -907,9 +909,11 @@ class GalleryControllerTest extends TestCase
 
     /**
      * Every entry used to be buffered in memory by addFromString() until
-     * close(); each rendition is now spooled to a temp file and added by path.
-     * The archive's contents must be identical either way — and no spool file
-     * may be left behind.
+     * close(); each rendition is now spooled to a temp file and added by path,
+     * and the finished archive is streamed straight off disk (audit M10). The
+     * spool files must be gone as soon as downloadZip() returns; the one
+     * remaining temp file is the archive itself, which the Response deletes
+     * when it is sent.
      */
     public function testDownloadZipLeavesNoTemporaryFilesBehind(): void
     {
@@ -919,15 +923,27 @@ class GalleryControllerTest extends TestCase
         $backend->method('get')->willReturn('fake-large-image-bytes');
         $this->storageBackendFactory->method('create')->willReturn($backend);
 
-        $before = glob(sys_get_temp_dir() . '/gallery_zip*') ?: [];
+        $spoolBefore = glob(sys_get_temp_dir() . '/gallery_zip_spool*') ?: [];
         $response = $this->controller->downloadZip(
             new Request('GET', '/gallery/' . $id . '/download', [], [], [], []),
             ['id' => (string) $id]
         );
-        $after = glob(sys_get_temp_dir() . '/gallery_zip*') ?: [];
 
         $this->assertSame(200, $response->getStatusCode());
-        $this->assertSame($before, $after);
+
+        // No spool directory left behind.
+        $this->assertSame($spoolBefore, glob(sys_get_temp_dir() . '/gallery_zip_spool*') ?: []);
+
+        // The archive the response streams exists now and is removed when sent.
+        $zipPath = $response->getBodyFilePath();
+        $this->assertNotNull($zipPath);
+        $this->assertFileExists((string) $zipPath);
+
+        ob_start();
+        $response->send();
+        ob_end_clean();
+
+        $this->assertFileDoesNotExist((string) $zipPath, 'the streamed archive is deleted after send()');
     }
 
     public function testIndexMarksAMigratingAlbumUnavailable(): void
