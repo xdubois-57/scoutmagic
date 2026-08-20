@@ -1,0 +1,55 @@
+{#
+  Reusable availability-style month grid — renders the output of
+  Core\View\MonthGrid\DayStateGridBuilder::build(). One state per day cell,
+  no event bars. Generic: knows nothing about rentals, bookings, or any
+  other domain concept, only Core\View\MonthGrid\DayState's generic shape.
+
+  The sibling partial partials/month_grid.html.twig renders the *other*
+  month grid (MonthGridBuilder — multi-day event bars). Pick by question:
+  "what is happening on these days" is that one, "can I take these days"
+  is this one. See DayStateGridBuilder's docblock.
+
+  Usage:
+  {% include 'partials/month_day_grid.html.twig' with {
+      weeks: weeks,
+      caption: 'Disponibilités de mars 2026'
+  } %}
+
+  A day is rendered as a real <button> when day.selectable is true and an
+  inert <div> otherwise. Not cosmetic: a button is focusable, is announced
+  as a button, and fires on Enter and Space with no script at all, where a
+  div would need tabindex, role="button" and a keyboard handler this site's
+  CSP (script-src 'self' 'nonce-…', Core\Http\Response::buildCsp()) cannot
+  express as an inline attribute. This partial never attaches any JS itself
+  — a caller's own nonced script block queries [data-date] to wire up
+  selection.
+
+  **Colour is never the only carrier of meaning.** Every cell renders
+  day.accessible_label as visually-hidden text, so a screen reader announces
+  "14 Occupé" and a colour-blind visitor gets the same information from the
+  native tooltip. Do not "optimise" this away: the builder makes the label
+  mandatory precisely so it cannot go missing here.
+#}
+<div class="calendar-weekday-row text-body-secondary fw-semibold mb-1" aria-hidden="true">
+    <div>Lun</div><div>Mar</div><div>Mer</div><div>Jeu</div><div>Ven</div><div>Sam</div><div>Dim</div>
+</div>
+<div class="daygrid" role="grid"{% if caption is defined and caption %} aria-label="{{ caption }}"{% endif %}>
+    {% for week in weeks %}
+        <div class="daygrid-week" role="row">
+            {% for day in week.days %}
+                {% set day_tag = day.selectable ? 'button' : 'div' %}
+                <{{ day_tag }} role="gridcell"
+                    class="daygrid-day daygrid-day--{{ day.state }}{{ day.selectable ? ' daygrid-day--selectable' : '' }}{{ not day.in_month ? ' is-padding' : '' }}{{ day.is_today ? ' is-today' : '' }}"
+                    {%- if day.color %} style="--daygrid-day-color: {{ day.color }};"{% endif %}
+                    data-date="{{ day.date }}"
+                    data-state="{{ day.state }}"
+                    {%- for key, value in day.data %} data-{{ key }}="{{ value }}"{% endfor %}
+                    title="{{ day.day_number }} — {{ day.accessible_label }}"
+                    {%- if day.selectable %} type="button"{% else %} aria-disabled="true"{% endif %}>
+                    <span class="daygrid-day-number" aria-hidden="true">{{ day.day_number }}</span>
+                    <span class="visually-hidden">{{ day.day_number }} — {{ day.accessible_label }}</span>
+                </{{ day_tag }}>
+            {% endfor %}
+        </div>
+    {% endfor %}
+</div>

@@ -136,6 +136,7 @@ use Core\Notification\VapidKeyPairFactory;
 use Minishlink\WebPush\WebPush;
 use Twig\TwigFunction;
 use Core\View\ConfigurationMode;
+use Core\View\DynamicMenuRegistrar;
 use Core\View\EditableContentRepository;
 use Core\View\EditableContentService;
 use Core\View\RgpdContentService;
@@ -1147,6 +1148,11 @@ $twig->addGlobal(
 
 // Build menu
 $menuBuilder = new MenuBuilder(Role::fromString($currentRole));
+// Applies every enabled module's Core\Module\MenuEntryProvider late in this
+// file (once module services exist) and re-derives the active-page
+// highlight for what they added — see the class docblock for why that
+// re-derivation cannot happen in the first pass below.
+$dynamicMenuRegistrar = new DynamicMenuRegistrar();
 
 // Register core pages in menus
 $menuBuilder->addPage(MenuBuilder::MENU_NOTRE_UNITE, 'Accueil', '/', 'public', 10);
@@ -2812,47 +2818,36 @@ if (in_array('registration', $moduleManager->getEnabledModuleIds(), true)) {
         $schedulerService->schedule('registration', 'auto_assign_passage', new DateTimeImmutable(), [], 'hourly');
     }
 
-    // Espace animés menu hook (Core\Module\EspaceAnimesEntryProvider,
-    // ARCHITECTURE.md §7.4) — one entry per pending registration request
-    // linked to the visitor's email. $menuBuilder->build() was already
-    // called above (before this module's services existed); addPage() only
-    // mutates MenuBuilder's own internal list, so calling build() again
-    // here safely picks up these entries too, and the Twig global is
-    // re-set to the refreshed array. The highlight/active-page scan above
-    // ran before these URLs existed, so it's re-applied here for exact
-    // matches only (same "isDynamic entries: exact match only" rule as the
-    // original scan — see its own comment).
-    if (AuthSession::isAuthenticated()) {
-        $registrationMenuEmail = AuthSession::getEmail();
-        if ($registrationMenuEmail !== null) {
-            $registrationMenuEntries = $registrationMenuHookService->getEntriesForEmail($registrationMenuEmail);
-            foreach ($registrationMenuEntries as $registrationMenuIndex => $registrationMenuEntry) {
-                $menuBuilder->addPage(
-                    MenuBuilder::MENU_ESPACE_ANIMES,
-                    $registrationMenuEntry['label'],
-                    $registrationMenuEntry['url'],
-                    'identified',
-                    1000 + $registrationMenuIndex,
-                    true,
-                    $registrationMenuEntry['subtitle'],
-                    MenuBuilder::GROUP_DYNAMIC
-                );
-            }
-            if ($registrationMenuEntries !== []) {
-                $menus = $menuBuilder->build();
-                $twig->addGlobal('menus', $menus);
+    // Menu hook (Core\Module\MenuEntryProvider, ARCHITECTURE.md §7.4) — one
+    // entry per pending registration request linked to the visitor's email.
+    // $menuBuilder->build() was already called above (before this module's
+    // services existed); addPage() only mutates MenuBuilder's own internal
+    // list, so calling build() again here safely picks up these entries too,
+    // and the Twig global is re-set to the refreshed array. The
+    // highlight/active-page scan above ran before these URLs existed, so
+    // DynamicMenuRegistrar::resolveActive() re-applies it over just the new
+    // entries, carrying the earlier scan's best match forward.
+    $registrationMenuEntries = $dynamicMenuRegistrar->register(
+        $menuBuilder,
+        [$registrationMenuHookService],
+        AuthSession::isAuthenticated() ? AuthSession::getEmail() : null
+    );
+    if ($registrationMenuEntries !== []) {
+        $menus = $menuBuilder->build();
+        $twig->addGlobal('menus', $menus);
 
-                foreach ($registrationMenuEntries as $registrationMenuEntry) {
-                    if ($registrationMenuEntry['url'] === $currentPath && strlen($registrationMenuEntry['url']) > $bestMatchLength) {
-                        $activeMenuId = MenuBuilder::MENU_ESPACE_ANIMES;
-                        $activePageUrl = $registrationMenuEntry['url'];
-                        $bestMatchLength = strlen($registrationMenuEntry['url']);
-                    }
-                }
-                $twig->addGlobal('active_menu_id', $activeMenuId);
-                $twig->addGlobal('active_page_url', $activePageUrl);
-            }
-        }
+        $registrationMenuActive = $dynamicMenuRegistrar->resolveActive(
+            $registrationMenuEntries,
+            $currentPath,
+            $activeMenuId,
+            $activePageUrl,
+            $bestMatchLength
+        );
+        $activeMenuId = $registrationMenuActive['menuId'];
+        $activePageUrl = $registrationMenuActive['pageUrl'];
+        $bestMatchLength = $registrationMenuActive['matchLength'];
+        $twig->addGlobal('active_menu_id', $activeMenuId);
+        $twig->addGlobal('active_page_url', $activePageUrl);
     }
 }
 
