@@ -171,6 +171,8 @@ $runner->registerHandler('core', 'send_notifications', new \Core\Notification\Ta
 $runner->registerHandler('core', 'purge_notifications', new \Core\Notification\Task\PurgeNotificationsHandler());
 $runner->registerHandler('core', 'purge_human_check_rate_limits', new \Core\Security\HumanCheck\Task\PurgeHumanCheckRateLimitsHandler());
 $runner->registerHandler('core', \Core\Statistics\Task\SendStatisticsHandler::TASK_KEY, new \Core\Statistics\Task\SendStatisticsHandler());
+$runner->registerHandler('core', \Core\Support\Task\GenerateSupportPackageHandler::TASK_KEY, new \Core\Support\Task\GenerateSupportPackageHandler());
+$runner->registerHandler('core', \Core\Support\Task\PurgeSupportPackagesHandler::TASK_KEY, new \Core\Support\Task\PurgeSupportPackagesHandler());
 
 // Web Push (Core\Notification) — same construction as public/index.php.
 // Null when VAPID keys aren't provisioned yet (e.g. this script running

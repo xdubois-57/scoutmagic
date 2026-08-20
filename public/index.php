@@ -708,6 +708,14 @@ $settingService->register('statistics_last_failure_at', '', 'text', 'Dernier éc
 $settingService->register('statistics_last_failure_reason', '', 'text', 'Motif du dernier échec d\'envoi',
     'Motif court du dernier échec ou saut d\'envoi des statistiques. Renseigné automatiquement.',
     null, null, null, false, 287);
+// Support package bookkeeping (Core\Support, ARCHITECTURE.md §8.42) — one
+// package is ever kept, so two settings replace what would be a one-row table.
+$settingService->register('support_package_file_id', '', 'text', 'Paquet de support disponible',
+    'Identifiant du fichier de l\'archive de support actuellement conservée. Renseigné automatiquement.',
+    null, null, null, false, 288);
+$settingService->register('support_package_generated_at', '', 'text', 'Date de génération du paquet de support',
+    'Horodatage de génération de l\'archive de support conservée, utilisé pour sa purge automatique. Renseigné automatiquement.',
+    null, null, null, false, 289);
 // `installed_at` declares itself (Core\Statistics\InstallationDateService::
 // register()) because SetupController writes it before this file has ever
 // run — see that method's own comment. Backfilled here once for every
@@ -1297,6 +1305,8 @@ $schedulerRunner->registerHandler('core', 'send_notifications', new \Core\Notifi
 $schedulerRunner->registerHandler('core', 'purge_notifications', new \Core\Notification\Task\PurgeNotificationsHandler());
 $schedulerRunner->registerHandler('core', 'purge_human_check_rate_limits', new \Core\Security\HumanCheck\Task\PurgeHumanCheckRateLimitsHandler());
 $schedulerRunner->registerHandler('core', \Core\Statistics\Task\SendStatisticsHandler::TASK_KEY, new \Core\Statistics\Task\SendStatisticsHandler());
+$schedulerRunner->registerHandler('core', \Core\Support\Task\GenerateSupportPackageHandler::TASK_KEY, new \Core\Support\Task\GenerateSupportPackageHandler());
+$schedulerRunner->registerHandler('core', \Core\Support\Task\PurgeSupportPackagesHandler::TASK_KEY, new \Core\Support\Task\PurgeSupportPackagesHandler());
 
 // Bootstrap the recurring automatic backup — Task\AutoBackupHandler
 // re-schedules itself at the end of every run (same pattern as
@@ -1334,6 +1344,14 @@ if ($schedulerService->find('core', 'purge_human_check_rate_limits', \Core\Secur
 // nothing on an installation that will never actually report.
 if ($schedulerService->find('core', \Core\Statistics\Task\SendStatisticsHandler::TASK_KEY, \Core\Statistics\Task\SendStatisticsHandler::REFERENCE) === null) {
     $schedulerService->schedule('core', \Core\Statistics\Task\SendStatisticsHandler::TASK_KEY, new DateTimeImmutable(), [], \Core\Statistics\Task\SendStatisticsHandler::REFERENCE);
+}
+
+// Same bootstrap for the support-package retention purge (Core\Support\
+// Task\PurgeSupportPackagesHandler) — the archive is the most sensitive
+// artefact this codebase produces on demand, so the purge must be running
+// from the first boot, not from the first generation.
+if ($schedulerService->find('core', \Core\Support\Task\PurgeSupportPackagesHandler::TASK_KEY, \Core\Support\Task\PurgeSupportPackagesHandler::REFERENCE) === null) {
+    $schedulerService->schedule('core', \Core\Support\Task\PurgeSupportPackagesHandler::TASK_KEY, new DateTimeImmutable(), [], \Core\Support\Task\PurgeSupportPackagesHandler::REFERENCE);
 }
 
 // Add dynamic member entries to Espace animés — group: GROUP_DYNAMIC keeps
@@ -1543,6 +1561,8 @@ $router->addRoute('POST', '/config/settings/logo-notify-ios', SettingsController
 // Support (Core\Statistics, Core\Support — ARCHITECTURE.md §8.41/§8.42)
 $router->addRoute('GET', '/config/support', SupportController::class, 'index', 'superadmin', ['label' => 'Support', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]]);
 $router->addRoute('POST', '/config/support/statistics', SupportController::class, 'saveStatistics', 'superadmin');
+$router->addRoute('POST', '/config/support/package', SupportController::class, 'generatePackage', 'superadmin');
+$router->addRoute('GET', '/api/support/package-status/{id}', SupportController::class, 'packageStatus', 'superadmin');
 
 // Scheduled actions
 $router->addRoute('GET', '/config/scheduled', ScheduledActionsController::class, 'index', 'superadmin', ['label' => 'Actions planifiées', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]]);
@@ -1826,7 +1846,8 @@ $frontController->registerController(SupportController::class, new SupportContro
     $twig,
     $settingService,
     $journalService,
-    $statisticsPayloadBuilder
+    $statisticsPayloadBuilder,
+    $schedulerService
 ));
 $frontController->registerController(ScheduledActionsController::class, new ScheduledActionsController($twig, $schedulerRepo));
 $frontController->registerController(ConfigGeneralController::class, new ConfigGeneralController($twig));

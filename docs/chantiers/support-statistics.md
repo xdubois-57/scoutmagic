@@ -285,3 +285,74 @@ Le récapitulatif final se trouve en fin de fichier (IT-12).
 
 - Aucun bouton « envoyer maintenant » : hors périmètre, l'envoi est
   exclusivement déclenché par le planificateur.
+
+---
+
+## IT-05 — Pipeline du paquet de support
+
+### Implémenté
+
+- Contrat de collecteur : `Core\Support\SupportCollectorInterface`,
+  `SupportCollectorContext` (ajout par contenu ou par chemin source, accès
+  `storage/`, connexion, réglages, `markUnavailable()`, `addNote()`), et
+  `SupportCollectionOutcome` (`success` / `failed` / `unavailable`, motif,
+  durée, notes).
+- `Core\Support\SupportPackageService` — chaque collecteur dans son propre
+  `try/catch`, ZIP toujours produit, `collection-status.json`, `README.txt`
+  français complet (avertissement intégral inclus), `statistics.json`
+  identique au payload d'envoi et généré même télémétrie désactivée.
+- Tâche de fond `core`/`generate_support_package`
+  (`Core\Support\Task\GenerateSupportPackageHandler`), planifiée à +0 s par le
+  contrôleur avec `requested_by_user_account_id`, notification
+  `core.support_package_ready` au demandeur, journal
+  `support_package_generated`.
+- Stockage : `storage/core/support/`, chiffré au repos
+  (`EncryptedFileStorageService`), `FileRecord` en `role_min: superadmin`,
+  servi via `/files/{id}` ; **un seul paquet conservé** (le précédent est
+  supprimé, fichier et enregistrement) ; purge à 7 jours par
+  `core`/`purge_support_packages` (quotidienne, auto-replanifiée).
+- Interface : bouton « Générer un paquet de support » (POST + jeton CSRF,
+  `superadmin`), indicateur de progression, `GET
+  /api/support/package-status/{id}` interrogé par
+  `public/assets/js/support-package.js`, puis lien de téléchargement.
+- `ARCHITECTURE.md` §8.42, `SECURITY.md` §5/§6, `specifications.md` §4.5.
+
+### Décisions autonomes
+
+1. **Le paquet courant est décrit par deux réglages**
+   (`support_package_file_id`, `support_package_generated_at`) plutôt que par
+   une table : un seul paquet est conservé, une table aurait au mieux une
+   ligne. L'horodatage de génération est stocké ici plutôt que lu dans
+   `files.created_at` parce que la règle de rétention appartient à cette
+   fonctionnalité, pas au magasin de fichiers.
+2. **Les secrets à expurger sont injectés dans le service**
+   (`SupportPackageFactory::secretsToRedact()` lit `secrets.enc` et n'en
+   utilise les valeurs que comme aiguilles de remplacement). Un service de
+   génération d'archive n'a aucune raison de savoir déchiffrer quoi que ce
+   soit ; c'est aussi ce qui rend la règle testable.
+3. **Les chemins d'archive sont normalisés** (pas de `/` initial, pas de
+   `..`, pas d'antislash). Les collecteurs d'IT-07 composent des chemins à
+   partir d'entrées de système de fichiers ; sans cette normalisation, un
+   nom hostile pourrait écrire hors de l'arborescence de l'archive.
+4. **`GET /api/support/package-status/{id}` refuse toute action planifiée
+   qui n'est pas une génération de paquet**, plutôt que de renvoyer l'état
+   brut de n'importe quelle ligne `scheduled_actions`.
+5. **Le JavaScript est un fichier dédié** (`public/assets/js/
+   support-package.js`) et non un script inline, conformément à la
+   convention du dépôt pour toute logique de sondage (`maintenance.js`,
+   `auth.js`). `npm run typecheck` passe.
+6. **`storage/core/support/` n'a pas nécessité de modification de
+   `.gitignore`** : la règle `storage/**` couvre déjà tout le contenu
+   d'exécution (vérifié, pas supposé — SECURITY.md §12).
+
+### Divergences constatées avec le document
+
+- Le document numérote les sections `ARCHITECTURE.md` §8.30 pour le paquet de
+  support ; ce numéro est occupé (voir « Conventions de travail »), la section
+  est §8.42.
+
+### Reporté volontairement
+
+- Les collecteurs applicatifs (IT-06) et système (IT-07) ne sont pas encore
+  branchés : seul `StatisticsCollector` figure dans
+  `SupportPackageFactory::collectors()`, où l'ajout des suivants est une ligne.
