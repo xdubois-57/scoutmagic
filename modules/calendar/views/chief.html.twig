@@ -216,27 +216,20 @@ function openEditModal(dataset) {
     eventModal.show();
 }
 
+// Both are real <button> elements (partials/month_grid.html.twig renders them
+// as buttons whenever the caller marks them clickable), so Enter and Space
+// already fire a click — no keyboard handler of our own, and none of the
+// inline onKeyDown attribute this site's CSP would refuse to run anyway.
 document.querySelectorAll('.calendar-day-cell--clickable').forEach(cell => {
     cell.addEventListener('click', () => openAddModal(cell.dataset.date));
-    cell.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            openAddModal(cell.dataset.date);
-        }
-    });
 });
 
 document.querySelectorAll('.calendar-event-bar--clickable').forEach(bar => {
     bar.addEventListener('click', (e) => {
+        // The bar sits on top of the day cell in the same grid, so without
+        // this a click on a bar would also open the "add an event" modal.
         e.stopPropagation();
         openEditModal(bar.dataset);
-    });
-    bar.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            e.stopPropagation();
-            openEditModal(bar.dataset);
-        }
     });
 });
 

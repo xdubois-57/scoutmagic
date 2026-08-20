@@ -234,6 +234,32 @@ class CalendarChiefControllerTest extends TestCase
         $this->assertStringContainsString('calendar-event-bar--clickable', $response->getBody());
     }
 
+    public function testClickableDayCellsAndEventBarsAreRealButtons(): void
+    {
+        // Not cosmetic. A clickable cell used to be a div carrying
+        // tabindex="0" and role="button", with Enter/Space wired up in the
+        // page's own script. A real button is focusable, is announced as a
+        // button, and activates on Enter and Space with no script at all —
+        // which matters here because this site's CSP
+        // (Core\Http\Response::buildCsp() sends script-src 'self'
+        // 'nonce-…', with neither 'unsafe-inline' nor 'unsafe-hashes')
+        // would refuse to run the inline onKeyDown attribute a div would
+        // otherwise need. partials/month_grid.html.twig picks the element
+        // from days_clickable / events_clickable.
+        $section = $this->createSection('BAL01', 'Renards');
+        $this->calendarService->ensureSectionCalendars();
+        $calendar = $this->calendarRepository->findBySectionId($section);
+        $this->eventRepository->create($calendar->id, 'Réunion renards', '2099-01-01', null, null, null, null, null, null);
+
+        $request = new Request('GET', '/chefs/calendar', ['calendar' => (string) $calendar->id, 'month' => '2099-01'], [], [], []);
+        $body = $this->controller->index($request, [])->getBody();
+
+        $this->assertMatchesRegularExpression('/<button class="calendar-day-cell calendar-day-cell--clickable/', $body);
+        $this->assertMatchesRegularExpression('/<button class="calendar-event-bar calendar-event-bar--clickable/', $body);
+        $this->assertStringNotContainsString('role="button"', $body);
+        $this->assertStringNotContainsString('tabindex="0"', $body);
+    }
+
     public function testIndexBreadcrumbReflectsTheSelectedCalendar(): void
     {
         // The calendar picker changes what this page shows without changing
