@@ -104,7 +104,7 @@ Site-wide settings, modules, functions.
 |---|---|---|
 | Import Desk | admin | CSV upload/import for current scout year. Year selection. Function mapping status. |
 | Journal | admin | Searchable event log. |
-| Année scoute | admin | Scout year management: preview any year (session-only), activate a staff year for chiefs/intendants, transition the whole site to the next public year (4-step workflow: preview, import, activate for staff, activate for everyone). Displays effective year, public year, staff year, member/section counts. Public year transition is manual-only and available year-round; a non-blocking warning appears when the current public year is past its end date. When the Inscriptions module is active: step 4 is refused server-side while any registration request is still pending/accepted (any target year); step 3 shows the same count as a non-blocking warning — see §19.2. |
+| Année scoute | admin | The whole scout-year transition, as a workflow of three phases and fourteen steps (§16.3): preparing next year with the staffs, encoding it into Desk, then updating the site. The order is advice, not a gate; steps are either observed by the site or ticked off by hand, per target year. Steps belonging to a disabled module are absent. Displays effective year, public year, staff year, member/section counts. Public year activation is manual-only and available year-round; a non-blocking warning appears when the current public year is past its end date. When the Inscriptions module is active: the final step is refused server-side while any registration request is still pending/accepted (any target year); the staff-year step shows the same count as a non-blocking warning — see §19.2. |
 | Membres | admin | Member search (name/email/phone) for the effective scout year, with detailed view showing all personal data from Desk (contact info, addresses, functions, age), plus effective age calculation with scout year offset. |
 | Bannière (module) | admin | Manage homepage banner messages (role-gated visibility, ordered list) |
 | SOS Staff d'U (module) | admin | On-call duty roster (month grid), default forwarding number, live redirect status, scheduled redirection list |
@@ -303,7 +303,7 @@ Chiefs can attach PDF documents to sections (per scout year), displayed on both 
 
 ## 16. Scout year transition
 
-Annual transition from one scout year to the next, managed through a guided 4-step workflow.
+Annual transition from one scout year to the next, managed through a guided workflow of three phases and fourteen steps.
 
 ### 16.1 Year types
 - **Public year**: year visible to identified members and public visitors (current year, displayed site-wide)
@@ -318,36 +318,62 @@ For each request, the effective year is determined in order of precedence:
 
 ### 16.3 Transition workflow (Espace admin > Année scoute)
 
-**Step 1: Preview next year**
-- Admin selects next year in dropdown and activates preview (session-only)
-- Admin sees the site as it will appear after transition
-- Other users unaffected
-- Can be cleared to return to current year
+The page walks a chef d'unité through the whole season, not only the four moments where the site itself changes year. Fourteen steps, grouped into the three phases the season actually has, in this order:
 
-**Step 2: Import Desk data**
-- Admin imports CSV for next year via Import Desk page
-- New year's members become available
-- Step marked complete when member count > 0 for target year
+**Phase 1 — Préparation** (*« Idéalement avant le {date d'encodage Desk} »*)
 
-**Step 3: Activate staff year**
-- Admin activates next year for chiefs and intendants
-- Staff immediately see next year on login
-- Identified members and public still see current year
-- Allows staff to prepare (configure sections, plan activities) while site remains stable for members
-- Never blocked by open registration requests; a non-blocking warning is shown when the Inscriptions module reports any (§19.2)
+| # | Step | Where it happens |
+|---|---|---|
+| 1 | Indiquer les animés qui se désinscrivent en {cible} | Départs (§18.1) |
+| 2 | Indiquer la section des animés qui changent de branche | Passage (§18.2) |
+| 3 | Confirmer les inscriptions et indiquer la branche cible | Inscriptions (§17.6) + « section prévue » |
 
-**Step 4: Activate public year**
-- Admin transitions entire site to next year (permanent)
-- All users (staff, members, public) now see next year
-- Staff year automatically deactivated
-- Available at any time — not restricted to a particular period
-- Refused, server-side, while the Inscriptions module reports any pending/accepted registration request (any target year, not just the one being activated) — §19.2
+**Phase 2 — Encodage dans Desk** (*« Plutôt à partir du {date} »*)
+
+| # | Step | Where it happens |
+|---|---|---|
+| 4 | Encoder les nouveaux staffs dans Desk | Desk (outside the site) |
+| 5 | Encoder les animés dans Desk (nouveaux inscrits, passages, sortants) | Desk (outside the site) |
+| 6 | Mettre à jour les cotisations | Desk (outside the site) |
+| 7 | Prévisualiser le site de l'année prochaine ({cible}) | This page — session-only |
+| 8 | Importer les données Desk | Import Desk |
+
+Step 5 carries a note: once the import is done, animateurs can rely on the preview of the target year and download the member list for that year from « Membres par section » — a list that already lets them write to the families by email.
+
+**Phase 3 — Mise à jour du site** (*« Le site est à jour pour {cible} : c'est typiquement au tour des staffs d'agir. »*)
+
+| # | Step | Where it happens |
+|---|---|---|
+| 9 | Activer l'année {cible} pour les staffs | This page |
+| 10 | Encoder les éphémérides de l'année sur le site | Calendrier |
+| 11 | Encoder les badges (trésorier·e, infirmier·e, référent·e·s…) | Staffs |
+| 12 | Mettre à jour le trombinoscope | Trombinoscope |
+| 13 | Mettre à jour les photos de staff | Staffs |
+| 14 | Activer pour tout le monde | This page |
+
+**The order is advice, not a gate.** The page highlights the first step still to do, but every control stays usable at all times. Exactly two conditions actually block anything, and both are real:
+- **Step 14** requires a staff year to exist first (step 9).
+- **Step 14** is refused, server-side, while the Inscriptions module reports any pending/accepted registration request (any target year) — §19.2. Step 9 shows the same count as a plain, non-blocking warning.
+
+Step 9 also warns — without blocking — when nothing has been imported for the target year yet, since the staff would otherwise be shown an empty year.
+
+**How a step becomes done.** Two sources, never a third:
+- **Observed by the site**: the preview is active for the target year (7); the target year has members (8); the staff year is the target (9); at least one calendar event falls inside the target year (10); every section of the target year has its own photo for that year, last year's fallback photo not counting (13); the public year is the target (14); no passage is left without a destination section (2).
+- **Ticked by a human**: everything else — the work inside Desk, and the judgement calls. A step that also has an observed signal keeps its checkbox as an override, so a unit whose signal will never fire (no passage this year, a calendar kept elsewhere) is never left with a step it cannot finish.
+
+The four steps the site decides for itself (7, 8, 9, 14) have no checkbox at all, and the server refuses to accept a manual tick for them. Ticks are recorded per target year with who ticked and when, they can be un-ticked, and next year's run therefore starts blank on its own — there is no reset step.
+
+**Steps of a disabled module are absent, not greyed out**, and the remaining steps renumber accordingly: steps 1–3 need the Inscriptions module, step 10 the Calendrier module, step 12 the Trombinoscope module. A phase left with no step at all disappears with them.
+
+**The dates are signposts.** One admin-configurable parameter (day and month, 15 August by default) separates the preparation phase from the Desk-encoding phase and marks which of the two the calendar is currently in. It never enables, disables or triggers anything — see §16.4.
 
 ### 16.4 Manual transition only
 
-The transition to a new public year is exclusively manual — step 4 is available year-round, and nothing switches the public year automatically. There is no switch window and no date-based fallback transition.
+The transition to a new public year is exclusively manual — step 14 is available year-round, and nothing switches the public year automatically. There is no switch window and no date-based fallback transition.
 
-This is deliberate: the "inscriptions" module vetoes step 4 while registration requests are still open (§19.2), and a date-driven automatic transition would have bypassed that veto — a calculated date can't be told "not yet". Manual and automatic are incompatible, so manual wins.
+This is deliberate: the "inscriptions" module vetoes step 14 while registration requests are still open (§19.2), and a date-driven automatic transition would have bypassed that veto — a calculated date can't be told "not yet". Manual and automatic are incompatible, so manual wins.
+
+The Desk-encoding date of §16.3 does not reopen this question. It labels phases and nothing else: no step is disabled before it, none is triggered on it, and a malformed value simply falls back to the default rather than affecting the page.
 
 Without an automatic catch-up, a unit that never runs the transition would stay on a stale public year indefinitely with no visible sign. The Année scoute page shows a non-blocking warning when the current public year is past its end date, inviting the admin to run the transition workflow — it never blocks anything and never changes anything on its own.
 
@@ -453,8 +479,8 @@ This page's charts are its own — it does not depend on, and works identically 
 ### 19.2 Veto on the year transition (Espace admin > Année scoute, §16.3)
 
 While the Inscriptions module is active:
-- **Step 4** (activate the public year for everyone) is **refused** — checked on the server, not just by disabling the button — as long as any registration request is still `pending` or `accepted`, whichever scout year it originally targeted. The error message states how many requests are blocking and links to the registration management page, which is where they're resolved individually or in bulk ("tout refuser"/"tout retirer", §17).
-- **Step 3** (activate the staff year) shows the same count as a plain, non-blocking warning — it happens much earlier in the season and staff need time to work through the backlog, so it never stops anything.
+- **Step 14** (activate the public year for everyone) is **refused** — checked on the server, not just by disabling the button — as long as any registration request is still `pending` or `accepted`, whichever scout year it originally targeted. The error message states how many requests are blocking and links to the registration management page, which is where they're resolved individually or in bulk ("tout refuser"/"tout retirer", §17).
+- **Step 9** (activate the staff year) shows the same count as a plain, non-blocking warning — it happens much earlier in the season and staff need time to work through the backlog, so it never stops anything.
 
 If the Inscriptions module is disabled or not installed, both steps behave exactly as they did before this module existed — nothing is blocked, no warning appears.
 

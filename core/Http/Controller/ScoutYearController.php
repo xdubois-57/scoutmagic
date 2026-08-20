@@ -16,6 +16,7 @@ use Core\Journal\JournalService;
 use Core\ScoutYear\ScoutYearAdminService;
 use Core\ScoutYear\ScoutYearResolver;
 use Core\ScoutYear\ScoutYearSession;
+use Core\ScoutYear\ScoutYearTransitionService;
 use Core\ScoutYear\ScoutYearTransitionVetoedException;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
@@ -26,7 +27,14 @@ use Twig\Environment;
  * Scout year navigation and transition (Espace chefs d'U).
  *
  * Lets a chief preview any year (session-only), activate a staff year for
- * chiefs/intendants, and transition the whole site to a new public year.
+ * chiefs/intendants, transition the whole site to a new public year, and
+ * tick off the workflow steps the site cannot observe by itself.
+ *
+ * The workflow itself — which steps exist, in which phase, in which order,
+ * and what marks each one done — lives in Core\ScoutYear\
+ * ScoutYearTransitionService, which is also the specification for
+ * tests/e2e/specs/scout-year-transition.spec.js. This controller only
+ * routes to it.
  */
 class ScoutYearController extends AbstractController
 {
@@ -35,6 +43,7 @@ class ScoutYearController extends AbstractController
         private ScoutYearResolver $resolver,
         private ScoutYearAdminService $adminService,
         private ScoutYearService $scoutYearService,
+        private ScoutYearTransitionService $transitionService,
         private JournalService $journalService
     ) {
     }
@@ -59,27 +68,20 @@ class ScoutYearController extends AbstractController
         $targetYear = $this->scoutYearService->findById($targetId);
 
         // Registration module veto (§8.38) — 0 when the module is absent,
-        // disabled, or has nothing open. Step 3 shows this as a non-blocking
-        // warning; step 4 hard-blocks on it (enforced again, server-side, in
-        // activatePublic() below — this is only for the page's own display).
+        // disabled, or has nothing open. The staff-year step shows this as a
+        // non-blocking warning; the public-activation step hard-blocks on it
+        // (enforced again, server-side, in activatePublic() below — this is
+        // only for the page's own display).
         $blockingRequestCount = $this->adminService->countBlockingRegistrationRequests();
 
-        $steps = $this->buildTransitionSteps(
+        $workflow = $this->transitionService->buildWorkflow(
             $targetYear,
             $publicYear,
             ScoutYearSession::getPreviewId(),
             $staffYearId,
-            (int) $publicYear['id']
+            (int) $publicYear['id'],
+            $this->now()
         );
-
-        // The current actionable step is the first one not yet completed.
-        $currentStep = 0;
-        foreach ($steps as $step) {
-            if (!$step['done']) {
-                $currentStep = $step['number'];
-                break;
-            }
-        }
 
         return $this->render('admin/scout_year.html.twig', [
             'public_year' => $publicYear,
@@ -94,8 +96,10 @@ class ScoutYearController extends AbstractController
             'section_count' => $this->resolver->countSections($effective->id),
             'can_activate_public' => $staffYear !== null && $blockingRequestCount === 0,
             'target_year' => $targetYear,
-            'transition_steps' => $steps,
-            'current_step' => $currentStep,
+            'phases' => $workflow['phases'],
+            'current_step' => $workflow['current_step'],
+            'step_count' => $workflow['step_count'],
+            'desk_encoding_date' => $workflow['desk_encoding_date'],
             'blocking_request_count' => $blockingRequestCount,
             // Non-blocking signal only (§8.26) — the transition itself is no
             // longer gated by any date, this just flags that nobody has run
@@ -256,67 +260,51 @@ class ScoutYearController extends AbstractController
     }
 
     /**
-     * Build the ordered transition workflow steps with their completion state,
-     * recomputed on every request (never cached). To change the workflow, add or
-     * reorder entries here — the template renders whatever this returns and does
-     * not hardcode steps.
+     * POST /admin/scout-year/step — tick or untick one manual step.
      *
-     * These four steps are the specification for the "scout year transition"
-     * end-to-end test, tests/e2e/specs/scout-year-transition.spec.js — kept
-     * on one line so the filename is greppable from here — which replays the
-     * whole workflow in a real browser and blocks both CI and
-     * scripts/release.sh's E2E gate. **Changing a step
-     * — adding, removing, reordering, changing what marks it done, or
-     * rewording a title the test matches on — means updating that test in
-     * the same change.** The rendered page
-     * (core/View/templates/admin/scout_year.html.twig) carries the same
-     * reminder.
+     * Only the steps the site cannot observe on its own are settable here
+     * (Core\ScoutYear\ScoutYearTransitionService::isManualStep()); an
+     * auto-derived step's key is refused rather than quietly ignored, so a
+     * replayed or hand-crafted request can never make the page claim the
+     * public year was activated when it was not.
      *
-     * @param array{id: int, label: string, start_date: string, end_date: string} $targetYear
-     * @param array{id: int, label: string, start_date: string, end_date: string} $publicYear
-     * @return array<int, array{number: int, title: string, description: string, done: bool, action: string}>
+     * @param array<string, string> $params
      */
-    private function buildTransitionSteps(
-        array $targetYear,
-        array $publicYear,
-        ?int $sessionPreviewId,
-        ?int $staffYearId,
-        int $publicYearId
-    ): array {
-        $target = (int) $targetYear['id'];
-        $targetLabel = $targetYear['label'];
-        $publicLabel = $publicYear['label'];
+    public function toggleStep(Request $request, array $params): Response
+    {
+        if (!$this->validCsrf($request)) {
+            return $this->forbidden();
+        }
 
-        return [
-            [
-                'number' => 1,
-                'title' => "Prévisualiser le site de l'année prochaine ({$targetLabel})",
-                'description' => "Choisissez {$targetLabel} ci-dessous pour voir le site tel qu'il apparaîtra. Cette prévisualisation ne concerne que votre session et n'affecte aucun autre utilisateur.",
-                'done' => $sessionPreviewId === $target,
-                'action' => 'preview',
-            ],
-            [
-                'number' => 2,
-                'title' => 'Importer les données Desk',
-                'description' => "Importez le fichier CSV Desk pour l'année {$targetLabel} depuis la page « Import Desk ». Les membres de la nouvelle année deviennent alors disponibles.",
-                'done' => $this->resolver->countMembers($target) > 0,
-                'action' => 'import',
-            ],
-            [
-                'number' => 3,
-                'title' => "Activer l'année {$targetLabel} pour les staffs",
-                'description' => "Les chefs et intendants verront {$targetLabel} dès leur prochaine connexion, tandis que les animés et les visiteurs restent sur l'année courante ({$publicLabel}).",
-                'done' => $staffYearId === $target,
-                'action' => 'activate-staff',
-            ],
-            [
-                'number' => 4,
-                'title' => 'Activer pour tout le monde',
-                'description' => "Bascule l'ensemble du site (visiteurs inclus) sur {$targetLabel} de façon permanente et désactive l'année du staff.",
-                'done' => $publicYearId === $target,
-                'action' => 'activate-public',
-            ],
-        ];
+        $stepKey = (string) $request->getBody('step_key', '');
+        $done = $request->getBody('done', '0') === '1';
+
+        // The same target the page itself computes: the year following the
+        // public one. Never the previewed or staff year — a mark belongs to
+        // the transition being prepared, not to whatever year the person
+        // ticking it happens to be looking at.
+        $publicYear = $this->resolver->getCurrentPublicYear();
+        $targetId = $this->scoutYearService->ensureYear(ScoutYearService::nextLabel($publicYear['label']));
+
+        if (!$this->transitionService->setManualStep($targetId, $stepKey, $done, AuthSession::getUserAccountId())) {
+            FlashMessage::set('error', 'Cette étape ne peut pas être cochée manuellement.');
+            return $this->redirect('/admin/scout-year');
+        }
+
+        $this->journalService->log(
+            'core',
+            $done ? 'scout_year_step_marked' : 'scout_year_step_unmarked',
+            'info',
+            $done
+                ? "Étape « {$stepKey} » marquée comme faite pour l'année scoute {$targetId}"
+                : "Étape « {$stepKey} » remise à faire pour l'année scoute {$targetId}",
+            ['step_key' => $stepKey, 'scout_year_id' => $targetId],
+            AuthSession::getUserAccountId()
+        );
+
+        FlashMessage::set('success', $done ? 'Étape marquée comme faite.' : 'Étape remise à faire.');
+
+        return $this->redirect('/admin/scout-year');
     }
 
     /**

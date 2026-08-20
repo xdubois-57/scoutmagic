@@ -33,6 +33,7 @@ class ScoutYearRbacTest extends TestCase
         ['POST', '/admin/scout-year/activate-staff'],
         ['POST', '/admin/scout-year/deactivate-staff'],
         ['POST', '/admin/scout-year/activate-public'],
+        ['POST', '/admin/scout-year/step'],
     ];
 
     protected function setUp(): void

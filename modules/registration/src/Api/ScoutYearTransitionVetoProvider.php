@@ -10,9 +10,9 @@ namespace Modules\Registration\Api;
 
 /**
  * The module's own public API (ARCHITECTURE.md §7.5) letting Core\ScoutYear\
- * ScoutYearAdminService optionally veto the year-transition workflow's step 4
- * (activating a new public year for everyone) while registration requests are
- * still open — wired as a nullable constructor dependency in the composition
+ * ScoutYearAdminService optionally veto the year-transition workflow's final
+ * step (activating a new public year for everyone) while registration requests
+ * are still open — wired as a nullable constructor dependency in the composition
  * root, only when this module is enabled. Core never depends on the module
  * directly; this interface is the only contract between them.
  */
