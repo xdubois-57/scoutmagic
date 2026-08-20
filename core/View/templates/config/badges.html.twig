@@ -25,7 +25,7 @@
                     <span class="badge bg-secondary-subtle text-secondary-emphasis">Par défaut</span>
                 {% endif %}
                 <div class="form-check form-switch ms-auto text-nowrap">
-                    <input type="checkbox" class="form-check-input badge-active-input" role="switch" id="badge-active-{{ badge.id }}" {{ badge.isActive ? 'checked' : '' }}>
+                    <input type="checkbox" class="form-check-input badge-active-input" role="switch" id="badge-active-{{ badge.id }}" {{ badge.isActive ? 'checked' : '' }} aria-checked="{{ badge.isActive ? 'true' : 'false' }}">
                     <label class="form-check-label small" for="badge-active-{{ badge.id }}">Actif</label>
                 </div>
                 {% if not badge.isDefault %}

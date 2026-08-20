@@ -45,7 +45,7 @@
 
 <div class="mb-4">
     <div class="form-check form-switch">
-        <input class="form-check-input" type="checkbox" role="switch" id="form_daily_digest_enabled" name="form_daily_digest_enabled" value="1" {{ form and form.dailyDigestEnabled ? 'checked' : '' }}>
+        <input class="form-check-input" type="checkbox" role="switch" id="form_daily_digest_enabled" name="form_daily_digest_enabled" value="1" {{ form and form.dailyDigestEnabled ? 'checked' : '' }} aria-checked="{{ form and form.dailyDigestEnabled ? 'true' : 'false' }}">
         <label class="form-check-label" for="form_daily_digest_enabled">Résumé quotidien des nouvelles réponses par email</label>
     </div>
     <p class="form-text">Un email récapitulatif vous sera envoyé chaque jour si de nouvelles réponses ont été soumises.</p>

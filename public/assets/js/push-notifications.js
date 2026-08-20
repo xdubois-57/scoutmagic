@@ -28,6 +28,16 @@
         });
     }
 
+    // public/assets/js/nav.js's delegated listener only reacts to a real
+    // 'change' event; every .checked assignment below is programmatic
+    // (async load, permission denied, save failure) and fires none, so
+    // aria-checked would otherwise go stale for a screen reader.
+    function syncAriaChecked() {
+        if (window.ScoutMagicNav && window.ScoutMagicNav.syncSwitchAriaChecked) {
+            window.ScoutMagicNav.syncSwitchAriaChecked(toggle);
+        }
+    }
+
     // Web Push needs a Uint8Array applicationServerKey, not the base64url
     // string the server exposes via data-vapid-public-key.
     function urlBase64ToUint8Array(base64String) {
@@ -61,6 +71,7 @@
         .then(function (registration) { return registration.pushManager.getSubscription(); })
         .then(function (subscription) {
             toggle.checked = subscription !== null;
+            syncAriaChecked();
         })
         .catch(function () {
             // Leave the toggle at its default (off) state — a transient SW
@@ -93,6 +104,7 @@
         return Notification.requestPermission().then(function (permission) {
             if (permission !== 'granted') {
                 toggle.checked = false;
+                syncAriaChecked();
                 if (deniedNotice) deniedNotice.classList.remove('d-none');
                 return undefined;
             }
@@ -108,11 +120,13 @@
                 .then(function (result) {
                     if (!result.success) {
                         toggle.checked = false;
+                        syncAriaChecked();
                         if (errorNotice) errorNotice.classList.remove('d-none');
                     }
                 })
                 .catch(function () {
                     toggle.checked = false;
+                    syncAriaChecked();
                     if (errorNotice) errorNotice.classList.remove('d-none');
                 });
         });

@@ -50,7 +50,8 @@
             <div class="col-12">
                 <div class="form-check form-switch">
                     <input class="form-check-input" type="checkbox" id="notify-enabled" role="switch"
-                           {{ notify_multiday_events_enabled ? 'checked' : '' }}>
+                           {{ notify_multiday_events_enabled ? 'checked' : '' }}
+                           aria-checked="{{ notify_multiday_events_enabled ? 'true' : 'false' }}">
                     <label class="form-check-label" for="notify-enabled">Activer les rappels d'évènements multi-jours</label>
                 </div>
             </div>

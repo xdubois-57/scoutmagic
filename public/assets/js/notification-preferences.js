@@ -18,6 +18,16 @@
         return meta ? meta.content : '';
     }
 
+    // public/assets/js/nav.js's delegated 'change' listener already syncs
+    // aria-checked for a real user click; the two reverts below flip
+    // .checked back programmatically after a failed save, which fires no
+    // 'change' event of its own.
+    function syncAriaChecked(toggle) {
+        if (window.ScoutMagicNav && window.ScoutMagicNav.syncSwitchAriaChecked) {
+            window.ScoutMagicNav.syncSwitchAriaChecked(toggle);
+        }
+    }
+
     // Gate the Push column on browser permission.
     var pushToggles = /** @type {NodeListOf<HTMLInputElement>} */ (root.querySelectorAll('.notification-channel-toggle[data-is-push]'));
     var permissionNotice = document.getElementById('push-permission-notice');
@@ -46,10 +56,12 @@
                 .then(function (data) {
                     if (!data.success) {
                         toggle.checked = !toggle.checked;
+                        syncAriaChecked(toggle);
                     }
                 })
                 .catch(function () {
                     toggle.checked = !toggle.checked;
+                    syncAriaChecked(toggle);
                 });
         });
     });

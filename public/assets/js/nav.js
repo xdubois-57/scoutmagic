@@ -52,4 +52,27 @@
 
     window.ScoutMagicNav = window.ScoutMagicNav || {};
     window.ScoutMagicNav.showDesktopMenu = showDesktopMenu;
+
+    // Bootstrap's role="switch" pattern (form-check form-switch) is purely
+    // visual — the aria-checked a screen reader actually announces is the
+    // page's own responsibility, and Twig only ever renders it once, at
+    // load. Delegated site-wide so every current and future switch stays in
+    // sync on ordinary user interaction without each page's own script
+    // needing to remember to wire this up. This only covers a real 'change'
+    // event; anything that sets .checked programmatically (no event fires)
+    // must call ScoutMagicNav.syncSwitchAriaChecked() itself — see
+    // public/assets/js/push-notifications.js and
+    // public/assets/js/notification-preferences.js.
+    function syncSwitchAriaChecked(input) {
+        input.setAttribute('aria-checked', input.checked ? 'true' : 'false');
+    }
+
+    document.addEventListener('change', function (e) {
+        var target = e.target;
+        if (target instanceof HTMLInputElement && target.type === 'checkbox' && target.getAttribute('role') === 'switch') {
+            syncSwitchAriaChecked(target);
+        }
+    });
+
+    window.ScoutMagicNav.syncSwitchAriaChecked = syncSwitchAriaChecked;
 })();

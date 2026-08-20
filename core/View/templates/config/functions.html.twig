@@ -150,7 +150,8 @@
                             <div class="form-check form-switch ms-auto text-nowrap">
                                 <input type="checkbox" class="form-check-input section-visible-input" role="switch"
                                        id="section-visible-{{ section.id }}"
-                                       {{ section.is_visible ? 'checked' : '' }}>
+                                       {{ section.is_visible ? 'checked' : '' }}
+                                       aria-checked="{{ section.is_visible ? 'true' : 'false' }}">
                                 <label class="form-check-label small" for="section-visible-{{ section.id }}">Visible</label>
                             </div>
                         </div>

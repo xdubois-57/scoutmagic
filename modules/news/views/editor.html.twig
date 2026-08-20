@@ -109,7 +109,8 @@
                     <h2 class="h6">Référencement</h2>
                     <div class="form-check form-switch mb-2">
                         <input class="form-check-input" type="checkbox" role="switch" name="is_indexed" id="is_indexed" value="1"
-                               {{ is_indexed_value ? 'checked' : '' }}>
+                               {{ is_indexed_value ? 'checked' : '' }}
+                               aria-checked="{{ is_indexed_value ? 'true' : 'false' }}">
                         <label class="form-check-label" for="is_indexed">Indexer cette page dans les moteurs de recherche</label>
                     </div>
                     <div id="news-seo-fields" class="{{ is_indexed_value ? '' : 'd-none' }}">

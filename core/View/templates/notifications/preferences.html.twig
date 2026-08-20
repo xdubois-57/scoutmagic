@@ -43,6 +43,7 @@
                                                        aria-label="{{ channel == 'in_app' ? 'Site' : (channel == 'push' ? 'Push' : 'Mail') }} — {{ item.type.label }}"
                                                        {% if channel == 'push' %}data-is-push="1"{% endif %}
                                                        {% if item.channels[channel].value %}checked{% endif %}
+                                                       aria-checked="{{ item.channels[channel].value ? 'true' : 'false' }}"
                                                        {% if item.channels[channel].locked %}disabled{% endif %}>
                                             </div>
                                         </td>
@@ -70,7 +71,7 @@
                 </div>
                 <div class="col-12 col-sm-6">
                     <div class="form-check form-switch">
-                        <input class="form-check-input" type="checkbox" role="switch" id="notification-discretion" {% if notification_discretion %}checked{% endif %}>
+                        <input class="form-check-input" type="checkbox" role="switch" id="notification-discretion" {% if notification_discretion %}checked{% endif %} aria-checked="{{ notification_discretion ? 'true' : 'false' }}">
                         <label class="form-check-label small" for="notification-discretion">
                             Discrétion — masquer le contenu sur l'écran verrouillé
                         </label>
