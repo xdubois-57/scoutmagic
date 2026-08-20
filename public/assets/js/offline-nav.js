@@ -57,7 +57,7 @@
                 if (pathname.indexOf(entry.path) !== 0) {
                     continue;
                 }
-                var remainder = pathname.slice(entry.path.length).replace(/^\/+|\/+$/g, '');
+                var remainder = pathname.slice(entry.path.length).replace(/^\/+/, '').replace(/\/+$/, '');
                 if (remainder !== '' && remainder.indexOf('/') === -1) {
                     return true;
                 }
