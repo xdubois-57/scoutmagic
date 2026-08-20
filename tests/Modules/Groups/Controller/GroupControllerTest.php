@@ -136,7 +136,14 @@ class GroupControllerTest extends TestCase
         $twig = TwigFactory::create(
             dirname(__DIR__, 4) . '/core/View/templates',
             true,
-            ['groups' => dirname(__DIR__, 4) . '/modules/groups/views']
+            [
+                'groups' => dirname(__DIR__, 4) . '/modules/groups/views',
+                // show.html.twig includes @gallery/partials/lightbox.html.twig —
+                // groups hard-requires gallery, and production registers every
+                // enabled module's namespace (public/index.php), so the test
+                // environment has to as well or the page cannot render.
+                'gallery' => dirname(__DIR__, 4) . '/modules/gallery/views',
+            ]
         );
         $twig->addGlobal('site_name', 'Test');
         $twig->addGlobal('is_authenticated', true);
@@ -746,6 +753,39 @@ class GroupControllerTest extends TestCase
         $this->assertStringNotContainsString('/gallery/media/1/thumb', $response->getBody(), 'a pending media never renders an <img>');
         $this->assertStringContainsString('spinner-border', $response->getBody());
         $this->assertStringContainsString('Échec du traitement', $response->getBody());
+    }
+
+    /**
+     * The photo viewer is gallery's own, not a second one written here:
+     * the page must carry gallery's lightbox markup AND give each
+     * finished media cell the trigger attributes gallery.js reads.
+     */
+    public function testShowWiresTheGalleryLightboxOntoFinishedMediaOnly(): void
+    {
+        $creator = GroupsTestHelper::createMember($this->pdo, 'CLB');
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator);
+        $this->groupRepo->setGalleryAlbumId($groupId, 42);
+        $member = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'MLB', $this->sectionId, $this->currentYearId);
+        $postId = GroupsTestHelper::createPostAt($this->pdo, $groupId, 'Photos', '2026-01-01 10:00:00', 1, $creator);
+        (new \Modules\Groups\Repository\PostMediaRepository($this->pdo))->attach($postId, 1, 0);
+        (new \Modules\Groups\Repository\PostMediaRepository($this->pdo))->attach($postId, 2, 1);
+
+        $manager = $this->createMock(DelegatedAlbumManager::class);
+        $manager->method('listMedia')->willReturn([
+            new DelegatedMedia(1, 'photo', 'done', 0, 'a.jpg', '2026-01-01 10:00:00'),
+            new DelegatedMedia(2, 'photo', 'pending', 1, 'b.jpg', '2026-01-01 10:00:00'),
+        ]);
+
+        $body = $this->controller([$member], 'identified', true, $manager)
+            ->show(new Request('GET', '/groups/' . $groupId, [], [], [], []), ['id' => (string) $groupId])
+            ->getBody();
+
+        $this->assertStringContainsString('id="gallery-lightbox"', $body, 'the viewer markup must be on the page');
+        $this->assertStringContainsString('gallery-lightbox-trigger', $body);
+        $this->assertStringContainsString('data-medium-url="/gallery/media/1/medium"', $body);
+        // The still-processing one gets no rendition URL, so gallery.js
+        // skips it and its plain <a> keeps working.
+        $this->assertStringNotContainsString('/gallery/media/2/medium', $body);
     }
 
     /**

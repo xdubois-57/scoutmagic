@@ -415,6 +415,130 @@ describe('groups.js dynamic reactions, in-place pagination and inline edit toggl
         expect(url).toContain('/groups/1/posts/9/delete');
     });
 
+    it('copies a message\'s absolute link and confirms briefly', async () => {
+        vi.useFakeTimers();
+        try {
+            document.body.innerHTML =
+                '<button class="groups-copy-link" data-url="/groups/1/posts/9">Copier le lien</button>';
+            const writeText = vi.fn(() => Promise.resolve());
+            Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+
+            document.querySelector('.groups-copy-link').click();
+            await vi.waitFor(() => expect(writeText).toHaveBeenCalled());
+
+            // Absolute, so the copied link works when pasted anywhere.
+            expect(writeText).toHaveBeenCalledWith(window.location.origin + '/groups/1/posts/9');
+            expect(document.querySelector('.groups-copy-link').textContent).toBe('Lien copié');
+
+            await vi.advanceTimersByTimeAsync(2000);
+            expect(document.querySelector('.groups-copy-link').textContent).toBe('Copier le lien');
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('falls back to a prompt when the clipboard API is unavailable, never silently doing nothing', async () => {
+        document.body.innerHTML =
+            '<button class="groups-copy-link" data-url="/groups/1/posts/9">Copier le lien</button>';
+        Object.defineProperty(navigator, 'clipboard', { configurable: true, value: undefined });
+        const promptSpy = vi.spyOn(window, 'prompt').mockReturnValue(null);
+
+        document.querySelector('.groups-copy-link').click();
+        await vi.waitFor(() => expect(promptSpy).toHaveBeenCalled());
+
+        expect(promptSpy).toHaveBeenCalledWith(
+            'Copiez le lien de ce message :',
+            window.location.origin + '/groups/1/posts/9'
+        );
+    });
+
+    it('deleting a reply removes its own .groups-reply, not the whole post', async () => {
+        document.body.innerHTML = `
+            <article id="post-9">
+                <div class="groups-reply" id="reply-3">
+                    <form class="groups-reply-delete-form" action="/groups/1/replies/3/delete" data-confirm="Supprimer ?">
+                        <button type="submit">Supprimer</button>
+                    </form>
+                </div>
+            </article>
+        `;
+        global.fetch = vi.fn(() => Promise.resolve({ ok: true }));
+        vi.spyOn(window, 'confirm').mockReturnValue(true);
+
+        document.querySelector('.groups-reply-delete-form button').click();
+        await vi.waitFor(() => expect(document.getElementById('reply-3')).toBeNull());
+
+        expect(document.getElementById('post-9')).not.toBeNull();
+        expect(fetch.mock.calls[0][0]).toContain('/groups/1/replies/3/delete');
+    });
+
+    it('editing a post swaps only its body, leaving the replies underneath alone', async () => {
+        document.body.innerHTML = `
+            <article id="post-9">
+                <p id="post-body-9" class="groups-post-body">Ancien texte</p>
+                <div class="groups-replies"><div class="groups-reply" id="reply-3">une réponse</div></div>
+                <form class="groups-edit-form" id="post-edit-9" action="/groups/1/posts/9/edit">
+                    <textarea name="body">Nouveau texte</textarea>
+                    <button type="submit">Enregistrer</button>
+                </form>
+            </article>
+        `;
+        global.fetch = vi.fn(() => Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ html: '<p id="post-body-9" class="groups-post-body">Nouveau texte</p>' })
+        }));
+
+        document.querySelector('.groups-edit-form button').click();
+        await vi.waitFor(() => expect(document.getElementById('post-body-9').textContent).toBe('Nouveau texte'));
+
+        expect(document.getElementById('reply-3')).not.toBeNull();
+        expect(document.getElementById('post-edit-9').classList.contains('d-none')).toBe(true);
+    });
+
+    it('editing a reply swaps its whole card', async () => {
+        document.body.innerHTML = `
+            <div class="groups-reply" id="reply-3">
+                <p id="reply-body-3">Ancien</p>
+                <form class="groups-reply-edit-form" id="reply-edit-3" action="/groups/1/replies/3/edit">
+                    <textarea name="body">Nouveau</textarea>
+                    <button type="submit">Enregistrer</button>
+                </form>
+            </div>
+        `;
+        global.fetch = vi.fn(() => Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ html: '<div class="groups-reply" id="reply-3"><p id="reply-body-3">Nouveau</p></div>' })
+        }));
+
+        document.querySelector('.groups-reply-edit-form button').click();
+        await vi.waitFor(() => expect(document.getElementById('reply-body-3').textContent).toBe('Nouveau'));
+
+        expect(document.getElementById('reply-edit-3')).toBeNull();
+    });
+
+    it('shows a refused edit without closing the form, so the text can be revised', async () => {
+        document.body.innerHTML = `
+            <article id="post-9">
+                <p id="post-body-9">Ancien texte</p>
+                <form class="groups-edit-form" id="post-edit-9" action="/groups/1/posts/9/edit">
+                    <textarea name="body">Grossier</textarea>
+                    <button type="submit">Enregistrer</button>
+                </form>
+            </article>
+        `;
+        const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => {});
+        global.fetch = vi.fn(() => Promise.resolve({
+            ok: false,
+            json: () => Promise.resolve({ error: 'Ce message a été refusé.', type: 'offensive' })
+        }));
+
+        document.querySelector('.groups-edit-form button').click();
+        await vi.waitFor(() => expect(alertSpy).toHaveBeenCalledWith('Ce message a été refusé.'));
+
+        expect(document.getElementById('post-body-9').textContent).toBe('Ancien texte');
+        expect(document.getElementById('post-edit-9').classList.contains('d-none')).toBe(false);
+    });
+
     it('falls back to a real form submit when the delete request fails', async () => {
         document.body.innerHTML = `
             <article id="post-9">

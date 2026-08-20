@@ -163,7 +163,14 @@ class PostControllerTest extends TestCase
         $twig = TwigFactory::create(
             dirname(__DIR__, 4) . '/core/View/templates',
             true,
-            ['groups' => dirname(__DIR__, 4) . '/modules/groups/views']
+            [
+                'groups' => dirname(__DIR__, 4) . '/modules/groups/views',
+                // show.html.twig includes @gallery/partials/lightbox.html.twig —
+                // groups hard-requires gallery, and production registers every
+                // enabled module's namespace (public/index.php), so the test
+                // environment has to as well or the page cannot render.
+                'gallery' => dirname(__DIR__, 4) . '/modules/gallery/views',
+            ]
         );
         foreach (['site_name' => 'Test', 'is_authenticated' => true, 'current_user_email' => 'p@t.be',
                   'current_user_role' => $role, 'config_mode' => false, 'cookie_consent_given' => true,
@@ -614,6 +621,37 @@ class PostControllerTest extends TestCase
     }
 
     // --- edit ----------------------------------------------------------
+
+    /**
+     * Only the body comes back, never the whole card: groups.js swaps
+     * that one <p> so the reply thread expanded underneath survives.
+     */
+    public function testEditingAPostViaAjaxReturnsOnlyTheReRenderedBody(): void
+    {
+        $postId = $this->seedPost();
+        $this->withCsrf(['body' => 'Texte corrigé']);
+
+        $response = $this->controller([$this->memberId])->edit($this->ajaxRequest(), $this->params($postId));
+
+        $this->assertSame(200, $response->getStatusCode());
+        $body = json_decode($response->getBody(), true);
+        $this->assertStringContainsString('Texte corrigé', $body['html']);
+        $this->assertStringContainsString('post-body-' . $postId, $body['html']);
+        $this->assertStringNotContainsString('<article', $body['html'], 'the whole card must not come back');
+        $this->assertSame('Texte corrigé', $this->postRepo->findById($postId)->body);
+    }
+
+    public function testDeletingAPostViaAjaxAcknowledgesInsteadOfRedirecting(): void
+    {
+        $postId = $this->seedPost();
+        $this->withCsrf([]);
+
+        $response = $this->controller([$this->memberId])->delete($this->ajaxRequest(), $this->params($postId));
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame(['deleted' => true], json_decode($response->getBody(), true));
+        $this->assertNull($this->postRepo->findById($postId));
+    }
 
     public function testEditRejectsAMissingCsrfToken(): void
     {

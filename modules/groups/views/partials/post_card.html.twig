@@ -56,6 +56,23 @@
                         <i class="bi bi-three-dots-vertical"></i>
                     </button>
                     <ul class="dropdown-menu dropdown-menu-end">
+                        {#
+                          The deep link already exists and is already
+                          membership-checked on the way in
+                          (Controller\GroupController::post() — a
+                          non-member gets the module's usual 404), so this
+                          only makes the URL notifications already send
+                          reachable by hand. groups.js copies it; with no
+                          clipboard API available it falls back to
+                          prompting with the URL selected, so the entry is
+                          never a dead end.
+                        #}
+                        <li>
+                            <button class="dropdown-item d-flex align-items-center groups-copy-link" style="min-height:44px;"
+                                    type="button" data-url="/groups/{{ group.id }}/posts/{{ row.post.id }}">
+                                Copier le lien
+                            </button>
+                        </li>
                         {% if row.can_edit %}
                             <li>
                                 <button class="dropdown-item d-flex align-items-center groups-edit-toggle" style="min-height:44px;"
@@ -102,7 +119,7 @@
         </div>
 
         {% if row.post.body %}
-            <p class="mb-0 mt-2 groups-post-body" id="post-body-{{ row.post.id }}">{{ row.post.body|nl2br }}</p>
+            {% include '@groups/partials/post_body.html.twig' with { post: row.post } only %}
         {% endif %}
 
         {% include '@groups/partials/post_media_grid.html.twig' with { media: row.media } %}

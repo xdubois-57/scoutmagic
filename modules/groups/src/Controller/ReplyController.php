@@ -209,24 +209,36 @@ class ReplyController extends AbstractController
         // Service\ReplyPresenter for a whole page, just for the one just
         // created.
         if ($this->wantsJson($request) && $reply !== null) {
-            $canModerate = $this->accessService->canModerate($group, $context);
-            $rows = $this->replyPresenter->decorate(
-                [$reply],
-                $context,
-                $canModerate,
-                $group->scoutYearId ?? $context->effectiveScoutYearId,
-                $this->postMediaService->albumMediaById($group)
-            );
-
-            return $this->json([
-                'html' => $this->twig->render('@groups/partials/reply_card.html.twig', [
-                    'row' => $rows[0],
-                    'group' => $group,
-                ]),
-            ]);
+            return $this->json(['html' => $this->renderReplyCard($group, $reply, $context)]);
         }
 
         return $this->redirect('/groups/' . $group->id);
+    }
+
+    /**
+     * One reply, rendered exactly as a whole page of them would be —
+     * groups.js appends it under the post (a new reply) or swaps the
+     * existing card for it (an edit) instead of reloading.
+     *
+     * Goes through Service\ReplyPresenter rather than building the row
+     * here, so a single reply can never disagree with the same reply
+     * rendered as part of a page about, say, whether its edit window is
+     * still open.
+     */
+    private function renderReplyCard(DiscussionGroup $group, Reply $reply, GroupSessionContext $context): string
+    {
+        $rows = $this->replyPresenter->decorate(
+            [$reply],
+            $context,
+            $this->accessService->canModerate($group, $context),
+            $group->scoutYearId ?? $context->effectiveScoutYearId,
+            $this->postMediaService->albumMediaById($group)
+        );
+
+        return $this->twig->render('@groups/partials/reply_card.html.twig', [
+            'row' => $rows[0],
+            'group' => $group,
+        ]);
     }
 
     /**
@@ -259,6 +271,14 @@ class ReplyController extends AbstractController
                 }
             }
 
+            // Re-read so the fragment carries the edited body and the
+            // "modifié" marker, rather than the stale instance the action
+            // was resolved from.
+            $updated = $this->replyRepository->findById($reply->id);
+            if ($this->wantsJson($request) && $updated !== null) {
+                return $this->json(['html' => $this->renderReplyCard($group, $updated, $context)]);
+            }
+
             return $this->redirect('/groups/' . $group->id);
         });
     }
@@ -270,7 +290,7 @@ class ReplyController extends AbstractController
      */
     public function delete(Request $request, array $params): Response
     {
-        return $this->replyAction($params, function (DiscussionGroup $group, Reply $reply, GroupSessionContext $context) {
+        return $this->replyAction($params, function (DiscussionGroup $group, Reply $reply, GroupSessionContext $context) use ($request) {
             $canModerate = $this->accessService->canModerate($group, $context);
             if (!$this->replyService->canDelete($reply, $context, $canModerate)) {
                 return new Response('Vous ne pouvez pas supprimer cette réponse.', 403);
@@ -286,6 +306,12 @@ class ReplyController extends AbstractController
             // CASCADE reach) before the row itself; the reply's own
             // reactions go with it by CASCADE.
             $this->replyService->delete($reply, $group);
+
+            // groups.js removes the card from the DOM instead of
+            // reloading — same shape as a post's own deletion.
+            if ($this->wantsJson($request)) {
+                return $this->json(['deleted' => true]);
+            }
 
             return $this->redirect('/groups/' . $group->id);
         });

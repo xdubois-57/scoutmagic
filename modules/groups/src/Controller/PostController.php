@@ -297,6 +297,18 @@ class PostController extends AbstractController
                 }
             }
 
+            // Only the body comes back, never the whole card: groups.js
+            // swaps this one <p> in place, so the reply thread the member
+            // had expanded underneath survives the edit. Re-read so the
+            // fragment carries what was actually stored (the moderation
+            // layer may have normalised it) rather than what was posted.
+            $updated = $this->postRepository->findById($post->id);
+            if ($this->wantsJson($request) && $updated !== null) {
+                return $this->json([
+                    'html' => $this->twig->render('@groups/partials/post_body.html.twig', ['post' => $updated]),
+                ]);
+            }
+
             return $this->redirect('/groups/' . $group->id);
         });
     }

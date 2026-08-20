@@ -132,8 +132,20 @@
             </div>
         </div>
     </div>
+
+    {#
+      The photo viewer is gallery's own (@gallery/partials/lightbox.html.twig
+      driven by /assets/js/gallery.js) rather than a second one written
+      here: groups hard-requires gallery, every media in a post already
+      lives in a gallery delegated album, and post_media_grid.html.twig's
+      cells carry exactly the trigger attributes that lightbox reads.
+      gallery.js's other blocks each guard on their own DOM first, so
+      loading it on this page starts the lightbox and nothing else.
+    #}
+    {% include '@gallery/partials/lightbox.html.twig' %}
 {% endblock %}
 
 {% block scripts %}
+<script src="/assets/js/gallery.js" defer nonce="{{ csp_nonce }}"></script>
 <script src="/assets/js/groups.js" defer nonce="{{ csp_nonce }}"></script>
 {% endblock %}

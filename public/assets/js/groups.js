@@ -620,41 +620,108 @@
     // page never reloads, each falling back to the real form submit on
     // anything its own JSON path does not recognise (a stale CSRF token,
     // an unexpected response).
+    // "Supprimer", on a post or on a reply: the base.html.twig confirm()
+    // dialog is answered HERE rather than left to that later, separately
+    // registered listener — this one runs first (it is registered by the
+    // time base.html.twig's own script tag runs, later in the page) and
+    // would otherwise fire off the delete fetch() before the member had
+    // even answered the prompt. stopImmediatePropagation() is what stops
+    // base.html.twig's listener from then asking a second, redundant time.
+    //
+    // The caller has already called preventDefault/stopImmediatePropagation
+    // — this only decides what the confirmed deletion does.
+    function submitDeleteInPlace(form, removeSelector) {
+        var container = form.closest(removeSelector);
+        fetch(form.action, {
+            method: 'POST',
+            body: new FormData(form),
+            headers: { 'X-Requested-With': 'XMLHttpRequest' }
+        }).then(function (response) {
+            if (response.ok && container) {
+                container.remove();
+            } else {
+                form.submit();
+            }
+        }).catch(function () {
+            form.submit();
+        });
+    }
+
+    // An inline edit: the server answers with the re-rendered fragment,
+    // which replaces `target`. What `target` is differs by item on
+    // purpose — a post's is only its own <p> body, so the reply thread
+    // expanded underneath survives the edit; a reply's is its whole card,
+    // which has no thread of its own to preserve (and carries the edit
+    // form itself, so closing it is implicit in the swap).
+    function submitInlineEdit(form, target, closeFormAfter) {
+        if (!target) {
+            form.submit();
+            return;
+        }
+
+        fetch(form.action, {
+            method: 'POST',
+            body: new FormData(form),
+            headers: { 'X-Requested-With': 'XMLHttpRequest' }
+        }).then(function (response) {
+            return response.json().catch(function () { return null; }).then(function (data) {
+                return { ok: response.ok, data: data };
+            });
+        }).then(function (result) {
+            if (result.ok && result.data && typeof result.data.html === 'string') {
+                target.outerHTML = result.data.html;
+                if (closeFormAfter) {
+                    form.classList.add('d-none');
+                }
+                kickOffMediaPolling();
+            } else if (result.data && typeof result.data.error === 'string') {
+                // A refusal the server actually returned (the moderation
+                // layer, most often) — the edit form stays open with the
+                // member's text in it so they can revise and resend.
+                window.alert(result.data.error);
+            } else {
+                form.submit();
+            }
+        }).catch(function () {
+            form.submit();
+        });
+    }
+
     document.addEventListener('submit', function (event) {
         var target = /** @type {HTMLElement} */ (event.target);
 
-        // "Supprimer" on a post: the base.html.twig confirm() dialog is
-        // handled here instead of being left to that later, separately
-        // registered listener — this one runs first (it is registered by
-        // the time base.html.twig's own script tag runs, later in the
-        // page) and would otherwise fire off the delete fetch() before
-        // the member had even answered the confirm() prompt.
-        // stopImmediatePropagation() is what stops base.html.twig's
-        // listener from then asking a second, redundant time.
-        var deleteForm = /** @type {HTMLFormElement} */ (target.closest('.groups-post-delete-form'));
+        var postDeleteForm = /** @type {HTMLFormElement} */ (target.closest('.groups-post-delete-form'));
+        var replyDeleteForm = /** @type {HTMLFormElement} */ (target.closest('.groups-reply-delete-form'));
+        var deleteForm = postDeleteForm || replyDeleteForm;
         if (deleteForm) {
-            if (deleteForm.dataset.confirm && !confirm(deleteForm.dataset.confirm)) {
-                event.preventDefault();
-                event.stopImmediatePropagation();
-                return;
-            }
             event.preventDefault();
             event.stopImmediatePropagation();
+            if (deleteForm.dataset.confirm && !confirm(deleteForm.dataset.confirm)) {
+                return;
+            }
+            submitDeleteInPlace(deleteForm, postDeleteForm ? 'article' : '.groups-reply');
+            return;
+        }
 
-            var article = deleteForm.closest('article');
-            fetch(deleteForm.action, {
-                method: 'POST',
-                body: new FormData(deleteForm),
-                headers: { 'X-Requested-With': 'XMLHttpRequest' }
-            }).then(function (response) {
-                if (response.ok && article) {
-                    article.remove();
-                } else {
-                    deleteForm.submit();
-                }
-            }).catch(function () {
-                deleteForm.submit();
-            });
+        // Editing a post: only its own <p> body is swapped (see
+        // submitInlineEdit) so the replies underneath are left alone.
+        var postEditForm = /** @type {HTMLFormElement} */ (target.closest('.groups-edit-form'));
+        if (postEditForm) {
+            event.preventDefault();
+            submitInlineEdit(
+                postEditForm,
+                document.getElementById('post-body-' + postEditForm.id.replace('post-edit-', '')),
+                true
+            );
+            return;
+        }
+
+        // Editing a reply: the whole card comes back, since a reply has no
+        // thread of its own to preserve underneath it.
+        var replyEditForm = /** @type {HTMLFormElement} */ (target.closest('.groups-reply-edit-form'));
+        if (replyEditForm) {
+            event.preventDefault();
+            submitInlineEdit(replyEditForm, replyEditForm.closest('.groups-reply'), false);
             return;
         }
 
@@ -791,6 +858,30 @@
         }
     }
 
+    // "Copier le lien" on a post. The absolute URL is built here from the
+    // relative one the template renders, so the copied link works when
+    // pasted anywhere — a bare "/groups/3/posts/12" would not.
+    //
+    // navigator.clipboard needs a secure context (https, or localhost) and
+    // is simply absent otherwise; window.prompt with the URL pre-selected
+    // is the honest fallback — the member can still copy it by hand,
+    // rather than the entry silently doing nothing.
+    async function copyMessageLink(button) {
+        var url = new URL(button.dataset.url, window.location.origin).href;
+        var original = button.textContent;
+
+        try {
+            if (!navigator.clipboard) {
+                throw new Error('clipboard unavailable');
+            }
+            await navigator.clipboard.writeText(url);
+            button.textContent = 'Lien copié';
+            setTimeout(function () { button.textContent = original; }, 2000);
+        } catch (e) {
+            window.prompt('Copiez le lien de ce message :', url);
+        }
+    }
+
     function toggleEditForm(prefix, id, showEdit) {
         document.getElementById(prefix + '-edit-' + id)?.classList.toggle('d-none', !showEdit);
         document.getElementById(prefix + '-body-' + id)?.classList.toggle('d-none', showEdit);
@@ -802,6 +893,25 @@
     // server-side, and every action is a normal form POST.
     document.addEventListener('click', async function (event) {
         var target = /** @type {HTMLElement} */ (event.target);
+
+        // A media cell is a REAL <a> to the media's large rendition, so it
+        // works with no JS at all. gallery.js's lightbox binds its own
+        // click on the same element without preventing that navigation —
+        // so suppressing it is this file's job, and only when the viewer
+        // is genuinely on the page AND the cell has a rendition to show.
+        // A still-processing or failed media keeps the plain link, which
+        // is exactly what its missing data-medium-url already signals.
+        var mediaCell = /** @type {HTMLElement} */ (target.closest('.groups-media-cell.gallery-lightbox-trigger'));
+        if (mediaCell && mediaCell.dataset.mediumUrl && document.getElementById('gallery-lightbox')) {
+            event.preventDefault();
+            return;
+        }
+
+        var copyLink = /** @type {HTMLElement} */ (target.closest('.groups-copy-link'));
+        if (copyLink) {
+            await copyMessageLink(copyLink);
+            return;
+        }
 
         var tally = /** @type {HTMLElement} */ (target.closest('.groups-reaction-tally'));
         if (tally) {
