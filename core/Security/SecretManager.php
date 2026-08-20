@@ -150,6 +150,12 @@ class SecretManager
         }
 
         file_put_contents($this->secretsPath, $encoded);
+        // Same 0600 as the master key (generateMasterKey): defence in depth so
+        // the encrypted blob isn't world-readable under a default umask on
+        // shared hosting (audit hardening).
+        if (PHP_OS_FAMILY !== 'Windows') {
+            @chmod($this->secretsPath, 0600);
+        }
     }
 
     /**

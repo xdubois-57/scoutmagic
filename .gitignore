@@ -6,17 +6,13 @@ node_modules/
 # Environment and secrets
 .env
 .sonar-token
-storage/keys/
-storage/config/
-storage/temp/
-storage/finance/
-storage/news/
-storage/gallery/
-storage/maintenance/
-storage/core/
-storage/mass_mail/
-storage/section_documents/
-storage/groups/
+# All runtime storage content is ignored so a new module writing to
+# storage/<name>/ can never produce files that are untracked but NOT ignored
+# (and so accidentally committed). .gitkeep files preserve the directory
+# structure (audit hardening).
+storage/**
+!storage/**/
+!storage/**/.gitkeep
 
 # Local configuration
 config/app.php

@@ -49,10 +49,10 @@ class VersionControllerTest extends TestCase
         $this->assertSame(200, $response->getStatusCode());
         $this->assertSame('application/json', $response->getHeaders()['Content-Type']);
         $this->assertSame('1.0.24', $data['version']);
-        $this->assertNull($data['commit']);
+        $this->assertArrayNotHasKey('commit', $data);
     }
 
-    public function testReturnsDevVersionWithCommit(): void
+    public function testReturnsBareDevWithoutDisclosingTheCommitSha(): void
     {
         VersionFile::write($this->basePath, 'dev-abc1234');
 
@@ -60,8 +60,11 @@ class VersionControllerTest extends TestCase
         $data = json_decode($response->getBody(), true);
 
         $this->assertSame(200, $response->getStatusCode());
+        // A dev build reports a bare "dev" — the exact commit sha is never
+        // disclosed publicly (audit hardening).
         $this->assertSame('dev', $data['version']);
-        $this->assertSame('abc1234', $data['commit']);
+        $this->assertArrayNotHasKey('commit', $data);
+        $this->assertStringNotContainsString('abc1234', $response->getBody());
     }
 
     // --- RBAC boundary ---
