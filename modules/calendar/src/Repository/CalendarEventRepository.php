@@ -133,6 +133,29 @@ class CalendarEventRepository
         return array_map(fn(array $row) => $this->hydrate($row), $stmt->fetchAll(\PDO::FETCH_ASSOC));
     }
 
+    /**
+     * How many events start within [$fromDate, $toDate], both inclusive,
+     * across every calendar of the unit. Backs Api\
+     * ScoutYearEventCountProvider, whose only caller asks "has anything
+     * been encoded for this scout year yet" — so visibility is
+     * deliberately not filtered here (see the interface).
+     *
+     * Anchored on start_date alone, like findByCalendarIdsInRange() and
+     * unlike findByCalendarIdsWithEffectiveEndInRange(): a camp that
+     * starts in August and runs into the next scout year still belongs to
+     * the year it starts in, which is the year whose éphémérides someone
+     * was encoding when they created it.
+     */
+    public function countStartingBetween(string $fromDate, string $toDate): int
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT COUNT(*) FROM calendar_events WHERE start_date BETWEEN ? AND ?'
+        );
+        $stmt->execute([$fromDate, $toDate]);
+
+        return (int) $stmt->fetchColumn();
+    }
+
     public function calendarHasEvents(int $calendarId): bool
     {
         $stmt = $this->pdo->prepare('SELECT 1 FROM calendar_events WHERE calendar_id = ? LIMIT 1');

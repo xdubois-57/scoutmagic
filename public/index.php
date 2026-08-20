@@ -610,6 +610,16 @@ $settingService->register('rgpd_custom_prompt', '', 'textarea', 'Prompt RGPD per
 $settingService->register('section_document_reference_date', '30-09', 'text', 'Date de référence — documents de section',
     'Jour et mois (JJ-MM) utilisés pour déterminer qui était actif dans quelle section une année scoute donnée, pour l\'accès aux documents de section.',
     null, '^(0[1-9]|[12]\d|3[01])-(0[1-9]|1[0-2])$', null, true, 250);
+// Scout year transition (Core\ScoutYear\ScoutYearTransitionService) — the
+// day the "Année scoute" page starts presenting the Desk encoding phase as
+// the current one. A signpost and nothing else: it labels the phases and
+// says which one the calendar is in, and it never enables, disables or
+// triggers anything. specifications.md §16.4 removed date-driven
+// transitions deliberately (a computed date cannot be told "not yet" by
+// the registration veto), and this parameter does not bring them back.
+$settingService->register('scout_year_desk_encoding_date', '08-15', 'text', 'Bascule vers l\'encodage dans Desk',
+    'Jour et mois (MM-JJ) à partir desquels la page « Année scoute » présente l\'encodage dans Desk comme la période en cours — jamais d\'année à indiquer, la même configuration se répète d\'une année scoute à l\'autre. Purement indicatif : cette date n\'active, ne bloque et ne déclenche jamais rien.',
+    null, '^(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$', null, true, 252);
 $settingService->register('section_document_compression_enabled', '1', 'boolean', 'Compression des documents PDF de section',
     'Compresse automatiquement les documents PDF de section en arrière-plan après leur ajout, si un outil de compression est disponible sur le serveur.',
     null, null, null, true, 251);
@@ -1011,7 +1021,8 @@ $memberPhotoService = new MemberPhotoService(new MemberPhotoRepository($pdo));
 // Same "one per year, fall back to the most recent earlier one" component
 // as above, keyed by section instead of member — the Staffs page's group
 // photo of a section's chiefs. See Core\Photo\SectionPhotoService.
-$sectionPhotoService = new SectionPhotoService(new SectionPhotoRepository($pdo));
+$sectionPhotoRepository = new SectionPhotoRepository($pdo);
+$sectionPhotoService = new SectionPhotoService($sectionPhotoRepository);
 $sectionPhotoProcessor = new SectionPhotoProcessor();
 
 // Generic, reusable-anywhere "editable image" landscape crop (home page
@@ -1505,6 +1516,7 @@ $router->addRoute('POST', '/admin/scout-year/clear-preview', ScoutYearController
 $router->addRoute('POST', '/admin/scout-year/activate-staff', ScoutYearController::class, 'activateStaff', 'admin');
 $router->addRoute('POST', '/admin/scout-year/deactivate-staff', ScoutYearController::class, 'deactivateStaff', 'admin');
 $router->addRoute('POST', '/admin/scout-year/activate-public', ScoutYearController::class, 'activatePublic', 'admin');
+$router->addRoute('POST', '/admin/scout-year/step', ScoutYearController::class, 'toggleStep', 'admin');
 
 // Settings
 $router->addRoute('GET', '/config/settings', SettingsController::class, 'index', 'superadmin', ['label' => 'Paramètres', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]]);
@@ -1788,7 +1800,6 @@ $uploadController->setJournalService($journalService);
 $frontController->registerController(UploadController::class, $uploadController);
 $frontController->registerController(\Core\Http\Controller\PwaController::class, new \Core\Http\Controller\PwaController($twig, $settingService, $unitLogoService));
 $frontController->registerController(JournalController::class, new JournalController($twig, $journalRepo, $userAccountRepo));
-$frontController->registerController(ScoutYearController::class, new ScoutYearController($twig, $scoutYearResolver, $scoutYearAdminService, $scoutYearService, $journalService));
 $frontController->registerController(MemberSearchController::class, new MemberSearchController($twig, $memberSearchService, $memberService, $scoutYearResolver, $memberYearService, $departureService));
 $frontController->registerController(TemporaryMemberController::class, new TemporaryMemberController($twig, $memberSearchService, $scoutYearResolver, $journalService));
 $frontController->registerController(SettingsController::class, new SettingsController($twig, $settingService, $journalService, $unitLogoService, $notificationService, $userAccountRepo));
@@ -1861,6 +1872,12 @@ if (in_array('calendar', $moduleManager->getEnabledModuleIds(), true)) {
     $calendarEventRepo = new \Modules\Calendar\Repository\CalendarEventRepository($pdo);
     $calendarPersonalTokenRepo = new \Modules\Calendar\Repository\CalendarPersonalTokenRepository($pdo, $encryptionService);
     $calendarUnitFeedTokenRepo = new \Modules\Calendar\Repository\CalendarUnitFeedTokenRepository($pdo, $encryptionService);
+
+    // Api\ScoutYearEventCountProvider (ARCHITECTURE.md §7.5) — read by the
+    // "Année scoute" workflow to tell whether this year's éphémérides have
+    // been encoded. Left null below when this module is off, which is what
+    // makes that workflow drop its "encoder les éphémérides" step.
+    $calendarScoutYearEventCount = new \Modules\Calendar\Service\ScoutYearEventCountService($calendarEventRepo);
 
     $calendarService = new \Modules\Calendar\Service\CalendarService(
         $calendarRepo, $calendarEventRepo, $sectionService, $calendarUnitFeedTokenRepo
@@ -2757,15 +2774,22 @@ if (in_array('registration', $moduleManager->getEnabledModuleIds(), true)) {
 
     // Iteration 7 — the year-transition veto (Api\
     // ScoutYearTransitionVetoProvider, ARCHITECTURE.md §7.5/§8.38): Core\
-    // ScoutYear\ScoutYearAdminService/ScoutYearController were already
-    // registered earlier (before this module's services existed, same
-    // ordering constraint as ImportController/mass_mail above) with a
-    // null veto — rebuilt and re-registered here with the real one.
+    // ScoutYear\ScoutYearAdminService was built earlier with a null veto,
+    // before this module's services existed — rebuilt here with the real
+    // one. ScoutYearController is no longer re-registered here: two
+    // different modules now feed that page (this one and calendar), so it
+    // is registered once, after every module block, with whichever
+    // providers exist by then.
     $registrationScoutYearVeto = new \Modules\Registration\Service\ScoutYearTransitionVetoService($registrationRequestRepo);
     $scoutYearAdminService = new ScoutYearAdminService($settingService, $registrationScoutYearVeto);
-    $frontController->registerController(
-        ScoutYearController::class,
-        new ScoutYearController($twig, $scoutYearResolver, $scoutYearAdminService, $scoutYearService, $journalService)
+
+    // Api\ScoutYearPreparationProvider (ARCHITECTURE.md §7.5) — the second
+    // half of what the "Année scoute" workflow asks this module: how much
+    // of the Passage page is still undecided. Its absence is also what
+    // makes that workflow drop its three preparation steps, which are this
+    // module's own pages.
+    $registrationScoutYearPreparation = new \Modules\Registration\Service\ScoutYearPreparationService(
+        $registrationPassageService, $scoutYearResolver, $scoutYearService
     );
 
     // Iteration 7 — "Prévisions" (own ForecastService, reusing
@@ -2961,6 +2985,35 @@ if (isset($galleryAlbumService, $galleryMediaService, $galleryMediaRepo, $galler
         )
     );
 }
+
+// Scout year transition workflow — registered here, after every module
+// block, rather than next to the other core controllers: the "Année
+// scoute" page is fed by two optional modules at once (registration, for
+// the veto and the Passage/Départs steps, and calendar, for the
+// éphémérides step), and both are wired above. Registering it earlier and
+// re-registering it inside each module block would have made the page's
+// contents depend on which module happened to be enabled last.
+//
+// Every provider below is null when its module is off (ARCHITECTURE.md
+// §7.5); Core\ScoutYear\ScoutYearTransitionService then simply drops the
+// steps that module owns.
+$scoutYearTransitionService = new \Core\ScoutYear\ScoutYearTransitionService(
+    $scoutYearResolver,
+    new \Core\ScoutYear\ScoutYearTransitionStepRepository($pdo),
+    $sectionPhotoRepository,
+    $userAccountRepo,
+    $settingService,
+    $moduleManager->getEnabledModuleIds(),
+    $registrationScoutYearPreparation ?? null,
+    $calendarScoutYearEventCount ?? null
+);
+$frontController->registerController(
+    ScoutYearController::class,
+    new ScoutYearController(
+        $twig, $scoutYearResolver, $scoutYearAdminService, $scoutYearService,
+        $scoutYearTransitionService, $journalService
+    )
+);
 
 // RGPD configuration controller
 $frontController->registerController(RgpdConfigController::class, new RgpdConfigController($twig, $editableContentService, $rgpdContentService, $settingService, $moduleManager, $journalService));

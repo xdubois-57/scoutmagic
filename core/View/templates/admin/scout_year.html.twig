@@ -4,17 +4,20 @@
  END-TO-END TEST: tests/e2e/specs/scout-year-transition.spec.js.
 
  That test replays, in a real browser, exactly the workflow described
- below — the four steps, their order, each button staying disabled until
- the previous step is done, the preview that is scoped to one session, the
- staff year that the public must not see, and the final switch that clears
- the staff year. It reads the labels off this page rather than copying
- them, but it cannot guess a change of plan.
+ below — the three phases, every step in order, the steps that vanish
+ when their module is off, the ones a human ticks off versus the ones the
+ site works out for itself, the fact that the order is advice rather than
+ a gate, the two blocks that are real (a staff year before the public
+ one, and the registration veto), the preview that is scoped to one
+ session, the staff year that the public must not see, and the final
+ switch that clears the staff year. It reads the labels off this page
+ rather than copying them, but it cannot guess a change of plan.
 
  **Any change to this workflow must be reflected in that test, in the same
  change**: a step added, removed or reordered, a new blocking condition, a
- new control, or simply rewording a label the test relies on. The step
- wording itself comes from Core\Http\Controller\ScoutYearController::
- buildTransitionSteps(), which carries the same reminder.
+ new control, or simply rewording a label the test relies on. The steps
+ and phases themselves come from Core\ScoutYear\ScoutYearTransitionService,
+ which carries the same reminder.
 
  The test is blocking: it fails CI (the "End-to-end (browser)" job) and
  scripts/release.sh's E2E gate. See README.md § Tests de bout en bout.
@@ -23,8 +26,8 @@
 {% block content %}
     <h1>Année scoute</h1>
     <p class="text-body-secondary">
-        Gérez l'année scoute affichée par le site : prévisualisez une année, préparez la prochaine avec le staff,
-        puis basculez tout le monde le moment venu.
+        Gérez l'année scoute affichée par le site : préparez la prochaine avec les staffs, encodez-la dans Desk,
+        importez-la, puis basculez tout le monde le moment venu.
     </p>
 
     {% if public_year_ended %}
@@ -88,140 +91,235 @@
         </div>
     </div>
 
-    {# Transition workflow — stepped guide toward the next year #}
+    {# Transition workflow — phased, stepped guide toward the next year #}
     <div class="card mb-3">
         <div class="card-body">
-            <h2 class="h5 mb-3">Changer d'année</h2>
+            <h2 class="h5 mb-1">Changer d'année</h2>
+            <p class="text-body-secondary small mb-4">
+                {{ step_count }} étapes, en trois temps. L'ordre est un conseil, pas un verrou : vous pouvez agir
+                à tout moment sur n'importe quelle étape. Les dates ci-dessous sont de simples repères, configurables
+                dans les paramètres — elles ne déclenchent et ne bloquent jamais rien.
+            </p>
 
-            <ol class="list-unstyled step-list mb-0">
-                {% for step in transition_steps %}
-                {% set is_current = step.number == current_step %}
-                <li class="step-item d-flex gap-3 {% if not loop.last %}pb-4{% endif %} {{ step.done ? 'step-item--done' : (is_current ? 'step-item--current' : 'step-item--upcoming') }}">
-                    <div class="step-item__marker flex-shrink-0">
-                        <span class="step-circle {{ step.done ? 'step-circle--done' : 'step-circle--pending' }}"
-                              aria-hidden="true">
-                            {% if step.done %}<i class="bi bi-check-lg"></i>{% else %}{{ step.number }}{% endif %}
-                        </span>
-                    </div>
-                    <div class="flex-grow-1 pt-1">
-                        <div class="fw-semibold {{ step.done ? 'text-success-emphasis' : '' }}">{{ step.title }}</div>
-                        <p class="text-body-secondary small mb-2">{{ step.description }}</p>
+            {% for phase in phases %}
+            <section class="mb-4" data-phase="{{ phase.key }}">
+                <div class="d-flex align-items-center gap-2 flex-wrap mb-1">
+                    <h3 class="h6 mb-0">{{ phase.title }}</h3>
+                    {% if phase.current %}
+                        <span class="badge bg-primary-subtle text-primary-emphasis">Période en cours</span>
+                    {% endif %}
+                </div>
+                {% if phase.subtitle %}
+                    <p class="text-body-secondary small mb-2">{{ phase.subtitle }}</p>
+                {% endif %}
+                {% if phase.note %}
+                <div class="alert alert-info d-flex align-items-start gap-2 py-2 px-3 mb-3" role="note">
+                    <i class="bi bi-info-circle-fill mt-1" aria-hidden="true"></i>
+                    <div class="small">{{ phase.note }}</div>
+                </div>
+                {% endif %}
 
-                        {% if step.number == 3 and blocking_request_count > 0 %}
-                        <div class="alert alert-warning d-flex align-items-start gap-2 py-2 px-3 mb-2" role="alert">
-                            <i class="bi bi-exclamation-triangle-fill mt-1" aria-hidden="true"></i>
-                            <div class="small">
-                                {{ blocking_request_count }} demande(s) d'inscription ne sont pas encore clôturées
-                                (toutes années confondues). Cela n'empêche pas d'activer l'année pour le staff, mais
-                                bloquera l'étape 4 (activation pour tout le monde) tant qu'elles restent ouvertes.
-                                <a href="/config/inscriptions">Aller à la gestion des inscriptions</a>.
-                            </div>
+                <ol class="list-unstyled step-list mb-0">
+                    {% for step in phase.steps %}
+                    {% set is_current = step.number == current_step %}
+                    <li class="step-item d-flex gap-3 {% if not loop.last %}pb-4{% endif %} {{ step.done ? 'step-item--done' : (is_current ? 'step-item--current' : 'step-item--upcoming') }}"
+                        data-step="{{ step.key }}">
+                        <div class="step-item__marker flex-shrink-0">
+                            <span class="step-circle {{ step.done ? 'step-circle--done' : 'step-circle--pending' }}"
+                                  aria-hidden="true">
+                                {% if step.done %}<i class="bi bi-check-lg"></i>{% else %}{{ step.number }}{% endif %}
+                            </span>
                         </div>
-                        {% endif %}
-                        {% if step.number == 4 and blocking_request_count > 0 %}
-                        <div class="alert alert-danger d-flex align-items-start gap-2 py-2 px-3 mb-2" role="alert">
-                            <i class="bi bi-x-octagon-fill mt-1" aria-hidden="true"></i>
-                            <div class="small">
-                                Activation bloquée : {{ blocking_request_count }} demande(s) d'inscription ne sont pas
-                                encore clôturées (toutes années confondues). Traitez-les — individuellement ou en
-                                masse (« tout refuser », « tout retirer ») — depuis la
-                                <a href="/config/inscriptions">page de gestion des inscriptions</a> avant de pouvoir
-                                basculer tout le monde vers la nouvelle année.
-                            </div>
-                        </div>
-                        {% endif %}
+                        <div class="flex-grow-1 pt-1">
+                            <div class="fw-semibold {{ step.done ? 'text-success-emphasis' : '' }}">{{ step.title }}</div>
+                            <p class="text-body-secondary small mb-2">{{ step.description }}</p>
 
-                        {% if step.action == 'preview' %}
-                            <form method="post" action="/admin/scout-year/preview"
-                                  class="d-flex flex-wrap gap-2 align-items-end">
-                                {{ csrf_field()|raw }}
-                                <div>
-                                    <label class="form-label small mb-1" for="preview-year">Année</label>
-                                    <select class="form-select form-select-sm" name="scout_year_id" id="preview-year">
-                                        {% for y in years %}
-                                            <option value="{{ y.id }}" {{ y.id == target_year.id ? 'selected' : '' }}>{{ y.label }}</option>
-                                        {% endfor %}
-                                    </select>
-                                </div>
-                                <button type="submit"
-                                        class="btn btn-sm {{ is_current ? 'btn-primary' : 'btn-outline-secondary' }}"
-                                        {{ is_current ? '' : 'disabled' }}>
-                                    Prévisualiser
-                                </button>
-                            </form>
-                            {% if effective_year.override_type == 'session' %}
-                            <form method="post" action="/admin/scout-year/clear-preview" class="mt-2">
-                                {{ csrf_field()|raw }}
-                                <button type="submit" class="btn btn-sm btn-outline-secondary">Revenir à l'année courante</button>
-                            </form>
-                            {% endif %}
-
-                        {% elseif step.action == 'import' %}
-                            <a href="/admin/import"
-                               class="btn btn-sm {{ is_current ? 'btn-primary' : 'btn-outline-secondary' }}">
-                                Aller à l'import Desk
-                            </a>
-
-                        {% elseif step.action == 'activate-staff' %}
-                            <form method="post" action="/admin/scout-year/activate-staff"
-                                  class="d-flex flex-wrap gap-2 align-items-end">
-                                {{ csrf_field()|raw }}
-                                <div>
-                                    <label class="form-label small mb-1" for="staff-year">Année</label>
-                                    <select class="form-select form-select-sm" name="scout_year_id" id="staff-year">
-                                        {% for y in years %}
-                                            <option value="{{ y.id }}" {{ y.id == target_year.id ? 'selected' : '' }}>{{ y.label }}</option>
-                                        {% endfor %}
-                                    </select>
-                                </div>
-                                <button type="submit"
-                                        class="btn btn-sm {{ is_current ? 'btn-primary' : 'btn-outline-secondary' }}"
-                                        {{ is_current ? '' : 'disabled' }}>
-                                    Activer pour le staff
-                                </button>
-                            </form>
-
-                        {% elseif step.action == 'activate-public' %}
-                            <form method="post" action="/admin/scout-year/activate-public" id="activate-public-form"
-                                  class="d-flex flex-wrap gap-2 align-items-end">
-                                {{ csrf_field()|raw }}
-                                <div>
-                                    <label class="form-label small mb-1" for="public-year">Année</label>
-                                    <select class="form-select form-select-sm" name="scout_year_id" id="public-year"
-                                            {{ can_activate_public ? '' : 'disabled' }}>
-                                        {% for y in years %}
-                                            <option value="{{ y.id }}" {{ y.id == target_year.id ? 'selected' : '' }}>{{ y.label }}</option>
-                                        {% endfor %}
-                                    </select>
-                                </div>
-                                <button type="submit"
-                                        class="btn btn-sm {{ is_current ? 'btn-danger' : 'btn-outline-secondary' }}"
-                                        {{ (is_current and can_activate_public) ? '' : 'disabled' }}>
-                                    Activer pour tout le monde
-                                </button>
-                            </form>
-                            {% if not staff_year %}
-                            <p class="text-body-secondary small mb-0 mt-2">
-                                Activez d'abord une année pour le staff (étape 3).
+                            {% if step.progress %}
+                            <p class="text-body-secondary small mb-2">
+                                <i class="bi bi-clipboard-data me-1" aria-hidden="true"></i>{{ step.progress }}
                             </p>
                             {% endif %}
-                        {% endif %}
-                    </div>
-                </li>
-                {% endfor %}
-            </ol>
+
+                            {% if step.warning %}
+                            <div class="alert alert-warning d-flex align-items-start gap-2 py-2 px-3 mb-2" role="alert">
+                                <i class="bi bi-exclamation-triangle-fill mt-1" aria-hidden="true"></i>
+                                <div class="small">{{ step.warning }}</div>
+                            </div>
+                            {% endif %}
+
+                            {% if step.note %}
+                            <div class="alert alert-info d-flex align-items-start gap-2 py-2 px-3 mb-2" role="note">
+                                <i class="bi bi-info-circle-fill mt-1" aria-hidden="true"></i>
+                                <div class="small">
+                                    {{ step.note }}
+                                    {% if step.note_url %}
+                                        <a href="{{ step.note_url }}">{{ step.note_label }}</a>.
+                                    {% endif %}
+                                </div>
+                            </div>
+                            {% endif %}
+
+                            {% if step.key == 'activate_staff' and blocking_request_count > 0 %}
+                            <div class="alert alert-warning d-flex align-items-start gap-2 py-2 px-3 mb-2" role="alert">
+                                <i class="bi bi-exclamation-triangle-fill mt-1" aria-hidden="true"></i>
+                                <div class="small">
+                                    {{ blocking_request_count }} demande(s) d'inscription ne sont pas encore clôturées
+                                    (toutes années confondues). Cela n'empêche pas d'activer l'année pour le staff, mais
+                                    bloquera l'activation pour tout le monde tant qu'elles restent ouvertes.
+                                    <a href="/config/inscriptions">Aller à la gestion des inscriptions</a>.
+                                </div>
+                            </div>
+                            {% endif %}
+                            {% if step.key == 'activate_public' and blocking_request_count > 0 %}
+                            <div class="alert alert-danger d-flex align-items-start gap-2 py-2 px-3 mb-2" role="alert">
+                                <i class="bi bi-x-octagon-fill mt-1" aria-hidden="true"></i>
+                                <div class="small">
+                                    Activation bloquée : {{ blocking_request_count }} demande(s) d'inscription ne sont pas
+                                    encore clôturées (toutes années confondues). Traitez-les — individuellement ou en
+                                    masse (« tout refuser », « tout retirer ») — depuis la
+                                    <a href="/config/inscriptions">page de gestion des inscriptions</a> avant de pouvoir
+                                    basculer tout le monde vers la nouvelle année.
+                                </div>
+                            </div>
+                            {% endif %}
+
+                            {% if step.action == 'preview' %}
+                                <form method="post" action="/admin/scout-year/preview"
+                                      class="d-flex flex-wrap gap-2 align-items-end">
+                                    {{ csrf_field()|raw }}
+                                    <div>
+                                        <label class="form-label small mb-1" for="preview-year">Année</label>
+                                        <select class="form-select form-select-sm" name="scout_year_id" id="preview-year">
+                                            {% for y in years %}
+                                                <option value="{{ y.id }}" {{ y.id == target_year.id ? 'selected' : '' }}>{{ y.label }}</option>
+                                            {% endfor %}
+                                        </select>
+                                    </div>
+                                    <button type="submit"
+                                            class="btn btn-sm {{ is_current ? 'btn-primary' : 'btn-outline-secondary' }}">
+                                        Prévisualiser
+                                    </button>
+                                </form>
+                                {% if effective_year.override_type == 'session' %}
+                                <form method="post" action="/admin/scout-year/clear-preview" class="mt-2">
+                                    {{ csrf_field()|raw }}
+                                    <button type="submit" class="btn btn-sm btn-outline-secondary">Revenir à l'année courante</button>
+                                </form>
+                                {% endif %}
+
+                            {% elseif step.action == 'activate-staff' %}
+                                <form method="post" action="/admin/scout-year/activate-staff"
+                                      class="d-flex flex-wrap gap-2 align-items-end">
+                                    {{ csrf_field()|raw }}
+                                    <div>
+                                        <label class="form-label small mb-1" for="staff-year">Année</label>
+                                        <select class="form-select form-select-sm" name="scout_year_id" id="staff-year">
+                                            {% for y in years %}
+                                                <option value="{{ y.id }}" {{ y.id == target_year.id ? 'selected' : '' }}>{{ y.label }}</option>
+                                            {% endfor %}
+                                        </select>
+                                    </div>
+                                    <button type="submit"
+                                            class="btn btn-sm {{ is_current ? 'btn-primary' : 'btn-outline-secondary' }}">
+                                        Activer pour le staff
+                                    </button>
+                                </form>
+
+                            {% elseif step.action == 'activate-public' %}
+                                {# The one hard gate left in the workflow, and the only disabled
+                                   control on this page: activating the public year needs a staff
+                                   year first, and the registration module vetoes it while requests
+                                   are open (specifications.md §19.2). Re-checked server-side in
+                                   Core\ScoutYear\ScoutYearAdminService::activatePublicYear(). #}
+                                <form method="post" action="/admin/scout-year/activate-public" id="activate-public-form"
+                                      class="d-flex flex-wrap gap-2 align-items-end">
+                                    {{ csrf_field()|raw }}
+                                    <div>
+                                        <label class="form-label small mb-1" for="public-year">Année</label>
+                                        <select class="form-select form-select-sm" name="scout_year_id" id="public-year"
+                                                {{ can_activate_public ? '' : 'disabled' }}>
+                                            {% for y in years %}
+                                                <option value="{{ y.id }}" {{ y.id == target_year.id ? 'selected' : '' }}>{{ y.label }}</option>
+                                            {% endfor %}
+                                        </select>
+                                    </div>
+                                    <button type="submit"
+                                            class="btn btn-sm {{ is_current ? 'btn-danger' : 'btn-outline-secondary' }}"
+                                            {{ can_activate_public ? '' : 'disabled' }}>
+                                        Activer pour tout le monde
+                                    </button>
+                                </form>
+                                {% if not staff_year %}
+                                <p class="text-body-secondary small mb-0 mt-2">
+                                    Activez d'abord une année pour le staff.
+                                </p>
+                                {% endif %}
+
+                            {% elseif step.action_url %}
+                                <a href="{{ step.action_url }}"
+                                   class="btn btn-sm {{ is_current ? 'btn-primary' : 'btn-outline-secondary' }}">
+                                    {{ step.action_label }}
+                                </a>
+                            {% endif %}
+
+                            {% if step.manual %}
+                            {# Steps the site cannot observe (encoding in Desk, fees) or whose
+                               completion is a judgement call (badges, trombinoscope) are ticked
+                               by hand. A step that also has a signal keeps its checkbox as an
+                               override, so nobody is stuck behind a signal that will not fire
+                               for their unit. #}
+                            <form method="post" action="/admin/scout-year/step" class="mt-2 js-step-form">
+                                {{ csrf_field()|raw }}
+                                <input type="hidden" name="step_key" value="{{ step.key }}">
+                                <input type="hidden" name="done" value="{{ step.manual_done ? '0' : '1' }}">
+                                <div class="form-check">
+                                    <input class="form-check-input js-step-checkbox" type="checkbox"
+                                           id="step-check-{{ step.key }}"
+                                           {{ step.manual_done ? 'checked' : '' }}>
+                                    <label class="form-check-label small" for="step-check-{{ step.key }}">
+                                        {% if step.manual_done %}
+                                            Fait{% if step.done_by %} par {{ step.done_by }}{% endif %}
+                                            {%- if step.done_at %} le {{ step.done_at|slice(8, 2) }}/{{ step.done_at|slice(5, 2) }}/{{ step.done_at|slice(0, 4) }}{% endif %}
+                                        {% else %}
+                                            Marquer cette étape comme faite
+                                        {% endif %}
+                                    </label>
+                                </div>
+                                <noscript>
+                                    <button type="submit" class="btn btn-sm btn-outline-secondary mt-1">
+                                        {{ step.manual_done ? 'Remettre à faire' : 'Marquer comme fait' }}
+                                    </button>
+                                </noscript>
+                            </form>
+                            {% endif %}
+                        </div>
+                    </li>
+                    {% endfor %}
+                </ol>
+            </section>
+            {% endfor %}
         </div>
     </div>
 {% endblock %}
 
 {% block scripts %}
-{% if can_activate_public %}
 <script nonce="{{ csp_nonce }}">
+{% if can_activate_public %}
 document.getElementById('activate-public-form')?.addEventListener('submit', function (e) {
     if (!confirm('Activer cette année pour tout le monde ? Le public verra immédiatement cette année.')) {
         e.preventDefault();
     }
 });
-</script>
 {% endif %}
+// Ticking a step submits its own form. The checkbox itself carries no
+// name: the value posted is the hidden "done" field, already set to the
+// opposite of the current state server-side, so a double-click or a
+// stale page can never post a state that disagrees with what was
+// rendered. Without JavaScript the <noscript> button does the same thing.
+document.querySelectorAll('.js-step-checkbox').forEach(function (checkbox) {
+    checkbox.addEventListener('change', function () {
+        checkbox.closest('.js-step-form')?.submit();
+    });
+});
+</script>
 {% endblock %}

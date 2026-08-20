@@ -40,6 +40,24 @@ class SectionPhotoRepository
     }
 
     /**
+     * How many distinct sections have a photo of their own for exactly this
+     * scout year — deliberately *not* findFileIdForYearOrEarlier()'s
+     * fallback semantics. The Staffs page falls back to last year's photo
+     * so a section is never shown photo-less; the "Année scoute" workflow
+     * asks the opposite question ("has this year's photo actually been
+     * taken yet?"), which last year's photo answers with a no.
+     */
+    public function countSectionsWithPhotoForYear(int $scoutYearId): int
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT COUNT(DISTINCT section_id) FROM section_staff_photos WHERE scout_year_id = ?'
+        );
+        $stmt->execute([$scoutYearId]);
+
+        return (int) $stmt->fetchColumn();
+    }
+
+    /**
      * Create or replace the photo for a section at a given scout year.
      */
     public function upsert(int $sectionId, int $scoutYearId, int $fileId, ?int $createdBy): void

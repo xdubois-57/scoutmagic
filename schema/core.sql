@@ -476,6 +476,35 @@ CREATE TABLE section_staff_photos (
     CONSTRAINT fk_ssp_created_by FOREIGN KEY (created_by) REFERENCES user_accounts(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Manual check-off state for the "Année scoute" transition workflow
+-- (Core\ScoutYear\ScoutYearTransitionService). Most of that workflow's
+-- steps are derived from a real signal the site can observe — members
+-- imported, staff year set, every section photographed — and store
+-- nothing here. This table exists for the steps whose work happens
+-- somewhere the site cannot see at all (encoding into Desk, updating the
+-- fees) or whose completion is a human judgement call (badges assigned,
+-- trombinoscope reviewed): the only way those can ever read as done is
+-- for someone to say so.
+--
+-- A row's presence *is* the "done" state; un-ticking deletes it. Keyed by
+-- scout year, so next year's workflow starts blank on its own without any
+-- reset step, exactly like the Départs marks the registration module
+-- clears at each import.
+--
+-- step_key is a stable string (never a step number) so reordering or
+-- inserting a step in the workflow never silently re-points an existing
+-- row at a different step.
+CREATE TABLE scout_year_transition_steps (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    scout_year_id INT UNSIGNED NOT NULL,
+    step_key VARCHAR(50) NOT NULL,
+    done_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    done_by INT UNSIGNED,
+    UNIQUE INDEX idx_year_step (scout_year_id, step_key),
+    CONSTRAINT fk_syts_year FOREIGN KEY (scout_year_id) REFERENCES scout_years(id) ON DELETE CASCADE,
+    CONSTRAINT fk_syts_done_by FOREIGN KEY (done_by) REFERENCES user_accounts(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- Private per-member documents (member page "Documents privés" —
 -- Core\Member\MemberDocumentService), e.g. a future fiscal attestation.
 -- The file itself is stored encrypted-at-rest (Core\File\
