@@ -499,14 +499,16 @@ class RentalConfigController extends AbstractController
     }
 
     /**
+     * The closed list of asset types, asked of the service rather than
+     * re-derived here: the same list has to shape the `<select>` and to
+     * decide what a POST may contain, and two derivations of one rule is
+     * how a form starts offering something the server refuses.
+     *
      * @return string[]
      */
     private function typeSuggestions(): array
     {
-        $raw = (string) ($this->settingService->get('asset_type_suggestions', 'rental') ?: '');
-        $types = array_values(array_filter(array_map('trim', explode(',', $raw)), static fn(string $t) => $t !== ''));
-
-        return $types !== [] ? $types : RentalAssetService::SUGGESTED_TYPES;
+        return $this->assetService->allowedTypes();
     }
 
     private static function optionalInt(mixed $value): ?int

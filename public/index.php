@@ -3292,10 +3292,16 @@ if (in_array('rental', $moduleManager->getEnabledModuleIds(), true)) {
         $rentalManagerRepository
     );
     $rentalSlugGenerator = new \Modules\Rental\Service\RentalSlugGenerator($rentalAssetRepository);
+    // The closed list of asset types comes from configuration, so a unit
+    // that lets out something nobody anticipated adds it once rather than
+    // retyping it per asset. The service, not the form, is what enforces it.
     $rentalAssetService = new \Modules\Rental\Service\RentalAssetService(
         $rentalAssetRepository,
         $rentalSlugGenerator,
-        $journalService
+        $journalService,
+        \Modules\Rental\Service\RentalAssetService::parseTypeList(
+            (string) ($settingService->get('asset_type_suggestions', 'rental') ?: '')
+        )
     );
     $rentalManagerService = new \Modules\Rental\Service\RentalManagerService(
         $rentalManagerRepository,

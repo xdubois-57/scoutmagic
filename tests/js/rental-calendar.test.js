@@ -9,7 +9,7 @@
 // isolation is exactly the two pure functions: which date a tap sets, and
 // what URL that becomes.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { nextSelection, selectionUrl, wireCalendar } from '../../public/assets/js/rental-calendar.js';
+import { fragmentUrl, nextSelection, selectionUrl, wireCalendar } from '../../public/assets/js/rental-calendar.js';
 
 describe('nextSelection', () => {
     it('sets the arrival on the first tap', () => {
@@ -205,5 +205,27 @@ describe('wireCalendar', () => {
 
         expect(assigned[0]).toContain('arrival=2027-07-17');
         expect(assigned[0]).toContain('departure=2027-07-20');
+    });
+});
+
+describe('fragmentUrl', () => {
+    it('appends /apercu to the asset path and keeps the whole query string', () => {
+        expect(fragmentUrl('https://unite.test/locations/local?month=2027-07&arrival=2027-07-17'))
+            .toBe('/locations/local/apercu?month=2027-07&arrival=2027-07-17');
+    });
+
+    it('works on a bare asset URL', () => {
+        expect(fragmentUrl('https://unite.test/locations/local')).toBe('/locations/local/apercu');
+    });
+
+    it('does not double a trailing slash', () => {
+        expect(fragmentUrl('https://unite.test/locations/local/')).toBe('/locations/local/apercu');
+    });
+
+    it('carries a parameter it knows nothing about', () => {
+        // The fragment and the full page must be given identical input, or
+        // they answer differently.
+        expect(fragmentUrl('https://unite.test/locations/local?futur=1'))
+            .toBe('/locations/local/apercu?futur=1');
     });
 });

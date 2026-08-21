@@ -16,18 +16,35 @@
                value="{{ asset ? asset.name : '' }}" required maxlength="150">
     </div>
     <div class="col-12 col-md-6">
-        {# A free text field with suggestions, never a <select>: the type
-           list is configurable and a unit must be able to rent out
-           something nobody anticipated. #}
+        {# A closed list, not a free field. The type is what the public index
+           groups by and what a contract prints, so free text produced
+           "Local", "local" and "Local scout" as three kinds of the same
+           thing, and a typo was invisible until it reached a document. The
+           list itself is configurable — a unit that lets out something
+           nobody anticipated adds it once in « Configuration > Locations »
+           rather than retyping it per asset. #}
         <label class="form-label" for="{{ p }}-asset-type">Type</label>
-        <input type="text" class="form-control" id="{{ p }}-asset-type" name="asset_type"
-               value="{{ asset ? asset.assetType : '' }}" required maxlength="50"
-               list="{{ p }}-asset-type-options">
-        <datalist id="{{ p }}-asset-type-options">
+        <select class="form-select" id="{{ p }}-asset-type" name="asset_type" required>
+            {% set current = asset ? asset.assetType : '' %}
+            {% if current == '' %}
+                <option value="" selected disabled>Choisissez un type…</option>
+            {% endif %}
             {% for suggestion in type_suggestions %}
-                <option value="{{ suggestion }}"></option>
+                <option value="{{ suggestion }}" {{ current == suggestion ? 'selected' : '' }}>
+                    {{ suggestion }}
+                </option>
             {% endfor %}
-        </datalist>
+            {% if current != '' and current not in type_suggestions %}
+                {# A type this asset was created with before the list was
+                   narrowed. Kept selectable so saving the form does not
+                   silently retype the asset, and flagged so somebody
+                   notices. #}
+                <option value="{{ current }}" selected>{{ current }} (hors liste)</option>
+            {% endif %}
+        </select>
+        <div class="form-text">
+            Pour ajouter un type, complétez la liste dans « Configuration &gt; Locations ».
+        </div>
     </div>
 
     <div class="col-6 col-md-3">

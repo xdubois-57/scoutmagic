@@ -7,22 +7,33 @@
 
 {% include '@rental/management/_nav.html.twig' %}
 
-{# The whole point of the page, said before anything else on it. #}
+{# The whole point of the page, said before anything else on it — and said
+   in terms of what a manager DOES with it, because "conformité" on its own
+   read as a compliance check the software was performing. #}
+<p class="text-body-secondary">
+    Les papiers du bien et leurs dates d'expiration&nbsp;: contrôle des extincteurs,
+    visite de la chaudière, attestation d'assurance incendie, contrôle électrique,
+    autorisation communale… Vous les inscrivez ici avec leur échéance, ScoutMagic
+    vous prévient quand elle approche, et le document lui-même reste attaché — de
+    sorte qu'on le retrouve le jour où quelqu'un le demande.
+</p>
 <div class="alert alert-info">
-    <strong>Ce registre est un pense-bête, pas une vérification de conformité.</strong>
+    <strong>Un pense-bête, pas une vérification.</strong>
     ScoutMagic ne connaît aucune règle réglementaire, ne vérifie rien et ne donne
-    aucun avis juridique : il vous rappelle uniquement ce que vous y avez inscrit
+    aucun avis juridique&nbsp;: il vous rappelle uniquement ce que vous y avez inscrit
     et ce qui arrive à échéance. Ce qu'un bien doit posséder dépend de votre
     commune, de votre fédération et de l'année — c'est à vous de le savoir.
 </div>
 
 <div class="card mb-4">
     <div class="card-body">
-        <h2 class="h5 mb-3">Registre</h2>
+        <h2 class="h5 mb-3">Documents et échéances</h2>
 
         {% if items is empty %}
             <p class="text-body-secondary mb-0">
-                Le registre de ce bien est vide.
+                Rien n'est encore inscrit pour ce bien. Ajoutez ci-dessous ce qui a une date
+                d'expiration — extincteurs, chaudière, assurance, contrôle électrique — pour
+                être prévenu avant qu'elle ne tombe.
             </p>
         {% else %}
             <div class="table-responsive">

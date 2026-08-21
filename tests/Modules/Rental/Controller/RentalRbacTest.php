@@ -277,6 +277,17 @@ class RentalRbacTest extends TestCase
         return $this->dispatch('/locations/{slug}', '/locations/' . $slug, RentalPublicController::class, 'show', 'public');
     }
 
+    private function dispatchAssetFragment(string $slug): Response
+    {
+        return $this->dispatch(
+            '/locations/{slug}/apercu',
+            '/locations/' . $slug . '/apercu',
+            RentalPublicController::class,
+            'fragment',
+            'public'
+        );
+    }
+
     // ── Configuration space: admin ──────────────────────────────────────
 
     public function testAdminReachesTheConfigurationPage(): void
@@ -357,6 +368,34 @@ class RentalRbacTest extends TestCase
 
         $this->assertSame(200, $response->getStatusCode());
         $this->assertStringContainsString('Local Saint-Georges', (string) $response->getBody());
+    }
+
+    public function testTheFragmentEndpointAnswersWithBothBlocks(): void
+    {
+        // What a calendar tap and « Estimer » fetch instead of reloading the
+        // whole page: the same two Twig partials the page itself renders.
+        $this->createAsset('Local Saint-Georges', 'local-saint-georges', isPublic: true);
+
+        $response = $this->dispatchAssetFragment('local-saint-georges');
+
+        $this->assertSame(200, $response->getStatusCode());
+        $payload = json_decode((string) $response->getBody(), true);
+
+        $this->assertIsArray($payload);
+        $this->assertArrayHasKey('calendar', $payload);
+        $this->assertArrayHasKey('estimate', $payload);
+        $this->assertStringContainsString('rental-calendar', (string) $payload['calendar']);
+        $this->assertStringContainsString('Votre séjour', (string) $payload['estimate']);
+    }
+
+    public function testTheFragmentEndpointRefusesANonPublicAssetTheSameWayThePageDoes(): void
+    {
+        // A fragment endpoint that trusted its caller would be a way around
+        // the page's own rules — the exact shape of bug an "internal" AJAX
+        // route invites.
+        $this->createAsset('Local privé', 'local-prive', isPublic: false);
+
+        $this->assertSame(404, $this->dispatchAssetFragment('local-prive')->getStatusCode());
     }
 
     public function testANonPublicAssetIsA404ForAnAnonymousVisitor(): void

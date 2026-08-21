@@ -84,14 +84,17 @@
 
         <div class="card">
             <div class="card-body">
-                <h2 class="h5 mb-2">Blocages manuels</h2>
+                <h2 class="h5 mb-2">Périodes réservées par l'unité</h2>
                 <p class="text-body-secondary small">
-                    Un blocage peut recouvrir une période déjà réservée : les deux coexistent et
-                    apparaissent tous les deux ici. Traitez alors chaque réservation individuellement.
+                    Les dates que vous retirez de la location — un week-end d'unité, des travaux,
+                    un camp — pour qu'aucune demande ne puisse tomber dessus. Le calendrier public
+                    les montre comme « occupé » et ne dit jamais pourquoi. Une période peut
+                    recouvrir une réservation existante : les deux coexistent et apparaissent
+                    toutes les deux ici, à traiter chacune de son côté.
                 </p>
 
                 {% if blocks is empty %}
-                    <p class="text-body-secondary">Aucun blocage.</p>
+                    <p class="text-body-secondary">Aucune période réservée.</p>
                 {% else %}
                     <ul class="list-unstyled">
                         {% for block in blocks %}
@@ -108,7 +111,7 @@
                                     <input type="hidden" name="asset_id" value="{{ asset.id }}">
                                     <input type="hidden" name="block_id" value="{{ block.id }}">
                                     <button type="submit" class="btn btn-sm btn-outline-danger"
-                                            data-confirm="Supprimer ce blocage ?">Supprimer</button>
+                                            data-confirm="Remettre cette période à la location ?">Supprimer</button>
                                 </form>
                             </li>
                         {% endfor %}
@@ -139,7 +142,7 @@
                                placeholder="Chantier toiture">
                     </div>
                     <div class="col-12 col-md-2">
-                        <button type="submit" class="btn btn-sm btn-outline-primary w-100">Bloquer</button>
+                        <button type="submit" class="btn btn-sm btn-outline-primary w-100">Réserver</button>
                     </div>
                 </form>
             </div>

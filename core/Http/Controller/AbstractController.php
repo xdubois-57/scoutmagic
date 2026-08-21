@@ -26,6 +26,21 @@ abstract class AbstractController
         return new Response($html);
     }
 
+    /**
+     * A template rendered to a string rather than to a Response — for a
+     * controller assembling several fragments into one payload.
+     *
+     * The point of having it here is that such a controller renders the
+     * SAME partials the full page does, instead of growing a second,
+     * JavaScript-side implementation of whatever the page shows.
+     *
+     * @param array<string, mixed> $context
+     */
+    protected function renderToString(string $template, array $context = []): string
+    {
+        return $this->twig->render($template, $context);
+    }
+
     protected function redirect(string $url, int $statusCode = 302): Response
     {
         return (new Response())->setStatusCode($statusCode)->setHeader('Location', $url);

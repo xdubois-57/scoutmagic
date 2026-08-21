@@ -51,6 +51,41 @@
                         </div>
                     {% endif %}
 
+                    {% set standard = standard_templates[template.type.value]|default(null) %}
+                    {% if standard %}
+                        <div class="alert {{ template.body|trim == '' ? 'alert-info' : 'alert-light border' }}">
+                            {% if template.body|trim == '' %}
+                                <p class="mb-2">
+                                    Ce gabarit est vide. ScoutMagic propose un modèle prêt à l'emploi
+                                    pour la location d'un local scout en Belgique&nbsp;: un point de
+                                    départ à relire et à adapter à vos conditions, pas un avis
+                                    juridique.
+                                </p>
+                            {% else %}
+                                <p class="mb-2 small">
+                                    Repartir du modèle standard belge remplacera entièrement le texte
+                                    ci-dessous.
+                                </p>
+                            {% endif %}
+                            <details>
+                                <summary class="small">Voir le modèle avant de l'insérer</summary>
+                                <div class="border rounded-3 p-3 mt-2 bg-body">{{ standard|raw }}</div>
+                            </details>
+                            <form method="post" action="/mes-locations/gabarit" class="mt-2"
+                                  {% if template.body|trim != '' %}
+                                      data-confirm="Remplacer le texte actuel par le modèle standard ? Le texte que vous avez écrit sera perdu."
+                                  {% endif %}>
+                                {{ csrf_field()|raw }}
+                                <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                                <input type="hidden" name="document_type" value="{{ template.type.value }}">
+                                <input type="hidden" name="body" value="{{ standard }}">
+                                <button type="submit" class="btn btn-sm btn-outline-primary">
+                                    {{ template.body|trim == '' ? 'Partir du modèle standard' : 'Repartir du modèle standard' }}
+                                </button>
+                            </form>
+                        </div>
+                    {% endif %}
+
                     <form method="post" action="/mes-locations/gabarit">
                         {{ csrf_field()|raw }}
                         <input type="hidden" name="asset_id" value="{{ asset.id }}">
@@ -338,8 +373,11 @@
 {% endblock %}
 
 {% block scripts %}
-    <script src="/assets/js/rich-text-form-field.js" defer></script>
+    {# type="module" for both: these files use `export`, and a classic
+       <script> tag rejects such a file with a SyntaxError before a line
+       of it runs — a failure that leaves no trace on the page itself. #}
+    <script type="module" src="/assets/js/rich-text-form-field.js"></script>
     {# Keeps the note under "Publier à partir de" describing the option
        currently selected rather than the one that happens to be saved. #}
-    <script src="/assets/js/select-explanation.js" defer></script>
+    <script type="module" src="/assets/js/select-explanation.js"></script>
 {% endblock %}

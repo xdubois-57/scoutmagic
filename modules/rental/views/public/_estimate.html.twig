@@ -1,0 +1,139 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{#
+  "Votre séjour": the dates, the head count, and the price estimate they
+  produce.
+
+  Its own partial for the same reason as the calendar beside it: pressing
+  « Estimer » fetches this fragment and swaps it in rather than reloading the
+  whole page. The <form> is a real GET form and still works untouched with
+  JavaScript absent, which is the fallback.
+
+  Requires `asset`, `calendar_month`, `selection`, `form_persons`,
+  `form_units`, `form_category`, `categories` and `estimate`.
+#}
+{# ── Selection summary and estimate ────────────────────────────── #}
+<div class="card mb-4">
+    <div class="card-body">
+        <h2 class="h5 mb-3">Votre séjour</h2>
+
+        <form method="get" class="row g-2 align-items-end mb-3">
+            <input type="hidden" name="month" value="{{ calendar_month }}">
+            <div class="col-6 col-md-3">
+                <label class="form-label" for="arrival">Arrivée</label>
+                <input type="date" class="form-control" id="arrival" name="arrival"
+                       value="{{ selection ? selection[0] : '' }}">
+            </div>
+            <div class="col-6 col-md-3">
+                <label class="form-label" for="departure">Départ</label>
+                <input type="date" class="form-control" id="departure" name="departure"
+                       value="{{ selection and selection[1] ? selection[1] : '' }}">
+            </div>
+            <div class="col-4 col-md-2">
+                <label class="form-label" for="persons">Participants</label>
+                <input type="number" min="0" class="form-control" id="persons" name="persons"
+                       value="{{ form_persons }}">
+            </div>
+            {% if asset.isStock %}
+                <div class="col-4 col-md-2">
+                    <label class="form-label" for="units">Quantité</label>
+                    <input type="number" min="1" max="{{ asset.quantity }}" class="form-control"
+                           id="units" name="units" value="{{ form_units }}">
+                </div>
+            {% endif %}
+            {% if categories is not empty %}
+                <div class="col-4 col-md-2">
+                    <label class="form-label" for="category">Vous êtes</label>
+                    <select class="form-select" id="category" name="category">
+                        <option value="">—</option>
+                        {% for category in categories %}
+                            <option value="{{ category.id }}"
+                                    {{ form_category == category.id ? 'selected' : '' }}>{{ category.label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            {% endif %}
+            <div class="col-12 col-md-2">
+                <button type="submit" class="btn btn-primary w-100">Estimer</button>
+            </div>
+        </form>
+
+        {% if estimate %}
+            {% for error in estimate.errors %}
+                <div class="alert alert-warning py-2 small">{{ error }}</div>
+            {% endfor %}
+
+            {% set quote = estimate.quote %}
+            <table class="table table-sm">
+                <caption class="visually-hidden">Détail du prix estimé</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Ligne</th>
+                        <th scope="col" class="text-end">Quantité</th>
+                        <th scope="col" class="text-end">Montant</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for line in quote.lines %}
+                        <tr{{ line.isInformational ? ' class="text-body-secondary fst-italic"' : '' }}>
+                            <td>{{ line.label }}</td>
+                            <td class="text-end">{{ line.isInformational ? '—' : line.quantity }}</td>
+                            <td class="text-end">
+                                {{ line.isInformational
+                                    ? 'Selon relevé'
+                                    : (line.amountCents / 100)|number_format(2, ',', ' ') ~ ' €' }}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+                <tfoot>
+                    <tr class="fw-semibold">
+                        <th scope="row" colspan="2" class="text-end">
+                            {# "dès X €" whenever something needed is still
+                               missing — never a firm figure we would have
+                               to walk back (§6.7). #}
+                            {{ quote.isComplete ? 'Total estimé' : 'Dès' }}
+                        </th>
+                        <td class="text-end">{{ (quote.totalCents / 100)|number_format(2, ',', ' ') }} €</td>
+                    </tr>
+                </tfoot>
+            </table>
+
+            {% for warning in quote.warnings %}
+                <p class="small text-body-secondary mb-1">{{ warning }}</p>
+            {% endfor %}
+
+            <p class="small text-body-secondary mb-2">
+                Estimation indicative, sans engagement.
+            </p>
+
+            {#
+              The way into the request form (§6.13). Placed after the
+              estimate rather than beside the calendar on purpose: a
+              visitor should see what it costs before they are asked
+              for their name, and the dates they chose travel with
+              them so they do not retype what they just picked.
+            #}
+            <a class="btn btn-primary"
+               href="/locations/{{ asset.slug }}/demande?arrival={{ selection[0] }}&departure={{ selection[1] }}{{ form_persons ? '&persons=' ~ form_persons : '' }}{{ form_units > 1 ? '&units=' ~ form_units : '' }}{{ form_category ? '&category=' ~ form_category : '' }}">
+                Introduire une demande
+            </a>
+        {% else %}
+            <p class="text-body-secondary fst-italic mb-2">
+                Choisissez une date d'arrivée et une date de départ dans le calendrier
+                pour obtenir une estimation.
+            </p>
+
+            {#
+              Offered here too, not only after an estimate: somebody
+              who already knows what they want should not have to
+              price it first, and a page whose only way forward is a
+              form they did not ask for is a dead end.
+            #}
+            <a class="btn btn-outline-primary"
+               href="/locations/{{ asset.slug }}/demande">Introduire une demande</a>
+        {% endif %}
+    </div>
+</div>

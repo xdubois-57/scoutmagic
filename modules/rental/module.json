@@ -75,6 +75,15 @@
       "label": ""
     },
     {
+      "path": "/locations/{slug}/apercu",
+      "method": "GET",
+      "controller": "Modules\\Rental\\Controller\\RentalPublicController",
+      "action": "fragment",
+      "menu": "notre_unite",
+      "role_min": "public",
+      "label": ""
+    },
+    {
       "path": "/locations/{slug}",
       "method": "GET",
       "controller": "Modules\\Rental\\Controller\\RentalPublicController",
@@ -707,10 +716,10 @@
   "settings": [
     {
       "key": "asset_type_suggestions",
-      "default_value": "Local, Terrain, Tente, Remorque, Matériel, Autre",
+      "default_value": "Local, Salle, Terrain, Terrain de camp, Tente, Remorque, Matériel, Autre",
       "type": "text",
       "label": "Types de biens proposés",
-      "description": "Liste, séparée par des virgules, des types proposés à la création d'un bien. Ce ne sont que des suggestions : n'importe quel autre type peut être saisi."
+      "description": "Liste, séparée par des virgules, des types proposés à la création d'un bien. C'est une liste fermée : la création d'un bien propose exactement ces types et rien d'autre. Pour louer quelque chose qui n'y figure pas, ajoutez-le ici d'abord — le type est repris sur la page publique et sur le contrat, donc un type saisi librement produisait « Local », « local » et « Local scout » comme trois choses différentes."
     },
     {
       "key": "automatic_hold_hours",

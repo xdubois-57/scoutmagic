@@ -161,6 +161,22 @@
                 </div>
             </div>
 
+            {#
+              A jump list, because this page is long and everything past the
+              first screen was effectively undiscoverable: "où configure-t-on
+              le tarif ?" has a real answer that nobody could find. Anchors
+              rather than tabs — the sections still all render, so Ctrl-F and
+              a printed page keep working.
+            #}
+            <nav class="mb-4" aria-label="Sections de la configuration">
+                <div class="d-flex flex-wrap gap-2">
+                    <a class="btn btn-sm btn-outline-secondary" href="#regles">Règles de réservation</a>
+                    <a class="btn btn-sm btn-outline-secondary" href="#tarification">Tarification</a>
+                    <a class="btn btn-sm btn-outline-secondary" href="#paiements">Acompte, solde et caution</a>
+                    <a class="btn btn-sm btn-outline-secondary" href="#courrier">Courrier entrant</a>
+                </div>
+            </nav>
+
             {% include '@rental/config/_constraints.html.twig' %}
 
             {% include '@rental/config/_pricing.html.twig' %}
@@ -285,5 +301,7 @@
 {% endblock %}
 
 {% block scripts %}
-    <script src="/assets/js/select-explanation.js" defer></script>
+    {# type="module" — the file uses `export`, and a classic <script> tag
+       rejects it with a SyntaxError before a line of it runs. #}
+    <script type="module" src="/assets/js/select-explanation.js"></script>
 {% endblock %}

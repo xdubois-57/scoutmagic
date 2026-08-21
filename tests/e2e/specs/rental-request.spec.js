@@ -74,7 +74,9 @@ test.describe('Rentals', () => {
 
         const creation = page.locator('form[action="/admin/locations/create"]');
         await creation.locator('input[name="name"]').fill(ASSET_NAME);
-        await creation.locator('input[name="asset_type"]').fill('Local');
+        // A closed list now, not a free field: the type is what the
+        // public index groups by and what a contract prints.
+        await creation.locator('select[name="asset_type"]').selectOption('Local');
         await creation.locator('input[name="capacity"]').fill('60');
         // Without this the asset exists but no stranger can reach it —
         // which is the default, and deliberately so (§6.1).

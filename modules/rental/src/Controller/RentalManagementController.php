@@ -15,6 +15,7 @@ use Core\Http\Request;
 use Core\Http\Response;
 use Core\Member\MemberService;
 use Core\Security\AuthSession;
+use Core\Security\Role;
 use Core\Security\CsrfGuard;
 use Core\File\UploadException;
 use Core\File\UploadHandler;
@@ -31,6 +32,7 @@ use Modules\Rental\Booking\RentalBooking;
 use Modules\Rental\Calendar\PublishFrom;
 use Modules\Rental\Document\DocumentKeywords;
 use Modules\Rental\Document\DocumentType;
+use Modules\Rental\Document\StandardTemplates;
 use Modules\Rental\Payment\PaymentSettings;
 use Modules\Rental\Repository\RentalAsset;
 use Modules\Rental\Repository\RentalAssetRepository;
@@ -386,6 +388,13 @@ class RentalManagementController extends AbstractController
             'asset' => $asset,
             'breadcrumb_current' => $asset->name,
             'breadcrumb_trail' => $this->assetTrail(),
+            // Whether to make "Espace chefs d'U > Locations" a link or just
+            // a place to point at: asset management is granted per asset and
+            // a manager is not necessarily a chief (§6.4), so the reader may
+            // well have no way in. Presentation only — /admin/locations
+            // re-checks the role itself, as every route does.
+            'can_configure' => Role::fromString(AuthSession::getRole())->level()
+                >= Role::ADMIN->level(),
             'bookings' => $bookings,
             'needs_attention' => array_values(array_filter(
                 $bookings,
@@ -1007,6 +1016,15 @@ class RentalManagementController extends AbstractController
             'breadcrumb_current' => 'Gabarits',
             'breadcrumb_trail' => $this->assetSubPageTrail($asset),
             'templates' => $templates,
+            // The ready-to-use Belgian bodies, offered on the page rather
+            // than applied behind anybody's back: an empty editor asks a
+            // volunteer to write a rental contract from nothing, which in
+            // practice means either no contract or one copied from whatever
+            // the previous chief had on a USB stick.
+            'standard_templates' => [
+                DocumentType::CONTRACT->value => StandardTemplates::forType(DocumentType::CONTRACT),
+                DocumentType::INVOICE->value => StandardTemplates::forType(DocumentType::INVOICE),
+            ],
             'keywords' => DocumentKeywords::catalogue(),
             'vat_note' => $asset->vatExemptionNote,
             // Meters and the inventory checklist share this page because

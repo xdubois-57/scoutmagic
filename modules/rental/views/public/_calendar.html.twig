@@ -1,0 +1,60 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{#
+  The availability grid and its month navigation.
+
+  Its own partial because it is re-rendered on its own: tapping a day fetches
+  this fragment and swaps it in rather than reloading the page
+  (public/assets/js/rental-availability.js). Server-rendered either way —
+  the client never decides a day is free, prices anything, or validates a
+  range, so there is exactly one implementation of those rules and it is not
+  in JavaScript.
+
+  Requires `previous_month`, `next_month`, `selection`, `calendar_month`,
+  `calendar_label`, `weeks` and `billing_unit`.
+#}
+{# ── Availability calendar (§6.7) ──────────────────────────────── #}
+<div class="card mb-4">
+    <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center gap-2 mb-3">
+            {% if previous_month %}
+                <a class="btn btn-sm btn-outline-secondary"
+                   href="?month={{ previous_month }}{{ selection ? '&arrival=' ~ selection[0] : '' }}"
+                   aria-label="Mois précédent">&larr;</a>
+            {% else %}
+                {# Disabled, not hidden: a visitor can never go into the
+                   past, and the greyed arrow says so rather than leaving
+                   them wondering where the control went. #}
+                <button type="button" class="btn btn-sm btn-outline-secondary" disabled
+                        aria-label="Mois précédent (indisponible)">&larr;</button>
+            {% endif %}
+
+            <h2 class="h5 mb-0 text-capitalize">{{ calendar_label }}</h2>
+
+            {% if next_month %}
+                <a class="btn btn-sm btn-outline-secondary"
+                   href="?month={{ next_month }}{{ selection ? '&arrival=' ~ selection[0] : '' }}"
+                   aria-label="Mois suivant">&rarr;</a>
+            {% else %}
+                <button type="button" class="btn btn-sm btn-outline-secondary" disabled
+                        aria-label="Mois suivant (indisponible)">&rarr;</button>
+            {% endif %}
+        </div>
+
+        <div id="rental-calendar"
+             data-month="{{ calendar_month }}"
+             data-arrival="{{ selection ? selection[0] : '' }}"
+             data-departure="{{ selection and selection[1] ? selection[1] : '' }}">
+            {% include 'partials/month_day_grid.html.twig' with {
+                weeks: weeks,
+                caption: 'Disponibilités de ' ~ calendar_label,
+            } %}
+        </div>
+
+        <p class="form-text mt-2 mb-0">
+            {{ billing_unit.availabilityExplanation }}
+        </p>
+    </div>
+</div>

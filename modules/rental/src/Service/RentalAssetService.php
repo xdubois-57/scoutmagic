@@ -28,19 +28,71 @@ use Modules\Rental\Repository\RentalAssetRepository;
 class RentalAssetService
 {
     /**
-     * Asset types offered as a starting point in the UI. Deliberately a
-     * suggestion list, not a closed domain: `rental_assets.asset_type` is a
-     * free string precisely so a unit can rent out something nobody
-     * anticipated without a schema migration. Anything the operator types
-     * is accepted.
+     * The types a unit can let something out as, unless it configures its
+     * own list (`asset_type_suggestions`).
+     *
+     * A **closed** list, offered as a `<select>`: "type" is what the public
+     * index groups by and what a contract prints, so a free-text field
+     * produced "Local", "local" and "Local scout" as three different kinds
+     * of the same thing, and a typo was invisible until it reached a
+     * document. The list stays in configuration rather than in an enum
+     * precisely so a unit that lets out something nobody anticipated can
+     * add it — once, deliberately, instead of retyping it per asset.
      */
-    public const SUGGESTED_TYPES = ['Local', 'Terrain', 'Tente', 'Remorque', 'Matériel', 'Autre'];
+    public const DEFAULT_TYPES = [
+        'Local',
+        'Salle',
+        'Terrain',
+        'Terrain de camp',
+        'Tente',
+        'Remorque',
+        'Matériel',
+        'Autre',
+    ];
 
+    /**
+     * @param string[] $allowedTypes The closed list this install accepts.
+     *   Empty falls back to DEFAULT_TYPES, so a misconfigured setting can
+     *   never leave a unit unable to create anything at all.
+     */
     public function __construct(
         private RentalAssetRepository $assetRepository,
         private RentalSlugGenerator $slugGenerator,
-        private JournalService $journal
+        private JournalService $journal,
+        private array $allowedTypes = self::DEFAULT_TYPES
     ) {
+    }
+
+    /**
+     * The configured comma-separated list, as an array.
+     *
+     * Here rather than in the composition root because the same parsing has
+     * to hold for whoever reads the setting next, and a second copy is how
+     * one of them starts trimming differently from the other.
+     *
+     * @return string[]
+     */
+    public static function parseTypeList(string $raw): array
+    {
+        return array_values(array_filter(
+            array_map('trim', explode(',', $raw)),
+            static fn(string $type) => $type !== ''
+        ));
+    }
+
+    /**
+     * The closed list, ready for a `<select>`.
+     *
+     * @return string[]
+     */
+    public function allowedTypes(): array
+    {
+        $types = array_values(array_filter(
+            array_map('trim', $this->allowedTypes),
+            static fn(string $type) => $type !== ''
+        ));
+
+        return $types !== [] ? $types : self::DEFAULT_TYPES;
     }
 
     /**
@@ -253,6 +305,16 @@ class RentalAssetService
 
         if ($assetType === '') {
             throw new RentalException('Le type du bien est obligatoire.');
+        }
+
+        // Checked HERE, not only in the form: the `<select>` is what an
+        // operator sees, and a closed list a POST can step around is not a
+        // closed list at all.
+        if (!in_array($assetType, $this->allowedTypes(), true)) {
+            throw new RentalException(
+                'Ce type de bien n\'existe pas. Choisissez-en un dans la liste, ou ajoutez le vôtre '
+                . 'dans « Configuration > Locations ».'
+            );
         }
 
         if ($quantity < 1) {

@@ -17,6 +17,23 @@
 
         {% include '@rental/management/_nav.html.twig' %}
 
+        {#
+          Where the money is configured, said on the page a manager actually
+          opens. Tariff, billable minimum, deposit and security deposit live
+          in the CHIEFS' space, not here (§6.4) — which is right, but left
+          nobody able to find them.
+        #}
+        <p class="text-body-secondary small">
+            Tarif, minimum facturable, acompte, caution et règles de réservation de ce bien
+            se configurent dans
+            {% if can_configure %}
+                <a href="/admin/locations?asset_id={{ asset.id }}#tarification">« Espace chefs d'U &gt; Locations »</a>.
+            {% else %}
+                « Espace chefs d'U &gt; Locations » — demandez à un chef d'unité si vous devez
+                les modifier.
+            {% endif %}
+        </p>
+
         {% if statistics %}
             {#
               Three figures, no graph and no dedicated page (§6.34). They read
@@ -98,10 +115,20 @@
 
         <div class="card">
             <div class="card-body">
-                <h2 class="h5 mb-3">Blocages à venir</h2>
+                {# "Blocages" on its own said nothing about who blocks what, or
+                   why one would. Named and explained for what it is: dates the
+                   unit keeps for itself. #}
+                <h2 class="h5 mb-1">Périodes réservées par l'unité</h2>
+                <p class="text-body-secondary small">
+                    Les dates que vous retirez de la location — un week-end d'unité, des
+                    travaux, un camp — pour qu'aucune demande ne puisse tomber dessus. Elles
+                    apparaissent comme « occupé » sur le calendrier public, sans qu'on sache
+                    pourquoi.
+                </p>
                 {% if upcoming_blocks is empty %}
                     <p class="text-body-secondary mb-0">
-                        Aucun blocage. Vous pouvez en poser un depuis le calendrier.
+                        Aucune période réservée à venir. Vous pouvez en poser une depuis
+                        <a href="/mes-locations/{{ asset.slug }}/calendrier">le calendrier</a>.
                     </p>
                 {% else %}
                     <ul class="list-unstyled mb-0">

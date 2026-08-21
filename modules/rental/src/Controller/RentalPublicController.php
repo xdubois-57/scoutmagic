@@ -120,21 +120,98 @@ class RentalPublicController extends AbstractController
             $selection
         );
 
-        $estimate = $this->buildEstimate($asset, $request, $selection, $today);
-
-        return $this->render('@rental/public/show.html.twig', [
-            'asset' => $asset,
-            'can_manage' => $canManage,
-            'breadcrumb_current' => $asset->name,
+        return $this->render('@rental/public/show.html.twig', array_merge(
+            $this->fragmentContext($asset, $request, $today),
+            [
+                'can_manage' => $canManage,
+                'breadcrumb_current' => $asset->name,
             // The generic trail (partials/breadcrumb_bar.html.twig) rather
             // than a hand-rolled "← Toutes les locations" link above the
             // title: the index page IS this page's unambiguous ancestor,
             // which is exactly what breadcrumb_trail is for, and every
             // other module on the site navigates that way.
-            'breadcrumb_trail' => [['label' => 'Locations', 'url' => '/locations']],
+                'breadcrumb_trail' => [['label' => 'Locations', 'url' => '/locations']],
+                'constraints' => $constraints,
+                'editable_prefix' => 'rental_asset_' . $asset->id,
+            ]
+        ));
+    }
+
+    /**
+     * GET /locations/{slug}/apercu — the calendar and the estimate, as HTML
+     * fragments, for the page that is already open.
+     *
+     * Tapping a day and pressing « Estimer » used to reload the whole page:
+     * the visitor lost their scroll position, the page flashed, and on a
+     * phone the calendar they had just tapped jumped out from under their
+     * thumb. This returns the two blocks that actually change, rendered by
+     * the same Twig partials the full page uses — so there is still exactly
+     * ONE implementation of availability and pricing, and it is still the
+     * server's. The client never decides a day is free or what a stay costs;
+     * it swaps in what the server answered.
+     *
+     * Everything the full page checks, this checks identically: the same
+     * lookup, the same 404 for an asset that is not publicly visible, and
+     * the same query-parameter clamping. A fragment endpoint that trusted
+     * its caller would be a way around the page's own rules.
+     *
+     * @param array<string, string> $params
+     */
+    public function fragment(Request $request, array $params): Response
+    {
+        $asset = $this->assetRepository->findBySlug((string) ($params['slug'] ?? ''));
+        if ($asset === null) {
+            return new Response('Not Found', 404);
+        }
+
+        $scoutYearId = (int) $this->scoutYearService->getCurrentYear()['id'];
+        if (
+            !$asset->isPubliclyVisible()
+            && !$this->authorizationService->canManageAsset(AuthSession::getEmail(), $scoutYearId, $asset)
+        ) {
+            return new Response('Not Found', 404);
+        }
+
+        $context = $this->fragmentContext($asset, $request, new \DateTimeImmutable('today'));
+
+        return $this->json([
+            'calendar' => $this->renderToString('@rental/public/_calendar.html.twig', $context),
+            'estimate' => $this->renderToString('@rental/public/_estimate.html.twig', $context),
+        ]);
+    }
+
+    /**
+     * Everything the calendar and the estimate need, built once.
+     *
+     * Shared by the full page and by the fragment endpoint precisely so the
+     * two can never answer differently — a fragment that recomputed its own
+     * month or its own selection would drift from the page it is replacing
+     * part of.
+     *
+     * @return array<string, mixed>
+     */
+    private function fragmentContext(
+        RentalAsset $asset,
+        Request $request,
+        \DateTimeImmutable $today
+    ): array {
+        $pricing = $this->pricingService->loadSettings($asset->id);
+        [$year, $month] = $this->resolveMonth($request, $today);
+        $selection = $this->resolveSelection($request);
+
+        $states = $this->availabilityService->monthDayStates(
+            $asset,
+            $pricing->billingUnit,
+            $year,
+            $month,
+            $today,
+            $selection
+        );
+
+        return [
+            'asset' => $asset,
             'billing_unit' => $pricing->billingUnit,
             'categories' => $pricing->categories,
-            'constraints' => $constraints,
             'weeks' => $this->gridBuilder->build(
                 $year,
                 $month,
@@ -150,15 +227,14 @@ class RentalPublicController extends AbstractController
             'previous_month' => $this->previousMonth($year, $month, $today),
             'next_month' => $this->nextMonth($year, $month, $today),
             'selection' => $selection,
-            'estimate' => $estimate,
+            'estimate' => $this->buildEstimate($asset, $request, $selection, $today),
             // Echoed back so the summary form keeps what the visitor typed
             // across a calendar tap — losing the head count on every tap
             // would make the two halves of the page fight each other.
             'form_persons' => (int) $request->getQuery('persons', 0) ?: '',
             'form_units' => max(1, (int) $request->getQuery('units', 1)),
             'form_category' => (string) $request->getQuery('category', ''),
-            'editable_prefix' => 'rental_asset_' . $asset->id,
-        ]);
+        ];
     }
 
     /**

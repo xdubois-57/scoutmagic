@@ -696,7 +696,7 @@ class RentalManagementControllerTest extends TestCase
 
         $this->assertStringContainsString('LOC-2027-0001', $body);
         $this->assertStringContainsString('Chantier toiture', $body);
-        $this->assertStringContainsString('Blocages manuels', $body);
+        $this->assertStringContainsString("Périodes réservées par l'unité", $body);
     }
 
     public function testThePrivateCalendarCanBePagedIntoThePastUnlikeThePublicOne(): void

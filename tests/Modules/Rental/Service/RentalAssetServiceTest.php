@@ -18,6 +18,7 @@ class RentalAssetServiceTest extends TestCase
 {
     private RentalAssetRepository $assetRepository;
     private RentalAssetService $service;
+    private JournalService $journalService;
     /** @var array<int, array{type: string, description: string, context: ?string}> */
     private array $journalEntries = [];
 
@@ -53,11 +54,22 @@ class RentalAssetServiceTest extends TestCase
             }
         };
 
+        $this->journalService = new JournalService($journalRepository);
+
         $this->service = new RentalAssetService(
             $this->assetRepository,
             new RentalSlugGenerator($this->assetRepository),
-            new JournalService($journalRepository)
+            $this->journalService
         );
+    }
+
+    /**
+     * The recording journal built in setUp(), for a test that needs a
+     * second service instance with its own type list.
+     */
+    private function journalService(): JournalService
+    {
+        return $this->journalService;
     }
 
     private function create(string $name = 'Local Saint-Georges'): int
@@ -128,6 +140,59 @@ class RentalAssetServiceTest extends TestCase
         $id = $this->service->create('Remorque', 'Remorque', null, 1, null, null, null, false);
 
         $this->assertNull($this->assetRepository->findById($id)?->capacity);
+    }
+
+    public function testCreateRejectsATypeThatIsNotOnTheList(): void
+    {
+        // The `<select>` is what an operator sees; a closed list a POST can
+        // step around is not a closed list at all. "Type" is what the public
+        // index groups by and what a contract prints, so free text produced
+        // "Local", "local" and "Local scout" as three kinds of one thing.
+        $this->expectException(RentalException::class);
+        $this->expectExceptionMessageMatches('/n\'existe pas/');
+
+        // Arguments are (name, type): the TYPE here is the off-list one.
+        $this->service->create('Le grand chapiteau', 'Chapiteau', null, 1, null, null, null, false);
+    }
+
+    public function testUpdateRejectsATypeThatIsNotOnTheListEither(): void
+    {
+        $id = $this->create();
+
+        $this->expectException(RentalException::class);
+
+        $this->service->updateGeneral($id, 'Local Saint-Georges', 'Chapiteau', 60, 1, null, null, null, true);
+    }
+
+    public function testTheListItselfIsConfigurableSoAUnitIsNeverStuck(): void
+    {
+        // Closed does not mean fixed: a unit that lets out something nobody
+        // anticipated adds it once, in configuration, rather than retyping
+        // it per asset.
+        $service = new RentalAssetService(
+            $this->assetRepository,
+            new RentalSlugGenerator($this->assetRepository),
+            $this->journalService(),
+            RentalAssetService::parseTypeList('Local, Chapiteau ,, Kayak ')
+        );
+
+        $this->assertSame(['Local', 'Chapiteau', 'Kayak'], $service->allowedTypes());
+        $this->assertGreaterThan(
+            0,
+            $service->create('Le grand chapiteau', 'Chapiteau', null, 1, null, null, null, false)
+        );
+    }
+
+    public function testAnEmptyConfiguredListFallsBackRatherThanLockingEverythingOut(): void
+    {
+        $service = new RentalAssetService(
+            $this->assetRepository,
+            new RentalSlugGenerator($this->assetRepository),
+            $this->journalService(),
+            RentalAssetService::parseTypeList('  ,  , ')
+        );
+
+        $this->assertSame(RentalAssetService::DEFAULT_TYPES, $service->allowedTypes());
     }
 
     public function testCreateRejectsAMalformedTime(): void

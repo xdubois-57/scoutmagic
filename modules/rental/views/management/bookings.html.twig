@@ -13,16 +13,40 @@
 
         {% include '@rental/management/_nav.html.twig' %}
 
-        <div class="mb-3 d-flex flex-wrap gap-2">
-            <a href="/mes-locations/{{ asset.slug }}/reservations"
-               class="btn btn-sm {{ filter == '' ? 'btn-primary' : 'btn-outline-secondary' }}">Toutes</a>
-            <a href="/mes-locations/{{ asset.slug }}/reservations?statut=a_traiter"
-               class="btn btn-sm {{ filter == 'a_traiter' ? 'btn-primary' : 'btn-outline-secondary' }}">À traiter</a>
-            {% for status in statuses %}
-                <a href="/mes-locations/{{ asset.slug }}/reservations?statut={{ status.value }}"
-                   class="btn btn-sm {{ filter == status.value ? 'btn-primary' : 'btn-outline-secondary' }}">{{ status.label }}</a>
-            {% endfor %}
-        </div>
+        {#
+          A single <select>, on the model of modules/mass_mail's own list
+          filter. It used to be a second row of chips directly under the
+          page picker above: two rows of the same-looking pills, one
+          choosing a PAGE and one choosing a FILTER, which read as one
+          confused control — and eleven statuses made the second row wrap
+          onto three lines on a phone.
+        #}
+        <form method="get" action="/mes-locations/{{ asset.slug }}/reservations"
+              class="row g-2 align-items-end mb-3">
+            <div class="col-12 col-sm-6 col-md-4">
+                <label class="form-label small" for="booking-filter">État</label>
+                <select class="form-select form-select-sm" id="booking-filter" name="statut">
+                    <option value="" {{ filter == '' ? 'selected' : '' }}>Toutes</option>
+                    <option value="a_traiter" {{ filter == 'a_traiter' ? 'selected' : '' }}>
+                        À traiter
+                    </option>
+                    {% for status in statuses %}
+                        <option value="{{ status.value }}" {{ filter == status.value ? 'selected' : '' }}>
+                            {{ status.label }}
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-6 col-sm-3 col-md-2">
+                <button type="submit" class="btn btn-sm btn-primary w-100">Filtrer</button>
+            </div>
+            {% if filter != '' %}
+                <div class="col-6 col-sm-3 col-md-2">
+                    <a href="/mes-locations/{{ asset.slug }}/reservations"
+                       class="btn btn-sm btn-outline-secondary w-100">Tout voir</a>
+                </div>
+            {% endif %}
+        </form>
 
         {% if bookings is empty %}
             <p class="text-body-secondary">Aucune réservation ne correspond à ce filtre.</p>

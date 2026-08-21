@@ -66,7 +66,9 @@ test.describe('Rentals — running an asset', () => {
 
         const creation = page.locator('form[action="/admin/locations/create"]');
         await creation.locator('input[name="name"]').fill(ASSET_NAME);
-        await creation.locator('input[name="asset_type"]').fill('Ferme');
+        // A closed list now, not a free field: the type is what the
+        // public index groups by and what a contract prints.
+        await creation.locator('select[name="asset_type"]').selectOption('Terrain');
         await creation.locator('input[name="capacity"]').fill('80');
         await creation.locator('input[name="is_public"]').check();
         await creation.getByRole('button', { name: 'Créer le bien' }).click();
@@ -115,7 +117,7 @@ test.describe('Rentals — running an asset', () => {
         await blocking.locator('input[name="start"]').fill(BLOCK_START);
         await blocking.locator('input[name="end"]').fill(BLOCK_END);
         await blocking.locator('input[name="reason"]').fill('Chantier toiture');
-        await blocking.getByRole('button', { name: 'Bloquer' }).click();
+        await blocking.getByRole('button', { name: 'Réserver' }).click();
 
         await expect(page.getByText('Chantier toiture')).toBeVisible();
 
@@ -144,6 +146,35 @@ test.describe('Rentals — running an asset', () => {
         await expect(
             page.getByRole('row', { name: /Total estimé/ }).getByRole('cell', { name: /376,50/ }),
         ).toBeVisible();
+
+        // --- And « Estimer » recomputes it WITHOUT reloading the page. ---
+        // A marker planted on the live document: if the browser navigates,
+        // the document is replaced and the marker goes with it. That is the
+        // only way to tell "the page was re-rendered" from "the page was
+        // reloaded" from the outside.
+        await page.evaluate(() => { window.__notReloaded = true; });
+
+        await page.locator('input[name="persons"]').fill('12');
+        await page.getByRole('button', { name: 'Estimer' }).click();
+
+        // The address bar followed, so a reload or a shared link lands on
+        // exactly what is on screen…
+        await expect(page).toHaveURL(/persons=12/);
+        // …the block really was re-rendered by the server (the form comes
+        // back holding what was asked for, not what the page first had)…
+        await expect(page.locator('#rental-estimate-fragment input[name="persons"]')).toHaveValue('12');
+        await expect(
+            page.getByRole('row', { name: /Total estimé/ }).getByRole('cell', { name: /376,50/ }),
+        ).toBeVisible();
+        // …and the document was never replaced.
+        expect(await page.evaluate(() => window.__notReloaded === true)).toBe(true);
+
+        // A calendar tap is the same story: it repaints, it does not reload.
+        // A SELECTABLE day — the grid's first cells are padding days from
+        // the previous month, which are deliberately inert.
+        await page.locator('#rental-calendar .daygrid-day--selectable').first().click();
+        await expect(page).toHaveURL(/arrival=/);
+        expect(await page.evaluate(() => window.__notReloaded === true)).toBe(true);
 
         await page.getByRole('link', { name: /demande/i }).first().click();
         await page.locator('input[name="arrival"]').fill(ARRIVAL);

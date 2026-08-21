@@ -15,7 +15,14 @@
 #}
 <div class="card mb-4" id="tarification">
     <div class="card-body">
-        <h2 class="h5 mb-3">Tarification</h2>
+        <h2 class="h5 mb-1">Tarification</h2>
+        <p class="text-body-secondary small">
+            C'est ici que se décide ce que paie un locataire&nbsp;: à la nuit, par personne
+            et par nuit, au forfait ou à l'exemplaire, avec un tarif par période et par
+            catégorie, un minimum facturable et des frais (nettoyage, taxe de séjour,
+            relevé de compteur). Le simulateur en bas de section montre le résultat exact
+            que verra un visiteur.
+        </p>
 
         {# ── Block 1 + 3: billing unit, default rate, billable minimum ── #}
         <form method="post" action="/admin/locations/pricing" class="mb-4">
