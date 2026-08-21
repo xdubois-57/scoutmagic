@@ -1,0 +1,372 @@
+<?php
+/**
+ * ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ * Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+ */
+
+declare(strict_types=1);
+
+namespace Modules\Rental\Controller;
+
+use Core\Config\ScoutYearService;
+use Core\Config\SettingService;
+use Core\Http\Controller\AbstractController;
+use Core\Http\FlashMessage;
+use Core\Http\Request;
+use Core\Http\Response;
+use Core\Member\MemberService;
+use Core\Security\AuthSession;
+use Core\Security\CsrfGuard;
+use Modules\Rental\Repository\RentalAssetRepository;
+use Modules\Rental\Service\RentalAssetService;
+use Modules\Rental\Service\RentalException;
+use Modules\Rental\Service\RentalManagerService;
+use Twig\Environment;
+
+/**
+ * "Espace chefs d'U > Locations" (`role_min: admin`) — the **structural**
+ * configuration of the assets themselves: what exists, who manages it, and
+ * later its booking rules, pricing and compliance register.
+ *
+ * Deliberately NOT where an asset is operated day to day. The contract
+ * template, the email templates and the bookings all live in the asset's
+ * own managed space, reachable by its managers — who are not necessarily
+ * chiefs and have no business needing `admin` (roadmap §6.4). Unit staff
+ * reach both, since they are implicitly managers of every asset.
+ *
+ * **Why "Espace chefs d'U" and not "Configuration".** The intended audience
+ * is the unit chief, i.e. `admin`. The `configuration` menu's own minimum is
+ * `superadmin`, and `ModuleManifest` rejects, fail-safe, any module route
+ * more permissive than its menu — so a module page cannot sit there at
+ * `admin` at all. (`Core\Maintenance` appears to do exactly that, but it is a
+ * core route, not a manifest-validated one; ARCHITECTURE.md §3 documents it
+ * as the single exception.) `espace_admin`'s minimum IS `admin`, so it is
+ * where an admin-level configuration page belongs without weakening that
+ * guard for every other module.
+ *
+ * **Every section saves independently.** Each `save*` action below owns a
+ * disjoint set of fields and writes only those. A single two-hundred-field
+ * form is the thing this screen is designed against: it makes a partial
+ * post silently blank fields the operator never saw.
+ */
+class RentalConfigController extends AbstractController
+{
+    public function __construct(
+        Environment $twig,
+        private RentalAssetRepository $assetRepository,
+        private RentalAssetService $assetService,
+        private RentalManagerService $managerService,
+        private MemberService $memberService,
+        private ScoutYearService $scoutYearService,
+        private SettingService $settingService
+    ) {
+        parent::__construct($twig);
+    }
+
+    /**
+     * GET /admin/locations
+     *
+     * @param array<string, string> $params
+     */
+    public function index(Request $request, array $params): Response
+    {
+        $assets = $this->assetRepository->findAll();
+        $selected = $this->resolveSelectedAsset($request, $assets);
+        $scoutYearId = (int) $this->scoutYearService->getCurrentYear()['id'];
+
+        return $this->render('@rental/config/index.html.twig', [
+            'assets' => $assets,
+            'selected_asset' => $selected,
+            'managers' => $selected !== null
+                ? $this->managerService->listManagersForAsset($selected->id, $scoutYearId, false)
+                : [],
+            'assignable_members' => $selected !== null
+                ? $this->assignableMembers($selected->id, $scoutYearId)
+                : [],
+            'type_suggestions' => $this->typeSuggestions(),
+            'csrf_token' => CsrfGuard::generateToken(),
+            'current_path' => '/admin/locations',
+        ]);
+    }
+
+    /**
+     * POST /admin/locations/create
+     *
+     * @param array<string, string> $params
+     */
+    public function create(Request $request, array $params): Response
+    {
+        if (!CsrfGuard::validateRequest()) {
+            return new Response('Forbidden', 403);
+        }
+
+        try {
+            $id = $this->assetService->create(
+                (string) $request->getBody('name', ''),
+                (string) $request->getBody('asset_type', ''),
+                self::optionalInt($request->getBody('capacity')),
+                max(1, (int) $request->getBody('quantity', 1)),
+                self::optionalString($request->getBody('arrival_time')),
+                self::optionalString($request->getBody('departure_time')),
+                self::optionalString($request->getBody('emergency_phone')),
+                $request->getBody('is_public') !== null,
+                $request->getBody('show_in_menu') !== null,
+                AuthSession::getUserAccountId()
+            );
+            FlashMessage::set('success', 'Le bien a été créé.');
+
+            return $this->redirect('/admin/locations?asset_id=' . $id);
+        } catch (RentalException $e) {
+            FlashMessage::set('error', $e->getMessage());
+
+            return $this->redirect('/admin/locations');
+        }
+    }
+
+    /**
+     * POST /admin/locations/general — the "général" section only.
+     *
+     * @param array<string, string> $params
+     */
+    public function saveGeneral(Request $request, array $params): Response
+    {
+        if (!CsrfGuard::validateRequest()) {
+            return new Response('Forbidden', 403);
+        }
+
+        $assetId = (int) $request->getBody('asset_id', 0);
+
+        try {
+            $this->assetService->updateGeneral(
+                $assetId,
+                (string) $request->getBody('name', ''),
+                (string) $request->getBody('asset_type', ''),
+                self::optionalInt($request->getBody('capacity')),
+                max(1, (int) $request->getBody('quantity', 1)),
+                self::optionalString($request->getBody('arrival_time')),
+                self::optionalString($request->getBody('departure_time')),
+                self::optionalString($request->getBody('emergency_phone')),
+                $request->getBody('is_public') !== null,
+                $request->getBody('show_in_menu') !== null,
+                AuthSession::getUserAccountId()
+            );
+            FlashMessage::set('success', 'Les informations générales ont été enregistrées.');
+        } catch (RentalException $e) {
+            FlashMessage::set('error', $e->getMessage());
+        }
+
+        return $this->redirect('/admin/locations?asset_id=' . $assetId);
+    }
+
+    /**
+     * POST /admin/locations/managers — the "gestionnaires" section only.
+     *
+     * Reads the full desired manager set from the form and reconciles it,
+     * rather than taking an add/remove verb: the page shows a checklist, so
+     * "these are the managers now" is what the operator actually expressed.
+     * A member absent from the post is revoked — a deliberate decision by a
+     * chief, unlike the import-driven deactivation, which never deletes.
+     *
+     * @param array<string, string> $params
+     */
+    public function saveManagers(Request $request, array $params): Response
+    {
+        if (!CsrfGuard::validateRequest()) {
+            return new Response('Forbidden', 403);
+        }
+
+        $assetId = (int) $request->getBody('asset_id', 0);
+
+        try {
+            $this->assetService->requireAsset($assetId);
+        } catch (RentalException $e) {
+            FlashMessage::set('error', $e->getMessage());
+
+            return $this->redirect('/admin/locations');
+        }
+
+        $scoutYearId = (int) $this->scoutYearService->getCurrentYear()['id'];
+
+        // Only member ids actually assignable this year are honoured — a
+        // forged id in the post must not create a grant for someone who is
+        // not on the roster at all.
+        $assignableIds = array_keys($this->assignableMembers($assetId, $scoutYearId));
+        $submitted = $request->getBody('manager_member_ids', []);
+        $submittedIds = is_array($submitted) ? array_map('intval', $submitted) : [];
+        $wantedIds = array_values(array_intersect($submittedIds, $assignableIds));
+
+        $renterContacts = $request->getBody('renter_contact_member_ids', []);
+        $renterContactIds = is_array($renterContacts) ? array_map('intval', $renterContacts) : [];
+
+        $userId = AuthSession::getUserAccountId();
+        $existing = $this->managerService->listManagersForAsset($assetId, $scoutYearId, false);
+        $existingIds = array_map(static fn(array $row) => $row['manager']->memberId, $existing);
+
+        foreach (array_diff($existingIds, $wantedIds) as $memberId) {
+            $this->managerService->revoke($assetId, (int) $memberId, $userId);
+        }
+
+        foreach ($wantedIds as $memberId) {
+            $this->managerService->grant(
+                $assetId,
+                $memberId,
+                in_array($memberId, $renterContactIds, true),
+                $userId
+            );
+        }
+
+        FlashMessage::set('success', 'Les gestionnaires ont été enregistrés.');
+
+        return $this->redirect('/admin/locations?asset_id=' . $assetId);
+    }
+
+    /**
+     * POST /admin/locations/archive
+     *
+     * @param array<string, string> $params
+     */
+    public function archive(Request $request, array $params): Response
+    {
+        return $this->lifecycleAction(
+            $request,
+            fn(int $assetId, ?int $userId) => $this->assetService->archive($assetId, $userId),
+            'Le bien a été archivé.',
+            true
+        );
+    }
+
+    /**
+     * POST /admin/locations/restore
+     *
+     * @param array<string, string> $params
+     */
+    public function restore(Request $request, array $params): Response
+    {
+        return $this->lifecycleAction(
+            $request,
+            fn(int $assetId, ?int $userId) => $this->assetService->restore($assetId, $userId),
+            'Le bien a été désarchivé.',
+            true
+        );
+    }
+
+    /**
+     * POST /admin/locations/delete
+     *
+     * @param array<string, string> $params
+     */
+    public function delete(Request $request, array $params): Response
+    {
+        // Back to the list rather than to the asset: after a successful
+        // delete there is nothing left to select.
+        return $this->lifecycleAction(
+            $request,
+            fn(int $assetId, ?int $userId) => $this->assetService->delete($assetId, $userId),
+            'Le bien a été supprimé.',
+            false
+        );
+    }
+
+    /**
+     * The shape every lifecycle action shares: check CSRF, read the asset
+     * id, run the one operation, turn a RentalException into a flash rather
+     * than a stack trace, redirect.
+     *
+     * @param callable(int, ?int): void $operation
+     * @param bool $backToAsset Whether to reselect the asset afterwards — false once it no longer exists.
+     */
+    private function lifecycleAction(
+        Request $request,
+        callable $operation,
+        string $successMessage,
+        bool $backToAsset
+    ): Response {
+        if (!CsrfGuard::validateRequest()) {
+            return new Response('Forbidden', 403);
+        }
+
+        $assetId = (int) $request->getBody('asset_id', 0);
+
+        try {
+            $operation($assetId, AuthSession::getUserAccountId());
+            FlashMessage::set('success', $successMessage);
+        } catch (RentalException $e) {
+            FlashMessage::set('error', $e->getMessage());
+
+            return $this->redirect('/admin/locations?asset_id=' . $assetId);
+        }
+
+        return $backToAsset
+            ? $this->redirect('/admin/locations?asset_id=' . $assetId)
+            : $this->redirect('/admin/locations');
+    }
+
+    /**
+     * The asset the chip picker currently points at — the one named in the
+     * query string when it is real, else the first in the list, else null
+     * on an empty installation.
+     *
+     * @param \Modules\Rental\Repository\RentalAsset[] $assets
+     */
+    private function resolveSelectedAsset(Request $request, array $assets): ?\Modules\Rental\Repository\RentalAsset
+    {
+        $requestedId = (int) $request->getQuery('asset_id', 0);
+
+        foreach ($assets as $asset) {
+            if ($asset->id === $requestedId) {
+                return $asset;
+            }
+        }
+
+        return $assets[0] ?? null;
+    }
+
+    /**
+     * Every member who could be made a manager of this asset, as
+     * `members.id => display name`.
+     *
+     * Any active member of the current year qualifies: a manager is
+     * explicitly not required to be a chief (roadmap §6.3), so narrowing
+     * this by role would defeat the point of the feature. Authority still
+     * comes only from the grant itself.
+     *
+     * @return array<int, string>
+     */
+    private function assignableMembers(int $assetId, int $scoutYearId): array
+    {
+        $memberIds = $this->memberService->findActiveMemberIdsForYear($scoutYearId);
+        $names = $this->memberService->findDisplayNamesByMemberIds($memberIds, $scoutYearId);
+        asort($names, SORT_NATURAL | SORT_FLAG_CASE);
+
+        return $names;
+    }
+
+    /**
+     * @return string[]
+     */
+    private function typeSuggestions(): array
+    {
+        $raw = (string) ($this->settingService->get('asset_type_suggestions', 'rental') ?: '');
+        $types = array_values(array_filter(array_map('trim', explode(',', $raw)), static fn(string $t) => $t !== ''));
+
+        return $types !== [] ? $types : RentalAssetService::SUGGESTED_TYPES;
+    }
+
+    private static function optionalInt(mixed $value): ?int
+    {
+        $value = is_string($value) ? trim($value) : $value;
+
+        return $value === null || $value === '' ? null : (int) $value;
+    }
+
+    private static function optionalString(mixed $value): ?string
+    {
+        if (!is_string($value)) {
+            return null;
+        }
+
+        $value = trim($value);
+
+        return $value !== '' ? $value : null;
+    }
+}

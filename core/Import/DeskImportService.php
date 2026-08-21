@@ -26,7 +26,15 @@ class DeskImportService
         private ImportJournalRepository $importJournalRepository,
         private UserAccountRepository $userAccountRepository,
         private UnitStaffSectionService $unitStaffSectionService,
-        private SectionMembershipService $sectionMembershipService
+        private SectionMembershipService $sectionMembershipService,
+        /**
+         * Modules reconciling their own member-referencing data at the end
+         * of an import (ARCHITECTURE.md §7.4). Empty unless the composition
+         * root wired one in, so core never depends on any module.
+         *
+         * @var DeskImportListener[]
+         */
+        private array $importListeners = []
     ) {
     }
 
@@ -64,6 +72,19 @@ class DeskImportService
             // on Config Desk, not from the CSV itself — recompute Staff d'U
             // membership from whatever functions are already role='admin'.
             $this->unitStaffSectionService->syncMembership($scoutYearId);
+
+            // Modules with their own references to members.id reconcile
+            // here, on the same roster and inside the same transaction as
+            // core's own deactivate-then-reactivate passes above. Before
+            // the commit deliberately: derived state half-applied to core
+            // but not to a module is worse than an import that failed and
+            // can simply be retried (see DeskImportListener's docblock).
+            if ($this->importListeners !== []) {
+                $activeMemberIds = $this->memberYearRepository->findActiveMemberIdsForYear($scoutYearId);
+                foreach ($this->importListeners as $listener) {
+                    $listener->onDeskImportCompleted($scoutYearId, $activeMemberIds);
+                }
+            }
 
             $this->pdo->commit();
         } catch (\Throwable $e) {

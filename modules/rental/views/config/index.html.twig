@@ -1,0 +1,212 @@
+{% extends 'base.html.twig' %}
+{% block title %}Locations — {{ site_name }}{% endblock %}
+{#
+  "Espace chefs d'U > Locations" — the structural configuration of the assets.
+
+  Two things this page deliberately is not:
+
+  - It is NOT one giant form. Each <form> below owns a disjoint set of
+    fields and posts to its own action, so saving the managers can never
+    blank a general field, and vice versa (roadmap §6.4).
+  - It is NOT where an asset is operated. Bookings, the contract template
+    and the email templates live in the asset's own managed space, reachable
+    by its managers, who are not necessarily chiefs and must not need
+    `admin` to do their job.
+#}
+{% block content %}
+    <div class="container py-4" style="max-width: 1100px;">
+        <h1 class="h3 mb-1">Locations</h1>
+        <p class="text-body-secondary small mb-4">
+            Configuration des biens que l'unité met en location. La gestion quotidienne d'un bien
+            (réservations, contrat, emails) se fait depuis l'espace de gestion du bien, accessible
+            à ses gestionnaires.
+        </p>
+
+        {% if assets is empty %}
+            <div class="alert alert-info">
+                Aucun bien n'est encore configuré. Créez le premier ci-dessous.
+            </div>
+        {% else %}
+            {% set asset_items = [] %}
+            {% for asset in assets %}
+                {% set asset_items = asset_items|merge([{
+                    id: asset.id,
+                    label: asset.name,
+                    sublabel: asset.assetType,
+                    badge: asset.isArchived ? 'Archivé' : null,
+                    selected: selected_asset and asset.id == selected_asset.id,
+                }]) %}
+            {% endfor %}
+            <div class="mb-4">
+                {% include 'partials/chip_picker.html.twig' with {
+                    picker_id: 'rental-asset-picker',
+                    items: asset_items,
+                    mode: 'single',
+                    base_url: '/admin/locations?asset_id=',
+                    sheet_title: 'Choisir un bien',
+                    empty_text: 'Aucun bien disponible.',
+                } %}
+            </div>
+        {% endif %}
+
+        {% if selected_asset %}
+            {% if selected_asset.isArchived %}
+                <div class="alert alert-warning">
+                    Ce bien est archivé : il n'apparaît plus publiquement et n'accepte plus de nouvelle
+                    réservation. Ses gestionnaires y gardent accès pour clôturer l'historique.
+                </div>
+            {% endif %}
+
+            {# ── Section: général ─────────────────────────────────────── #}
+            <div class="card mb-4">
+                <div class="card-body">
+                    <h2 class="h5 mb-3">Général</h2>
+                    <form method="post" action="/admin/locations/general">
+                        {{ csrf_field()|raw }}
+                        <input type="hidden" name="asset_id" value="{{ selected_asset.id }}">
+                        {% include '@rental/config/_asset_fields.html.twig' with {
+                            asset: selected_asset,
+                            type_suggestions: type_suggestions,
+                        } %}
+                        <button type="submit" class="btn btn-primary">Enregistrer le général</button>
+                    </form>
+                </div>
+            </div>
+
+            {# ── Section: gestionnaires ───────────────────────────────── #}
+            <div class="card mb-4">
+                <div class="card-body">
+                    <h2 class="h5 mb-1">Gestionnaires</h2>
+                    <p class="text-body-secondary small mb-3">
+                        Les gestionnaires exploitent le bien au quotidien. Ce ne sont pas nécessairement
+                        des chefs, et ils ont tous les mêmes droits sur le bien. Le Staff d'U est
+                        gestionnaire de tous les biens sans devoir être ajouté ici.
+                    </p>
+
+                    <form method="post" action="/admin/locations/managers">
+                        {{ csrf_field()|raw }}
+                        <input type="hidden" name="asset_id" value="{{ selected_asset.id }}">
+
+                        {% set inactive_managers = [] %}
+                        {% for row in managers %}
+                            {% if not row.manager.isActive %}
+                                {% set inactive_managers = inactive_managers|merge([row]) %}
+                            {% endif %}
+                        {% endfor %}
+                        {% if inactive_managers is not empty %}
+                            <div class="alert alert-warning small">
+                                {{ inactive_managers|length }} gestionnaire(s) n'apparaissent plus dans le
+                                dernier import Desk et sont donc désactivés. Leur accès est suspendu, mais
+                                l'attribution est conservée : elle se réactive d'elle-même s'ils
+                                réapparaissent dans un import.
+                            </div>
+                        {% endif %}
+
+                        {% set current_ids = [] %}
+                        {% set contact_ids = [] %}
+                        {% for row in managers %}
+                            {% set current_ids = current_ids|merge([row.manager.memberId]) %}
+                            {% if row.manager.isRenterContact %}
+                                {% set contact_ids = contact_ids|merge([row.manager.memberId]) %}
+                            {% endif %}
+                        {% endfor %}
+
+                        {% if assignable_members is empty %}
+                            <p class="text-body-secondary fst-italic">
+                                Aucun membre actif n'est disponible pour cette année scoute.
+                            </p>
+                        {% else %}
+                            <div class="table-responsive">
+                                <table class="table table-sm align-middle">
+                                    <thead>
+                                        <tr>
+                                            <th scope="col">Membre</th>
+                                            <th scope="col">Gestionnaire</th>
+                                            <th scope="col">Contact du locataire</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for member_id, display_name in assignable_members %}
+                                            <tr>
+                                                <th scope="row" class="fw-normal">
+                                                    <label for="manager-{{ member_id }}">{{ display_name }}</label>
+                                                </th>
+                                                <td>
+                                                    <input class="form-check-input" type="checkbox"
+                                                           id="manager-{{ member_id }}"
+                                                           name="manager_member_ids[]" value="{{ member_id }}"
+                                                           {{ member_id in current_ids ? 'checked' : '' }}>
+                                                </td>
+                                                <td>
+                                                    <input class="form-check-input" type="checkbox"
+                                                           id="contact-{{ member_id }}"
+                                                           name="renter_contact_member_ids[]" value="{{ member_id }}"
+                                                           {{ member_id in contact_ids ? 'checked' : '' }}>
+                                                    <label class="visually-hidden" for="contact-{{ member_id }}">
+                                                        Montrer les coordonnées de {{ display_name }} au locataire
+                                                    </label>
+                                                </td>
+                                            </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                            <p class="text-body-secondary small">
+                                « Contact du locataire » montre les coordonnées de ce gestionnaire au locataire
+                                sur sa page de suivi. Cela ne les rend jamais publiques.
+                            </p>
+                            <button type="submit" class="btn btn-primary">Enregistrer les gestionnaires</button>
+                        {% endif %}
+                    </form>
+                </div>
+            </div>
+
+            {# ── Section: cycle de vie ────────────────────────────────── #}
+            <div class="card mb-4">
+                <div class="card-body">
+                    <h2 class="h5 mb-3">Archivage</h2>
+                    <p class="text-body-secondary small">
+                        Un bien qui a un historique de réservations s'archive, il ne se supprime pas :
+                        l'historique reste nécessaire à la comptabilité et aux statistiques.
+                    </p>
+                    <div class="d-flex flex-wrap gap-2">
+                        {% if selected_asset.isArchived %}
+                            <form method="post" action="/admin/locations/restore">
+                                {{ csrf_field()|raw }}
+                                <input type="hidden" name="asset_id" value="{{ selected_asset.id }}">
+                                <button type="submit" class="btn btn-outline-success">Désarchiver</button>
+                            </form>
+                        {% else %}
+                            <form method="post" action="/admin/locations/archive">
+                                {{ csrf_field()|raw }}
+                                <input type="hidden" name="asset_id" value="{{ selected_asset.id }}">
+                                <button type="submit" class="btn btn-outline-warning">Archiver</button>
+                            </form>
+                        {% endif %}
+                        <form method="post" action="/admin/locations/delete">
+                            {{ csrf_field()|raw }}
+                            <input type="hidden" name="asset_id" value="{{ selected_asset.id }}">
+                            <button type="submit" class="btn btn-outline-danger">Supprimer définitivement</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        {% endif %}
+
+        {# ── Création ─────────────────────────────────────────────────── #}
+        <div class="card">
+            <div class="card-body">
+                <h2 class="h5 mb-3">Ajouter un bien</h2>
+                <form method="post" action="/admin/locations/create">
+                    {{ csrf_field()|raw }}
+                    {% include '@rental/config/_asset_fields.html.twig' with {
+                        asset: null,
+                        type_suggestions: type_suggestions,
+                        field_prefix: 'new',
+                    } %}
+                    <button type="submit" class="btn btn-success">Créer le bien</button>
+                </form>
+            </div>
+        </div>
+    </div>
+{% endblock %}

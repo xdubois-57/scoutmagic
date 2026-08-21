@@ -1597,6 +1597,28 @@ $router->addRoute('POST', '/config/functions/branch-url', FunctionsController::c
 // Load enabled modules (routes registered AFTER core routes so core takes priority)
 $moduleManager->loadEnabledModules();
 
+// Desk-import listeners (Core\Import\DeskImportListener, ARCHITECTURE.md
+// §7.4) — a module reconciling its own references to members.id at the end
+// of an import. $importService was built far above, before $moduleManager
+// existed, so it is rebuilt here rather than gaining a forward reference;
+// every ImportController registration happens later in this file and so
+// picks up this instance, including the registration module's own
+// re-registration.
+$deskImportListeners = [];
+if (in_array('rental', $moduleManager->getEnabledModuleIds(), true)) {
+    $deskImportListeners[] = new \Modules\Rental\Service\RentalDeskImportListener(
+        new \Modules\Rental\Repository\RentalAssetManagerRepository($pdo),
+        $journalService
+    );
+}
+if ($deskImportListeners !== []) {
+    $importService = new DeskImportService(
+        $pdo, $encryptionService, $csvParser, $mappingResolver,
+        $memberRepo, $memberYearRepo, $importJournalRepo, $userAccountRepo, $unitStaffSectionService,
+        $sectionMembershipService, $deskImportListeners
+    );
+}
+
 // Register module template namespaces in Twig
 $twigLoader = $twig->getLoader();
 if ($twigLoader instanceof \Twig\Loader\FilesystemLoader) {
@@ -2995,6 +3017,91 @@ if (in_array('registration', $moduleManager->getEnabledModuleIds(), true)) {
         $activeMenuId = $registrationMenuActive['menuId'];
         $activePageUrl = $registrationMenuActive['pageUrl'];
         $bestMatchLength = $registrationMenuActive['matchLength'];
+        $twig->addGlobal('active_menu_id', $activeMenuId);
+        $twig->addGlobal('active_page_url', $activePageUrl);
+    }
+}
+
+// ── Locations (modules/rental) ─────────────────────────────────────────
+// The repositories are built here rather than shared with the Desk-import
+// listener block far above: that block runs before $moduleManager's own
+// module list is settled into anything a static analyser can follow, so
+// reusing its locals would only mean a forward reference nothing can prove
+// is defined. Both are stateless wrappers around the same PDO handle.
+if (in_array('rental', $moduleManager->getEnabledModuleIds(), true)) {
+    $rentalCurrentYearId = (int) $scoutYearService->getCurrentYear()['id'];
+
+    $rentalAssetRepository = new \Modules\Rental\Repository\RentalAssetRepository($pdo, $encryptionService);
+    $rentalManagerRepository = new \Modules\Rental\Repository\RentalAssetManagerRepository($pdo);
+
+    $rentalAuthorizationService = new \Modules\Rental\Service\RentalAuthorizationService(
+        $memberService,
+        $rentalAssetRepository,
+        $rentalManagerRepository
+    );
+    $rentalSlugGenerator = new \Modules\Rental\Service\RentalSlugGenerator($rentalAssetRepository);
+    $rentalAssetService = new \Modules\Rental\Service\RentalAssetService(
+        $rentalAssetRepository,
+        $rentalSlugGenerator,
+        $journalService
+    );
+    $rentalManagerService = new \Modules\Rental\Service\RentalManagerService(
+        $rentalManagerRepository,
+        $memberService,
+        $journalService
+    );
+
+    $frontController->registerController(
+        \Modules\Rental\Controller\RentalConfigController::class,
+        new \Modules\Rental\Controller\RentalConfigController(
+            $twig, $rentalAssetRepository, $rentalAssetService, $rentalManagerService,
+            $memberService, $scoutYearService, $settingService
+        )
+    );
+    $frontController->registerController(
+        \Modules\Rental\Controller\RentalPublicController::class,
+        new \Modules\Rental\Controller\RentalPublicController(
+            $twig, $rentalAssetRepository, $rentalAuthorizationService, $scoutYearService
+        )
+    );
+    $frontController->registerController(
+        \Modules\Rental\Controller\RentalManagementController::class,
+        new \Modules\Rental\Controller\RentalManagementController(
+            $twig, $rentalAuthorizationService, $scoutYearService
+        )
+    );
+
+    // Menu hook (Core\Module\MenuEntryProvider) — the "Locations" index and
+    // one entry per pinned public asset in "Notre unité", plus "Mes
+    // locations" in "Espace animés" for an actual manager. Public entries,
+    // so the hook runs for an anonymous visitor too and the email is passed
+    // as null rather than the block being skipped. Same rebuild-and-
+    // re-derive dance as the registration block above; see
+    // Core\View\DynamicMenuRegistrar for why it cannot happen earlier.
+    $rentalMenuHookService = new \Modules\Rental\Service\RentalMenuHookService(
+        $rentalAssetRepository,
+        $rentalAuthorizationService,
+        $rentalCurrentYearId
+    );
+    $rentalMenuEntries = $dynamicMenuRegistrar->register(
+        $menuBuilder,
+        [$rentalMenuHookService],
+        AuthSession::isAuthenticated() ? AuthSession::getEmail() : null
+    );
+    if ($rentalMenuEntries !== []) {
+        $menus = $menuBuilder->build();
+        $twig->addGlobal('menus', $menus);
+
+        $rentalMenuActive = $dynamicMenuRegistrar->resolveActive(
+            $rentalMenuEntries,
+            $currentPath,
+            $activeMenuId,
+            $activePageUrl,
+            $bestMatchLength
+        );
+        $activeMenuId = $rentalMenuActive['menuId'];
+        $activePageUrl = $rentalMenuActive['pageUrl'];
+        $bestMatchLength = $rentalMenuActive['matchLength'];
         $twig->addGlobal('active_menu_id', $activeMenuId);
         $twig->addGlobal('active_page_url', $activePageUrl);
     }

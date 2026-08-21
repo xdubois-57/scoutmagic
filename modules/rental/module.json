@@ -1,0 +1,135 @@
+{
+  "id": "rental",
+  "name": "Locations",
+  "description": "Location des biens de l'unité : locaux, terrains, tentes, remorques, matériel. Calendrier de disponibilité public, demandes en ligne et suivi des réservations.",
+  "version": "1.0.0",
+  "enabled_by_default": false,
+  "routes": [
+    {
+      "path": "/locations",
+      "method": "GET",
+      "controller": "Modules\\Rental\\Controller\\RentalPublicController",
+      "action": "index",
+      "menu": "notre_unite",
+      "role_min": "public",
+      "label": "",
+      "breadcrumb": {
+        "label": "Locations",
+        "parents": [
+          "Notre unité"
+        ]
+      }
+    },
+    {
+      "path": "/locations/{slug}",
+      "method": "GET",
+      "controller": "Modules\\Rental\\Controller\\RentalPublicController",
+      "action": "show",
+      "menu": "notre_unite",
+      "role_min": "public",
+      "label": "",
+      "breadcrumb": {
+        "label": "Locations",
+        "parents": [
+          "Notre unité"
+        ]
+      }
+    },
+    {
+      "path": "/mes-locations",
+      "method": "GET",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "myRentals",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": "",
+      "breadcrumb": {
+        "label": "Mes locations",
+        "parents": [
+          "Espace animés"
+        ]
+      }
+    },
+    {
+      "path": "/admin/locations",
+      "method": "GET",
+      "controller": "Modules\\Rental\\Controller\\RentalConfigController",
+      "action": "index",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": "Locations",
+      "breadcrumb": {
+        "label": "Locations",
+        "parents": [
+          "Espace chefs d'U"
+        ]
+      }
+    },
+    {
+      "path": "/admin/locations/create",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalConfigController",
+      "action": "create",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/admin/locations/general",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalConfigController",
+      "action": "saveGeneral",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/admin/locations/managers",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalConfigController",
+      "action": "saveManagers",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/admin/locations/archive",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalConfigController",
+      "action": "archive",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/admin/locations/restore",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalConfigController",
+      "action": "restore",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    },
+    {
+      "path": "/admin/locations/delete",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalConfigController",
+      "action": "delete",
+      "menu": "espace_admin",
+      "role_min": "admin",
+      "label": ""
+    }
+  ],
+  "settings": [
+    {
+      "key": "asset_type_suggestions",
+      "default_value": "Local, Terrain, Tente, Remorque, Matériel, Autre",
+      "type": "text",
+      "label": "Types de biens proposés",
+      "description": "Liste, séparée par des virgules, des types proposés à la création d'un bien. Ce ne sont que des suggestions : n'importe quel autre type peut être saisi."
+    }
+  ],
+  "cookies": [],
+  "scheduled_tasks": [],
+  "storage": {}
+}

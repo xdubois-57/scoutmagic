@@ -1,0 +1,83 @@
+{#
+  The "général" field set, shared by the edit form and the creation form so
+  the two can never drift apart.
+
+  Requires `asset` (a Modules\Rental\Repository\RentalAsset, or null when
+  creating) and `type_suggestions` (string[]). `field_prefix` (optional)
+  only disambiguates the `id`/`for` attributes when both forms are on the
+  same page — the POST field names are identical either way, since the two
+  actions read the same names.
+#}
+{% set p = field_prefix|default('edit') %}
+<div class="row g-3 mb-3">
+    <div class="col-12 col-md-6">
+        <label class="form-label" for="{{ p }}-name">Nom du bien</label>
+        <input type="text" class="form-control" id="{{ p }}-name" name="name"
+               value="{{ asset ? asset.name : '' }}" required maxlength="150">
+    </div>
+    <div class="col-12 col-md-6">
+        <label class="form-label" for="{{ p }}-asset-type">Type</label>
+        {# A free text field with suggestions, never a <select>: the type
+           list is configurable and a unit must be able to rent out
+           something nobody anticipated. #}
+        <input type="text" class="form-control" id="{{ p }}-asset-type" name="asset_type"
+               value="{{ asset ? asset.assetType : '' }}" required maxlength="50"
+               list="{{ p }}-asset-type-options">
+        <datalist id="{{ p }}-asset-type-options">
+            {% for suggestion in type_suggestions %}
+                <option value="{{ suggestion }}"></option>
+            {% endfor %}
+        </datalist>
+    </div>
+
+    <div class="col-6 col-md-3">
+        <label class="form-label" for="{{ p }}-capacity">Capacité</label>
+        <input type="number" class="form-control" id="{{ p }}-capacity" name="capacity"
+               value="{{ asset and asset.capacity is not null ? asset.capacity : '' }}" min="1">
+        <div class="form-text">Nombre de personnes. Vide si sans objet.</div>
+    </div>
+    <div class="col-6 col-md-3">
+        <label class="form-label" for="{{ p }}-quantity">Quantité</label>
+        <input type="number" class="form-control" id="{{ p }}-quantity" name="quantity"
+               value="{{ asset ? asset.quantity : 1 }}" min="1" required>
+        <div class="form-text">1 = bien unique. Plus de 1 = stock louable séparément.</div>
+    </div>
+    <div class="col-6 col-md-3">
+        <label class="form-label" for="{{ p }}-arrival-time">Heure d'arrivée</label>
+        <input type="time" class="form-control" id="{{ p }}-arrival-time" name="arrival_time"
+               value="{{ asset and asset.arrivalTime ? asset.arrivalTime : '' }}">
+    </div>
+    <div class="col-6 col-md-3">
+        <label class="form-label" for="{{ p }}-departure-time">Heure de départ</label>
+        <input type="time" class="form-control" id="{{ p }}-departure-time" name="departure_time"
+               value="{{ asset and asset.departureTime ? asset.departureTime : '' }}">
+    </div>
+
+    <div class="col-12 col-md-6">
+        <label class="form-label" for="{{ p }}-emergency-phone">Téléphone d'urgence</label>
+        <input type="tel" class="form-control" id="{{ p }}-emergency-phone" name="emergency_phone"
+               value="{{ asset and asset.emergencyPhone ? asset.emergencyPhone : '' }}">
+        <div class="form-text">
+            Communiqué uniquement au locataire sur sa page de suivi. Jamais affiché publiquement.
+        </div>
+    </div>
+</div>
+
+<div class="form-check mb-2">
+    <input class="form-check-input" type="checkbox" id="{{ p }}-is-public" name="is_public"
+           {{ asset and asset.isPublic ? 'checked' : '' }}>
+    <label class="form-check-label" for="{{ p }}-is-public">
+        Rendre ce bien visible publiquement
+    </label>
+</div>
+<div class="form-check mb-3">
+    <input class="form-check-input" type="checkbox" id="{{ p }}-show-in-menu" name="show_in_menu"
+           {{ asset and asset.showInMenu ? 'checked' : '' }}>
+    <label class="form-check-label" for="{{ p }}-show-in-menu">
+        Afficher ce bien dans le menu « Notre unité »
+    </label>
+    <div class="form-text">
+        Sans effet tant que le bien n'est pas public. Un bien public non affiché au menu reste
+        accessible depuis la page « Locations ».
+    </div>
+</div>

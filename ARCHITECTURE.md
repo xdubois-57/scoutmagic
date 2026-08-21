@@ -849,6 +849,42 @@ The provider takes an **email** rather than exposing a bare getter, and answers 
 
 **Journal.** `temporary_member_added` and `temporary_member_removed`, both at level `security`, carrying the acting admin's `user_account_id` and the `member_year_id` — never a name, an email, or anything else identifying the member.
 
+### 8.43 Rental module (`modules/rental`)
+
+Renting out the unit's own assets — halls, grounds, tents, trailers, equipment. Opt-in (`enabled_by_default: false`): not every unit rents anything out.
+
+**No `scout_year_id`, deliberately.** AGENTS.md § Database asks every member-related table to carry one "unless the data itself genuinely isn't scout-year-scoped (e.g. `calendar_events`)". This is that same exception, for the same reason: a rental is dated on a calendar, not attached to a school year. A booking from 28 August to 2 September straddles two scout years; forcing it into one makes the other year's availability calculation wrong, and the year-transition machinery would orphan live bookings every September. Retention is therefore driven by the accounting exercise instead, never by the scout year.
+
+**Two spaces, two different role boundaries — and only one of them is the real protection.**
+
+| | Where | `role_min` | What actually protects it |
+|---|---|---|---|
+| Structural configuration of the assets | `Espace chefs d'U > Locations` (`/admin/locations`) | `admin` | The route guard |
+| Day-to-day operation of one asset | the asset's own managed space, `/mes-locations` | `identified` | `Service\RentalAuthorizationService` |
+
+The managed space's `identified` floor is not an oversight. A manager is explicitly **not** required to be a chief, so the route guard grants nearly everything and the per-asset check is what stands between a logged-in visitor and someone else's bookings. It is re-run server-side on every action; a hidden "Gérer ce bien" button, an absent menu entry and a breadcrumb are presentation, never a boundary (§12).
+
+**Why `espace_admin` and not `configuration`.** The intended audience for asset configuration is the unit chief, i.e. `admin`. The `configuration` menu's own minimum is `superadmin`, and `ModuleManifest` rejects, fail-safe, any *module* route more permissive than its menu — so a module page cannot sit there at `admin` at all. (`Core\Maintenance` appears to do exactly that, but it is a core route, not a manifest-validated one; §3 documents it as the single exception.) `espace_admin`'s minimum *is* `admin`, so that is where an admin-level module configuration page belongs, without weakening that guard for every other module.
+
+**Authority comes from exactly two places**: Staff d'U membership (resolved through `MemberService::isUnitChief()`, never stored as a grant, so a revoked or import-suspended row can never lock a unit chief out of their own unit's assets), and an active row in `rental_asset_managers`. **ScoutMagic badges are never an ACL here.** That table points at `members.id` — the *persistent* identity, never `member_years.id`, same choice as `files.owner_member_id` — so a manager does not silently lose their assets every September.
+
+**Archived, never deleted.** An asset with any history is archived: it leaves public view and stops taking bookings, but stays fully readable to its managers, who still have past bookings to settle. `RentalAssetService::hasHistory()` is the single gate every history-bearing table extends as later iterations add them.
+
+**Public confidentiality is absolute, not configurable** (module spec §6.6). A public page never renders a manager's name, phone or email; the asset's emergency phone; anything about a renter or a booking; a price actually paid; a document; an access code; an internal comment. The `is_renter_contact` flag on a grant widens the audience from "internal" to "internal + this booking's renter" — it never means "public". A non-public or archived asset is a **404** for anyone who cannot manage it, never a 403: telling an anonymous visitor "this exists but you may not see it" is itself a disclosure.
+
+**Menu entries** come from `Core\Module\MenuEntryProvider` (§7.4): the "Locations" index and one entry per pinned public asset in "Notre unité" (public, so the hook runs for an anonymous visitor too), plus "Mes locations" in "Espace animés" for an actual manager. The index page exists as soon as **any** public asset does — not only when one is pinned — because an unpinned public asset would otherwise have no menu entry and no index to be listed on, i.e. be reachable only by someone who already knew the URL.
+
+### 8.44 Desk-import hook for modules (`Core\Import\DeskImportListener`)
+
+A Desk import is the moment the unit's roster becomes authoritative again: whoever left simply stops appearing in the CSV. Core already reconciles its own derived state at that point (`MemberYearRepository::deactivateAllForYear()`, `MappingResolver::deactivateAllSections()`, `UnitStaffSectionService::syncMembership()`). `DeskImportListener` opens that same moment to modules holding a reference to `members.id` — a per-object permission grant, an assignment, an ownership. Same §7.4 shape as every other core hook: core defines the interface, the module implements it, `public/index.php` wires it in only when the module is enabled.
+
+`onDeskImportCompleted(int $scoutYearId, array $activeMemberIds)` receives **ids, not rows** — a listener needs set membership, not member data, and must not be handed personal data it has no use for (`MemberYearRepository::findActiveMemberIdsForYear()`).
+
+**Listeners run inside the import transaction**, after `syncMembership()` and before the commit. Deliberately: a roster half-applied to core but not to a module is worse than an import that failed outright and can be retried, so a listener that throws rolls the whole import back. The corollary is that a listener must stay bounded, idempotent, and free of anything unreplayable — no mail send, no HTTP call.
+
+**The convention is deactivate, never delete**, the one core follows itself: a member missing from an import loses access, but the row recording that they had it is kept and marked inactive, so a member absent from one import (a data-entry slip, a late registration) comes back without an admin re-granting anything. `Modules\Rental\Service\RentalDeskImportListener` is the first implementation, and journals **counts only** — a quiet mass deactivation is exactly what an admin needs to notice after a botched import, while "who manages what" must not become readable as personal data in the journal (SECURITY.md §5).
+
+
 ## 9. Installation / bootstrap
 
 ### 9.1 First install: bootstrap.php

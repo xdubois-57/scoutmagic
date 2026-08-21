@@ -1,0 +1,44 @@
+{% extends 'base.html.twig' %}
+{% block title %}Locations — {{ site_name }}{% endblock %}
+{#
+  The public "Locations" index. Exists as soon as ANY public asset exists,
+  pinned to the menu or not — an unpinned public asset would otherwise be
+  reachable only by someone who already knew its URL (roadmap §6.2).
+
+  Public page: no manager contact, no emergency phone, nothing about any
+  renter or booking, no price actually paid, no document (§6.6).
+#}
+{% block content %}
+    <div class="container py-4" style="max-width: 900px;">
+        <h1 class="h3 mb-4">Locations</h1>
+
+        {% if assets is empty %}
+            <p class="text-body-secondary fst-italic">Aucun bien n'est proposé à la location pour le moment.</p>
+        {% else %}
+            <div class="row g-3">
+                {% for asset in assets %}
+                    <div class="col-12 col-md-6">
+                        <div class="card h-100">
+                            <div class="card-body">
+                                <h2 class="h5 card-title mb-1">
+                                    <a href="/locations/{{ asset.slug }}" class="stretched-link text-decoration-none">
+                                        {{ asset.name }}
+                                    </a>
+                                </h2>
+                                <p class="text-body-secondary small mb-2">{{ asset.assetType }}</p>
+                                <ul class="list-unstyled small mb-0">
+                                    {% if asset.capacity is not null %}
+                                        <li>Jusqu'à {{ asset.capacity }} personnes</li>
+                                    {% endif %}
+                                    {% if asset.isStock %}
+                                        <li>{{ asset.quantity }} exemplaires disponibles</li>
+                                    {% endif %}
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                {% endfor %}
+            </div>
+        {% endif %}
+    </div>
+{% endblock %}
