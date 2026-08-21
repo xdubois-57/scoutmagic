@@ -999,3 +999,64 @@ CREATE TABLE IF NOT EXISTS rental_settlements (
     CONSTRAINT fk_rental_settlements_booking
         FOREIGN KEY (booking_id) REFERENCES rental_bookings (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- rental_compliance_items: the asset's paperwork register (§6.33).
+--
+-- **A neutral register, not a compliance check.** The module knows no
+-- regulation, computes no compliance state and passes no judgement — it
+-- remembers what expires and says so in time. Every entry is a free-text
+-- label the unit chose, because the rules differ by commune, by federation
+-- and by year, and hardcoding any of them would be wrong somewhere and
+-- stale everywhere else.
+--
+-- The suggested labels shown at creation live in a module setting, never in
+-- this schema and never in the code: a label that changes must not require a
+-- software update.
+CREATE TABLE IF NOT EXISTS rental_compliance_items (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    asset_id INT UNSIGNED NOT NULL,
+    -- Free text, chosen by the unit. Not an enum, deliberately.
+    label VARCHAR(200) NOT NULL,
+    -- The document itself, when there is one. Optional: a register entry
+    -- that only records "the commune's authorisation runs out in March" is
+    -- worth having before anybody scans anything.
+    file_id INT UNSIGNED NULL,
+    -- Optional too: some paperwork simply does not expire.
+    expires_on DATE NULL,
+    -- About the asset and its paperwork, never about a person — so plain
+    -- text, like rental_blocks.reason, and the same responsibility on the
+    -- interface to keep it that way.
+    remark TEXT NULL,
+    -- The last date a reminder went out for this entry, so a daily task
+    -- does not send the same warning every morning for a month.
+    reminded_on DATE NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    KEY idx_rental_compliance_asset (asset_id),
+    KEY idx_rental_compliance_expiry (expires_on),
+    CONSTRAINT fk_rental_compliance_asset FOREIGN KEY (asset_id) REFERENCES rental_assets(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- rental_reminders_sent: what has already been said, and when (§6.29).
+--
+-- A reminder task runs daily and asks the same questions every morning
+-- ("is the deposit still unpaid?"). Without this table the answer would be
+-- yes every morning for a month, and the unit would learn to ignore the
+-- whole channel — which is worse than not reminding at all.
+--
+-- Keyed by the thing reminded about plus the reminder's own key, so the
+-- same booking can carry an unpaid-deposit reminder and a missing-contract
+-- one without either suppressing the other.
+CREATE TABLE IF NOT EXISTS rental_reminders_sent (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    -- 'booking' | 'compliance'. Not a foreign key: a reminder about a
+    -- booking that was later deleted is history, and losing it would let
+    -- the same reminder fire again if the id were reused.
+    subject_type VARCHAR(20) NOT NULL,
+    subject_id INT UNSIGNED NOT NULL,
+    reminder_key VARCHAR(50) NOT NULL,
+    sent_on DATE NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY idx_rental_reminder_once (subject_type, subject_id, reminder_key),
+    KEY idx_rental_reminder_sent_on (sent_on)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

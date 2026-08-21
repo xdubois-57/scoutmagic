@@ -343,8 +343,37 @@ class RentalTestHelper
             decided_by_member_id INTEGER,
             FOREIGN KEY (booking_id) REFERENCES rental_bookings(id) ON DELETE CASCADE
         )');
+
+        self::createComplianceTables($pdo);
     }
 
+    /**
+     * The compliance register and the sent-reminders ledger (§6.33, §6.29).
+     */
+    public static function createComplianceTables(\PDO $pdo): void
+    {
+        $pdo->exec('CREATE TABLE rental_compliance_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            asset_id INTEGER NOT NULL,
+            label TEXT NOT NULL,
+            file_id INTEGER,
+            expires_on TEXT,
+            remark TEXT,
+            reminded_on TEXT,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )');
+
+        $pdo->exec('CREATE TABLE rental_reminders_sent (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            subject_type TEXT NOT NULL,
+            subject_id INTEGER NOT NULL,
+            reminder_key TEXT NOT NULL,
+            sent_on TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE (subject_type, subject_id, reminder_key)
+        )');
+    }
 
     public static function insertMember(\PDO $pdo, string $deskId): int
     {

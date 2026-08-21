@@ -213,6 +213,63 @@ class RentalBookingMailService
      * reliable of the matching rules for an inbound reply (§7.6), far ahead
      * of guessing from the sender's address.
      */
+    /**
+     * The practical-info email, a week before arrival (§6.29).
+     *
+     * **The only reminder that reaches the renter**, and it goes by email
+     * because a renter has no `user_account` and therefore no notification
+     * centre — dispatching it as a notification would silently reach
+     * nobody.
+     *
+     * Deliberately carries no tracking link. This is a reminder, not a new
+     * authorisation: the renter already has their link from the
+     * acknowledgement, and re-issuing a capability inside an email nobody
+     * asked for is how one ends up forwarded.
+     *
+     * @param array<int, array{display_name: string, phone: ?string}> $contacts
+     * @return bool whether it actually went out
+     */
+    public function sendPracticalInfo(RentalBooking $booking, RentalAsset $asset, array $contacts = []): bool
+    {
+        $context = [
+            'booking' => $booking,
+            'asset' => $asset,
+            'contacts' => $contacts,
+            'site_name' => $this->settingService->get('site_name') ?: 'Notre unité',
+        ];
+
+        try {
+            $this->mailService->send(
+                $booking->renterEmail,
+                $this->subjectFor($booking, 'Informations pratiques avant votre séjour'),
+                $this->twig->render('@rental/email/practical_info.html.twig', $context),
+                $this->twig->render('@rental/email/practical_info.text.twig', $context),
+                null,
+                [],
+                null,
+                null,
+                ['Message-ID' => $this->newMessageId()]
+            );
+        } catch (\Throwable) {
+            // A reminder that could not be sent must not take the whole
+            // reminder run down with it — and the failure is deliberately
+            // not logged with the address, which would be personal data in
+            // the journal (§6.29, SECURITY.md §5).
+            return false;
+        }
+
+        // The reference and nothing else: no name, no address (§6.28).
+        $this->journal->log(
+            'rental',
+            'rental_practical_info_sent',
+            'info',
+            'Informations pratiques envoyées pour ' . $booking->reference,
+            ['booking_id' => $booking->id]
+        );
+
+        return true;
+    }
+
     public function subjectFor(RentalBooking $booking, string $subject): string
     {
         return '[' . $booking->reference . '] ' . $subject;

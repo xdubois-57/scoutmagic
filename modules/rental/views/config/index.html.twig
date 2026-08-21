@@ -199,6 +199,19 @@
             </div>
         {% endif %}
 
+        {# ── Rappels automatiques (§6.29) ─────────────────────────────── #}
+        {% if not cron_detected %}
+            <div class="alert alert-warning">
+                <strong>Aucune tâche planifiée réelle n'a été détectée.</strong>
+                Les rappels automatiques (acompte non reçu, état des lieux à faire,
+                document de conformité expirant, informations pratiques au locataire…)
+                partent quand même, mais seulement à l'occasion d'une visite du site :
+                sur un hébergement mutualisé sans crontab, un rappel peut donc arriver
+                avec plusieurs heures de retard. Si votre hébergeur le permet, faites
+                appeler <code>public/cron.php</code> toutes les minutes.
+            </div>
+        {% endif %}
+
         {# ── Section: courrier entrant (§7.4) ─────────────────────────── #}
         <div class="card mb-4" id="courrier">
             <div class="card-body">

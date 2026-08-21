@@ -1337,6 +1337,69 @@ omission would look exactly like a broken sync.
 `RentalCommunicationService` takes the API as a nullable dependency and
 answers as though no message ever arrived, which is exactly true.
 
+### 8.60 The paperwork register and the reminders (`Modules\Rental\Compliance`, `Modules\Rental\Reminder`)
+
+**The register is a reminder list, and the code is built so it cannot
+quietly become a compliance check.** `Compliance\ComplianceItem` has no
+`isValid()`, no status enum and nothing that derives a verdict from a date —
+a test pins their absence. What a hall needs differs by commune, by
+federation and by year; a green tick computed here would be a legal opinion
+this software has no business giving. Every entry is a free-text label the
+unit chose, and the suggested labels live in a module setting so a rename
+costs one text field rather than a release. The page says all of this in as
+many words, above everything else on it.
+
+**Reminders know their audience before they exist.** `Reminder\ReminderKind`
+encodes it: twelve go to the unit's own people through `NotificationService`,
+and one — the practical-info email — goes to the renter through
+`MailService`. That distinction is structural because getting it wrong fails
+silently: `NotificationService` targets `user_accounts`, a renter has none,
+and dispatching to them would reach nobody rather than error. Each reminder
+is its own declared notification type, so a unit that wants to hear about
+unpaid deposits but not about inventories can say so.
+
+**`Reminder\ReminderPlanner` is pure** — every input a parameter, no
+repository, no clock. That is what makes "does this fire on the right day" a
+question a test answers directly, and these are exactly the rules that fail
+invisibly: nobody notices a message they never expected. Deciding *what* is
+due is deliberately separate from deciding *who hears about it and how*,
+which is `RentalReminderService`'s job.
+
+**Nothing fires "on" a date.** Every rule is "is this true today", so a
+shared host whose cron ran six hours late — or not at all yesterday — sends
+today rather than never. What stops a repeat is `rental_reminders_sent`, and
+the claim is an **insert**, not a check-then-write: two overlapping ticks
+would otherwise both read "not sent" and both send. A reminder that could
+not actually be delivered releases its claim, so a failure nobody saw does
+not suppress it forever.
+
+**Reminders are addressed, never broadcast**: to the managers of *that*
+asset. And **no personal data travels in one** — a title and body name a
+booking by its reference and an asset by its name, never the renter, because
+a notification lands in a push payload, a notification centre and possibly an
+email subject line. The journal entries follow the same rule, and tests
+assert both.
+
+**Without Finance, nothing is said about money at all.** The stored due
+dates survive its absence but the received amounts do not, so a paid deposit
+would read as unpaid — and telling a unit their renter has not paid when
+they have is worse than silence. Likewise, without the stay features there
+is no inventory to be missing, so none is chased.
+
+**The daily task is registered by hand in both entry points**, because its
+money reminders need Finance's public API and only a composition root can
+build one; auto-resolved from the manifest instead, it falls back to a
+self-built service that does everything except talk about money. A test pins
+both call sites — a handler registered in only one of them fails
+unconditionally under the other (§8.17/§8.20).
+
+**The configuration page says when no real cron is running.** It reads the
+same `cron_last_run` signal the push-notification page uses, stamped only by
+`public/cron.php` and never by a web request — which is precisely what lets
+it tell a real crontab from the request-driven scheduler standing in for one.
+On shared hosting without a crontab the reminders still go out, just hours
+late, and a unit that does not know that reads the delay as a bug.
+
 ## 9. Installation / bootstrap
 
 ### 9.1 First install: bootstrap.php

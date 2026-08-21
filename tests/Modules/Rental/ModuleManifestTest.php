@@ -41,7 +41,7 @@ class ModuleManifestTest extends TestCase
      */
     public function testTheVersionIsBumpedWheneverTheSchemaChanges(): void
     {
-        $this->assertSame('1.9.0', $this->manifest->version);
+        $this->assertSame('1.10.0', $this->manifest->version);
     }
 
     /**
@@ -261,5 +261,59 @@ class ModuleManifestTest extends TestCase
         // has to change with it (AGENTS.md § Cookie consent) — this test is
         // what makes that impossible to forget silently.
         $this->assertSame([], $this->manifest->cookies);
+    }
+
+    /**
+     * Every reminder this module dispatches must be declared here.
+     *
+     * `NotificationService::dispatch()` throws on an undeclared type — a
+     * runtime failure for a code-level mistake, and one that would surface
+     * only on the day that particular reminder first came due, in a
+     * background task nobody is watching.
+     */
+    public function testEveryReminderTypeIsDeclared(): void
+    {
+        $declared = array_column($this->manifest->notifications, 'id');
+
+        foreach (\Modules\Rental\Service\RentalReminderService::declaredNotificationTypeIds() as $typeId) {
+            $this->assertContains($typeId, $declared, $typeId . ' is dispatched but never declared.');
+        }
+    }
+
+    /**
+     * And the renter's own reminder must NOT be declared: a renter has no
+     * `user_account`, so a notification type for them would be an invitation
+     * to dispatch something that reaches nobody (§6.29).
+     */
+    public function testTheRentersReminderIsNotANotificationType(): void
+    {
+        $declared = array_column($this->manifest->notifications, 'id');
+
+        $this->assertNotContains(
+            \Modules\Rental\Reminder\ReminderKind::PRACTICAL_INFO->notificationTypeId(),
+            $declared
+        );
+    }
+
+    public function testTheDailyReminderTaskIsDeclared(): void
+    {
+        $keys = array_column($this->manifest->scheduledTasks, 'key');
+
+        $this->assertContains(\Modules\Rental\Task\SendRentalRemindersHandler::TASK_KEY, $keys);
+    }
+
+    /**
+     * The compliance label suggestions live in configuration, never in the
+     * code (§6.33): a label that a commune or the federation renames must
+     * cost a unit one text field, not a software release.
+     */
+    public function testTheComplianceLabelSuggestionsAreASetting(): void
+    {
+        $keys = array_column($this->manifest->settings, 'key');
+
+        $this->assertContains(
+            \Modules\Rental\Service\RentalComplianceService::SETTING_LABEL_SUGGESTIONS,
+            $keys
+        );
     }
 }

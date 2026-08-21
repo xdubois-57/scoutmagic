@@ -2,7 +2,7 @@
   "id": "rental",
   "name": "Locations",
   "description": "Location des biens de l'unité : locaux, terrains, tentes, remorques, matériel. Calendrier de disponibilité public, demandes en ligne et suivi des réservations.",
-  "version": "1.9.0",
+  "version": "1.10.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -357,6 +357,33 @@
       "label": ""
     },
     {
+      "path": "/mes-locations/conformite-ajouter",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "addComplianceItem",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/mes-locations/conformite-modifier",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "updateComplianceItem",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/mes-locations/conformite-supprimer",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "deleteComplianceItem",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
       "path": "/mes-locations/{slug}",
       "method": "GET",
       "controller": "Modules\\Rental\\Controller\\RentalManagementController",
@@ -659,6 +686,22 @@
       "menu": "notre_unite",
       "role_min": "public",
       "label": ""
+    },
+    {
+      "path": "/mes-locations/{slug}/conformite",
+      "method": "GET",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "compliance",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": "",
+      "breadcrumb": {
+        "label": "Conformité",
+        "parents": [
+          "Espace chefs d'U",
+          "Locations"
+        ]
+      }
     }
   ],
   "settings": [
@@ -682,6 +725,13 @@
       "type": "text",
       "label": "Boîtes de courrier entrant surveillées",
       "description": "Identifiants des boîtes, séparés par des virgules, dont les messages sont rattachés automatiquement aux réservations. Vide = toutes les boîtes configurées. Se règle depuis la page Locations plutôt qu'ici : elle affiche le nom de chaque boîte, ce que cette liste d'identifiants ne fait pas."
+    },
+    {
+      "key": "compliance_label_suggestions",
+      "default_value": "Attestation incendie, Assurance RC, Autorisation communale, Label Atouts Camps, Numéro d'enregistrement",
+      "type": "text",
+      "label": "Intitulés proposés au registre de conformité",
+      "description": "Liste, séparée par des virgules, des intitulés proposés comme point de départ dans le registre de conformité d'un bien. Ce ne sont que des suggestions : n'importe quel autre intitulé peut être saisi. ScoutMagic ne connaît aucune règle réglementaire et ne vérifie aucune conformité — le registre rappelle uniquement ce qui expire."
     }
   ],
   "cookies": [],
@@ -689,11 +739,161 @@
     {
       "key": "expire_rental_holds",
       "handler": "Modules\\Rental\\Task\\ExpireRentalHoldsHandler"
+    },
+    {
+      "key": "send_rental_reminders",
+      "handler": "Modules\\Rental\\Task\\SendRentalRemindersHandler"
     }
   ],
   "storage": {
     "rental/documents": {
       "role_min": "identified"
     }
-  }
+  },
+  "notifications": [
+    {
+      "id": "rental.new_request",
+      "label": "Nouvelle demande de location",
+      "description": "Une demande de location vient d'arriver pour un bien que vous gérez.",
+      "group": "Locations",
+      "role_min": "identified",
+      "channels": {
+        "in_app": "default_on",
+        "push": "default_on",
+        "email": "off"
+      }
+    },
+    {
+      "id": "rental.unanswered_request",
+      "label": "Demande de location sans réponse",
+      "description": "Une demande attend une réponse depuis plusieurs jours.",
+      "group": "Locations",
+      "role_min": "identified",
+      "channels": {
+        "in_app": "default_on",
+        "push": "default_on",
+        "email": "off"
+      }
+    },
+    {
+      "id": "rental.hold_expiring",
+      "label": "Blocage de dates bientôt expiré",
+      "description": "Le blocage temporaire d'une demande expire bientôt : les dates redeviendront libres.",
+      "group": "Locations",
+      "role_min": "identified",
+      "channels": {
+        "in_app": "default_on",
+        "push": "default_on",
+        "email": "off"
+      }
+    },
+    {
+      "id": "rental.deposit_missing",
+      "label": "Acompte non reçu",
+      "description": "L'acompte d'une location n'a pas été reçu à la date prévue.",
+      "group": "Locations",
+      "role_min": "identified",
+      "channels": {
+        "in_app": "default_on",
+        "push": "default_on",
+        "email": "off"
+      }
+    },
+    {
+      "id": "rental.balance_missing",
+      "label": "Solde non reçu",
+      "description": "Le solde d'une location n'a pas été reçu à la date prévue.",
+      "group": "Locations",
+      "role_min": "identified",
+      "channels": {
+        "in_app": "default_on",
+        "push": "default_on",
+        "email": "off"
+      }
+    },
+    {
+      "id": "rental.contract_missing",
+      "label": "Contrat non établi",
+      "description": "Le séjour approche et aucun contrat n'a encore été établi.",
+      "group": "Locations",
+      "role_min": "identified",
+      "channels": {
+        "in_app": "default_on",
+        "push": "default_on",
+        "email": "off"
+      }
+    },
+    {
+      "id": "rental.security_deposit_missing",
+      "label": "Caution non reçue",
+      "description": "La caution d'une location n'a pas été reçue à la date prévue.",
+      "group": "Locations",
+      "role_min": "identified",
+      "channels": {
+        "in_app": "default_on",
+        "push": "default_on",
+        "email": "off"
+      }
+    },
+    {
+      "id": "rental.arrival_inventory",
+      "label": "État des lieux d'entrée à faire",
+      "description": "Les locataires sont arrivés et l'état des lieux d'entrée n'a pas été enregistré.",
+      "group": "Locations",
+      "role_min": "identified",
+      "channels": {
+        "in_app": "default_on",
+        "push": "default_on",
+        "email": "off"
+      }
+    },
+    {
+      "id": "rental.departure_inventory",
+      "label": "État des lieux de sortie à faire",
+      "description": "Les locataires sont partis et l'état des lieux de sortie n'a pas été enregistré.",
+      "group": "Locations",
+      "role_min": "identified",
+      "channels": {
+        "in_app": "default_on",
+        "push": "default_on",
+        "email": "off"
+      }
+    },
+    {
+      "id": "rental.settlement_due",
+      "label": "Décompte final à établir",
+      "description": "Le séjour est terminé et le décompte final reste à établir.",
+      "group": "Locations",
+      "role_min": "identified",
+      "channels": {
+        "in_app": "default_on",
+        "push": "default_on",
+        "email": "off"
+      }
+    },
+    {
+      "id": "rental.security_deposit_to_return",
+      "label": "Caution à restituer",
+      "description": "Une caution est toujours détenue par l'unité après la fin du séjour.",
+      "group": "Locations",
+      "role_min": "identified",
+      "channels": {
+        "in_app": "default_on",
+        "push": "default_on",
+        "email": "off"
+      }
+    },
+    {
+      "id": "rental.compliance_expiring",
+      "label": "Document de conformité expirant",
+      "description": "Une entrée du registre de conformité d'un bien expire bientôt, ou a expiré.",
+      "group": "Locations",
+      "role_min": "identified",
+      "channels": {
+        "in_app": "default_on",
+        "push": "default_on",
+        "email": "off"
+      }
+    }
+  ]
 }
