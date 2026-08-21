@@ -199,6 +199,11 @@ class RentalManagementController extends AbstractController
 
         return $this->render('@rental/management/overview.html.twig', [
             'asset' => $asset,
+            // 'Mes locations' is a PAGE, not a menu, so it belongs in the
+            // trail (a real link) and not in the manifest's `parents`,
+            // which renders anything it cannot match to a menu as inert
+            // grey text. See design.md §7.1.
+            'breadcrumb_trail' => [['label' => 'Mes locations', 'url' => '/mes-locations']],
             'breadcrumb_current' => $asset->name,
             'bookings' => $bookings,
             'needs_attention' => array_values(array_filter(
@@ -242,6 +247,7 @@ class RentalManagementController extends AbstractController
 
         return $this->render('@rental/management/bookings.html.twig', [
             'asset' => $asset,
+            'breadcrumb_trail' => [['label' => 'Mes locations', 'url' => '/mes-locations']],
             'breadcrumb_current' => 'Réservations',
             'bookings' => $bookings,
             'filter' => $filter,
@@ -272,6 +278,7 @@ class RentalManagementController extends AbstractController
         return $this->render('@rental/management/booking.html.twig', [
             'asset' => $asset,
             'booking' => $booking,
+            'breadcrumb_trail' => [['label' => 'Mes locations', 'url' => '/mes-locations']],
             'breadcrumb_current' => $booking->reference,
             'milestones' => BookingMilestones::for($booking, $now),
             'allowed_transitions' => BookingTransition::allowedFrom($booking->status),
@@ -319,6 +326,7 @@ class RentalManagementController extends AbstractController
             'asset' => $asset,
             'booking' => $booking,
             'document_type' => $type,
+            'breadcrumb_trail' => [['label' => 'Mes locations', 'url' => '/mes-locations']],
             'breadcrumb_current' => $type->label(),
             'body_html' => $body,
             // Level 1 for reference, so a manager can see what they are
@@ -636,6 +644,7 @@ class RentalManagementController extends AbstractController
 
         return $this->render('@rental/management/calendar.html.twig', [
             'asset' => $asset,
+            'breadcrumb_trail' => [['label' => 'Mes locations', 'url' => '/mes-locations']],
             'breadcrumb_current' => 'Calendrier',
             'calendar' => $this->gridBuilder->build(
                 $window->year,
@@ -695,6 +704,7 @@ class RentalManagementController extends AbstractController
 
         return $this->render('@rental/management/templates.html.twig', [
             'asset' => $asset,
+            'breadcrumb_trail' => [['label' => 'Mes locations', 'url' => '/mes-locations']],
             'breadcrumb_current' => 'Gabarits',
             'templates' => $templates,
             'keywords' => DocumentKeywords::catalogue(),
@@ -896,6 +906,7 @@ class RentalManagementController extends AbstractController
         return $this->render('@rental/management/stay.html.twig', [
             'asset' => $asset,
             'booking' => $booking,
+            'breadcrumb_trail' => [['label' => 'Mes locations', 'url' => '/mes-locations']],
             'breadcrumb_current' => 'Séjour',
             'consumptions' => $this->stayService->consumptionsFor($booking, $asset->id),
             'inventory' => $this->stayService->inventoryFor($booking->id),

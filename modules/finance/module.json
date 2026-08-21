@@ -22,7 +22,8 @@
       "action": "index",
       "menu": "espace_chefs",
       "role_min": "intendant",
-      "label": ""
+      "label": "",
+      "breadcrumb": { "label": "Paiements attendus", "parents": ["Espace chefs"] }
     },
     {
       "path": "/finance/movements",
@@ -31,7 +32,8 @@
       "action": "list",
       "menu": "espace_chefs",
       "role_min": "intendant",
-      "label": ""
+      "label": "",
+      "breadcrumb": { "label": "Mouvements", "parents": ["Espace chefs"] }
     },
     {
       "path": "/finance/movements/export",
@@ -58,7 +60,8 @@
       "action": "form",
       "menu": "espace_chefs",
       "role_min": "intendant",
-      "label": ""
+      "label": "",
+      "breadcrumb": { "label": "Importer un relevé", "parents": ["Espace chefs"] }
     },
     {
       "path": "/finance/import",
@@ -76,7 +79,8 @@
       "action": "list",
       "menu": "espace_chefs",
       "role_min": "intendant",
-      "label": ""
+      "label": "",
+      "breadcrumb": { "label": "Reçus", "parents": ["Espace chefs"] }
     },
     {
       "path": "/finance/receipts/new",
@@ -85,7 +89,8 @@
       "action": "form",
       "menu": "espace_chefs",
       "role_min": "intendant",
-      "label": ""
+      "label": "",
+      "breadcrumb": { "label": "Nouveau reçu", "parents": ["Espace chefs"] }
     },
     {
       "path": "/finance/receipts/search",
@@ -203,7 +208,8 @@
       "action": "index",
       "menu": "configuration",
       "role_min": "superadmin",
-      "label": ""
+      "label": "",
+      "breadcrumb": { "label": "Comptes", "parents": ["Configuration"] }
     },
     {
       "path": "/config/finance/accounts",
@@ -221,7 +227,8 @@
       "action": "index",
       "menu": "configuration",
       "role_min": "superadmin",
-      "label": ""
+      "label": "",
+      "breadcrumb": { "label": "Catégories", "parents": ["Configuration"] }
     },
     {
       "path": "/config/finance/categories",

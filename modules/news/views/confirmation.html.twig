@@ -39,11 +39,10 @@
             </div>
         {% endif %}
 
-        <div class="d-flex flex-column flex-sm-row gap-2 justify-content-center">
-            {% if edit_url %}
+        {% if edit_url %}
+            <div class="d-flex flex-column flex-sm-row gap-2 justify-content-center">
                 <a href="{{ edit_url }}" class="btn btn-outline-primary">Modifier mes réponses</a>
-            {% endif %}
-            <a href="/news/{{ article.id }}" class="btn btn-secondary">Retour à l'article</a>
-        </div>
+            </div>
+        {% endif %}
     </div>
 {% endblock %}

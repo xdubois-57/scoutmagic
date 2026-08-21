@@ -9,14 +9,13 @@
             {% if album.subtitle %}<p class="text-body-secondary mb-0">{{ album.subtitle }}</p>{% endif %}
             <p class="small text-body-secondary mb-0">{{ album.albumDate|french_date }}</p>
         </div>
-        <div class="d-flex gap-2">
-            {% if has_downloadable_media %}
+        {% if has_downloadable_media %}
+            <div class="d-flex gap-2">
                 <a href="/gallery/{{ album.id }}/download" class="btn btn-sm btn-outline-primary">
                     <i class="bi bi-file-earmark-zip"></i> Télécharger l'album (ZIP)
                 </a>
-            {% endif %}
-            <a href="/gallery" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left"></i> Retour</a>
-        </div>
+            </div>
+        {% endif %}
     </div>
 
     {% if storage_unavailable %}

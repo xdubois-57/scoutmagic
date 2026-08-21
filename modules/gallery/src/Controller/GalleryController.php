@@ -144,6 +144,11 @@ class GalleryController extends AbstractController
         ], $mediaRows);
 
         return $this->render('@gallery/album.html.twig', [
+            // The trail replaces what used to be a "Retour" button on this
+            // page: the breadcrumb is the site's only back affordance
+            // (design.md §7.1), so the step it named has to be in it.
+            'breadcrumb_trail' => [['label' => 'Galerie', 'url' => '/gallery']],
+            'breadcrumb_current' => $album->title,
             'album' => $album,
             'media' => $media,
             'has_downloadable_media' => !$unavailable && count(array_filter($mediaRows, fn(Media $m) => $m->processingStatus === Media::STATUS_DONE)) > 0,

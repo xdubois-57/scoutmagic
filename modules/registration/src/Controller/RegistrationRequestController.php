@@ -366,6 +366,16 @@ class RegistrationRequestController extends AbstractController
         }
 
         return [
+            // Replaces the page's former "« Retour à la liste" link: the
+            // breadcrumb is the site's only back affordance (design.md
+            // §7.1), so the step that link named lives in the trail. The
+            // year is carried over so the list comes back filtered the way
+            // it was left.
+            'breadcrumb_trail' => [[
+                'label' => 'Inscriptions',
+                'url' => '/config/inscriptions?year=' . $registrationRequest->scoutYearId,
+            ]],
+            'breadcrumb_current' => trim($registrationRequest->childFirstName . ' ' . $registrationRequest->childLastName),
             'r' => $registrationRequest,
             'scout_year_label' => $scoutYearLabel,
             'slot_label' => $this->slotLabel($brackets, $slot),

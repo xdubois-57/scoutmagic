@@ -116,8 +116,20 @@ Mechanism: the TypeScript compiler used purely as a development-time checker ove
 - Never duplicate a Bootstrap component in custom CSS.
 - **Production frontend assets still require no build step.** No Sass, no webpack, no application bundler, no transpiler — `public/assets/js/*.js` is always plain, unbundled browser JavaScript, loaded via a classic `<script src="...">` tag, exactly as before. Any new vendored front-end library goes under `public/assets/vendor/<name>/` and must be added to `scripts/release.sh`'s dependency freshness gate (a new `check_vendored_asset_freshness` call — see that function's docblock) in the same change.
 - **npm/Node are permitted, but strictly as development/test tooling** — narrowly reconciling this repo's older, blanket "no npm" rule. `package.json`/`package-lock.json`/`node_modules/` exist solely to run TypeScript's `checkJs` static analysis (`tsconfig.json`, `scripts/js-typecheck.mjs`, § Static analysis above) and the two Node-based test stacks — Vitest (`tests/js/`) and Playwright (`tests/e2e/`, ARCHITECTURE.md § 15) — locally and in CI; none of it is ever required to run, build, or deploy ScoutMagic itself, and none of it ships in a release artifact (`scripts/release.sh` excludes it, and `node_modules/`/`coverage/`/`tests/e2e/` output are gitignored — see `.gitignore`). **A browser automation runtime is test infrastructure, not frontend architecture**: Playwright downloads a Chromium binary to *drive* the site the way a visitor's browser does, and compiles, bundles, transpiles, and minifies exactly nothing — `public/assets/js/*.js` is still shipped byte-for-byte as written, loaded by a plain `<script src="...">`. The same is true of `tsc`: `--noEmit` means it only reads `public/assets/js/*.js` and reports, it never writes a compiled/transpiled copy anywhere, and TypeScript itself never becomes the production source language. Do not let this permission creep into introducing an actual frontend build pipeline (bundler, Sass compiler, transpiler) — that remains banned unless this architecture is deliberately revisited.
-- Minimum 44px touch targets on interactive elements.
+- Touch targets: aim for 44px on small or icon-only controls; Bootstrap's default-size
+  `.btn`/`.form-control`/`.form-select` (38px) are fine as they are — the accessibility
+  requirement is 24px (WCAG 2.2 SC 2.5.8 AA), 44px is SC 2.5.5 AAA. Never as an inline
+  `style="min-height:44px"`: it beats the media query that restores compact desktop
+  sizes. See design.md §7.2.
 - HTML5 input types (`tel`, `date`, `email`) for appropriate keyboard on mobile.
+- **Never add a per-page "Retour" button.** The breadcrumb bar is the site's single back
+  affordance: declare the page's place instead (`breadcrumb` on the route for the menu it
+  belongs to, `breadcrumb_trail` from the controller for an ancestor page, `breadcrumb_current`
+  for a dynamic title). Every page route declares a breadcrumb. Enforced by
+  `tests/Core/View/UxConventionsTest.php`; see design.md §7.1.
+- Never `onclick=`/`onsubmit=`/`onchange=` in a template — the CSP has no `unsafe-inline`,
+  so the handler never runs and nothing reports it. Confirmations go on the `<form>` via
+  `data-confirm` (design.md §7.3).
 
 ## Database
 

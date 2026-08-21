@@ -331,6 +331,9 @@ class MassMailController extends AbstractController
         }
 
         return $this->render('@mass_mail/tracking.html.twig', [
+            // Replaces the page's former "Retour" button: the breadcrumb is
+            // the site's only back affordance (design.md §7.1).
+            'breadcrumb_trail' => [['label' => 'Envoi de mails', 'url' => '/mass-mail']],
             'email' => $data['email'],
             'counts' => $data['counts'],
             'recipients' => $data['recipients'],

@@ -5,7 +5,7 @@ This document covers UI/UX decisions, data model, and technical design choices.
 ## 1. UI/UX principles
 
 ### 1.1 Mobile-first
-Primary device is mobile. Base CSS for mobile, `min-width` breakpoints for larger. Bootstrap 5 compiled files. 44px touch targets. HTML5 input types.
+Primary device is mobile. Base CSS for mobile, `min-width` breakpoints for larger. Bootstrap 5 compiled files. HTML5 input types. Touch targets: see §7.2 — 44px is a comfort goal for small and icon-only controls, not a threshold to apply to every control.
 
 ### 1.2 Navigation
 
@@ -156,3 +156,124 @@ Consent stored in strictly-necessary cookie `cookie_consent` (JSON: `{"functiona
 
 ### 6.3 Enforcement
 `CookieConsentService::isAllowed($category)` checked before any `setcookie()` for non-essential cookies. Middleware or helper — never left to individual controllers.
+
+## 7. UX conventions
+
+Rules every later change is expected to follow. They are written down because
+each one was decided after seeing the alternative fail somewhere in this
+codebase — the rationale matters as much as the rule. The ones marked
+**(enforced)** have a test that fails when they are broken:
+`tests/Core/View/UxConventionsTest.php`.
+
+### 7.1 Back navigation: the breadcrumb, and nothing else **(enforced)**
+
+**No page carries its own "Retour" control.** `partials/breadcrumb_bar.html.twig`
+is rendered once by `base.html.twig`, is visible on every mobile viewport (and
+on desktop in an installed PWA), and is the single back mechanism of the site.
+
+Per-page back buttons were removed because they both duplicated it and
+disagreed with it: 13 of them existed in 6 different visual treatments
+(`btn-outline-secondary`, `btn-secondary`, `btn-primary`, `btn-outline-primary`,
+a bare link with `&laquo;`, with or without `bi-arrow-left`), so "going back"
+looked and behaved differently depending on which page you were on, and pages
+that had one showed two stacked back affordances on mobile while the rest
+showed one.
+
+A page therefore has to declare its own place in the hierarchy. Three
+mechanisms, in increasing specificity:
+
+| Mechanism | Where | Renders as | Use for |
+|---|---|---|---|
+| `breadcrumb.parents` | route declaration (`module.json`, or `Router::addRoute()`'s 6th argument) | a button that OPENS that menu | the MENU a page belongs to |
+| `breadcrumb_trail` | controller context, `[{label, url}]` | a real link | an ancestor PAGE within the same family |
+| `breadcrumb_current` | controller context | the active, non-link item | a dynamic title (an album, a member, a reference) |
+
+`parents` names a menu and only a menu. The bar matches each entry against the
+menus the visitor actually has; anything it cannot match degrades to inert grey
+text. An ancestor that is a *page* — "Galerie", "Mes locations", "Inscriptions"
+— belongs in `breadcrumb_trail`, which is a real link, and is exactly where the
+information a removed back button carried should go.
+
+**Every page route declares a breadcrumb.** A page without one renders the bar
+as a lone home icon, which reads as a broken component rather than as a page
+with no ancestors. Routes that render no page (JSON endpoints, AJAX fragments,
+downloads, media streams) declare none, and are listed in the test's
+`NON_PAGE_PATTERN`.
+
+Two exceptions, both because the breadcrumb genuinely cannot serve:
+
+- `pwa/offline.html.twig` deliberately does not extend `base.html.twig` (it is
+  precached by the service worker and must bake in nothing dynamic), so it has
+  no bar at all; in an installed PWA there is no browser back button either,
+  which makes its `history.back()` the only way back to the cached page the
+  visitor was reading.
+- `@mass_mail/_compose_dialog.html.twig`'s "Retour au brouillon" switches a
+  dialog between two states. It navigates nowhere.
+
+A page outside the hierarchy — an error page, a confirmation reached from an
+email link, a pre-authentication screen — may still offer a way onward. Word it
+as the next step ("Se connecter", "Voir les inscriptions", "Aller à l'accueil"),
+never as "Retour": it is a call to action, not a way back up a tree the visitor
+was never in.
+
+### 7.2 Touch targets: a comfort target, not a conformance threshold
+
+The accessibility requirement is **24×24 px** (WCAG 2.2 SC 2.5.8, level AA).
+The 44 px figure this project aims for comes from SC 2.5.5 (level **AAA**) and
+Apple's HIG. It is a comfort goal, so treat it as one:
+
+- Apply it where the target is genuinely small or reduced to an icon — icon-only
+  buttons, pagination links, checkbox rows, list items.
+- Do **not** inflate controls that are already comfortable. Bootstrap's default
+  `.btn`, `.form-control` and `.form-select` render at 38 px, which clears the
+  AA threshold with room to spare; raising the ~380 default-size form controls
+  in this codebase to 44 px would make every form taller for no gain.
+- Never express it as an inline `style="min-height:44px"`. An inline style beats
+  every stylesheet rule, including the `@media (min-width: 992px)` block that
+  restores compact sizes on desktop — so an inline patch that does nothing on
+  mobile (`app.css` already handles it) leaves that module's buttons 44 px tall
+  on desktop while every other module's are 31 px.
+
+Known wart to fix rather than propagate: under `pointer: coarse` the floor is
+applied to `.btn-sm` / `.form-control-sm` / `.form-select-sm` but not to their
+default-size siblings, so a *small* control currently renders **taller** (44 px)
+than a normal one (38 px). Fix the inversion when touching that block; do not
+resolve it by inflating everything.
+
+### 7.3 Feedback and confirmation
+
+- Destructive or irreversible POSTs carry `data-confirm` **on the `<form>`**.
+  The delegated handler in `base.html.twig` resolves `e.target.closest('form[data-confirm]')`
+  — on a submit event `e.target` *is* the form, so `closest()` never reaches a
+  button, and the attribute placed on the button is silently inert.
+- Never `onclick=` / `onsubmit=` / `onchange=` in a template. The CSP is
+  `script-src 'self' 'nonce-…'` with no `unsafe-inline`, and a nonce never
+  covers an `on*` attribute: the handler simply never runs, with no error.
+- Prefer the flash message system and in-page error containers to
+  `alert()` / `confirm()` / `prompt()`: native dialogs are unstyled, block the
+  page, label their buttons in the OS language, and leave no trace to re-read.
+- A confirmation states the consequence, not just the verb: "Supprimer cette
+  clé ? Vous perdrez ce moyen de connexion." beats "Supprimer cette clé ?".
+
+### 7.4 Mobile layout of rows and blocks
+
+- A row that pairs content with a cluster of controls (`partials/list_editor.html.twig`)
+  wraps below `lg`: content and reorder buttons on the first line, the control
+  cluster on its own line, right-aligned. Do not try to fit both on one line on
+  a 360 px screen — the elastic child (typically a `<select>`) gets crushed to
+  about 50 px, narrower than the word it has to show.
+- A summary block on the home page uses the same one-line `alert` shape as a
+  banner. It is a nudge toward a page, not a second feed: it carries counts and
+  one link, never an enumerated list with per-item timestamps.
+- Render a wrapper only when it has content. An always-emitted actions
+  container costs an empty full-width line per row on mobile for every caller
+  that supplies no actions.
+
+### 7.5 Wording
+
+- Vouvoiement throughout, sentences end with a full stop.
+- Name things by what the reader recognises, never by the mechanism: "Votre
+  session a expiré. Rechargez la page et réessayez." rather than "Jeton CSRF
+  invalide."
+- Never surface a raw exception message in a flash. Catch it, journal the
+  detail, and show a sentence written for the reader.

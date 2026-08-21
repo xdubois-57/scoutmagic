@@ -125,8 +125,15 @@ class FormController extends AbstractController
         $total = $this->responseService->computeTotal($fields, $storedAnswers);
 
         return $this->render('@news/confirmation.html.twig', [
+            // Replaces the page's former "Retour à l'article" button: the
+            // breadcrumb is the site's only back affordance (design.md
+            // §7.1), so the article it pointed at lives in the trail.
+            'breadcrumb_trail' => [[
+                'label' => $article->title,
+                'url' => '/news/' . $article->id,
+            ]],
+            'breadcrumb_current' => 'Réponse enregistrée',
             'article' => $article,
-            'breadcrumb_current' => $article->title,
             'response' => $response,
             'answers' => $this->answerLines($fields, $storedAnswers),
             'payment' => $this->responseService->buildPaymentSummary($form, $response, $total),

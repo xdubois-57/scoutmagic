@@ -321,10 +321,7 @@
       "label": "",
       "breadcrumb": {
         "label": "Gestion",
-        "parents": [
-          "Espace animés",
-          "Mes locations"
-        ]
+        "parents": ["Espace animés"]
       }
     },
     {
@@ -337,10 +334,7 @@
       "label": "",
       "breadcrumb": {
         "label": "Gabarits",
-        "parents": [
-          "Espace animés",
-          "Mes locations"
-        ]
+        "parents": ["Espace animés"]
       }
     },
     {
@@ -353,10 +347,7 @@
       "label": "",
       "breadcrumb": {
         "label": "Séjour",
-        "parents": [
-          "Espace animés",
-          "Mes locations"
-        ]
+        "parents": ["Espace animés"]
       }
     },
     {
@@ -369,10 +360,7 @@
       "label": "",
       "breadcrumb": {
         "label": "Document",
-        "parents": [
-          "Espace animés",
-          "Mes locations"
-        ]
+        "parents": ["Espace animés"]
       }
     },
     {
@@ -385,10 +373,7 @@
       "label": "",
       "breadcrumb": {
         "label": "Calendrier",
-        "parents": [
-          "Espace animés",
-          "Mes locations"
-        ]
+        "parents": ["Espace animés"]
       }
     },
     {
@@ -401,10 +386,7 @@
       "label": "",
       "breadcrumb": {
         "label": "Réservations",
-        "parents": [
-          "Espace animés",
-          "Mes locations"
-        ]
+        "parents": ["Espace animés"]
       }
     },
     {
@@ -417,10 +399,7 @@
       "label": "",
       "breadcrumb": {
         "label": "Réservation",
-        "parents": [
-          "Espace animés",
-          "Mes locations"
-        ]
+        "parents": ["Espace animés"]
       }
     },
     {

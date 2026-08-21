@@ -1,12 +1,6 @@
 {% extends 'base.html.twig' %}
 {% block title %}{{ email.subject }} — {{ site_name }}{% endblock %}
 {% block content %}
-    <div class="mb-3">
-        <a href="/members/{{ member.memberYearId }}" class="btn btn-sm btn-outline-secondary">
-            <i class="bi bi-arrow-left"></i> Retour
-        </a>
-    </div>
-
     <div class="card">
         <div class="card-body">
             <h1 class="h4 mb-1">{{ email.subject }}</h1>

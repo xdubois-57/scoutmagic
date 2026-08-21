@@ -70,6 +70,14 @@ class MemberEmailController extends AbstractController
         }
 
         return $this->render('members/email_detail.html.twig', [
+            // Replaces the page's former "Retour" button: the breadcrumb is
+            // the site's only back affordance (design.md §7.1), so the
+            // member page that button pointed at lives in the trail.
+            'breadcrumb_trail' => [[
+                'label' => $profile->getDisplayName(),
+                'url' => '/members/' . $profile->memberYearId,
+            ]],
+            'breadcrumb_current' => $detail['subject'],
             'member' => $profile,
             'email' => $detail,
         ]);

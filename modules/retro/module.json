@@ -41,7 +41,8 @@
       "action": "create",
       "menu": "espace_chefs",
       "role_min": "intendant",
-      "label": ""
+      "label": "",
+      "breadcrumb": { "label": "Nouvelle rétrospective", "parents": ["Espace chefs"] }
     },
     {
       "path": "/retro",
@@ -59,7 +60,8 @@
       "action": "edit",
       "menu": "espace_chefs",
       "role_min": "intendant",
-      "label": ""
+      "label": "",
+      "breadcrumb": { "label": "Modifier la rétrospective", "parents": ["Espace chefs"] }
     },
     {
       "path": "/retro/{id}",
@@ -122,7 +124,8 @@
       "action": "show",
       "menu": "notre_unite",
       "role_min": "public",
-      "label": ""
+      "label": "",
+      "breadcrumb": { "label": "Rétrospective", "parents": [] }
     },
     {
       "path": "/r/{token}/qr",
