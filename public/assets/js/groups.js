@@ -295,8 +295,22 @@
                 clearTimeout(linkDebounceTimer);
                 linkDebounceTimer = setTimeout(fetchLinkPreview, 800);
             });
-            textarea.addEventListener('blur', function () {
+            textarea.addEventListener('blur', function (event) {
                 clearTimeout(linkDebounceTimer);
+                // Not when the field is being left FOR the publish button,
+                // and this is not a nicety: pressing it moves focus, which
+                // fires this blur, which reveals the preview container
+                // (spinner first) — and that container sits directly above
+                // the button. The button therefore slid out from under the
+                // pointer between mousedown and mouseup, no `click` was
+                // ever produced, and a message containing a link silently
+                // did nothing the first time "Publier" was pressed. There
+                // is nothing to preview at this instant anyway: the post is
+                // being published, and its card will carry the real,
+                // server-resolved link a moment later.
+                if (submitBtn && event.relatedTarget === submitBtn) {
+                    return;
+                }
                 fetchLinkPreview();
             });
             textarea.addEventListener('paste', function () {
@@ -417,11 +431,22 @@
         form.addEventListener('submit', function (event) {
             event.preventDefault();
             clearComposerError();
+
+            // Snapshotted BEFORE setBusy(true), and that order is the
+            // whole point: a disabled control is excluded from a form's
+            // data set by the HTML standard, so building this after
+            // greying the composer out submitted every field EXCEPT the
+            // message itself — the server then saw an empty body and
+            // refused the post with "Un message ne peut pas être vide."
+            // (or, for a post that also carried a photo, published it
+            // with the text silently dropped).
+            var payload = new FormData(form);
+
             setBusy(true);
 
             fetch(form.action, {
                 method: 'POST',
-                body: new FormData(form),
+                body: payload,
                 headers: { 'X-Requested-With': 'XMLHttpRequest' }
             }).then(function (response) {
                 return response.json().catch(function () { return null; }).then(function (data) {
@@ -431,6 +456,16 @@
                 if (result.ok && result.data && typeof result.data.html === 'string') {
                     var feed = document.getElementById('groups-feed');
                     if (feed) {
+                        // "Aucun message dans ce groupe pour le moment."
+                        // (show.html.twig) is only in the DOM while the
+                        // group really is empty — the very first message
+                        // published without a reload has to take it away,
+                        // or it stays sitting under the message that has
+                        // just disproved it until the next page load.
+                        var emptyState = document.getElementById('groups-feed-empty');
+                        if (emptyState) {
+                            emptyState.remove();
+                        }
                         // The post just published is the newest thing in
                         // the group — goes at the very top of the
                         // (non-pinned) stream, exactly where a refreshed
@@ -938,11 +973,16 @@
                 replyError.textContent = '';
                 replyError.classList.add('d-none');
             }
+            // Snapshotted before anything in the form is disabled, for
+            // the same reason the composer's own submit does it in that
+            // order: a disabled control contributes nothing to a form's
+            // data set (see initComposer()'s submit handler).
+            var replyPayload = new FormData(replyForm);
             if (replySubmitBtn) replySubmitBtn.disabled = true;
 
             fetch(replyForm.action, {
                 method: 'POST',
-                body: new FormData(replyForm),
+                body: replyPayload,
                 headers: { 'X-Requested-With': 'XMLHttpRequest' }
             }).then(function (response) {
                 return response.json().catch(function () { return null; }).then(function (data) {
@@ -1041,7 +1081,10 @@
     async function openDetailDialog(url, title, errorText) {
         var modalEl = document.getElementById('groups-detail-modal');
         var modalBody = document.getElementById('groups-detail-modal-body');
-        if (!modalEl || !modalBody || typeof bootstrap === 'undefined') {
+        // No URL means nothing to open — never fetch('') , which is a
+        // request for the CURRENT page and would answer HTML the JSON
+        // parse below then chokes on, leaving the dialog spinning.
+        if (!url || !modalEl || !modalBody || typeof bootstrap === 'undefined') {
             return;
         }
         var label = document.getElementById('groups-detail-modal-label');
@@ -1052,13 +1095,22 @@
         var modal = bootstrap.Modal.getOrCreateInstance(modalEl);
         modal.show();
 
-        var response = await fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
-        if (response.ok) {
-            var data = await response.json();
-            if (typeof data.html === 'string') {
-                modalBody.innerHTML = data.html;
+        // Every failure lands on the same message rather than on an
+        // unhandled rejection: a dropped connection, a non-2xx, or a body
+        // that is not the JSON this expects all used to leave the dialog
+        // showing its spinner for good, with nothing to close it but the
+        // × in the corner.
+        try {
+            var response = await fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+            if (!response.ok) {
+                throw new Error('request failed');
             }
-        } else {
+            var data = await response.json();
+            if (typeof data.html !== 'string') {
+                throw new Error('unexpected payload');
+            }
+            modalBody.innerHTML = data.html;
+        } catch (e) {
             modalBody.textContent = errorText;
         }
     }

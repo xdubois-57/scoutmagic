@@ -98,6 +98,7 @@ class ReactionController extends AbstractController
                 $outcome,
                 $outcome === ReactionOutcome::INVALID ? null : $this->reactionService->summaryForPost($post->id, $context->linkedMemberIds),
                 '/groups/' . $group->id . '/posts/' . $post->id . '/react',
+                '/groups/' . $group->id . '/posts/' . $post->id . '/reactions',
             ];
         });
     }
@@ -142,6 +143,7 @@ class ReactionController extends AbstractController
                 $outcome,
                 $outcome === ReactionOutcome::INVALID ? null : $this->reactionService->summaryForReply($reply->id, $context->linkedMemberIds),
                 '/groups/' . $group->id . '/replies/' . $reply->id . '/react',
+                '/groups/' . $group->id . '/replies/' . $reply->id . '/reactions',
             ];
         });
     }
@@ -225,9 +227,18 @@ class ReactionController extends AbstractController
     /**
      * The shared shape of both reaction endpoints. $toggle returns null
      * when the item does not belong to the authorised group (→ 404), or a
-     * 3-tuple [ReactionOutcome, ?ReactionSummary, string $action] once the
-     * toggle ran — the summary is null for INVALID (→ 400), since nothing
-     * was written for it to describe.
+     * 4-tuple [ReactionOutcome, ?ReactionSummary, string $action, string
+     * $reactorsUrl] once the toggle ran — the summary is null for INVALID
+     * (→ 400), since nothing was written for it to describe.
+     *
+     * $reactorsUrl travels with $action rather than being derived from it
+     * because the fragment rendered below REPLACES the one the page was
+     * served with, tally and all: leaving it out rendered
+     * data-reactors-url="" (Twig has strict_variables off), and the
+     * "qui a réagi ?" dialog behind that tally then fetched the empty
+     * string — that is, the current page — and hung on its spinner
+     * waiting for JSON that was never coming. It is only ever reachable
+     * after a reaction, which is exactly the path this method renders.
      *
      * A plain form POST still lands here with no special header and gets
      * the same redirect it always has (the no-JS fallback the templates'
@@ -236,7 +247,7 @@ class ReactionController extends AbstractController
      * back instead, so it can swap it in without a page reload.
      *
      * @param array<string, string> $params
-     * @param callable(DiscussionGroup, int, string, GroupSessionContext): (null|array{0: ReactionOutcome, 1: ?ReactionSummary, 2: string}) $toggle
+     * @param callable(DiscussionGroup, int, string, GroupSessionContext): (null|array{0: ReactionOutcome, 1: ?ReactionSummary, 2: string, 3: string}) $toggle
      */
     private function reactAction(Request $request, array $params, bool $compact, callable $toggle): Response
     {
@@ -275,7 +286,7 @@ class ReactionController extends AbstractController
             return new Response('Not Found', 404);
         }
 
-        [$outcome, $summary, $action] = $result;
+        [$outcome, $summary, $action, $reactorsUrl] = $result;
         if ($outcome === ReactionOutcome::INVALID) {
             return new Response('Réaction inconnue.', 400);
         }
@@ -289,6 +300,7 @@ class ReactionController extends AbstractController
             'html' => $this->twig->render('@groups/partials/reactions.html.twig', [
                 'summary' => $summary,
                 'action' => $action,
+                'reactors_url' => $reactorsUrl,
                 'compact' => $compact,
             ]),
         ]);

@@ -253,6 +253,46 @@ describe('groups.js dynamic reactions, in-place pagination and inline edit toggl
         await vi.waitFor(() => expect(document.getElementById('groups-detail-modal-body').textContent).toContain('Impossible de charger'));
     });
 
+    it('shows the error rather than hanging on the spinner when the answer is not JSON', async () => {
+        document.body.innerHTML = `
+            <button type="button" class="groups-reaction-tally" data-reactors-url="/groups/1/posts/9/reactions"></button>
+            <div class="modal" id="groups-detail-modal"></div>
+            <div id="groups-detail-modal-body"></div>
+        `;
+        global.bootstrap = { Modal: { getOrCreateInstance: vi.fn(() => ({ show: vi.fn() })) } };
+        // A 200 whose body is a page rather than the expected {html} — what
+        // the tally used to get when its URL was empty, and what a captive
+        // portal or a session-expiry redirect returns for real. The parse
+        // rejected, nothing caught it, and the dialog span forever.
+        global.fetch = vi.fn(() => Promise.resolve({
+            ok: true,
+            json: () => Promise.reject(new SyntaxError('Unexpected token <'))
+        }));
+
+        document.querySelector('.groups-reaction-tally').click();
+        await vi.waitFor(() => expect(document.getElementById('groups-detail-modal-body').textContent).toContain('Impossible de charger'));
+    });
+
+    it('never opens the dialog at all for a trigger carrying no URL', async () => {
+        document.body.innerHTML = `
+            <button type="button" class="groups-reaction-tally" data-reactors-url=""></button>
+            <div class="modal" id="groups-detail-modal"></div>
+            <div id="groups-detail-modal-body">déjà là</div>
+        `;
+        var modal = { show: vi.fn() };
+        global.bootstrap = { Modal: { getOrCreateInstance: vi.fn(() => modal) } };
+        global.fetch = vi.fn();
+
+        document.querySelector('.groups-reaction-tally').click();
+        await Promise.resolve();
+
+        // fetch('') is a request for the CURRENT page, which answers HTML —
+        // so this must not fire at all.
+        expect(fetch).not.toHaveBeenCalled();
+        expect(modal.show).not.toHaveBeenCalled();
+        expect(document.getElementById('groups-detail-modal-body').textContent).toBe('déjà là');
+    });
+
     it('a "vu par" click fills the same shared dialog and retitles it', async () => {
         document.body.innerHTML = `
             <button type="button" class="groups-seen-by" data-url="/groups/1/posts/9/seen-by" data-dialog-title="Vu par"></button>
