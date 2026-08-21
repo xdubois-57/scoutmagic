@@ -1,0 +1,44 @@
+<?php
+/**
+ * ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ * Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+ */
+
+declare(strict_types=1);
+
+namespace Modules\InboundMail\Client;
+
+/**
+ * One message as a client hands it over: decoded, but untrusted and
+ * un-sanitised.
+ *
+ * The HTML here is still exactly what the sender wrote — sanitising is
+ * `Service\MessageContentSanitizer`'s job, done once on the way in, before
+ * a consumer ever sees the message (§7.9). A client that sanitised on its
+ * own would mean two implementations of the rule and one of them going
+ * stale.
+ */
+class FetchedMessage
+{
+    /**
+     * @param string[] $references
+     * @param string[] $toEmails
+     * @param FetchedAttachment[] $attachments
+     */
+    public function __construct(
+        public readonly int $uid,
+        public readonly string $folder,
+        public readonly string $messageId,
+        public readonly string $subject,
+        public readonly string $fromEmail,
+        public readonly ?string $fromName,
+        public readonly array $toEmails,
+        public readonly ?string $inReplyTo,
+        public readonly array $references,
+        public readonly \DateTimeImmutable $sentAt,
+        public readonly string $bodyText,
+        public readonly string $bodyHtml,
+        public readonly array $attachments = []
+    ) {
+    }
+}
