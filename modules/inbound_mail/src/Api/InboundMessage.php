@@ -23,10 +23,12 @@ namespace Modules\InboundMail\Api;
 class InboundMessage
 {
     /**
+     * @param string[] $toEmails
      * @param InboundAttachment[] $attachments
      */
     public function __construct(
         public readonly int $id,
+        public readonly int $mailboxId,
         public readonly string $consumerId,
         public readonly string $businessReference,
         public readonly LinkOrigin $linkOrigin,
@@ -38,6 +40,13 @@ class InboundMessage
         public readonly \DateTimeImmutable $sentAt,
         public readonly string $bodyText,
         public readonly string $bodyHtml,
+        /**
+         * Every address the message named. Shown on a consumer's timeline
+         * so a manager can see whether a reply also went to somebody else —
+         * which is the difference between a private answer and a message
+         * copied to the whole staff.
+         */
+        public readonly array $toEmails = [],
         public readonly array $attachments = []
     ) {
     }

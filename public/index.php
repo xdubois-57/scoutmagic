@@ -3350,12 +3350,25 @@ if (in_array('rental', $moduleManager->getEnabledModuleIds(), true)) {
         $financeAccountForOthers
     );
 
+    // Built before the controllers rather than in the inbound-mail block
+    // further down, because the configuration page needs it — and it needs
+    // nothing but the setting service and the null-seeded API handle, so it
+    // is safe to build whether or not `inbound_mail` is enabled.
+    $rentalMailboxSelection = new \Modules\Rental\Mail\MailboxSelection(
+        $settingService,
+        $inboundMailForOthers
+    );
+
     $frontController->registerController(
         \Modules\Rental\Controller\RentalConfigController::class,
         new \Modules\Rental\Controller\RentalConfigController(
             $twig, $rentalAssetRepository, $rentalAssetService, $rentalManagerService,
             $memberService, $scoutYearService, $settingService, $rentalPricingService,
-            $rentalAvailabilityService, $rentalPaymentService
+            $rentalAvailabilityService, $rentalPaymentService,
+            // Which of the unit's already-configured mailboxes this module
+            // listens to (§7.4). Never a host, an account or a password —
+            // this only stores ids.
+            $rentalMailboxSelection
         )
     );
     $frontController->registerController(
@@ -3415,6 +3428,34 @@ if (in_array('rental', $moduleManager->getEnabledModuleIds(), true)) {
     // degrade on their own — with `calendar` off the registry is null and
     // no provider is built; with `rental` off the registry simply has one
     // fewer entry.
+    // Inbound mail (§7.6). The other consumer-registry wiring, same shape
+    // as the calendar one below: `inbound_mail` built the registry empty in
+    // its own block, and `rental` appends its consumer here. With
+    // `inbound_mail` disabled the registry is null, nothing is registered,
+    // and the Communications tab is simply not offered.
+    $rentalCommunicationService = null;
+
+    // One guard, not three: `$inboundMailForOthers` is assigned in the very
+    // same block that builds the registry, and `$rentalDocumentService` is
+    // unconditional in this one — so the registry's existence is exactly
+    // "is `inbound_mail` enabled?".
+    if ($inboundMailConsumerRegistry !== null) {
+        $inboundMailConsumerRegistry->register(new \Modules\Rental\Mail\RentalMessageConsumer(
+            $rentalBookingRepository,
+            $inboundMailForOthers,
+            $rentalDocumentService,
+            $rentalMailboxSelection->selectedIds()
+        ));
+
+        $rentalCommunicationService = new \Modules\Rental\Service\RentalCommunicationService(
+            $rentalBookingRepository,
+            $rentalDocumentRepository,
+            $rentalAuthorizationService,
+            $journalService,
+            $inboundMailForOthers
+        );
+    }
+
     if ($calendarVirtualEventRegistry !== null) {
         $calendarVirtualEventRegistry->register(new \Modules\Rental\Calendar\RentalVirtualEventProvider(
             $rentalAssetRepository,
@@ -3464,7 +3505,11 @@ if (in_array('rental', $moduleManager->getEnabledModuleIds(), true)) {
             // `rental` consuming `calendar` — the other direction of the
             // same circularity, and a nullable dependency like every other
             // cross-module one.
-            $calendarServiceForOthers
+            $calendarServiceForOthers,
+            // And `rental` consuming `inbound_mail` (§7.7): null without
+            // that module, in which case the booking page loses a tab and
+            // nothing else.
+            $rentalCommunicationService
         )
     );
     $frontController->registerController(

@@ -22,6 +22,7 @@ use Modules\Rental\Service\RentalAssetService;
 use Modules\Rental\Service\RentalException;
 use Modules\Rental\Service\RentalManagerService;
 use Modules\Rental\Service\RentalAvailabilityService;
+use Modules\Rental\Mail\MailboxSelection;
 use Modules\Rental\Payment\DepositMode;
 use Modules\Rental\Payment\PaymentSettings;
 use Modules\Rental\Service\RentalPaymentService;
@@ -71,9 +72,45 @@ class RentalConfigController extends AbstractController
          * module, where the payments section explains that instead of
          * offering a picker with nothing in it.
          */
-        private ?RentalPaymentService $paymentService = null
+        private ?RentalPaymentService $paymentService = null,
+        /**
+         * Optional (§7.4): null without the `inbound_mail` module. Nothing
+         * in this controller ever reaches a mailbox — it only stores which
+         * of the already-configured ones this module listens to.
+         */
+        private ?MailboxSelection $mailboxSelection = null
     ) {
         parent::__construct($twig);
+    }
+
+    /**
+     * POST /admin/locations/courrier — which mailboxes feed this module
+     * (§7.4).
+     *
+     * Storing ids and nothing else is the whole of it: a manager never sees
+     * or supplies a host, an account or a password here, and this action
+     * has no way to reach one.
+     *
+     * @param array<string, string> $params
+     */
+    public function saveMailboxes(Request $request, array $params): Response
+    {
+        if (!CsrfGuard::validateRequest()) {
+            FlashMessage::set('danger', 'Session expirée, veuillez réessayer.');
+
+            return $this->redirect('/admin/locations');
+        }
+
+        if ($this->mailboxSelection === null) {
+            return new Response('Not Found', 404);
+        }
+
+        $submitted = $request->getBody('mailbox_ids', []);
+        $this->mailboxSelection->save(is_array($submitted) ? $submitted : []);
+
+        FlashMessage::set('success', 'Boîtes surveillées enregistrées.');
+
+        return $this->redirect('/admin/locations#courrier');
     }
 
     /**
@@ -126,6 +163,13 @@ class RentalConfigController extends AbstractController
                 ? $this->paymentService->settingsFor($selected->id)
                 : new PaymentSettings(),
             'deposit_modes' => DepositMode::all(),
+            // Inbound mail is a nullable dependency too (§7.5): without it
+            // the section explains that instead of offering a picker with
+            // nothing in it. A manager sees each box's name and state —
+            // never its host, port or account (§7.4).
+            'inbound_mail_available' => $this->mailboxSelection?->isAvailable() ?? false,
+            'inbound_mailboxes' => $this->mailboxSelection?->availableMailboxes() ?? [],
+            'selected_mailbox_ids' => $this->mailboxSelection?->selectedIds() ?? [],
             'csrf_token' => CsrfGuard::generateToken(),
             'current_path' => '/admin/locations',
         ]);

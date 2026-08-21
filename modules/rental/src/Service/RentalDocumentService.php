@@ -325,6 +325,49 @@ class RentalDocumentService
     }
 
     /**
+     * Reclassify a document a manager filed or an email brought in (§6.24,
+     * §7.8).
+     *
+     * **Generated documents are never reclassified.** A contract or an
+     * invoice is what this module produced from a template, and calling it
+     * something else would break the versioning that exists so a signed v1
+     * stays findable — and would let a manager quietly turn an invoice into
+     * a "photo" to hide it.
+     *
+     * @throws RentalException when the document belongs to another booking,
+     *   or when either the current or the new type is a generated one
+     */
+    public function reclassify(
+        RentalBooking $booking,
+        int $documentId,
+        DocumentType $type,
+        bool $isForRenter,
+        ?int $actorMemberId = null
+    ): void {
+        $document = $this->documentRepository->findById($documentId);
+        if ($document === null || $document->bookingId !== $booking->id) {
+            // The booking check is the real guard: a document id alone must
+            // not let a manager of one asset touch another asset's file.
+            throw new RentalException("Ce document n'existe pas.");
+        }
+
+        if ($document->type->isGenerated() || $type->isGenerated()) {
+            throw new RentalException('Un contrat ou une facture ne se reclasse pas : régénérez-le plutôt.');
+        }
+
+        $this->documentRepository->updateType($documentId, $type, $isForRenter);
+
+        $this->eventRepository->record(
+            $booking->id,
+            RentalBookingEventRepository::STATUS_CHANGED,
+            $document->type->label(),
+            $type->label(),
+            'Document reclassé',
+            $actorMemberId
+        );
+    }
+
+    /**
      * @return RentalDocument[]
      */
     public function forBooking(int $bookingId): array

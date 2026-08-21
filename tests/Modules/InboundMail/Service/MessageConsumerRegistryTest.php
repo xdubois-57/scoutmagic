@@ -7,6 +7,7 @@ namespace Tests\Modules\InboundMail\Service;
 use Modules\InboundMail\Api\CandidateMessage;
 use Modules\InboundMail\Api\LinkOrigin;
 use Modules\InboundMail\Api\MessageClaim;
+use Modules\InboundMail\Api\InboundMessage;
 use Modules\InboundMail\Api\MessageConsumerInterface;
 use Modules\InboundMail\Service\MessageConsumerRegistry;
 use PHPUnit\Framework\TestCase;
@@ -26,6 +27,7 @@ class MessageConsumerRegistryTest extends TestCase
     private function candidate(string $subject = 'Demande'): CandidateMessage
     {
         return new CandidateMessage(
+            mailboxId: 1,
             subject: $subject,
             fromEmail: 'jeanne@example.be',
             fromName: 'Jeanne Martin',
@@ -54,6 +56,10 @@ class MessageConsumerRegistryTest extends TestCase
             public function claim(CandidateMessage $message): ?MessageClaim
             {
                 return $this->claim;
+            }
+
+            public function onMessageStored(InboundMessage $message): void
+            {
             }
         };
     }
@@ -108,6 +114,10 @@ class MessageConsumerRegistryTest extends TestCase
             {
                 throw new \RuntimeException('bug');
             }
+
+            public function onMessageStored(InboundMessage $message): void
+            {
+            }
         });
         $registry->register($this->consumer(new MessageClaim('LOC-2027-0042', LinkOrigin::REFERENCE)));
 
@@ -135,6 +145,7 @@ class MessageConsumerRegistryTest extends TestCase
         // chain, oldest first. A consumer wanting the closest known message
         // should not have to work that ordering out itself.
         $candidate = new CandidateMessage(
+            mailboxId: 1,
             subject: 'Re: Demande',
             fromEmail: 'jeanne@example.be',
             fromName: null,

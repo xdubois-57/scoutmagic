@@ -305,6 +305,10 @@
 
         {% include '@rental/management/_documents.html.twig' %}
 
+        {% if communications_available %}
+            {% include '@rental/management/_communications.html.twig' %}
+        {% endif %}
+
         {# ── Change requests (§6.16) ───────────────────────────────── #}
         <div class="card mb-4">
             <div class="card-body">

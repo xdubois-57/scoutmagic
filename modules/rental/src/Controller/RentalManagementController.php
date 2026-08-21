@@ -40,6 +40,7 @@ use Modules\Rental\Repository\RentalChangeRequestRepository;
 use Modules\Rental\Service\RentalAuthorizationService;
 use Modules\Rental\Service\RentalAvailabilityService;
 use Modules\Rental\Service\RentalBlockService;
+use Modules\Rental\Service\RentalCommunicationService;
 use Modules\Rental\Service\RentalException;
 use Modules\Rental\Service\RentalBookingMailService;
 use Modules\Rental\Service\RentalDocumentService;
@@ -146,7 +147,14 @@ class RentalManagementController extends AbstractController
          * Modules\Calendar\Service\VirtualEventRegistry for how the other
          * half is wired.
          */
-        private ?CalendarService $calendarService = null
+        private ?CalendarService $calendarService = null,
+        /**
+         * Optional (§7.7): null without the `inbound_mail` module, in which
+         * case the Communications tab is simply not offered. `rental`
+         * consuming `inbound_mail` is an ordinary §7.5 dependency — the
+         * booking page works identically without it, minus a tab.
+         */
+        private ?RentalCommunicationService $communicationService = null
     ) {
         parent::__construct($twig);
     }
@@ -298,11 +306,119 @@ class RentalManagementController extends AbstractController
             'is_in_progress' => $booking->isInProgress($now),
             'payment' => $this->paymentStatus($booking, $asset),
             'documents' => $this->documentService?->forBooking($booking->id) ?? [],
+            // Communications (§7.7). Absent rather than empty when
+            // `inbound_mail` is disabled or no mailbox is enabled: a tab
+            // that can only ever be empty is noise on a busy page.
+            'communications_available' => $this->communicationService?->isAvailable() ?? false,
+            'messages' => $this->communicationService?->timeline($booking) ?? [],
+            'message_documents' => $this->communicationService?->documentsByFileId($booking) ?? [],
+            'move_targets' => $this->communicationService?->moveTargets(
+                $booking,
+                AuthSession::getEmail(),
+                (int) $this->scoutYearService->getCurrentYear()['id']
+            ) ?? [],
             'uploadable_types' => DocumentType::uploadable(),
             'billing' => $this->bookingRepository->findBillingIdentity($booking->id),
             'csrf_token' => CsrfGuard::generateToken(),
             'nav_page' => 'bookings',
         ]);
+    }
+
+    /**
+     * POST /mes-locations/message/detacher — take a message off this
+     * booking (§7.7).
+     *
+     * There is no queue for it to fall into, so it is deleted, along with
+     * the attachments nobody re-classified. Said on the button rather than
+     * hidden: a manager who detaches by mistake gets the message back only
+     * if the next synchronisation still finds it on the server and still
+     * matches it.
+     *
+     * @param array<string, string> $params
+     */
+    public function detachMessage(Request $request, array $params): Response
+    {
+        return $this->bookingAction($request, function (RentalBooking $booking) use ($request): void {
+            if ($this->communicationService === null) {
+                throw new RentalException("Le courrier entrant n'est pas disponible.");
+            }
+
+            $detached = $this->communicationService->detach(
+                $booking,
+                (int) $request->getBody('message_id', 0),
+                $this->actorMemberId()
+            );
+
+            if (!$detached) {
+                throw new RentalException("Ce message n'appartient pas à cette réservation.");
+            }
+
+            FlashMessage::set('success', 'Message détaché.');
+        });
+    }
+
+    /**
+     * POST /mes-locations/message/deplacer — move a message to another
+     * booking of an asset this manager manages (§7.7).
+     *
+     * @param array<string, string> $params
+     */
+    public function moveMessage(Request $request, array $params): Response
+    {
+        return $this->bookingAction($request, function (RentalBooking $booking) use ($request): void {
+            if ($this->communicationService === null) {
+                throw new RentalException("Le courrier entrant n'est pas disponible.");
+            }
+
+            $moved = $this->communicationService->move(
+                $booking,
+                (int) $request->getBody('message_id', 0),
+                (int) $request->getBody('target_booking_id', 0),
+                AuthSession::getEmail(),
+                $this->scoutYearId(),
+                $this->actorMemberId()
+            );
+
+            if (!$moved) {
+                throw new RentalException("Ce message n'appartient pas à cette réservation.");
+            }
+
+            FlashMessage::set('success', 'Message déplacé.');
+        });
+    }
+
+    /**
+     * POST /mes-locations/document-reclasser — say what a document actually
+     * is (§6.24, §7.8).
+     *
+     * The counterpart of an email attachment arriving as `Non classé`: it
+     * is never presumed to be the signed contract, and this is how a
+     * manager says that it is.
+     *
+     * @param array<string, string> $params
+     */
+    public function reclassifyDocument(Request $request, array $params): Response
+    {
+        return $this->bookingAction($request, function (RentalBooking $booking) use ($request): void {
+            if ($this->documentService === null) {
+                throw new RentalException('Les documents ne sont pas disponibles.');
+            }
+
+            $type = DocumentType::tryFrom((string) $request->getBody('document_type', ''));
+            if ($type === null) {
+                throw new RentalException('Type de document inconnu.');
+            }
+
+            $this->documentService->reclassify(
+                $booking,
+                (int) $request->getBody('document_id', 0),
+                $type,
+                $request->getBody('is_for_renter') !== null,
+                $this->actorMemberId()
+            );
+
+            FlashMessage::set('success', 'Document reclassé.');
+        });
     }
 
     /**
@@ -1471,7 +1587,7 @@ class RentalManagementController extends AbstractController
             FlashMessage::set('danger', $e->getMessage());
         }
 
-        return $this->redirect('/mes-locations/' . $asset->slug . '/reservations/' . $booking->id);
+        return $this->redirect($this->bookingUrl($asset, $booking));
     }
 
     /**
@@ -1505,7 +1621,7 @@ class RentalManagementController extends AbstractController
         }
 
         return $this->redirect(
-            '/mes-locations/' . $asset->slug . '/reservations/' . $booking->id . '/sejour'
+            $this->bookingUrl($asset, $booking) . '/sejour'
         );
     }
 
@@ -1575,6 +1691,16 @@ class RentalManagementController extends AbstractController
      * the action still happens, it is simply recorded without an author,
      * which is honest rather than inventing one.
      */
+    /**
+     * The management URL of one booking. Assembled here rather than at each
+     * redirect, so the four or five places that end on this page cannot
+     * drift apart.
+     */
+    private function bookingUrl(RentalAsset $asset, RentalBooking $booking): string
+    {
+        return '/mes-locations/' . $asset->slug . '/reservations/' . $booking->id;
+    }
+
     private function actorMemberId(): ?int
     {
         $email = AuthSession::getEmail();

@@ -49,4 +49,19 @@ interface MessageConsumerInterface
      * explicit, optional step.
      */
     public function claim(CandidateMessage $message): ?MessageClaim;
+
+    /**
+     * Called once, after a claimed message has actually been written down.
+     *
+     * This is where a consumer does what it wants with the message's
+     * attachments — `rental` turns them into booking documents (§7.8) — and
+     * it has to be here rather than in `claim()`, which runs *before*
+     * anything is stored and therefore has no ids to point at.
+     *
+     * **Whatever this does is beside the point of the synchronisation.** A
+     * consumer that throws here has already had its message stored, and the
+     * run carries on: one module's bookkeeping failing must not cost the
+     * unit the rest of its mail. A no-op is a perfectly good implementation.
+     */
+    public function onMessageStored(InboundMessage $message): void;
 }

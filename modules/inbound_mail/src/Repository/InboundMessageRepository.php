@@ -35,6 +35,9 @@ class InboundMessageRepository
     ) {
     }
 
+    /**
+     * @param string[] $toEmails
+     */
     public function create(
         int $mailboxId,
         string $folder,
@@ -50,15 +53,16 @@ class InboundMessageRepository
         ?string $fromName,
         string $bodyText,
         string $bodyHtml,
-        \DateTimeImmutable $sentAt
+        \DateTimeImmutable $sentAt,
+        array $toEmails = []
     ): int {
         $stmt = $this->pdo->prepare(
             'INSERT INTO inbound_messages
                 (mailbox_id, folder, uid_validity, imap_uid, consumer_id, business_reference, link_origin,
                  message_id_blind_index, in_reply_to_blind_index, from_email_blind_index,
                  subject_encrypted, from_email_encrypted, from_name_encrypted, message_id_encrypted,
-                 in_reply_to_encrypted, body_text_encrypted, body_html_encrypted, sent_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                 in_reply_to_encrypted, to_emails_encrypted, body_text_encrypted, body_html_encrypted, sent_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([
             $mailboxId,
@@ -76,6 +80,9 @@ class InboundMessageRepository
             $fromName !== null ? $this->encryption->encrypt($fromName, 'inbound_messages.from_name') : null,
             $this->encryption->encrypt($messageId, 'inbound_messages.message_id'),
             $inReplyTo !== null ? $this->encryption->encrypt($inReplyTo, 'inbound_messages.in_reply_to') : null,
+            $toEmails !== []
+                ? $this->encryption->encrypt(implode("\n", $toEmails), 'inbound_messages.to_emails')
+                : null,
             $this->encryption->encrypt($bodyText, 'inbound_messages.body_text'),
             $this->encryption->encrypt($bodyHtml, 'inbound_messages.body_html'),
             $sentAt->format('Y-m-d H:i:s'),
@@ -388,8 +395,17 @@ class InboundMessageRepository
      */
     private function hydrate(array $row, array $attachments): InboundMessage
     {
+        $toEmails = [];
+        if ($row['to_emails_encrypted'] !== null) {
+            $toEmails = array_values(array_filter(explode(
+                "\n",
+                $this->encryption->decrypt((string) $row['to_emails_encrypted'], 'inbound_messages.to_emails')
+            ), static fn(string $email) => $email !== ''));
+        }
+
         return new InboundMessage(
             id: (int) $row['id'],
+            mailboxId: (int) $row['mailbox_id'],
             consumerId: (string) $row['consumer_id'],
             businessReference: (string) $row['business_reference'],
             linkOrigin: LinkOrigin::from((string) $row['link_origin']),
@@ -405,6 +421,7 @@ class InboundMessageRepository
             sentAt: new \DateTimeImmutable((string) $row['sent_at']),
             bodyText: $this->encryption->decrypt((string) $row['body_text_encrypted'], 'inbound_messages.body_text'),
             bodyHtml: $this->encryption->decrypt((string) $row['body_html_encrypted'], 'inbound_messages.body_html'),
+            toEmails: $toEmails,
             attachments: $attachments
         );
     }

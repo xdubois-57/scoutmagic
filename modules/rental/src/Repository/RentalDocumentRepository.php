@@ -147,6 +147,41 @@ class RentalDocumentRepository
     }
 
     /**
+     * Reclassify a document (§6.24, §7.8).
+     *
+     * Only the type and the renter flag move — never the file, never the
+     * version. A `Non classé` attachment that turns out to be the signed
+     * contract becomes one in place, keeping the very bytes that arrived
+     * rather than a copy somebody made of them.
+     */
+    public function updateType(int $id, DocumentType $type, ?bool $isForRenter = null): void
+    {
+        if ($isForRenter === null) {
+            $stmt = $this->pdo->prepare('UPDATE rental_documents SET document_type = ? WHERE id = ?');
+            $stmt->execute([$type->value, $id]);
+
+            return;
+        }
+
+        $stmt = $this->pdo->prepare('UPDATE rental_documents SET document_type = ?, is_for_renter = ? WHERE id = ?');
+        $stmt->execute([$type->value, $isForRenter ? 1 : 0, $id]);
+    }
+
+    /**
+     * Re-file a document under another booking — what happens to an email's
+     * attachment when the email itself is moved (§7.7).
+     *
+     * The file on disk does not move: `FileAccessGuard` resolves a file's
+     * booking through this row, so changing the row is exactly what changes
+     * who may read it.
+     */
+    public function moveToBooking(int $id, int $bookingId): void
+    {
+        $stmt = $this->pdo->prepare('UPDATE rental_documents SET booking_id = ? WHERE id = ?');
+        $stmt->execute([$bookingId, $id]);
+    }
+
+    /**
      * Which booking a file belongs to, for the ownership checker — the one
      * question `Core\File\FileAccessGuard` has to answer before serving it.
      */

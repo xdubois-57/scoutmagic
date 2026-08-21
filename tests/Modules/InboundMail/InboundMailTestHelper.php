@@ -61,6 +61,7 @@ class InboundMailTestHelper
             from_name_encrypted BLOB,
             message_id_encrypted BLOB NOT NULL,
             in_reply_to_encrypted BLOB,
+            to_emails_encrypted BLOB,
             body_text_encrypted BLOB NOT NULL,
             body_html_encrypted BLOB NOT NULL,
             sent_at TEXT NOT NULL,

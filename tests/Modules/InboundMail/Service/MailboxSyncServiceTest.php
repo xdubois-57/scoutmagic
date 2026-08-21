@@ -11,6 +11,7 @@ use Core\Security\HtmlSanitizer;
 use Modules\InboundMail\Api\CandidateMessage;
 use Modules\InboundMail\Api\LinkOrigin;
 use Modules\InboundMail\Api\MessageClaim;
+use Modules\InboundMail\Api\InboundMessage;
 use Modules\InboundMail\Api\MessageConsumerInterface;
 use Modules\InboundMail\Client\FakeMailboxClient;
 use Modules\InboundMail\Mailbox\ProviderType;
@@ -140,6 +141,9 @@ class MailboxSyncServiceTest extends TestCase
             /** @var CandidateMessage[] */
             public array $offered = [];
 
+            /** @var InboundMessage[] */
+            public array $stored = [];
+
             public function __construct(private $decide, private string $id)
             {
             }
@@ -154,6 +158,11 @@ class MailboxSyncServiceTest extends TestCase
                 $this->offered[] = $message;
 
                 return ($this->decide)($message);
+            }
+
+            public function onMessageStored(InboundMessage $message): void
+            {
+                $this->stored[] = $message;
             }
         };
     }
