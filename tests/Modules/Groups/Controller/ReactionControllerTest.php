@@ -191,6 +191,41 @@ class ReactionControllerTest extends GroupsControllerTestCase
         $this->assertSame('heart', $this->postReactionKey($this->memberId));
     }
 
+    /**
+     * The fragment this endpoint returns REPLACES the one the page was
+     * served with, tally included — so it has to carry the tally's own
+     * "qui a réagi ?" URL too. It did not: Twig runs with strict_variables
+     * off, so the missing variable rendered data-reactors-url="" and
+     * groups.js then fetched the empty string (the current page) and hung
+     * the dialog on its spinner. The path is only reachable AFTER a
+     * reaction, which is exactly what this endpoint renders.
+     */
+    public function testTheAjaxFragmentCarriesTheReactorsUrlSoTheDialogStillOpens(): void
+    {
+        $this->withCsrf(['reaction' => 'heart']);
+
+        $response = $this->controller([$this->memberId])->react($this->ajaxRequest(), $this->params($this->postId));
+
+        $body = json_decode($response->getBody(), true);
+        $this->assertStringContainsString(
+            'data-reactors-url="/groups/' . $this->groupId . '/posts/' . $this->postId . '/reactions"',
+            $body['html']
+        );
+    }
+
+    public function testTheAjaxReplyFragmentCarriesTheReplysOwnReactorsUrl(): void
+    {
+        $this->withCsrf(['reaction' => 'clap']);
+
+        $response = $this->controller([$this->memberId])->reactToReply($this->ajaxRequest(), $this->params(null, $this->replyId));
+
+        $body = json_decode($response->getBody(), true);
+        $this->assertStringContainsString(
+            'data-reactors-url="/groups/' . $this->groupId . '/replies/' . $this->replyId . '/reactions"',
+            $body['html']
+        );
+    }
+
     public function testRemovingAReactionViaAjaxReportsRemoved(): void
     {
         $this->withCsrf(['reaction' => 'heart']);

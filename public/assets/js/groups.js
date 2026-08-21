@@ -1081,7 +1081,10 @@
     async function openDetailDialog(url, title, errorText) {
         var modalEl = document.getElementById('groups-detail-modal');
         var modalBody = document.getElementById('groups-detail-modal-body');
-        if (!modalEl || !modalBody || typeof bootstrap === 'undefined') {
+        // No URL means nothing to open — never fetch('') , which is a
+        // request for the CURRENT page and would answer HTML the JSON
+        // parse below then chokes on, leaving the dialog spinning.
+        if (!url || !modalEl || !modalBody || typeof bootstrap === 'undefined') {
             return;
         }
         var label = document.getElementById('groups-detail-modal-label');
@@ -1092,13 +1095,22 @@
         var modal = bootstrap.Modal.getOrCreateInstance(modalEl);
         modal.show();
 
-        var response = await fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
-        if (response.ok) {
-            var data = await response.json();
-            if (typeof data.html === 'string') {
-                modalBody.innerHTML = data.html;
+        // Every failure lands on the same message rather than on an
+        // unhandled rejection: a dropped connection, a non-2xx, or a body
+        // that is not the JSON this expects all used to leave the dialog
+        // showing its spinner for good, with nothing to close it but the
+        // × in the corner.
+        try {
+            var response = await fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+            if (!response.ok) {
+                throw new Error('request failed');
             }
-        } else {
+            var data = await response.json();
+            if (typeof data.html !== 'string') {
+                throw new Error('unexpected payload');
+            }
+            modalBody.innerHTML = data.html;
+        } catch (e) {
             modalBody.textContent = errorText;
         }
     }

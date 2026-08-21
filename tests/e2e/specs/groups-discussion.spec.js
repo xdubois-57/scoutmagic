@@ -186,10 +186,26 @@ test('a member writes in a discussion group: a message, a link, a poll, a reply 
     await expect(firstPost.locator('.groups-reply-bubble')).toContainText('Parfait, je serai là.');
     await expect(firstPost.locator('.groups-reply-error')).toBeHidden();
 
-    // --- 5. A reaction on that same message.
+    // --- 5. A reaction on that same message, and the dialog behind its
+    // tally.
+    //
+    // The tally is part of the fragment the reaction endpoint renders and
+    // groups.js swaps in — so opening its dialog exercises a URL that only
+    // exists in that freshly rendered fragment, never in the page the
+    // server first served. It rendered empty once, and `fetch('')` fetched
+    // the current page and left the dialog spinning; nothing outside a
+    // browser could see that.
     await firstPost.locator('.groups-reactions').first().getByRole('button', { name: 'Réagir : thumbs_up' })
         .click();
-    await expect(firstPost.locator('.groups-reaction-tally').first()).toContainText('1');
+    const tally = firstPost.locator('.groups-reaction-tally').first();
+    await expect(tally).toContainText('1');
+
+    await tally.click();
+    const dialog = page.locator('#groups-detail-modal');
+    await expect(dialog).toBeVisible();
+    await expect(dialog.locator('#groups-detail-modal-body')).toContainText('Baden');
+    await dialog.getByRole('button', { name: 'Fermer' }).click();
+    await expect(dialog).toBeHidden();
 
     // --- Everything above happened without a single page load. Reload
     // once, and require the server to hand all of it back: that is what
