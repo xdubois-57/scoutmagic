@@ -1,0 +1,29 @@
+{#
+  The renter's acknowledgement. It carries the tracking link, which is their
+  ONLY way back to their booking — the raw token is stored hashed and exists
+  nowhere else. That is why this email cannot be switched off (§6.28).
+#}
+<p>Bonjour {{ booking.renterName }},</p>
+
+<p>
+    Nous avons bien reçu votre demande de location pour <strong>{{ asset.name }}</strong>,
+    du {{ booking.arrivalDate }} au {{ booking.departureDate }}.
+</p>
+
+<p>Votre référence : <strong>{{ booking.reference }}</strong></p>
+
+<p><a href="{{ tracking_url }}">Suivre ma demande</a></p>
+
+<p>
+    Conservez ce lien : il est personnel et c'est votre seul accès au suivi de
+    votre demande.
+</p>
+
+{% if booking.holdUntil %}
+    <p>
+        Nous bloquons ces dates jusqu'au
+        <strong>{{ booking.holdUntil|date('d/m/Y') }}</strong>, le temps de vous répondre.
+    </p>
+{% endif %}
+
+<p>À bientôt,<br>{{ site_name }}</p>

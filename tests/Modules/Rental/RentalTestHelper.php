@@ -101,6 +101,47 @@ class RentalTestHelper
             UNIQUE (asset_id, member_id),
             FOREIGN KEY (asset_id) REFERENCES rental_assets(id) ON DELETE CASCADE
         )');
+
+        $pdo->exec('CREATE TABLE rental_reference_sequences (
+            year INTEGER NOT NULL PRIMARY KEY,
+            last_sequence INTEGER NOT NULL DEFAULT 0,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )');
+
+        $pdo->exec('CREATE TABLE rental_bookings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            asset_id INTEGER NOT NULL,
+            reference TEXT NOT NULL UNIQUE,
+            arrival_date TEXT NOT NULL,
+            departure_date TEXT NOT NULL,
+            units INTEGER NOT NULL DEFAULT 1,
+            estimated_persons INTEGER,
+            renter_category_id INTEGER,
+            renter_name_encrypted BLOB NOT NULL,
+            renter_email_encrypted BLOB NOT NULL,
+            renter_email_blind_index TEXT NOT NULL,
+            renter_phone_encrypted BLOB,
+            renter_organisation_encrypted BLOB,
+            purpose_encrypted BLOB,
+            renter_comment_encrypted BLOB,
+            status TEXT NOT NULL DEFAULT "received",
+            received_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            final_at TEXT,
+            hold_until TEXT,
+            hold_origin TEXT,
+            estimated_price_snapshot TEXT,
+            estimated_total_cents INTEGER,
+            conditions_version TEXT,
+            conditions_hash TEXT,
+            conditions_accepted_at TEXT,
+            privacy_version TEXT,
+            privacy_hash TEXT,
+            privacy_acknowledged_at TEXT,
+            tracking_token_hash TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (asset_id) REFERENCES rental_assets(id) ON DELETE CASCADE
+        )');
     }
 
     public static function insertMember(\PDO $pdo, string $deskId): int
