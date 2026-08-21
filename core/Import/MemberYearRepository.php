@@ -188,6 +188,86 @@ class MemberYearRepository
     }
 
     /**
+     * The members reachable from each of these email blind indexes, for
+     * one scout year — the batched twin of findAllByEmail(), returning
+     * ids rather than rows because its callers only need to know WHICH
+     * members an account carries (their names come from
+     * Core\Member\MemberService::findDisplayNamesByMemberIds(), which
+     * batches too).
+     *
+     * is_active = 1, same as findAllByEmail(): an account's memberships
+     * are the ones that currently exist, and a deactivated row is not one.
+     *
+     * @param string[] $emailBlindIndexes
+     * @return array<string, int[]> blind index => member ids
+     */
+    public function findMemberIdsByEmailBlindIndexes(array $emailBlindIndexes, int $scoutYearId): array
+    {
+        $emailBlindIndexes = array_values(array_unique(array_filter(
+            $emailBlindIndexes,
+            static fn(string $index): bool => $index !== ''
+        )));
+        if ($emailBlindIndexes === []) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($emailBlindIndexes), '?'));
+        $stmt = $this->pdo->prepare(
+            "SELECT email_blind_index, member_id FROM member_years
+             WHERE email_blind_index IN ({$placeholders}) AND scout_year_id = ? AND is_active = 1
+             ORDER BY member_id"
+        );
+        $stmt->execute([...$emailBlindIndexes, $scoutYearId]);
+
+        $byIndex = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $byIndex[(string) $row['email_blind_index']][] = (int) $row['member_id'];
+        }
+
+        return $byIndex;
+    }
+
+    /**
+     * The most recent email blind index of each of these members — the
+     * batched twin of findMostRecentEmailBlindIndexForMember(), for a
+     * caller holding a whole page of members rather than one.
+     *
+     * "Most recent" means the same thing it does there: the address on the
+     * member's newest scout year that has one, which is what makes a
+     * member who changed address still resolve to their current account.
+     *
+     * @param int[] $memberIds
+     * @return array<int, string> member id => email blind index
+     */
+    public function findMostRecentEmailBlindIndexesForMembers(array $memberIds): array
+    {
+        $memberIds = array_values(array_unique(array_map('intval', $memberIds)));
+        if ($memberIds === []) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($memberIds), '?'));
+        // Ordered oldest year first so the loop below keeps overwriting
+        // with newer ones: one pass, no window function, and the same
+        // answer per member as the singular query's own ORDER BY … LIMIT 1.
+        $stmt = $this->pdo->prepare(
+            "SELECT my.member_id, my.email_blind_index
+             FROM member_years my
+             JOIN scout_years sy ON sy.id = my.scout_year_id
+             WHERE my.member_id IN ({$placeholders}) AND my.email_blind_index IS NOT NULL
+             ORDER BY sy.start_date ASC"
+        );
+        $stmt->execute($memberIds);
+
+        $indexes = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $indexes[(int) $row['member_id']] = (string) $row['email_blind_index'];
+        }
+
+        return $indexes;
+    }
+
+    /**
      * Find all member_year rows for a given email blind index and scout year.
      *
      * @return array<int, array<string, mixed>>

@@ -13,7 +13,6 @@ use Core\Http\FlashMessage;
 use Core\Http\Request;
 use Core\Http\Response;
 use Core\Member\MemberProfile;
-use Core\Member\MemberService;
 use Core\Member\SectionService;
 use Core\ScoutYear\ScoutYearSession;
 use Core\Security\AuthSession;
@@ -26,6 +25,7 @@ use Modules\Groups\Repository\GroupSectionRepository;
 use Modules\Groups\Service\GroupAccessService;
 use Modules\Groups\Service\GroupMembershipService;
 use Modules\Groups\Service\GroupService;
+use Modules\Groups\Service\MemberIdentityService;
 use Modules\Groups\Service\LeaveOutcome;
 use Modules\Groups\Service\GroupSessionContext;
 use Modules\Groups\Service\GroupSessionContextFactory;
@@ -50,9 +50,9 @@ class GroupMemberController extends AbstractController
         private GroupAccessService $accessService,
         private GroupService $groupService,
         private GroupSessionContextFactory $contextFactory,
-        private MemberService $memberService,
         private SectionService $sectionService,
-        private ?GroupMembershipService $membershipService = null
+        private ?GroupMembershipService $membershipService = null,
+        private ?MemberIdentityService $identityService = null
     ) {
     }
 
@@ -73,10 +73,19 @@ class GroupMemberController extends AbstractController
         $canModerate = $this->accessService->canModerate($group, $context);
 
         $explicit = [];
-        foreach ($this->memberRepository->findByGroup($group->id) as $row) {
+        $rows = $this->memberRepository->findByGroup($group->id);
+        // Named the way this module names anybody, in one batched
+        // resolution for the whole list rather than a profile lookup per
+        // row (Service\MemberIdentityService).
+        $identities = $this->identityService?->forMembers(
+            array_map(fn(\Modules\Groups\Repository\GroupMember $m) => $m->memberId, $rows),
+            $scoutYearId
+        ) ?? [];
+
+        foreach ($rows as $row) {
             $explicit[] = [
                 'member_id' => $row->memberId,
-                'profile' => $this->memberService->findProfileByMemberAndYear($row->memberId, $scoutYearId),
+                'identity' => $identities[$row->memberId] ?? null,
                 'is_moderator' => $row->isModerator,
                 'is_self' => in_array($row->memberId, $context->linkedMemberIds, true),
             ];
@@ -332,7 +341,7 @@ class GroupMemberController extends AbstractController
      * they opened deliberately — hence the per-section queries rather than
      * a bespoke "all members" query no other page needs.
      *
-     * @return array<int, array{section: string, members: MemberProfile[]}>
+     * @return array<int, array{section: string, members: array<int, array{id: int, label: string}>}>
      */
     private function inviteCandidates(DiscussionGroup $group, int $scoutYearId): array
     {
@@ -355,7 +364,13 @@ class GroupMemberController extends AbstractController
                 $sectionLabel = (string) ($section['name'] ?? '');
                 $groups[] = [
                     'section' => $sectionLabel !== '' ? $sectionLabel : (string) $section['desk_code'],
-                    'members' => $candidates,
+                    // Labelled here rather than in the template so the
+                    // plain dropdown and the search box that replaces it
+                    // can never word the same person differently.
+                    'members' => array_map(fn(MemberProfile $p) => [
+                        'id' => $p->memberId,
+                        'label' => $this->searchLabel($p),
+                    ], $candidates),
                 ];
             }
         }
@@ -417,16 +432,28 @@ class GroupMemberController extends AbstractController
     }
 
     /**
-     * "Akéla (Marie Dupont)" when there is a totem, the plain name
-     * otherwise — same two-identity shape Service\PostAuthorResolver's
-     * own author label uses, so a search result reads the same way a
-     * post's author already does.
+     * "Marie Dupont (Akéla)" when there is a totem, the plain name
+     * otherwise — the human first, the membership in parentheses, which
+     * is the shape Service\MemberIdentityService gives every other name
+     * in this module.
+     *
+     * Built from the MEMBER's own first/last name rather than through
+     * that service, and that is the right source here: an invite
+     * candidate is somebody who is not in the group yet and very often
+     * has no account at all (most animés never do), so there would be
+     * nothing for it to resolve. The name on their membership is the
+     * human's name either way.
      */
     private function searchLabel(MemberProfile $profile): string
     {
         $fullName = trim($profile->firstName . ' ' . $profile->lastName);
+        $totem = $profile->totem !== null && $profile->totem !== '' ? $profile->totem : null;
 
-        return $profile->totem !== null && $profile->totem !== '' ? $profile->totem . ' (' . $fullName . ')' : $fullName;
+        if ($fullName === '') {
+            return $totem ?? ('Membre #' . $profile->memberId);
+        }
+
+        return $totem !== null ? $fullName . ' (' . $totem . ')' : $fullName;
     }
 
     /**

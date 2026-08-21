@@ -467,9 +467,9 @@ class GroupLifecycleActionsTest extends GroupsControllerTestCase
             $this->accessService(),
             $this->groupService,
             new \Modules\Groups\Service\GroupSessionContextFactory($memberService, $accountRepo, $this->scoutYearResolverMock()),
-            $memberService,
             $sectionService,
-            $this->membershipService()
+            $this->membershipService(),
+            GroupsTestHelper::identityService($this->pdo)
         );
     }
 

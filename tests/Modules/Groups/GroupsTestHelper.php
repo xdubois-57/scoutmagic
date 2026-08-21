@@ -218,6 +218,178 @@ class GroupsTestHelper
      * PostService/ReplyService needs one, and none of them is testing the
      * limit itself, so they all take this rather than a double.
      */
+    /**
+     * The REAL Service\MemberIdentityService, against the in-memory test
+     * database — not a stub.
+     *
+     * Every name this module shows now goes through it ("Marie Dupont
+     * (Akéla)"), and what it resolves is a blind-index join between
+     * user_accounts and member_years. A stub would assert that the callers
+     * ask it politely; only the real thing asserts that the join finds
+     * anybody. Tests\DatabaseTestHelper's schema carries both tables, so
+     * there is nothing to fake.
+     *
+     * The keys are the fixed test keys every other groups test already
+     * uses, so a row seeded by seedAccountWithMembers() below decrypts
+     * here and nowhere else.
+     */
+    public static function identityService(\PDO $pdo): \Modules\Groups\Service\MemberIdentityService
+    {
+        $encryption = self::testEncryption();
+
+        return new \Modules\Groups\Service\MemberIdentityService(
+            new \Core\Security\UserAccountRepository($pdo, $encryption),
+            new \Core\Import\MemberYearRepository($pdo),
+            new \Core\Member\MemberService(
+                new \Core\Import\MemberYearRepository($pdo),
+                $encryption,
+                \Core\Database\Connection::withPdo($pdo)
+            )
+        );
+    }
+
+    /**
+     * Give an EXISTING member a member_years row and the account that
+     * shares its address — what makes Service\MemberIdentityService able
+     * to name them at all.
+     *
+     * Separate from seedAccountWithMembers() because a controller fixture
+     * usually creates its members first (with their section periods, for
+     * Service\GroupAccessService) and only then needs them nameable.
+     *
+     * @param int|null $accountId force the account's id, for a fixture
+     *        whose posts already reference one by number
+     */
+    public static function giveMemberAnAccount(
+        \PDO $pdo,
+        int $memberId,
+        string $email,
+        string $accountFirstName,
+        string $accountLastName,
+        string $memberFirstName,
+        ?string $totem = null,
+        int $scoutYearId = 1,
+        ?int $accountId = null
+    ): int {
+        $encryption = self::testEncryption();
+        $normalised = strtolower(trim($email));
+        $blindIndex = $encryption->blindIndex($normalised, 'email');
+
+        if ($accountId !== null) {
+            $statement = $pdo->prepare(
+                'INSERT INTO user_accounts (id, email_encrypted, email_blind_index, first_name_encrypted, last_name_encrypted, is_super_admin)
+                 VALUES (?, ?, ?, ?, ?, 0)'
+            );
+            $statement->execute([
+                $accountId,
+                $encryption->encrypt($normalised, 'user_accounts.email'),
+                $blindIndex,
+                $encryption->encrypt($accountFirstName, 'user_accounts.first_name'),
+                $encryption->encrypt($accountLastName, 'user_accounts.last_name'),
+            ]);
+        } else {
+            $statement = $pdo->prepare(
+                'INSERT INTO user_accounts (email_encrypted, email_blind_index, first_name_encrypted, last_name_encrypted, is_super_admin)
+                 VALUES (?, ?, ?, ?, 0)'
+            );
+            $statement->execute([
+                $encryption->encrypt($normalised, 'user_accounts.email'),
+                $blindIndex,
+                $encryption->encrypt($accountFirstName, 'user_accounts.first_name'),
+                $encryption->encrypt($accountLastName, 'user_accounts.last_name'),
+            ]);
+            $accountId = (int) $pdo->lastInsertId();
+        }
+
+        $pdo->prepare(
+            'INSERT INTO member_years
+                (member_id, scout_year_id, first_name_encrypted, last_name_encrypted, totem_encrypted, email_blind_index, is_active)
+             VALUES (?, ?, ?, ?, ?, ?, 1)'
+        )->execute([
+            $memberId,
+            $scoutYearId,
+            $encryption->encrypt($memberFirstName, 'member_years.first_name'),
+            $encryption->encrypt($accountLastName, 'member_years.last_name'),
+            $totem !== null ? $encryption->encrypt($totem, 'member_years.totem') : null,
+            $blindIndex,
+        ]);
+
+        return $accountId;
+    }
+
+    public static function testEncryption(): \Core\Security\EncryptionService
+    {
+        return new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
+    }
+
+    /**
+     * One account and the members it is linked to, joined the way
+     * production joins them: by the blind index of a shared email address.
+     *
+     * @param array<int, array{first_name: string, totem?: string}> $members
+     * @return array{account_id: int, member_ids: int[]}
+     */
+    public static function seedAccountWithMembers(
+        \PDO $pdo,
+        string $email,
+        string $accountFirstName,
+        string $accountLastName,
+        array $members,
+        int $scoutYearId = 1
+    ): array {
+        $encryption = self::testEncryption();
+        $normalised = strtolower(trim($email));
+        $blindIndex = $encryption->blindIndex($normalised, 'email');
+
+        // A real scout_years row, because the member -> account lookup
+        // joins one to order a member's addresses by year
+        // (Core\Import\MemberYearRepository::
+        // findMostRecentEmailBlindIndexesForMembers()). Without it the
+        // join matches nothing and every seeded member silently resolves
+        // to no account at all.
+        $existing = $pdo->prepare('SELECT id FROM scout_years WHERE id = ?');
+        $existing->execute([$scoutYearId]);
+        if ($existing->fetchColumn() === false) {
+            $pdo->prepare('INSERT INTO scout_years (id, label, start_date, end_date, is_current) VALUES (?, ?, ?, ?, 1)')
+                ->execute([$scoutYearId, '2025-2026', '2025-09-01', '2026-08-31']);
+        }
+
+        $statement = $pdo->prepare(
+            'INSERT INTO user_accounts (email_encrypted, email_blind_index, first_name_encrypted, last_name_encrypted, is_super_admin)
+             VALUES (?, ?, ?, ?, 0)'
+        );
+        $statement->execute([
+            $encryption->encrypt($normalised, 'user_accounts.email'),
+            $blindIndex,
+            $encryption->encrypt($accountFirstName, 'user_accounts.first_name'),
+            $encryption->encrypt($accountLastName, 'user_accounts.last_name'),
+        ]);
+        $accountId = (int) $pdo->lastInsertId();
+
+        $memberIds = [];
+        foreach ($members as $index => $member) {
+            $pdo->prepare('INSERT INTO members (desk_id) VALUES (?)')
+                ->execute(['SEED-' . $blindIndex . '-' . $index]);
+            $memberId = (int) $pdo->lastInsertId();
+
+            $pdo->prepare(
+                'INSERT INTO member_years
+                    (member_id, scout_year_id, first_name_encrypted, last_name_encrypted, totem_encrypted, email_blind_index, is_active)
+                 VALUES (?, ?, ?, ?, ?, ?, 1)'
+            )->execute([
+                $memberId,
+                $scoutYearId,
+                $encryption->encrypt($member['first_name'], 'member_years.first_name'),
+                $encryption->encrypt($accountLastName, 'member_years.last_name'),
+                isset($member['totem']) ? $encryption->encrypt($member['totem'], 'member_years.totem') : null,
+                $blindIndex,
+            ]);
+            $memberIds[] = $memberId;
+        }
+
+        return ['account_id' => $accountId, 'member_ids' => $memberIds];
+    }
+
     public static function rateLimitService(\PDO $pdo): \Modules\Groups\Service\RateLimitService
     {
         return new \Modules\Groups\Service\RateLimitService(

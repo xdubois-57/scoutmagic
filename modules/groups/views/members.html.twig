@@ -51,9 +51,13 @@
                     {% for row in explicit_members %}
                         <div class="list-group-item px-0 py-2 d-flex align-items-center justify-content-between gap-2 flex-wrap">
                             <div class="d-flex align-items-center gap-2 flex-wrap">
-                                <span class="fw-semibold">
-                                    {% if row.profile %}{{ row.profile|display_name }}{% else %}Membre #{{ row.member_id }}{% endif %}
-                                </span>
+                                {% if row.identity and row.identity.account_name %}
+                                    {% include '@groups/partials/identity.html.twig' with { identity: row.identity } only %}
+                                {% else %}
+                                    {# Nothing left to name them by: no account, and no
+                                       member_year for this group's year either. #}
+                                    <span class="fw-semibold">Membre #{{ row.member_id }}</span>
+                                {% endif %}
                                 {% if row.is_moderator %}
                                     <span class="badge bg-primary-subtle text-primary-emphasis">Modérateur</span>
                                 {% endif %}
@@ -115,8 +119,8 @@
                             <option value="" selected>— Choisir —</option>
                             {% for group_option in invite_candidates %}
                                 <optgroup label="{{ group_option.section }}">
-                                    {% for profile in group_option.members %}
-                                        <option value="{{ profile.memberId }}">{{ profile|display_name }}</option>
+                                    {% for candidate in group_option.members %}
+                                        <option value="{{ candidate.id }}">{{ candidate.label }}</option>
                                     {% endfor %}
                                 </optgroup>
                             {% endfor %}

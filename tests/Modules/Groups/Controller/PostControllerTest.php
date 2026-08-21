@@ -89,6 +89,20 @@ class PostControllerTest extends TestCase
         $this->groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $this->moderatorMemberId);
         $this->memberId = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'MEMBER', $this->sectionId, $this->currentYearId);
         $this->otherMemberId = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'OTHER', $this->sectionId, $this->currentYearId);
+        // Nameable for the same reason the shared fixture's member is —
+        // "vu par" lists people, and a member with no member_year and no
+        // account has nothing to be named by.
+        GroupsTestHelper::giveMemberAnAccount(
+            $this->pdo,
+            $this->otherMemberId,
+            'luc@example.test',
+            'Luc',
+            'Bernard',
+            'Luc',
+            'Baloo',
+            $this->currentYearId,
+            self::OTHER_ACCOUNT
+        );
 
         if (session_status() === PHP_SESSION_NONE) {
             session_start();
@@ -154,7 +168,7 @@ class PostControllerTest extends TestCase
             new FileRepository($this->pdo),
             sys_get_temp_dir()
         );
-        $authorResolver = new PostAuthorResolver($memberService, $accountRepo);
+        $authorResolver = new PostAuthorResolver(GroupsTestHelper::identityService($this->pdo));
         $stack = GroupsTestHelper::replyStack($this->pdo, $activityService, $postMediaService, $authorResolver);
         $readStateService = new \Modules\Groups\Service\GroupReadStateService(
             new \Modules\Groups\Repository\GroupReadRepository($this->pdo),
@@ -206,7 +220,7 @@ class PostControllerTest extends TestCase
             new AuthorOptionsService($access, $memberService),
             $stack['reportService'],
             null,
-            new \Modules\Groups\Service\SeenByService($readStateService, $memberService),
+            new \Modules\Groups\Service\SeenByService($readStateService, GroupsTestHelper::identityService($this->pdo)),
             new \Modules\Groups\Service\MentionService(
                 $this->recipientResolverFor([$this->memberId, $this->otherMemberId]),
                 $memberService
@@ -1234,7 +1248,9 @@ class PostControllerTest extends TestCase
         $this->assertSame(200, $response->getStatusCode());
         // The endpoint answers JSON ({html: …}), so the accented name is
         // \u-escaped in the raw body — decode before asserting on it.
-        $this->assertStringContainsString('Akéla', json_decode($response->getBody(), true)['html']);
+        // The account, then its memberships — the shape every name in this
+        // module now takes (Service\MemberIdentityService).
+        $this->assertStringContainsString('Luc Bernard (Baloo)', json_decode($response->getBody(), true)['html']);
     }
 
     /**
