@@ -1,0 +1,151 @@
+// End-to-end: letting a hall, from the admin who creates it to the
+// stranger who asks to rent it — in a real browser, through the real
+// application.
+//
+// WHY THIS SCENARIO EXISTS
+// ----------------------------------------------------------------------------
+// The rentals module's public request path crosses every layer the unit
+// tests each cover in isolation and none of them covers together: a
+// superadmin creating an asset, the module's own menu hook putting it in
+// front of a visitor, the availability calculator deciding which dates a
+// stranger may pick, the pricing engine quoting them, and the booking
+// service turning that into a request that holds the dates. A break
+// anywhere in that chain is invisible to PHPUnit — which sees a $_POST
+// array a test wrote itself — and to Vitest, which sees a form with no
+// server behind it.
+//
+// It stays ONE scenario rather than the eight the roadmap enumerates
+// (AGENTS.md § Tests: the E2E suite is a release gate, not a coverage
+// tool). The seven it does not drive through a browser are covered where
+// they can be exercised honestly and exhaustively instead:
+//
+//   - the stay, meters, settlement and deposit → Tests\Modules\Rental\
+//     Service\RentalStayServiceTest;
+//   - the email attachment and its filing → Tests\Modules\Rental\Mail\
+//     RentalMessageConsumerTest, which drives the real MIME parser and
+//     the real sync service against a scripted mailbox;
+//   - "an animateur sees only « — loué »" and "a manager sees the detail"
+//     → Tests\Modules\Rental\Calendar\RentalVirtualEventProviderTest,
+//     which asserts on what is never BUILT rather than on what a template
+//     rendered — a stronger claim than a browser can make;
+//   - a manager of another asset being refused → the same file plus
+//     Tests\Security\RentalHardeningAuditTest;
+//   - the purge and the surviving aggregate → Tests\Modules\Rental\
+//     Retention\RentalRetentionServiceTest.
+//
+// WHAT IT ASSERTS THAT NOTHING ELSE CAN
+// ----------------------------------------------------------------------------
+// That the pieces are actually wired to each other on a running install:
+// the asset an admin creates is the one a visitor can reach, the form
+// that visitor submits is accepted by the real CSRF guard and the real
+// controller, and the request that comes back carries a reference the
+// unit can quote.
+//
+// LOCATORS
+// ----------------------------------------------------------------------------
+// Roles and visible text wherever they identify the element (README.md
+// § Tests de bout en bout), field names only where a control has no
+// accessible name of its own.
+import { test, expect } from '@playwright/test';
+import { loginAsAdmin } from '../support/admin-login.js';
+
+/** A date far enough out to clear any notice period the asset declares. */
+function isoDaysFromNow(days) {
+    const date = new Date();
+    date.setDate(date.getDate() + days);
+
+    return date.toISOString().slice(0, 10);
+}
+
+const ASSET_NAME = 'Local Saint-Georges';
+const ARRIVAL = isoDaysFromNow(60);
+const DEPARTURE = isoDaysFromNow(62);
+
+test.describe('Rentals', () => {
+    test('an admin creates a hall and a visitor asks to rent it', async ({ page }) => {
+        // --- The unit puts a hall online. ---
+        await loginAsAdmin(page);
+        await page.goto('/admin/locations');
+
+        await expect(page.getByRole('heading', { name: 'Ajouter un bien' })).toBeVisible();
+
+        const creation = page.locator('form[action="/admin/locations/create"]');
+        await creation.locator('input[name="name"]').fill(ASSET_NAME);
+        await creation.locator('input[name="asset_type"]').fill('Local');
+        await creation.locator('input[name="capacity"]').fill('60');
+        // Without this the asset exists but no stranger can reach it —
+        // which is the default, and deliberately so (§6.1).
+        await creation.locator('input[name="is_public"]').check();
+        await creation.getByRole('button', { name: 'Créer le bien' }).click();
+
+        await expect(page.getByText(ASSET_NAME).first()).toBeVisible();
+
+        // --- And designates somebody to look after it. ---
+        // Creating a hall does not give anybody the managed space: asset
+        // management is a per-asset grant (§6.3), and even the superadmin
+        // who just created it manages nothing until they are named. That is
+        // the point of the grant, so the scenario has to go through it.
+        const managers = page.locator('form[action="/admin/locations/managers"]');
+        await expect(managers).toBeVisible();
+        await managers.locator('input[name="manager_member_ids[]"]').first().check();
+        await managers.getByRole('button', { name: 'Enregistrer les gestionnaires' }).click();
+
+        // --- A stranger, with no account at all. ---
+        await page.context().clearCookies();
+        await page.goto('/locations');
+
+        await expect(page.getByRole('heading', { name: 'Locations' })).toBeVisible();
+        const assetLink = page.getByRole('link', { name: ASSET_NAME }).first();
+        await expect(assetLink).toBeVisible();
+        await assetLink.click();
+
+        // The public page says what the hall is and never who is in it
+        // (§6.6) — the calendar shows occupancy, never a renter.
+        await expect(page.getByRole('heading', { name: ASSET_NAME })).toBeVisible();
+
+        await page.getByRole('link', { name: /demande/i }).first().click();
+        await expect(page.getByRole('heading', { name: new RegExp(ASSET_NAME) })).toBeVisible();
+
+        // --- The request itself. ---
+        await page.locator('input[name="arrival"]').fill(ARRIVAL);
+        await page.locator('input[name="departure"]').fill(DEPARTURE);
+        await page.locator('input[name="persons"]').fill('35');
+        await page.locator('input[name="name"]').fill('Jeanne Martin');
+        await page.locator('input[name="email"]').fill('jeanne.martin@example.be');
+        await page.locator('input[name="organisation"]').fill('Les Scouts de Nulle Part');
+
+        // Both are required, and both are an acknowledgement rather than a
+        // consent: the unit cannot handle the request without the data,
+        // and the box attests that the visitor was told (§6.13).
+        await page.locator('input[name="accept_conditions"]').check();
+        await page.locator('input[name="accept_privacy"]').check();
+
+        // Core\Security\HumanCheck refuses a form submitted faster than a
+        // human could have filled it — a real barrier, and one this
+        // scenario has to clear the way a visitor does rather than
+        // configure away. Waiting here is therefore part of what is being
+        // tested: the public form is protected, and a genuine request still
+        // gets through.
+        await page.waitForTimeout(4000);
+
+        await page.getByRole('button', { name: 'Envoyer ma demande' }).click();
+
+        // --- What the visitor gets back. ---
+        // A reference they can quote, which is also what a reply's subject
+        // line carries back (§7.6, level 1) — and the tracking page itself,
+        // reached with no account and no session at all: the link in their
+        // acknowledgement IS the authorisation (§6.26).
+        await expect(page.getByRole('heading', { name: /Votre demande LOC-\d{4}-\d+/ })).toBeVisible();
+
+        // The dates are held while the unit answers, and the page says
+        // until when rather than leaving the visitor guessing (§6.14).
+        await expect(page.getByText(/Dates bloquées/)).toBeVisible();
+
+        // --- And what the unit sees. ---
+        await loginAsAdmin(page);
+        await page.goto('/mes-locations');
+
+        await expect(page.getByText(ASSET_NAME).first()).toBeVisible();
+        await expect(page.getByText(/LOC-\d{4}-\d+/).first()).toBeVisible();
+    });
+});

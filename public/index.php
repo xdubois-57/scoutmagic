@@ -3527,7 +3527,13 @@ if (in_array('rental', $moduleManager->getEnabledModuleIds(), true)) {
             // that module, in which case the booking page loses a tab and
             // nothing else.
             $rentalCommunicationService,
-            $rentalComplianceService
+            $rentalComplianceService,
+            // The three overview figures (§6.34), read from the live
+            // bookings AND the aggregates a purge left behind.
+            new \Modules\Rental\Service\RentalStatisticsService(
+                $rentalBookingRepository,
+                new \Modules\Rental\Repository\RentalAggregateRepository($pdo)
+            )
         )
     );
     $frontController->registerController(
@@ -3586,6 +3592,29 @@ if (in_array('rental', $moduleManager->getEnabledModuleIds(), true)) {
         new \Modules\Rental\Task\SendRentalRemindersHandler($rentalReminderService)
     );
     \Modules\Rental\Task\SendRentalRemindersHandler::bootstrap($schedulerService);
+
+    // The retention purge (§6.35). Registered explicitly in both entry
+    // points for the same reason as the reminder task above: only a
+    // composition root knows whether `inbound_mail` is enabled, and a
+    // purged booking's emails must go with it.
+    $rentalRetentionService = new \Modules\Rental\Service\RentalRetentionService(
+        $rentalBookingRepository,
+        $rentalDocumentRepository,
+        new \Modules\Rental\Repository\RentalAggregateRepository($pdo),
+        new \Modules\Rental\Repository\RentalReminderRepository($pdo),
+        $settingService,
+        $journalService,
+        $pdo,
+        $fileRepository,
+        $inboundMailForOthers,
+        $storagePath
+    );
+    $schedulerRunner->registerHandler(
+        'rental',
+        \Modules\Rental\Task\PurgeRentalBookingsHandler::TASK_KEY,
+        new \Modules\Rental\Task\PurgeRentalBookingsHandler($rentalRetentionService)
+    );
+    \Modules\Rental\Task\PurgeRentalBookingsHandler::bootstrap($schedulerService);
 
     // Menu hook (Core\Module\MenuEntryProvider) — the "Locations" index and
     // one entry per pinned public asset in "Notre unité", plus "Mes

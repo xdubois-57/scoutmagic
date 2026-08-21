@@ -651,6 +651,26 @@ class RentalBookingRepository
         return array_map(fn(array $row) => $this->hydrate($row), $stmt->fetchAll(\PDO::FETCH_ASSOC));
     }
 
+    /**
+     * Every booking whose stay ended on or before $date — the purge's
+     * question (§6.35).
+     *
+     * Every status, deliberately: a refused request holds the same
+     * enquirer's name and address as a completed stay, and there is no
+     * reason to keep one longer than the other once the retention is up.
+     *
+     * @return RentalBooking[]
+     */
+    public function findEndedOnOrBefore(string $date): array
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT * FROM rental_bookings WHERE departure_date <= ? ORDER BY id ASC'
+        );
+        $stmt->execute([$date]);
+
+        return array_map(fn(array $row) => $this->hydrate($row), $stmt->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
     public function deleteById(int $id): void
     {
         $stmt = $this->pdo->prepare('DELETE FROM rental_bookings WHERE id = ?');

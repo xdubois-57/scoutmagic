@@ -571,3 +571,115 @@ One ScoutMagic installation acts as the receiver. Its intake endpoint authentica
 The dashboard shows one row per installation, defaulting to the active ones. **No view state is remembered between visits** — no filter, search, sort, page or period — so the page never opens on somebody else's stale filter, and it sets no cookie. **An absent value is shown as "Non renseigné", never as `0` or "Non"**: reports come from installations of differing versions, so "this sender could not measure it" is a permanent, first-class state.
 
 Installations go stale after a configurable number of days (still visible, behind a filter) and are deleted in full after a configurable number of months, or sooner by hand. A separate monthly history counts, per calendar month, how many distinct installations reported at least once. Once a month is finalised its aggregate is **immutable, holds no individual identifier at all, and is kept indefinitely** — a later deletion never rewrites it.
+
+## 22. Rentals module — letting the unit's own assets (module rental)
+
+A unit lets its hall, its ground, its tents, its trailer. The module covers the whole of that, from a stranger finding the page to the deposit going back — and it is built around one asymmetry: **the people asking are not members**. They have no account, no session and no way to log in, and every design decision below follows from that.
+
+### 22.1 Two spaces that never overlap
+
+The **public space** (`/locations`) is for people outside the unit: an index, one page per asset, an availability calendar, a price estimate and a request form. The **managed space** (`/mes-locations`) is for the people responsible: the bookings, the money, the documents, the stay. A visitor never reaches the second, and a manager's page never renders anything the first should not have shown.
+
+**A manager is not a chief.** Asset management is granted per asset to named members, chief or not, and the Staff d'U sees every asset by virtue of their function. That grant is checked server-side on every surface — a hidden button, an absent menu entry and a breadcrumb are never protection.
+
+### 22.2 What the public sees, and what it never sees
+
+The calendar shows a day as free, occupied or unavailable, and **nothing else**. Not who is in the hall, not what they are paying, not why it is blocked. A manual block and a letting are deliberately indistinguishable: why the unit cannot let its own hall is nobody else's business.
+
+A visitor cannot page into the past, cannot page arbitrarily far forward, and cannot select a range the asset's own rules refuse — a minimum or maximum number of nights, a notice period, a horizon, an arrival weekday, a buffer between stays. **Availability is computed, never stored**: a hold that lapsed a minute ago frees its dates immediately rather than on the next scheduled run.
+
+Assets with a quantity — eight tents — expose how many remain, and a request for more than that cannot be selected. The stock is re-checked at confirmation, so two managers confirming at once cannot both succeed.
+
+### 22.3 Nights or full days
+
+An asset is let either **by night** (a hall: the departure day is free again for the next arrival) or **by full day** (a trailer: the return day is still occupied). One flag, and it decides the calendar, the price and the availability check together — the three would otherwise disagree, and each of them alone looks right.
+
+### 22.4 Price
+
+Money is integers in cents, everywhere. A quote is built from the asset's own tariff — per person per night, per night, per stay, per unit — plus fees and taxes, with a billable minimum and per-renter-category rates. Three amounts never mix: the **estimate** the visitor was shown, the **agreed** price the unit negotiated, and what has actually been **received**. The estimate is frozen at submission and never rewritten, precisely so a later negotiation cannot rewrite what somebody was told.
+
+A line a manager edited by hand is never re-priced, in either direction. When the head count falls below the billable minimum the line says so out loud — « 25 pers. (minimum) » — rather than quietly quoting for more people than are coming.
+
+**No VAT is ever computed.** Prices are what the renter pays, with a per-asset exemption note.
+
+### 22.5 The request, the hold, and the renter's own page
+
+A request holds the dates for a configurable period so two visitors cannot both be told yes. The hold lapsing releases the dates and **refuses nothing** — the request stays waiting, because nobody promised anything.
+
+The renter's acknowledgement email carries a link to their own tracking page. **That link is the authorisation**: they have no account, the token is stored only as a hash, and a lost email is answered by issuing a new one. Their page shows the state of their request, what they owe and the practical information — never an internal comment, never a manager's note, never another booking.
+
+### 22.6 Documents
+
+A contract and an invoice are generated from a per-asset template, in three frozen levels: the asset's template, the booking's own copy of it (taken at first generation, so editing the template afterwards changes no existing booking), and the PDF. **Regenerating never overwrites**: v2 appears beside v1, because v1 may already be signed.
+
+Keyword substitution happens after the rich text is sanitised, and every substituted value is escaped — a renter whose organisation name contains markup would otherwise have it interpreted by the PDF renderer.
+
+**A renter downloads nothing from the site.** "For the renter" is a flag that means *email it to them*, not an access right: their documents reach them by email and only by email.
+
+### 22.7 The stay
+
+Meter readings are integers in thousandths, taken at arrival and departure; a meter that reads backwards is reported, never guessed at. The inventory checklist is snapshotted into the booking at confirmation, label and all, so editing the asset's list later rewrites no past inventory. "Nobody looked" is a distinct state from "somebody looked and it was fine".
+
+**The financial decision on a damage stays human.** An incident is recorded and enters nothing until a manager picks charge, withhold or waive; until then the renter sees nothing of it.
+
+The final settlement never modifies the agreed price — it produces new lines beside it, so the evidence for exactly the disputes it exists to settle survives. Only per-person lines re-scale to the head count that turned up; the hall still costs what renting the hall costs.
+
+### 22.8 The calendar, and who sees what on it
+
+Occupancy can be published onto the unit's own calendar. Nothing is copied: it is computed on every generation, so turning publication off removes it with no cleanup and no orphans. An ordinary reader — member, parent, visitor — sees `Local Saint-Georges — loué` and nothing more; only a manager of that asset or the Staff d'U sees the organisation, the head count and the contact. **That distinction is applied before anything is serialised**, never by a template hiding a field it was given.
+
+A cancelled booking is published as cancelled rather than removed, so a subscriber's calendar drops it instead of keeping it forever.
+
+### 22.9 Correspondence
+
+With the Courrier entrant module, replies are attached to the right booking automatically: by the reference in the subject, then by the thread headers, then by the sender's address inside a window around the stay. **An ambiguous match attaches nothing** — a manager reading the wrong file has no way to know it is the wrong one. Every attachment says how it was made, and a sender match is labelled as the guess it is.
+
+There is no way to attach a message by hand and no surface onto the mailbox at all. Correcting a wrong attachment means detaching it (which deletes it, along with attachments nobody re-classified) or moving it — only to a booking of an asset that manager actually manages.
+
+### 22.10 The paperwork register
+
+Per asset: a free-text label, an optional document, an optional expiry, a remark. **It is a reminder list and not a compliance check.** The module knows no regulation and computes no status: what a hall needs differs by commune, by federation and by year, and a green tick derived from a date would be a legal opinion. Suggested labels live in configuration so a rename costs a text field rather than a release. The page says all of this above everything else on it.
+
+### 22.11 Reminders
+
+Thirteen of them, from "a request nobody answered" to "a deposit still held after the stay". Twelve go to the managers of that asset through the notification centre; **one goes to the renter, by email**, because a renter has no account and a notification would reach nobody. None of them carries a name: a reference and an asset, and a link to the file where everything is.
+
+Nothing fires *on* a date — every rule is "is this true today" — so a host whose scheduled task ran late sends today rather than never. The configuration page says plainly when no real cron is detected, because on shared hosting a reminder can then arrive hours late and a unit that does not know that reads the delay as a bug.
+
+### 22.12 Retention
+
+A booking is deleted in full — lines, documents, files, tokens, readings, inventory, incidents, settlement, attached emails — after a configurable delay **counted from the close of the accounting year the stay fell in**, so every letting of one financial year purges together. A refused or abandoned request is deleted on the same terms.
+
+**One anonymous row survives**: asset, month, days, amount. No identifier, no token, no file, nothing rattachable to a person. It exists so the asset's three figures — requests waiting, days let this year, this year's revenue — stay true after the purge instead of dropping to zero one morning. The default of seven years follows Belgian bookkeeping usage and is offered as an aid, never as legal advice.
+
+### 22.13 What the AI may and may not do
+
+With the AI connector enabled, a manager can ask for help: read a meter index off a photo, propose a category for an attachment, summarise a thread, list what a request does not say, break a tie between two candidate bookings for an email. **Every one of those is a suggestion a human accepts or discards.** The AI never accepts or refuses a booking, changes an agreed price, blames anybody for damage, withholds a deposit, triggers a refund or moves a final financial status — and the code that talks to it has no way to write anything at all.
+
+## 23. Inbound mail module — a read-only mailbox gateway (module inbound_mail)
+
+Not a mail client. A gateway that connects one or more of the unit's own mailboxes **in read-only mode** so other modules can attach the replies that belong to them.
+
+### 23.1 What it never does
+
+It never marks a message read, never moves one, never deletes one, never creates a folder. The client contract has no vocabulary for any of it: bodies are fetched with `PEEK` and folders opened read-only, so a treasurer who works through an unread inbox does not find it emptied by a background task.
+
+### 23.2 What it keeps, and what it throws away
+
+**A message no module recognises is discarded** — not stored, not queued, not listed, not notified. Keeping it would build an archive of the unit's mailbox with no screen to consult it, which is the worst possible position under the RGPD. The read position still advances past it, so one unrecognised newsletter cannot block a mailbox forever.
+
+A claimed message keeps its subject, sender, date and both bodies, all encrypted at rest. The HTML is cleaned once on arrival and **remote images are removed rather than proxied**: a hidden image in a stranger's email is a read receipt, and proxying still fetches it.
+
+### 23.3 Attachments
+
+PDF, images and office documents only — no archives, nothing executable — with the real type read from the file's own bytes rather than its name or what the email claimed. Signature logos are filtered out, and the same file arriving ten times is stored once.
+
+### 23.4 Configuration
+
+`Configuration > Courrier entrant`, **superadmin only**. Several mailboxes at once; a mailbox may feed several modules and a module may read several mailboxes. A manager may *use* a configured mailbox in their workflow but only ever learns its name and whether it is working — never the host, the port or the account. Passwords are encrypted, never redisplayed even partially, and never appear in an error message.
+
+**Gmail connects over IMAP with an app password**, deliberately: a native connector would oblige every unit to pay for an annual security assessment, without which their sync would break every seven days.
+
+### 23.5 What a consuming module gets
+
+Messages for one of its own business objects, and nothing else. There is no "all messages", no mailbox listing and no search — so a manager who may open a booking does not thereby gain a window onto the unit's correspondence.

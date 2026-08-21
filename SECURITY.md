@@ -346,6 +346,22 @@ The temporary member override (ARCHITECTURE.md §8.41) lets an admin (chef d'uni
 
 **If this needs tightening later**, in rough order of value: refuse the override for members holding a staff function (closes the escalation above); exclude the temporary member from `canAccess()` so secondary email management stays owner-only; add a TTL so a forgotten override expires on its own.
 
+## 34. Rental capability tokens and inbound mail
+
+Two new capability tokens and one new class of untrusted file arrive with the rentals and inbound-mail modules. Both follow §30's rules rather than inventing their own; what is written here is what is specific to them.
+
+**The renter's tracking token, and the renter's ICS token, are the same token.** A renter has no account: possession of the URL in their acknowledgement email *is* the authorisation, for their tracking page and for the one-event calendar feed that page offers. It is `bin2hex(random_bytes(32))`, **stored only as a `password_hash()`**, and therefore not recoverable — a lost email is answered by issuing a new one, which invalidates the old. It is never journaled (a journal entry carrying it would be a permanent, readable credential), never shown to anybody but that renter, and never reaches a second booking. Unlike the calendar feed tokens in §30 it is hashed rather than encrypted-with-a-blind-index, because it is re-displayed from an email the renter already has rather than from a page the site must re-render.
+
+**A token gates its own booking and nothing else.** Every route that takes one takes the booking id beside it and verifies the pair; a valid token against another booking's id is a 404, identical to an unknown reference, so the endpoint is never an oracle for which bookings exist.
+
+**Calendar and ICS privacy is applied before serialisation, never by a template.** An ordinary reader's event and a manager's event are built by two separate methods, so the detailed rendering does not exist for an unauthorised reader to reach through a JSON payload, a tooltip or an ICS line. A test asserts the two builders remain distinct, because collapsing them into one with a flag is the natural refactor and the wrong one.
+
+**Every inbound email is untrusted input from anybody who knows the address.** HTML is sanitised once on the way in and stored sanitised — never sanitised on render, which would put the rule in every future template. **Remote images are removed rather than proxied**: a hidden image in a stranger's email is a read receipt, and proxying still fetches it. Attachments go through `UploadHandler` (real MIME sniffed from the bytes, generated storage name, EXIF stripped, outside `public/`, behind `FileAccessGuard`) against a strict allowlist that admits no archives and nothing executable, and the type an email *claims* decides nothing.
+
+**Nothing is ever written to a remote mailbox.** `IncomingMailboxClientInterface` declares only `connect`, `disconnect`, `listFolders`, `folderState` and `fetchSince`; there is no `markSeen`, `move`, `delete` or `createFolder` to call. Bodies are fetched with `FT_PEEK` and folders opened with `EXAMINE`, and a source-level test asserts the IMAP implementation contains none of the calls that would write. Mailbox credentials are encrypted at rest, live on their own object the repository loads only at connection time (so they are structurally absent from listings and rendered stack traces), and are never redisplayed — a blank password field on save keeps the stored one. **An invalid TLS certificate fails the connection**, and there is no configuration path to an unencrypted session or to skipping the check. Failures are recorded as sentences written for an operator, never a library's own exception text, which routinely carries the account name and the server's verbatim rejection of a credential.
+
+**A consumer module never gets arbitrary mailbox access.** Every method of `Modules\InboundMail\Api\InboundMailInterface` is scoped to one consumer id and one business reference; there is no `findAll()`, no `findByMailbox()` and no `search()`, and that absence is the enforcement. A manager who may open a booking does not thereby gain a window onto the unit's correspondence.
+
 ## 33. Deferred hardening (known, tracked)
 
 The remaining audit items are understood and intentionally deferred — each is a UX-changing product decision or a broad template rework whose cost currently exceeds the risk it retires. Documented so they are tracked, not forgotten.
