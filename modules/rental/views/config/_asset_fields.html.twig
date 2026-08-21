@@ -16,10 +16,10 @@
                value="{{ asset ? asset.name : '' }}" required maxlength="150">
     </div>
     <div class="col-12 col-md-6">
-        <label class="form-label" for="{{ p }}-asset-type">Type</label>
         {# A free text field with suggestions, never a <select>: the type
            list is configurable and a unit must be able to rent out
            something nobody anticipated. #}
+        <label class="form-label" for="{{ p }}-asset-type">Type</label>
         <input type="text" class="form-control" id="{{ p }}-asset-type" name="asset_type"
                value="{{ asset ? asset.assetType : '' }}" required maxlength="50"
                list="{{ p }}-asset-type-options">
