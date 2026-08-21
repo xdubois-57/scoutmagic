@@ -48,6 +48,21 @@ set -euo pipefail
 #       reachable and `docker` works; 0 to fail instead.
 #   E2E_SERVER_TIMEOUT
 #       Seconds to wait for the application server to answer. Default 60.
+#   E2E_COVERAGE / E2E_COVERAGE_FILE
+#       Set E2E_COVERAGE=1 to record PHP line coverage of everything the
+#       browser makes the application execute, and write it as Clover XML
+#       to E2E_COVERAGE_FILE (default coverage-e2e.xml at the repository
+#       root) for SonarQube Cloud. Off by default: it needs pcov or Xdebug
+#       loaded and it slows every request down, neither of which a
+#       developer running the suite for its result should pay for. CI's
+#       e2e-tests job turns it on — see .github/workflows/ci.yml.
+#   E2E_ADMIN_EMAIL / E2E_ADMIN_PASSWORD
+#       Credentials of the throwaway instance's super-admin account, which
+#       scenarios needing an authenticated admin log in with through the
+#       real login form. The address defaults to admin@example.invalid
+#       (.invalid is reserved by RFC 6761 — never a real mailbox); the
+#       password is generated fresh for every run, so nothing
+#       password-shaped is ever committed and no two runs share one.
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${REPO_ROOT}"
@@ -70,7 +85,15 @@ E2E_DB_USER="${E2E_DB_USER:-${TEST_DB_USER:-root}}"
 E2E_DB_PASSWORD="${E2E_DB_PASSWORD:-${TEST_DB_PASSWORD:-}}"
 E2E_DOCKER_MYSQL="${E2E_DOCKER_MYSQL:-1}"
 E2E_SERVER_TIMEOUT="${E2E_SERVER_TIMEOUT:-60}"
+E2E_COVERAGE="${E2E_COVERAGE:-0}"
+E2E_COVERAGE_FILE="${E2E_COVERAGE_FILE:-${REPO_ROOT}/coverage-e2e.xml}"
+E2E_ADMIN_EMAIL="${E2E_ADMIN_EMAIL:-admin@example.invalid}"
+# Generated per run rather than hardcoded — see this script's header. PHP
+# rather than openssl/urandom so the one interpreter this harness already
+# requires is the only thing it depends on, on macOS and Linux alike.
+E2E_ADMIN_PASSWORD="${E2E_ADMIN_PASSWORD:-$(php -r 'echo "E2e-" . bin2hex(random_bytes(16));')}"
 export E2E_DB_HOST E2E_DB_PORT E2E_DB_NAME E2E_DB_USER E2E_DB_PASSWORD
+export E2E_ADMIN_EMAIL E2E_ADMIN_PASSWORD
 
 SUPPORT="${REPO_ROOT}/scripts/e2e-support.php"
 
@@ -82,6 +105,35 @@ INSTANCE_DIR=""
 DOCKER_CONTAINER=""
 DATABASE_PROVISIONED=0
 BACKUP_SNAPSHOT=""
+COVERAGE_DIR=""
+
+# Stop the application server and wait for it to actually be gone.
+# Idempotent, and safe to call before cleanup() does: the coverage merge
+# needs the server quiesced so that every request's shutdown handler has
+# certainly finished writing its fragment.
+stop_server() {
+    [[ -n "${SERVER_PID}" ]] && kill -0 "${SERVER_PID}" 2>/dev/null || return 0
+
+    echo "E2E: stopping the application server (pid ${SERVER_PID})."
+    kill "${SERVER_PID}" 2>/dev/null || true
+    # Give it a moment to exit on SIGTERM, then insist. Polling rather
+    # than a blanket sleep: `wait` cannot be used here because cleanup()
+    # may run from a different shell context than the one that forked.
+    local waited=0
+    while kill -0 "${SERVER_PID}" 2>/dev/null && [[ "${waited}" -lt 50 ]]; do
+        waited=$((waited + 1))
+        sleep 0.1
+    done
+    # `|| true` on both kills, not decoration: the server has usually
+    # exited on the SIGTERM above by now, and `kill` on a dead pid returns
+    # non-zero — which under `set -e` would abort the whole script at the
+    # coverage call site (cleanup() gets away without it only because it
+    # runs `set +e` first).
+    kill -9 "${SERVER_PID}" 2>/dev/null || true
+    SERVER_PID=""
+
+    return 0
+}
 
 cleanup() {
     # Never let a cleanup step's failure replace the test's own exit code,
@@ -102,19 +154,7 @@ cleanup() {
         kill -9 "${PLAYWRIGHT_PID}" 2>/dev/null
     fi
 
-    if [[ -n "${SERVER_PID}" ]] && kill -0 "${SERVER_PID}" 2>/dev/null; then
-        echo "E2E: stopping the application server (pid ${SERVER_PID})."
-        kill "${SERVER_PID}" 2>/dev/null
-        # Give it a moment to exit on SIGTERM, then insist. Polling rather
-        # than a blanket sleep: `wait` cannot be used here because the trap
-        # may run from a different shell context than the one that forked.
-        local waited=0
-        while kill -0 "${SERVER_PID}" 2>/dev/null && [[ "${waited}" -lt 50 ]]; do
-            waited=$((waited + 1))
-            sleep 0.1
-        done
-        kill -9 "${SERVER_PID}" 2>/dev/null
-    fi
+    stop_server
 
     if [[ "${DATABASE_PROVISIONED}" -eq 1 ]]; then
         php "${SUPPORT}" teardown-db
@@ -243,6 +283,24 @@ SERVER_LOG="${INSTANCE_DIR}/php-server.log"
 
 # Taken before anything migrates — see cleanup()'s own comment.
 BACKUP_SNAPSHOT="${INSTANCE_DIR}/backups-before-run.txt"
+
+# ---------------------------------------------------------------
+# PHP coverage of the application, when asked for. The fragments live
+# inside the run's own temporary directory, so cleanup() removes them with
+# everything else and only the merged Clover report survives the run.
+# Fails closed rather than producing a silently empty report: a coverage
+# number nobody can trust is worse than no number.
+# ---------------------------------------------------------------
+if [[ "${E2E_COVERAGE}" != "0" ]]; then
+    php -r 'exit(extension_loaded("pcov") || extension_loaded("xdebug") ? 0 : 1);' || {
+        echo "ERROR: E2E_COVERAGE is on but neither pcov nor Xdebug is loaded — PHP coverage cannot be recorded." >&2
+        exit 1
+    }
+    COVERAGE_DIR="${INSTANCE_DIR}/coverage"
+    mkdir -p "${COVERAGE_DIR}"
+    export E2E_COVERAGE_DIR="${COVERAGE_DIR}"
+    echo "E2E: recording PHP coverage into ${E2E_COVERAGE_FILE}."
+fi
 find "${REPO_ROOT}/storage/temp" -maxdepth 1 -type f -name 'backup_*.sql' 2>/dev/null | sort > "${BACKUP_SNAPSHOT}"
 
 attempt=0
@@ -261,12 +319,40 @@ while true; do
     # stack trace rendered into the page the browser then "successfully"
     # asserts against), while still leaving the real error somewhere the
     # failure path below can print.
+    #
+    # When coverage is on, auto_prepend_file runs the collector before the
+    # application boots on every request — the only seam that exists, since
+    # the code under test runs in this server process and not in the test's.
+    # One array built up front, never spliced from a possibly-empty one:
+    # "${array[@]}" on a declared-but-empty array is treated as an unset
+    # variable under `set -u` on bash < 4.4 (macOS's own /bin/bash is 3.2)
+    # even though it expands to nothing correctly everywhere else — always
+    # having the 5 base -d options in here keeps this array non-empty
+    # regardless of whether coverage is on, sidestepping that entirely.
+    php_options=(
+        -d display_errors=0
+        -d log_errors=1
+        -d error_log="${INSTANCE_DIR}/php-error.log"
+        -d upload_max_filesize=100M
+        -d post_max_size=110M
+    )
+    if [[ -n "${COVERAGE_DIR}" ]]; then
+        # pcov.directory has to span both trees the run executes PHP from:
+        # the repository (core/, modules/, reached through the instance's
+        # symlinks, so recorded at their repository paths) and the
+        # instance's own copied public/. Their only common ancestor is /,
+        # so vendor/ and node_modules/ are excluded by pattern instead —
+        # otherwise every request would pay to instrument the SDKs too.
+        php_options+=(
+            -d "auto_prepend_file=${REPO_ROOT}/scripts/e2e-coverage-prepend.php"
+            -d 'pcov.enabled=1'
+            -d 'pcov.directory=/'
+            -d 'pcov.exclude=~/(vendor|node_modules)/~'
+        )
+    fi
+
     php \
-        -d display_errors=0 \
-        -d log_errors=1 \
-        -d error_log="${INSTANCE_DIR}/php-error.log" \
-        -d upload_max_filesize=100M \
-        -d post_max_size=110M \
+        "${php_options[@]}" \
         -S "127.0.0.1:${PORT}" \
         -t "${INSTANCE_DIR}/instance/public" \
         > "${SERVER_LOG}" 2>&1 &
@@ -310,6 +396,21 @@ wait "${PLAYWRIGHT_PID}"
 PLAYWRIGHT_EXIT=$?
 PLAYWRIGHT_PID=""
 set -e
+
+# ---------------------------------------------------------------
+# Coverage, before the diagnostics and before cleanup wipes the run's
+# temporary directory. The server is stopped first so that every request's
+# shutdown handler has certainly flushed its fragment.
+#
+# A merge failure is reported but never changes the run's verdict: the
+# browser tests have already decided it, and a reporting problem must not
+# turn a green suite red (nor, just as importantly, hide a red one).
+# ---------------------------------------------------------------
+if [[ -n "${COVERAGE_DIR}" ]]; then
+    stop_server
+    php "${SUPPORT}" merge-coverage "${COVERAGE_DIR}" "${E2E_COVERAGE_FILE}" \
+        || echo "WARNING: the E2E coverage report could not be produced (the test result above is unaffected)." >&2
+fi
 
 if [[ "${PLAYWRIGHT_EXIT}" -ne 0 ]]; then
     echo "--- php -S output (last 40 lines) ---" >&2

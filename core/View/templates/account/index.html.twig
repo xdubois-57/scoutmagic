@@ -13,13 +13,13 @@
                 {{ csrf_field() }}
                 <div class="row g-3 mb-3">
                     <div class="col-12 col-sm-6">
-                        <label class="form-label">Prénom</label>
-                        <input type="text" name="first_name" class="form-control"
+                        <label class="form-label" for="account-first-name">Prénom</label>
+                        <input type="text" name="first_name" id="account-first-name" class="form-control"
                                value="{{ account.firstName }}">
                     </div>
                     <div class="col-12 col-sm-6">
-                        <label class="form-label">Nom</label>
-                        <input type="text" name="last_name" class="form-control"
+                        <label class="form-label" for="account-last-name">Nom</label>
+                        <input type="text" name="last_name" id="account-last-name" class="form-control"
                                value="{{ account.lastName }}">
                     </div>
                 </div>
@@ -44,18 +44,18 @@
                 <form method="post" action="/account/password" id="account-password-form">
                     {{ csrf_field() }}
                     <div class="mb-3">
-                        <label class="form-label">Mot de passe actuel</label>
-                        <input type="password" name="current_password" class="form-control" required autocomplete="current-password">
+                        <label class="form-label" for="account-current-password">Mot de passe actuel</label>
+                        <input type="password" name="current_password" id="account-current-password" class="form-control" required autocomplete="current-password">
                     </div>
                     <div class="mb-3">
-                        <label class="form-label">Nouveau mot de passe</label>
+                        <label class="form-label" for="account-new-password">Nouveau mot de passe</label>
                         <input type="password" name="new_password" class="form-control" id="account-new-password" required autocomplete="new-password">
                     </div>
                     <div class="mb-3">
                         {% include 'partials/password_complexity_checklist.html.twig' with {list_id: 'account-password-checklist'} %}
                     </div>
                     <div class="mb-3">
-                        <label class="form-label">Confirmer le nouveau mot de passe</label>
+                        <label class="form-label" for="account-confirm-password">Confirmer le nouveau mot de passe</label>
                         <input type="password" name="confirm_password" class="form-control" id="account-confirm-password" required autocomplete="new-password">
                     </div>
                     <div class="text-danger small mb-2 d-none" id="account-password-mismatch-error">Les mots de passe ne correspondent pas.</div>
@@ -68,14 +68,14 @@
                 <form method="post" action="/account/password" id="account-password-form">
                     {{ csrf_field() }}
                     <div class="mb-3">
-                        <label class="form-label">Nouveau mot de passe</label>
+                        <label class="form-label" for="account-new-password">Nouveau mot de passe</label>
                         <input type="password" name="new_password" class="form-control" id="account-new-password" required autocomplete="new-password">
                     </div>
                     <div class="mb-3">
                         {% include 'partials/password_complexity_checklist.html.twig' with {list_id: 'account-password-checklist'} %}
                     </div>
                     <div class="mb-3">
-                        <label class="form-label">Confirmer le mot de passe</label>
+                        <label class="form-label" for="account-confirm-password">Confirmer le mot de passe</label>
                         <input type="password" name="confirm_password" class="form-control" id="account-confirm-password" required autocomplete="new-password">
                     </div>
                     <div class="text-danger small mb-2 d-none" id="account-password-mismatch-error">Les mots de passe ne correspondent pas.</div>
@@ -121,7 +121,7 @@
 
             <div id="passkey-add-section">
                 <div class="mb-2" id="passkey-label-input" style="display:none;">
-                    <label class="form-label small">Nom de cette clé</label>
+                    <label class="form-label small" for="passkey-device-label">Nom de cette clé</label>
                     <input type="text" id="passkey-device-label" class="form-control form-control-sm"
                            placeholder="ex. iPhone de Jean" maxlength="100">
                 </div>
@@ -141,7 +141,7 @@
         <div class="card-body">
             <h2 class="h5 mb-3">Notifications</h2>
             <div class="form-check form-switch">
-                <input class="form-check-input" type="checkbox" role="switch" id="push-toggle"
+                <input class="form-check-input" type="checkbox" role="switch" id="push-toggle" aria-checked="false"
                        data-vapid-public-key="{{ vapid_public_key }}">
                 <label class="form-check-label" for="push-toggle">Notifications push</label>
             </div>

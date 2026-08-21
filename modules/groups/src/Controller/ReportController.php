@@ -22,8 +22,10 @@ use Modules\Groups\Repository\ReplyRepository;
 use Modules\Groups\Service\GroupAccessService;
 use Modules\Groups\Service\GroupSessionContext;
 use Modules\Groups\Service\GroupNotificationService;
+use Modules\Groups\Service\GroupRecipientResolver;
 use Modules\Groups\Service\GroupSessionContextFactory;
 use Modules\Groups\Service\ReportService;
+use Modules\Groups\Support\ReportedAuthor;
 use Twig\Environment;
 
 /**
@@ -51,6 +53,13 @@ class ReportController extends AbstractController
      */
     private const CONFIRMATION = 'Merci, votre signalement a bien été transmis aux modérateurs du groupe.';
 
+    /**
+     * Returned by a restore closure instead of true/false when the
+     * moderator authored the item themselves — a third answer, because it
+     * is neither "found and done" nor "not found".
+     */
+    private const SELF_RESTORE = 'self';
+
     public function __construct(
         protected Environment $twig,
         private GroupRepository $groupRepository,
@@ -59,7 +68,8 @@ class ReportController extends AbstractController
         private GroupAccessService $accessService,
         private ReportService $reportService,
         private GroupSessionContextFactory $contextFactory,
-        private ?GroupNotificationService $notificationService = null
+        private ?GroupNotificationService $notificationService = null,
+        private ?GroupRecipientResolver $recipientResolver = null
     ) {
     }
 
@@ -75,6 +85,13 @@ class ReportController extends AbstractController
             if ($post === null || $post->groupId !== $group->id) {
                 return false;
             }
+            // Already hidden from this member by moderation — reporting what
+            // you cannot see adds nothing, and leaving it open lets the
+            // endpoint confirm a hidden post still exists. Moderators, who
+            // can see it, keep the ability.
+            if ($post->isHidden() && !$this->accessService->canModerate($group, $context)) {
+                return false;
+            }
 
             if ($this->reportService->reportPost($group->id, $post->id, $memberId, $context->userAccountId)) {
                 // Only on a NEW report: a repeat submission by the same
@@ -82,7 +99,8 @@ class ReportController extends AbstractController
                 // stay indistinguishable from a first one at the endpoint
                 // (prompt 9) — which it does, since the caller sees the
                 // same response either way.
-                $this->notificationService?->itemReported($group, $post->id, 'post', $context->userAccountId);
+                $author = new ReportedAuthor($post->authorUserAccountId, $post->authorMemberId);
+                $this->notify($group, $post->id, 'post', $post->id, $context, $author);
             }
 
             return true;
@@ -106,12 +124,16 @@ class ReportController extends AbstractController
             if ($post === null || $post->groupId !== $group->id) {
                 return false;
             }
+            if (($reply->isHidden() || $post->isHidden()) && !$this->accessService->canModerate($group, $context)) {
+                return false;
+            }
 
             if ($this->reportService->reportReply($group->id, $reply->id, $memberId, $context->userAccountId)) {
                 // The deep link points at the reply's POST: a reply has no
                 // page of its own, and the post is what a moderator has to
                 // open to judge it in context.
-                $this->notificationService?->itemReported($group, $post->id, 'reply', $context->userAccountId);
+                $author = new ReportedAuthor($reply->authorUserAccountId, $reply->authorMemberId);
+                $this->notify($group, $post->id, 'reply', $reply->id, $context, $author);
             }
 
             return true;
@@ -129,6 +151,10 @@ class ReportController extends AbstractController
             $post = $this->postRepository->findById($itemId);
             if ($post === null || $post->groupId !== $group->id) {
                 return false;
+            }
+
+            if ($this->isOwnItem($post->authorUserAccountId, $post->authorMemberId, $context)) {
+                return self::SELF_RESTORE;
             }
 
             $this->reportService->restorePost($group->id, $post->id, $context->userAccountId);
@@ -153,6 +179,10 @@ class ReportController extends AbstractController
             $post = $this->postRepository->findById($reply->postId);
             if ($post === null || $post->groupId !== $group->id) {
                 return false;
+            }
+
+            if ($this->isOwnItem($reply->authorUserAccountId, $reply->authorMemberId, $context)) {
+                return self::SELF_RESTORE;
             }
 
             $this->reportService->restoreReply($group->id, $reply->id, $context->userAccountId);
@@ -206,7 +236,7 @@ class ReportController extends AbstractController
 
     /**
      * @param array<string, string> $params
-     * @param callable(DiscussionGroup, int, GroupSessionContext): bool $restore
+     * @param callable(DiscussionGroup, int, GroupSessionContext): (bool|string) $restore
      */
     private function restoreAction(array $params, string $idKey, callable $restore): Response
     {
@@ -227,13 +257,70 @@ class ReportController extends AbstractController
             return new Response('Seul un modérateur du groupe peut rétablir un contenu masqué.', 403);
         }
 
-        if (!$restore($group, (int) ($params[$idKey] ?? 0), $context)) {
+        $result = $restore($group, (int) ($params[$idKey] ?? 0), $context);
+
+        // A moderator restoring their OWN reported content is the one
+        // conflict of interest this module cannot leave open: in a space
+        // where minors write, the person a report is about must not be
+        // the person who decides the report was wrong. Deleting their own
+        // item stays allowed — that is only deleting your own content.
+        if ($result === self::SELF_RESTORE) {
+            FlashMessage::set(
+                'error',
+                'Vous ne pouvez pas rétablir un contenu que vous avez écrit : un autre modérateur du groupe, '
+                . 'ou un administrateur du site, doit s\'en charger.'
+            );
+
+            return $this->redirect('/groups/' . $group->id);
+        }
+
+        if ($result !== true) {
             return new Response('Not Found', 404);
         }
 
         FlashMessage::set('success', 'Le contenu a été rétabli et ne sera plus masqué automatiquement.');
 
         return $this->redirect('/groups/' . $group->id);
+    }
+
+    /**
+     * Notifies the moderators about one new report, escalating to site
+     * admins when the reported item was written by one of the group's own
+     * moderators — the conflict of interest this whole path exists for.
+     *
+     * The escalation is decided once, here, and used for both the
+     * notification and the journal entry, so the two can never disagree
+     * about whether a given report was escalated.
+     */
+    private function notify(
+        DiscussionGroup $group,
+        int $postId,
+        string $kind,
+        int $itemId,
+        GroupSessionContext $context,
+        ReportedAuthor $author
+    ): void {
+        if ($this->recipientResolver?->isExplicitModerator($group, $author->memberId) === true) {
+            $this->reportService->journalEscalation($kind, $group->id, $itemId, $context->userAccountId);
+        }
+
+        $this->notificationService?->itemReported($group, $postId, $kind, $context->userAccountId, $author);
+    }
+
+    /**
+     * Whether the item under review is the caller's own.
+     *
+     * Both identities count: the account that actually typed it, and the
+     * member it was signed as. A parent posting as their child must not
+     * be able to restore it by arguing the author was the child.
+     */
+    private function isOwnItem(int $authorAccountId, int $authorMemberId, GroupSessionContext $context): bool
+    {
+        if ($context->userAccountId !== null && $authorAccountId === $context->userAccountId) {
+            return true;
+        }
+
+        return in_array($authorMemberId, $context->linkedMemberIds, true);
     }
 
     /**

@@ -99,6 +99,69 @@ class GroupMemberRepository
         $stmt->execute([$isModerator ? 1 : 0, $groupId, $memberId]);
     }
 
+    /**
+     * How many explicit moderators the group has.
+     *
+     * Explicit rows ONLY: a site admin moderates every group without
+     * holding a row in any of them (Service\GroupSessionContext::
+     * isSiteAdmin()), and counting them would let the last real moderator
+     * of a group walk away leaving nobody who actually belongs to it in
+     * charge. A group must keep a moderator of its own.
+     */
+    public function countModerators(int $groupId): int
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT COUNT(*) FROM discussion_group_members WHERE group_id = ? AND is_moderator = 1'
+        );
+        $stmt->execute([$groupId]);
+
+        return (int) $stmt->fetchColumn();
+    }
+
+    /**
+     * Removes $memberId from $groupId, refusing when they are the group's
+     * last explicit moderator.
+     *
+     * Count and delete run in ONE transaction, and the count re-reads the
+     * row inside it: checking first and deleting afterwards would let two
+     * moderators leaving at the same instant both see "there are two of
+     * us" and both succeed, leaving the group with none.
+     *
+     * @return bool false when the removal was refused because it would
+     *         have left the group without a moderator
+     */
+    public function removeUnlessLastModerator(int $groupId, int $memberId): bool
+    {
+        $this->pdo->beginTransaction();
+
+        try {
+            $row = $this->find($groupId, $memberId);
+            if ($row === null) {
+                $this->pdo->commit();
+
+                return true;
+            }
+
+            if ($row->isModerator && $this->countModerators($groupId) <= 1) {
+                $this->pdo->rollBack();
+
+                return false;
+            }
+
+            $stmt = $this->pdo->prepare('DELETE FROM discussion_group_members WHERE group_id = ? AND member_id = ?');
+            $stmt->execute([$groupId, $memberId]);
+            $this->pdo->commit();
+
+            return true;
+        } catch (\Throwable $e) {
+            if ($this->pdo->inTransaction()) {
+                $this->pdo->rollBack();
+            }
+
+            throw $e;
+        }
+    }
+
     public function remove(int $groupId, int $memberId): void
     {
         $stmt = $this->pdo->prepare('DELETE FROM discussion_group_members WHERE group_id = ? AND member_id = ?');

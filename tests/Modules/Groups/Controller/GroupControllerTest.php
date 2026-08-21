@@ -84,11 +84,20 @@ class GroupControllerTest extends TestCase
     /**
      * @param int[] $linkedMemberIds
      */
+    /**
+     * @param array<string, mixed>|null $routeBreadcrumb the route's own
+     *        static breadcrumb declaration (module.json's `routes[].
+     *        breadcrumb`) — FrontController::handle() sets this as a Twig
+     *        global on every real request; left unset by default here
+     *        exactly as it always has been, since no other test in this
+     *        file asserts on the rendered breadcrumb bar.
+     */
     private function controller(
         array $linkedMemberIds,
         string $role = 'identified',
         bool $completeProfile = true,
-        ?DelegatedAlbumManager $delegatedAlbumManager = null
+        ?DelegatedAlbumManager $delegatedAlbumManager = null,
+        ?array $routeBreadcrumb = null
     ): GroupController {
         AuthSession::login(1, 'parent@test.be', $role);
 
@@ -137,6 +146,9 @@ class GroupControllerTest extends TestCase
         $twig->addGlobal('cookie_consent_given', true);
         $twig->addGlobal('menus', null);
         $twig->addGlobal('csp_nonce', 'test');
+        if ($routeBreadcrumb !== null) {
+            $twig->addGlobal('route_breadcrumb', $routeBreadcrumb);
+        }
         $twig->addFunction(new \Twig\TwigFunction('param', fn(...$a) => ''));
 
         $postRepo = new PostRepository($this->pdo);
@@ -178,6 +190,12 @@ class GroupControllerTest extends TestCase
                 ),
                 $this->groupRepo,
                 new GroupSectionRepository($this->pdo)
+            ),
+            new \Modules\Groups\Service\GroupMembershipService(
+                $this->groupRepo,
+                new GroupMemberRepository($this->pdo),
+                new \Core\Config\SettingService(new \Core\Config\SettingRepository($this->pdo)),
+                new \Core\Journal\JournalService(new \Core\Journal\JournalRepository($this->pdo))
             )
         );
     }
@@ -281,6 +299,102 @@ class GroupControllerTest extends TestCase
         );
 
         $this->assertSame(302, $response->getStatusCode());
+    }
+
+    /**
+     * The quota is about live clutter: five open invitation groups is the
+     * default ceiling, and the sixth is refused with the limit named.
+     */
+    public function testCreatingBeyondTheQuotaIsRefused(): void
+    {
+        $creator = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'QUOTA', $this->sectionId, $this->currentYearId);
+        for ($i = 0; $i < 5; $i++) {
+            $this->groupRepo->create("Groupe {$i}", null, null, $creator);
+        }
+        $_POST = ['name' => 'Un de trop', '_csrf_token' => $this->csrfToken()];
+
+        $this->controller([$creator])->create($this->postRequest(), []);
+
+        $this->assertSame(5, $this->countInvitationGroupsBy($creator));
+    }
+
+    public function testCreatingAtTheQuotaMinusOneStillWorks(): void
+    {
+        $creator = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'QUOTA2', $this->sectionId, $this->currentYearId);
+        for ($i = 0; $i < 4; $i++) {
+            $this->groupRepo->create("Groupe {$i}", null, null, $creator);
+        }
+        $_POST = ['name' => 'Le cinquième', '_csrf_token' => $this->csrfToken()];
+
+        $this->controller([$creator])->create($this->postRequest(), []);
+
+        $this->assertSame(5, $this->countInvitationGroupsBy($creator));
+    }
+
+    /**
+     * Section groups are created by the scheduled task, never by a
+     * person, so they cannot use up somebody's quota.
+     */
+    public function testSectionGroupsDoNotConsumeTheQuota(): void
+    {
+        $creator = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'QUOTA3', $this->sectionId, $this->currentYearId);
+        for ($i = 0; $i < 8; $i++) {
+            $this->groupRepo->create("Section {$i}", $this->currentYearId, $this->sectionId, $creator);
+        }
+        $_POST = ['name' => 'Sur invitation', '_csrf_token' => $this->csrfToken()];
+
+        $this->controller([$creator])->create($this->postRequest(), []);
+
+        $this->assertSame(1, $this->countInvitationGroupsBy($creator));
+    }
+
+    /**
+     * The cap is about clutter, not privilege — an admin's clutter is
+     * exactly as cluttering as anyone else's.
+     */
+    public function testASiteAdminIsNotExemptFromTheQuota(): void
+    {
+        $creator = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'QUOTA4', $this->sectionId, $this->currentYearId);
+        for ($i = 0; $i < 5; $i++) {
+            $this->groupRepo->create("Groupe {$i}", null, null, $creator);
+        }
+        $_POST = ['name' => 'Un de trop', '_csrf_token' => $this->csrfToken()];
+
+        $this->controller([$creator], 'admin')->create($this->postRequest(), []);
+
+        $this->assertSame(5, $this->countInvitationGroupsBy($creator));
+    }
+
+    /**
+     * A closed group is read-only and on its way to the purge, so it
+     * stops counting.
+     */
+    public function testAClosedGroupFreesUpQuota(): void
+    {
+        $creator = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'QUOTA5', $this->sectionId, $this->currentYearId);
+        $ids = [];
+        for ($i = 0; $i < 5; $i++) {
+            $ids[] = $this->groupRepo->create("Groupe {$i}", null, null, $creator);
+        }
+        $this->groupRepo->setClosed($ids[0], '2026-01-01 00:00:00');
+        $_POST = ['name' => 'Le remplaçant', '_csrf_token' => $this->csrfToken()];
+
+        $this->controller([$creator])->create($this->postRequest(), []);
+
+        // Six rows in total, but only five of them OPEN — which is what
+        // the quota counts, and why the sixth creation was allowed.
+        $this->assertSame(6, $this->countInvitationGroupsBy($creator));
+        $this->assertSame(5, $this->groupRepo->countOpenCreatedBy($creator));
+    }
+
+    private function countInvitationGroupsBy(int $memberId): int
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT COUNT(*) FROM discussion_groups WHERE created_by_member_id = ? AND section_id IS NULL'
+        );
+        $stmt->execute([$memberId]);
+
+        return (int) $stmt->fetchColumn();
     }
 
     /**
@@ -400,6 +514,67 @@ class GroupControllerTest extends TestCase
 
         $this->assertSame(200, $response->getStatusCode());
         $this->assertStringContainsString('Louveteaux', $response->getBody());
+    }
+
+    /**
+     * partials/breadcrumb_bar.html.twig: the group's own name replaces the
+     * route's static "Groupe" label, and a real link back to "Groupes"
+     * (the module's list page) appears ahead of it.
+     */
+    public function testShowBreadcrumbNamesTheGroupAndLinksBackToTheGroupList(): void
+    {
+        $creator = GroupsTestHelper::createMember($this->pdo, 'CBC1');
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator);
+        $member = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'MBC1', $this->sectionId, $this->currentYearId);
+
+        $body = $this->controller([$member], 'identified', true, null, ['label' => 'Groupe', 'parents' => ['Espace animés']])
+            ->show(new Request('GET', '/groups/' . $groupId, [], [], [], []), ['id' => (string) $groupId])
+            ->getBody();
+
+        $this->assertMatchesRegularExpression('/<a href="\/groups" class="text-decoration-none">Groupes<\/a>/', $body);
+        $this->assertMatchesRegularExpression('/aria-current="page">\s*Louveteaux\s*<\/li>/', $body);
+    }
+
+    public function testShowOffersTheEditFormToAModeratorWithTheGroupsCurrentName(): void
+    {
+        $moderator = GroupsTestHelper::createMember($this->pdo, 'MODEDIT');
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $moderator);
+
+        $body = $this->controller([$moderator])
+            ->show(new Request('GET', '/groups/' . $groupId, [], [], [], []), ['id' => (string) $groupId])
+            ->getBody();
+
+        $this->assertStringContainsString('Modifier le groupe', $body);
+        $this->assertStringContainsString('value="Louveteaux"', $body);
+        // A section group's year is derived from its section — no
+        // tie-to-year checkbox is offered for one (partials/
+        // group_edit_form.html.twig).
+        $this->assertStringNotContainsString('group-edit-tie-year', $body);
+    }
+
+    public function testShowDoesNotOfferTheEditFormToAnOrdinaryMember(): void
+    {
+        $creator = GroupsTestHelper::createMember($this->pdo, 'CEDIT');
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator);
+        $member = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'MEDIT', $this->sectionId, $this->currentYearId);
+
+        $body = $this->controller([$member])
+            ->show(new Request('GET', '/groups/' . $groupId, [], [], [], []), ['id' => (string) $groupId])
+            ->getBody();
+
+        $this->assertStringNotContainsString('Modifier le groupe', $body);
+    }
+
+    public function testShowOffersTheTieToYearCheckboxForAnInvitationGroup(): void
+    {
+        $moderator = GroupsTestHelper::createMember($this->pdo, 'MODEDIT2');
+        $groupId = $this->groupService->createInvitationGroup('Projet', null, $moderator);
+
+        $body = $this->controller([$moderator])
+            ->show(new Request('GET', '/groups/' . $groupId, [], [], [], []), ['id' => (string) $groupId])
+            ->getBody();
+
+        $this->assertStringContainsString('group-edit-tie-year', $body);
     }
 
     public function testShowReturns404ForAnUnknownGroup(): void
@@ -525,6 +700,24 @@ class GroupControllerTest extends TestCase
         $this->assertStringContainsString('/gallery/media/2/thumb', $body);
     }
 
+    public function testGalleryBreadcrumbLinksBackToTheGroupListAndTheGroupItself(): void
+    {
+        $creator = GroupsTestHelper::createMember($this->pdo, 'CBC2');
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator);
+        $member = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'MBC2', $this->sectionId, $this->currentYearId);
+
+        $manager = $this->createMock(DelegatedAlbumManager::class);
+        $manager->method('listMedia')->willReturn([]);
+
+        $body = $this->controller([$member], 'identified', true, $manager, ['label' => 'Galerie du groupe', 'parents' => ['Espace animés']])
+            ->gallery(new Request('GET', '/groups/' . $groupId . '/gallery', [], [], [], []), ['id' => (string) $groupId])
+            ->getBody();
+
+        $this->assertMatchesRegularExpression('/<a href="\/groups" class="text-decoration-none">Groupes<\/a>/', $body);
+        $this->assertMatchesRegularExpression('/<a href="\/groups\/' . $groupId . '" class="text-decoration-none">Louveteaux<\/a>/', $body);
+        $this->assertMatchesRegularExpression('/aria-current="page">\s*Galerie du groupe\s*<\/li>/', $body);
+    }
+
     /**
      * DoD: "'pending' and 'failed' media render without breaking the
      * feed, tested." — a media in either state must never produce a
@@ -553,5 +746,93 @@ class GroupControllerTest extends TestCase
         $this->assertStringNotContainsString('/gallery/media/1/thumb', $response->getBody(), 'a pending media never renders an <img>');
         $this->assertStringContainsString('spinner-border', $response->getBody());
         $this->assertStringContainsString('Échec du traitement', $response->getBody());
+    }
+
+    /**
+     * groups.js's own poll (public/assets/js/groups.js): a still-pending
+     * cell asks again until the background resize finishes.
+     */
+    public function testMediaStatusReturns404ForANonMemberRatherThan403(): void
+    {
+        $creator = GroupsTestHelper::createMember($this->pdo, 'CGM1');
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator);
+        $outsider = GroupsTestHelper::createMember($this->pdo, 'OUTGM1');
+
+        $response = $this->controller([$outsider])
+            ->mediaStatus(new Request('GET', '/groups/' . $groupId . '/media-status', ['ids' => '1'], [], [], []), ['id' => (string) $groupId]);
+
+        $this->assertSame(404, $response->getStatusCode());
+    }
+
+    public function testMediaStatusReportsPendingMediaWithNoHtml(): void
+    {
+        $creator = GroupsTestHelper::createMember($this->pdo, 'CGM2');
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator);
+        $this->groupRepo->setGalleryAlbumId($groupId, 42);
+        $member = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'MGM2', $this->sectionId, $this->currentYearId);
+
+        $manager = $this->createMock(DelegatedAlbumManager::class);
+        $manager->expects($this->once())->method('listMedia')->with(42)->willReturn([
+            new DelegatedMedia(1, 'photo', 'processing', 0, 'a.jpg', '2026-01-01 10:00:00'),
+        ]);
+
+        $response = $this->controller([$member], 'identified', true, $manager)->mediaStatus(
+            new Request('GET', '/groups/' . $groupId . '/media-status', ['ids' => '1'], [], [], []),
+            ['id' => (string) $groupId]
+        );
+
+        $this->assertSame(200, $response->getStatusCode());
+        $body = json_decode($response->getBody(), true);
+        $this->assertSame([['id' => 1, 'status' => 'processing', 'html' => null]], $body);
+    }
+
+    public function testMediaStatusRendersTheThumbnailFragmentOnceDone(): void
+    {
+        $creator = GroupsTestHelper::createMember($this->pdo, 'CGM3');
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator);
+        $this->groupRepo->setGalleryAlbumId($groupId, 42);
+        $member = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'MGM3', $this->sectionId, $this->currentYearId);
+
+        $manager = $this->createMock(DelegatedAlbumManager::class);
+        $manager->expects($this->once())->method('listMedia')->with(42)->willReturn([
+            new DelegatedMedia(1, 'photo', 'done', 0, 'a.jpg', '2026-01-01 10:00:00'),
+            new DelegatedMedia(2, 'photo', 'failed', 1, 'b.jpg', '2026-01-01 10:00:00'),
+        ]);
+
+        $response = $this->controller([$member], 'identified', true, $manager)->mediaStatus(
+            new Request('GET', '/groups/' . $groupId . '/media-status', ['ids' => '1,2'], [], [], []),
+            ['id' => (string) $groupId]
+        );
+
+        $body = json_decode($response->getBody(), true);
+        $this->assertSame('done', $body[0]['status']);
+        $this->assertStringContainsString('/gallery/media/1/thumb', $body[0]['html']);
+        $this->assertSame('failed', $body[1]['status']);
+        $this->assertStringContainsString('Échec du traitement', $body[1]['html']);
+    }
+
+    public function testMediaStatusSilentlyOmitsAnIdNotInTheGroupsAlbum(): void
+    {
+        $creator = GroupsTestHelper::createMember($this->pdo, 'CGM4');
+        $groupId = $this->groupService->createSectionGroup('Louveteaux', $this->sectionId, $this->currentYearId, $creator);
+        $this->groupRepo->setGalleryAlbumId($groupId, 42);
+        $member = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'MGM4', $this->sectionId, $this->currentYearId);
+
+        $manager = $this->createMock(DelegatedAlbumManager::class);
+        $manager->expects($this->once())->method('listMedia')->with(42)->willReturn([
+            new DelegatedMedia(1, 'photo', 'done', 0, 'a.jpg', '2026-01-01 10:00:00'),
+        ]);
+
+        // id 999 belongs to no album this group can see — never a
+        // distinguishable error, just absent from the response, same as
+        // every other id lookup this module scopes to an authorised group.
+        $response = $this->controller([$member], 'identified', true, $manager)->mediaStatus(
+            new Request('GET', '/groups/' . $groupId . '/media-status', ['ids' => '1,999'], [], [], []),
+            ['id' => (string) $groupId]
+        );
+
+        $body = json_decode($response->getBody(), true);
+        $this->assertCount(1, $body);
+        $this->assertSame(1, $body[0]['id']);
     }
 }

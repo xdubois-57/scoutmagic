@@ -87,17 +87,28 @@
     // Extracted out of prefetchImages() (rather than nested inline in its
     // already-deep .then/.map/.then chain) purely to keep function nesting
     // shallow — same fetch/put/catch behavior either way.
+    /**
+     * @param {Cache} cache
+     * @param {string} url
+     * @returns {Promise<void>}
+     */
     function fetchAndCacheImage(cache, url) {
         return fetch(url).then(function (response) {
             if (response.ok) {
                 return cache.put(url, response);
             }
+            return undefined;
         }).catch(function () {
             // Best-effort per image — one bad fetch must
             // never stop the rest of the pre-download.
         });
     }
 
+    /**
+     * @param {Cache} cache
+     * @param {string[]} imageUrls
+     * @returns {Promise<any>}
+     */
     function prefetchImages(cache, imageUrls) {
         var wanted = {};
         imageUrls.forEach(function (url) { wanted[url] = true; });
@@ -123,6 +134,11 @@
         });
     }
 
+    /**
+     * @param {Cache} cache
+     * @param {string[]} pageUrls
+     * @returns {Promise<any>}
+     */
     function prefetchPages(cache, pageUrls) {
         return Promise.all(pageUrls.map(function (url) {
             return cache.match(url).then(function (cached) {
@@ -139,6 +155,7 @@
                     if (response.ok) {
                         return cache.put(url, response);
                     }
+                    return undefined;
                 }).catch(function () {
                     // Best-effort per page.
                 });
@@ -146,6 +163,12 @@
         }));
     }
 
+    /**
+     * @param {Cache} cache
+     * @param {string} url
+     * @param {Response} cached
+     * @returns {Promise<void>}
+     */
     function refreshCachedDate(cache, url, cached) {
         return cached.clone().blob().then(function (body) {
             var headers = new Headers(cached.headers);

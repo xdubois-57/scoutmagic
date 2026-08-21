@@ -196,7 +196,7 @@
             {% for attachment in pending_receipts %}
                 <div class="col-12 col-md-4">
                     <div class="border rounded-3 p-3 h-100 d-flex flex-column gap-2">
-                        <a href="/files/{{ attachment.fileId }}" target="_blank">
+                        <a href="/files/{{ attachment.fileId }}" target="_blank" rel="noopener">
                             {% if attachment.mimeType starts with 'image/' %}
                                 <img src="/files/{{ attachment.fileId }}" alt="{{ attachment.originalFilename }}" class="img-fluid rounded" style="max-height:160px;object-fit:cover;width:100%;">
                             {% elseif attachment.mimeType == 'application/pdf' %}
@@ -299,9 +299,10 @@
         <script nonce="{{ csp_nonce }}">
         {#
            JSON_HEX_TAG/JSON_HEX_AMP: a category name is free text, and
-           without them a name containing "</script>" closes this block.
-           CSP (nonce, no unsafe-inline) stops that from executing, but it
-           still breaks the page — and escaping costs nothing.
+           without them a name containing HTML tag-closing characters could
+           break out of this script block early. CSP (nonce, no
+           unsafe-inline) stops that from executing, but it still breaks
+           the page — and escaping costs nothing.
         #}
         {% set json_flags = constant('JSON_HEX_TAG') b-or constant('JSON_HEX_AMP') b-or constant('JSON_UNESCAPED_UNICODE') %}
         const categoryLabels = {{ category_summary|map(row => row.category_name ?? 'Non catégorisé')|json_encode(json_flags)|raw }};

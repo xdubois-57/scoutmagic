@@ -375,6 +375,14 @@ class NewsController extends AbstractController
             return new Response('Not Found', 404);
         }
 
+        // Same visibility gate as show(): the poster carries the article's
+        // title, its summary and a QR code to its short URL, so without this
+        // a chief blocked from an admin-visibility article at /news/{id}
+        // could still read all three straight out of the PDF.
+        if (!$this->articleService->canView($article, Role::fromString(AuthSession::getRole()))) {
+            return new Response('Forbidden', 403);
+        }
+
         $baseUrl = rtrim((string) ($this->settingService->get('base_url') ?: ''), '/');
         $qrUrl = $baseUrl . '/s/' . $article->shortUrlCode;
         $shortName = (string) ($this->settingService->get('short_name') ?: '');
@@ -757,9 +765,37 @@ class NewsController extends AbstractController
             'is_force_closed' => (bool) $request->getBody('form_is_force_closed', false),
             'response_role_min' => (string) $request->getBody('form_response_role_min', 'chief'),
             'daily_digest_enabled' => (bool) $request->getBody('form_daily_digest_enabled', false),
-            'finance_account_id' => $request->getBody('form_finance_account_id') !== null && $request->getBody('form_finance_account_id') !== ''
-                ? (int) $request->getBody('form_finance_account_id') : null,
+            'finance_account_id' => $this->resolveFormFinanceAccountId($request),
         ];
+    }
+
+    /**
+     * The submitted finance account, validated against the very list the
+     * form's own picker is built from (finance_accounts in edit()).
+     *
+     * Without this the id was stored verbatim and later drove
+     * Service\ResponseService's createReceivable(), so an author could bind
+     * a form's payments to any account id at all — including a draft or
+     * archived one the picker never offered. Unknown ids fall back to null
+     * ("no payment") rather than raising: the field is optional, and a
+     * silently-dropped account is safer than a receivable booked somewhere
+     * nobody chose.
+     */
+    private function resolveFormFinanceAccountId(Request $request): ?int
+    {
+        $raw = $request->getBody('form_finance_account_id');
+        if ($raw === null || $raw === '') {
+            return null;
+        }
+
+        $accountId = (int) $raw;
+        foreach ($this->financeAccount?->getConfiguredAccounts() ?? [] as $account) {
+            if ($account['id'] === $accountId) {
+                return $accountId;
+            }
+        }
+
+        return null;
     }
 
     /**

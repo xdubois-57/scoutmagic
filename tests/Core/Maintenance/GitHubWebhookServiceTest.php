@@ -37,6 +37,12 @@ class GitHubWebhookServiceTest extends TestCase
         foreach (['update_latest_version', 'update_checked_at', 'update_release_notes', 'update_release_html_url', 'update_download_url', 'update_github_owner', 'update_github_repo'] as $key) {
             $this->settings->register($key, '', 'text', $key, $key);
         }
+        // The site is configured to update from github.com/owner/repo — every
+        // release/push fixture below carries a matching repository.full_name so
+        // it passes the isConfiguredRepository() gate (a dedicated test drives
+        // the mismatch case).
+        $this->settings->set('update_github_owner', 'owner');
+        $this->settings->set('update_github_repo', 'repo');
         $this->settings->register('update_dependencies_changed', '0', 'boolean', 'D', 'D');
         $this->settings->register('auto_update_enabled', '0', 'boolean', 'D', 'D');
         $this->settings->register('auto_update_level', 'patch', 'select', 'D', 'D', null, null, ['patch', 'minor', 'major', 'dev']);
@@ -55,6 +61,8 @@ class GitHubWebhookServiceTest extends TestCase
     private function fakeClient(bool $composerLockChanged = false, ?\Throwable $throws = null, ?ReleaseInfo $latestRelease = null): GitHubReleaseClientInterface
     {
         return new class ($composerLockChanged, $throws, $latestRelease) implements GitHubReleaseClientInterface {
+            public ?string $lastCompareBase = null;
+
             public function __construct(private bool $changed, private ?\Throwable $throws, private ?ReleaseInfo $latestRelease)
             {
             }
@@ -71,6 +79,7 @@ class GitHubWebhookServiceTest extends TestCase
 
             public function composerLockChanged(string $base, string $head): bool
             {
+                $this->lastCompareBase = $base;
                 if ($this->throws !== null) {
                     throw $this->throws;
                 }
@@ -140,17 +149,21 @@ class GitHubWebhookServiceTest extends TestCase
      * @param array<string, mixed> $overrides
      * @return array<string, mixed>
      */
+    /** A genuine GitHub release-asset download URL (host on the allowlist). */
+    private const RELEASE_ASSET_URL = 'https://github.com/owner/repo/releases/download/asset/scoutmagic.zip';
+
     private function releasePayload(string $tag, array $overrides = []): array
     {
-        return array_merge([
+        return [
             'action' => 'published',
+            'repository' => ['full_name' => 'owner/repo'],
             'release' => array_merge([
                 'tag_name' => $tag,
                 'body' => 'Notes',
-                'html_url' => 'https://github.com/x/y/releases/tag/' . $tag,
-                'assets' => [['browser_download_url' => 'https://example.test/artifact.zip']],
+                'html_url' => 'https://github.com/owner/repo/releases/tag/' . $tag,
+                'assets' => [['name' => 'scoutmagic.zip', 'browser_download_url' => self::RELEASE_ASSET_URL]],
             ], $overrides),
-        ], []);
+        ];
     }
 
     public function testHandleReleaseEventIgnoresNonPublishedActions(): void
@@ -164,6 +177,49 @@ class GitHubWebhookServiceTest extends TestCase
         $result = $this->service()->handleReleaseEvent(['action' => 'published']);
         $this->assertSame('ignored', $result['status']);
         $this->assertSame('invalid_payload', $result['reason']);
+    }
+
+    public function testHandleReleaseEventIgnoresAnEventForADifferentRepository(): void
+    {
+        $this->settings->set('auto_update_enabled', '1');
+        $this->settings->set('auto_update_level', 'major');
+        $this->settings->clearCache();
+
+        // A validly-signed release for a repository this site is NOT
+        // configured to update from must never schedule an install — the
+        // download URL it carries would otherwise install that repo's code.
+        $payload = $this->releasePayload('v3.0.0', []);
+        $payload['repository'] = ['full_name' => 'attacker/evil'];
+
+        $result = $this->service()->handleReleaseEvent($payload);
+
+        $this->assertSame(['status' => 'ignored', 'reason' => 'repository_mismatch'], $result);
+        $count = (int) $this->pdo->query("SELECT COUNT(*) FROM scheduled_actions")->fetchColumn();
+        $this->assertSame(0, $count);
+        // Nothing about the untrusted event may reach the settings cache.
+        $this->settings->clearCache();
+        $this->assertSame('', (string) $this->settings->get('update_latest_version'));
+    }
+
+    public function testHandleReleaseEventRefusesADownloadUrlThatIsNotAGitHubHost(): void
+    {
+        $this->settings->set('auto_update_enabled', '1');
+        $this->settings->set('auto_update_level', 'major');
+        $this->settings->clearCache();
+
+        // The release is newer and from the configured repo, but its asset
+        // URL points off GitHub — the updater must refuse it rather than
+        // fetch and unpack an arbitrary host's archive over the live tree.
+        $result = $this->service()->handleReleaseEvent($this->releasePayload('v3.0.0', [
+            'assets' => [['name' => 'scoutmagic.zip', 'browser_download_url' => 'https://evil.example/artifact.zip']],
+        ]));
+
+        $this->assertSame(['status' => 'ignored', 'reason' => 'download_url_refused'], $result);
+        $count = (int) $this->pdo->query("SELECT COUNT(*) FROM scheduled_actions")->fetchColumn();
+        $this->assertSame(0, $count);
+        // The poisoned URL must not have been cached for the manual button.
+        $this->settings->clearCache();
+        $this->assertSame('', (string) $this->settings->get('update_download_url'));
     }
 
     public function testHandleReleaseEventUpdatesTheSettingsCacheEvenWhenNotNewer(): void
@@ -219,6 +275,47 @@ class GitHubWebhookServiceTest extends TestCase
         $this->assertSame(1, $count);
     }
 
+    /**
+     * The reported production bug: a dev build's version components parse
+     * as 0.0.0, so classifying the bump type called EVERY release a major
+     * bump — an admin who switched the channel from 'dev' back to the
+     * default 'minor' (or 'patch') never got the release installed at all
+     * ('version_type_not_allowed' on every event and daily check). Moving
+     * off a dev build must be allowed at any stable level.
+     */
+    public function testHandleReleaseEventSchedulesAReleaseOverAnInstalledDevBuildEvenAtPatchLevel(): void
+    {
+        file_put_contents($this->basePath . '/VERSION', "dev-a1b2c3d\n");
+        $this->settings->set('auto_update_enabled', '1');
+        $this->settings->set('auto_update_level', 'patch');
+        $this->settings->clearCache();
+
+        $result = $this->service()->handleReleaseEvent($this->releasePayload('v3.0.0'));
+
+        $this->assertSame(['status' => 'ok'], $result);
+        $scheduled = $this->schedulerRepository->findByModuleAndKey('core', 'install_update', 'scheduled_install');
+        $this->assertNotNull($scheduled);
+    }
+
+    /**
+     * "vdev-{sha}" is never a real tag — the composer.lock compare for an
+     * installed dev build must run from the commit sha itself, not from a
+     * "v" + VERSION ref that always 404s (and therefore always reported
+     * "dependencies changed" on a dev-build → release transition).
+     */
+    public function testHandleReleaseEventComparesComposerLockFromTheDevBuildCommitSha(): void
+    {
+        file_put_contents($this->basePath . '/VERSION', "dev-a1b2c3d\n");
+        $this->settings->set('auto_update_enabled', '1');
+        $this->settings->set('auto_update_level', 'minor');
+        $this->settings->clearCache();
+
+        $client = $this->fakeClient();
+        $this->service($client)->handleReleaseEvent($this->releasePayload('v3.0.0'));
+
+        $this->assertSame('a1b2c3d', $client->lastCompareBase);
+    }
+
     public function testHandleReleaseEventIgnoredWhenAutoUpdateDisabled(): void
     {
         $result = $this->service()->handleReleaseEvent($this->releasePayload('v2.4.2'));
@@ -264,7 +361,7 @@ class GitHubWebhookServiceTest extends TestCase
         $this->assertNotNull($scheduled);
         $payload = json_decode((string) $scheduled['payload'], true);
         $this->assertSame('release', $payload['source_type']);
-        $this->assertSame('https://example.test/artifact.zip', $payload['download_url']);
+        $this->assertSame(self::RELEASE_ASSET_URL, $payload['download_url']);
     }
 
     public function testHandleReleaseEventSchedulesInstallWhenMinorBumpAllowedAtMinorLevel(): void
@@ -390,7 +487,7 @@ class GitHubWebhookServiceTest extends TestCase
         $this->settings->set('auto_update_level', 'minor');
         $this->settings->clearCache();
 
-        $release = new ReleaseInfo('v2.5.0', 'Notes', 'https://github.com/x/y/releases/tag/v2.5.0', 'https://example.test/artifact.zip');
+        $release = new ReleaseInfo('v2.5.0', 'Notes', 'https://github.com/owner/repo/releases/tag/v2.5.0', self::RELEASE_ASSET_URL);
         $result = $this->service($this->fakeClient(false, null, $release))->checkForNewRelease();
 
         $this->assertSame('ok', $result['status']);
@@ -404,7 +501,7 @@ class GitHubWebhookServiceTest extends TestCase
         $this->settings->set('auto_update_level', 'dev');
         $this->settings->clearCache();
 
-        $release = new ReleaseInfo('v2.5.0', 'Notes', 'https://github.com/x/y/releases/tag/v2.5.0', 'https://example.test/artifact.zip');
+        $release = new ReleaseInfo('v2.5.0', 'Notes', 'https://github.com/owner/repo/releases/tag/v2.5.0', self::RELEASE_ASSET_URL);
         $result = $this->service($this->fakeClient(false, null, $release))->checkForNewRelease();
 
         $this->assertSame(['status' => 'ignored', 'reason' => 'dev_mode_active'], $result);
@@ -440,6 +537,26 @@ class GitHubWebhookServiceTest extends TestCase
         $result = $this->service()->handlePushEvent($this->pushPayload('feature/x'));
 
         $this->assertSame(['status' => 'ignored', 'reason' => 'branch_mismatch'], $result);
+    }
+
+    public function testHandlePushEventIgnoresAnEventForADifferentRepository(): void
+    {
+        $this->settings->set('auto_update_enabled', '1');
+        $this->settings->set('auto_update_level', 'dev');
+        $this->settings->set('dev_update_branch', 'main');
+        $this->settings->clearCache();
+
+        // A push on the right branch but for a repo this site is not
+        // configured to update from must never schedule an install — the
+        // zipball URL is built from the payload's full_name.
+        $payload = $this->pushPayload('main', 'a1b2c3d4e5f6');
+        $payload['repository'] = ['full_name' => 'attacker/evil'];
+
+        $result = $this->service()->handlePushEvent($payload);
+
+        $this->assertSame(['status' => 'ignored', 'reason' => 'repository_mismatch'], $result);
+        $all = $this->schedulerRepository->findByModuleAndTaskKey('core', 'install_update', 10);
+        $this->assertCount(0, $all);
     }
 
     public function testHandlePushEventSchedulesImmediateInstallWhenBranchMatches(): void
@@ -519,5 +636,65 @@ class GitHubWebhookServiceTest extends TestCase
         $result = $this->service()->handlePushEvent(['ref' => 'refs/heads/main', 'after' => '', 'repository' => ['full_name' => 'owner/repo']]);
 
         $this->assertSame(['status' => 'ignored', 'reason' => 'invalid_payload'], $result);
+    }
+
+    // --- isBumpAllowed() ---
+
+    public function testIsBumpAllowedGatesSemverBumpsByLevel(): void
+    {
+        $this->assertTrue(GitHubWebhookService::isBumpAllowed('2.4.1', '2.4.2', 'patch'));
+        $this->assertFalse(GitHubWebhookService::isBumpAllowed('2.4.1', '2.5.0', 'patch'));
+        $this->assertTrue(GitHubWebhookService::isBumpAllowed('2.4.1', '2.5.0', 'minor'));
+        $this->assertFalse(GitHubWebhookService::isBumpAllowed('2.4.1', '3.0.0', 'minor'));
+        $this->assertTrue(GitHubWebhookService::isBumpAllowed('2.4.1', '3.0.0', 'major'));
+    }
+
+    public function testIsBumpAllowedAlwaysAllowsLeavingAnInstalledDevBuild(): void
+    {
+        $this->assertTrue(GitHubWebhookService::isBumpAllowed('dev-a1b2c3d', '2.4.2', 'patch'));
+        $this->assertTrue(GitHubWebhookService::isBumpAllowed('dev-a1b2c3d', '3.0.0', 'minor'));
+    }
+
+    // --- nextOccurrence() ---
+
+    /**
+     * The configured slot is wall-clock Brussels time, never the server's
+     * PHP timezone (frequently UTC on shared hosting): "monday 03:00" is
+     * 02:00 UTC in winter (CET, +01:00)…
+     */
+    public function testNextOccurrenceInterpretsTheSlotInBrusselsWinterTime(): void
+    {
+        // Wednesday 2026-01-07 noon UTC → next Monday is 2026-01-12.
+        $now = new \DateTimeImmutable('2026-01-07 12:00:00', new \DateTimeZone('UTC'));
+
+        $runAt = GitHubWebhookService::nextOccurrence('monday', '03:00', $now);
+
+        $this->assertSame('2026-01-12 02:00:00', $runAt->format('Y-m-d H:i:s'));
+        $this->assertSame('UTC', $runAt->getTimezone()->getName(), 'must be converted back to the caller\'s timezone for naive run_at storage');
+    }
+
+    /**
+     * …and 01:00 UTC in summer (CEST, +02:00) — the DST shift must follow
+     * the local wall clock, not a fixed offset.
+     */
+    public function testNextOccurrenceInterpretsTheSlotInBrusselsSummerTime(): void
+    {
+        // Wednesday 2026-07-08 noon UTC → next Monday is 2026-07-13.
+        $now = new \DateTimeImmutable('2026-07-08 12:00:00', new \DateTimeZone('UTC'));
+
+        $runAt = GitHubWebhookService::nextOccurrence('monday', '03:00', $now);
+
+        $this->assertSame('2026-07-13 01:00:00', $runAt->format('Y-m-d H:i:s'));
+    }
+
+    public function testNextOccurrencePushesANearImmediateSlotAFullWeekOut(): void
+    {
+        // Monday 2026-01-12 01:58 UTC = 02:58 Brussels — the "monday 03:00"
+        // slot is only 2 minutes away, inside the 5-minute guard.
+        $now = new \DateTimeImmutable('2026-01-12 01:58:00', new \DateTimeZone('UTC'));
+
+        $runAt = GitHubWebhookService::nextOccurrence('monday', '03:00', $now);
+
+        $this->assertSame('2026-01-19 02:00:00', $runAt->format('Y-m-d H:i:s'));
     }
 }

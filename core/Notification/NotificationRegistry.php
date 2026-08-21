@@ -39,6 +39,14 @@ class NotificationRegistry
                 roleMin: 'admin',
                 channels: ['in_app' => 'default_on', 'push' => 'default_on', 'email' => 'default_off']
             ),
+            new NotificationType(
+                id: 'core.support_package_ready',
+                label: 'Paquet de support prêt',
+                description: 'Quand l\'archive de diagnostic que tu as demandée est prête au téléchargement',
+                group: 'Maintenance',
+                roleMin: 'superadmin',
+                channels: ['in_app' => 'default_on', 'push' => 'default_on', 'email' => 'default_off']
+            ),
             // Not disableable on any channel a member could hide — an
             // account holder must always see a security alert concerning
             // their own account, in-app and by push. Email stays optional

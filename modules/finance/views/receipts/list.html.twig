@@ -35,14 +35,14 @@
             <input type="text" class="form-control form-control-sm" id="receipts-search" placeholder="Rechercher (nom de fichier, commerçant, description, date, montant...)" value="{{ search }}">
         </div>
         <div class="col-auto">
-            <label class="form-label small d-block">&nbsp;</label>
+            <div class="form-label small d-block">&nbsp;</div>
             <div class="form-check">
                 <input type="checkbox" class="form-check-input" id="receipts-pending-only" {{ pending_only ? 'checked' : '' }}>
                 <label class="form-check-label small" for="receipts-pending-only">En attente uniquement</label>
             </div>
         </div>
         <div class="col-auto">
-            <label class="form-label small d-block">&nbsp;</label>
+            <div class="form-label small d-block">&nbsp;</div>
             <button type="button" class="btn btn-sm btn-primary" id="receipts-filter-btn">Filtrer</button>
             <button type="button" class="btn btn-sm btn-outline-secondary" id="receipts-reset-btn">Réinitialiser</button>
         </div>
@@ -60,7 +60,7 @@
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
-                    <input type="text" class="form-control form-control-sm mb-2" id="associate-search" placeholder="Rechercher un mouvement (libellé)...">
+                    <input type="text" class="form-control form-control-sm mb-2" id="associate-search" placeholder="Rechercher un mouvement (libellé)..." aria-label="Rechercher un mouvement par libellé">
                     <div id="associate-results" class="d-flex flex-column gap-1"></div>
                 </div>
             </div>
@@ -96,9 +96,13 @@ const movementsModalEl = document.getElementById('movements-modal');
 const movementsModal = window.bootstrap ? new window.bootstrap.Modal(movementsModalEl) : null;
 
 function escapeHtml(value) {
+    // Quotes are escaped too (textContent->innerHTML does not) because the
+    // result is interpolated into alt=/title=/data-* attributes below — a
+    // filename or LLM-extracted date containing a quote would otherwise break
+    // out of the attribute (audit M16).
     const div = document.createElement('div');
     div.textContent = value == null ? '' : String(value);
-    return div.innerHTML;
+    return div.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
 function formatAmount(amount) {
@@ -139,7 +143,7 @@ function receiptCardHtml(r) {
 
     return '<div class="col-12 col-md-4" data-receipt-id="' + r.id + '">'
         + '<div class="border rounded-3 p-3 h-100 d-flex flex-column gap-2">'
-        + '<a href="/files/' + r.file_id + '" target="_blank">' + thumb + '</a>'
+        + '<a href="/files/' + r.file_id + '" target="_blank" rel="noopener">' + thumb + '</a>'
         + '<div class="fw-semibold text-truncate" title="' + escapeHtml(r.original_filename) + '">' + escapeHtml(r.original_filename) + '</div>'
         + '<div class="text-body-secondary small">' + escapeHtml(r.uploaded_at) + '</div>'
         + suggestedBlock

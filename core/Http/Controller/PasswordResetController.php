@@ -13,16 +13,30 @@ use Core\Http\Request;
 use Core\Http\Response;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
+use Core\Security\HumanCheck\HumanCheckService;
 use Core\Security\PasswordPolicy;
 use Core\Security\PasswordResetService;
 use Twig\Environment;
 
 class PasswordResetController extends AbstractController
 {
+    /**
+     * Shared with AuthController, which renders this form's challenge on the
+     * login page (the "Mot de passe oublié" mini-form lives there).
+     */
+    public const HUMAN_CHECK_FORM_KEY = 'password_reset_request';
+
+    private ?HumanCheckService $humanCheck = null;
+
     public function __construct(
         protected Environment $twig,
         private PasswordResetService $passwordResetService
     ) {
+    }
+
+    public function setHumanCheck(HumanCheckService $humanCheck): void
+    {
+        $this->humanCheck = $humanCheck;
     }
 
     /**
@@ -42,6 +56,25 @@ class PasswordResetController extends AbstractController
         $email = trim((string) $request->getBody('email', ''));
         if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
             return $this->json(['success' => false, 'error' => 'Veuillez entrer une adresse email valide.']);
+        }
+
+        // Anti-bot barriers BEFORE the request ever reaches the service
+        // (audit M3): unlike magic-link, this flow's only downstream throttle
+        // is per-email, which a loop over random addresses never trips — and
+        // each accepted request pays a bcrypt hash and writes a row. Honeypot
+        // + minimum-delay + per-IP rate limit (enforceRateLimit: true) stop
+        // that enumeration/CPU-burn loop at the front door. The generic
+        // success response below is preserved so nothing here reveals whether
+        // an address matches an account.
+        $humanCheckResult = $this->humanCheck?->verify(
+            self::HUMAN_CHECK_FORM_KEY,
+            AuthSession::isAuthenticated(),
+            $request->getBodyAll(),
+            (string) $request->getServer('REMOTE_ADDR', ''),
+            true
+        );
+        if ($humanCheckResult !== null && !$humanCheckResult->accepted) {
+            return $this->json(['success' => true]);
         }
 
         $this->passwordResetService->requestReset($email);

@@ -14,6 +14,8 @@ class Response
     private ?bool $forceHttps = null;
     /** @var string[] */
     private array $extraImgSrc = [];
+    private ?string $bodyFilePath = null;
+    private bool $deleteBodyFileAfterSend = false;
 
     /**
      * @param array<string, string> $headers
@@ -87,6 +89,31 @@ class Response
         return $this->body;
     }
 
+    /**
+     * Stream the response body from a file on disk (via readfile at send()
+     * time) instead of holding it whole in memory. Core\Http\Response has no
+     * other streaming path, so a large plain file or a finished ZIP archive
+     * would otherwise be buffered entirely into a string (audit M10). Use only
+     * for content that already lives in a file — an encrypted file cannot be
+     * streamed (its single AES-256-GCM tag authenticates the whole blob at
+     * once), so those still go through the in-memory body with a size cap.
+     */
+    public function setBodyFile(string $path, bool $deleteAfterSend = false): self
+    {
+        $this->bodyFilePath = $path;
+        $this->deleteBodyFileAfterSend = $deleteAfterSend;
+        return $this;
+    }
+
+    /**
+     * The file this response streams at send() time, or null for an ordinary
+     * in-memory body.
+     */
+    public function getBodyFilePath(): ?string
+    {
+        return $this->bodyFilePath;
+    }
+
     private function buildCsp(): string
     {
         $scriptSrc = $this->cspNonce !== ''
@@ -129,6 +156,16 @@ class Response
 
         foreach ($this->headers as $name => $value) {
             header("{$name}: {$value}");
+        }
+
+        if ($this->bodyFilePath !== null && is_file($this->bodyFilePath)) {
+            // readfile() streams in chunks under PHP's output buffering rather
+            // than materialising the whole file as a PHP string.
+            readfile($this->bodyFilePath);
+            if ($this->deleteBodyFileAfterSend) {
+                @unlink($this->bodyFilePath);
+            }
+            return;
         }
 
         echo $this->body;

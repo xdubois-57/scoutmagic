@@ -196,6 +196,12 @@ class GalleryController extends AbstractController
         $tempZipPath = (string) tempnam(sys_get_temp_dir(), 'gallery_zip_');
         $storage = $this->storageBackendFactory->create($location);
 
+        // Set once the finished archive is handed to the Response to stream —
+        // it then owns the temp file's deletion, so finally must not remove it
+        // first (audit M10). Every error path leaves this false and finally
+        // cleans up as before.
+        $handedOff = false;
+
         try {
             $zip = new \ZipArchive();
             if ($zip->open($tempZipPath, \ZipArchive::OVERWRITE | \ZipArchive::CREATE) !== true) {
@@ -233,15 +239,24 @@ class GalleryController extends AbstractController
             }
             $zip->close();
 
-            $zipContents = (string) file_get_contents($tempZipPath);
+            // Stream the finished archive straight off disk rather than
+            // reading the whole thing into a PHP string first (audit M10): the
+            // renditions were already spooled to disk, so this removes the last
+            // whole-archive buffer. The Response deletes the temp file after
+            // streaming it.
+            $handedOff = true;
 
-            return (new Response($zipContents))
+            return (new Response())
+                ->setBodyFile($tempZipPath, true)
                 ->setHeader('Content-Type', 'application/zip')
                 ->setHeader('Content-Disposition', 'attachment; filename="' . $this->zipFileName($album) . '"')
-                ->setHeader('Content-Length', (string) strlen($zipContents));
+                ->setHeader('Content-Length', (string) filesize($tempZipPath));
         } finally {
-            // Runs on every exit path above, including the early refusals.
-            @unlink($tempZipPath);
+            // Runs on every exit path above, including the early refusals. The
+            // temp zip is left for the Response only on the success path.
+            if (!$handedOff) {
+                @unlink($tempZipPath);
+            }
             $this->removeDirectory($spoolDir);
         }
     }
@@ -321,6 +336,19 @@ class GalleryController extends AbstractController
         $ranged = $this->serveRange($request, $backend, $path, $etag, $mimeType);
         if ($ranged !== null) {
             return $ranged;
+        }
+
+        // No Range header: stream a local object straight off disk rather than
+        // reading a whole (up to 2 GB) video into a PHP string (audit M10).
+        $localPath = $backend->localPath($path);
+        if ($localPath !== null) {
+            return (new Response())
+                ->setBodyFile($localPath)
+                ->setHeader('Content-Type', $mimeType)
+                ->setHeader('Content-Length', (string) (filesize($localPath) ?: 0))
+                ->setHeader('Accept-Ranges', 'bytes')
+                ->setHeader('Cache-Control', 'private, max-age=31536000')
+                ->setHeader('ETag', $etag);
         }
 
         try {
@@ -474,6 +502,18 @@ class GalleryController extends AbstractController
 
         $location = $this->storageLocationService->resolveLocationForAlbum($album);
         if ($location === null) {
+            return new Response('Not Found', 404);
+        }
+
+        // Service\DelegatedAlbumService::ensureAlbum() refuses to create a
+        // delegated album on a location with a public URL, because a public
+        // URL is world-readable and defeats the access control entirely. That
+        // invariant was only enforced at creation time: a superadmin adding
+        // an s3_public_url to a location later would silently turn the short
+        // presign below into a permanent, unauthenticated link (see
+        // S3StorageBackend::url(), which ignores the TTL when a public URL is
+        // set). Re-assert it here, where the bytes are actually handed out.
+        if ($location->s3PublicUrl !== null && $location->s3PublicUrl !== '') {
             return new Response('Not Found', 404);
         }
 

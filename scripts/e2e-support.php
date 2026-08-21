@@ -32,6 +32,10 @@ declare(strict_types=1);
  *                              be served on 127.0.0.1:<port>.
  *   teardown-db                Drop every table of the E2E database and
  *                              the database itself.
+ *   merge-coverage <dir> <out> Fold every per-request coverage fragment
+ *                              scripts/e2e-coverage-prepend.php wrote into
+ *                              <dir> into one Clover report at <out>, for
+ *                              SonarQube Cloud to read alongside PHPUnit's.
  *
  * Database credentials come from the environment (E2E_DB_HOST/PORT/NAME/
  * USER/PASSWORD), always set by scripts/e2e.sh — see its own header for
@@ -78,6 +82,16 @@ switch ($command) {
         require_once $repoRoot . '/vendor/autoload.php';
         e2e_teardown_database();
         exit(0);
+
+    case 'merge-coverage':
+        $coverageDir = $argv[2] ?? '';
+        $outputPath = $argv[3] ?? '';
+        if ($coverageDir === '' || $outputPath === '') {
+            fwrite(STDERR, "Usage: e2e-support.php merge-coverage <fragment-dir> <clover-output>\n");
+            exit(1);
+        }
+        require_once $repoRoot . '/vendor/autoload.php';
+        exit(e2e_merge_coverage($repoRoot, $coverageDir, $outputPath) ? 0 : 1);
 
     default:
         fwrite(STDERR, "Unknown command: '{$command}'. See this file's header for the command list.\n");
@@ -258,9 +272,13 @@ function e2e_provision(string $repoRoot, string $instanceDir, int $port): void
     );
 
     // --- Secrets: exactly the set SetupController writes at first install,
-    // minus admin_email (no account is created — the scenario under test is
-    // a public, logged-out page, and an account would mean storing a
-    // personal email address in a throwaway fixture for no reason).
+    // admin_email included. The address is admin@example.invalid — the
+    // .invalid TLD is reserved by RFC 6761 precisely so it can never be a
+    // real mailbox, so no personal data enters this throwaway fixture.
+    // The matching super-admin account is created further down, the same
+    // way the setup wizard creates it; scenarios that need an
+    // authenticated admin (tests/e2e/specs/scout-year-transition.spec.js)
+    // log in through the real login form with these credentials.
     $secretManager = new Core\Security\SecretManager(
         $instanceDir . '/storage/keys/master.key',
         $instanceDir . '/storage/config/secrets.enc'
@@ -268,6 +286,10 @@ function e2e_provision(string $repoRoot, string $instanceDir, int $port): void
     $secretManager->generateMasterKey();
 
     $vapidKeys = Core\Notification\VapidKeyPairFactory::createValid();
+
+    $adminEmail = e2e_admin_email();
+    $encryptionKey = base64_encode(random_bytes(32));
+    $blindIndexKey = base64_encode(random_bytes(32));
 
     $secretManager->writeSecrets([
         'db_host' => $config['host'],
@@ -280,8 +302,14 @@ function e2e_provision(string $repoRoot, string $instanceDir, int $port): void
         'smtp_port' => 25,
         'smtp_user' => '',
         'smtp_password' => '',
-        'encryption_key' => base64_encode(random_bytes(32)),
-        'blind_index_key' => base64_encode(random_bytes(32)),
+        'encryption_key' => $encryptionKey,
+        'blind_index_key' => $blindIndexKey,
+        // public/index.php self-heals a missing super-admin from this key
+        // on every request (deleting and recreating the row, password and
+        // all). Setting it means that production path runs for real in
+        // every E2E scenario, and stays a no-op only as long as the
+        // account below genuinely resolves through the same keys.
+        'admin_email' => $adminEmail,
         'vapid_public_key' => $vapidKeys['publicKey'],
         'vapid_private_key' => $vapidKeys['privateKey'],
         'site_name' => 'Unité de test E2E',
@@ -358,7 +386,206 @@ function e2e_provision(string $repoRoot, string $instanceDir, int $port): void
         exit(1);
     }
 
+    // --- Super-admin account, created the way the setup wizard creates it
+    // (Core\Http\Controller\SetupController::createAdminAccount()): the
+    // same EncryptionService, the same blind index, the same
+    // password_hash() call, the same is_super_admin flag. A super-admin
+    // resolves to the 'superadmin' role and is authorised to log in
+    // without any matching member row (Core\Security\RoleResolver), which
+    // is what lets a scenario reach `role_min: admin` pages on an
+    // otherwise empty install.
+    e2e_create_super_admin($connection, $encryptionKey, $blindIndexKey, $adminEmail, e2e_admin_password());
+
     echo "E2E instance provisioned at {$instanceDir} (database '{$config['name']}', port {$port}).\n";
+}
+
+/**
+ * The E2E super-admin's address. Fixed rather than configurable: the
+ * scenarios reference it only through E2E_ADMIN_EMAIL, and .invalid is
+ * reserved by RFC 6761 so this can never reach a real mailbox.
+ */
+function e2e_admin_email(): string
+{
+    return ((string) getenv('E2E_ADMIN_EMAIL')) ?: 'admin@example.invalid';
+}
+
+/**
+ * The E2E super-admin's password, generated fresh for every run by
+ * scripts/e2e.sh and passed down through the environment — never a
+ * literal in the repository, and never reused between runs (the database
+ * holding its hash is dropped at teardown either way).
+ */
+function e2e_admin_password(): string
+{
+    $password = (string) getenv('E2E_ADMIN_PASSWORD');
+    if ($password === '') {
+        fwrite(STDERR, "E2E_ADMIN_PASSWORD is not set — run this through scripts/e2e.sh.\n");
+        exit(1);
+    }
+
+    return $password;
+}
+
+/**
+ * Mirrors Core\Http\Controller\SetupController::createAdminAccount() —
+ * deliberately the same four lines rather than a call into it, because
+ * that method is private to a controller whose constructor wants Twig, a
+ * SecretManager and a DkimManager none of which exist here. Any drift in
+ * how an account is stored would be caught immediately: the login in
+ * tests/e2e/specs/scout-year-transition.spec.js goes through the real
+ * Core\Security\AuthService, which reads it back.
+ */
+function e2e_create_super_admin(
+    Core\Database\Connection $connection,
+    string $encryptionKey,
+    string $blindIndexKey,
+    string $email,
+    string $password
+): void {
+    $encryptionService = new Core\Security\EncryptionService($encryptionKey, $blindIndexKey);
+    $normalizedEmail = strtolower(trim($email));
+
+    $statement = $connection->getPdo()->prepare(
+        'INSERT INTO user_accounts (email_encrypted, email_blind_index, password_hash, is_super_admin)'
+        . ' VALUES (?, ?, ?, TRUE)'
+    );
+    $statement->execute([
+        $encryptionService->encrypt($normalizedEmail),
+        $encryptionService->blindIndex($normalizedEmail),
+        password_hash($password, PASSWORD_DEFAULT),
+    ]);
+}
+
+/**
+ * Every application PHP file coverage should be reported for: the same
+ * set phpstan.neon analyses and sonar.sources covers on the PHP side.
+ *
+ * public/index.php is the whole reason this exists — it is the
+ * composition root no other suite executes at all. Enumerated file by
+ * file because php-code-coverage's Filter takes files, not directories;
+ * phpunit/php-file-iterator (its own dependency) does the walking, with
+ * the same vendor/ exclusion phpstan.neon's excludePaths applies.
+ *
+ * @return list<string>
+ */
+function e2e_coverage_source_files(string $repoRoot): array
+{
+    $facade = new SebastianBergmann\FileIterator\Facade();
+
+    /** @var list<string> $files */
+    $files = $facade->getFilesAsArray(
+        [$repoRoot . '/core', $repoRoot . '/modules'],
+        '.php',
+        '',
+        [$repoRoot . '/vendor'],
+    );
+
+    foreach (['/public/index.php', '/public/cron.php'] as $entryPoint) {
+        if (is_file($repoRoot . $entryPoint)) {
+            $files[] = $repoRoot . $entryPoint;
+        }
+    }
+
+    // modules/*/vendor/ — bundled third-party code, excluded from PHPStan
+    // for the same reason and never this project's coverage to report.
+    return array_values(array_filter(
+        $files,
+        static fn (string $file): bool => !str_contains($file, '/vendor/'),
+    ));
+}
+
+/**
+ * Fold every per-request coverage fragment into one Clover report.
+ *
+ * scripts/e2e-coverage-prepend.php writes one serialized pcov array per
+ * HTTP request (one file each, because several executions write over a
+ * run and a shared file would be a lost-update race). This merges them
+ * and writes the Clover XML SonarQube Cloud consumes, listed in
+ * sonar-project.properties' sonar.php.coverage.reportPaths next to
+ * PHPUnit's own coverage.xml — Sonar unions the reports, so a line either
+ * suite covered counts as covered.
+ *
+ * pcov's array is a plain file => line => status map, which
+ * RawCodeCoverageData::fromLineCoverage() takes as-is — the very call
+ * php-code-coverage's own PcovDriver makes. This process is a plain CLI
+ * script, free to use the library the collector itself cannot touch (see
+ * its docblock).
+ *
+ * Returns false, with a diagnostic, rather than throwing: the caller
+ * (scripts/e2e.sh) runs this *after* the browser tests and must never let
+ * a reporting problem rewrite a green run into a red one, nor a red one
+ * into a green one.
+ */
+function e2e_merge_coverage(string $repoRoot, string $coverageDir, string $outputPath): bool
+{
+    if (!class_exists(SebastianBergmann\CodeCoverage\CodeCoverage::class)) {
+        fwrite(STDERR, "E2E coverage: php-code-coverage is not installed (a --no-dev vendor/?), nothing merged.\n");
+
+        return false;
+    }
+
+    /** @var list<string> $fragments */
+    $fragments = array_values((array) glob($coverageDir . '/*.cov'));
+    if ($fragments === []) {
+        fwrite(STDERR, "E2E coverage: no fragments in {$coverageDir} — was the server started with the collector?\n");
+
+        return false;
+    }
+
+    try {
+        $filter = new SebastianBergmann\CodeCoverage\Filter();
+        $filter->includeFiles(e2e_coverage_source_files($repoRoot));
+
+        $coverage = new SebastianBergmann\CodeCoverage\CodeCoverage(
+            (new SebastianBergmann\CodeCoverage\Driver\Selector())->forLineCoverage($filter),
+            $filter
+        );
+
+        $appended = 0;
+        foreach ($fragments as $index => $fragment) {
+            $raw = @file_get_contents($fragment);
+            if ($raw === false) {
+                continue;
+            }
+
+            // allowed_classes false: these fragments are plain nested
+            // arrays written moments ago by this repository's own
+            // collector, into a directory this run created. Refusing
+            // objects outright keeps that assumption enforced rather than
+            // merely documented.
+            $lines = @unserialize($raw, ['allowed_classes' => false]);
+            if (!is_array($lines) || $lines === []) {
+                continue;
+            }
+
+            $coverage->append(
+                SebastianBergmann\CodeCoverage\Data\RawCodeCoverageData::fromLineCoverage($lines),
+                'e2e-request-' . $index
+            );
+            $appended++;
+        }
+
+        if ($appended === 0) {
+            fwrite(STDERR, "E2E coverage: every fragment in {$coverageDir} was unreadable, nothing merged.\n");
+
+            return false;
+        }
+
+        (new SebastianBergmann\CodeCoverage\Report\Clover())->process($coverage->getReport(), $outputPath);
+
+        printf(
+            "E2E coverage: %d request fragment(s) merged into %s (%d file(s) covered).\n",
+            $appended,
+            $outputPath,
+            count($coverage->getData()->coveredFiles())
+        );
+    } catch (Throwable $e) {
+        fwrite(STDERR, "E2E coverage: could not write {$outputPath} — {$e->getMessage()}\n");
+
+        return false;
+    }
+
+    return true;
 }
 
 function e2e_teardown_database(): void

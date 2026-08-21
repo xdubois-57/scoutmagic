@@ -72,25 +72,6 @@ class FileController extends AbstractController
             );
         }
 
-        if ($file->encrypted) {
-            try {
-                $content = $this->encryptedFileStorageService->retrieve($file->id);
-            } catch (\RuntimeException) {
-                return (new Response('Not Found', 404));
-            }
-        } else {
-            $filePath = $this->storagePath . '/' . $file->relativePath;
-
-            if (!file_exists($filePath)) {
-                return (new Response('Not Found', 404));
-            }
-
-            $content = file_get_contents($filePath);
-            if ($content === false) {
-                return (new Response('Internal Server Error', 500));
-            }
-        }
-
         $isImage = str_starts_with($file->mimeType, 'image/');
         $disposition = $isImage ? 'inline' : 'attachment; filename="' . addslashes($file->originalName) . '"';
 
@@ -98,12 +79,53 @@ class FileController extends AbstractController
             ? 'public, max-age=86400'
             : 'private, no-cache';
 
-        return (new Response($content))
+        if ($file->encrypted) {
+            // An AES-256-GCM blob authenticates the whole file against a single
+            // tag, so it cannot be streamed — the plaintext must exist whole in
+            // memory at least once. Cap the ciphertext size up front so one
+            // request can't be made to buffer an unbounded amount (audit M10).
+            // Upload limits keep real encrypted files well under this.
+            $cipherPath = $this->storagePath . '/' . $file->relativePath;
+            $cipherSize = @filesize($cipherPath);
+            if ($cipherSize !== false && $cipherSize > self::MAX_ENCRYPTED_SERVE_BYTES) {
+                return (new Response('Payload Too Large', 413));
+            }
+
+            try {
+                $content = $this->encryptedFileStorageService->retrieve($file->id);
+            } catch (\RuntimeException) {
+                return (new Response('Not Found', 404));
+            }
+
+            return (new Response($content))
+                ->setHeader('Content-Type', $file->mimeType)
+                ->setHeader('Content-Disposition', $disposition)
+                ->setHeader('Cache-Control', $cacheControl)
+                ->setHeader('Content-Length', (string) strlen($content));
+        }
+
+        // Non-encrypted: stream straight off disk (readfile at send() time)
+        // rather than reading the whole file into a PHP string (audit M10).
+        $filePath = $this->storagePath . '/' . $file->relativePath;
+        if (!file_exists($filePath)) {
+            return (new Response('Not Found', 404));
+        }
+
+        return (new Response())
+            ->setBodyFile($filePath)
             ->setHeader('Content-Type', $file->mimeType)
             ->setHeader('Content-Disposition', $disposition)
             ->setHeader('Cache-Control', $cacheControl)
-            ->setHeader('Content-Length', (string) strlen($content));
+            ->setHeader('Content-Length', (string) filesize($filePath));
     }
+
+    /**
+     * Ceiling on a single encrypted-file serve (audit M10). Encrypted files
+     * are receipts/documents, capped far lower at upload (finance 15 MB,
+     * section documents 20 MB); this is a safety bound on the memory one
+     * request can force, since a GCM blob cannot be streamed.
+     */
+    private const MAX_ENCRYPTED_SERVE_BYTES = 128 * 1024 * 1024;
 
     /**
      * GET /files/{id}/thumbnail — a JPEG rendering of a PDF's first page,
@@ -134,6 +156,23 @@ class FileController extends AbstractController
             return (new Response('Unsupported Media Type', 415));
         }
 
+        // Rendering a thumbnail runs Imagick/Ghostscript, and this route is
+        // role_min public, so an uncached endpoint is a repeatable CPU/RSS
+        // sink (audit M8). Cache the JPEG on disk keyed by the (immutable —
+        // replace() mints a new id) file id, so repeated hits serve a static
+        // file. Only for NON-encrypted files: caching an encrypted file's
+        // thumbnail as plaintext would defeat encryption-at-rest, and an
+        // encrypted file is never anonymously reachable anyway (FileAccessGuard
+        // gates it to intendant+), so its render cost is bounded by authorised
+        // users rather than the public.
+        $cachePath = $this->storagePath . '/temp/pdf_thumb/' . $file->id . '.jpg';
+        if (!$file->encrypted && is_file($cachePath)) {
+            $cached = file_get_contents($cachePath);
+            if ($cached !== false && $cached !== '') {
+                return $this->jpegThumbnailResponse($cached, $file->roleMin);
+            }
+        }
+
         if ($file->encrypted) {
             try {
                 $content = $this->encryptedFileStorageService->retrieve($file->id);
@@ -153,12 +192,39 @@ class FileController extends AbstractController
             return (new Response('Not Found', 404));
         }
 
-        $cacheControl = $file->roleMin === 'public' ? 'public, max-age=604800' : 'private, max-age=604800';
+        if (!$file->encrypted) {
+            $this->writeThumbnailCache($cachePath, $thumbnail);
+        }
 
-        return (new Response($thumbnail))
+        return $this->jpegThumbnailResponse($thumbnail, $file->roleMin);
+    }
+
+    private function jpegThumbnailResponse(string $bytes, string $roleMin): Response
+    {
+        $cacheControl = $roleMin === 'public' ? 'public, max-age=604800' : 'private, max-age=604800';
+
+        return (new Response($bytes))
             ->setHeader('Content-Type', 'image/jpeg')
             ->setHeader('Cache-Control', $cacheControl)
-            ->setHeader('Content-Length', (string) strlen($thumbnail));
+            ->setHeader('Content-Length', (string) strlen($bytes));
+    }
+
+    /**
+     * Best-effort: an unwritable cache directory (a hosting quirk) must never
+     * fail the request — the thumbnail was already rendered, so a cache-write
+     * failure just means the next hit re-renders. Written via a temp file +
+     * rename so a concurrent reader never sees a half-written JPEG.
+     */
+    private function writeThumbnailCache(string $cachePath, string $bytes): void
+    {
+        $dir = dirname($cachePath);
+        if (!is_dir($dir) && !@mkdir($dir, 0755, true) && !is_dir($dir)) {
+            return;
+        }
+        $tmp = $cachePath . '.' . bin2hex(random_bytes(4)) . '.tmp';
+        if (@file_put_contents($tmp, $bytes) === false || !@rename($tmp, $cachePath)) {
+            @unlink($tmp);
+        }
     }
 
     /**

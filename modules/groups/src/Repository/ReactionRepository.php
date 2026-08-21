@@ -117,6 +117,33 @@ class ReactionRepository
     }
 
     /**
+     * Every individual reaction on one item — who reacted and with what,
+     * oldest first. The one place this module needs the reactors
+     * themselves rather than just a count (Service\ReactorListService,
+     * the "who reacted" dialog); every other read here stays aggregate on
+     * purpose (countsFor()/ownKeysFor() above), so this is deliberately
+     * not batched across a page of items the way those are — it is only
+     * ever called for the one item a dialog was opened for.
+     *
+     * @return array<int, array{member_id: int, reaction_key: string}>
+     */
+    public function listFor(int $itemId): array
+    {
+        $stmt = $this->pdo->prepare(
+            "SELECT member_id, reaction_key FROM {$this->table}
+             WHERE {$this->itemColumn} = ? ORDER BY created_at ASC, id ASC"
+        );
+        $stmt->execute([$itemId]);
+
+        $rows = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $rows[] = ['member_id' => (int) $row['member_id'], 'reaction_key' => (string) $row['reaction_key']];
+        }
+
+        return $rows;
+    }
+
+    /**
      * Reaction counts for a whole page of items, in ONE query — the module
      * spec's explicit no-N+1 requirement. Only non-zero counts appear.
      *

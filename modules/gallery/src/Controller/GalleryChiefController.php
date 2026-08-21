@@ -38,7 +38,10 @@ class GalleryChiefController extends AbstractController
         private SectionService $sectionService,
         private SettingService $settingService,
         private StorageLocationRepository $storageLocationRepository,
-        private StorageLocationService $storageLocationService
+        private StorageLocationService $storageLocationService,
+        // Trailing/nullable so existing constructions keep working; without it
+        // the chunked-upload protocol below simply reports unavailable.
+        private ?\Core\File\ChunkedUploadStore $chunkedUploadStore = null
     ) {
     }
 
@@ -221,18 +224,103 @@ class GalleryChiefController extends AbstractController
             return $this->json(['success' => false, 'error' => 'Album introuvable.'], 404);
         }
 
+        [$role, $email] = $this->currentIdentity();
+
+        // A large file arrives as a sequence of small chunks through this
+        // same route (same RBAC/CSRF), reassembled server-side — what lets
+        // the document-root-wide post_max_size stay small (audit M2).
+        $uploadId = (string) $request->getBody('upload_id', '');
+        if ($uploadId !== '') {
+            return $this->uploadMediaChunk($request, $album, $role, $email, $uploadId);
+        }
+
         $uploadedFile = $request->getFile('file');
         if ($uploadedFile === null) {
             return $this->json(['success' => false, 'error' => 'Aucun fichier envoyé.'], 400);
         }
 
-        [$role, $email] = $this->currentIdentity();
         $accountId = AuthSession::getUserAccountId();
 
         try {
             $media = $this->mediaService->upload($album, $uploadedFile, $role, $email, $accountId);
         } catch (GalleryException $e) {
             return $this->json(['success' => false, 'error' => $e->getMessage()], 422);
+        }
+
+        return $this->json(['success' => true, 'media_id' => $media->id]);
+    }
+
+    /**
+     * One ~8 MB chunk of a large media upload. Authorisation is re-checked on
+     * EVERY chunk (not only when the last one creates the media), so an
+     * unauthorised caller can never consume temp disk chunk by chunk; the
+     * assembled size is capped by the store while it grows. On the last
+     * chunk the assembled file goes through the exact same
+     * MediaService::upload() validation (real-MIME allowlist, per-type size
+     * ceiling) as a single-POST upload.
+     */
+    private function uploadMediaChunk(Request $request, Album $album, Role $role, string $email, string $uploadId): Response
+    {
+        if ($this->chunkedUploadStore === null) {
+            return $this->json(['success' => false, 'error' => 'Envoi fragmenté indisponible.'], 500);
+        }
+
+        try {
+            $this->mediaService->assertCanUpload($album, $role, $email);
+        } catch (GalleryException $e) {
+            return $this->json(['success' => false, 'error' => $e->getMessage()], 422);
+        }
+
+        $chunk = $request->getFile('file');
+        if ($chunk === null || empty($chunk['tmp_name'])) {
+            return $this->json(['success' => false, 'error' => 'Aucun fragment envoyé.'], 400);
+        }
+
+        $offset = (int) $request->getBody('chunk_offset', '0');
+        $isLast = (string) $request->getBody('last', '0') === '1';
+
+        // Assembly ceiling: the larger of the two media limits — the exact
+        // per-type ceiling is enforced by MediaService on the finished file.
+        $maxMb = max(
+            (int) $this->settingService->get('gallery_max_photo_upload_mb', 'gallery', 30),
+            (int) $this->settingService->get('gallery_max_video_upload_mb', 'gallery', 2048)
+        );
+
+        try {
+            $assembled = $this->chunkedUploadStore->appendChunk(
+                $uploadId,
+                session_id(),
+                $offset,
+                (string) $chunk['tmp_name'],
+                $isLast,
+                $maxMb * 1024 * 1024
+            );
+        } catch (\Core\File\UploadException $e) {
+            try {
+                $received = $this->chunkedUploadStore->receivedBytes($uploadId, session_id());
+            } catch (\Core\File\UploadException) {
+                $received = 0;
+            }
+            return $this->json(['success' => false, 'error' => $e->getMessage(), 'received' => $received], 409);
+        }
+
+        if ($assembled === null) {
+            return $this->json(['success' => true, 'received' => $this->chunkedUploadStore->receivedBytes($uploadId, session_id())]);
+        }
+
+        $syntheticFile = [
+            'tmp_name' => $assembled,
+            'name' => (string) $request->getBody('name', 'media'),
+            'size' => (int) (filesize($assembled) ?: 0),
+            'error' => UPLOAD_ERR_OK,
+        ];
+
+        try {
+            $media = $this->mediaService->upload($album, $syntheticFile, $role, $email, AuthSession::getUserAccountId());
+        } catch (GalleryException $e) {
+            return $this->json(['success' => false, 'error' => $e->getMessage()], 422);
+        } finally {
+            $this->chunkedUploadStore->discard($uploadId, session_id());
         }
 
         return $this->json(['success' => true, 'media_id' => $media->id]);

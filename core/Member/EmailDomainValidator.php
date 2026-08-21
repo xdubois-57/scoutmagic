@@ -30,19 +30,13 @@ class EmailDomainValidator
             return false;
         }
 
-        // A lookup can blip transiently (slow/flaky resolver) even for a
-        // domain that is genuinely fine — retry a couple of times, briefly,
-        // before treating a failure as real.
-        for ($attempt = 0; $attempt < 3; $attempt++) {
-            if ($attempt > 0) {
-                usleep(300000);
-            }
-            if ($this->resolves($domain)) {
-                return true;
-            }
-        }
-
-        return false;
+        // A single lookup, no retry/sleep. The previous 3-attempt loop with
+        // usleep(300000) held a worker up to ~600ms on a junk domain, a cheap
+        // request-amplification lever (audit M15). This is a best-effort
+        // typo-catching aid, never a deliverability guarantee, so a one-shot
+        // check is enough — a genuinely transient resolver blip just means the
+        // member is asked to re-add, exactly as a real typo would.
+        return $this->resolves($domain);
     }
 
     private function resolves(string $domain): bool

@@ -196,7 +196,11 @@ class RegistrationService
         try {
             $this->mailService->send(
                 to: $alertEmail,
-                subject: "Nouvelle demande d'inscription — {$childFirstName}",
+                // The child's first name is attacker-supplied public-form input
+                // — keep it out of the Subject header (a social-engineering
+                // surface) and let the body carry it (audit hardening). The
+                // body already names the child for staff triage.
+                subject: "Nouvelle demande d'inscription",
                 bodyHtml: $body,
                 bodyText: RequestEmailService::toPlainText($body)
             );

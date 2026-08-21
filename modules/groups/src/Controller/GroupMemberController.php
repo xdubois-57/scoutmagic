@@ -9,6 +9,7 @@ declare(strict_types=1);
 namespace Modules\Groups\Controller;
 
 use Core\Http\Controller\AbstractController;
+use Core\Http\FlashMessage;
 use Core\Http\Request;
 use Core\Http\Response;
 use Core\Member\MemberProfile;
@@ -23,7 +24,9 @@ use Modules\Groups\Repository\GroupMemberRepository;
 use Modules\Groups\Repository\GroupRepository;
 use Modules\Groups\Repository\GroupSectionRepository;
 use Modules\Groups\Service\GroupAccessService;
+use Modules\Groups\Service\GroupMembershipService;
 use Modules\Groups\Service\GroupService;
+use Modules\Groups\Service\LeaveOutcome;
 use Modules\Groups\Service\GroupSessionContext;
 use Modules\Groups\Service\GroupSessionContextFactory;
 use Twig\Environment;
@@ -48,7 +51,8 @@ class GroupMemberController extends AbstractController
         private GroupService $groupService,
         private GroupSessionContextFactory $contextFactory,
         private MemberService $memberService,
-        private SectionService $sectionService
+        private SectionService $sectionService,
+        private ?GroupMembershipService $membershipService = null
     ) {
     }
 
@@ -85,7 +89,54 @@ class GroupMemberController extends AbstractController
             'can_moderate' => $canModerate,
             'invite_candidates' => $canModerate ? $this->inviteCandidates($group, $scoutYearId) : [],
             'sections' => $canModerate ? $this->sectionService->getAllWithBranches() : [],
+            // Only an explicit membership can be left — see the template.
+            'can_leave' => $this->explicitMemberId($group, $context) !== null,
+            // Same trail as GroupController::show(), one level deeper —
+            // see that controller's own comment for why a direct link is
+            // safe here.
+            'breadcrumb_trail' => [
+                ['label' => 'Groupes', 'url' => '/groups'],
+                ['label' => $group->name, 'url' => '/groups/' . $group->id],
+            ],
         ]);
+    }
+
+    /**
+     * GET /groups/{id}/member-search?q=… — moderator only. The top 10
+     * matches by first name, last name or totem, restricted to exactly
+     * the same pool `invite_candidates` already offers (candidatePool())
+     * — never an open search across the whole unit, so a moderator
+     * typing into the box can only ever find someone the plain dropdown
+     * already offered them.
+     *
+     * @param array<string, string> $params
+     */
+    public function search(Request $request, array $params): Response
+    {
+        $context = $this->context();
+        $group = $this->readableGroup($params, $context);
+        if ($group === null) {
+            return new Response('Not Found', 404);
+        }
+        if (!$this->accessService->canModerate($group, $context)) {
+            return new Response('Seul un modérateur du groupe peut effectuer cette action.', 403);
+        }
+
+        $query = trim((string) $request->getQuery('q', ''));
+        if ($query === '') {
+            return $this->json([]);
+        }
+
+        $scoutYearId = $group->scoutYearId ?? $context->effectiveScoutYearId;
+        $matches = array_values(array_filter(
+            $this->candidatePool($group, $scoutYearId),
+            fn(MemberProfile $p) => $this->matchesQuery($p, $query)
+        ));
+
+        return $this->json(array_map(fn(MemberProfile $p) => [
+            'id' => $p->memberId,
+            'label' => $this->searchLabel($p),
+        ], array_slice($matches, 0, 10)));
     }
 
     /**
@@ -162,6 +213,71 @@ class GroupMemberController extends AbstractController
     }
 
     /**
+     * POST /groups/{id}/leave — any member of the group, for themselves.
+     *
+     * Deliberately NOT a moderatorAction(): this is the one write here a
+     * member performs on their own membership, so it needs read access
+     * and nothing more. It is also the only one that can be refused for a
+     * reason other than authorisation — a derived membership has nothing
+     * to leave, and the group's last moderator may not walk away — which
+     * is why Service\GroupMembershipService answers with a LeaveOutcome
+     * rather than a bool.
+     *
+     * @param array<string, string> $params
+     */
+    public function leave(Request $request, array $params): Response
+    {
+        if (!CsrfGuard::validateRequest()) {
+            return new Response('Jeton CSRF invalide.', 403);
+        }
+
+        $context = $this->context();
+        $group = $this->groupRepository->findById((int) ($params['id'] ?? 0));
+        if ($group === null || !$this->accessService->canRead($group, $context) || $this->membershipService === null) {
+            return new Response('Not Found', 404);
+        }
+
+        // Which of the caller's own members is leaving: the explicit row
+        // is what a member actually holds, so the first linked member
+        // that has one. Falling back to the first allowed member makes
+        // the derived case reach the service and be refused there with
+        // its own French explanation, rather than silently 403-ing.
+        $memberId = $this->leavingMemberId($group, $context);
+        if ($memberId === null) {
+            return new Response('Aucun membre de ce groupe n\'est associé à votre compte.', 403);
+        }
+
+        $outcome = $this->membershipService->leave($group, $memberId, $context->userAccountId);
+        FlashMessage::set($outcome === LeaveOutcome::LEFT ? 'success' : 'error', $outcome->message());
+
+        // A member who just left can no longer read the group, so sending
+        // them back to it would be a 404 — the list is where they belong.
+        return $this->redirect($outcome === LeaveOutcome::LEFT ? '/groups' : '/groups/' . $group->id . '/members');
+    }
+
+    private function leavingMemberId(DiscussionGroup $group, GroupSessionContext $context): ?int
+    {
+        return $this->explicitMemberId($group, $context)
+            ?? $this->accessService->memberIdsAllowedToPostAs($group, $context)[0]
+            ?? ($context->linkedMemberIds[0] ?? null);
+    }
+
+    /**
+     * The caller's own explicit membership row in this group, if any —
+     * what "can leave" means, and what leave() removes.
+     */
+    private function explicitMemberId(DiscussionGroup $group, GroupSessionContext $context): ?int
+    {
+        foreach ($context->linkedMemberIds as $memberId) {
+            if ($this->memberRepository->find($group->id, $memberId) !== null) {
+                return $memberId;
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * The shared shape of every write here: CSRF, then membership (404),
      * then moderation (403), then the action itself.
      *
@@ -220,7 +336,7 @@ class GroupMemberController extends AbstractController
      */
     private function inviteCandidates(DiscussionGroup $group, int $scoutYearId): array
     {
-        $alreadyIn = array_map(fn(GroupMember $m) => $m->memberId, $this->memberRepository->findByGroup($group->id));
+        $alreadyIn = $this->alreadyInMemberIds($group);
 
         $groups = [];
         foreach ($this->sectionService->getAllWithBranches() as $section) {
@@ -245,6 +361,72 @@ class GroupMemberController extends AbstractController
         }
 
         return $groups;
+    }
+
+    /**
+     * The same pool as inviteCandidates(), flattened rather than grouped
+     * by section — what search() filters against. A member reachable
+     * through more than one function (e.g. staff of one section, animé of
+     * another) is kept once, not once per source.
+     *
+     * @return array<int, MemberProfile>
+     */
+    private function candidatePool(DiscussionGroup $group, int $scoutYearId): array
+    {
+        $alreadyIn = $this->alreadyInMemberIds($group);
+
+        $byMemberId = [];
+        foreach ($this->sectionService->getAllWithBranches() as $section) {
+            $sectionId = (int) $section['id'];
+            foreach (array_merge(
+                $this->sectionService->getSectionStaff($sectionId, $scoutYearId),
+                $this->sectionService->getSectionAnimes($sectionId, $scoutYearId)
+            ) as $profile) {
+                if (!in_array($profile->memberId, $alreadyIn, true)) {
+                    $byMemberId[$profile->memberId] = $profile;
+                }
+            }
+        }
+
+        return array_values($byMemberId);
+    }
+
+    /**
+     * @return int[]
+     */
+    private function alreadyInMemberIds(DiscussionGroup $group): array
+    {
+        return array_map(fn(GroupMember $m) => $m->memberId, $this->memberRepository->findByGroup($group->id));
+    }
+
+    /**
+     * Matches search() the same simple, accent-sensitive case-insensitive
+     * substring way Modules\Finance\Controller\DashboardController's own
+     * attachment search already does — first name, last name or totem,
+     * any one of the three is enough.
+     */
+    private function matchesQuery(MemberProfile $profile, string $query): bool
+    {
+        foreach ([$profile->firstName, $profile->lastName, $profile->totem ?? ''] as $field) {
+            if ($field !== '' && mb_stripos($field, $query) !== false) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * "Akéla (Marie Dupont)" when there is a totem, the plain name
+     * otherwise — same two-identity shape Service\PostAuthorResolver's
+     * own author label uses, so a search result reads the same way a
+     * post's author already does.
+     */
+    private function searchLabel(MemberProfile $profile): string
+    {
+        $fullName = trim($profile->firstName . ' ' . $profile->lastName);
+
+        return $profile->totem !== null && $profile->totem !== '' ? $profile->totem . ' (' . $fullName . ')' : $fullName;
     }
 
     /**

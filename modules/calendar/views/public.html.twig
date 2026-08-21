@@ -43,14 +43,23 @@
                 {# Same GridEvent shape/data-* attributes as a grid bar (see
                    partials/month_grid.html.twig) so both feed the same
                    showEventDetails() below — color travels via data-color
-                   since, unlike a bar, this <li> has no colored background
-                   of its own to read the color back off of. #}
-                <li class="list-group-item d-flex justify-content-between align-items-start calendar-upcoming-event-item"
-                    tabindex="0" role="button" aria-label="{{ event.label }}"
-                    data-color="{{ event.color }}"
-                    {%- for key, value in event.data %} data-{{ key }}="{{ value }}"{% endfor %}>
+                   since, unlike a bar, this list item has no colored
+                   background of its own to read the color back off of.
+
+                   The control is the label button, not the list item: a list
+                   item holding several block-level children cannot be a
+                   button, and must not fake one with role/tabindex either —
+                   the keyboard handler that would need is an inline attribute
+                   this site's CSP forbids. Bootstrap's .stretched-link spreads
+                   the button's hit area over the whole (position:relative)
+                   list item, so the entire row stays clickable as before. #}
+                <li class="list-group-item d-flex justify-content-between align-items-start calendar-upcoming-event-item">
                     <div>
-                        <div class="fw-semibold">{{ event.label }}</div>
+                        <div class="fw-semibold">
+                            <button type="button" class="calendar-upcoming-event-trigger stretched-link"
+                                    data-color="{{ event.color }}"
+                                    {%- for key, value in event.data %} data-{{ key }}="{{ value }}"{% endfor %}>{{ event.label }}</button>
+                        </div>
                         <div class="text-body-secondary small d-flex align-items-center gap-1">
                             <span class="d-inline-block rounded-circle" style="width:0.5rem;height:0.5rem;background-color:{{ event.color }};"></span>
                             {{ event.data['calendar-label'] }}
@@ -82,6 +91,7 @@
         </p>
         <div class="input-group mb-2" style="max-width:520px;">
             <input type="text" class="form-control form-control-sm" id="personal-ics-link"
+                   aria-label="Lien ICS personnel"
                    value="{{ param('base_url')|trim('/') }}/calendar/feed/personal/{{ personal_token }}.ics" readonly>
             <button type="button" class="btn btn-sm btn-outline-secondary" id="copy-personal-link">
                 <i class="bi bi-clipboard"></i> Copier
@@ -171,14 +181,11 @@ function showEventDetails(data) {
     eventDetailsModal.show();
 }
 
-document.querySelectorAll('.calendar-event-bar--clickable, .calendar-upcoming-event-item').forEach(trigger => {
+// Both triggers are real <button> elements, so Enter and Space already fire
+// a click — no keyboard handler of our own, and none of the inline
+// onKeyDown attribute this site's CSP would refuse to run anyway.
+document.querySelectorAll('.calendar-event-bar--clickable, .calendar-upcoming-event-trigger').forEach(trigger => {
     trigger.addEventListener('click', () => showEventDetails(trigger.dataset));
-    trigger.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            showEventDetails(trigger.dataset);
-        }
-    });
 });
 </script>
 {% if is_authenticated %}

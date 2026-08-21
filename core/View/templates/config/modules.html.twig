@@ -67,6 +67,8 @@
                 <div class="form-check form-switch">
                     <input class="form-check-input module-toggle"
                            type="checkbox" data-module="{{ item.info.manifest.id }}"
+                           id="module-toggle-{{ item.info.manifest.id }}"
+                           aria-label="Activer ou désactiver le module {{ item.info.manifest.name }}"
                            {{ item.info.enabled ? 'checked' : '' }}
                            {% if not item.info.enabled and not item.requirements_met %}
                                disabled title="Activez d'abord le ou les modules requis."

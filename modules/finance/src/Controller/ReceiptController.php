@@ -281,8 +281,13 @@ class ReceiptController extends AbstractController
             return 'impossible de lire le fichier envoyé.';
         }
 
+        // Never trust the client-declared $file['type'] as a fallback: it is
+        // attacker-controlled and would bypass ReceiptService's MIME allowlist
+        // (audit M9). A detection failure becomes a non-allowlisted sentinel,
+        // so the service rejects it rather than storing/echoing a spoofed type.
         $finfo = new \finfo(FILEINFO_MIME_TYPE);
-        $mimeType = $finfo->buffer($content) ?: $file['type'];
+        $detected = $finfo->buffer($content);
+        $mimeType = $detected !== false ? $detected : 'application/octet-stream';
 
         try {
             $attachment = $this->receiptService->upload($content, $mimeType, $file['name'], $accountId, null, null, AuthSession::getUserAccountId());
@@ -426,8 +431,11 @@ class ReceiptController extends AbstractController
             return $this->render('@finance/receipts/form.html.twig', ['error' => 'Impossible de lire le fichier envoyé.', 'replace_id' => $id]);
         }
 
+        // Detection is the sole source of truth — no client-declared fallback
+        // (audit M9); a failure yields a sentinel the allowlist rejects.
         $finfo = new \finfo(FILEINFO_MIME_TYPE);
-        $mimeType = $finfo->buffer($content) ?: (string) ($file['type'] ?? '');
+        $detected = $finfo->buffer($content);
+        $mimeType = $detected !== false ? $detected : 'application/octet-stream';
 
         try {
             $newAttachment = $this->receiptService->replace($id, $content, $mimeType, (string) $file['name'], AuthSession::getUserAccountId());
@@ -510,12 +518,20 @@ class ReceiptController extends AbstractController
             return $this->json(['success' => false, 'error' => 'Reçu introuvable.'], 404);
         }
 
-        if ($attachment->accountId !== null) {
-            $role = Role::fromString(AuthSession::getRole());
-            $account = $this->financeService->getAccount($attachment->accountId);
-            if ($account === null || !$role->hasAccess(Role::fromString($account->roleMinView))) {
-                return $this->json(['success' => false, 'error' => 'Accès refusé.'], 403);
-            }
+        // No account means no account to check the caller against, so there
+        // is nothing that could authorize the mutation — deny rather than
+        // fall through. ReceiptService::upload() always sets an accountId,
+        // so this only bites on legacy/imported rows, but "unknown owner"
+        // must never read as "anyone may edit it" (same fail-safe posture as
+        // Core\File\FileAccessGuard's unregistered owner_type).
+        if ($attachment->accountId === null) {
+            return $this->json(['success' => false, 'error' => 'Accès refusé.'], 403);
+        }
+
+        $role = Role::fromString(AuthSession::getRole());
+        $account = $this->financeService->getAccount($attachment->accountId);
+        if ($account === null || !$role->hasAccess(Role::fromString($account->roleMinView))) {
+            return $this->json(['success' => false, 'error' => 'Accès refusé.'], 403);
         }
 
         return $attachment;

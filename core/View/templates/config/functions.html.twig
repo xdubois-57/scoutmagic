@@ -34,7 +34,8 @@
                         <span class="fw-semibold">{{ func.desk_code }}</span>
                         <span class="badge bg-warning-subtle text-warning-emphasis ms-2">Non confirmée</span>
                     </div>
-                    <select class="form-select form-select-sm w-auto role-select" data-id="{{ func.id }}">
+                    <label class="visually-hidden" for="unconfirmed-role-{{ func.id }}">Rôle pour {{ func.desk_code }}</label>
+                    <select class="form-select form-select-sm w-auto role-select" id="unconfirmed-role-{{ func.id }}" data-id="{{ func.id }}">
                         {% for role in roles %}
                             <option value="{{ role.value }}"
                                     {{ func.role == role.value ? 'selected' : '' }}>
@@ -74,7 +75,8 @@
                                     </label>
                                 </div>
                             {% endif %}
-                            <select class="form-select form-select-sm w-auto role-select" data-id="{{ func.id }}">
+                            <label class="visually-hidden" for="confirmed-role-{{ func.id }}">Rôle pour {{ func.desk_code }}</label>
+                            <select class="form-select form-select-sm w-auto role-select" id="confirmed-role-{{ func.id }}" data-id="{{ func.id }}">
                                 {% for role in roles %}
                                     <option value="{{ role.value }}"
                                             {{ func.role == role.value ? 'selected' : '' }}>
@@ -129,9 +131,11 @@
                             <span class="text-body-secondary small text-nowrap">{{ section.desk_code }}</span>
                             <input type="text" class="form-control form-control-sm section-name-input flex-grow-1"
                                    value="{{ section.name }}" placeholder="{{ section.desk_code }}"
+                                   aria-label="Nom de la section {{ section.desk_code }}"
                                    style="min-width:120px;">
                             <input type="email" class="form-control form-control-sm section-email-input flex-grow-1"
                                    value="{{ section.email }}" placeholder="section@unite-exemple.be"
+                                   aria-label="Email de la section {{ section.desk_code }}"
                                    style="min-width:160px;">
                             <div class="d-flex align-items-center gap-1">
                                 <input type="color" class="form-control form-control-color section-color-input"
@@ -145,8 +149,10 @@
                             </div>
                             <div class="form-check form-switch ms-auto text-nowrap">
                                 <input type="checkbox" class="form-check-input section-visible-input" role="switch"
-                                       {{ section.is_visible ? 'checked' : '' }}>
-                                <label class="form-check-label small">Visible</label>
+                                       id="section-visible-{{ section.id }}"
+                                       {{ section.is_visible ? 'checked' : '' }}
+                                       aria-checked="{{ section.is_visible ? 'true' : 'false' }}">
+                                <label class="form-check-label small" for="section-visible-{{ section.id }}">Visible</label>
                             </div>
                         </div>
                     {% endfor %}
@@ -191,6 +197,7 @@
                     <span class="fw-semibold text-nowrap" style="min-width:100px;">{{ branch.label }}</span>
                     <input type="url" class="form-control form-control-sm branch-url-input flex-grow-1"
                            value="{{ branch.explanation_url }}" placeholder="https://lesscouts.be/..."
+                           aria-label="Lien d'explication de la branche {{ branch.label }}"
                            style="min-width:220px;">
                 </div>
             {% endfor %}

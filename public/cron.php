@@ -8,6 +8,19 @@
 
 declare(strict_types=1);
 
+// CLI only. This file lives inside the document root (public/) so the same
+// PHP-FPM/CGI runtime that serves the site can run it from crontab, but a
+// web request must never reach it: public/.htaccess only rewrites paths
+// that do NOT exist on disk, so GET /cron.php would otherwise execute the
+// full scheduler pass — backups, updates, resets, journal purge — for any
+// anonymous visitor, with none of the once-per-60s throttle the in-request
+// scheduler tail in public/index.php applies. There is nothing to serve to
+// a browser here, so a non-CLI entry is a flat 404.
+if (PHP_SAPI !== 'cli') {
+    http_response_code(404);
+    exit;
+}
+
 $composerAutoloader = require_once __DIR__ . '/../vendor/autoload.php';
 
 // Same safety net as public/index.php — see Core\System\ComposerAutoloadSync's
@@ -15,6 +28,7 @@ $composerAutoloader = require_once __DIR__ . '/../vendor/autoload.php';
 // entry predates the last time vendor/ was regenerated would otherwise fail
 // with "Class not found" the moment cron runs it, even though every web
 // request already works fine.
+\Core\Http\ErrorHandler::register(false);
 \Core\System\ComposerAutoloadSync::apply($composerAutoloader, __DIR__ . '/../composer.json');
 
 use Core\Config\SettingRepository;
@@ -30,13 +44,6 @@ use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\Mail\DkimManager;
 use Core\Mail\MailServiceFactory;
-use Core\Maintenance\Task\AutoBackupHandler;
-use Core\Maintenance\Task\CheckStableUpdateHandler;
-use Core\Maintenance\Task\CreateBackupHandler;
-use Core\Maintenance\Task\FullResetHandler;
-use Core\Maintenance\Task\InstallUpdateHandler;
-use Core\Maintenance\Task\ResetSettingsHandler;
-use Core\Maintenance\Task\RestoreBackupHandler;
 use Core\Module\ModuleManager;
 use Core\Module\ModuleRegistryRepository;
 use Core\Notification\NotificationPreferenceRepository;
@@ -44,6 +51,7 @@ use Core\Notification\NotificationRepository;
 use Core\Notification\NotificationService;
 use Core\Notification\PushSubscriptionRepository;
 use Core\Notification\VapidKeyPairFactory;
+use Core\Scheduler\CoreTaskHandlers;
 use Core\Scheduler\SchedulerRepository;
 use Core\Scheduler\SchedulerRunner;
 use Core\Scheduler\SchedulerService;
@@ -78,9 +86,9 @@ $connection = new Connection(
 
 $pdo = $connection->getPdo();
 
-$encryptionService = new EncryptionService(
-    $secrets['encryption_key'] ?? '',
-    $secrets['blind_index_key'] ?? ''
+$encryptionService = EncryptionService::fromEncodedKeys(
+    (string) ($secrets['encryption_key'] ?? ''),
+    (string) ($secrets['blind_index_key'] ?? '')
 );
 
 // Create services
@@ -133,29 +141,25 @@ $moduleManager = new ModuleManager(
     new ModuleRegistryRepository($pdo),
     $migrationRunner,
     $journalService,
-    new Router()
+    new Router(),
+    null,
+    new \Core\Offline\OfflineWhitelist(),
+    // Same receiver resolution as public/index.php — a receiver-only
+    // module's scheduled tasks must be resolvable under a real crontab too.
+    \Core\Statistics\DestinationMatcher::isReceiver(
+        (string) ($settingService->get('base_url') ?? ''),
+        (string) ($settingService->get('statistics_destination') ?? '')
+    )
 );
 $moduleManager->loadEnabledModules();
 $runner->setModuleManager($moduleManager);
 
-// Core (not module) scheduled task handlers — registered directly since
-// module.json's scheduled_tasks mechanism only applies to module handlers.
-// Missing from this file before this fix (only public/index.php's own
-// poor-man's-cron registered them), which meant a real crontab running
-// this script would fail every core background task — backups, update
-// checks, and update installs — with "No handler registered", unless a web
-// request happened to win the race first.
-$runner->registerHandler('core', 'create_backup', new CreateBackupHandler());
-$runner->registerHandler('core', 'install_update', new InstallUpdateHandler());
-$runner->registerHandler('core', 'reset_settings', new ResetSettingsHandler());
-$runner->registerHandler('core', 'full_reset', new FullResetHandler());
-$runner->registerHandler('core', 'restore_backup', new RestoreBackupHandler());
-$runner->registerHandler('core', 'auto_backup', new AutoBackupHandler());
-$runner->registerHandler('core', 'check_stable_update', new CheckStableUpdateHandler());
-$runner->registerHandler('core', 'compress_section_document', new \Core\Member\Task\CompressSectionDocumentHandler());
-$runner->registerHandler('core', 'send_notifications', new \Core\Notification\Task\SendNotificationsHandler());
-$runner->registerHandler('core', 'purge_notifications', new \Core\Notification\Task\PurgeNotificationsHandler());
-$runner->registerHandler('core', 'purge_human_check_rate_limits', new \Core\Security\HumanCheck\Task\PurgeHumanCheckRateLimitsHandler());
+// Core (not module) scheduled task handlers. Declared once in
+// Core\Scheduler\CoreTaskHandlers and registered identically here and in
+// public/index.php — this file used to carry its own hand-maintained copy
+// of the list, and create_backup being absent from it meant a real crontab
+// failed every background backup with "No handler registered" (§8.17).
+CoreTaskHandlers::registerAll($runner);
 
 // Web Push (Core\Notification) — same construction as public/index.php.
 // Null when VAPID keys aren't provisioned yet (e.g. this script running

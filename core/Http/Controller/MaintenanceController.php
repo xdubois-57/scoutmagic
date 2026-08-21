@@ -19,6 +19,7 @@ use Core\Maintenance\BackupRepository;
 use Core\Maintenance\BackupService;
 use Core\Maintenance\GitHubReleaseClient;
 use Core\Maintenance\GitHubReleaseClientInterface;
+use Core\Maintenance\GitHubWebhookService;
 use Core\Maintenance\UpdateException;
 use Core\Maintenance\UpdateHistoryRepository;
 use Core\Maintenance\VersionFile;
@@ -581,31 +582,55 @@ class MaintenanceController extends AbstractController
         $payload = ['source' => $source, 'encrypted_password' => $encryptedPassword];
 
         if ($source === 'upload') {
-            $file = $request->getFile('backup_file');
-            if ($file === null || $file['error'] !== UPLOAD_ERR_OK) {
-                FlashMessage::set('error', 'Veuillez sélectionner un fichier de sauvegarde valide.');
-                return $this->redirect('/config/maintenance');
-            }
-            $ext = strtolower(pathinfo((string) $file['name'], PATHINFO_EXTENSION));
-            if ($ext !== 'zip') {
-                FlashMessage::set('error', 'Le fichier doit être une archive ZIP.');
-                return $this->redirect('/config/maintenance');
-            }
-            if ($file['size'] > self::RESTORE_UPLOAD_MAX_BYTES) {
-                FlashMessage::set('error', 'Le fichier dépasse la taille maximale autorisée.');
-                return $this->redirect('/config/maintenance');
-            }
+            $uploadId = (string) $request->getBody('upload_id', '');
+            if ($uploadId !== '') {
+                // A large archive arrives ahead of this form POST as ~8 MB
+                // chunks through restoreUploadChunk() (audit M2 — what lets
+                // the document-root-wide post_max_size stay small); the form
+                // then references the assembled upload by id. The store binds
+                // the id to this session, so another session's id resolves to
+                // nothing here.
+                $assembled = $this->restoreChunkStore()->assembledPath($uploadId, session_id());
+                if ($assembled === null) {
+                    FlashMessage::set('error', 'Fichier téléversé introuvable — recommencez l\'envoi.');
+                    return $this->redirect('/config/maintenance');
+                }
+                if ((int) (filesize($assembled) ?: 0) > self::RESTORE_UPLOAD_MAX_BYTES) {
+                    $this->restoreChunkStore()->discard($uploadId, session_id());
+                    FlashMessage::set('error', 'Le fichier dépasse la taille maximale autorisée.');
+                    return $this->redirect('/config/maintenance');
+                }
 
-            $tempDir = $this->storagePath . '/temp';
-            if (!is_dir($tempDir)) {
-                mkdir($tempDir, 0755, true);
+                $tempPath = $this->restoreTempPath();
+                if (!rename($assembled, $tempPath)) {
+                    $this->restoreChunkStore()->discard($uploadId, session_id());
+                    FlashMessage::set('error', 'Le téléversement du fichier a échoué.');
+                    return $this->redirect('/config/maintenance');
+                }
+                $payload['uploaded_temp_path'] = $tempPath;
+            } else {
+                $file = $request->getFile('backup_file');
+                if ($file === null || $file['error'] !== UPLOAD_ERR_OK) {
+                    FlashMessage::set('error', 'Veuillez sélectionner un fichier de sauvegarde valide.');
+                    return $this->redirect('/config/maintenance');
+                }
+                $ext = strtolower(pathinfo((string) $file['name'], PATHINFO_EXTENSION));
+                if ($ext !== 'zip') {
+                    FlashMessage::set('error', 'Le fichier doit être une archive ZIP.');
+                    return $this->redirect('/config/maintenance');
+                }
+                if ($file['size'] > self::RESTORE_UPLOAD_MAX_BYTES) {
+                    FlashMessage::set('error', 'Le fichier dépasse la taille maximale autorisée.');
+                    return $this->redirect('/config/maintenance');
+                }
+
+                $tempPath = $this->restoreTempPath();
+                if (!move_uploaded_file($file['tmp_name'], $tempPath)) {
+                    FlashMessage::set('error', 'Le téléversement du fichier a échoué.');
+                    return $this->redirect('/config/maintenance');
+                }
+                $payload['uploaded_temp_path'] = $tempPath;
             }
-            $tempPath = $tempDir . '/' . uniqid('restore_upload_') . '.zip';
-            if (!move_uploaded_file($file['tmp_name'], $tempPath)) {
-                FlashMessage::set('error', 'Le téléversement du fichier a échoué.');
-                return $this->redirect('/config/maintenance');
-            }
-            $payload['uploaded_temp_path'] = $tempPath;
         } else {
             $backupId = (int) $request->getBody('backup_id', '0');
             $backup = $this->backupRepository->findById($backupId);
@@ -621,6 +646,74 @@ class MaintenanceController extends AbstractController
         $this->journalService->log('core', 'backup_restore_requested', 'security', 'Restauration de sauvegarde demandée', ['source' => $source], $userId);
 
         return $this->redirect('/config/maintenance?restore_id=' . $actionId);
+    }
+
+    /**
+     * POST /config/maintenance/restore-upload-chunk (AJAX, JSON) — one
+     * ~8 MB chunk of a backup archive being uploaded for restoration
+     * (audit M2: chunking keeps the document-root-wide post_max_size small
+     * while a 500 MB archive can still be sent). The chunks arrive BEFORE
+     * the restore form POST, which then references the assembled file by
+     * upload_id; the store binds the id to this session. CSRF and the
+     * route's superadmin gate are checked on every chunk.
+     *
+     * @param array<string, string> $params
+     */
+    public function restoreUploadChunk(Request $request, array $params): Response
+    {
+        if (!CsrfGuard::validateToken((string) $request->getBody('_csrf_token', ''))) {
+            return $this->json(['success' => false, 'error' => 'Jeton CSRF invalide.'], 403);
+        }
+
+        $uploadId = (string) $request->getBody('upload_id', '');
+        $chunk = $request->getFile('file');
+        if ($chunk === null || empty($chunk['tmp_name'])) {
+            return $this->json(['success' => false, 'error' => 'Aucun fragment envoyé.'], 400);
+        }
+
+        $offset = (int) $request->getBody('chunk_offset', '0');
+        $isLast = (string) $request->getBody('last', '0') === '1';
+
+        $store = $this->restoreChunkStore();
+
+        try {
+            $store->appendChunk(
+                $uploadId,
+                session_id(),
+                $offset,
+                (string) $chunk['tmp_name'],
+                $isLast,
+                self::RESTORE_UPLOAD_MAX_BYTES
+            );
+        } catch (\Core\File\UploadException $e) {
+            try {
+                $received = $store->receivedBytes($uploadId, session_id());
+            } catch (\Core\File\UploadException) {
+                $received = 0;
+            }
+            return $this->json(['success' => false, 'error' => $e->getMessage(), 'received' => $received], 409);
+        }
+
+        return $this->json(['success' => true, 'received' => $store->receivedBytes($uploadId, session_id())]);
+    }
+
+    private function restoreChunkStore(): \Core\File\ChunkedUploadStore
+    {
+        return new \Core\File\ChunkedUploadStore($this->storagePath);
+    }
+
+    /**
+     * A fresh unguessable path under storage/temp for the archive the
+     * restore job will consume.
+     */
+    private function restoreTempPath(): string
+    {
+        $tempDir = $this->storagePath . '/temp';
+        if (!is_dir($tempDir)) {
+            mkdir($tempDir, 0755, true);
+        }
+
+        return $tempDir . '/restore_upload_' . bin2hex(random_bytes(16)) . '.zip';
     }
 
     /**
@@ -683,6 +776,13 @@ class MaintenanceController extends AbstractController
             $this->settingService->set('auto_update_level', $level);
             $this->settingService->set('dev_update_branch', $branch);
 
+            // Development mode takes over the install path entirely — a
+            // release install still waiting for its weekly slot from before
+            // the switch must not fire later (GitHubWebhookService never
+            // schedules one while 'dev' is active, and a leftover one would
+            // silently downgrade the branch build back to the release).
+            $this->reconcilePendingScheduledInstall($enabled, $level, null, null, $userId);
+
             $this->journalService->log(
                 'core', 'auto_update_settings_changed', 'security',
                 'Préférences de mise à jour automatique modifiées (mode développement)',
@@ -707,12 +807,80 @@ class MaintenanceController extends AbstractController
         $this->settingService->set('auto_update_day', $day);
         $this->settingService->set('auto_update_time', $time);
 
+        $this->reconcilePendingScheduledInstall($enabled, $level, $day, $time, $userId);
+
         $this->journalService->log(
             'core', 'auto_update_settings_changed', 'info', 'Préférences de mise à jour automatique modifiées',
             ['enabled' => $enabled, 'level' => $level, 'day' => $day, 'time' => $time], $userId
         );
 
         return $this->json(['success' => true]);
+    }
+
+    /**
+     * Keeps the release install still waiting for its weekly slot (if any
+     * — GitHubWebhookService's SCHEDULED_INSTALL_REFERENCE) consistent
+     * with the preferences that were just saved: canceled when auto-update
+     * was turned off, the channel switched to 'dev', or the (possibly
+     * narrowed) level no longer allows that release's bump type; moved to
+     * the newly-saved day/time otherwise. Without this, "Enregistrer"
+     * silently left the pending install exactly as the OLD preferences had
+     * scheduled it — firing after the admin disabled auto-updates or
+     * switched to development mode, or at the old day/time forever.
+     */
+    private function reconcilePendingScheduledInstall(bool $enabled, string $level, ?string $day, ?string $time, ?int $userId): void
+    {
+        $pending = $this->schedulerService->find('core', 'install_update', GitHubWebhookService::SCHEDULED_INSTALL_REFERENCE);
+        if ($pending === null) {
+            return;
+        }
+
+        $payload = json_decode((string) ($pending['payload'] ?? ''), true);
+        $payload = is_array($payload) ? $payload : [];
+        $historyId = (int) ($payload['history_id'] ?? 0);
+        $history = $historyId > 0 ? $this->updateHistoryRepository->findById($historyId) : null;
+
+        $installedVersion = VersionFile::read(dirname($this->storagePath));
+        $stillWanted = $enabled
+            && $level !== 'dev'
+            && $day !== null && $time !== null
+            && $history !== null
+            && $history->status === 'pending'
+            && VersionFile::isNewerThan($history->versionTo, $installedVersion)
+            && GitHubWebhookService::isBumpAllowed($installedVersion, $history->versionTo, $level);
+
+        if ($stillWanted) {
+            $newRunAt = GitHubWebhookService::nextOccurrence($day, $time, new \DateTimeImmutable());
+            if ($newRunAt->format('Y-m-d H:i:s') === (string) $pending['run_at']) {
+                return; // Same slot — nothing to move.
+            }
+
+            $this->schedulerService->cancel((int) $pending['id']);
+            $this->schedulerService->schedule(
+                'core',
+                'install_update',
+                $newRunAt,
+                $payload,
+                GitHubWebhookService::SCHEDULED_INSTALL_REFERENCE
+            );
+            return;
+        }
+
+        $this->schedulerService->cancel((int) $pending['id']);
+        if ($history !== null && $history->status === 'pending') {
+            // Terminal status so the "Historique des mises à jour" table
+            // doesn't show this abandoned row as "En cours" forever.
+            $this->updateHistoryRepository->markFailed(
+                $historyId,
+                'Installation planifiée annulée suite au changement des préférences de mise à jour automatique.'
+            );
+        }
+
+        $this->journalService->log(
+            'core', 'auto_update_canceled', 'info',
+            'Installation automatique planifiée annulée suite au changement des préférences',
+            ['history_id' => $historyId], $userId
+        );
     }
 
     /**

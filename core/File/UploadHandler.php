@@ -118,6 +118,15 @@ class UploadHandler
      */
     private function stripExifAndSave(string $source, string $target, string $mimeType): void
     {
+        // Reject a decompression bomb before GD allocates width×height×4 bytes
+        // for it (audit M7). Surfaced as an UploadException so /upload reports
+        // it like any other rejected file rather than 500-ing.
+        try {
+            \Core\Image\ImageDimensionGuard::assertWithinCeilingFromPath($source);
+        } catch (\Core\Image\ImageDimensionException $e) {
+            throw new UploadException($e->getMessage());
+        }
+
         $image = match ($mimeType) {
             'image/jpeg' => @imagecreatefromjpeg($source),
             'image/png' => @imagecreatefrompng($source),

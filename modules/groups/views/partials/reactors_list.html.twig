@@ -1,0 +1,23 @@
+{#
+  Who reacted to one post or reply, and with what — the content of the
+  dialog a reaction tally's own click opens (public/assets/js/groups.js).
+  `groups` is Service\ReactorListService's own return shape: entries
+  already in the fixed display order, one per reaction key that actually
+  has a reactor.
+
+  A moderator sees this on a hidden item too (Controller\ReactionController
+  own reactors() actions decide that, same as the rest of a hidden item's
+  content) — nothing here needs to know the item is hidden at all.
+#}
+{% if groups is empty %}
+    <p class="text-body-secondary mb-0">Personne n'a encore réagi.</p>
+{% else %}
+    <ul class="list-unstyled mb-0 groups-reactors-list">
+        {% for group in groups %}
+            <li class="d-flex align-items-start gap-2 mb-2">
+                <span aria-hidden="true" class="fs-5 lh-1">{{ group.emoji }}</span>
+                <span>{{ group.names|join(', ') }}</span>
+            </li>
+        {% endfor %}
+    </ul>
+{% endif %}

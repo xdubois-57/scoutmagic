@@ -34,6 +34,11 @@ class DocumentationTest extends TestCase
         yield 'the ownership checker' => ['GroupFileOwnershipChecker'];
         yield 'the lifecycle tasks' => ['four self-rescheduling daily tasks'];
         yield 'why there is no Desk import hook' => ['no hook from the Desk import'];
+        yield 'the self-restore refusal' => ['never restore an item they authored'];
+        yield 'the escalation to site admins' => ['escalates to every site admin'];
+        yield 'the reopen activity reset' => ['resets `last_activity_at` to now'];
+        yield 'the last-moderator rule' => ['last explicit moderator'];
+        yield 'the creation quota' => ['groups_max_created_per_member'];
     }
 
     #[DataProvider('architectureTopics')]
@@ -52,6 +57,21 @@ class DocumentationTest extends TestCase
         $this->assertStringContainsString('| Groupes (module) |', $specs);
     }
 
+    /**
+     * The four behaviours prompt 12 added, in the functional spec a unit's
+     * staff would actually read.
+     */
+    public function testSpecificationsCoverTheManagementActions(): void
+    {
+        $specs = $this->read('specifications.md');
+
+        $this->assertStringContainsString('never restore an item they wrote themselves', $specs);
+        $this->assertStringContainsString('cannot be left', $specs);
+        $this->assertStringContainsString('last moderator', $specs);
+        $this->assertStringContainsString('Rouvrir', $specs);
+        $this->assertStringContainsString('open, non-section', $specs);
+    }
+
     public function testTheReadmeListsTheModule(): void
     {
         $this->assertStringContainsString('groupes de discussion', $this->read('README.md'));
@@ -64,7 +84,12 @@ class DocumentationTest extends TestCase
      */
     public function testTheModulesStorageDirectoryIsGitignored(): void
     {
-        $this->assertStringContainsString('storage/groups/', $this->read('.gitignore'));
+        // Covered by the storage/** catch-all (audit hardening) rather than a
+        // per-module line — assert the path actually resolves to ignored.
+        $root = dirname(__DIR__, 3);
+        $output = [];
+        exec('git -C ' . escapeshellarg($root) . ' check-ignore ' . escapeshellarg('storage/groups/preview.jpg') . ' 2>/dev/null', $output, $status);
+        $this->assertSame(0, $status, 'storage/groups/ content must be gitignored');
     }
 
     /**
@@ -74,19 +99,27 @@ class DocumentationTest extends TestCase
     public function testEveryModuleWritingUnderStorageIsGitignored(): void
     {
         $gitignore = $this->read('.gitignore');
-        $root = dirname(__DIR__, 3);
 
+        // A single catch-all (`storage/**`, re-including only `.gitkeep`
+        // placeholders) ignores every module's storage/<id>/ content — present
+        // AND future — so there is no per-module enumeration to forget when a
+        // new module starts writing under storage/ (audit hardening).
+        $this->assertStringContainsString('storage/**', $gitignore);
+        $this->assertStringContainsString('!storage/**/.gitkeep', $gitignore);
+
+        // The catch-all must not accidentally leave a real module's content
+        // uncovered: a sample path under each storage-writing module resolves
+        // to ignored.
+        $root = dirname(__DIR__, 3);
         foreach ((array) glob($root . '/modules/*', GLOB_ONLYDIR) as $moduleDir) {
             $moduleId = basename((string) $moduleDir);
             if (!$this->writesUnderStorage((string) $moduleDir, $moduleId)) {
                 continue;
             }
 
-            $this->assertStringContainsString(
-                "storage/{$moduleId}/",
-                $gitignore,
-                "module '{$moduleId}' writes under storage/{$moduleId}/ but .gitignore does not cover it"
-            );
+            $output = [];
+            exec('git -C ' . escapeshellarg($root) . ' check-ignore ' . escapeshellarg("storage/{$moduleId}/sample.dat") . ' 2>/dev/null', $output, $status);
+            $this->assertSame(0, $status, "module '{$moduleId}' writes under storage/{$moduleId}/ but that path is not gitignored");
         }
     }
 

@@ -43,12 +43,13 @@
                                 <td>{{ row.profile.firstName }} {{ row.profile.lastName }}</td>
                                 <td>{{ row.branch_year_label }}</td>
                                 <td class="text-center">
-                                    <input type="checkbox" class="form-check-input departure-checkbox" data-member-year-id="{{ row.profile.memberYearId }}" {{ row.leaving ? 'checked' : '' }}>
+                                    <input type="checkbox" class="form-check-input departure-checkbox" data-member-year-id="{{ row.profile.memberYearId }}" aria-label="Ne sera plus là l'année prochaine — {{ row.profile.firstName }} {{ row.profile.lastName }}" {{ row.leaving ? 'checked' : '' }}>
                                 </td>
                             </tr>
                             <tr class="departure-comment-row" data-member-year-id="{{ row.profile.memberYearId }}" style="{{ row.leaving ? '' : 'display:none;' }}">
                                 <td colspan="3" class="pt-0">
-                                    <textarea class="form-control form-control-sm departure-comment" data-member-year-id="{{ row.profile.memberYearId }}"
+                                    <label class="visually-hidden" for="departure-comment-{{ row.profile.memberYearId }}">Commentaire de départ — {{ row.profile.firstName }} {{ row.profile.lastName }}</label>
+                                    <textarea class="form-control form-control-sm departure-comment" id="departure-comment-{{ row.profile.memberYearId }}" data-member-year-id="{{ row.profile.memberYearId }}"
                                         rows="2" placeholder="Commentaire facultatif (motif du départ, jamais visible en dehors de cette section)">{{ row.comment }}</textarea>
                                 </td>
                             </tr>

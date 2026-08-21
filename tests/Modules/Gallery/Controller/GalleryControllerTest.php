@@ -328,6 +328,40 @@ class GalleryControllerTest extends TestCase
         $this->assertSame('private, no-store', $response->getHeaders()['Cache-Control']);
     }
 
+    /**
+     * Service\DelegatedAlbumService::ensureAlbum() refuses to create a
+     * delegated album on a location with a public URL, because a public URL
+     * is world-readable and defeats the access control. That invariant was
+     * only enforced at creation time — a superadmin adding an s3_public_url
+     * to the location afterwards silently turned the short-lived presign
+     * into a permanent, unauthenticated link (S3StorageBackend::url()
+     * ignores the TTL when a public URL is set). Re-asserted where the bytes
+     * are handed out.
+     */
+    public function testServeMediaRefusesADelegatedAlbumWhoseLocationBecamePublic(): void
+    {
+        $locationId = $this->createPrivateS3Location();
+        $albumId = $this->createDelegatedAlbum($locationId);
+        $mediaId = $this->createDoneMedia($albumId);
+
+        // The later superadmin edit that broke the invariant.
+        $this->pdo->prepare('UPDATE gallery_storage_locations SET s3_public_url = ? WHERE id = ?')
+            ->execute(['https://cdn.example.com', $locationId]);
+
+        $backend = $this->createMock(\Modules\Gallery\Service\Storage\StorageBackendInterface::class);
+        $backend->expects($this->never())->method('url');
+        $backend->expects($this->never())->method('get');
+        $this->storageBackendFactory->method('create')->willReturn($backend);
+        $controller = $this->controllerWithRegistry($this->allowingRegistry());
+
+        $response = $controller->serveMedia(
+            new Request('GET', '/gallery/media/' . $mediaId . '/thumb', [], [], [], []),
+            ['media_id' => (string) $mediaId, 'size' => 'thumb']
+        );
+
+        $this->assertSame(404, $response->getStatusCode());
+    }
+
     #[\PHPUnit\Framework\Attributes\DataProvider('mediaSizeProvider')]
     public function testServeMediaOnS3Returns404ForANonMemberOfADelegatedAlbum(string $size): void
     {
@@ -540,14 +574,16 @@ class GalleryControllerTest extends TestCase
         $this->assertSame(200, $response->getStatusCode());
         $this->assertSame('application/zip', $response->getHeaders()['Content-Type']);
 
-        $tmp = tempnam(sys_get_temp_dir(), 'zip_assert_');
-        file_put_contents($tmp, $response->getBody());
+        // The archive is streamed straight off disk now (audit M10), so read
+        // it from the response's body file rather than the in-memory body.
+        $zipPath = $response->getBodyFilePath();
+        $this->assertNotNull($zipPath);
         $zip = new \ZipArchive();
-        $zip->open($tmp);
+        $zip->open((string) $zipPath);
         $this->assertSame(1, $zip->numFiles);
         $this->assertSame('fake-large-image-bytes', $zip->getFromIndex(0));
         $zip->close();
-        unlink($tmp);
+        @unlink((string) $zipPath);
     }
 
     public function testShowMarksAMigratingAlbumUnavailableAndHidesMedia(): void
@@ -873,9 +909,11 @@ class GalleryControllerTest extends TestCase
 
     /**
      * Every entry used to be buffered in memory by addFromString() until
-     * close(); each rendition is now spooled to a temp file and added by path.
-     * The archive's contents must be identical either way — and no spool file
-     * may be left behind.
+     * close(); each rendition is now spooled to a temp file and added by path,
+     * and the finished archive is streamed straight off disk (audit M10). The
+     * spool files must be gone as soon as downloadZip() returns; the one
+     * remaining temp file is the archive itself, which the Response deletes
+     * when it is sent.
      */
     public function testDownloadZipLeavesNoTemporaryFilesBehind(): void
     {
@@ -885,15 +923,27 @@ class GalleryControllerTest extends TestCase
         $backend->method('get')->willReturn('fake-large-image-bytes');
         $this->storageBackendFactory->method('create')->willReturn($backend);
 
-        $before = glob(sys_get_temp_dir() . '/gallery_zip*') ?: [];
+        $spoolBefore = glob(sys_get_temp_dir() . '/gallery_zip_spool*') ?: [];
         $response = $this->controller->downloadZip(
             new Request('GET', '/gallery/' . $id . '/download', [], [], [], []),
             ['id' => (string) $id]
         );
-        $after = glob(sys_get_temp_dir() . '/gallery_zip*') ?: [];
 
         $this->assertSame(200, $response->getStatusCode());
-        $this->assertSame($before, $after);
+
+        // No spool directory left behind.
+        $this->assertSame($spoolBefore, glob(sys_get_temp_dir() . '/gallery_zip_spool*') ?: []);
+
+        // The archive the response streams exists now and is removed when sent.
+        $zipPath = $response->getBodyFilePath();
+        $this->assertNotNull($zipPath);
+        $this->assertFileExists((string) $zipPath);
+
+        ob_start();
+        $response->send();
+        ob_end_clean();
+
+        $this->assertFileDoesNotExist((string) $zipPath, 'the streamed archive is deleted after send()');
     }
 
     public function testIndexMarksAMigratingAlbumUnavailable(): void

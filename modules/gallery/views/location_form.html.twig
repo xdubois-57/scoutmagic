@@ -31,7 +31,7 @@
                     </div>
 
                     <div class="col-12">
-                        <label class="form-label small">Type de stockage</label>
+                        <div class="form-label small">Type de stockage</div>
                         <div class="btn-group w-100" role="group">
                             <input type="radio" class="btn-check" name="type" id="storage-local" value="local" autocomplete="off"
                                    {{ location and location.type == 's3' ? '' : 'checked' }} {{ location ? 'disabled' : '' }}>

@@ -100,7 +100,7 @@ describe('news-form-builder.js: sanitizeHtml() — tags stripped with their cont
 describe('news-form-builder.js: sanitizeHtml() — non-allowlisted tags unwrapped', () => {
     it('declares the expected tag allowlist', () => {
         expect(Object.keys(nfb.HTML_SANITIZER_ALLOWED_TAGS).sort()).toEqual(
-            ['a', 'b', 'blockquote', 'br', 'em', 'h2', 'h3', 'h4', 'i', 'li', 'ol', 'p', 'strong', 'u', 'ul'].sort());
+            ['a', 'b', 'blockquote', 'br', 'em', 'h2', 'h3', 'h4', 'i', 'img', 'li', 'ol', 'p', 'strong', 'u', 'ul'].sort());
     });
 
     it('drops a div but keeps its children', () => {
@@ -239,10 +239,15 @@ describe('news-form-builder.js: sanitizeHtml() — comments and edge inputs', ()
 
     it('does not execute or load anything while sanitizing (DOMParser has no browsing context)', () => {
         // An <img onerror> would fire on a live element; a script would run.
-        // Both must be inert here, and both must be gone from the output.
+        // Both must be inert here. <img> is now allowed (with a safe src), so
+        // the image survives — but its onerror handler and the script must be
+        // gone from the output.
         const out = sanitizeHtml('<img src="x" onerror="globalThis.__pwned = true"><script>globalThis.__pwned = true</script>');
         expect(globalThis.__pwned).toBeUndefined();
-        expect(out).toBe('');
+        expect(out).not.toContain('onerror');
+        expect(out).not.toContain('script');
+        expect(out).toContain('<img');
+        expect(out).toContain('src="x"');
     });
 });
 

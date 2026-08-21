@@ -26,6 +26,24 @@ class ImageProcessingServiceTest extends TestCase
         return (string) ob_get_clean();
     }
 
+    public function testProcessRejectsADecompressionBombBeforeDecoding(): void
+    {
+        // A tiny PNG header declaring 40000×40000 (~1.6 billion pixels) would
+        // OOM the background photo task if decoded (audit M7). The dimension
+        // guard must reject it up front as a GalleryException, never allocate.
+        $bomb = "\x89PNG\r\n\x1a\n"
+            . pack('N', 13) . 'IHDR'
+            . pack('N', 40000) . pack('N', 40000)
+            . "\x08\x02\x00\x00\x00\x00\x00\x00\x00";
+
+        // The message must be the dimension guard's (not the generic
+        // "impossible de décoder"), proving the bomb was rejected up front on
+        // its declared size rather than after a failed/partial decode.
+        $this->expectException(GalleryException::class);
+        $this->expectExceptionMessageMatches('/trop grande.*pixels/');
+        $this->service->process($bomb, 'image/png', 3000);
+    }
+
     public function testProcessReturnsThreeSizesAndDimensions(): void
     {
         $result = $this->service->process($this->fakeJpeg(2000, 1000), 'image/jpeg', 3000);

@@ -354,7 +354,7 @@ function isWhitelisted(pathname, whitelist) {
             if (pathname.indexOf(entry.path) !== 0) {
                 continue;
             }
-            const remainder = pathname.slice(entry.path.length).replace(/^\/+|\/+$/g, '');
+            const remainder = pathname.slice(entry.path.length).replace(/^\/+/, '').replace(/\/+$/, '');
             if (remainder !== '' && remainder.indexOf('/') === -1) {
                 return true;
             }

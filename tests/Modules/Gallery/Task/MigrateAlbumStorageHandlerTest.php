@@ -289,6 +289,10 @@ class MigrateAlbumStorageHandlerTest extends TestCase
                 {
                     return $this->real->get($key);
                 }
+                public function localPath(string $key): ?string
+                {
+                    return null;
+                }
                 public function size(string $key): ?int
                 {
                     return $this->real->size($key);
@@ -345,6 +349,12 @@ class MigrateAlbumStorageHandlerTest extends TestCase
                 public function get(string $key): string
                 {
                     return $this->real->get($key) . '-corrupted';
+                }
+                public function localPath(string $key): ?string
+                {
+                    // Force the buffered read path so the corruption above is
+                    // always exercised (never streamed straight off disk).
+                    return null;
                 }
                 // Every read path reports the SAME corrupted content, not
                 // just get(): the handler happens to verify through get()

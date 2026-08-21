@@ -13,6 +13,7 @@ use Core\Database\MigrationRunner;
 use Core\Database\SchemaComparator;
 use Core\Database\SchemaIntrospector;
 use Core\Database\SqlParser;
+use Core\Config\SettingRepository;
 use Core\Config\SettingService;
 use Core\Http\FlashMessage;
 use Core\Http\Request;
@@ -27,6 +28,7 @@ use Core\Security\CsrfGuard;
 use Core\Security\EncryptionService;
 use Core\Security\SecretManager;
 use Core\Security\SessionStore;
+use Core\Statistics\InstallationDateService;
 use Twig\Environment;
 
 class SetupController extends AbstractController
@@ -683,9 +685,17 @@ class SetupController extends AbstractController
      */
     private function handleFirstTimeSetup(array $data): Response
     {
+        // Tracks whether THIS run created the master key. generateMasterKey()
+        // refuses to overwrite an existing key and throws before creating
+        // anything, so after a full reset (which preserves master.key while
+        // deleting secrets.enc) this stays false — and cleanupFailedSetup()
+        // must NOT delete that preserved key, or every older encrypted backup
+        // becomes permanently unreadable (audit M11).
+        $masterKeyCreatedThisRun = false;
         try {
             // Generate master key
             $this->secretManager->generateMasterKey();
+            $masterKeyCreatedThisRun = true;
 
             // Generate encryption keys
             $encryptionKey = random_bytes(32);
@@ -736,7 +746,7 @@ class SetupController extends AbstractController
 
             $testResult = $connection->testConnection();
             if ($testResult !== true) {
-                $this->cleanupFailedSetup();
+                $this->cleanupFailedSetup($masterKeyCreatedThisRun);
                 FlashMessage::set('error', 'La connexion à la base de données a échoué : ' . $testResult);
                 return $this->redirect('/setup');
             }
@@ -764,8 +774,28 @@ class SetupController extends AbstractController
             $secrets['admin_email'] = strtolower(trim($data['admin_email']));
             $this->secretManager->writeSecrets($secrets);
 
-            // Create initial admin account (use base64 keys to match boot sequence)
+            // Create initial admin account (base64 keys decoded to match the boot sequence)
             $this->createAdminAccount($connection, $secrets['encryption_key'], $secrets['blind_index_key'], $data['admin_email'], $data['admin_password']);
+
+            // Record the installation date now, while "now" is genuinely the
+            // moment this site came into existence (Core\Statistics\
+            // InstallationDateService). Waiting for the boot backfill would
+            // work too, but only because the journal is still empty at this
+            // point — recording it here keeps the date correct even if a
+            // first request writes a journal entry before the backfill runs.
+            $setupSettingService = new SettingService(new SettingRepository($connection->getPdo()));
+            InstallationDateService::register($setupSettingService);
+            (new InstallationDateService($setupSettingService, $connection->getPdo()))->ensureRecorded();
+
+            // Honour the operator's usage-statistics choice straight away.
+            // Registered here rather than waiting for the composition root's
+            // own register() call, which would otherwise create the row with
+            // its default (on) and silently ignore an operator who unchecked
+            // the box.
+            $setupSettingService->register('statistics_enabled', '1', 'boolean', 'Envoi automatique des statistiques d\'utilisation',
+                'Autorise l\'envoi quotidien d\'un rapport d\'utilisation agrégé vers ScoutMagic. Le rapport contient l\'adresse de ce site, jamais de donnée de membre. Géré depuis la page Support.',
+                null, null, null, true, 280);
+            $setupSettingService->setInternal('statistics_enabled', $data['statistics_enabled']);
 
             $tokenDeleted = $this->deleteTokenFileWithWarning();
 
@@ -777,7 +807,7 @@ class SetupController extends AbstractController
             );
             return $this->redirect('/');
         } catch (\Throwable $e) {
-            $this->cleanupFailedSetup();
+            $this->cleanupFailedSetup($masterKeyCreatedThisRun);
             FlashMessage::set('error', 'Erreur lors de l\'installation : ' . $e->getMessage());
             return $this->redirect('/setup');
         }
@@ -894,6 +924,11 @@ class SetupController extends AbstractController
             'dmarc_report_email' => trim((string) $request->getBody('dmarc_report_email', '')),
             'admin_email' => trim((string) $request->getBody('admin_email', '')),
             'admin_password' => (string) $request->getBody('admin_password', ''),
+            // Usage statistics switch, first install only (Core\Statistics,
+            // ARCHITECTURE.md §8.41). An unchecked checkbox sends nothing at
+            // all, so "absent" has to mean "off" — the default-on state lives
+            // in the rendered form, not here.
+            'statistics_enabled' => (string) $request->getBody('statistics_enabled', '') === '1' ? '1' : '0',
         ];
     }
 
@@ -1007,7 +1042,10 @@ class SetupController extends AbstractController
 
     private function createAdminAccount(Connection $connection, string $encryptionKey, string $blindIndexKey, string $email, string $password): void
     {
-        $encryptionService = new EncryptionService($encryptionKey, $blindIndexKey);
+        // $encryptionKey/$blindIndexKey are the base64-encoded values stored in
+        // secrets.enc — decode to raw bytes exactly as the boot sequence does
+        // (audit M1), so the admin row is encrypted with the same real key.
+        $encryptionService = EncryptionService::fromEncodedKeys($encryptionKey, $blindIndexKey);
         $normalizedEmail = strtolower(trim($email));
 
         $emailEncrypted = $encryptionService->encrypt($normalizedEmail);
@@ -1028,7 +1066,7 @@ class SetupController extends AbstractController
      */
     private function upsertAdminAccount(Connection $connection, array $secrets, string $email, string $password): void
     {
-        $encryptionService = new EncryptionService(
+        $encryptionService = EncryptionService::fromEncodedKeys(
             (string) $secrets['encryption_key'],
             (string) $secrets['blind_index_key']
         );
@@ -1061,7 +1099,7 @@ class SetupController extends AbstractController
         $this->secretManager->writeSecrets($secrets);
     }
 
-    private function cleanupFailedSetup(): void
+    private function cleanupFailedSetup(bool $masterKeyCreatedThisRun): void
     {
         // Remove generated files on failure
         $masterKeyPath = (new \ReflectionClass($this->secretManager))->getProperty('masterKeyPath');
@@ -1070,7 +1108,11 @@ class SetupController extends AbstractController
         $masterKey = $masterKeyPath->getValue($this->secretManager);
         $secrets = $secretsPath->getValue($this->secretManager);
 
-        if (file_exists($masterKey)) {
+        // Only delete the master key if THIS run created it. A key that
+        // pre-existed (e.g. preserved across a full reset) is the sole means
+        // of decrypting older backups — never destroy it just because setup
+        // failed after finding it already there (audit M11).
+        if ($masterKeyCreatedThisRun && file_exists($masterKey)) {
             @unlink($masterKey);
         }
         if (file_exists($secrets)) {

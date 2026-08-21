@@ -23,6 +23,8 @@ use Modules\Groups\Service\GroupSessionContext;
 use Modules\Groups\Service\GroupNotificationService;
 use Modules\Groups\Service\GroupSessionContextFactory;
 use Modules\Groups\Service\ReactionService;
+use Modules\Groups\Service\ReactionSummary;
+use Modules\Groups\Service\ReactorListService;
 use Modules\Groups\Support\ReactionOutcome;
 use Twig\Environment;
 
@@ -52,7 +54,8 @@ class ReactionController extends AbstractController
         private GroupAccessService $accessService,
         private ReactionService $reactionService,
         private GroupSessionContextFactory $contextFactory,
-        private ?GroupNotificationService $notificationService = null
+        private ?GroupNotificationService $notificationService = null,
+        private ?ReactorListService $reactorListService = null
     ) {
     }
 
@@ -63,9 +66,18 @@ class ReactionController extends AbstractController
      */
     public function react(Request $request, array $params): Response
     {
-        return $this->reactAction($request, $params, function (DiscussionGroup $group, int $memberId, string $key, GroupSessionContext $context) use ($params) {
+        return $this->reactAction($request, $params, false, function (DiscussionGroup $group, int $memberId, string $key, GroupSessionContext $context) use ($params) {
             $post = $this->postRepository->findById((int) ($params['postId'] ?? 0));
             if ($post === null || $post->groupId !== $group->id) {
+                return null;
+            }
+            // Auto-hidden content is invisible to non-moderators on every
+            // read path (the feed's SQL, and GroupController::post()'s deep
+            // link) — so it must not be reactable either. Otherwise a member
+            // could react to a post they cannot see, notifying its author
+            // and bumping last_activity_at, which postpones the retention
+            // purge of the very content moderation hid.
+            if ($post->isHidden() && !$this->accessService->canModerate($group, $context)) {
                 return null;
             }
 
@@ -82,7 +94,11 @@ class ReactionController extends AbstractController
                 );
             }
 
-            return $outcome;
+            return [
+                $outcome,
+                $outcome === ReactionOutcome::INVALID ? null : $this->reactionService->summaryForPost($post->id, $context->linkedMemberIds),
+                '/groups/' . $group->id . '/posts/' . $post->id . '/react',
+            ];
         });
     }
 
@@ -93,7 +109,7 @@ class ReactionController extends AbstractController
      */
     public function reactToReply(Request $request, array $params): Response
     {
-        return $this->reactAction($request, $params, function (DiscussionGroup $group, int $memberId, string $key, GroupSessionContext $context) use ($params) {
+        return $this->reactAction($request, $params, true, function (DiscussionGroup $group, int $memberId, string $key, GroupSessionContext $context) use ($params) {
             $reply = $this->replyRepository->findById((int) ($params['replyId'] ?? 0));
             if ($reply === null) {
                 return null;
@@ -103,6 +119,11 @@ class ReactionController extends AbstractController
             // the reply's own post must belong to the authorised group.
             $post = $this->postRepository->findById($reply->postId);
             if ($post === null || $post->groupId !== $group->id) {
+                return null;
+            }
+            // Same rule as react(): neither a hidden reply nor a reply whose
+            // parent post is hidden is reactable by a non-moderator.
+            if (($reply->isHidden() || $post->isHidden()) && !$this->accessService->canModerate($group, $context)) {
                 return null;
             }
 
@@ -117,19 +138,107 @@ class ReactionController extends AbstractController
                 );
             }
 
-            return $outcome;
+            return [
+                $outcome,
+                $outcome === ReactionOutcome::INVALID ? null : $this->reactionService->summaryForReply($reply->id, $context->linkedMemberIds),
+                '/groups/' . $group->id . '/replies/' . $reply->id . '/react',
+            ];
         });
     }
 
     /**
-     * The shared shape of both reaction endpoints. $toggle returns null
-     * when the item does not belong to the authorised group (→ 404), or
-     * the toggle's own outcome (INVALID → 400).
+     * GET /groups/{id}/posts/{postId}/reactions — who reacted, and with
+     * what (the dialog behind a reaction tally's own click, groups.js).
      *
      * @param array<string, string> $params
-     * @param callable(DiscussionGroup, int, string, GroupSessionContext): ?ReactionOutcome $toggle
      */
-    private function reactAction(Request $request, array $params, callable $toggle): Response
+    public function postReactors(Request $request, array $params): Response
+    {
+        return $this->reactorsAction($params, function (DiscussionGroup $group, GroupSessionContext $context) use ($params) {
+            $post = $this->postRepository->findById((int) ($params['postId'] ?? 0));
+            if ($post === null || $post->groupId !== $group->id) {
+                return null;
+            }
+            if ($post->isHidden() && !$this->accessService->canModerate($group, $context)) {
+                return null;
+            }
+
+            return $this->reactorListService?->forPost($post->id, $group->scoutYearId ?? $context->effectiveScoutYearId) ?? [];
+        });
+    }
+
+    /**
+     * GET /groups/{id}/replies/{replyId}/reactions
+     *
+     * @param array<string, string> $params
+     */
+    public function replyReactors(Request $request, array $params): Response
+    {
+        return $this->reactorsAction($params, function (DiscussionGroup $group, GroupSessionContext $context) use ($params) {
+            $reply = $this->replyRepository->findById((int) ($params['replyId'] ?? 0));
+            if ($reply === null) {
+                return null;
+            }
+
+            $post = $this->postRepository->findById($reply->postId);
+            if ($post === null || $post->groupId !== $group->id) {
+                return null;
+            }
+            if ($reply->isHidden() && !$this->accessService->canModerate($group, $context)) {
+                return null;
+            }
+
+            return $this->reactorListService?->forReply($reply->id, $group->scoutYearId ?? $context->effectiveScoutYearId) ?? [];
+        });
+    }
+
+    /**
+     * The shared shape of both `reactors` endpoints: read access only —
+     * unlike reacting itself, viewing who already reacted needs no
+     * canPost() (module spec: viewing stays as available as the item
+     * itself already is). $locate returns null when the item does not
+     * belong to the authorised group, or is hidden from this viewer
+     * (→ 404 either way, same oracle reasoning as reactAction()'s own
+     * docblock).
+     *
+     * @param array<string, string> $params
+     * @param callable(DiscussionGroup, GroupSessionContext): ?array<int, array{key: string, emoji: string, names: string[]}> $locate
+     */
+    private function reactorsAction(array $params, callable $locate): Response
+    {
+        $context = $this->context();
+        $group = $this->groupRepository->findById((int) ($params['id'] ?? 0));
+        if ($group === null || !$this->accessService->canRead($group, $context)) {
+            return new Response('Not Found', 404);
+        }
+
+        $groups = $locate($group, $context);
+        if ($groups === null) {
+            return new Response('Not Found', 404);
+        }
+
+        return $this->json([
+            'html' => $this->twig->render('@groups/partials/reactors_list.html.twig', ['groups' => $groups]),
+        ]);
+    }
+
+    /**
+     * The shared shape of both reaction endpoints. $toggle returns null
+     * when the item does not belong to the authorised group (→ 404), or a
+     * 3-tuple [ReactionOutcome, ?ReactionSummary, string $action] once the
+     * toggle ran — the summary is null for INVALID (→ 400), since nothing
+     * was written for it to describe.
+     *
+     * A plain form POST still lands here with no special header and gets
+     * the same redirect it always has (the no-JS fallback the templates'
+     * docblocks promise); groups.js sends `X-Requested-With:
+     * XMLHttpRequest` and gets the freshly rendered reactions fragment
+     * back instead, so it can swap it in without a page reload.
+     *
+     * @param array<string, string> $params
+     * @param callable(DiscussionGroup, int, string, GroupSessionContext): (null|array{0: ReactionOutcome, 1: ?ReactionSummary, 2: string}) $toggle
+     */
+    private function reactAction(Request $request, array $params, bool $compact, callable $toggle): Response
     {
         if (!CsrfGuard::validateRequest()) {
             return new Response('Jeton CSRF invalide.', 403);
@@ -165,11 +274,35 @@ class ReactionController extends AbstractController
         if ($result === null) {
             return new Response('Not Found', 404);
         }
-        if ($result === ReactionOutcome::INVALID) {
+
+        [$outcome, $summary, $action] = $result;
+        if ($outcome === ReactionOutcome::INVALID) {
             return new Response('Réaction inconnue.', 400);
         }
 
-        return $this->redirect('/groups/' . $group->id);
+        if (!$this->wantsJson($request)) {
+            return $this->redirect('/groups/' . $group->id);
+        }
+
+        return $this->json([
+            'outcome' => $outcome === ReactionOutcome::ADDED ? 'added' : 'removed',
+            'html' => $this->twig->render('@groups/partials/reactions.html.twig', [
+                'summary' => $summary,
+                'action' => $action,
+                'compact' => $compact,
+            ]),
+        ]);
+    }
+
+    /**
+     * groups.js sends this header on every reaction fetch() so the
+     * endpoint knows to answer with JSON instead of a redirect — a plain
+     * form POST (no JS, or JS that failed to load) never sets it and gets
+     * the original full-page behaviour unchanged.
+     */
+    private function wantsJson(Request $request): bool
+    {
+        return $request->getServer('HTTP_X_REQUESTED_WITH') === 'XMLHttpRequest';
     }
 
     private function context(): GroupSessionContext

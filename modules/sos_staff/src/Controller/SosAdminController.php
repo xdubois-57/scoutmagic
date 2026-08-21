@@ -134,7 +134,27 @@ class SosAdminController extends AbstractController
         if (empty($data['member_id'])) {
             return $this->json(['success' => false, 'error' => 'Membre requis.'], 400);
         }
-        $this->settingsService->setDefaultNumberFromMember((int) $data['member_id']);
+
+        // Only a member the picker actually offers — a Staff d'U member with
+        // a known mobile for the effective year. getDefaultNumber() resolves
+        // whatever is stored here into the live redirect target of the public
+        // SOS line, so an unvalidated id would point the unit's emergency
+        // number at any member's personal phone.
+        $memberId = (int) $data['member_id'];
+        $role = Role::fromString(AuthSession::getRole());
+        $effectiveYear = $this->scoutYearResolver->getEffectiveYear(ScoutYearSession::getPreviewId(), $role);
+        $isStaffOption = false;
+        foreach ($this->settingsService->getStaffOptions($effectiveYear->id) as $option) {
+            if ($option['member_id'] === $memberId) {
+                $isStaffOption = true;
+                break;
+            }
+        }
+        if (!$isStaffOption) {
+            return $this->json(['success' => false, 'error' => 'Membre invalide.'], 400);
+        }
+
+        $this->settingsService->setDefaultNumberFromMember($memberId);
 
         $this->journalService->log(
             'sos_staff',

@@ -129,4 +129,38 @@ class RgpdContentServiceTest extends TestCase
         $this->expectExceptionMessageMatches('/responsable du traitement/');
         $service->generateWithAi('Instructions');
     }
+
+    public function testDefaultContentDisclosesTheUsageStatisticsAndDiagnosticPackage(): void
+    {
+        $service = new RgpdContentService($this->moduleManager, $this->settingService);
+        $content = $service->getDefaultContent();
+
+        $this->assertStringContainsString('Statistiques d\'utilisation', $content);
+        $this->assertStringContainsString('n\'est pas anonyme', $content);
+        $this->assertStringContainsString('aucune donnée de membre', $content);
+        $this->assertStringContainsString('Archive de diagnostic', $content);
+        $this->assertStringContainsString('jamais transmise automatiquement', $content);
+        $this->assertStringContainsString('adresses IP', $content);
+    }
+
+    public function testTheSystemPromptDescribesTheSameProcessing(): void
+    {
+        $captured = null;
+        $connector = $this->createMock(LlmConnectorInterface::class);
+        $connector->method('isTierAvailable')->willReturn(true);
+        $connector->method('complete')->willReturnCallback(
+            function (LlmRequest $request) use (&$captured): LlmResponse {
+                $captured = $request->systemPrompt;
+                return new LlmResponse(content: '<h2>Contenu</h2><p>Unité scoute est responsable du traitement.</p>', parsed: null, inputTokens: 10, outputTokens: 10, truncated: false);
+            }
+        );
+
+        $service = new RgpdContentService($this->moduleManager, $this->settingService, $connector);
+        $service->generateWithAi('Instructions.');
+
+        $this->assertIsString($captured);
+        $this->assertStringContainsString('Statistiques d\'utilisation et archive de diagnostic', $captured);
+        $this->assertStringContainsString('jamais transmise automatiquement', $captured);
+        $this->assertStringContainsString('ne le décris jamais comme anonyme', $captured);
+    }
 }

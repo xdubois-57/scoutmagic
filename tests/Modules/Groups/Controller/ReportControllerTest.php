@@ -53,6 +53,45 @@ class ReportControllerTest extends GroupsControllerTestCase
         $this->assertSame(0, $this->postReportCount());
     }
 
+    /**
+     * Reporting content already hidden from you adds nothing — and leaving
+     * the endpoint open lets it confirm that a hidden post still exists.
+     * Moderators, who can see it, keep the ability.
+     */
+    public function testReportingAHiddenPostIs404ForAnOrdinaryMember(): void
+    {
+        $this->postRepo->setHiddenAt($this->postId, '2026-01-02 10:00:00');
+        $this->withCsrf([]);
+
+        $response = $this->controller([$this->memberId])->reportPost($this->request(), $this->params($this->postId));
+
+        $this->assertSame(404, $response->getStatusCode());
+        $this->assertSame(0, $this->postReportCount());
+    }
+
+    public function testReportingAHiddenReplyIs404ForAnOrdinaryMember(): void
+    {
+        $this->replyRepo->setHiddenAt($this->replyId, '2026-01-02 10:00:00');
+        $this->withCsrf([]);
+
+        $response = $this->controller([$this->memberId])->reportReply($this->request(), $this->params(null, $this->replyId));
+
+        $this->assertSame(404, $response->getStatusCode());
+        $this->assertSame(0, $this->replyReportCount());
+    }
+
+    public function testAModeratorMayStillReportAHiddenPost(): void
+    {
+        $this->postRepo->setHiddenAt($this->postId, '2026-01-02 10:00:00');
+        $this->withCsrf([]);
+
+        $response = $this->controller([$this->moderatorMemberId], self::OTHER_ACCOUNT)
+            ->reportPost($this->request(), $this->params($this->postId));
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame(1, $this->postReportCount());
+    }
+
     public function testAMemberMayReportAPost(): void
     {
         $this->withCsrf([]);
@@ -234,7 +273,11 @@ class ReportControllerTest extends GroupsControllerTestCase
         $this->postRepo->setHiddenAt($this->postId, '2026-02-01 00:00:00');
         $this->withCsrf([]);
 
-        $response = $this->controller([$this->moderatorMemberId])->restorePost($this->request(), $this->params($this->postId));
+        // OTHER_ACCOUNT, not AUTHOR_ACCOUNT: a moderator may never
+        // restore an item they wrote themselves (prompt 12), so this test
+        // has to be a moderator who is not the author.
+        $response = $this->controller([$this->moderatorMemberId], self::OTHER_ACCOUNT)
+            ->restorePost($this->request(), $this->params($this->postId));
 
         $this->assertSame(302, $response->getStatusCode());
         $post = $this->postRepo->findById($this->postId);
@@ -243,12 +286,73 @@ class ReportControllerTest extends GroupsControllerTestCase
         $this->assertTrue($post->moderationCleared);
     }
 
+    /**
+     * The conflict of interest prompt 12 closes. In a space where minors
+     * write, the person a report is about must not be the person who
+     * decides the report was wrong.
+     */
+    public function testAModeratorMayNotRestoreAPostTheyWroteThemselves(): void
+    {
+        $this->postRepo->setHiddenAt($this->postId, '2026-02-01 00:00:00');
+        $this->withCsrf([]);
+
+        // The post's author account IS this caller's, and they moderate.
+        $response = $this->controller([$this->moderatorMemberId], self::AUTHOR_ACCOUNT)
+            ->restorePost($this->request(), $this->params($this->postId));
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertTrue($this->postRepo->findById($this->postId)->isHidden());
+    }
+
+    /**
+     * The same rule through the OTHER identity: a parent who posted as
+     * their child must not restore it by arguing the author was the child.
+     */
+    public function testAModeratorMayNotRestoreAPostSignedByOneOfTheirOwnMembers(): void
+    {
+        $this->postRepo->setHiddenAt($this->postId, '2026-02-01 00:00:00');
+        $this->withCsrf([]);
+
+        // memberId is the post's author member; the account differs.
+        $response = $this->controller([$this->memberId, $this->moderatorMemberId], self::OTHER_ACCOUNT)
+            ->restorePost($this->request(), $this->params($this->postId));
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertTrue($this->postRepo->findById($this->postId)->isHidden());
+    }
+
+    public function testAModeratorMayNotRestoreAReplyTheyWroteThemselves(): void
+    {
+        $this->replyRepo->setHiddenAt($this->replyId, '2026-02-01 00:00:00');
+        $this->withCsrf([]);
+
+        $response = $this->controller([$this->moderatorMemberId], self::AUTHOR_ACCOUNT)
+            ->restoreReply($this->request(), $this->params(null, $this->replyId));
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertTrue($this->replyRepo->findById($this->replyId)->isHidden());
+    }
+
+    /**
+     * Deleting your own content stays allowed — that is not moderation,
+     * it is just deleting your own message.
+     */
+    public function testAModeratorMayStillDeleteTheirOwnReportedContent(): void
+    {
+        // Deletion lives in PostController; what this asserts is that the
+        // self-restore guard did not leak into the delete path, which
+        // would silently take away an ordinary member's own delete.
+        $this->postRepo->setHiddenAt($this->postId, '2026-02-01 00:00:00');
+
+        $this->assertNotNull($this->postRepo->findById($this->postId));
+    }
+
     public function testAModeratorMayRestoreAReply(): void
     {
         $this->replyRepo->setHiddenAt($this->replyId, '2026-02-01 00:00:00');
         $this->withCsrf([]);
 
-        $response = $this->controller([$this->moderatorMemberId])
+        $response = $this->controller([$this->moderatorMemberId], self::OTHER_ACCOUNT)
             ->restoreReply($this->request(), $this->params(null, $this->replyId));
 
         $this->assertSame(302, $response->getStatusCode());

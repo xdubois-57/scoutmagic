@@ -136,12 +136,16 @@ class RedirectService
         } catch (\Throwable $e) {
             // A notification failing to send is not itself a redirect
             // failure — the phone forwarding already succeeded — but it's
-            // worth a journal entry so it doesn't vanish silently.
+            // worth a journal entry so it doesn't vanish silently. Scrub the
+            // recipient address out of the error first (PHPMailer's ErrorInfo
+            // often contains it): the journal must never carry personal data
+            // (SECURITY.md §11), same pattern as MemberEmailService/AuthService.
+            $reason = str_replace($profile->email, '[adresse]', $e->getMessage());
             $this->journalService->log(
                 'sos_staff',
                 'notification_failed',
                 'info',
-                "Échec d'envoi de l'email de notification de garde : {$e->getMessage()}",
+                "Échec d'envoi de l'email de notification de garde : {$reason}",
                 ['member_id' => $profile->memberId]
             );
         }

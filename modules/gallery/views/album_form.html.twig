@@ -16,7 +16,7 @@
 
                 {% if not album %}
                     <div class="mb-3">
-                        <label class="form-label small fw-semibold">Type d'album</label>
+                        <div class="form-label small fw-semibold">Type d'album</div>
                         <div class="btn-group w-100" role="group">
                             {% if allow_local %}
                                 <input type="radio" class="btn-check" name="type" id="type-local" value="local" autocomplete="off" checked>
@@ -47,7 +47,7 @@
 
                 {% if album and album.type == 'local' %}
                     <div class="mb-3">
-                        <label class="form-label small">Emplacement de stockage</label>
+                        <div class="form-label small">Emplacement de stockage</div>
                         <div class="form-control-plaintext">
                             {% set current_location = locations|filter(l => l.id == album.storageLocationId)|first %}
                             {{ current_location ? current_location.label ~ ' (' ~ (current_location.type == 's3' ? 'S3' : 'Disque local') ~ ')' : 'Non défini' }}
@@ -144,7 +144,7 @@
                         <p class="small text-warning mb-0 mt-2"><i class="bi bi-exclamation-triangle"></i> L'envoi de vidéos est actuellement indisponible.</p>
                     {% endif %}
                 </div>
-                <input type="file" id="gallery-upload-input" class="d-none" multiple accept="image/jpeg,image/png,image/webp{{ video_upload_allowed ? ',video/mp4,video/quicktime,video/webm' : '' }}">
+                <input type="file" id="gallery-upload-input" class="d-none" multiple aria-label="Sélectionner des photos ou vidéos à téléverser" accept="image/jpeg,image/png,image/webp{{ video_upload_allowed ? ',video/mp4,video/quicktime,video/webm' : '' }}">
                 <div id="gallery-upload-progress" class="mt-3 d-none">
                     <div class="progress" style="height:0.5rem;">
                         <div id="gallery-upload-progress-bar" class="progress-bar" style="width:0%;"></div>
@@ -216,5 +216,6 @@
 {% endblock %}
 
 {% block scripts %}
+    <script src="/assets/js/chunked-upload.js" defer></script>
     <script src="/assets/js/gallery.js" defer></script>
 {% endblock %}

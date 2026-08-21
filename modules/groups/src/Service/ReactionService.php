@@ -97,6 +97,34 @@ class ReactionService
     }
 
     /**
+     * One post's reactions as ReactionSummary needs them, right after a
+     * toggle — the AJAX endpoint's only use, since a full page render
+     * always goes through forPosts() for every post on the page at once.
+     *
+     * @param int[] $viewerMemberIds every linked member of the viewing
+     *        account, exactly what a page render passes as "own" — not
+     *        just the one member the reaction was recorded under, so a
+     *        parent linked to two members of the same group sees the
+     *        same "is_own" state here as after a refresh.
+     */
+    public function summaryForPost(int $postId, array $viewerMemberIds): ReactionSummary
+    {
+        $data = $this->forPosts([$postId], $viewerMemberIds);
+
+        return ReactionSummary::build($data['counts'][$postId] ?? [], $data['own'][$postId] ?? null);
+    }
+
+    /**
+     * @param int[] $viewerMemberIds see summaryForPost()
+     */
+    public function summaryForReply(int $replyId, array $viewerMemberIds): ReactionSummary
+    {
+        $data = $this->forReplies([$replyId], $viewerMemberIds);
+
+        return ReactionSummary::build($data['counts'][$replyId] ?? [], $data['own'][$replyId] ?? null);
+    }
+
+    /**
      * Same reaction as the member already has → remove it. Different one
      * (or none yet) → set it, replacing whatever was there. The uniqueness
      * that makes "replacing" meaningful is the database's, not this

@@ -63,6 +63,106 @@ class CalendarEventServiceTest extends TestCase
         $this->calendarId = $calendarRepository->createSupplementaryCalendar('Animateurs', true, Calendar::VISIBILITY_PUBLIC, 'tok');
     }
 
+    /**
+     * getEditableCalendarsForChief() deliberately excludes supplementary
+     * calendars a chief cannot see — but the write paths only checked that
+     * the calendar EXISTED, and calendar_id/event_id arrive in the request
+     * body. A chief could therefore post an admin-only calendar's id and
+     * create events in it, move events into it, or delete events out of it.
+     */
+    public function testAChiefCannotCreateAnEventInAnAdminOnlyCalendar(): void
+    {
+        $adminOnlyId = $this->createAdminOnlyCalendar();
+
+        $this->assertNotContains(
+            $adminOnlyId,
+            array_map(static fn(Calendar $c) => $c->id, $this->service->getEditableCalendarsForChief(Role::CHIEF)),
+            'precondition: the calendar is outside a chief\'s editable set'
+        );
+
+        $this->expectException(CalendarException::class);
+        $this->service->createEvent($adminOnlyId, 'Intrus', '2026-03-15', null, null, null, null, null, null, false, Role::CHIEF);
+    }
+
+    public function testAnAdminCanCreateAnEventInAnAdminOnlyCalendar(): void
+    {
+        $adminOnlyId = $this->createAdminOnlyCalendar();
+
+        $event = $this->service->createEvent($adminOnlyId, 'Réunion CU', '2026-03-15', null, null, null, null, null, null, false, Role::ADMIN);
+
+        $this->assertSame($adminOnlyId, $event->calendarId);
+    }
+
+    public function testAChiefCannotMoveAnEventIntoAnAdminOnlyCalendar(): void
+    {
+        $adminOnlyId = $this->createAdminOnlyCalendar();
+        $event = $this->service->createEvent($this->calendarId, 'Sortie', '2026-03-15', null, null, null, null, null, null);
+
+        $this->expectException(CalendarException::class);
+        $this->service->updateEvent($event->id, $adminOnlyId, 'Sortie', '2026-03-15', null, null, null, null, null, false, null, Role::CHIEF);
+    }
+
+    /**
+     * The other end of the move: an event already living in a calendar the
+     * chief may not touch must not be draggable OUT of it either.
+     */
+    public function testAChiefCannotMoveAnEventOutOfAnAdminOnlyCalendar(): void
+    {
+        $adminOnlyId = $this->createAdminOnlyCalendar();
+        $event = $this->service->createEvent($adminOnlyId, 'Réunion CU', '2026-03-15', null, null, null, null, null, null);
+
+        $this->expectException(CalendarException::class);
+        $this->service->updateEvent($event->id, $this->calendarId, 'Réunion CU', '2026-03-15', null, null, null, null, null, false, null, Role::CHIEF);
+    }
+
+    public function testAChiefCannotDeleteAnEventInAnAdminOnlyCalendar(): void
+    {
+        $adminOnlyId = $this->createAdminOnlyCalendar();
+        $event = $this->service->createEvent($adminOnlyId, 'Réunion CU', '2026-03-15', null, null, null, null, null, null);
+
+        try {
+            $this->service->deleteEvent($event->id, Role::CHIEF);
+            $this->fail('expected the delete to be refused');
+        } catch (CalendarException) {
+            // expected — and the event must still be there
+        }
+
+        $this->assertNotNull((new CalendarEventRepository($this->pdo))->findById($event->id));
+    }
+
+    public function testAChiefKeepsFullAccessToCalendarsInTheirEditableSet(): void
+    {
+        $event = $this->service->createEvent($this->calendarId, 'Sortie', '2026-03-15', null, null, null, null, null, null, false, Role::CHIEF);
+        $updated = $this->service->updateEvent($event->id, $this->calendarId, 'Sortie modifiée', '2026-03-16', null, null, null, null, null, false, null, Role::CHIEF);
+
+        $this->assertSame('Sortie modifiée', $updated->title);
+
+        $this->service->deleteEvent($event->id, Role::CHIEF);
+        $this->assertNull((new CalendarEventRepository($this->pdo))->findById($event->id));
+    }
+
+    /**
+     * A system caller (Modules\SosStaff\Service\CalendarSyncService keeps
+     * its own calendar on the unit's behalf) has no session to narrow
+     * against and must stay unaffected.
+     */
+    public function testASystemCallerWithNoViewerRoleIsUnaffected(): void
+    {
+        $adminOnlyId = $this->createAdminOnlyCalendar();
+
+        $event = $this->service->createEvent($adminOnlyId, 'Permanence SOS', '2026-03-15', null, null, null, null, null, null);
+
+        $this->assertSame($adminOnlyId, $event->calendarId);
+        $this->service->deleteEvent($event->id);
+        $this->assertNull((new CalendarEventRepository($this->pdo))->findById($event->id));
+    }
+
+    private function createAdminOnlyCalendar(): int
+    {
+        return (new CalendarRepository($this->pdo))
+            ->createSupplementaryCalendar('Direction', false, Calendar::VISIBILITY_ADMIN, 'tok-admin');
+    }
+
     public function testCreateEventSucceeds(): void
     {
         $event = $this->service->createEvent($this->calendarId, 'Réunion', '2026-03-15', null, '14:00', '16:00', 'Local', 'Desc', 5);

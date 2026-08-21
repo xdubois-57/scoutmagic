@@ -151,11 +151,18 @@ class ReplyController extends AbstractController
         // carrying more is rejected whole rather than silently keeping the
         // first (module spec, same posture as a post's media ceiling).
         if (count($files) > 1) {
-            FlashMessage::set('error', 'Vous ne pouvez joindre qu\'une seule image par réponse.');
-            return $this->redirect('/groups/' . $group->id);
+            return $this->failure($request, $group->id, 'Vous ne pouvez joindre qu\'une seule image par réponse.');
         }
 
         if (!$this->replyService->isReplyable($body, $files !== [])) {
+            // Silent for a plain form POST, exactly as before; AJAX still
+            // gets a distinguishable non-2xx with no flash message to
+            // match — see Controller\PostController::create()'s own
+            // identical empty-body path.
+            if ($this->wantsJson($request)) {
+                return $this->json(['error' => 'empty'], 400);
+            }
+
             return $this->redirect('/groups/' . $group->id);
         }
 
@@ -171,8 +178,7 @@ class ReplyController extends AbstractController
             } catch (GalleryException $e) {
                 // Nothing has been written yet, so there is nothing to roll
                 // back — the reply simply is not created.
-                FlashMessage::set('error', $e->getMessage());
-                return $this->redirect('/groups/' . $group->id);
+                return $this->failure($request, $group->id, $e->getMessage());
             }
         }
 
@@ -186,7 +192,7 @@ class ReplyController extends AbstractController
                 $this->postMediaService->deleteOne($group, $mediaId);
             }
 
-            return $this->refuse($e, $group->id, $body, $post->id);
+            return $this->refuse($request, $e, $group->id, $body, $post->id);
         }
 
         // The post's author is told someone answered them — never
@@ -195,6 +201,29 @@ class ReplyController extends AbstractController
         $reply = $this->replyRepository->findById($replyId);
         if ($reply !== null) {
             $this->notificationService?->replyReceived($group, $post, $reply, $context->effectiveScoutYearId);
+        }
+
+        // groups.js appends this fragment straight under the post instead
+        // of reloading the page (module spec: "no reload to add a
+        // reply") — same shape as a single reply already gets from
+        // Service\ReplyPresenter for a whole page, just for the one just
+        // created.
+        if ($this->wantsJson($request) && $reply !== null) {
+            $canModerate = $this->accessService->canModerate($group, $context);
+            $rows = $this->replyPresenter->decorate(
+                [$reply],
+                $context,
+                $canModerate,
+                $group->scoutYearId ?? $context->effectiveScoutYearId,
+                $this->postMediaService->albumMediaById($group)
+            );
+
+            return $this->json([
+                'html' => $this->twig->render('@groups/partials/reply_card.html.twig', [
+                    'row' => $rows[0],
+                    'group' => $group,
+                ]),
+            ]);
         }
 
         return $this->redirect('/groups/' . $group->id);
@@ -226,7 +255,7 @@ class ReplyController extends AbstractController
                 try {
                     $this->replyService->edit($reply, $body);
                 } catch (GroupsException $e) {
-                    return $this->refuse($e, $group->id, $body, $reply->postId);
+                    return $this->refuse($request, $e, $group->id, $body, $reply->postId);
                 }
             }
 
@@ -264,17 +293,52 @@ class ReplyController extends AbstractController
 
     /**
      * A refused write, told to its author only — the exact counterpart of
-     * Controller\PostController::refuse(), including the fact that the
-     * refused text never leaves this member's own session.
+     * Controller\PostController::refuse(), AJAX branch included: the
+     * exception's own shape (message/type/suggestion) as JSON for
+     * groups.js to show inline, RejectedDraft's session round-trip for a
+     * plain form POST only. Nothing here is ever written to the database
+     * or journaled either way.
      */
-    private function refuse(GroupsException $e, int $groupId, string $body, int $postId): Response
+    private function refuse(Request $request, GroupsException $e, int $groupId, string $body, int $postId): Response
     {
+        if ($this->wantsJson($request)) {
+            return $this->json([
+                'error' => $e->getMessage(),
+                'type' => $e->type,
+                'suggestion' => $e->suggestion,
+            ], 422);
+        }
+
         FlashMessage::set('error', $e->getMessage());
         if ($e->type === GroupsException::TYPE_OFFENSIVE) {
             RejectedDraft::set($body, $e->suggestion, $postId);
         }
 
         return $this->redirect('/groups/' . $groupId);
+    }
+
+    /**
+     * A write refused with a plain, human message — the exact counterpart
+     * of Controller\PostController::failure().
+     */
+    private function failure(Request $request, int $groupId, string $message, int $status = 400): Response
+    {
+        if ($this->wantsJson($request)) {
+            return $this->json(['error' => $message], $status);
+        }
+
+        FlashMessage::set('error', $message);
+
+        return $this->redirect('/groups/' . $groupId);
+    }
+
+    /**
+     * groups.js sends this header on the reply form's fetch() — same
+     * signal as Controller\ReactionController's own wantsJson().
+     */
+    private function wantsJson(Request $request): bool
+    {
+        return $request->getServer('HTTP_X_REQUESTED_WITH') === 'XMLHttpRequest';
     }
 
     /**

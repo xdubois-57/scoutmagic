@@ -5,12 +5,12 @@
 
 (function () {
     var dropZone = document.getElementById('drop-zone');
-    var fileInput = document.getElementById('file-input');
-    var cameraInput = document.getElementById('camera-input');
+    var fileInput = /** @type {HTMLInputElement | null} */ (document.getElementById('file-input'));
+    var cameraInput = /** @type {HTMLInputElement | null} */ (document.getElementById('camera-input'));
     var previewContainer = document.getElementById('preview-container');
-    var previewImg = document.getElementById('preview-img');
+    var previewImg = /** @type {HTMLImageElement | null} */ (document.getElementById('preview-img'));
     var previewName = document.getElementById('preview-name');
-    var uploadBtn = document.getElementById('upload-btn');
+    var uploadBtn = /** @type {HTMLButtonElement | null} */ (document.getElementById('upload-btn'));
     var uploadForm = document.getElementById('upload-form');
 
     if (!dropZone || !fileInput) return;
@@ -29,7 +29,7 @@
     // keep uploads comfortably under (Core\Http\Controller\UploadController).
     var SKIP_THRESHOLD_BYTES = 5 * 1024 * 1024;
 
-    var contextInput = uploadForm ? uploadForm.querySelector('input[name="context"]') : null;
+    var contextInput = /** @type {HTMLInputElement | null} */ (uploadForm ? uploadForm.querySelector('input[name="context"]') : null);
     var uploadContext = contextInput ? contextInput.value : '';
 
     function handleFile(file) {
@@ -157,7 +157,7 @@
         if (file.type.indexOf('image/') === 0) {
             var reader = new FileReader();
             reader.onload = function (e) {
-                previewImg.src = e.target.result;
+                previewImg.src = /** @type {string} */ (e.target.result);
                 previewContainer.classList.remove('d-none');
             };
             reader.readAsDataURL(file);

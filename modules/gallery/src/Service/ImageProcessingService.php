@@ -67,6 +67,15 @@ class ImageProcessingService
      */
     private function decode(string $contents, string $mimeType)
     {
+        // Reject a decompression bomb before GD allocates width×height×4 bytes
+        // for it — the background photo task used to OOM on such an input
+        // (audit M7).
+        try {
+            \Core\Image\ImageDimensionGuard::assertWithinCeilingFromString($contents);
+        } catch (\Core\Image\ImageDimensionException $e) {
+            throw new GalleryException($e->getMessage());
+        }
+
         // imagecreatefromstring() sniffs the format itself; the match is
         // only here to refuse anything outside the album's allowed photo
         // mime types (Service\MediaService::PHOTO_MIMES).

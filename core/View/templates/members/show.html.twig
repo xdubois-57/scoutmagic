@@ -302,7 +302,7 @@
 
                         <form method="post" action="/members/{{ member.memberYearId }}/emails" class="d-flex flex-wrap gap-2 mt-3">
                             {{ csrf_field() }}
-                            <input type="email" name="email" class="form-control form-control-sm" style="max-width:260px;" placeholder="nouvelle-adresse@example.com" required>
+                            <input type="email" name="email" class="form-control form-control-sm" style="max-width:260px;" placeholder="nouvelle-adresse@example.com" aria-label="Nouvelle adresse email" required>
                             <button type="submit" class="btn btn-sm btn-primary text-nowrap">Ajouter une adresse</button>
                         </form>
                     </div>

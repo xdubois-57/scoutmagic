@@ -7,11 +7,11 @@
 // auto-saves on change (same pattern as the banner module's per-item
 // visibility select's JS).
 (function () {
-    var select = document.getElementById('auto-backup-frequency');
+    var select = /** @type {HTMLSelectElement} */ (document.getElementById('auto-backup-frequency'));
     if (!select) return;
 
     var saved = document.getElementById('auto-backup-frequency-saved');
-    var csrfInput = document.querySelector('input[name="_csrf_token"]');
+    var csrfInput = /** @type {HTMLInputElement} */ (document.querySelector('input[name="_csrf_token"]'));
 
     select.addEventListener('change', function () {
         fetch('/config/maintenance/backup/auto-frequency', {
@@ -37,13 +37,13 @@
     var form = document.getElementById('full-backup-form');
     if (!form) return;
 
-    var submitBtn = document.getElementById('full-backup-submit');
+    var submitBtn = /** @type {HTMLButtonElement} */ (document.getElementById('full-backup-submit'));
     var progressEl = document.getElementById('full-backup-progress');
     var errorEl = document.getElementById('full-backup-error');
     var pollTimer = null;
 
     function csrf() {
-        var meta = document.querySelector('meta[name="csrf-token"]');
+        var meta = /** @type {HTMLMetaElement} */ (document.querySelector('meta[name="csrf-token"]'));
         return meta ? meta.content : '';
     }
 
@@ -86,8 +86,8 @@
         e.preventDefault();
         errorEl.classList.add('d-none');
 
-        var scope = form.querySelector('input[name="scope"]:checked');
-        var password = document.getElementById('full-backup-password').value;
+        var scope = /** @type {HTMLInputElement} */ (form.querySelector('input[name="scope"]:checked'));
+        var password = /** @type {HTMLInputElement} */ (document.getElementById('full-backup-password')).value;
         if (!scope || password === '') return;
 
         submitBtn.disabled = true;
@@ -201,7 +201,7 @@
 // #update-check-now-dialog with the result; its own install form is wired
 // above alongside the always-rendered one.
 (function () {
-    var btn = document.getElementById('update-check-now');
+    var btn = /** @type {HTMLButtonElement} */ (document.getElementById('update-check-now'));
     if (!btn) return;
 
     var progressEl = document.getElementById('update-check-now-progress');
@@ -212,7 +212,7 @@
     var dismissBtn = document.getElementById('update-check-now-dismiss');
 
     function csrf() {
-        var meta = document.querySelector('meta[name="csrf-token"]');
+        var meta = /** @type {HTMLMetaElement} */ (document.querySelector('meta[name="csrf-token"]'));
         return meta ? meta.content : '';
     }
 
@@ -273,11 +273,11 @@
 // generate/regenerate (shown in cleartext exactly once) and the semver
 // explainer/major-version-warning show/hide.
 (function () {
-    var enabledCheckbox = document.getElementById('auto-update-enabled');
+    var enabledCheckbox = /** @type {HTMLInputElement} */ (document.getElementById('auto-update-enabled'));
     if (!enabledCheckbox) return;
 
     function csrf() {
-        var meta = document.querySelector('meta[name="csrf-token"]');
+        var meta = /** @type {HTMLMetaElement} */ (document.querySelector('meta[name="csrf-token"]'));
         return meta ? meta.content : '';
     }
 
@@ -291,7 +291,8 @@
     var scheduleSection = document.getElementById('auto-update-schedule-section');
     var branchSection = document.getElementById('auto-update-branch-section');
     var webhookSection = document.getElementById('auto-update-webhook-section');
-    document.querySelectorAll('input[name="auto-update-level"]').forEach(function (radio) {
+    var levelRadios = /** @type {NodeListOf<HTMLInputElement>} */ (document.querySelectorAll('input[name="auto-update-level"]'));
+    levelRadios.forEach(function (radio) {
         radio.addEventListener('change', function () {
             if (!radio.checked) return;
             majorWarning.classList.toggle('d-none', radio.value !== 'major');
@@ -316,7 +317,7 @@
     var errorEl = document.getElementById('auto-update-error');
     if (saveBtn) {
         saveBtn.addEventListener('click', function () {
-            var levelRadio = document.querySelector('input[name="auto-update-level"]:checked');
+            var levelRadio = /** @type {HTMLInputElement} */ (document.querySelector('input[name="auto-update-level"]:checked'));
             errorEl.classList.add('d-none');
 
             fetch('/config/maintenance/auto-update/save', {
@@ -325,9 +326,9 @@
                 body: JSON.stringify({
                     enabled: enabledCheckbox.checked,
                     level: levelRadio ? levelRadio.value : 'patch',
-                    day: document.getElementById('auto-update-day').value,
-                    time: document.getElementById('auto-update-time').value,
-                    branch: document.getElementById('auto-update-branch').value,
+                    day: /** @type {HTMLSelectElement} */ (document.getElementById('auto-update-day')).value,
+                    time: /** @type {HTMLInputElement} */ (document.getElementById('auto-update-time')).value,
+                    branch: /** @type {HTMLInputElement} */ (document.getElementById('auto-update-branch')).value,
                     _csrf_token: csrf()
                 })
             })
@@ -348,7 +349,7 @@
         });
     }
 
-    var webhookBtn = document.getElementById('webhook-generate-secret');
+    var webhookBtn = /** @type {HTMLButtonElement} */ (document.getElementById('webhook-generate-secret'));
     if (webhookBtn) {
         webhookBtn.addEventListener('click', function () {
             webhookBtn.disabled = true;
@@ -394,10 +395,16 @@
 // only a client-side UX gate (enabling the submit button); the real check
 // always happens server-side (Core\Http\Controller\MaintenanceController).
 (function () {
+    /**
+     * @param {string} inputId
+     * @param {string} expected
+     * @param {(() => boolean)} [extraCondition]
+     * @returns {(() => void)|null}
+     */
     function wireKeywordGate(inputId, expected, extraCondition) {
-        var input = document.getElementById(inputId);
+        var input = /** @type {HTMLInputElement} */ (document.getElementById(inputId));
         if (!input) return null;
-        var submitBtn = input.closest('form').querySelector('button[type="submit"]');
+        var submitBtn = /** @type {HTMLButtonElement} */ (input.closest('form').querySelector('button[type="submit"]'));
         function update() {
             var ok = input.value === expected && (!extraCondition || extraCondition());
             submitBtn.disabled = !ok;
@@ -410,6 +417,13 @@
     // onDone/onFailed receive the error message (may be null); onNotFound
     // is only meaningfully different for full reset (see below), where a
     // 404 means "the operation wiped its own tracking row — that's success".
+    /**
+     * @param {string|number} actionId
+     * @param {() => void} onDone
+     * @param {(message: string|null) => void} onFailed
+     * @param {() => void} onNotFound
+     * @returns {ReturnType<typeof setInterval>}
+     */
     function pollResetStatus(actionId, onDone, onFailed, onNotFound) {
         var timer = setInterval(function () {
             fetch('/api/maintenance/reset-status/' + actionId)
@@ -445,10 +459,10 @@
     if (resetSettingsForm) {
         resetSettingsForm.addEventListener('submit', function (e) {
             e.preventDefault();
-            var submitBtn = document.getElementById('reset-settings-submit');
+            var submitBtn = /** @type {HTMLButtonElement} */ (document.getElementById('reset-settings-submit'));
             var progressEl = document.getElementById('reset-settings-progress');
             var errorEl = document.getElementById('reset-settings-error');
-            var csrfInput = resetSettingsForm.querySelector('input[name="_csrf_token"]');
+            var csrfInput = /** @type {HTMLInputElement} */ (resetSettingsForm.querySelector('input[name="_csrf_token"]'));
             errorEl.classList.add('d-none');
             submitBtn.disabled = true;
             progressEl.classList.remove('d-none');
@@ -457,7 +471,7 @@
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    confirm_keyword: document.getElementById('reset-settings-keyword').value,
+                    confirm_keyword: /** @type {HTMLInputElement} */ (document.getElementById('reset-settings-keyword')).value,
                     _csrf_token: csrfInput ? csrfInput.value : ''
                 })
             })
@@ -490,7 +504,7 @@
     }
 
     // --- Réinitialisation complète ---
-    var fullResetCheckbox = document.getElementById('full-reset-checkbox');
+    var fullResetCheckbox = /** @type {HTMLInputElement} */ (document.getElementById('full-reset-checkbox'));
     var fullResetUpdate = wireKeywordGate('full-reset-keyword', 'EFFACER', function () {
         return fullResetCheckbox && fullResetCheckbox.checked;
     });
@@ -504,10 +518,10 @@
             if (!window.confirm('Cette action est irréversible : toutes les données du site seront définitivement supprimées. Continuer ?')) {
                 return;
             }
-            var submitBtn = document.getElementById('full-reset-submit');
+            var submitBtn = /** @type {HTMLButtonElement} */ (document.getElementById('full-reset-submit'));
             var progressEl = document.getElementById('full-reset-progress');
             var errorEl = document.getElementById('full-reset-error');
-            var csrfInput = fullResetForm.querySelector('input[name="_csrf_token"]');
+            var csrfInput = /** @type {HTMLInputElement} */ (fullResetForm.querySelector('input[name="_csrf_token"]'));
             errorEl.classList.add('d-none');
             submitBtn.disabled = true;
             progressEl.classList.remove('d-none');
@@ -516,7 +530,7 @@
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    confirm_keyword: document.getElementById('full-reset-keyword').value,
+                    confirm_keyword: /** @type {HTMLInputElement} */ (document.getElementById('full-reset-keyword')).value,
                     confirm_checkbox: true,
                     _csrf_token: csrfInput ? csrfInput.value : ''
                 })
@@ -555,7 +569,7 @@
     // --- Restaurer un backup ---
     var restoreUpdate = wireKeywordGate('restore-backup-keyword', 'RESTAURER');
     var sourceServerRadio = document.getElementById('restore-source-server');
-    var sourceUploadRadio = document.getElementById('restore-source-upload');
+    var sourceUploadRadio = /** @type {HTMLInputElement} */ (document.getElementById('restore-source-upload'));
     var serverPicker = document.getElementById('restore-server-picker');
     var uploadPicker = document.getElementById('restore-upload-picker');
     function toggleRestoreSource() {
@@ -566,16 +580,55 @@
     if (sourceServerRadio) sourceServerRadio.addEventListener('change', toggleRestoreSource);
     if (sourceUploadRadio) sourceUploadRadio.addEventListener('change', toggleRestoreSource);
 
-    var restoreForm = document.getElementById('restore-backup-form');
+    var restoreForm = /** @type {HTMLFormElement | null} */ (document.getElementById('restore-backup-form'));
     if (restoreForm) {
         restoreForm.addEventListener('submit', function (e) {
             if (!window.confirm('Cette action va remplacer les données actuelles par celles de la sauvegarde sélectionnée. Continuer ?')) {
                 e.preventDefault();
                 return;
             }
+            var submitBtn = /** @type {HTMLButtonElement} */ (document.getElementById('restore-backup-submit'));
+
+            // A large uploaded archive can't ride the classic multipart POST
+            // (the document-root-wide post_max_size is small now — audit M2):
+            // send it first as ~8 MB chunks to the dedicated superadmin
+            // route, then submit the form referencing the assembled file by
+            // upload_id, with the file input cleared. Small archives keep
+            // the plain multipart POST.
+            var chunker = window.ScoutMagicChunkedUpload;
+            var fileInput = /** @type {HTMLInputElement} */ (document.getElementById('restore-backup-file'));
+            var uploadIdInput = /** @type {HTMLInputElement} */ (document.getElementById('restore-upload-id'));
+            var chunkFile = sourceUploadRadio && sourceUploadRadio.checked
+                && fileInput && fileInput.files && fileInput.files[0] ? fileInput.files[0] : null;
+            if (chunker && uploadIdInput && chunkFile && chunkFile.size > chunker.CHUNK_THRESHOLD) {
+                e.preventDefault();
+                submitBtn.disabled = true;
+                var chunkErrorEl = document.getElementById('restore-backup-error');
+                var chunkProgressEl = document.getElementById('restore-backup-progress');
+                if (chunkErrorEl) chunkErrorEl.classList.add('d-none');
+                if (chunkProgressEl) chunkProgressEl.classList.remove('d-none');
+                var csrfField = /** @type {HTMLInputElement} */ (restoreForm.querySelector('input[name="_csrf_token"]'));
+                chunker.uploadInChunks(chunkFile, '/config/maintenance/restore-upload-chunk', {
+                    csrfToken: csrfField ? csrfField.value : ''
+                }).then(function (result) {
+                    uploadIdInput.value = result.uploadId;
+                    fileInput.value = '';
+                    // .submit() bypasses this handler — no second confirm,
+                    // no second chunk pass.
+                    restoreForm.submit();
+                }).catch(function (err) {
+                    submitBtn.disabled = false;
+                    if (chunkProgressEl) chunkProgressEl.classList.add('d-none');
+                    if (chunkErrorEl) {
+                        chunkErrorEl.textContent = (err && err.message) || 'Le téléversement a échoué.';
+                        chunkErrorEl.classList.remove('d-none');
+                    }
+                });
+                return;
+            }
+
             // Classic multipart submit — the server redirects back with
             // ?restore_id={id}, picked up by the polling block below.
-            var submitBtn = document.getElementById('restore-backup-submit');
             submitBtn.disabled = true;
         });
     }

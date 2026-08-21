@@ -60,6 +60,7 @@ class GalleryChiefControllerTest extends TestCase
     private SectionService $sectionService;
     private SettingService $settingService;
     private StorageLocationService $storageLocationService;
+    private string $chunkStorageDir;
 
     protected function setUp(): void
     {
@@ -144,9 +145,11 @@ class GalleryChiefControllerTest extends TestCase
         $twig->addFilter(new \Twig\TwigFilter('french_date', fn($d) => (string) $d));
 
         $this->twig = $twig;
+        $this->chunkStorageDir = sys_get_temp_dir() . '/gallery_chunk_test_' . uniqid();
+        mkdir($this->chunkStorageDir, 0755, true);
         $this->controller = new GalleryChiefController(
             $twig, $albumService, $mediaService, $this->mediaRepository, $accessService, $sectionService, $settingService,
-            $storageLocationRepository, $storageLocationService
+            $storageLocationRepository, $storageLocationService, new \Core\File\ChunkedUploadStore($this->chunkStorageDir)
         );
 
         if (session_status() === PHP_SESSION_NONE) {
@@ -158,6 +161,12 @@ class GalleryChiefControllerTest extends TestCase
     protected function tearDown(): void
     {
         AuthSession::logout();
+        foreach (glob($this->chunkStorageDir . '/temp/chunked_uploads/*') ?: [] as $file) {
+            @unlink($file);
+        }
+        @rmdir($this->chunkStorageDir . '/temp/chunked_uploads');
+        @rmdir($this->chunkStorageDir . '/temp');
+        @rmdir($this->chunkStorageDir);
     }
 
     private function csrfToken(): string
@@ -181,7 +190,8 @@ class GalleryChiefControllerTest extends TestCase
 
         return new GalleryChiefController(
             $this->twig, $this->albumService, $this->mediaService, $this->mediaRepository, $accessService,
-            $this->sectionService, $this->settingService, $this->storageLocationRepository, $this->storageLocationService
+            $this->sectionService, $this->settingService, $this->storageLocationRepository, $this->storageLocationService,
+            new \Core\File\ChunkedUploadStore($this->chunkStorageDir)
         );
     }
 
@@ -637,5 +647,140 @@ class GalleryChiefControllerTest extends TestCase
         $response = $this->controller->deleteMedia($this->jsonRequest(['_csrf_token' => $token]), ['id' => (string) $id, 'media_id' => (string) $mediaId]);
 
         $this->assertSame(404, $response->getStatusCode());
+    }
+
+    // --- Chunked upload (audit M2) ---
+
+    private const CHUNK_UPLOAD_ID = 'dddddddddddddddddddddddddddddddd';
+
+    /**
+     * Puts $bytes into a temp file registered as this request's uploaded
+     * chunk, and returns the matching Request. Caller must unset
+     * $_FILES['file'] when done (mirrors testUploadMediaSucceedsWithAFile).
+     */
+    private function chunkRequest(int $albumId, string $bytes, int $offset, bool $isLast, string $token, string $name = 'video.jpg'): Request
+    {
+        $path = tempnam(sys_get_temp_dir(), 'gallery_chunk_');
+        file_put_contents($path, $bytes);
+        $_FILES['file'] = ['name' => 'chunk', 'tmp_name' => $path, 'error' => UPLOAD_ERR_OK, 'size' => strlen($bytes), 'type' => 'application/octet-stream'];
+
+        return new Request('POST', '/gallery/' . $albumId . '/media', [], [
+            '_csrf_token' => $token,
+            'upload_id' => self::CHUNK_UPLOAD_ID,
+            'chunk_offset' => (string) $offset,
+            'last' => $isLast ? '1' : '0',
+            'name' => $name,
+        ], [], []);
+    }
+
+    public function testChunkedUploadAssemblesAndCreatesTheMedia(): void
+    {
+        $id = $this->createLocalAlbum();
+        $token = $this->csrfToken();
+
+        // A real JPEG split in two — the assembled file must pass the same
+        // real-MIME validation as a single-POST upload.
+        $imgPath = tempnam(sys_get_temp_dir(), 'gallery_test_') . '.jpg';
+        $image = imagecreatetruecolor(10, 10);
+        imagejpeg($image, $imgPath);
+        imagedestroy($image);
+        $bytes = (string) file_get_contents($imgPath);
+        unlink($imgPath);
+        $half = intdiv(strlen($bytes), 2);
+
+        $first = $this->controller->uploadMedia($this->chunkRequest($id, substr($bytes, 0, $half), 0, false, $token), ['id' => (string) $id]);
+        $firstDecoded = json_decode($first->getBody(), true);
+        $this->assertTrue($firstDecoded['success']);
+        $this->assertSame($half, $firstDecoded['received']);
+        $this->assertSame(0, $this->mediaRepository->countByAlbumId($id));
+
+        $second = $this->controller->uploadMedia($this->chunkRequest($id, substr($bytes, $half), $half, true, $token), ['id' => (string) $id]);
+        $secondDecoded = json_decode($second->getBody(), true);
+
+        $this->assertTrue($secondDecoded['success']);
+        $this->assertArrayHasKey('media_id', $secondDecoded);
+        $this->assertSame(1, $this->mediaRepository->countByAlbumId($id));
+        // The assembled temp file is discarded after being consumed.
+        $this->assertSame([], glob($this->chunkStorageDir . '/temp/chunked_uploads/*.part') ?: []);
+
+        unset($_FILES['file']);
+    }
+
+    public function testChunkedUploadRejectsAnOutOfOrderChunkWith409AndTheRealSize(): void
+    {
+        $id = $this->createLocalAlbum();
+        $token = $this->csrfToken();
+
+        $this->controller->uploadMedia($this->chunkRequest($id, 'abcdef', 0, false, $token), ['id' => (string) $id]);
+        $response = $this->controller->uploadMedia($this->chunkRequest($id, 'ghijkl', 100, false, $token), ['id' => (string) $id]);
+
+        $this->assertSame(409, $response->getStatusCode());
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertFalse($decoded['success']);
+        $this->assertSame(6, $decoded['received']);
+
+        unset($_FILES['file']);
+    }
+
+    public function testChunkedUploadReChecksAuthorisationOnEveryChunk(): void
+    {
+        $id = $this->createLocalAlbum();
+        $token = $this->csrfToken();
+
+        // MediaService::assertCanUpload() is the chunk path's gate, so the
+        // DENYING access service must sit inside MediaService here (the
+        // shared setUp keeps a permissive one there).
+        $accessService = $this->createMock(GalleryAccessService::class);
+        $accessService->method('canManageAlbum')->willReturn(false);
+        $accessService->method('getManagedSectionIds')->willReturn([]);
+        $denyingMediaService = new MediaService(
+            $this->mediaRepository, $this->albumRepository,
+            new UploadHandler(new FileRepository($this->pdo), sys_get_temp_dir()),
+            new SchedulerService(new SchedulerRepository($this->pdo)),
+            $this->settingService, $accessService, $this->createMock(StorageBackendFactory::class),
+            $this->storageLocationService, $this->createMock(FfmpegAvailability::class)
+        );
+        $denying = new GalleryChiefController(
+            $this->twig, $this->albumService, $denyingMediaService, $this->mediaRepository, $accessService,
+            $this->sectionService, $this->settingService, $this->storageLocationRepository, $this->storageLocationService,
+            new \Core\File\ChunkedUploadStore($this->chunkStorageDir)
+        );
+
+        $response = $denying->uploadMedia($this->chunkRequest($id, 'abcdef', 0, false, $token), ['id' => (string) $id]);
+
+        // Refused BEFORE any byte lands on disk — an unauthorised caller
+        // cannot consume temp space chunk by chunk.
+        $this->assertSame(422, $response->getStatusCode());
+        $this->assertSame([], glob($this->chunkStorageDir . '/temp/chunked_uploads/*.part') ?: []);
+
+        unset($_FILES['file']);
+    }
+
+    public function testChunkedUploadRequiresCsrfOnEveryChunk(): void
+    {
+        $id = $this->createLocalAlbum();
+
+        $response = $this->controller->uploadMedia($this->chunkRequest($id, 'abcdef', 0, false, 'bad-token'), ['id' => (string) $id]);
+
+        $this->assertSame(403, $response->getStatusCode());
+
+        unset($_FILES['file']);
+    }
+
+    public function testChunkedUploadReturns500WhenTheStoreIsNotWired(): void
+    {
+        $id = $this->createLocalAlbum();
+        $token = $this->csrfToken();
+        $withoutStore = new GalleryChiefController(
+            $this->twig, $this->albumService, $this->mediaService, $this->mediaRepository,
+            $this->createConfiguredMock(GalleryAccessService::class, ['canManageAlbum' => true, 'getManagedSectionIds' => []]),
+            $this->sectionService, $this->settingService, $this->storageLocationRepository, $this->storageLocationService
+        );
+
+        $response = $withoutStore->uploadMedia($this->chunkRequest($id, 'abcdef', 0, false, $token), ['id' => (string) $id]);
+
+        $this->assertSame(500, $response->getStatusCode());
+
+        unset($_FILES['file']);
     }
 }

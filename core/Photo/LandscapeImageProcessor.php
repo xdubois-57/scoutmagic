@@ -89,6 +89,13 @@ class LandscapeImageProcessor
      */
     private function decode(string $contents, string $mimeType)
     {
+        // Reject a decompression bomb before GD allocates for it (audit M7).
+        try {
+            \Core\Image\ImageDimensionGuard::assertWithinCeilingFromString($contents);
+        } catch (\Core\Image\ImageDimensionException $e) {
+            throw new UploadException($e->getMessage());
+        }
+
         $image = match ($mimeType) {
             'image/jpeg', 'image/png', 'image/webp', 'image/gif' => @imagecreatefromstring($contents),
             default => false,

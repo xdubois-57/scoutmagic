@@ -32,12 +32,12 @@
     // mode is active, so this is never a double-wiring in practice.
     document.querySelectorAll('#richTextEditorModal [data-command]').forEach(function (btn) {
         btn.addEventListener('click', function () {
-            var cmd = btn.dataset.command;
+            var cmd = /** @type {HTMLElement} */ (btn).dataset.command;
             if (cmd === 'createLink') {
                 var url = prompt('URL du lien :');
                 if (url) document.execCommand(cmd, false, url);
             } else if (cmd === 'formatBlock') {
-                document.execCommand(cmd, false, '<' + btn.dataset.value + '>');
+                document.execCommand(cmd, false, '<' + /** @type {HTMLElement} */ (btn).dataset.value + '>');
             } else {
                 document.execCommand(cmd, false, null);
             }
@@ -51,8 +51,8 @@
 
     document.querySelectorAll('.rich-text-field-edit-btn').forEach(function (btn) {
         btn.addEventListener('click', function () {
-            currentKey = btn.dataset.key;
-            currentSaveUrl = btn.dataset.saveUrl;
+            currentKey = /** @type {HTMLElement} */ (btn).dataset.key;
+            currentSaveUrl = /** @type {HTMLElement} */ (btn).dataset.saveUrl;
             currentPreview = document.querySelector('.rich-text-field-preview[data-key="' + escapeAttr(currentKey) + '"]');
             editorContent.innerHTML = currentPreview ? currentPreview.innerHTML : '';
             modal.show();
@@ -63,7 +63,7 @@
         if (!currentKey) return;
 
         var html = editorContent.innerHTML;
-        var csrfMeta = document.querySelector('meta[name="csrf-token"]');
+        var csrfMeta = /** @type {HTMLMetaElement | null} */ (document.querySelector('meta[name="csrf-token"]'));
         var csrf = csrfMeta ? csrfMeta.content : '';
 
         fetch(currentSaveUrl, {

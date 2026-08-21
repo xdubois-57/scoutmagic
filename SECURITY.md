@@ -41,18 +41,33 @@ appliquées, mots de passe et clés gérés par l'unité déployante.
 ## 3. RBAC
 
 - RBAC guard called by Router **before** any controller code — automatically, for every route.
-- Every route must declare `role_min`. A route without `role_min` is rejected at load time.
+- Every route must declare `role_min`. A route without `role_min` is rejected at load time — `Core\Module\ModuleManifest` for module routes, and `Core\Http\Router::addRoute()` itself for core ones (the argument is mandatory, and an unrecognised role name raises rather than being silently downgraded to `public` by `Role::fromString()`).
+- The RBAC guard is switched off in exactly one place — `setRbacBypassPrefix('/setup')` — and only while `SecretManager::isInitialized()` is false, i.e. the first-run installer, where no database, account or role exists yet. Once initialized, `/setup` is reachable through its own `role_min: superadmin` like any other route, so a bypass there could only ever strip authentication (`GET /setup` leaks database/SMTP/admin settings and issues a CSRF token; `POST /setup/save` rewrites database credentials and the admin account). Pinned by `Tests\Core\Http\SetupRbacBypassWiringTest`.
 - New imported functions default to lowest role. An import never silently elevates privileges.
 - Role check is always server-side. Menu visibility is a convenience, never a security boundary.
+- **`role_min` is a floor, never the whole answer.** Any resource with its own visibility rule must re-check it in the controller or service, because the route only proves the caller's role clears the minimum:
+  - Finance accounts carry `role_min_view`; every page resolving them (dashboard, movements, receipts, import, **and the receivables reconciliation page**) filters through it, and a receipt with no account at all is denied rather than left unguarded.
+  - Calendars: a chief may only create, move or delete events in a calendar inside `CalendarEventService::getEditableCalendarsForChief()` — checked on both ends of a move, not just that the calendar exists.
+  - News articles: the visibility gate applies to every representation of an article, the poster PDF included, not only its detail page.
+  - Groups: content auto-hidden by moderation is invisible to non-moderators on *write* paths (reactions, reports) as well as reads.
+  - Gallery: a delegated album is refused if its storage location has a public URL — re-asserted when serving bytes, not only when the album is created.
+  - Ids arriving in a request body are validated against the set the UI actually offers (a form's finance account, the SOS default-number member), never trusted because the route's role was high enough.
 - `Core\Member\SectionStaffAuthorizationService` ("which sections is this account chief/animateur of") is a Controller-level narrowing on top of the route's `role_min`, not a replacement for it — same pattern as `MemberService::canAccess()` narrowing onto one member. The RBAC guard still gates the route first; this service only answers which resource(s) the already-authorized caller may act on within it.
 
 ## 4. CSRF
 
 - CSRF token on every form, verified on every POST/PUT/DELETE.
 - Token bound to session, regenerated per session.
-- One deliberate exception: `POST /api/webhook/github` (`Core\Http\Controller\WebhookController`) — a machine-to-machine call from GitHub with no session to bind a token to. Authenticated instead by an HMAC-SHA256 signature (`X-Hub-Signature-256`, constant-time `hash_equals()` comparison) against a secret stored only in `secrets.enc`.
+- Two deliberate exceptions, each authenticated by something other than a session-bound token:
+  - `POST /api/webhook/github` (`Core\Http\Controller\WebhookController`) — a machine-to-machine call from GitHub with no session to bind a token to. Authenticated instead by an HMAC-SHA256 signature (`X-Hub-Signature-256`, constant-time `hash_equals()` comparison) against a secret stored only in `secrets.enc`.
+  - `POST /api/statistics` (`Modules\SupportDashboard\Controller\StatisticsIntakeController`, ARCHITECTURE.md §8.43) — the usage-statistics intake on the receiving installation. A machine-to-machine call from another ScoutMagic installation, with no session to bind a token to. Authenticated instead by a bearer secret checked with `password_verify()` against a `password_hash()` stored at first registration; the secret itself is never stored in clear, in any column, in the journal, or in a response. The endpoint refuses cleartext transport, caps the body before parsing it, and rate-limits per source IP (stored as a blind index, never in clear). A rejection answers a bare status with no body, so an unknown installation is indistinguishable from a wrong secret.
+  - `POST /mass-mail/unsubscribe/{id}` (`Modules\MassMail\Controller\UnsubscribeController`) — the RFC 8058 one-click unsubscribe target, reached from a mail client with no session. Authenticated by a per-recipient token carried in the link and verified constant-time against a stored SHA-256 hash (`hash_equals`). The token is 32 bytes of entropy, so a fast hash is as safe as bcrypt and avoids a per-request bcrypt on an anonymous endpoint. Idempotent, so a mailbox prefetch or a resubmit lands in the same "unsubscribed" state.
 
 ## 5. Encryption at rest
+
+### Not personal data, and stored in clear on purpose
+
+The statistics receiver (ARCHITECTURE.md §8.43) keeps each reporting installation's **instance URL** and **installation id** as plain columns. Neither identifies a natural person: a scout unit is an association, the URL is already public, and the installation id is opaque random bytes derived from nothing about anyone. Both are needed in clear for the dashboard to filter, sort and search across installations — encrypting them would force either a blind index per searchable field or full-table decryption on every page load, buying nothing. The reports themselves carry no member data at all (§8.41), so there is nothing else in that table to protect.
 
 ### Personal data
 
@@ -65,7 +80,7 @@ All fields identifying a natural person are encrypted (AES-256-GCM) as BLOB:
 ### Implementation
 
 - `EncryptionService`: `encrypt()`, `decrypt()`, `blindIndex()`.
-- Two keys (`APP_ENCRYPTION_KEY`, `APP_BLIND_INDEX_KEY`), never in database, never committed.
+- Two keys (`APP_ENCRYPTION_KEY`, `APP_BLIND_INDEX_KEY`), never in database, never committed. Each is 32 random bytes. `secrets.enc` is JSON and cannot hold raw bytes, so the keys are stored base64-encoded and **decoded back to raw bytes** (`EncryptionService::fromEncodedKeys()`) before use — passing the 44-character base64 string straight to OpenSSL silently truncated it to a 24-byte (192-bit) effective key, so AES-256-GCM now genuinely runs at 256 bits.
 - Blind index (HMAC-SHA256) alongside encrypted email for exact-match lookup.
 - Only Repositories call `EncryptionService`.
 
@@ -79,7 +94,7 @@ All fields identifying a natural person are encrypted (AES-256-GCM) as BLOB:
 ### Secrets
 
 - `storage/keys/master.key`: `chmod 600`, generated via `random_bytes()`.
-- `storage/config/secrets.enc`: AES-256-GCM blob with DB + SMTP credentials, plus the GitHub webhook HMAC secret (`github_webhook_secret`) — generated via Configuration > Maintenance, shown to the admin exactly once, never stored in `settings`.
+- `storage/config/secrets.enc`: AES-256-GCM blob with DB + SMTP credentials, plus the GitHub webhook HMAC secret (`github_webhook_secret`) and the usage-statistics reporting secret (`statistics_secret`, ARCHITECTURE.md §8.41 — 32 random bytes hex, generated lazily on first use, sent only as an `Authorization: Bearer` header, never in a payload body, never in `settings`, never in the journal, never handed to a view). Both are generated once and never stored anywhere they could be read back through the UI.
 - Key and blob in separate directories.
 
 ## 6. File access
@@ -91,12 +106,14 @@ All fields identifying a natural person are encrypted (AES-256-GCM) as BLOB:
 - File links via `file_url($id)` — never direct paths.
 - Upload: true MIME check, random filename, EXIF stripped, size limit, non-executable directory.
 - Access denied: 403 + journal entry (security level).
+- **`phpinfo.html` inside the support package is generated as `phpinfo(INFO_ALL & ~INFO_VARIABLES & ~INFO_ENVIRONMENT)`, never anything wider.** `INFO_VARIABLES` prints `$_SERVER`, `$_ENV` and `$_COOKIE` — on this page, the still-valid session cookie of the superadmin who just triggered the generation, which is enough to become them. `INFO_ENVIRONMENT` is a **separate** flag printing the process environment, where a host's injected credentials (API tokens, proxy credentials, database passwords) live; excluding only `INFO_VARIABLES` leaves that section intact, which is why both are masked and why a test asserts it against a real `phpinfo()` run rather than trusting the constant's name. The rest of the output is deliberately **not** redacted — guessing which ini directive is sensitive would strip diagnostic value and still miss something — which is exactly why the Support page and the archive's own README both tell the administrator to check the contents before sending it.
+- **The diagnostic support package** (ARCHITECTURE.md §8.42) is treated as the most sensitive artefact this codebase produces on demand, because it deliberately contains `phpinfo()` output, server logs and filesystem diagnostics: written under `storage/core/support/`, **encrypted at rest** via `Core\File\EncryptedFileStorageService`, registered with `role_min: 'superadmin'`, and reachable only through `/files/{id}`. Exactly one is kept (generating replaces the previous file and its `FileRecord`) and a daily task deletes it seven days after generation, downloaded or not. It is **never transmitted automatically** — no email, no upload, no pre-filled `mailto:` with an attachment; an administrator sends it by hand or it goes nowhere. Every reason written into its `collection-status.json` is scrubbed of every known secret first, so a collector's exception quoting a credential cannot smuggle one into an archive destined for email.
 - Finance receipts go through `FileAccessGuard` like any other file. Every receipt is tied to an account at upload time (`finance_attachments.account_id`), and its underlying file's `role_min` is set to that account's own `role_min_view` — not the module's flat `"intendant"` `storage` declaration, which is only the fallback floor for a not-yet-account-scoped case. Whenever an account's `role_min_view` is changed, every existing receipt file tied to that account is updated to match (`ConfigAccountController::syncReceiptFilesRoleMin()`), so access stays in sync retroactively.
 
 ## 7. Content editing
 
 - Configuration mode: session-only, role re-verified on every save.
-- Rich text: sanitized with strict tag whitelist before storage.
+- Rich text: sanitized (`Core\Security\HtmlSanitizer`) with a strict tag allowlist before storage. URL-bearing attributes (`href`, and an `img`'s `src`) are checked against a **scheme allowlist** (`http`, `https`, `mailto`, `tel`, or no scheme) — never a blocklist, which always misses one (`vbscript:` survived the old `javascript:`/`data:` blocklist). Tab/CR/LF are stripped before the scheme is read so `java\tscript:` can't slip past. Comments, processing instructions and CDATA are removed rather than re-serialized. `<img>` is allowed (so the editor's image button works) with a tight attribute set and a scheme-checked `src`; the client-side twin (`news-form-builder.js`) mirrors the same allowlist.
 - Images: MIME validated, EXIF stripped, filename randomized.
 
 ## 8. Email
@@ -109,6 +126,10 @@ All fields identifying a natural person are encrypted (AES-256-GCM) as BLOB:
 ## 9. HTTP headers
 
 Every response: `Content-Security-Policy`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Strict-Transport-Security` (if HTTPS), `Referrer-Policy: strict-origin-when-cross-origin`.
+
+The fatal-error fallback page (`Core\Http\ErrorHandler`, §22) re-emits the same header set from its own hardcoded 500 response — an uncaught throwable must never be the one response that ships without them. The two other pages emitted outside the normal `Response` path do the same now: the 413 "payload too large" page and the pre-routing migration-progress page. The migration page carries an inline `<script>`, so it builds a per-render **nonce**-based CSP and tags the script with it, rather than shipping no CSP at all (which is the only reason that inline script used to run).
+
+Cross-origin `target="_blank"` links carry `rel="noopener"` (the sanitizer forces it on user content; templates set it directly).
 
 ## 10. Cookie consent
 
@@ -160,6 +181,10 @@ Every response: `Content-Security-Policy`, `X-Content-Type-Options: nosniff`, `X
 - A rejection never reveals which of the three barriers triggered — same generic French message regardless of reason, so a bot can never learn what defeated it. A rejection also never loses the visitor's input: the form is re-rendered with a fresh challenge, never a dead-end error page.
 - Every rejection is journaled as `human_check_failed` (`level: security`, context limited to which form was involved — no IP beyond the journal's own standard `ip_address` column, no honeypot content, nothing else that could identify the submitter).
 - A magic-link request (`POST /login/magic-link`) applies only the honeypot and minimum-delay barriers — `AuthService::requestMagicLink()` already rate-limits by email blind index (§8); a second, IP-scoped counter for the same abuse pattern would produce inconsistent thresholds. See `ARCHITECTURE.md` §8.31 for the full reasoning.
+- The "Mot de passe oublié" request (`POST /password-reset/request`) applies the **full** barrier set, including the per-IP rate limit. Unlike magic-link, its only downstream throttle is per-email — which a loop over random addresses never trips — and each accepted request pays a `password_hash()` and writes a token row before the account is even looked up, so an unthrottled endpoint is an unauthenticated bcrypt/row-growth sink. The per-IP barrier stops that enumeration loop at the front door; a tripped check returns the same generic success as everything else, so nothing about an address is revealed either way.
+- **A public form never becomes a content mail relay.** A confirmation email lands at a form-supplied `contact_email` and is sent From the unit, DKIM-signed with its real key — so echoing the submitter's own free-text answers back to that address would let an anonymous visitor deliver arbitrary text to an arbitrary third party, authenticated as the unit's domain. On an **anonymous** submission the answer echo is dropped: the confirmation carries only unit-generated content (the article title and a payment summary), never the attacker's text. An identified member's submission — traceable and rate-limited — still gets the full confirmation. Attacker-supplied free text is also kept out of `Subject` headers (a social-engineering surface).
+- **Self-service secondary email is bounded.** A member may hold at most a fixed number of self-added addresses, checked before any confirmation email is sent, so a loop over unique addresses can't become a mail-bomb; the address-domain check is a single best-effort DNS lookup (the previous retry-with-`usleep` loop that held a worker ~600ms on a junk domain — a request-amplification lever — is gone), and it runs only for a genuinely new, within-cap address so a capped member pays nothing.
+- **The public retro throttle keys on the client IP**, hashed (blind index) exactly as HumanCheck stores an IP — not on the anonymous cookie/session id, which the client picks and could discard to mint a fresh bucket and call the paid LLM "shorten" endpoint without limit.
 
 ## 17. Outbound HTTP requests to user-supplied URLs
 
@@ -175,6 +200,14 @@ Any feature that fetches a URL a member typed in — an album's external link, a
 - Every rejection reason — private address, bad port, embedded credentials, too many redirects, wrong content type, a genuine network failure — collapses to the same outward result (a generic "could not fetch" message, or a silent fallback to a plain link/no image). Nothing here is ever distinguishable from outside, and nothing here — resolved IP included — is ever written to `JournalService` or any log: that would itself be the kind of internal-network fingerprinting this section exists to prevent.
 - A failed or slow fetch never blocks the action that triggered it: an album still saves, a post still publishes — just without the cached title/description/image, or as a plain link.
 - Outbound fetches are throttled per member (same `identifier_hash`/short-lived-table/scheduled-purge shape as `retro_rate_limits`, §1) — a member spamming links cannot turn this into an SSRF probing tool or a way to hammer an arbitrary third party through the server.
+
+### Configured endpoints handed to a library HTTP client
+
+A second SSRF surface is a URL the user *configures* rather than one they ask the server to fetch on the spot: a Web Push subscription endpoint (any identified member), and — superadmin-only — an LLM API endpoint and an S3-compatible storage endpoint. These are POSTed/connected to server-side by a library client (WebPush, the AWS SDK), so a crafted value could target an internal service exactly as a scraped link could.
+
+- **`Core\Security\SsrfUrlValidator` is the single guard**, sharing the exact private-range/IP logic the scraper proved out (factored out so the two never drift). It enforces `https` only (no `http://`, which would also send S3 credentials in plaintext), no embedded credentials, and that **every** address the host resolves to is public (loopback, RFC1918/RFC4193, link-local incl. `169.254.169.254`, and multicast all refused, IPv4 and IPv6). It is applied before the endpoint is stored **and** re-checked on use, so a host that resolved public when saved but internal later (DNS rebinding) is still caught.
+- **The Web Push endpoint** is validated before it is ever stored, which also neutralises the delete-on-404/410 behaviour as a port/path oracle, and the push client carries a bounded connect/read timeout.
+- **What it does not do**: it validates the endpoint, it does not pin the resolved IP for the library client's own later connection — that residual DNS-rebinding window is why the check runs again at use time rather than only at save time. The LLM/S3 endpoints are superadmin-only, the highest-trust role.
 
 ## 18. Sending member-written text to an AI provider
 
@@ -198,3 +231,91 @@ A push notification is the one thing this site sends that renders **outside** it
 - **Never anything about who reported what.** The report notification names neither the reporter nor the reported text: a moderator opens the item to judge it, which is what the deep link is for, and the reporter is never revealed to anyone (§11's ids-only rule, applied to a second surface).
 - **A deep link is a real route, not a fragment.** `#post-123` is resolved by the browser and never reaches the server, so a forwarded notification link would render the page to somebody outside the group before failing to scroll. `GET /groups/{id}/posts/{postId}` re-checks membership — and the item's hidden state — before redirecting, and answers 404 (never 403, which would confirm the group exists) otherwise.
 - **A notification never blocks or reverses the action that triggered it.** Every dispatch is wrapped: a post that published perfectly well is not rolled back because a push could not be queued, and nothing about the message's text is logged when it fails.
+
+## 20. Self-update integrity
+
+The self-update path (`Core\Maintenance\Task\InstallUpdateHandler`) downloads an archive and unpacks it over the live PHP tree, so *where* it downloads from is as security-critical as any code in the repository. Two GitHub webhook events feed it — a published release and a dev-mode branch push (`Core\Maintenance\GitHubWebhookService`, §4's signed exception) — and both carry the download URL and the source repository as free-form JSON.
+
+- **The download URL must be a GitHub `https` URL.** `Core\Maintenance\GitHubUrlValidator` is the single allowlist: `https` scheme plus a host in a fixed set (`github.com`, `api.github.com`, `codeload.github.com`, `objects.githubusercontent.com`, `release-assets.githubusercontent.com`). It is checked in three places — before the URL is ever cached from a webhook payload (`processRelease()`), before the first byte is fetched (`download()`), and again on **every redirect hop**.
+- **Redirects are followed by hand, never delegated to the HTTP client** (`follow_location => 0`). A GitHub download legitimately redirects across GitHub's own hosts (`api.github.com` → `codeload`, `github.com/…/releases/download` → `objects.githubusercontent.com`), but a redirect to any other host aborts the download rather than being followed — the same posture as the SSRF scraper's per-hop revalidation (§17), under a low fixed hop cap.
+- **The webhook event must name the configured repository.** Both handlers gate on `isConfiguredRepository()` — `repository.full_name` compared case-insensitively to `update_github_owner`/`update_github_repo` — so a validly-signed event for an attacker-owned repository (whoever holds the webhook secret and can push to *some* repo) can never point the updater at that repo's code or zipball.
+- **A refused release never poisons the manual button.** `update_download_url` (read by the manual "Installer maintenant" action) is written only once a release is confirmed newer *and* its URL passes the allowlist — never straight from the payload, which previously let an ignored/older release overwrite it.
+- **What this does not close, and what would.** This authenticates the *source* of the artifact, not its *contents*: a compromise of the configured GitHub repository, or the webhook secret plus push access to it, still yields a trusted install. Fully closing that requires a **signed release** whose signature is verified before extraction — the remaining, larger piece of work, tracked as a known gap here rather than silently assumed away.
+
+## 21. Backup restoration safety
+
+An automatic rollback (and the manual "Restaurer" action) extracts a backup ZIP over the install tree, so a crafted archive is a code-execution vector if extraction is naive. Restore is `superadmin`-only, and the archive is validated entry-by-entry before a single file is written.
+
+- **Restore routes are `superadmin`, not `admin`.** `update/install`, `reset/settings`, `reset/full`, and `reset/restore` were raised to `role_min: superadmin` — an `admin` could otherwise reach a code-overwriting operation and effectively escalate past `superadmin`.
+- **Zip-slip and symlink-escape are rejected before extraction** (`Core\Maintenance\BackupService::assertArchiveEntriesAreSafe()`, run before `extractTo()`): absolute paths, Windows drive prefixes, any `..` segment, Unix symlink entries (detected from the entry's external attributes), and anything outside the fixed set of restorable top-level entries (`core`, `modules`, `public`, `storage`, and `database.sql`) all abort the restore.
+- **Zip-bomb guard.** The archive's total uncompressed size is capped, so a small malicious archive cannot exhaust the disk during extraction.
+
+## 22. Fatal-error handling
+
+`Core\Http\ErrorHandler` is registered as the process-wide exception, error, and shutdown handler (`public/index.php`), immediately after the autoloader and again once configuration is loaded so it is armed even for a failure during bootstrap itself.
+
+- **No stack trace or credential ever reaches the browser.** `display_errors` is forced off in production; an uncaught throwable or fatal produces a self-contained, hardcoded French 500 page that touches neither Twig nor the database (either of which may be the very thing that failed). The exception detail is written to the error log, never to the response — it is shown in the page only when the app is explicitly in debug mode, and HTML-escaped even then.
+- **The 500 page still carries the full security-header set** (§9) — an error response is not an excuse to drop `Content-Security-Policy` or `X-Frame-Options`.
+
+## 23. Spreadsheet export safety
+
+Values that originate from **unauthenticated public input** — public form answers (`modules/news`, `POST /news/{id}/form/submit` is `role_min: public`) and finance movement labels — are later written into XLSX exports an admin opens in Excel/LibreOffice. A leading `=`, `+`, `-`, or `@` in such a cell is interpreted as a formula (CSV/formula injection).
+
+- **Untrusted cells are written as explicit text**, never as general values: `setCellValueExplicit(..., DataType::TYPE_STRING)` for every attacker-influenceable string column, so a spreadsheet application never evaluates a submitted answer or label as a formula. Genuinely numeric columns (amounts) are written as `TYPE_NUMERIC`, and the one deliberate, code-controlled payment total remains a real formula built from constants — never from user input.
+
+## 24. Non-web entry points
+
+`public/cron.php` is the scheduler's command-line entry point (`ARCHITECTURE.md`'s poor-man's-cron). It runs privileged maintenance work with no session and no RBAC, so it must never be reachable over HTTP.
+
+- **CLI-only, enforced in code and in config.** The script's first executable statement refuses any non-CLI SAPI (`PHP_SAPI !== 'cli'` → `404` and exit), before the autoloader or the scheduler is ever touched. Defense in depth: `public/.htaccess` and the bootstrap-generated `.htaccess` (`bootstrap/bootstrap.php`) also `Require all denied` for `cron.php` on Apache — but the in-code guard is the authority, since `.htaccess` does not apply on nginx.
+- **The migration-step endpoint** (`POST /api/system/migration-step`) runs live DDL and is reachable before any session, CSRF token, or routing exists — for the whole upgrade window. It has no session-bound token to check, so it instead requires a custom request header (`X-ScoutMagic-Migration`) that only the update-progress page's own `fetch()` sets. A cross-site page cannot set a custom header on a simple request without a CORS preflight this endpoint never grants, so a forged cross-origin POST is refused — the same reasoning as a classic `X-Requested-With` guard, chosen because it needs no server-side state mid-migration.
+
+## 25. Image decode limits
+
+Decoding an image allocates roughly width×height×4 bytes regardless of how small the compressed file is, so a "decompression bomb" — e.g. a ~500 KB 40000×40000 PNG asking GD for ~6.4 GB — can OOM-kill the request (or the background photo task) before any downscaling runs. Reachable by any member who can upload.
+
+- **A pixel-dimension ceiling is checked before every decode** (`Core\Image\ImageDimensionGuard`, 50 megapixels): a cheap header-only read (`getimagesize`/`getimagesizefromstring`) rejects an oversized image up front, at every GD decode site — the generic `/upload` path, all core photo processors, the gallery photo task, and the finance receipt orientation step — never after allocating for it. The ceiling clears any real photo a phone or camera produces.
+- **The PDF rasterizer** (`Core\File\PdfRasterizer`, Imagick → Ghostscript) can't use `getimagesize`, so it caps Imagick's memory/disk/width/height resource limits before reading the page; an untrusted PDF that would rasterize to a huge canvas aborts into a graceful "no thumbnail" instead.
+- **The public PDF-thumbnail endpoint** (`GET /files/{id}/thumbnail`, `role_min: public`, gated per file by `FileAccessGuard`) caches the rendered JPEG on disk keyed by the immutable file id, so a repeated hit serves a static file instead of re-running Imagick/Ghostscript — closing the repeatable CPU/RSS sink. The cache is written **only for non-encrypted files**: caching an encrypted file's thumbnail as plaintext would defeat encryption-at-rest, and an encrypted file is never anonymously reachable (its `role_min` gates it to intendant+), so its render cost is bounded by authorised users. **Deploy note**: Imagick shells out to Ghostscript, which can't be passed `-dSAFER` from PHP the way `Core\Pdf\PdfCompressor` does — ship a restrictive ImageMagick `policy.xml` (deny the `PDF`/`PS`/`URL`/`MSL` coders beyond the intended read, cap resources) on the host so an unpatched Ghostscript isn't a `-dSAFER`-bypass surface.
+
+## Serving large files
+
+`Core\Http\Response` can stream its body from a file on disk (`setBodyFile()`, `readfile()` at send time) instead of holding it whole in memory. Without it, a large download had to be materialised as a PHP string first (a ~1 GB RSS spike for a gallery ZIP, up to a 2 GB video read into a string).
+
+- **Plain files stream.** `GET /files/{id}` for a non-encrypted file, and the no-`Range` gallery-media fallback for a local object, stream straight off disk; the finished gallery ZIP is streamed from its temp file (and the Response deletes it after sending) rather than read back into a string. `Range` requests for media were already served in capped 8 MB windows.
+- **Encrypted files can't stream, so they're capped.** An AES-256-GCM blob authenticates the whole file against one tag, so the plaintext must exist whole in memory at least once — there is no way to emit verified bytes incrementally without reframing the storage format. Instead the ciphertext size is checked up front and a file past a fixed ceiling is refused, bounding the memory one request can force. Real encrypted files (receipts, documents) are capped far lower at upload.
+
+## 26. Internal redirects only
+
+Several flows echo a `return`/`return_url` parameter or the `Referer` header back into a `Location:` redirect or an `href`. Left unvalidated, `//evil.example` turns that into an open redirect — a phishing primitive that borrows the unit's trusted domain.
+
+- **`Core\Http\SafeRedirect` is the single place that decides what counts as internal.** `internalPath()` accepts only an unambiguous same-site absolute path (a single leading `/`, no scheme/host, no scheme-relative `//` or backslash trick, no control characters) and collapses anything else to a safe fallback. `internalPathFromUrl()` reduces a possibly-absolute `Referer` to its own path so a cross-origin referer can at most redirect within our own site, never off it. Applied to `/upload`'s `return_url` (reflected into both an `href` and the post-upload redirect) and to `ConfigModeController`'s `Referer`-based redirects.
+
+## 27. Uploaded-file type detection
+
+- **The declared MIME type of an upload is never trusted.** The main path (`Core\File\UploadHandler`) reads the type from the file's real content (`finfo`) and validates it against a per-caller allowlist. The secondary upload handlers (section documents, finance receipts and movements) do the same and, on a detection failure, resolve to a non-allowlisted sentinel — never the client-declared `$_FILES['type']`, which is attacker-controlled and would otherwise be stored in `files.mime_type` and reflected as the response `Content-Type`, bypassing the allowlist.
+
+## 28. HTML built in client-side scripts
+
+A few list pages build table rows in an inline `<script>` and interpolate values into attributes (`alt`/`title`/`data-*`). A `textContent`→`innerHTML` escaper handles `& < >` but **not** quotes, so a value containing `"` could break out of a double-quoted attribute and smuggle further attributes (script execution stays blocked by the nonce CSP, but `style=` injection does not). The escapers that feed an attribute context (finance receipts, mass-mail lists) escape quotes explicitly, so a filename, description, or LLM-extracted date can no longer break out. Server-side, this is a non-issue: Twig autoescapes every template value.
+
+## 29. Request-body size limits (chunked uploads)
+
+`.user.ini` limits are per-directory and every route runs through `public/index.php`, so `post_max_size` is **document-root-wide**: a ceiling big enough for a 2 GB gallery video also applied to `/login`, `/password-reset` and `/inscriptions` — and PHP buffers a urlencoded body into **memory** before application code runs, which made the global ceiling an anonymous memory-DoS budget.
+
+- **The global limits are small** (`public/.user.ini`: `upload_max_filesize 32M`, `post_max_size 48M`), sized for the largest remaining single-POST consumer (section documents, 20M) plus multipart overhead. `tests/Security/PostSizeLimitAuditTest` pins them so they can't creep back up.
+- **The two large consumers upload in ~8 MB chunks** through their normal, RBAC/CSRF-guarded routes (no new entry point, no second bootstrap of session/auth): gallery media (`POST /gallery/{id}/media` with an `upload_id`) and the backup-restore archive (`POST /config/maintenance/restore-upload-chunk`, superadmin). `assets/js/chunked-upload.js` slices client-side; `Core\File\ChunkedUploadStore` reassembles server-side.
+- **The store trusts nothing from the client.** The on-disk name is `sha256(session_id : upload_id)` — the client-chosen id can never be a path and one session can never touch another's partial. Chunks append strictly in sequence under an exclusive lock (a duplicate or out-of-order chunk gets a 409 carrying the real size, so a client can resume). The assembled size is capped **while it grows** against the caller's own ceiling — withholding the "last" flag doesn't buy unbounded disk — and authorisation/CSRF are re-checked on every chunk, so an unauthorised caller can't consume temp space either. Abandoned partials are purged after 24 h.
+- **The finished file goes through the exact same validation as a single-POST upload** (real-MIME allowlist, per-type size ceiling, `Core\File\UploadHandler`): chunking changes how bytes arrive, never what is accepted.
+- The no-JS fallback for the restore form still works as a classic multipart POST for archives up to the global limit; larger archives need the JS chunked path.
+
+## 30. Deferred hardening (known, tracked)
+
+The following audit items are understood and intentionally deferred: each is either an architectural change, a UX-changing product decision, or a broad cryptographic change that cannot be safely validated without integration testing against live features (calendar-feed consumption, the two hosting layouts). They are documented here so they are tracked, not forgotten, with the recommended approach for each.
+
+- **Long-lived bearer tokens stored in plaintext** — calendar ICS feed tokens (`calendar_personal_tokens`, `calendar_unit_feed_token`, per-calendar `calendars` tokens) and retro board tokens (`retro_boards.token`). They are 256-bit random, but stored and looked up in clear, unlike every other bearer credential (magic link, password reset, email confirmation, unsubscribe) which is hashed at rest. These tokens live in a URL the user copies **repeatedly** (an ICS feed added to a calendar app; a board share link), so a plain hash — retrievable only once — would break that. Recommended fix: **encrypt at rest** (`EncryptionService`) plus a **blind index** for lookup, exactly as member emails are handled — the URL stays displayable, the DB never holds plaintext. Deferred because it spans four token types, their schema and repositories, and can't be integration-tested here against live feed consumption.
+- **Magic-link and email-confirmation tokens travel in the query string** (`AuthService`, `MemberEmailService`), unlike the password-reset token which rides in the URL **fragment** (never sent to the server, so it stays out of access/proxy logs and `Referer`). Recommended fix: move both to the `/{id}#{token}` shape the reset flow already uses, with the page's own JS lifting the token from `location.hash`.
+- **No AAD / context binding on `encrypt()`, no domain separation on `blindIndex()`.** An attacker with DB **write** could relocate a ciphertext between rows/columns; with DB **read**, the same value is linkable across tables. `HumanCheckService` already prefixes its blind-index inputs, so the technique is in the codebase — it is just not applied consistently. Recommended fix: pass per-field AAD (table+column+row id) to `openssl_encrypt`/`decrypt`, and prefix every `blindIndex()` input with a per-purpose label. Broad (every encryption call site); a from-scratch reinstall would absorb it without a migration.
+- **Two mutating `GET` endpoints** (email confirmations) can be auto-triggered by a mail scanner or link prefetcher. `UnsubscribeController` already handles this correctly (a `GET` confirmation page, a `POST` to act); the two email-confirmation endpoints should adopt the same shape.
+- **CSRF token rotation on login/logout.** `CsrfGuard::generateToken()` reuses an existing session token, so a token minted for an anonymous visitor carries across the login boundary. Impact is low — `session_regenerate_id(true)` already changes the session id on login, and `use_strict_mode` + `SameSite=Lax` cover the fixation vector, so the token value alone (without the victim's post-login session cookie) is not usable — which is why this is deferred rather than shipped: clearing the token on `AuthSession::login()` is correct for the real flow but collides with the large body of controller tests that use `login()` as a session-setup shim after preparing a CSRF token. Recommended fix pairs the rotation with a test-helper change that mints the token after the session is established.
+- **`style-src 'unsafe-inline'`** is currently load-bearing — roughly thirty templates set computed inline geometry (progress bars, chart widths) via `style="…"`. It is what turns an attribute-injection bug into "attacker controls CSS on that element", so it is worth removing eventually (nonce or hashed styles, or moving geometry to CSS custom properties), but not without reworking those templates. The attribute-injection bugs it would amplify are themselves closed (§28, §7).

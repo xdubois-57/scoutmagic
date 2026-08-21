@@ -88,7 +88,7 @@
                         {% if row.can_delete %}
                             <li>
                                 <form method="post" action="/groups/{{ group.id }}/posts/{{ row.post.id }}/delete"
-                                      data-confirm="Supprimer définitivement ce message ?">
+                                      class="groups-post-delete-form" data-confirm="Supprimer définitivement ce message ?">
                                     {{ csrf_field()|raw }}
                                     <button type="submit" class="dropdown-item text-danger d-flex align-items-center" style="min-height:44px;">
                                         Supprimer
@@ -111,6 +111,7 @@
         {% include '@groups/partials/reactions.html.twig' with {
             summary: row.reactions,
             action: '/groups/' ~ group.id ~ '/posts/' ~ row.post.id ~ '/react',
+            reactors_url: '/groups/' ~ group.id ~ '/posts/' ~ row.post.id ~ '/reactions',
             compact: false
         } only %}
 
@@ -173,6 +174,9 @@
                     </button>
                 </div>
                 <p class="small text-body-secondary mt-1 mb-0 d-none groups-reply-image-name"></p>
+                {# Filled in by groups.js on a refused/failed dynamic submit —
+                   see #groups-post-error's own comment in show.html.twig. #}
+                <p class="small text-danger mt-1 mb-0 d-none groups-reply-error" role="alert"></p>
             </form>
         {% endif %}
     </div>

@@ -441,8 +441,19 @@ class InstallUpdateHandler implements TaskHandlerInterface
      */
     private const DOWNLOAD_RETRY_WINDOW_SECONDS = 60;
 
+    /** GitHub download URLs redirect across a couple of its own hosts; a
+     * legitimate chain is short, so cap it low and re-validate each hop. */
+    private const MAX_DOWNLOAD_REDIRECTS = 5;
+
     private function download(string $url, string $destPath): void
     {
+        // The artifact is unpacked over the live PHP tree, so it must come
+        // from GitHub over https and nowhere else — refuse before the first
+        // byte is fetched (see Core\Maintenance\GitHubUrlValidator).
+        if (!\Core\Maintenance\GitHubUrlValidator::isAllowed($url)) {
+            throw new UpdateException('URL de mise à jour refusée : la source doit être GitHub (https).');
+        }
+
         $deadline = microtime(true) + self::DOWNLOAD_RETRY_WINDOW_SECONDS;
         $lastError = 'raison inconnue';
 
@@ -470,40 +481,83 @@ class InstallUpdateHandler implements TaskHandlerInterface
      */
     private function attemptDownload(string $url, string $destPath): array
     {
-        $context = stream_context_create([
-            'http' => [
-                'method' => 'GET',
-                'header' => "User-Agent: ScoutMagic-Updater\r\n",
-                'timeout' => 300,
-                'follow_location' => 1,
-                'ignore_errors' => true,
-            ],
-        ]);
+        // Redirects are followed by hand (follow_location => 0) so every hop
+        // is re-checked against the GitHub allowlist. A GitHub download
+        // legitimately redirects (api.github.com → codeload, github.com →
+        // objects.githubusercontent.com), but a redirect to any other host
+        // must abort the download rather than be followed blindly.
+        $currentUrl = $url;
 
-        // file_get_contents() rather than copy(): both reach the same
-        // stream wrapper, but $http_response_header is only reliably
-        // populated after the former — same convention as Core\Maintenance\
-        // GitHubReleaseClient::httpGet(), including checking $body === false
-        // and returning before ever touching $http_response_header: when
-        // the connection itself never gets a response at all (DNS failure,
-        // connection refused), PHP never assigns that variable, and reading
-        // it in that branch would be genuinely undefined.
-        $body = @file_get_contents($url, false, $context);
-        if ($body === false) {
-            return [false, null, 'connexion impossible'];
+        for ($hop = 0; $hop <= self::MAX_DOWNLOAD_REDIRECTS; $hop++) {
+            if (!\Core\Maintenance\GitHubUrlValidator::isAllowed($currentUrl)) {
+                return [false, null, 'redirection hors GitHub refusée'];
+            }
+
+            $context = stream_context_create([
+                'http' => [
+                    'method' => 'GET',
+                    'header' => "User-Agent: ScoutMagic-Updater\r\n",
+                    'timeout' => 300,
+                    'follow_location' => 0,
+                    'ignore_errors' => true,
+                ],
+            ]);
+
+            // file_get_contents() rather than copy(): both reach the same
+            // stream wrapper, but $http_response_header is only reliably
+            // populated after the former — same convention as Core\Maintenance\
+            // GitHubReleaseClient::httpGet().
+            $body = @file_get_contents($currentUrl, false, $context);
+            if ($body === false) {
+                return [false, null, 'connexion impossible'];
+            }
+
+            $statusCode = $this->parseHttpStatus($http_response_header);
+
+            if ($statusCode !== null && $statusCode >= 300 && $statusCode < 400) {
+                $location = $this->parseLocationHeader($http_response_header);
+                if ($location === null) {
+                    return [false, $statusCode, "redirection {$statusCode} sans destination"];
+                }
+                $currentUrl = $location;
+                continue;
+            }
+
+            if ($statusCode !== null && $statusCode >= 400) {
+                return [false, $statusCode, "HTTP {$statusCode}"];
+            }
+
+            if (@file_put_contents($destPath, $body) === false || !is_file($destPath) || filesize($destPath) === 0) {
+                @unlink($destPath);
+                return [false, $statusCode, 'écriture du fichier temporaire impossible'];
+            }
+
+            return [true, $statusCode, ''];
         }
 
-        $statusCode = $this->parseHttpStatus($http_response_header);
-        if ($statusCode !== null && $statusCode >= 400) {
-            return [false, $statusCode, "HTTP {$statusCode}"];
+        return [false, null, 'trop de redirections'];
+    }
+
+    /**
+     * The Location header of the last response, or null. Case-insensitive,
+     * last-wins (a later header of the same name supersedes an earlier one).
+     *
+     * @param string[]|null $headers
+     */
+    private function parseLocationHeader(?array $headers): ?string
+    {
+        if ($headers === null) {
+            return null;
         }
 
-        if (@file_put_contents($destPath, $body) === false || !is_file($destPath) || filesize($destPath) === 0) {
-            @unlink($destPath);
-            return [false, $statusCode, 'écriture du fichier temporaire impossible'];
+        $location = null;
+        foreach ($headers as $header) {
+            if (preg_match('/^location:\s*(.+)$/i', trim($header), $m) === 1) {
+                $location = trim($m[1]);
+            }
         }
 
-        return [true, $statusCode, ''];
+        return $location;
     }
 
     private function isTransientDownloadFailure(?int $statusCode): bool

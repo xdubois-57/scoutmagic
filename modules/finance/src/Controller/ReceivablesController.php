@@ -11,6 +11,8 @@ namespace Modules\Finance\Controller;
 use Core\Http\Controller\AbstractController;
 use Core\Http\Request;
 use Core\Http\Response;
+use Core\Security\AuthSession;
+use Core\Security\Role;
 use Modules\Finance\Service\ReceivablesOverviewService;
 use Twig\Environment;
 
@@ -33,7 +35,10 @@ class ReceivablesController extends AbstractController
     public function index(Request $request, array $params): Response
     {
         return $this->render('@finance/receivables.html.twig', [
-            'overview' => $this->overviewService->buildOverview(),
+            // role_min: intendant only proves the caller may open the page —
+            // which accounts' receivables they may actually see is a
+            // per-account decision (role_min_view), made in the service.
+            'overview' => $this->overviewService->buildOverview(Role::fromString(AuthSession::getRole())),
             'focus_source' => (string) $request->getQuery('source', ''),
             'focus_id' => (int) $request->getQuery('id', 0),
         ]);

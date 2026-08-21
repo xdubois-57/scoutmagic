@@ -11,6 +11,7 @@ namespace Core\Http\Controller;
 use Core\Http\FlashMessage;
 use Core\Http\Request;
 use Core\Http\Response;
+use Core\Http\SafeRedirect;
 use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\View\ConfigurationMode;
@@ -36,7 +37,9 @@ class ConfigModeController extends AbstractController
             FlashMessage::set('error', 'Vous n\'avez pas les permissions nécessaires.');
         }
 
-        $referer = $request->getReferer() ?? '/';
+        // The Referer is untrusted — reduce it to a same-site path so it can
+        // never redirect off-site (audit M17).
+        $referer = SafeRedirect::internalPathFromUrl($request->getReferer() ?? '/');
 
         return $this->redirect($referer);
     }
@@ -56,7 +59,9 @@ class ConfigModeController extends AbstractController
         ConfigurationMode::deactivate();
         FlashMessage::set('success', 'Mode configuration désactivé.');
 
-        $referer = $request->getReferer() ?? '/';
+        // The Referer is untrusted — reduce it to a same-site path so it can
+        // never redirect off-site (audit M17).
+        $referer = SafeRedirect::internalPathFromUrl($request->getReferer() ?? '/');
 
         return $this->redirect($referer);
     }

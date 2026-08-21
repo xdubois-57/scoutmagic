@@ -1,0 +1,131 @@
+{% extends 'base.html.twig' %}
+{% block title %}Membres par section — {{ site_name }}{% endblock %}
+
+{% block content %}
+    {% set movement_bg_classes = {
+        'new': 'bg-success-subtle',
+        'section_change': 'bg-info-subtle',
+        'branch_change': 'bg-warning-subtle',
+        'returning': 'bg-primary-subtle',
+        'neutral': '',
+    } %}
+    {% set movement_badge_classes = {
+        'new': 'bg-success-subtle text-success-emphasis',
+        'section_change': 'bg-info-subtle text-info-emphasis',
+        'branch_change': 'bg-warning-subtle text-warning-emphasis',
+        'returning': 'bg-primary-subtle text-primary-emphasis',
+        'neutral': 'bg-secondary-subtle text-secondary-emphasis',
+    } %}
+
+    <h1 class="mb-1">Membres par section</h1>
+    <p class="text-body-secondary small mb-3">Année scoute {{ scout_year_label }}</p>
+
+    {% if picker_sections|length > 1 %}
+        {% include 'partials/section_picker.html.twig' with {
+            sections: picker_sections,
+            selected_id: selected_id,
+            base_url: '/chefs/membres?section='
+        } %}
+    {% endif %}
+
+    <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="collapse" data-bs-target="#movement-legend" aria-expanded="false" aria-controls="movement-legend">
+            <i class="bi bi-info-circle" aria-hidden="true"></i> Légende des situations
+        </button>
+        <a href="{{ export_url }}" class="btn btn-sm btn-primary">
+            <i class="bi bi-file-earmark-excel" aria-hidden="true"></i> Exporter en Excel
+        </a>
+    </div>
+
+    <div id="movement-legend" class="collapse mb-4">
+        <div class="card card-body small">
+            <p class="mb-2 fw-semibold">Situation d'un membre par rapport à l'année scoute précédente :</p>
+            <ul class="list-unstyled mb-0 d-flex flex-column gap-1">
+                {% for status in movement_statuses %}
+                    <li class="d-flex align-items-start gap-2">
+                        <span class="badge {{ movement_badge_classes[status.tone] }} flex-shrink-0">{{ status.label }}</span>
+                        <span class="text-body-secondary">{{ status.description }}</span>
+                    </li>
+                {% endfor %}
+            </ul>
+            <p class="text-body-secondary mt-2 mb-0">Aucun badge : continuité normale dans la même section, ou historique insuffisant pour se prononcer.</p>
+        </div>
+    </div>
+
+    {% if section_blocks is empty %}
+        <p class="text-body-secondary">Aucune section disponible. Les sections apparaîtront après le premier import Desk.</p>
+    {% endif %}
+
+    {% for block in section_blocks %}
+        <section class="mb-5">
+            <div class="d-flex align-items-center gap-2 mb-3">
+                {% if block.section.color %}
+                    <span class="d-inline-block rounded-circle flex-shrink-0"
+                          style="width:0.9rem;height:0.9rem;background-color:{{ block.section.color }};"
+                          aria-hidden="true"></span>
+                {% endif %}
+                <h2 class="h5 mb-0">{{ block.section.name ?? block.section.desk_code }}</h2>
+                <span class="text-body-secondary small">{{ block.section.branch_name }}</span>
+            </div>
+
+            {% for group in [
+                { key: 'animateurs', label: 'Animateurs', rows: block.animateurs },
+                { key: 'intendants', label: 'Intendants', rows: block.intendants },
+                { key: 'animes', label: 'Animés', rows: block.animes },
+            ] %}
+                <h3 class="h6 text-uppercase text-body-secondary mt-3 mb-2">{{ group.label }}</h3>
+                {% if group.rows|length > 0 %}
+                    <div class="table-responsive">
+                        <table class="table table-sm align-middle">
+                            <caption class="visually-hidden">{{ group.label }} de la section {{ block.section.name ?? block.section.desk_code }}</caption>
+                            <thead>
+                                <tr>
+                                    <th scope="col">Membre</th>
+                                    <th scope="col">Coordonnées</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for member in group.rows %}
+                                    <tr class="{{ movement_bg_classes[member.movement.status.tone] }}">
+                                        <td>
+                                            <div class="d-flex flex-wrap align-items-center gap-2">
+                                                {% if can_view_member_link %}
+                                                    <a href="/members/{{ member.memberYearId }}" style="min-height:44px;display:inline-flex;align-items:center;">
+                                                        {{ member.lastName|normalize_name }}, {{ member.firstName|normalize_name }}{% if member.totem %} · {{ member.totem|normalize_totem }}{% endif %}
+                                                    </a>
+                                                {% else %}
+                                                    <span>{{ member.lastName|normalize_name }}, {{ member.firstName|normalize_name }}{% if member.totem %} · {{ member.totem|normalize_totem }}{% endif %}</span>
+                                                {% endif %}
+                                                {% if member.movement.status.isNotable %}
+                                                    <span class="badge {{ movement_badge_classes[member.movement.status.tone] }}">{{ member.movement.status.label }}</span>
+                                                {% endif %}
+                                            </div>
+                                            <div class="text-body-secondary small">{{ member.functionLabel }}</div>
+                                        </td>
+                                        <td class="small">
+                                            {% if member.emails|length > 0 %}
+                                                {% for email in member.emails %}
+                                                    <div><i class="bi bi-envelope text-body-secondary" aria-hidden="true"></i> <a href="mailto:{{ email }}">{{ email }}</a></div>
+                                                {% endfor %}
+                                            {% endif %}
+                                            {% if member.phones|length > 0 %}
+                                                {% for phone in member.phones %}
+                                                    <div><i class="bi bi-telephone text-body-secondary" aria-hidden="true"></i> <span class="visually-hidden">{{ phone.label }} :</span> <a href="tel:{{ phone.value }}">{{ phone.value }}</a></div>
+                                                {% endfor %}
+                                            {% endif %}
+                                            {% if member.emails|length == 0 and member.phones|length == 0 %}
+                                                <span class="text-body-secondary">Aucune coordonnée</span>
+                                            {% endif %}
+                                        </td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <p class="text-body-secondary fst-italic small">Aucun membre dans cette catégorie.</p>
+                {% endif %}
+            {% endfor %}
+        </section>
+    {% endfor %}
+{% endblock %}

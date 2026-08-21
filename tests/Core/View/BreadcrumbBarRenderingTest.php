@@ -28,8 +28,16 @@ class BreadcrumbBarRenderingTest extends TestCase
      *   partial matches a parent label against menu.label to decide whether it can
      *   render as a button opening that menu (by id), never a link to a specific page.
      */
-    private function render(?array $routeBreadcrumb, string $currentPath = '/some-page', ?string $breadcrumbCurrent = null, array $menus = []): string
-    {
+    /**
+     * @param ?array<int, array{label: string, url: string}> $breadcrumbTrail
+     */
+    private function render(
+        ?array $routeBreadcrumb,
+        string $currentPath = '/some-page',
+        ?string $breadcrumbCurrent = null,
+        array $menus = [],
+        ?array $breadcrumbTrail = null
+    ): string {
         $context = [
             'route_breadcrumb' => $routeBreadcrumb,
             'current_path' => $currentPath,
@@ -37,6 +45,9 @@ class BreadcrumbBarRenderingTest extends TestCase
         ];
         if ($breadcrumbCurrent !== null) {
             $context['breadcrumb_current'] = $breadcrumbCurrent;
+        }
+        if ($breadcrumbTrail !== null) {
+            $context['breadcrumb_trail'] = $breadcrumbTrail;
         }
 
         return $this->twig->render('partials/breadcrumb_bar.html.twig', $context);
@@ -213,6 +224,42 @@ class BreadcrumbBarRenderingTest extends TestCase
         $html = $this->twig->render('partials/breadcrumb_bar.html.twig');
 
         $this->assertStringContainsString('bi-house-door', $html);
+    }
+
+    /**
+     * `breadcrumb_trail` renders as a real link — deliberately different
+     * from `parents`, which never does (see the partial's own docblock
+     * for why: a trail entry names a specific, unambiguous ancestor page
+     * within the same controller's page family, not a menu category).
+     */
+    public function testBreadcrumbTrailEntriesRenderAsRealLinksBeforeTheCurrentPage(): void
+    {
+        $html = $this->render(
+            ['label' => 'Membres', 'parents' => ['Espace animés']],
+            '/groups/5/members',
+            null,
+            [],
+            [['label' => 'Groupes', 'url' => '/groups'], ['label' => 'Louveteaux', 'url' => '/groups/5']]
+        );
+
+        $this->assertMatchesRegularExpression(
+            '/<li class="breadcrumb-item text-truncate">\s*<a href="\/groups" class="text-decoration-none">Groupes<\/a>\s*<\/li>/',
+            $html
+        );
+        $this->assertMatchesRegularExpression(
+            '/<li class="breadcrumb-item text-truncate">\s*<a href="\/groups\/5" class="text-decoration-none">Louveteaux<\/a>\s*<\/li>/',
+            $html
+        );
+        $this->assertMatchesRegularExpression('/aria-current="page">\s*Membres\s*<\/li>/', $html);
+    }
+
+    public function testAbsentBreadcrumbTrailRendersNothingExtra(): void
+    {
+        $html = $this->render(['label' => 'Staffs', 'parents' => ['Espace chefs']], '/chefs/staffs');
+
+        // Home icon + the one plain-text parent + the active current page
+        // — no extra <li> for a trail that was never passed.
+        $this->assertSame(3, substr_count($html, '<li class="breadcrumb-item'));
     }
 
     public function testMultipleParentsEachBecomeTheirOwnButtonWithTheCorrectMenuId(): void

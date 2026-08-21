@@ -70,6 +70,73 @@ class PasswordResetControllerTest extends TestCase
         $this->assertSame(403, $response->getStatusCode());
     }
 
+    private function withHumanCheck(int $minDelaySeconds = 0): \Core\Security\HumanCheck\HumanCheckService
+    {
+        $settings = new \Core\Config\SettingService(new \Core\Config\SettingRepository($this->pdo));
+        $settings->register('human_check_min_delay_seconds', (string) $minDelaySeconds, 'number', 'D', 'D');
+        $settings->register('human_check_form_validity_seconds', '3600', 'number', 'D', 'D');
+        $humanCheck = new \Core\Security\HumanCheck\HumanCheckService(
+            $this->encryption,
+            new \Core\Security\HumanCheck\HumanCheckRateLimitRepository($this->pdo),
+            $settings,
+            new \Core\Journal\JournalService(new \Core\Journal\JournalRepository($this->pdo))
+        );
+        $this->controller->setHumanCheck($humanCheck);
+
+        return $humanCheck;
+    }
+
+    private function resetTokenCount(): int
+    {
+        return (int) $this->pdo->query('SELECT COUNT(*) FROM password_reset_tokens')->fetchColumn();
+    }
+
+    public function testRequestWithFilledHoneypotDoesNoWorkButStillReturnsGenericSuccess(): void
+    {
+        $humanCheck = $this->withHumanCheck();
+        $challenge = $humanCheck->generateChallenge(PasswordResetController::HUMAN_CHECK_FORM_KEY);
+        $token = CsrfGuard::generateToken();
+
+        // A bot fills the honeypot trap field. The response must still be the
+        // indistinguishable "success", but no bcrypt hash / token row is paid
+        // (audit M3).
+        $request = new Request('POST', '/password-reset/request', [], [
+            'email' => 'someone@test.com',
+            '_csrf_token' => $token,
+            'human_check_token' => $challenge->tokenValue,
+            $challenge->trapField => 'i-am-a-bot',
+        ], [], ['REMOTE_ADDR' => '203.0.113.7']);
+
+        $response = $this->controller->request($request, []);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertTrue(json_decode($response->getBody(), true)['success']);
+        $this->assertSame(0, $this->resetTokenCount(), 'a honeypot-tripped request must never create a reset token');
+    }
+
+    public function testRequestThatPassesTheHumanCheckProceeds(): void
+    {
+        $humanCheck = $this->withHumanCheck();
+        $challenge = $humanCheck->generateChallenge(PasswordResetController::HUMAN_CHECK_FORM_KEY);
+        $token = CsrfGuard::generateToken();
+
+        // Empty honeypot, valid token — the request is accepted and (per the
+        // anti-enumeration contract) a token row is created even for an
+        // unknown address.
+        $request = new Request('POST', '/password-reset/request', [], [
+            'email' => 'unknown@test.com',
+            '_csrf_token' => $token,
+            'human_check_token' => $challenge->tokenValue,
+            $challenge->trapField => '',
+        ], [], ['REMOTE_ADDR' => '203.0.113.8']);
+
+        $response = $this->controller->request($request, []);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertTrue(json_decode($response->getBody(), true)['success']);
+        $this->assertSame(1, $this->resetTokenCount());
+    }
+
     public function testRequestAlwaysReturnsSuccessRegardlessOfEmailExistence(): void
     {
         $token = CsrfGuard::generateToken();

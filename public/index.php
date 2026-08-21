@@ -4,6 +4,13 @@ declare(strict_types=1);
 
 $composerAutoloader = require_once __DIR__ . '/../vendor/autoload.php';
 
+// Arm the last-resort error handler before anything else runs — including
+// the config load and the database connect, both of which can throw and
+// would otherwise print a stack trace (with the DB password in a PDO frame)
+// on a host with display_errors on. Re-armed with the real debug flag once
+// AppConfig is available (see below).
+\Core\Http\ErrorHandler::register(false);
+
 // Self-healing safety net for the "Update from GitHub" auto-update path
 // (Core\Maintenance\Task\InstallUpdateHandler), which copies tracked
 // repository files over the live install but never runs `composer
@@ -64,6 +71,7 @@ use Core\Http\Controller\ScheduledActionsController;
 use Core\Http\Controller\ScoutYearController;
 use Core\Http\Controller\SettingsController;
 use Core\Http\Controller\SetupController;
+use Core\Http\Controller\SupportController;
 use Core\Http\Controller\ShortUrlController;
 use Core\Http\Controller\StaffsController;
 use Core\Http\Controller\UploadController;
@@ -138,6 +146,7 @@ use Core\View\TwigFactory;
 
 // Load configuration
 $config = new AppConfig(__DIR__ . '/../config/app.php');
+\Core\Http\ErrorHandler::register($config->isDebug());
 
 // Generate per-request CSP nonce
 $cspNonce = base64_encode(random_bytes(16));
@@ -171,6 +180,13 @@ $request = Request::fromGlobals();
 // token" error further down the request lifecycle.
 if (Request::isPostTooLarge()) {
     http_response_code(413);
+    // Emit the same security header set as every routed response — an error
+    // page is not an excuse to drop CSP/X-Frame-Options/nosniff (audit
+    // hardening). This page has no inline script; its inline style attribute
+    // is covered by the CSP's style-src 'unsafe-inline'.
+    foreach ((new \Core\Http\Response(''))->getSecurityHeaders() as $hName => $hValue) {
+        header("{$hName}: {$hValue}");
+    }
     header('Content-Type: text/html; charset=utf-8');
     echo '<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><title>Fichier trop volumineux</title></head>'
         . '<body style="font-family:sans-serif;max-width:640px;margin:4rem auto;padding:0 1rem;">'
@@ -269,9 +285,9 @@ $connection = new Connection(
     $secrets['db_password'] ?? ''
 );
 
-$encryptionService = new EncryptionService(
-    $secrets['encryption_key'] ?? '',
-    $secrets['blind_index_key'] ?? ''
+$encryptionService = EncryptionService::fromEncodedKeys(
+    (string) ($secrets['encryption_key'] ?? ''),
+    (string) ($secrets['blind_index_key'] ?? '')
 );
 
 // Release the session file lock before the heavy work (database
@@ -345,6 +361,22 @@ if ($migrationIsPending) {
     $migrationStepPath = '/api/system/migration-step';
 
     if ($request->getMethod() === 'POST' && $request->getPath() === $migrationStepPath) {
+        // This endpoint runs live DDL and is reachable before any session,
+        // CSRF token or routing exists (for the whole upgrade window), so it
+        // has no session-bound CSRF token to check. Require instead a custom
+        // request header that only the progress page's own fetch() below sets
+        // (audit M12): a cross-site page cannot set a custom header on a
+        // simple request without a CORS preflight this endpoint never grants,
+        // so a forged cross-origin POST is refused here. Same technique as a
+        // classic X-Requested-With guard; it stops the browser-driven CSRF
+        // vector without needing any server-side state mid-migration.
+        if ($request->getServer('HTTP_X_SCOUTMAGIC_MIGRATION', '') !== '1') {
+            http_response_code(403);
+            header('Content-Type: application/json; charset=utf-8');
+            echo json_encode(['error' => 'forbidden']);
+            exit;
+        }
+
         // Short, foreground-safe time budget: this endpoint is called
         // repeatedly in a fast loop by the progress page below, not once
         // per page load, so each call must return quickly rather than
@@ -380,8 +412,16 @@ if ($migrationIsPending) {
     // persists progress after every unit of work, so the next visit (from
     // anyone) resumes exactly where this one left off instead of
     // restarting.
+    // Emit the full security header set even for this pre-routing page (audit
+    // hardening). It carries an inline <script>, so build a nonce-based CSP
+    // and tag the script with it — the previous version shipped no CSP at all,
+    // which is the only reason that inline script ran.
+    $migrationNonce = base64_encode(random_bytes(16));
+    foreach ((new \Core\Http\Response(''))->setCspNonce($migrationNonce)->getSecurityHeaders() as $hName => $hValue) {
+        header("{$hName}: {$hValue}");
+    }
     header('Content-Type: text/html; charset=utf-8');
-    echo <<<'HTML'
+    echo str_replace('__CSP_NONCE__', $migrationNonce, <<<'HTML'
 <!DOCTYPE html>
 <html lang="fr">
 <head>
@@ -402,13 +442,13 @@ if ($migrationIsPending) {
 <p>Merci de patienter, cette page se rechargera automatiquement une fois la mise à jour terminée. Vous pouvez aussi fermer cet onglet : la mise à jour reprendra à l'endroit où elle s'est arrêtée lors de votre prochaine visite.</p>
 <div class="bar-track"><div class="bar-fill" id="bar"></div></div>
 <p class="hint" id="hint">Démarrage…</p>
-<script>
+<script nonce="__CSP_NONCE__">
 (function () {
   var bar = document.getElementById('bar');
   var hint = document.getElementById('hint');
 
   function step() {
-    fetch('/api/system/migration-step', { method: 'POST' })
+    fetch('/api/system/migration-step', { method: 'POST', headers: { 'X-ScoutMagic-Migration': '1' } })
       .then(function (response) { return response.json(); })
       .then(function (data) {
         var percent = Math.round((data.progress || 0) * 100);
@@ -430,7 +470,7 @@ if ($migrationIsPending) {
 </script>
 </body>
 </html>
-HTML;
+HTML);
     exit;
 }
 
@@ -637,6 +677,53 @@ $settingService->register('human_check_rate_limit_max_attempts', '5', 'number', 
     'Nombre maximum de soumissions de formulaires publics autorisées pour une même adresse IP dans la fenêtre de limitation, au-delà duquel les soumissions suivantes sont rejetées.',
     null, '^\d+$', null, true, 273);
 
+// Usage statistics and support package (Core\Statistics, Core\Support —
+// ARCHITECTURE.md §8.41/§8.42). All five are deliberately kept out of the
+// generic Configuration > Paramètres page (Core\Http\Controller\
+// SettingsController::EXCLUDED_FROM_GENERIC_PAGE, same treatment as the
+// auto-update settings) — they are managed from the dedicated Support
+// page, which pairs the switch with the plain-language explanation of what
+// leaves the site, something a plain editable row cannot carry.
+$settingService->register('statistics_enabled', '1', 'boolean', 'Envoi automatique des statistiques d\'utilisation',
+    'Autorise l\'envoi quotidien d\'un rapport d\'utilisation agrégé vers ScoutMagic. Le rapport contient l\'adresse de ce site, jamais de donnée de membre. Géré depuis la page Support.',
+    null, null, null, true, 280);
+$settingService->register('statistics_destination', 'https://www.scoutmagic.be', 'url', 'Destination des statistiques',
+    'Adresse du site qui reçoit les rapports d\'utilisation. À ne modifier que pour pointer vers une autre installation ScoutMagic réceptrice.',
+    null, null, null, true, 281);
+$settingService->register('statistics_installation_id', '', 'text', 'Identifiant de cette installation',
+    'Identifiant aléatoire attribué une seule fois à cette installation pour reconnaître ses rapports d\'utilisation. Il ne dérive d\'aucune donnée personnelle.',
+    null, null, null, false, 282);
+$settingService->register('support_email', 'support@scoutmagic.be', 'email', 'Adresse du support ScoutMagic',
+    'Adresse à laquelle envoyer une archive de support. Affichée sur la page Support.',
+    null, null, null, false, 283);
+// Send-state bookkeeping, written by the daily task and shown read-only on
+// the Support page. The failure reason is a short, redacted code — never a
+// raw server response and never the authentication secret.
+$settingService->register('statistics_last_success_at', '', 'text', 'Dernier envoi de statistiques réussi',
+    'Horodatage du dernier rapport d\'utilisation transmis avec succès. Renseigné automatiquement.',
+    null, null, null, false, 285);
+$settingService->register('statistics_last_failure_at', '', 'text', 'Dernier échec d\'envoi de statistiques',
+    'Horodatage de la dernière tentative d\'envoi ayant échoué ou ayant été sautée. Renseigné automatiquement.',
+    null, null, null, false, 286);
+$settingService->register('statistics_last_failure_reason', '', 'text', 'Motif du dernier échec d\'envoi',
+    'Motif court du dernier échec ou saut d\'envoi des statistiques. Renseigné automatiquement.',
+    null, null, null, false, 287);
+// Support package bookkeeping (Core\Support, ARCHITECTURE.md §8.42) — one
+// package is ever kept, so two settings replace what would be a one-row table.
+$settingService->register('support_package_file_id', '', 'text', 'Paquet de support disponible',
+    'Identifiant du fichier de l\'archive de support actuellement conservée. Renseigné automatiquement.',
+    null, null, null, false, 288);
+$settingService->register('support_package_generated_at', '', 'text', 'Date de génération du paquet de support',
+    'Horodatage de génération de l\'archive de support conservée, utilisé pour sa purge automatique. Renseigné automatiquement.',
+    null, null, null, false, 289);
+// `installed_at` declares itself (Core\Statistics\InstallationDateService::
+// register()) because SetupController writes it before this file has ever
+// run — see that method's own comment. Backfilled here once for every
+// installation that predates the setting; strictly idempotent, it only
+// ever writes while the value is still empty.
+\Core\Statistics\InstallationDateService::register($settingService);
+(new \Core\Statistics\InstallationDateService($settingService, $pdo))->ensureRecorded();
+
 // Migrate non-secret settings from secrets.enc to settings table (one-time)
 if ($settingService->get('settings_migrated') !== '1') {
     $settingService->register('settings_migrated', '0', 'boolean', 'Migration effectuée',
@@ -752,11 +839,18 @@ $vapidSubject = $vapidSubjectEmail !== '' ? 'mailto:' . $vapidSubjectEmail : (st
 // invalid config — belt-and-braces so push notifications being broken
 // can never take the entire site down again, whatever the cause.
 try {
-    $webPush = new WebPush(['VAPID' => [
-        'subject' => $vapidSubject,
-        'publicKey' => (string) ($secrets['vapid_public_key'] ?? ''),
-        'privateKey' => (string) ($secrets['vapid_private_key'] ?? ''),
-    ]]);
+    $webPush = new WebPush(
+        ['VAPID' => [
+            'subject' => $vapidSubject,
+            'publicKey' => (string) ($secrets['vapid_public_key'] ?? ''),
+            'privateKey' => (string) ($secrets['vapid_private_key'] ?? ''),
+        ]],
+        [],
+        // Bound the outbound push request (audit M4): a slow or unreachable
+        // endpoint must not hold a request/worker open indefinitely. WebPush
+        // takes timeouts on the PSR-18 client instance, not in its options.
+        new \GuzzleHttp\Client(['connect_timeout' => 5, 'timeout' => 10])
+    );
 } catch (\Throwable $e) {
     $webPush = null;
     $journalService->log(
@@ -902,6 +996,18 @@ $memberEmailService = new \Core\Member\MemberEmailService(
 // Scout year resolution (public / staff / session-preview priority)
 $scoutYearResolver = new ScoutYearResolver($scoutYearService, $settingService, $memberYearRepo);
 $scoutYearAdminService = new ScoutYearAdminService($settingService);
+
+// "Membres par section" (core, role_min intendant) — read-only roster of
+// every section's animateurs/intendants/animés, with a generic
+// year-over-year movement classification (Core\Member\Movement, reusable
+// beyond this one page) and an exhaustive, role-gated Excel export
+// (Core\Member\Export, also reusable beyond this one page).
+$memberMovementRepository = new \Core\Member\Movement\MemberMovementRepository($pdo);
+$memberMovementClassifier = new \Core\Member\Movement\MemberMovementClassifierService($memberMovementRepository, $scoutYearService);
+$sectionRosterRepository = new \Core\Member\SectionRosterRepository($pdo);
+$sectionRosterService = new \Core\Member\SectionRosterService($sectionRosterRepository, $encryptionService, $memberEmailRepository, $memberMovementClassifier);
+$memberExportRowBuilder = new \Core\Member\Export\MemberExportRowBuilder($sectionRosterRepository, $sectionService, $scoutYearService, $encryptionService, $memberEmailRepository, $memberMovementClassifier);
+$memberExportService = new \Core\Member\Export\MemberExportService();
 
 // Create file services
 $storagePath = dirname(__DIR__) . '/storage';
@@ -1096,6 +1202,7 @@ $menuBuilder->addPage(MenuBuilder::MENU_NOTRE_UNITE, 'Contact', '/contact', 'pub
 $menuBuilder->addPage(MenuBuilder::MENU_NOTRE_UNITE, 'Sections', '/sections', 'public', 30);
 $menuBuilder->addPage(MenuBuilder::MENU_NOTRE_UNITE, 'Protection des données', '/rgpd', 'public', 40);
 $menuBuilder->addPage(MenuBuilder::MENU_ESPACE_CHEFS, 'Staffs', '/chefs/staffs', 'intendant', 10);
+$menuBuilder->addPage(MenuBuilder::MENU_ESPACE_CHEFS, 'Membres par section', '/chefs/membres', 'intendant', 11);
 // Configuration générale — shrunk to just the configuration-mode toggle,
 // moved here from the Configuration menu and widened from superadmin to
 // admin (see /config-mode/activate|deactivate's own role_min and
@@ -1119,6 +1226,7 @@ $menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'RGPD', '/config/rgpd', '
 $menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Actions planifiées', '/config/scheduled', 'superadmin', 40);
 $menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Maintenance', '/config/maintenance', 'admin', 45);
 $menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Notifications', '/config/notifications', 'superadmin', 46);
+$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Support', '/config/support', 'superadmin', 47);
 // order 10, not a leftover "after the separator" number — GROUP_CORE
 // (addPage()'s default) already sorts this after the dynamic member
 // entries/empty-state placeholder above regardless of the numeric order,
@@ -1137,6 +1245,15 @@ $offlineWhitelist = new OfflineWhitelist();
 // Create ModuleManager (modules loaded after core routes are registered)
 $modulesDir = __DIR__ . '/../modules';
 $moduleRegistryRepo = new ModuleRegistryRepository($pdo);
+// Is THIS installation the statistics receiver (ARCHITECTURE.md §8.43)?
+// Decided from base_url vs. statistics_destination, never from the Host
+// header, and resolved here so ModuleManager receives a plain boolean
+// rather than learning what a statistics destination is.
+$isStatisticsReceiver = \Core\Statistics\DestinationMatcher::isReceiver(
+    (string) ($settingService->get('base_url') ?? ''),
+    (string) ($settingService->get('statistics_destination') ?? '')
+);
+
 $moduleManager = new ModuleManager(
     $modulesDir,
     $settingService,
@@ -1147,7 +1264,26 @@ $moduleManager = new ModuleManager(
     $journalService,
     $router,
     $notificationService,
-    $offlineWhitelist
+    $offlineWhitelist,
+    $isStatisticsReceiver
+);
+
+// Usage statistics (Core\Statistics, ARCHITECTURE.md §8.41). Built here
+// because the payload needs the ModuleManager above (module list and
+// versions) and the MailService built earlier (transport mode, and whether
+// mail is configured — never the credentials themselves).
+$installationIdentityService = new \Core\Statistics\InstallationIdentityService(
+    $settingService,
+    $secretManager,
+    $journalService
+);
+$statisticsPayloadBuilder = new \Core\Statistics\StatisticsPayloadBuilder(
+    $settingService,
+    $pdo,
+    $installationIdentityService,
+    dirname(__DIR__),
+    $moduleManager,
+    $mailService
 );
 
 // Set up SchedulerRunner with ModuleManager and the context task handlers run
@@ -1165,19 +1301,12 @@ $schedulerRunner->setTaskContext(new TaskContext(
     $notificationService
 ));
 
-// Core (not module) scheduled task handlers — registered directly since
-// module.json's scheduled_tasks mechanism only applies to module handlers.
-$schedulerRunner->registerHandler('core', 'create_backup', new \Core\Maintenance\Task\CreateBackupHandler());
-$schedulerRunner->registerHandler('core', 'install_update', new \Core\Maintenance\Task\InstallUpdateHandler());
-$schedulerRunner->registerHandler('core', 'reset_settings', new \Core\Maintenance\Task\ResetSettingsHandler());
-$schedulerRunner->registerHandler('core', 'full_reset', new \Core\Maintenance\Task\FullResetHandler());
-$schedulerRunner->registerHandler('core', 'restore_backup', new \Core\Maintenance\Task\RestoreBackupHandler());
-$schedulerRunner->registerHandler('core', 'auto_backup', new \Core\Maintenance\Task\AutoBackupHandler());
-$schedulerRunner->registerHandler('core', 'check_stable_update', new \Core\Maintenance\Task\CheckStableUpdateHandler());
-$schedulerRunner->registerHandler('core', 'compress_section_document', new \Core\Member\Task\CompressSectionDocumentHandler());
-$schedulerRunner->registerHandler('core', 'send_notifications', new \Core\Notification\Task\SendNotificationsHandler());
-$schedulerRunner->registerHandler('core', 'purge_notifications', new \Core\Notification\Task\PurgeNotificationsHandler());
-$schedulerRunner->registerHandler('core', 'purge_human_check_rate_limits', new \Core\Security\HumanCheck\Task\PurgeHumanCheckRateLimitsHandler());
+// Core (not module) scheduled task handlers. Declared once in
+// Core\Scheduler\CoreTaskHandlers and registered identically here and in
+// public/cron.php — hand-maintaining two lists is exactly how create_backup
+// once ended up missing from cron.php, silently failing every background
+// backup under a real crontab (§8.17).
+\Core\Scheduler\CoreTaskHandlers::registerAll($schedulerRunner);
 
 // Bootstrap the recurring automatic backup — Task\AutoBackupHandler
 // re-schedules itself at the end of every run (same pattern as
@@ -1206,6 +1335,23 @@ if ($schedulerService->find('core', 'check_stable_update', 'daily') === null) {
 // HumanCheck\Task\PurgeHumanCheckRateLimitsHandler).
 if ($schedulerService->find('core', 'purge_human_check_rate_limits', \Core\Security\HumanCheck\Task\PurgeHumanCheckRateLimitsHandler::REFERENCE) === null) {
     $schedulerService->schedule('core', 'purge_human_check_rate_limits', new DateTimeImmutable(), [], \Core\Security\HumanCheck\Task\PurgeHumanCheckRateLimitsHandler::REFERENCE);
+}
+
+// Same bootstrap for the daily usage-statistics report (Core\Statistics\
+// Task\SendStatisticsHandler). The very first occurrence runs immediately;
+// every guard it can trip (reporting disabled, non-public host, this site
+// IS the receiver) is checked inside the handler, so seeding it here costs
+// nothing on an installation that will never actually report.
+if ($schedulerService->find('core', \Core\Statistics\Task\SendStatisticsHandler::TASK_KEY, \Core\Statistics\Task\SendStatisticsHandler::REFERENCE) === null) {
+    $schedulerService->schedule('core', \Core\Statistics\Task\SendStatisticsHandler::TASK_KEY, new DateTimeImmutable(), [], \Core\Statistics\Task\SendStatisticsHandler::REFERENCE);
+}
+
+// Same bootstrap for the support-package retention purge (Core\Support\
+// Task\PurgeSupportPackagesHandler) — the archive is the most sensitive
+// artefact this codebase produces on demand, so the purge must be running
+// from the first boot, not from the first generation.
+if ($schedulerService->find('core', \Core\Support\Task\PurgeSupportPackagesHandler::TASK_KEY, \Core\Support\Task\PurgeSupportPackagesHandler::REFERENCE) === null) {
+    $schedulerService->schedule('core', \Core\Support\Task\PurgeSupportPackagesHandler::TASK_KEY, new DateTimeImmutable(), [], \Core\Support\Task\PurgeSupportPackagesHandler::REFERENCE);
 }
 
 // Add dynamic member entries to Espace animés — group: GROUP_DYNAMIC keeps
@@ -1412,6 +1558,12 @@ $router->addRoute('POST', '/config/settings/update', SettingsController::class, 
 $router->addRoute('POST', '/config/settings/logo-delete', SettingsController::class, 'deleteLogo', 'superadmin');
 $router->addRoute('POST', '/config/settings/logo-notify-ios', SettingsController::class, 'notifyIosLogoUpdate', 'superadmin');
 
+// Support (Core\Statistics, Core\Support — ARCHITECTURE.md §8.41/§8.42)
+$router->addRoute('GET', '/config/support', SupportController::class, 'index', 'superadmin', ['label' => 'Support', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]]);
+$router->addRoute('POST', '/config/support/statistics', SupportController::class, 'saveStatistics', 'superadmin');
+$router->addRoute('POST', '/config/support/package', SupportController::class, 'generatePackage', 'superadmin');
+$router->addRoute('GET', '/api/support/package-status/{id}', SupportController::class, 'packageStatus', 'superadmin');
+
 // Scheduled actions
 $router->addRoute('GET', '/config/scheduled', ScheduledActionsController::class, 'index', 'superadmin', ['label' => 'Actions planifiées', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]]);
 $router->addRoute('GET', '/config/maintenance', MaintenanceController::class, 'index', 'admin', ['label' => 'Maintenance', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]]);
@@ -1419,12 +1571,13 @@ $router->addRoute('POST', '/config/maintenance/backup/database', MaintenanceCont
 $router->addRoute('POST', '/config/maintenance/backup/full', MaintenanceController::class, 'createFullBackup', 'admin');
 $router->addRoute('POST', '/config/maintenance/backup/auto-frequency', MaintenanceController::class, 'updateAutoBackupFrequency', 'admin');
 $router->addRoute('GET', '/api/maintenance/backup-status/{id}', MaintenanceController::class, 'backupStatus', 'admin');
-$router->addRoute('POST', '/config/maintenance/update/install', MaintenanceController::class, 'installUpdate', 'admin');
+$router->addRoute('POST', '/config/maintenance/update/install', MaintenanceController::class, 'installUpdate', 'superadmin');
 $router->addRoute('POST', '/config/maintenance/update/check-now', MaintenanceController::class, 'checkForUpdatesNow', 'admin');
 $router->addRoute('GET', '/api/maintenance/update-status/{id}', MaintenanceController::class, 'updateStatus', 'admin');
-$router->addRoute('POST', '/config/maintenance/reset/settings', MaintenanceController::class, 'resetSettings', 'admin');
-$router->addRoute('POST', '/config/maintenance/reset/full', MaintenanceController::class, 'fullReset', 'admin');
-$router->addRoute('POST', '/config/maintenance/reset/restore', MaintenanceController::class, 'restoreBackup', 'admin');
+$router->addRoute('POST', '/config/maintenance/reset/settings', MaintenanceController::class, 'resetSettings', 'superadmin');
+$router->addRoute('POST', '/config/maintenance/reset/full', MaintenanceController::class, 'fullReset', 'superadmin');
+$router->addRoute('POST', '/config/maintenance/reset/restore', MaintenanceController::class, 'restoreBackup', 'superadmin');
+$router->addRoute('POST', '/config/maintenance/restore-upload-chunk', MaintenanceController::class, 'restoreUploadChunk', 'superadmin');
 $router->addRoute('GET', '/api/maintenance/reset-status/{id}', MaintenanceController::class, 'resetStatus', 'admin');
 $router->addRoute('POST', '/config/maintenance/auto-update/save', MaintenanceController::class, 'saveAutoUpdatePreferences', 'admin');
 $router->addRoute('POST', '/api/maintenance/webhook-secret', MaintenanceController::class, 'generateWebhookSecret', 'admin');
@@ -1464,6 +1617,8 @@ $router->addRoute('POST', '/config/rgpd/reset', RgpdConfigController::class, 're
 // Staffs
 $router->addRoute('GET', '/chefs/staffs', StaffsController::class, 'index', 'intendant', ['label' => 'Staffs', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_CHEFS)]]);
 $router->addRoute('POST', '/chefs/staffs/badge-toggle', StaffsController::class, 'toggleBadge', 'chief');
+$router->addRoute('GET', '/chefs/membres', \Core\Http\Controller\SectionRosterController::class, 'index', 'intendant', ['label' => 'Membres par section', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_CHEFS)]]);
+$router->addRoute('GET', '/chefs/membres/export', \Core\Http\Controller\SectionRosterController::class, 'export', 'intendant');
 $router->addRoute('POST', '/chefs/staffs/documents', \Core\Http\Controller\SectionDocumentController::class, 'add', 'chief');
 $router->addRoute('POST', '/chefs/staffs/documents/reorder', \Core\Http\Controller\SectionDocumentController::class, 'reorder', 'chief');
 $router->addRoute('POST', '/chefs/staffs/documents/delete', \Core\Http\Controller\SectionDocumentController::class, 'delete', 'chief');
@@ -1648,7 +1803,9 @@ $githubWebhookService = new \Core\Maintenance\GitHubWebhookService(
 $frontController->registerController(\Core\Http\Controller\WebhookController::class, new \Core\Http\Controller\WebhookController(
     $twig, $githubWebhookService, $secretManager, $journalService
 ));
-$frontController->registerController(PasswordResetController::class, new PasswordResetController($twig, $passwordResetService));
+$passwordResetController = new PasswordResetController($twig, $passwordResetService);
+$passwordResetController->setHumanCheck($humanCheckService);
+$frontController->registerController(PasswordResetController::class, $passwordResetController);
 $frontController->registerController(ShortUrlController::class, new ShortUrlController($twig, $shortUrlService));
 $frontController->registerController(ImportController::class, new ImportController($twig, $importService, $scoutYearResolver, $importJournalRepo, $functionRepo, $storagePath, $registrationReconciliation ?? null));
 $frontController->registerController(MemberController::class, new MemberController($twig, $memberService, $memberYearService, $journalService, $memberPageService, $departureService));
@@ -1657,6 +1814,9 @@ $frontController->registerController(
     new \Core\Http\Controller\MemberEmailAddressController($twig, $memberEmailService, $memberService)
 );
 $frontController->registerController(StaffsController::class, new StaffsController($twig, $sectionService, $memberService, $scoutYearResolver, $journalService, $badgeService, $unitStaffSectionService, $sectionDocumentService, $settingService));
+$frontController->registerController(\Core\Http\Controller\SectionRosterController::class, new \Core\Http\Controller\SectionRosterController(
+    $twig, $sectionService, $sectionRosterService, $memberExportRowBuilder, $memberExportService, $scoutYearResolver, $journalService
+));
 $frontController->registerController(\Core\Http\Controller\SectionDocumentController::class, new \Core\Http\Controller\SectionDocumentController($twig, $sectionDocumentService));
 $frontController->registerController(ConfigModeController::class, new ConfigModeController($twig));
 $editableContentController = new EditableContentController($twig, $editableContentService);
@@ -1682,6 +1842,13 @@ $frontController->registerController(JournalController::class, new JournalContro
 $frontController->registerController(ScoutYearController::class, new ScoutYearController($twig, $scoutYearResolver, $scoutYearAdminService, $scoutYearService, $journalService));
 $frontController->registerController(MemberSearchController::class, new MemberSearchController($twig, $memberSearchService, $memberService, $scoutYearResolver, $memberYearService, $departureService));
 $frontController->registerController(SettingsController::class, new SettingsController($twig, $settingService, $journalService, $unitLogoService, $notificationService, $userAccountRepo));
+$frontController->registerController(SupportController::class, new SupportController(
+    $twig,
+    $settingService,
+    $journalService,
+    $statisticsPayloadBuilder,
+    $schedulerService
+));
 $frontController->registerController(ScheduledActionsController::class, new ScheduledActionsController($twig, $schedulerRepo));
 $frontController->registerController(ConfigGeneralController::class, new ConfigGeneralController($twig));
 $frontController->registerController(ConfigModulesController::class, new ConfigModulesController($twig, $moduleManager, $journalService));
@@ -2015,7 +2182,7 @@ if (in_array('finance', $moduleManager->getEnabledModuleIds(), true)) {
     $financeSepaQrCodeForOthers = new \Modules\Finance\Service\SepaQrCodeService();
     $financeAccountForOthers = new \Modules\Finance\Service\FinanceAccountService($financeAccountRepo);
 
-    $financeReceivablesOverviewService = new \Modules\Finance\Service\ReceivablesOverviewService($financeExpectedReceivableRepo, $financeExpectedReceivableForOthers);
+    $financeReceivablesOverviewService = new \Modules\Finance\Service\ReceivablesOverviewService($financeExpectedReceivableRepo, $financeExpectedReceivableForOthers, $financeAccountRepo);
     $frontController->registerController(
         \Modules\Finance\Controller\ReceivablesController::class,
         new \Modules\Finance\Controller\ReceivablesController($twig, $financeReceivablesOverviewService)
@@ -2194,7 +2361,8 @@ if (in_array('gallery', $moduleManager->getEnabledModuleIds(), true)) {
         \Modules\Gallery\Controller\GalleryChiefController::class,
         new \Modules\Gallery\Controller\GalleryChiefController(
             $twig, $galleryAlbumService, $galleryMediaService, $galleryMediaRepo, $galleryAccessService,
-            $sectionService, $settingService, $galleryStorageLocationRepo, $galleryStorageLocationService
+            $sectionService, $settingService, $galleryStorageLocationRepo, $galleryStorageLocationService,
+            new \Core\File\ChunkedUploadStore($storagePath)
         )
     );
     $frontController->registerController(
@@ -2288,6 +2456,14 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
         \Modules\Groups\Repository\ReactionRepository::forReplies($pdo),
         $groupsActivityService
     );
+    // "Who reacted, and with what" — the dialog behind a reaction tally's
+    // own click. A separate, read-only service from $groupsReactionService
+    // above (Service\ReactorListService's own docblock explains why).
+    $groupsReactorListService = new \Modules\Groups\Service\ReactorListService(
+        \Modules\Groups\Repository\ReactionRepository::forPosts($pdo),
+        \Modules\Groups\Repository\ReactionRepository::forReplies($pdo),
+        $memberService
+    );
     $groupsAuthorResolver = new \Modules\Groups\Service\PostAuthorResolver($memberService, $userAccountRepo);
     // One group per visible, active section per scout year (prompt 11).
     // Injected into the list controller so the page itself heals a
@@ -2297,6 +2473,11 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
     // Desk import.
     $groupsSectionGroupSync = new \Modules\Groups\Service\SectionGroupSyncService(
         $sectionService, $groupsGroupRepo, $groupsSectionRepo
+    );
+
+    // Leaving, reopening and the creation quota (prompt 12).
+    $groupsMembershipService = new \Modules\Groups\Service\GroupMembershipService(
+        $groupsGroupRepo, $groupsMemberRepo, $settingService, $journalService
     );
 
     // Notifications (prompt 10). The recipient resolver reads membership
@@ -2377,7 +2558,8 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
         new \Modules\Groups\Controller\GroupController(
             $twig, $groupsGroupRepo, $groupsListService, $groupsAccessService, $groupsService,
             $groupsContextFactory, $sectionService, $groupsFeedService, $groupsPostMediaService,
-            $groupsAuthorOptionsService, $groupsPostRepo, $groupsSectionGroupSync
+            $groupsAuthorOptionsService, $groupsPostRepo, $groupsSectionGroupSync, $groupsMembershipService,
+            $settingService
         )
     );
     $frontController->registerController(
@@ -2401,23 +2583,61 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
         \Modules\Groups\Controller\ReactionController::class,
         new \Modules\Groups\Controller\ReactionController(
             $twig, $groupsGroupRepo, $groupsPostRepo, $groupsReplyRepo, $groupsAccessService,
-            $groupsReactionService, $groupsContextFactory, $groupsNotificationService
+            $groupsReactionService, $groupsContextFactory, $groupsNotificationService,
+            $groupsReactorListService
         )
     );
     $frontController->registerController(
         \Modules\Groups\Controller\ReportController::class,
         new \Modules\Groups\Controller\ReportController(
             $twig, $groupsGroupRepo, $groupsPostRepo, $groupsReplyRepo, $groupsAccessService,
-            $groupsReportService, $groupsContextFactory, $groupsNotificationService
+            $groupsReportService, $groupsContextFactory, $groupsNotificationService,
+            $groupsRecipientResolver
         )
     );
     $frontController->registerController(
         \Modules\Groups\Controller\GroupMemberController::class,
         new \Modules\Groups\Controller\GroupMemberController(
             $twig, $groupsGroupRepo, $groupsMemberRepo, $groupsSectionRepo, $groupsAccessService,
-            $groupsService, $groupsContextFactory, $memberService, $sectionService
+            $groupsService, $groupsContextFactory, $memberService, $sectionService,
+            $groupsMembershipService
         )
     );
+}
+
+// Modules\SupportDashboard — the statistics receiver (ARCHITECTURE.md
+// §8.43). Only ever discovered on the receiving installation, so this block
+// is dead code everywhere else by construction.
+if (in_array('support_dashboard', $moduleManager->getEnabledModuleIds(), true)) {
+    $supportInstallationRepo = new \Modules\SupportDashboard\Repository\SupportInstallationRepository($pdo);
+    $supportRateLimitRepo = new \Modules\SupportDashboard\Repository\SupportReportRateLimitRepository($pdo);
+
+    $frontController->registerController(
+        \Modules\SupportDashboard\Controller\SupportDashboardController::class,
+        new \Modules\SupportDashboard\Controller\SupportDashboardController(
+            $twig,
+            new \Modules\SupportDashboard\Service\SupportDashboardService($supportInstallationRepo)
+        )
+    );
+
+    $frontController->registerController(
+        \Modules\SupportDashboard\Controller\StatisticsIntakeController::class,
+        new \Modules\SupportDashboard\Controller\StatisticsIntakeController(
+            $twig,
+            new \Modules\SupportDashboard\Service\StatisticsIntakeService(
+                $supportInstallationRepo,
+                $supportRateLimitRepo,
+                $encryptionService,
+                $journalService
+            )
+        )
+    );
+
+    // Rate-limit rows are written on every accepted report and only ever
+    // read for the last hour — without this the table grows forever.
+    if ($schedulerService->find('support_dashboard', \Modules\SupportDashboard\Task\PurgeRateLimitsHandler::TASK_KEY, \Modules\SupportDashboard\Task\PurgeRateLimitsHandler::REFERENCE) === null) {
+        $schedulerService->schedule('support_dashboard', \Modules\SupportDashboard\Task\PurgeRateLimitsHandler::TASK_KEY, new DateTimeImmutable(), [], \Modules\SupportDashboard\Task\PurgeRateLimitsHandler::REFERENCE);
+    }
 }
 
 if (in_array('retro', $moduleManager->getEnabledModuleIds(), true)) {
@@ -2847,14 +3067,24 @@ if (isset($galleryAlbumService, $galleryMediaService, $galleryMediaRepo, $galler
 // RGPD configuration controller
 $frontController->registerController(RgpdConfigController::class, new RgpdConfigController($twig, $editableContentService, $rgpdContentService, $settingService, $moduleManager, $journalService));
 
-// Bypass RBAC for /setup routes when site is not initialized or explicitly allowed
-$allowSetup = (bool) $config->get('allow_setup', false);
-if (!$secretManager->isInitialized() || $allowSetup) {
+// Bypass RBAC for /setup routes ONLY while the site has no secrets yet —
+// i.e. the first-run installer, where there is no database, no account and
+// therefore nobody who could hold a role. Once initialized, every /setup
+// route is reachable by its own role_min (superadmin) like any other, so a
+// bypass here would not enable anything legitimate: it would only strip
+// authentication off the installer, whose GET leaks db/smtp/admin settings
+// and whose POST /setup/save rewrites database credentials and the admin
+// email. The previous `allow_setup` config escape hatch did exactly that on
+// a live site — an anonymous visitor could read /setup for a CSRF token and
+// then re-point the install at their own database — so it is deliberately
+// gone rather than merely defaulted to false.
+if (!$secretManager->isInitialized()) {
     $frontController->setRbacBypassPrefix('/setup');
 }
 
 \Core\Debug\RequestTimeline::mark('services_ready');
-$response = $frontController->handle($request);
+/** @var \Core\Http\Response $response */
+$response = \Core\Http\ErrorHandler::guard(static fn() => $frontController->handle($request));
 \Core\Debug\RequestTimeline::mark('controller_dispatch_done');
 $response->setCspNonce($cspNonce);
 

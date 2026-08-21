@@ -46,7 +46,7 @@
                 </div>
 
                 <div>
-                    <label class="form-label small fw-semibold d-block">Découverte du lien</label>
+                    <div class="form-label small fw-semibold d-block">Découverte du lien</div>
                     <div class="form-check form-check-inline">
                         <input class="form-check-input" type="radio" name="listed" id="retro-listed-yes" value="1"
                                {{ (board is null or board.listed) ? 'checked' : '' }}>
@@ -61,7 +61,7 @@
                 </div>
 
                 <div>
-                    <label class="form-label small fw-semibold d-block">Mode de vote</label>
+                    <div class="form-label small fw-semibold d-block">Mode de vote</div>
                     <div class="form-check form-check-inline">
                         <input class="form-check-input" type="radio" name="vote_mode" id="retro-vote-unlimited" value="unlimited"
                                {{ (board is null or board.voteMode == 'unlimited') ? 'checked' : '' }} data-vote-mode>
@@ -81,7 +81,7 @@
                 </div>
 
                 <div>
-                    <label class="form-label small fw-semibold d-block">Visibilité des votes</label>
+                    <div class="form-label small fw-semibold d-block">Visibilité des votes</div>
                     <div class="form-check form-check-inline">
                         <input class="form-check-input" type="radio" name="votes_visible" id="retro-votes-on" value="1"
                                {{ (board is null or board.votesVisible) ? 'checked' : '' }}>
@@ -96,7 +96,7 @@
                 </div>
 
                 <div>
-                    <label class="form-label small fw-semibold d-block">Anti-doublon des votes</label>
+                    <div class="form-label small fw-semibold d-block">Anti-doublon des votes</div>
                     <div class="form-check form-check-inline">
                         <input class="form-check-input" type="radio" name="anti_duplicate_mode" id="retro-dup-cookie" value="cookie"
                                {{ (board is null or board.antiDuplicateMode == 'cookie') ? 'checked' : '' }}>
@@ -120,8 +120,8 @@
                 </div>
 
                 <div>
-                    <label class="form-label small fw-semibold d-block">Clôture automatique</label>
-                    <select class="form-select" name="auto_close_delay" style="max-width: 12rem;">
+                    <label class="form-label small fw-semibold d-block" for="retro-auto-close-delay">Clôture automatique</label>
+                    <select class="form-select" id="retro-auto-close-delay" name="auto_close_delay" style="max-width: 12rem;">
                         {% for delay, label in {'none': 'Aucune', '2h': '2 heures', '24h': '24 heures', '3d': '3 jours', '7d': '7 jours'} %}
                             <option value="{{ delay }}" {{ (board ? board.autoCloseDelay : '7d') == delay ? 'selected' : '' }}>{{ label }}</option>
                         {% endfor %}

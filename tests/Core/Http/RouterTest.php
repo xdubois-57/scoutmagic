@@ -15,7 +15,7 @@ class RouterTest extends TestCase
     public function testExactPathMatchResolvesCorrectly(): void
     {
         $router = new Router();
-        $router->addRoute('GET', '/home', 'App\\Controller\\HomeController', 'index');
+        $router->addRoute('GET', '/home', 'App\\Controller\\HomeController', 'index', 'public');
 
         $request = new Request('GET', '/home', [], [], [], []);
         $resolved = $router->resolve($request);
@@ -29,7 +29,7 @@ class RouterTest extends TestCase
     public function testPathWithParameterExtractsTheParameter(): void
     {
         $router = new Router();
-        $router->addRoute('GET', '/members/{id}', 'App\\Controller\\MemberController', 'show');
+        $router->addRoute('GET', '/members/{id}', 'App\\Controller\\MemberController', 'show', 'public');
 
         $request = new Request('GET', '/members/42', [], [], [], []);
         $resolved = $router->resolve($request);
@@ -43,7 +43,7 @@ class RouterTest extends TestCase
     public function testMultipleParametersExtracted(): void
     {
         $router = new Router();
-        $router->addRoute('GET', '/sections/{section}/members/{id}', 'App\\Controller\\MemberController', 'show');
+        $router->addRoute('GET', '/sections/{section}/members/{id}', 'App\\Controller\\MemberController', 'show', 'public');
 
         $request = new Request('GET', '/sections/baladins/members/7', [], [], [], []);
         $resolved = $router->resolve($request);
@@ -55,7 +55,7 @@ class RouterTest extends TestCase
     public function testUnknownPathReturnsNull(): void
     {
         $router = new Router();
-        $router->addRoute('GET', '/home', 'App\\Controller\\HomeController', 'index');
+        $router->addRoute('GET', '/home', 'App\\Controller\\HomeController', 'index', 'public');
 
         $request = new Request('GET', '/unknown', [], [], [], []);
         $resolved = $router->resolve($request);
@@ -66,7 +66,7 @@ class RouterTest extends TestCase
     public function testMethodMismatchReturnsNull(): void
     {
         $router = new Router();
-        $router->addRoute('POST', '/submit', 'App\\Controller\\FormController', 'submit');
+        $router->addRoute('POST', '/submit', 'App\\Controller\\FormController', 'submit', 'public');
 
         $request = new Request('GET', '/submit', [], [], [], []);
         $resolved = $router->resolve($request);
@@ -86,22 +86,47 @@ class RouterTest extends TestCase
         $this->assertSame('admin', $resolved->roleMin);
     }
 
-    public function testDefaultRoleMinIsPublic(): void
+    /**
+     * role_min is mandatory, not defaulted. SECURITY.md §3 promises a route
+     * without one is rejected at load time — ModuleManifest enforced that
+     * for module routes, but a core route registered straight on the Router
+     * used to silently fall back to 'public', so a forgotten argument
+     * published the route to anonymous visitors instead of failing loudly.
+     */
+    public function testRoleMinIsMandatory(): void
     {
         $router = new Router();
-        $router->addRoute('GET', '/page', 'App\\Controller\\PageController', 'index');
 
-        $request = new Request('GET', '/page', [], [], [], []);
-        $resolved = $router->resolve($request);
+        $this->expectException(\ArgumentCountError::class);
+        // @phpstan-ignore-next-line arguments.count — that is exactly the mistake under test
+        $router->addRoute('GET', '/page', 'App\\Controller\\PageController', 'index');
+    }
+
+    public function testAnUnknownRoleMinIsRejectedRatherThanTreatedAsPublic(): void
+    {
+        $router = new Router();
+
+        $this->expectException(\InvalidArgumentException::class);
+        // Role::fromString() maps anything unrecognised to PUBLIC, so a typo
+        // in a role name would otherwise open the route to everyone.
+        $router->addRoute('GET', '/page', 'App\\Controller\\PageController', 'index', 'cheif');
+    }
+
+    public function testAValidRoleMinIsCarriedOntoTheResolvedRoute(): void
+    {
+        $router = new Router();
+        $router->addRoute('GET', '/page', 'App\\Controller\\PageController', 'index', 'chief');
+
+        $resolved = $router->resolve(new Request('GET', '/page', [], [], [], []));
 
         $this->assertInstanceOf(ResolvedRoute::class, $resolved);
-        $this->assertSame('public', $resolved->roleMin);
+        $this->assertSame('chief', $resolved->roleMin);
     }
 
     public function testBreadcrumbDefaultsToNull(): void
     {
         $router = new Router();
-        $router->addRoute('GET', '/page', 'App\\Controller\\PageController', 'index');
+        $router->addRoute('GET', '/page', 'App\\Controller\\PageController', 'index', 'public');
 
         $request = new Request('GET', '/page', [], [], [], []);
         $resolved = $router->resolve($request);
@@ -123,8 +148,8 @@ class RouterTest extends TestCase
     public function testAnEarlierWildcardRouteShadowsALaterLiteralRoute(): void
     {
         $router = new Router();
-        $router->addRoute('GET', '/x/{id}/{token}', 'App\\Controller\\ByTokenController', 'show');
-        $router->addRoute('GET', '/x/demande/{id}', 'App\\Controller\\LinkedController', 'show');
+        $router->addRoute('GET', '/x/{id}/{token}', 'App\\Controller\\ByTokenController', 'show', 'public');
+        $router->addRoute('GET', '/x/demande/{id}', 'App\\Controller\\LinkedController', 'show', 'public');
 
         $resolved = $router->resolve(new Request('GET', '/x/demande/42', [], [], [], []));
 

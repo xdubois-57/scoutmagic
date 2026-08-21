@@ -94,6 +94,52 @@ class HtmlSanitizerTest extends TestCase
         $this->assertStringNotContainsString('data:', $result);
     }
 
+    public function testVbscriptUriRemovedFromHref(): void
+    {
+        // The old blocklist only caught javascript:/data:; vbscript: survived.
+        $result = $this->sanitizer->sanitize('<a href="vbscript:msgbox(1)">Click</a>');
+        $this->assertStringNotContainsString('vbscript:', $result);
+        $this->assertStringContainsString('Click', $result);
+    }
+
+    public function testTabSplitSchemeInHrefIsRemoved(): void
+    {
+        $result = $this->sanitizer->sanitize("<a href=\"java\tscript:alert(1)\">Click</a>");
+        $this->assertStringNotContainsString('script:', $result);
+    }
+
+    public function testImageWithASafeSrcIsKept(): void
+    {
+        $result = $this->sanitizer->sanitize('<p><img src="/files/42" alt="reçu"></p>');
+        $this->assertStringContainsString('<img', $result);
+        $this->assertStringContainsString('src="/files/42"', $result);
+        $this->assertStringContainsString('alt="reçu"', $result);
+    }
+
+    public function testImageWithADangerousSrcIsDropped(): void
+    {
+        $result = $this->sanitizer->sanitize('<p>before<img src="javascript:alert(1)" alt="x">after</p>');
+        $this->assertStringNotContainsString('<img', $result);
+        $this->assertStringNotContainsString('javascript:', $result);
+        $this->assertStringContainsString('before', $result);
+        $this->assertStringContainsString('after', $result);
+    }
+
+    public function testImageStripsEventHandlerAttributes(): void
+    {
+        $result = $this->sanitizer->sanitize('<img src="/files/7" onerror="alert(1)">');
+        $this->assertStringNotContainsString('onerror', $result);
+        $this->assertStringContainsString('src="/files/7"', $result);
+    }
+
+    public function testProcessingInstructionIsRemoved(): void
+    {
+        $result = $this->sanitizer->sanitize('<p>hello</p><?php echo "x"; ?>');
+        $this->assertStringNotContainsString('<?php', $result);
+        $this->assertStringNotContainsString('echo', $result);
+        $this->assertStringContainsString('hello', $result);
+    }
+
     public function testTargetBlankGetsRelNoopener(): void
     {
         $html = '<a href="https://example.com" target="_blank">Link</a>';

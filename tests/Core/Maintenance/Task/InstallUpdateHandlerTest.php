@@ -191,6 +191,71 @@ class InstallUpdateHandlerTest extends TestCase
     }
 
     /**
+     * The artifact is unpacked over the live PHP tree, so download() refuses
+     * any non-GitHub URL before the first byte is fetched — the outermost
+     * layer of the H1 self-update integrity fix. Tested via reflection since
+     * the guard throws immediately (no network), well before the retry loop.
+     */
+    public function testDownloadRefusesANonGitHubUrlBeforeFetching(): void
+    {
+        $method = new \ReflectionMethod(InstallUpdateHandler::class, 'download');
+        $method->setAccessible(true);
+
+        $dest = $this->storagePath . '/temp/should_never_be_written.zip';
+
+        // The specific "refused" message (not a generic download failure)
+        // proves the URL was rejected up front rather than merely failing to
+        // connect after the retry window.
+        $this->expectException(UpdateException::class);
+        $this->expectExceptionMessage('URL de mise à jour refusée');
+        try {
+            $method->invoke($this->handler, 'https://evil.example/artifact.zip', $dest);
+        } finally {
+            $this->assertFileDoesNotExist($dest, 'a refused URL must never write the destination file');
+        }
+    }
+
+    /**
+     * A GitHub download legitimately redirects across GitHub's own hosts, but
+     * every hop is re-validated: a redirect (or an initial URL) pointing off
+     * GitHub aborts the attempt instead of being followed. attemptDownload()
+     * checks the allowlist as the first thing in its per-hop loop, so a
+     * non-GitHub URL returns the refusal reason without any network call.
+     */
+    public function testAttemptDownloadRefusesAHopToANonGitHubHost(): void
+    {
+        $method = new \ReflectionMethod(InstallUpdateHandler::class, 'attemptDownload');
+        $method->setAccessible(true);
+
+        [$ok, $status, $reason] = $method->invoke(
+            $this->handler,
+            'https://evil.example/artifact.zip',
+            $this->storagePath . '/temp/never.zip'
+        );
+
+        $this->assertFalse($ok);
+        $this->assertNull($status);
+        $this->assertSame('redirection hors GitHub refusée', $reason);
+    }
+
+    public function testParseLocationHeaderReturnsTheLastLocationCaseInsensitively(): void
+    {
+        $method = new \ReflectionMethod(InstallUpdateHandler::class, 'parseLocationHeader');
+        $method->setAccessible(true);
+
+        $this->assertSame(
+            'https://codeload.github.com/owner/repo/zip/refs/tags/v1.2.3',
+            $method->invoke($this->handler, [
+                'HTTP/1.1 302 Found',
+                'Location: https://example.invalid/first',
+                'LOCATION: https://codeload.github.com/owner/repo/zip/refs/tags/v1.2.3',
+            ])
+        );
+        $this->assertNull($method->invoke($this->handler, ['HTTP/1.1 200 OK']));
+        $this->assertNull($method->invoke($this->handler, null));
+    }
+
+    /**
      * The actual behavior guaranteed by source_type "branch" — resolving
      * GitHub's single wrapping "{owner}-{repo}-{sha}/" directory before
      * installFiles() runs — is pure filesystem logic with no DB/network

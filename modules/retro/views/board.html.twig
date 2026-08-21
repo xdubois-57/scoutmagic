@@ -90,7 +90,8 @@
                                        max — never blocks typing before the counter can even turn red;
                                        the server always re-validates against board.maxCommentLength. #}
                                     <textarea class="form-control form-control-sm mb-1" rows="2" maxlength="300"
-                                              placeholder="Ajouter un mot…" data-draft-input></textarea>
+                                              placeholder="Ajouter un mot…" data-draft-input
+                                              aria-label="Ajouter un mot — {{ label }}"></textarea>
                                     <div class="d-flex justify-content-between align-items-center mb-1">
                                         <span class="small text-danger d-none" data-draft-error></span>
                                         <span class="small text-body-secondary ms-auto" data-draft-counter>0/{{ board.maxCommentLength }}</span>

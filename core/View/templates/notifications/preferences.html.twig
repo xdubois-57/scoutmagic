@@ -40,8 +40,10 @@
                                                 <input class="form-check-input notification-channel-toggle" type="checkbox" role="switch"
                                                        data-type-id="{{ item.type.id }}"
                                                        data-channel="{{ channel }}"
+                                                       aria-label="{{ channel == 'in_app' ? 'Site' : (channel == 'push' ? 'Push' : 'Mail') }} — {{ item.type.label }}"
                                                        {% if channel == 'push' %}data-is-push="1"{% endif %}
                                                        {% if item.channels[channel].value %}checked{% endif %}
+                                                       aria-checked="{{ item.channels[channel].value ? 'true' : 'false' }}"
                                                        {% if item.channels[channel].locked %}disabled{% endif %}>
                                             </div>
                                         </td>
@@ -60,16 +62,16 @@
             <h2 class="h5 mb-3">Heures calmes et discrétion</h2>
             <div class="row g-3 align-items-end">
                 <div class="col-6 col-sm-3">
-                    <label class="form-label small">Début (facultatif)</label>
+                    <label class="form-label small" for="quiet-hours-start">Début (facultatif)</label>
                     <input type="time" class="form-control form-control-sm" id="quiet-hours-start" value="{{ quiet_hours_start ? quiet_hours_start[:5] : '' }}">
                 </div>
                 <div class="col-6 col-sm-3">
-                    <label class="form-label small">Fin</label>
+                    <label class="form-label small" for="quiet-hours-end">Fin</label>
                     <input type="time" class="form-control form-control-sm" id="quiet-hours-end" value="{{ quiet_hours_end ? quiet_hours_end[:5] : '' }}">
                 </div>
                 <div class="col-12 col-sm-6">
                     <div class="form-check form-switch">
-                        <input class="form-check-input" type="checkbox" role="switch" id="notification-discretion" {% if notification_discretion %}checked{% endif %}>
+                        <input class="form-check-input" type="checkbox" role="switch" id="notification-discretion" {% if notification_discretion %}checked{% endif %} aria-checked="{{ notification_discretion ? 'true' : 'false' }}">
                         <label class="form-check-label small" for="notification-discretion">
                             Discrétion — masquer le contenu sur l'écran verrouillé
                         </label>

@@ -174,7 +174,7 @@ class FinanceRbacTest extends TestCase
 
         $expectedReceivableRepository = new ExpectedReceivableRepository($this->pdo, $encryption);
         $expectedReceivableService = new ExpectedReceivableService($expectedReceivableRepository, $this->transactionRepository);
-        $this->receivablesOverviewService = new ReceivablesOverviewService($expectedReceivableRepository, $expectedReceivableService);
+        $this->receivablesOverviewService = new ReceivablesOverviewService($expectedReceivableRepository, $expectedReceivableService, $accountRepository);
 
         if (session_status() === PHP_SESSION_NONE) {
             session_start();

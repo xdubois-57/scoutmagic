@@ -27,10 +27,20 @@ class SettingsController extends AbstractController
     // explainer, webhook status, danger-zone confirm-keyword flow, none of
     // which fit this page's plain editable-row rendering) — never shown
     // here, editable or not.
+    // The statistics/support keys are excluded for the same reason: they are
+    // managed from the dedicated Support page (Core\Http\Controller\
+    // SupportController), which pairs the switch with the explanation of what
+    // actually leaves the site — and several of them (installation id,
+    // installation date, last-send bookkeeping) are read-only facts nobody
+    // should be invited to hand-edit.
     /** @var string[] */
     private const EXCLUDED_FROM_GENERIC_PAGE = [
         'auto_update_enabled', 'auto_update_level', 'auto_update_day', 'auto_update_time',
         'dev_update_branch',
+        'statistics_enabled', 'statistics_destination', 'statistics_installation_id',
+        'support_email', 'installed_at',
+        'statistics_last_success_at', 'statistics_last_failure_at', 'statistics_last_failure_reason',
+        'support_package_file_id', 'support_package_generated_at',
     ];
 
     public function __construct(
@@ -55,6 +65,19 @@ class SettingsController extends AbstractController
             $groups['core']['settings'] = array_values(array_filter(
                 $groups['core']['settings'],
                 fn(array $setting) => !in_array($setting['setting_key'], self::EXCLUDED_FROM_GENERIC_PAGE, true)
+            ));
+        }
+
+        // A setting declared `secret` (AGENTS.md § Database) is never shown
+        // here, in any module's group. This page renders a value as plain
+        // text next to its key, so displaying one would defeat the very
+        // point of the type — the support package redacts it for exactly
+        // the same reason (ARCHITECTURE.md §8.42). No setting carries the
+        // type today; the filter exists before the first one does.
+        foreach ($groups as $groupId => $group) {
+            $groups[$groupId]['settings'] = array_values(array_filter(
+                $group['settings'],
+                static fn(array $setting): bool => ($setting['setting_type'] ?? 'text') !== 'secret'
             ));
         }
 

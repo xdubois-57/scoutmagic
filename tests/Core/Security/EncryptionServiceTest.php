@@ -21,6 +21,45 @@ class EncryptionServiceTest extends TestCase
         $this->service = new EncryptionService($this->encryptionKey, $this->blindIndexKey);
     }
 
+    public function testFromEncodedKeysDecodesBase64ToRawBytesForFullStrength(): void
+    {
+        // secrets.enc holds base64(random_bytes(32)); fromEncodedKeys must
+        // decode it back to the raw 32 bytes so it round-trips with a service
+        // built directly on those raw bytes (audit M1).
+        $rawKey = random_bytes(32);
+        $rawBlind = random_bytes(32);
+
+        $fromRaw = new EncryptionService($rawKey, $rawBlind);
+        $fromEncoded = EncryptionService::fromEncodedKeys(base64_encode($rawKey), base64_encode($rawBlind));
+
+        // A ciphertext produced by one must decrypt under the other.
+        $this->assertSame('shared-secret-check', $fromEncoded->decrypt($fromRaw->encrypt('shared-secret-check')));
+        $this->assertSame(
+            $fromRaw->blindIndex('member@example.test'),
+            $fromEncoded->blindIndex('member@example.test'),
+            'decoded blind-index key must match the raw one'
+        );
+    }
+
+    public function testPassingTheBase64StringDirectlyProducesADifferentWeakerKey(): void
+    {
+        // Demonstrates the M1 bug: passing the 44-char base64 string straight
+        // to OpenSSL (as the old boot code did) truncates to 32 chars = 24
+        // real bytes, a DIFFERENT key than the correctly-decoded one — so a
+        // ciphertext from the decoded service does not decrypt under the
+        // buggy one.
+        $rawKey = random_bytes(32);
+        $rawBlind = random_bytes(32);
+        $encoded = base64_encode($rawKey);
+
+        $correct = EncryptionService::fromEncodedKeys($encoded, base64_encode($rawBlind));
+        $buggy = new EncryptionService($encoded, base64_encode($rawBlind));
+
+        $cipher = $correct->encrypt('secret');
+        $this->expectException(DecryptionException::class);
+        $buggy->decrypt($cipher);
+    }
+
     public function testEncryptDecryptRoundTripsShortString(): void
     {
         $plaintext = 'Hello';

@@ -206,9 +206,15 @@ function openEditModal(dataset) {
     }
     if (retroLinkWrap) {
         if (dataset.retroLink) {
-            retroLinkWrap.classList.remove('d-none');
+            // Populate before revealing: the wrap and the anchor inside it
+            // share no other content, so removing d-none before the href/
+            // text are set would briefly expose an empty, non-navigable
+            // link — every other populate+reveal pair in this codebase
+            // (e.g. modules/sos_staff/views/config.html.twig's
+            // consumer-key-validation-link) follows this same order.
             retroLinkAnchor.href = dataset.retroLink;
             retroLinkAnchor.textContent = dataset.retroLinkTitle || dataset.retroLink;
+            retroLinkWrap.classList.remove('d-none');
         } else {
             retroLinkWrap.classList.add('d-none');
         }
@@ -216,12 +222,18 @@ function openEditModal(dataset) {
     eventModal.show();
 }
 
+// Both are real <button> elements (partials/month_grid.html.twig renders them
+// as buttons whenever the caller marks them clickable), so Enter and Space
+// already fire a click — no keyboard handler of our own, and none of the
+// inline onKeyDown attribute this site's CSP would refuse to run anyway.
 document.querySelectorAll('.calendar-day-cell--clickable').forEach(cell => {
     cell.addEventListener('click', () => openAddModal(cell.dataset.date));
 });
 
 document.querySelectorAll('.calendar-event-bar--clickable').forEach(bar => {
     bar.addEventListener('click', (e) => {
+        // The bar sits on top of the day cell in the same grid, so without
+        // this a click on a bar would also open the "add an event" modal.
         e.stopPropagation();
         openEditModal(bar.dataset);
     });

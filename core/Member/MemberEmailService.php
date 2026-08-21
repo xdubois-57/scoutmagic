@@ -27,6 +27,12 @@ class MemberEmailService
     private const CONFIRMATION_EXPIRY_HOURS = 48;
     private const RESEND_COOLDOWN_MINUTES = 5;
 
+    // A member may hold at most this many self-added (non-Desk) addresses.
+    // Without a cap, each brand-new address bypasses the per-address cooldown
+    // and fires one confirmation email, so a loop over unique addresses is a
+    // mail-bomb primitive (audit M15).
+    private const MAX_MANUAL_EMAILS = 5;
+
     public function __construct(
         private MemberEmailRepository $repository,
         private MailService $mailService,
@@ -84,9 +90,6 @@ class MemberEmailService
         if (filter_var($normalized, FILTER_VALIDATE_EMAIL) === false) {
             throw new MemberEmailException('Adresse email invalide.');
         }
-        if (!$this->emailDomainValidator->hasValidDomain($normalized)) {
-            throw new MemberEmailException("Le domaine de cette adresse email n'a pas pu être vérifié — vérifiez qu'il n'y a pas de faute de frappe.");
-        }
 
         $existing = $this->repository->findByMemberAndEmail($memberId, $normalized);
         if ($existing !== null) {
@@ -97,6 +100,25 @@ class MemberEmailService
                 $this->regenerateAndSendConfirmation($existing, $actorId);
             }
             return $existing;
+        }
+
+        // Only genuinely new addresses reach here (the $existing branch above
+        // already handled a repeat of the same one), so cap the number a
+        // member may accumulate before another confirmation email is sent
+        // (audit M15).
+        $manualCount = count(array_filter(
+            $this->repository->findByMember($memberId),
+            static fn(MemberEmail $email) => $email->source === MemberEmail::SOURCE_MANUAL
+        ));
+        if ($manualCount >= self::MAX_MANUAL_EMAILS) {
+            throw new MemberEmailException('Vous avez atteint le nombre maximum d\'adresses email secondaires.');
+        }
+
+        // DNS check last, only for a genuinely new address that is within the
+        // cap — so a capped member (or a repeat of an existing address) never
+        // pays the lookup cost (audit M15).
+        if (!$this->emailDomainValidator->hasValidDomain($normalized)) {
+            throw new MemberEmailException("Le domaine de cette adresse email n'a pas pu être vérifié — vérifiez qu'il n'y a pas de faute de frappe.");
         }
 
         $rawToken = bin2hex(random_bytes(32));

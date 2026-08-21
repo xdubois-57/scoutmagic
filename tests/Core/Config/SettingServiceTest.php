@@ -195,4 +195,31 @@ class SettingServiceTest extends TestCase
         $this->assertSame('core_val', $this->service->get('same_key'));
         $this->assertSame('mod_val', $this->service->get('same_key', 'mymodule'));
     }
+
+    public function testClaimIfEmptyWritesOnlyWhileTheValueIsEmpty(): void
+    {
+        $this->service->register('claimable', '', 'text', 'L', 'D');
+
+        $this->assertTrue($this->service->claimIfEmpty('claimable', 'first'));
+        $this->assertSame('first', $this->service->get('claimable'));
+
+        $this->assertFalse($this->service->claimIfEmpty('claimable', 'second'));
+        $this->assertSame('first', $this->service->get('claimable'));
+    }
+
+    public function testClaimIfEmptyReportsFalseForAnUnknownSetting(): void
+    {
+        $this->assertFalse($this->service->claimIfEmpty('never_registered', 'value'));
+        $this->assertNull($this->service->get('never_registered'));
+    }
+
+    public function testClaimIfEmptyTreatsNullAsEmpty(): void
+    {
+        $this->service->register('claimable_null', '', 'text', 'L', 'D');
+        $this->pdo->exec("UPDATE settings SET setting_value = NULL WHERE setting_key = 'claimable_null'");
+        $this->service->clearCache();
+
+        $this->assertTrue($this->service->claimIfEmpty('claimable_null', 'value'));
+        $this->assertSame('value', $this->service->get('claimable_null'));
+    }
 }

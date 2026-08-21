@@ -2,7 +2,7 @@
   "id": "groups",
   "name": "Groupes de discussion",
   "description": "Groupes de discussion privés pour l'unité : un groupe par section et par année scoute, ou des groupes sur invitation. Visibles uniquement par leurs membres.",
-  "version": "1.7.0",
+  "version": "1.8.0",
   "enabled_by_default": false,
   "requires": [
     "gallery"
@@ -109,6 +109,15 @@
       "label": ""
     },
     {
+      "path": "/groups/{id}/member-search",
+      "method": "GET",
+      "controller": "Modules\\Groups\\Controller\\GroupMemberController",
+      "action": "search",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
       "path": "/groups/{id}/invite-member",
       "method": "POST",
       "controller": "Modules\\Groups\\Controller\\GroupMemberController",
@@ -145,10 +154,55 @@
       "label": ""
     },
     {
+      "path": "/groups/{id}/leave",
+      "method": "POST",
+      "controller": "Modules\\Groups\\Controller\\GroupMemberController",
+      "action": "leave",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/groups/{id}/edit",
+      "method": "POST",
+      "controller": "Modules\\Groups\\Controller\\GroupController",
+      "action": "edit",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/groups/{id}/close",
+      "method": "POST",
+      "controller": "Modules\\Groups\\Controller\\GroupController",
+      "action": "close",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/groups/{id}/reopen",
+      "method": "POST",
+      "controller": "Modules\\Groups\\Controller\\GroupController",
+      "action": "reopen",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
       "path": "/groups/{id}/feed",
       "method": "GET",
       "controller": "Modules\\Groups\\Controller\\PostController",
       "action": "feed",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/groups/{id}/media-status",
+      "method": "GET",
+      "controller": "Modules\\Groups\\Controller\\GroupController",
+      "action": "mediaStatus",
       "menu": "espace_animes",
       "role_min": "identified",
       "label": ""
@@ -167,6 +221,15 @@
       "method": "POST",
       "controller": "Modules\\Groups\\Controller\\PostController",
       "action": "create",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/groups/{id}/link-preview",
+      "method": "POST",
+      "controller": "Modules\\Groups\\Controller\\PostController",
+      "action": "linkPreview",
       "menu": "espace_animes",
       "role_min": "identified",
       "label": ""
@@ -253,6 +316,24 @@
       "label": ""
     },
     {
+      "path": "/groups/{id}/posts/{postId}/reactions",
+      "method": "GET",
+      "controller": "Modules\\Groups\\Controller\\ReactionController",
+      "action": "postReactors",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/groups/{id}/replies/{replyId}/reactions",
+      "method": "GET",
+      "controller": "Modules\\Groups\\Controller\\ReactionController",
+      "action": "replyReactors",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
       "path": "/groups/{id}/posts/{postId}/report",
       "method": "POST",
       "controller": "Modules\\Groups\\Controller\\ReportController",
@@ -331,6 +412,20 @@
       "type": "number",
       "label": "Suppression des groupes clôturés (mois)",
       "description": "Nombre de mois après la clôture d'un groupe au bout desquels ce groupe est supprimé définitivement, avec tout son contenu et sa galerie. Un groupe de l'année scoute en cours ou d'une année à venir n'est jamais supprimé automatiquement, même clôturé."
+    },
+    {
+      "key": "groups_max_created_per_member",
+      "default_value": "5",
+      "type": "number",
+      "label": "Groupes créés par personne (maximum)",
+      "description": "Nombre maximum de groupes sur invitation qu'une même personne peut avoir ouverts en même temps. Les groupes de section, créés automatiquement, ne sont pas comptés, et un groupe clôturé ne compte plus. Cette limite s'applique à tout le monde, administrateurs compris : elle évite l'encombrement de la liste des groupes, ce n'est pas une question de droits."
+    },
+    {
+      "key": "groups_draft_ttl_minutes",
+      "default_value": "60",
+      "type": "number",
+      "label": "Conservation locale d'un message non envoyé (minutes)",
+      "description": "Durée pendant laquelle un message pas encore publié reste conservé dans le navigateur (jamais sur le serveur) après une erreur ou une perte de connexion, pour permettre de réessayer sans avoir à tout retaper. Passé ce délai, le brouillon local est simplement oublié."
     }
   ],
   "cookies": [],

@@ -38,16 +38,14 @@ class VersionController extends AbstractController
     {
         $raw = VersionFile::read(dirname($this->storagePath));
 
-        $version = $raw;
-        $commit = null;
-        if (preg_match('/^dev-([0-9a-f]{7,40})$/', $raw, $matches)) {
-            $version = 'dev';
-            $commit = $matches[1];
-        }
+        // A dev build's exact commit sha is NOT disclosed publicly: it
+        // fingerprints precisely which patches an install is missing, which
+        // matters more here than elsewhere because the app ships an
+        // auto-updater (audit hardening). A dev build reports a bare "dev".
+        $version = preg_match('/^dev-[0-9a-f]{7,40}$/', $raw) === 1 ? 'dev' : $raw;
 
         return $this->json([
             'version' => $version,
-            'commit' => $commit,
         ]);
     }
 }

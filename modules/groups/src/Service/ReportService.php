@@ -107,6 +107,30 @@ class ReportService
     }
 
     /**
+     * A report about content written by one of the group's own moderators
+     * is recorded separately from an ordinary one.
+     *
+     * Distinctly, because it is a different fact: an ordinary report says
+     * a member objected to something, this one says the group's own
+     * moderation is the subject of the objection — which is why the
+     * notification escalates to site admins and why the author cannot
+     * restore it themselves. A chief reading the journal should be able to
+     * find those without inferring them from a member id.
+     */
+    public function journalEscalation(string $kind, int $groupId, int $itemId, ?int $actorAccountId = null): void
+    {
+        $isPost = $kind === 'post';
+        $this->journal(
+            $isPost ? 'group_post_report_escalated' : 'group_reply_report_escalated',
+            $isPost
+                ? 'Signalement escaladé : message écrit par un modérateur du groupe'
+                : 'Signalement escaladé : réponse écrite par un modérateur du groupe',
+            ['group_id' => $groupId, ($isPost ? 'post_id' : 'reply_id') => $itemId],
+            $actorAccountId
+        );
+    }
+
+    /**
      * A moderator clears a hidden post: visible again, and immune to
      * further auto-hiding.
      */

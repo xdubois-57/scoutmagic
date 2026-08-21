@@ -9,7 +9,7 @@
 // preference — a different device always starts unsubscribed, per module
 // spec. IIFE/var style matches public/assets/js/upload.js and friends.
 (function () {
-    var toggle = document.getElementById('push-toggle');
+    var toggle = /** @type {HTMLInputElement | null} */ (document.getElementById('push-toggle'));
     if (!toggle) return;
 
     var unsupportedNotice = document.getElementById('push-unsupported-notice');
@@ -18,7 +18,7 @@
     var vapidPublicKey = toggle.dataset.vapidPublicKey || '';
 
     function csrf() {
-        var meta = document.querySelector('meta[name="csrf-token"]');
+        var meta = /** @type {HTMLMetaElement | null} */ (document.querySelector('meta[name="csrf-token"]'));
         return meta ? meta.content : '';
     }
 
@@ -26,6 +26,16 @@
         [unsupportedNotice, deniedNotice, errorNotice].forEach(function (el) {
             if (el) el.classList.add('d-none');
         });
+    }
+
+    // public/assets/js/nav.js's delegated listener only reacts to a real
+    // 'change' event; every .checked assignment below is programmatic
+    // (async load, permission denied, save failure) and fires none, so
+    // aria-checked would otherwise go stale for a screen reader.
+    function syncAriaChecked() {
+        if (window.ScoutMagicNav && window.ScoutMagicNav.syncSwitchAriaChecked) {
+            window.ScoutMagicNav.syncSwitchAriaChecked(toggle);
+        }
     }
 
     // Web Push needs a Uint8Array applicationServerKey, not the base64url
@@ -61,6 +71,7 @@
         .then(function (registration) { return registration.pushManager.getSubscription(); })
         .then(function (subscription) {
             toggle.checked = subscription !== null;
+            syncAriaChecked();
         })
         .catch(function () {
             // Leave the toggle at its default (off) state — a transient SW
@@ -93,8 +104,9 @@
         return Notification.requestPermission().then(function (permission) {
             if (permission !== 'granted') {
                 toggle.checked = false;
+                syncAriaChecked();
                 if (deniedNotice) deniedNotice.classList.remove('d-none');
-                return;
+                return undefined;
             }
 
             return getRegistration()
@@ -108,11 +120,13 @@
                 .then(function (result) {
                     if (!result.success) {
                         toggle.checked = false;
+                        syncAriaChecked();
                         if (errorNotice) errorNotice.classList.remove('d-none');
                     }
                 })
                 .catch(function () {
                     toggle.checked = false;
+                    syncAriaChecked();
                     if (errorNotice) errorNotice.classList.remove('d-none');
                 });
         });
@@ -122,7 +136,7 @@
         return getRegistration()
             .then(function (registration) { return registration.pushManager.getSubscription(); })
             .then(function (subscription) {
-                if (!subscription) return;
+                if (!subscription) return undefined;
                 var endpoint = subscription.endpoint;
                 return subscription.unsubscribe().then(function () {
                     return deleteSubscription(endpoint);

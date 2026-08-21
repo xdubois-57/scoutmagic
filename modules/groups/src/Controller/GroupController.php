@@ -8,7 +8,9 @@ declare(strict_types=1);
 
 namespace Modules\Groups\Controller;
 
+use Core\Config\SettingService;
 use Core\Http\Controller\AbstractController;
+use Core\Http\FlashMessage;
 use Core\Http\Request;
 use Core\Http\Response;
 use Core\Member\SectionService;
@@ -26,7 +28,9 @@ use Modules\Groups\Service\GroupFeedService;
 use Modules\Groups\Service\GroupListService;
 use Modules\Groups\Service\GroupService;
 use Modules\Groups\Service\GroupSessionContext;
+use Modules\Groups\Service\GroupMembershipService;
 use Modules\Groups\Service\GroupSessionContextFactory;
+use Modules\Groups\Service\ReopenOutcome;
 use Modules\Groups\Service\PostMediaService;
 use Modules\Groups\Service\PostService;
 use Modules\Groups\Service\SectionGroupSyncService;
@@ -43,6 +47,15 @@ use Twig\Environment;
  */
 class GroupController extends AbstractController
 {
+    /**
+     * How long a not-yet-posted draft stays cached in the composer's own
+     * browser (never the server — module spec: "local storage cache").
+     * Floored at 1 so a stray 0/negative setting cannot make groups.js
+     * discard a draft before the member even finishes typing it.
+     */
+    private const SETTING_DRAFT_TTL_MINUTES = 'groups_draft_ttl_minutes';
+    private const DEFAULT_DRAFT_TTL_MINUTES = 60;
+
     public function __construct(
         protected Environment $twig,
         private GroupRepository $groupRepository,
@@ -55,7 +68,9 @@ class GroupController extends AbstractController
         private PostMediaService $postMediaService,
         private AuthorOptionsService $authorOptionsService,
         private PostRepository $postRepository,
-        private ?SectionGroupSyncService $sectionGroupSyncService = null
+        private ?SectionGroupSyncService $sectionGroupSyncService = null,
+        private ?GroupMembershipService $membershipService = null,
+        private ?SettingService $settingService = null
     ) {
     }
 
@@ -124,6 +139,12 @@ class GroupController extends AbstractController
             'group' => $group,
             'badges' => $this->badges($group, $context),
             'can_moderate' => $canModerate,
+            // A past-year group stays a read-only archive (prompt 3), so
+            // the button is not offered — and the header says why rather
+            // than leaving a moderator wondering where it went.
+            'can_reopen' => $canModerate
+                && $group->isClosed()
+                && ($group->scoutYearId === null || $group->scoutYearId === $context->effectiveScoutYearId),
             'post_permission' => $this->accessService->canPost($group, $context),
             'pinned' => $page->pinned,
             'posts' => $page->posts,
@@ -134,11 +155,19 @@ class GroupController extends AbstractController
             'max_body_length' => PostService::MAX_BODY_LENGTH,
             'max_media_per_post' => PostMediaService::MAX_MEDIA_PER_POST,
             'video_upload_allowed' => $this->postMediaService->videoUploadAllowed(),
+            'draft_ttl_minutes' => $this->draftTtlMinutes(),
             // A message the AI moderation just refused, handed back to
             // its author so the composer is not emptied. Read-and-clear:
             // it survives exactly this one render, and lives nowhere but
             // this member's own session (Support\RejectedDraft).
             'rejected_draft' => RejectedDraft::take(),
+            // Replaces the route's static "Groupe" label with this
+            // group's own name, and adds a real "Groupes" link back to
+            // the module's list page ahead of it — partials/
+            // breadcrumb_bar.html.twig's own docblock explains why a
+            // direct link is safe here and not for an ordinary parent.
+            'breadcrumb_trail' => [['label' => 'Groupes', 'url' => '/groups']],
+            'breadcrumb_current' => $group->name,
         ]);
     }
 
@@ -215,7 +244,65 @@ class GroupController extends AbstractController
                 $group,
                 $this->accessService->canModerate($group, $context)
             ),
+            // Same trail as show(), one level deeper: "Groupes" then this
+            // group's own page, both real links — see show()'s own
+            // comment for why that is safe here.
+            'breadcrumb_trail' => [
+                ['label' => 'Groupes', 'url' => '/groups'],
+                ['label' => $group->name, 'url' => '/groups/' . $group->id],
+            ],
         ]);
+    }
+
+    /**
+     * GET /groups/{id}/media-status?ids=1,2,3 — polled by groups.js while
+     * a just-posted photo or video still shows a spinner, so the real
+     * thumbnail appears the moment the background resize (gallery's own
+     * Task\ProcessPhotoHandler/ProcessVideoHandler) finishes, without a
+     * page reload. Same 404-not-403 membership rule as every other group
+     * route; an id from another group's album, or one that no longer
+     * exists, is simply absent from the response — never a distinguishable
+     * error a caller could use to probe another group's media ids.
+     *
+     * A JSON array, not an object keyed by media id: PHP silently
+     * re-encodes an int-keyed array as a JSON array instead of an object
+     * whenever the keys happen to be sequential from 0 (json_encode has no
+     * way to tell "empty array" from "object with no numeric-looking
+     * keys" apart either), which would make the shape depend on which
+     * ids the caller happened to ask about. An array of {id, status,
+     * html} objects has no such ambiguity.
+     *
+     * @param array<string, string> $params
+     */
+    public function mediaStatus(Request $request, array $params): Response
+    {
+        $context = $this->context();
+        $group = $this->readableGroup($params, $context);
+        if ($group === null) {
+            return new Response('Not Found', 404);
+        }
+
+        $ids = array_values(array_filter(
+            array_map('intval', explode(',', (string) $request->getQuery('ids', ''))),
+            fn (int $id) => $id > 0
+        ));
+
+        $result = [];
+        foreach ($this->postMediaService->mediaByIds($group, $ids) as $media) {
+            $resolved = in_array($media->processingStatus, ['done', 'failed'], true);
+            $result[] = [
+                'id' => $media->id,
+                'status' => $media->processingStatus,
+                // Only rendered once resolved: while still pending/
+                // processing, the client already shows the spinner
+                // media_thumb.html.twig would render right back anyway.
+                'html' => $resolved
+                    ? $this->twig->render('@groups/partials/media_thumb.html.twig', ['media' => $media])
+                    : null,
+            ];
+        }
+
+        return $this->json($result);
     }
 
     /**
@@ -243,6 +330,24 @@ class GroupController extends AbstractController
         $name = mb_substr($name, 0, 150);
 
         $sectionId = (int) $request->getBody('section_id', 0);
+
+        // The quota covers invitation groups only, and is checked here
+        // rather than in the service because refusing needs a French
+        // sentence naming the limit. A section group is created by the
+        // scheduled task, never by a person — a chief creating one by
+        // hand is filling a gap that task will fill anyway, so it is not
+        // clutter one person chose to make.
+        if ($sectionId === 0 && $this->membershipService !== null
+            && !$this->membershipService->canCreateAnotherGroup($creatorMemberId)
+        ) {
+            FlashMessage::set('error', sprintf(
+                'Vous avez déjà %d groupes ouverts, soit le maximum autorisé. Clôturez-en un avant d\'en créer un nouveau.',
+                $this->membershipService->creationQuota()
+            ));
+
+            return $this->redirect('/groups');
+        }
+
         if ($sectionId > 0) {
             $groupId = $this->groupService->createSectionGroup($name, $sectionId, $context->effectiveScoutYearId, $creatorMemberId);
         } else {
@@ -253,6 +358,108 @@ class GroupController extends AbstractController
         }
 
         return $this->redirect('/groups/' . $groupId);
+    }
+
+    /**
+     * POST /groups/{id}/edit — moderator only. Renames the group and, for
+     * an invitation group, links or unlinks it to the current scout year
+     * — same "tie_to_year" checkbox and semantics as create() above. A
+     * section group's own scout-year link is never editable (its year
+     * comes from its section, schema.sql); the checkbox is not offered
+     * for one, and Service\GroupService::edit() ignores it either way.
+     *
+     * @param array<string, string> $params
+     */
+    public function edit(Request $request, array $params): Response
+    {
+        return $this->moderatorAction($params, function (DiscussionGroup $group, GroupSessionContext $context) use ($request): Response {
+            $name = trim((string) $request->getBody('name', ''));
+            if ($name === '') {
+                FlashMessage::set('error', 'Le nom du groupe ne peut pas être vide.');
+
+                return $this->redirect('/groups/' . $group->id);
+            }
+            $name = mb_substr($name, 0, 150);
+
+            $scoutYearId = $request->getBody('tie_to_year') !== null ? $context->effectiveScoutYearId : null;
+            $this->groupService->edit($group, $name, $scoutYearId);
+
+            FlashMessage::set('success', 'Les informations du groupe ont été mises à jour.');
+
+            return $this->redirect('/groups/' . $group->id);
+        });
+    }
+
+    /**
+     * POST /groups/{id}/close — moderator only.
+     *
+     * The manual counterpart of Task\CloseInactiveGroupsHandler: a
+     * project that is over does not need to wait months for the
+     * inactivity window to notice. Closing is read-only, never hiding —
+     * the group stays fully visible to its members.
+     *
+     * @param array<string, string> $params
+     */
+    public function close(Request $request, array $params): Response
+    {
+        return $this->moderatorAction($params, function (DiscussionGroup $group, GroupSessionContext $context): Response {
+            $this->membershipService?->close($group, $context->userAccountId);
+            FlashMessage::set('success', 'Le groupe est clôturé : il reste consultable, mais n\'accepte plus de nouvelle publication.');
+
+            return $this->redirect('/groups/' . $group->id);
+        });
+    }
+
+    /**
+     * POST /groups/{id}/reopen — moderator only.
+     *
+     * Without this, automatic closure would be one-way: a project group
+     * dormant between two camps would close itself and nobody could wake
+     * it up. Reopening resets last_activity_at, or the inactivity task
+     * would close it again on its very next run.
+     *
+     * @param array<string, string> $params
+     */
+    public function reopen(Request $request, array $params): Response
+    {
+        return $this->moderatorAction($params, function (DiscussionGroup $group, GroupSessionContext $context): Response {
+            if ($this->membershipService === null) {
+                return new Response('Not Found', 404);
+            }
+
+            $outcome = $this->membershipService->reopen($group, $context->effectiveScoutYearId, $context->userAccountId);
+            FlashMessage::set($outcome === ReopenOutcome::REOPENED ? 'success' : 'error', $outcome->message());
+
+            return $this->redirect('/groups/' . $group->id);
+        });
+    }
+
+    /**
+     * The shared shape of both group-state actions: CSRF, membership
+     * (404 — never 403, which would confirm the group exists), then the
+     * moderator check (403, because a member of the group already knows
+     * it exists).
+     *
+     * @param array<string, string> $params
+     * @param callable(DiscussionGroup, GroupSessionContext): Response $action
+     */
+    private function moderatorAction(array $params, callable $action): Response
+    {
+        if (!CsrfGuard::validateRequest()) {
+            return new Response('Jeton CSRF invalide.', 403);
+        }
+
+        $context = $this->context();
+        $group = $this->readableGroup($params, $context);
+        if ($group === null) {
+            return new Response('Not Found', 404);
+        }
+
+        if (!$this->accessService->canModerate($group, $context)) {
+            return new Response('Seul un modérateur du groupe peut effectuer cette action.', 403);
+        }
+
+        return $action($group, $context);
     }
 
     /**
@@ -269,6 +476,20 @@ class GroupController extends AbstractController
         }
 
         return $group;
+    }
+
+    /**
+     * The configured cap, floored at 1 — same posture as
+     * Service\GroupMembershipService::creationQuota() for the same
+     * reason: a 0 or negative setting must not silently disable the
+     * feature it was meant to tune.
+     */
+    private function draftTtlMinutes(): int
+    {
+        $raw = $this->settingService?->get(self::SETTING_DRAFT_TTL_MINUTES, 'groups', self::DEFAULT_DRAFT_TTL_MINUTES);
+        $configured = is_numeric($raw) ? (int) $raw : self::DEFAULT_DRAFT_TTL_MINUTES;
+
+        return max(1, $configured);
     }
 
     private function context(): GroupSessionContext

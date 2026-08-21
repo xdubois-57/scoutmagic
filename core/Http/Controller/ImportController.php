@@ -99,7 +99,7 @@ class ImportController extends AbstractController
         if (!is_dir($tempDir)) {
             mkdir($tempDir, 0755, true);
         }
-        $tempPath = $tempDir . '/' . uniqid('import_') . '.csv';
+        $tempPath = $tempDir . '/import_' . bin2hex(random_bytes(16)) . '.csv';
         move_uploaded_file($file['tmp_name'], $tempPath);
 
         $importedBy = AuthSession::getUserAccountId() ?? 0;

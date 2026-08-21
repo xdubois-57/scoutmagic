@@ -76,6 +76,11 @@ class AuthController extends AbstractController
             'csrf_token' => $csrfToken,
             'default_login_method' => LastLoginMethodCookie::read() ?? 'magic-link',
             'human_check' => $this->humanCheck?->generateChallenge(self::HUMAN_CHECK_FORM_KEY),
+            // The "Mot de passe oublié" mini-form on this page posts to
+            // PasswordResetController::request(), which now applies its own
+            // HumanCheck (audit M3) — render its challenge here (a distinct
+            // form key, so the two challenges are not interchangeable).
+            'human_check_reset' => $this->humanCheck?->generateChallenge(PasswordResetController::HUMAN_CHECK_FORM_KEY),
         ]);
     }
 

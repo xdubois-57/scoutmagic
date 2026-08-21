@@ -104,7 +104,7 @@ class PushSubscriptionControllerTest extends TestCase
     public function testSubscribeValidatesCsrf(): void
     {
         $response = $this->controller->subscribe($this->jsonRequest('POST', [
-            'endpoint' => 'https://push.example/device', 'auth_key' => 'a', 'p256dh_key' => 'p', '_csrf_token' => 'bad',
+            'endpoint' => 'https://93.184.216.34/device', 'auth_key' => 'a', 'p256dh_key' => 'p', '_csrf_token' => 'bad',
         ]), []);
 
         $this->assertSame(400, $response->getStatusCode());
@@ -128,7 +128,7 @@ class PushSubscriptionControllerTest extends TestCase
         $token = $this->csrfToken();
 
         $response = $this->controller->subscribe($this->jsonRequest('POST', [
-            'endpoint' => 'https://push.example/device', 'auth_key' => 'auth', 'p256dh_key' => 'p256dh', '_csrf_token' => $token,
+            'endpoint' => 'https://93.184.216.34/device', 'auth_key' => 'auth', 'p256dh_key' => 'p256dh', '_csrf_token' => $token,
         ]), []);
 
         $decoded = json_decode($response->getBody(), true);
@@ -136,10 +136,41 @@ class PushSubscriptionControllerTest extends TestCase
         $this->assertCount(1, $this->subscriptionRepository->findByUserAccountId($this->userId));
     }
 
+    /**
+     * @dataProvider internalEndpoints
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('internalEndpoints')]
+    public function testSubscribeRefusesAnInternalOrNonHttpsEndpoint(string $endpoint): void
+    {
+        // The endpoint is POSTed to server-side, so an internal/non-https one
+        // must never be stored — otherwise the delete-on-404/410 behaviour
+        // becomes a port/path oracle (audit M4).
+        $response = $this->controller->subscribe($this->jsonRequest('POST', [
+            'endpoint' => $endpoint, 'auth_key' => 'auth', 'p256dh_key' => 'p256dh', '_csrf_token' => $this->csrfToken(),
+        ]), []);
+
+        $this->assertSame(400, $response->getStatusCode());
+        $this->assertFalse(json_decode($response->getBody(), true)['success']);
+        $this->assertCount(0, $this->subscriptionRepository->findByUserAccountId($this->userId));
+    }
+
+    /**
+     * @return array<string, array{string}>
+     */
+    public static function internalEndpoints(): array
+    {
+        return [
+            'loopback' => ['https://127.0.0.1/device'],
+            'metadata' => ['https://169.254.169.254/latest'],
+            'private' => ['https://10.0.0.1/device'],
+            'http not https' => ['http://93.184.216.34/device'],
+        ];
+    }
+
     public function testUnsubscribeValidatesCsrf(): void
     {
         $response = $this->controller->unsubscribe($this->jsonRequest('DELETE', [
-            'endpoint' => 'https://push.example/device', '_csrf_token' => 'bad',
+            'endpoint' => 'https://93.184.216.34/device', '_csrf_token' => 'bad',
         ]), []);
 
         $this->assertSame(400, $response->getStatusCode());
@@ -147,11 +178,11 @@ class PushSubscriptionControllerTest extends TestCase
 
     public function testUnsubscribeRemovesTheDevice(): void
     {
-        $this->subscriptionRepository->create($this->userId, 'https://push.example/device', 'auth', 'p256dh');
+        $this->subscriptionRepository->create($this->userId, 'https://93.184.216.34/device', 'auth', 'p256dh');
         $token = $this->csrfToken();
 
         $response = $this->controller->unsubscribe($this->jsonRequest('DELETE', [
-            'endpoint' => 'https://push.example/device', '_csrf_token' => $token,
+            'endpoint' => 'https://93.184.216.34/device', '_csrf_token' => $token,
         ]), []);
 
         $decoded = json_decode($response->getBody(), true);
@@ -192,7 +223,7 @@ class PushSubscriptionControllerTest extends TestCase
         $token = $this->csrfToken();
 
         $response = $this->buildFrontController()->handle($this->jsonRequest('POST', [
-            'endpoint' => 'https://push.example/device', 'auth_key' => 'auth', 'p256dh_key' => 'p256dh', '_csrf_token' => $token,
+            'endpoint' => 'https://93.184.216.34/device', 'auth_key' => 'auth', 'p256dh_key' => 'p256dh', '_csrf_token' => $token,
         ]));
 
         $this->assertSame(200, $response->getStatusCode());

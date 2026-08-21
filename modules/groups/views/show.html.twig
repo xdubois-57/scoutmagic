@@ -8,6 +8,7 @@
 
 {% block content %}
     {% include '@groups/partials/group_header.html.twig' %}
+    {% include '@groups/partials/group_edit_form.html.twig' %}
 
     {#
       A message the AI moderation refused, given back to its own author.
@@ -32,7 +33,8 @@
     {% endif %}
 
     {% if post_permission.allowed %}
-        <form method="post" action="/groups/{{ group.id }}/posts" enctype="multipart/form-data" class="card mb-3" id="groups-post-form">
+        <form method="post" action="/groups/{{ group.id }}/posts" enctype="multipart/form-data" class="card mb-3" id="groups-post-form"
+              data-max-media="{{ max_media_per_post|default(4) }}" data-group-id="{{ group.id }}" data-draft-ttl-minutes="{{ draft_ttl_minutes|default(60) }}">
             <div class="card-body">
                 <label class="form-label small mb-1" for="post-body">Écrire un message</label>
                 {{ csrf_field()|raw }}
@@ -49,7 +51,7 @@
                 {% endif %}
 
                 <div id="groups-media-previews" class="d-flex flex-wrap gap-2 mb-2"></div>
-                <input type="file" name="media[]" id="groups-media-hidden" class="d-none" multiple>
+                <input type="file" name="media[]" id="groups-media-hidden" class="d-none" multiple aria-label="Fichiers média à publier">
 
                 <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
                     <div class="d-flex gap-2">
@@ -58,15 +60,6 @@
                             <input type="file" id="groups-media-input" class="visually-hidden"
                                    accept="{{ video_upload_allowed ? 'image/*,video/*' : 'image/*' }}" multiple>
                         </label>
-                        <label class="btn btn-outline-secondary d-flex align-items-center mb-0" style="min-height:44px;">
-                            <i class="bi bi-camera me-1"></i> Appareil photo
-                            <input type="file" id="groups-media-capture" class="visually-hidden"
-                                   accept="image/*" capture="environment">
-                        </label>
-                        <button type="button" class="btn btn-outline-secondary d-flex align-items-center" style="min-height:44px;"
-                                id="groups-link-toggle">
-                            <i class="bi bi-link-45deg me-1"></i> Lien
-                        </button>
                     </div>
                     <span class="small text-body-secondary" id="groups-media-count">0 / {{ max_media_per_post }} médias</span>
                 </div>
@@ -77,11 +70,26 @@
                     <p class="small text-body-secondary mt-1 mb-0">L'envoi de vidéos est désactivé sur ce site.</p>
                 {% endif %}
 
-                <div class="mt-2 d-none" id="groups-link-field">
-                    <label class="form-label small mb-1" for="post-link">Lien</label>
-                    <input type="url" class="form-control" id="post-link" name="link"
-                           placeholder="https://…" maxlength="2048">
-                </div>
+                {#
+                  A link typed anywhere in the message above is detected
+                  automatically — no separate field to fill in. groups.js
+                  fills this in as-you-type (debounced: paused typing,
+                  leaving the field, or a paste — never every keystroke,
+                  to protect Service\LinkFetchThrottleService's shared
+                  per-member budget) by POSTing here to
+                  Controller\PostController::linkPreview(); hidden until
+                  then, and hidden again if the URL is edited away.
+                #}
+                <div class="mt-2 d-none" id="groups-link-preview" data-preview-url="/groups/{{ group.id }}/link-preview"></div>
+
+                {#
+                  Filled in by groups.js when the dynamic submit (fetch())
+                  itself fails or is refused — a stale CSRF token falls
+                  back to a real form submit instead (see groups.js), so
+                  this only ever shows a REFUSAL the server actually
+                  returned, or a genuine network/connection failure.
+                #}
+                <p class="small text-danger mt-2 mb-0 d-none" id="groups-post-error" role="alert"></p>
 
                 <button type="submit" class="btn btn-primary mt-2" style="min-height:44px;">Publier</button>
             </div>
@@ -95,207 +103,37 @@
         <hr class="my-3">
     {% endif %}
 
-    <div id="groups-feed">
+    <div id="groups-feed" data-group-id="{{ group.id }}">
         {% if posts is empty and pinned is empty %}
             <p class="text-body-secondary text-center py-5 mb-0">Aucun message dans ce groupe pour le moment.</p>
         {% else %}
             {% include '@groups/partials/feed_page.html.twig' with { posts: posts, group: group, next_cursor: next_cursor } %}
         {% endif %}
     </div>
+
+    {#
+      One shared dialog for every reaction tally on the page — a tally's
+      own click (groups.js) fetches partials/reactors_list.html.twig's
+      rendered output and fills #groups-reactors-modal-body with it before
+      showing this same modal, rather than one dialog per post/reply.
+    #}
+    <div class="modal fade" id="groups-reactors-modal" tabindex="-1" aria-labelledby="groups-reactors-modal-label" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2 class="modal-title h5" id="groups-reactors-modal-label">Réactions</h2>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fermer"></button>
+                </div>
+                <div class="modal-body" id="groups-reactors-modal-body">
+                    <div class="text-center py-3">
+                        <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
 {% endblock %}
 
 {% block scripts %}
-<script nonce="{{ csp_nonce }}">
-// Composer media picker: both visible <input type="file"> elements (the
-// gallery/camera pickers) are UI-only sources of File objects — never
-// submitted themselves. Selected files accumulate in selectedFiles[],
-// capped client-side at max_media_per_post (a convenience: the server
-// enforces the real ceiling and rejects the whole post over it, never
-// truncating — Service\PostMediaService::MAX_MEDIA_PER_POST). Before
-// submit, they're copied onto the one hidden <input name="media[]">
-// that actually gets posted, via the DataTransfer API (the only way to
-// programmatically set an <input>'s .files).
-(() => {
-    const maxMedia = {{ max_media_per_post|default(4) }};
-    const previews = document.getElementById('groups-media-previews');
-    const hiddenInput = document.getElementById('groups-media-hidden');
-    const countLabel = document.getElementById('groups-media-count');
-    const limitWarning = document.getElementById('groups-media-limit-warning');
-    const form = document.getElementById('groups-post-form');
-    if (!previews || !hiddenInput || !form) {
-        return;
-    }
-
-    let selectedFiles = [];
-
-    function render() {
-        previews.innerHTML = '';
-        selectedFiles.forEach((file, index) => {
-            const cell = document.createElement('div');
-            cell.className = 'position-relative';
-            cell.style.cssText = 'width:72px;height:72px;border-radius:.375rem;overflow:hidden;background:#eee;';
-
-            if (file.type.startsWith('image/')) {
-                const img = document.createElement('img');
-                img.src = URL.createObjectURL(file);
-                img.className = 'w-100 h-100';
-                img.style.objectFit = 'cover';
-                cell.appendChild(img);
-            } else {
-                const icon = document.createElement('div');
-                icon.className = 'd-flex align-items-center justify-content-center h-100 text-body-secondary';
-                icon.innerHTML = '<i class="bi bi-camera-video fs-4"></i>';
-                cell.appendChild(icon);
-            }
-
-            const remove = document.createElement('button');
-            remove.type = 'button';
-            remove.className = 'btn btn-sm btn-dark position-absolute top-0 end-0 p-0 d-flex align-items-center justify-content-center';
-            remove.style.cssText = 'width:22px;height:22px;border-radius:50%;opacity:.85;';
-            remove.setAttribute('aria-label', 'Retirer ce média');
-            remove.innerHTML = '<i class="bi bi-x" style="font-size:.9rem;"></i>';
-            remove.addEventListener('click', () => {
-                selectedFiles.splice(index, 1);
-                sync();
-            });
-            cell.appendChild(remove);
-
-            previews.appendChild(cell);
-        });
-    }
-
-    function sync() {
-        const dataTransfer = new DataTransfer();
-        selectedFiles.forEach((file) => dataTransfer.items.add(file));
-        hiddenInput.files = dataTransfer.files;
-        countLabel.textContent = selectedFiles.length + ' / ' + maxMedia + ' médias';
-        render();
-    }
-
-    function addFiles(fileList) {
-        let overflowed = false;
-        Array.from(fileList).forEach((file) => {
-            if (selectedFiles.length >= maxMedia) {
-                overflowed = true;
-                return;
-            }
-            selectedFiles.push(file);
-        });
-        limitWarning.classList.toggle('d-none', !overflowed);
-        sync();
-    }
-
-    ['groups-media-input', 'groups-media-capture'].forEach((id) => {
-        const input = document.getElementById(id);
-        if (!input) return;
-        input.addEventListener('change', () => {
-            if (input.files) addFiles(input.files);
-            input.value = '';
-        });
-    });
-
-    // "Lien" reveals a plain URL input rather than fetching a preview
-    // client-side (module spec: no browser-side fetch) — the server
-    // resolves title/description/image synchronously on submit
-    // (Service\PostLinkService), same as every other post field.
-    const linkToggle = document.getElementById('groups-link-toggle');
-    const linkField = document.getElementById('groups-link-field');
-    const linkInput = document.getElementById('post-link');
-    if (linkToggle && linkField && linkInput) {
-        linkToggle.addEventListener('click', () => {
-            const hidden = linkField.classList.toggle('d-none');
-            if (hidden) {
-                linkInput.value = '';
-            } else {
-                linkInput.focus();
-            }
-        });
-    }
-})();
-
-// "Charger plus" appends the next keyset page in place, and the inline
-// edit form toggles without leaving the feed. Both degrade to a plain
-// page reload if this script never runs: the button is a real link target
-// server-side, and every action is a normal form POST.
-document.addEventListener('click', async (event) => {
-    const loadMore = event.target.closest('.groups-load-more');
-    if (loadMore) {
-        loadMore.disabled = true;
-        const response = await fetch(loadMore.dataset.url, { headers: { 'X-Requested-With': 'fetch' } });
-        if (response.ok) {
-            const wrapper = loadMore.closest('.groups-load-more-wrapper');
-            wrapper.insertAdjacentHTML('beforebegin', await response.text());
-            wrapper.remove();
-        } else {
-            loadMore.disabled = false;
-        }
-        return;
-    }
-
-    const editToggle = event.target.closest('.groups-edit-toggle');
-    if (editToggle) {
-        document.getElementById('post-edit-' + editToggle.dataset.post)?.classList.remove('d-none');
-        document.getElementById('post-body-' + editToggle.dataset.post)?.classList.add('d-none');
-        return;
-    }
-
-    const editCancel = event.target.closest('.groups-edit-cancel');
-    if (editCancel) {
-        document.getElementById('post-edit-' + editCancel.dataset.post)?.classList.add('d-none');
-        document.getElementById('post-body-' + editCancel.dataset.post)?.classList.remove('d-none');
-        return;
-    }
-
-    // "Voir plus de réponses" — appends the next page of replies in place,
-    // exactly like "Charger plus" does for the feed itself. Degrades to
-    // nothing if this script never runs: the replies already rendered
-    // server-side stay visible, and every action below them is a plain
-    // form POST.
-    const repliesMore = event.target.closest('.groups-replies-more');
-    if (repliesMore) {
-        repliesMore.disabled = true;
-        const response = await fetch(repliesMore.dataset.url, { headers: { 'X-Requested-With': 'fetch' } });
-        if (response.ok) {
-            const wrapper = repliesMore.closest('.groups-replies-more-wrapper');
-            wrapper.insertAdjacentHTML('beforebegin', await response.text());
-            wrapper.remove();
-        } else {
-            repliesMore.disabled = false;
-        }
-        return;
-    }
-
-    const replyEditToggle = event.target.closest('.groups-reply-edit-toggle');
-    if (replyEditToggle) {
-        document.getElementById('reply-edit-' + replyEditToggle.dataset.reply)?.classList.remove('d-none');
-        document.getElementById('reply-body-' + replyEditToggle.dataset.reply)?.classList.add('d-none');
-        return;
-    }
-
-    const replyEditCancel = event.target.closest('.groups-reply-edit-cancel');
-    if (replyEditCancel) {
-        document.getElementById('reply-edit-' + replyEditCancel.dataset.reply)?.classList.add('d-none');
-        document.getElementById('reply-body-' + replyEditCancel.dataset.reply)?.classList.remove('d-none');
-    }
-});
-
-// The reply composer's image picker is a bare <input type="file"> with no
-// preview grid (one image, not four) — this only surfaces the chosen
-// filename so the member can tell something is attached before sending.
-document.addEventListener('change', (event) => {
-    const input = event.target.closest('.groups-reply-image');
-    if (!input) {
-        return;
-    }
-
-    const label = input.closest('form')?.querySelector('.groups-reply-image-name');
-    if (!label) {
-        return;
-    }
-
-    const name = input.files && input.files.length > 0 ? input.files[0].name : '';
-    label.textContent = name;
-    label.classList.toggle('d-none', name === '');
-});
-</script>
+<script src="/assets/js/groups.js" defer nonce="{{ csp_nonce }}"></script>
 {% endblock %}

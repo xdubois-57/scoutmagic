@@ -240,7 +240,7 @@
                         <div class="mb-2">
                             <small class="text-muted">Clé publique (pour l'enregistrement DNS) :</small>
                             <div class="input-group input-group-sm mt-1">
-                                <input type="text" class="form-control font-monospace" value="{{ dkim_public_key }}" readonly id="dkim-pubkey-display">
+                                <input type="text" class="form-control font-monospace" value="{{ dkim_public_key }}" readonly id="dkim-pubkey-display" aria-label="Clé publique DKIM">
                                 <button type="button" class="btn btn-outline-secondary btn-copy-value" data-copy-target="dkim-pubkey-display">Copier</button>
                             </div>
                         </div>
@@ -304,7 +304,7 @@
             <p class="text-muted small">Le site exécute déjà les tâches planifiées (sauvegardes automatiques, rappels, relances d'envoi…) de façon opportuniste après chaque visite d'une page — pratique, mais peu fiable si le site reçoit peu de trafic : rien ne s'exécute tant que personne ne le consulte. Configurez une véritable tâche cron chez votre hébergeur pour que ces tâches s'exécutent à l'heure prévue, même sans visiteur.</p>
             <p class="small mb-1">Ajoutez cette ligne dans votre crontab (ou dans la section « Tâches planifiées »/« Cron » du panneau de contrôle de votre hébergeur, si disponible) :</p>
             <div class="input-group input-group-sm mt-1 mb-2">
-                <input type="text" class="form-control font-monospace" value="* * * * * php {{ cron_script_path ?? '/chemin/vers/le/site/public/cron.php' }}" readonly id="cron-line-display">
+                <input type="text" class="form-control font-monospace" value="* * * * * php {{ cron_script_path ?? '/chemin/vers/le/site/public/cron.php' }}" readonly id="cron-line-display" aria-label="Ligne crontab">
                 <button type="button" class="btn btn-outline-secondary btn-copy-value" data-copy-target="cron-line-display">Copier</button>
             </div>
             <p class="text-muted small mb-0">Le script se protège lui-même contre les exécutions simultanées et n'a besoin d'être lancé qu'une fois par minute. Remplacez <code>php</code> par le chemin complet de l'exécutable en ligne de commande si votre hébergeur en exige un précis (souvent indiqué dans son panneau de contrôle, par exemple <code>/usr/bin/php8.3</code>).</p>
@@ -335,6 +335,60 @@
             </div>
         </div>
     </div>
+
+    {# Usage statistics — Core\Statistics, ARCHITECTURE.md §8.41. Only on a
+       first install: afterwards the switch lives on Configuration > Support,
+       next to the payload preview and the full explanation. #}
+    {% if not is_initialized %}
+    <div class="card mb-4">
+        <div class="card-body">
+            <h2 class="card-title h5 mb-3">Statistiques d'utilisation</h2>
+
+            <div class="form-check form-switch mb-2">
+                <input class="form-check-input" type="checkbox" role="switch" id="statistics_enabled"
+                       name="statistics_enabled" value="1"
+                       {% if values.statistics_enabled is not defined or values.statistics_enabled == '1' %}checked aria-checked="true"{% else %}aria-checked="false"{% endif %}>
+                <label class="form-check-label" for="statistics_enabled">
+                    Envoyer des statistiques d'utilisation
+                </label>
+            </div>
+
+            <p class="text-muted small mb-2">
+                Un rapport agrégé est envoyé une fois par jour à l'équipe qui développe ScoutMagic. Il sert à vous
+                fournir un meilleur support en cas de problème, à repérer les fonctionnalités réellement utilisées
+                et à décider des développements à venir. <strong>Ce rapport n'est pas anonyme</strong> : il contient
+                l'adresse de ce site. Il ne contient aucune donnée de membre.
+            </p>
+
+            <details class="small">
+                <summary>Voir ce qui sera envoyé</summary>
+                {# The payload itself cannot be built at this point — the
+                   database is not configured yet, so there is no settings
+                   table, no module registry and no installation identity.
+                   The categories of data are shown instead; the exact
+                   document is on Configuration > Support afterwards. #}
+                <ul class="mt-2 mb-0">
+                    <li>l'adresse de ce site et un identifiant d'installation aléatoire ;</li>
+                    <li>la version de ScoutMagic installée et la liste des modules avec leur version ;</li>
+                    <li>le nombre de membres et de sections actifs, et le libellé de l'année scoute ;</li>
+                    <li>des informations techniques sur l'hébergement : version de PHP, moteur et version de
+                        base de données, famille de système d'exploitation, architecture, HTTPS, mode d'envoi
+                        des emails, mode d'exécution des tâches planifiées, espace disque libre ;</li>
+                    <li>les dates d'installation et de dernière mise à jour, et les réglages de mise à jour
+                        automatique.</li>
+                </ul>
+                <p class="text-muted mt-2 mb-0">
+                    Le contenu exact est consultable après l'installation, sur la page Configuration &gt; Support.
+                </p>
+            </details>
+
+            <p class="text-muted small mt-2 mb-0">
+                Ce choix est modifiable à tout moment. Le refuser n'empêche rien d'autre : la page Support et la
+                génération d'une archive de diagnostic restent disponibles.
+            </p>
+        </div>
+    </div>
+    {% endif %}
 
     {# Save button #}
     <div class="d-grid mb-4">

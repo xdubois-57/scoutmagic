@@ -26,17 +26,17 @@
     });
 
     function getCsrf() {
-        return document.getElementById('csrf-token').value;
+        return /** @type {HTMLInputElement} */ (document.getElementById('csrf-token')).value;
     }
 
     // --- Core\Security\HumanCheck (magic-link form only, per module spec) ---
     function humanCheckParams() {
         var params = '';
-        var token = document.querySelector('input[name="human_check_token"]');
+        var token = /** @type {HTMLInputElement} */ (document.querySelector('input[name="human_check_token"]'));
         if (token) {
             params += '&human_check_token=' + encodeURIComponent(token.value);
         }
-        var trap = document.querySelector('.hc-trap input');
+        var trap = /** @type {HTMLInputElement} */ (document.querySelector('.hc-trap input'));
         if (trap) {
             params += '&' + encodeURIComponent(trap.name) + '=' + encodeURIComponent(trap.value);
         }
@@ -45,7 +45,7 @@
 
     // --- Mandatory RGPD consent (module addendum) — one checkbox per tab, each inside its own login box. ---
     function hasRgpdConsent(tab) {
-        var checkbox = document.getElementById('rgpd-consent-checkbox-' + tab);
+        var checkbox = /** @type {HTMLInputElement} */ (document.getElementById('rgpd-consent-checkbox-' + tab));
         var error = document.getElementById('rgpd-consent-error-' + tab);
         var ok = checkbox.checked;
         error.classList.toggle('d-none', ok);
@@ -56,9 +56,9 @@
     var stateEmail = document.getElementById('state-email');
     var stateWaiting = document.getElementById('state-waiting');
     var stateConfirmed = document.getElementById('state-confirmed');
-    var sendBtn = document.getElementById('send-magic-link');
+    var sendBtn = /** @type {HTMLButtonElement} */ (document.getElementById('send-magic-link'));
     var backBtn = document.getElementById('back-btn');
-    var emailInput = document.getElementById('email');
+    var emailInput = /** @type {HTMLInputElement} */ (document.getElementById('email'));
     var emailError = document.getElementById('email-error');
     var sentEmailSpan = document.getElementById('sent-email');
     var pollingInterval = null;
@@ -186,8 +186,8 @@
     var passwordBtn = document.getElementById('password-login-btn');
     if (passwordBtn) {
         passwordBtn.addEventListener('click', async function() {
-            var email = document.getElementById('password-email').value.trim();
-            var password = document.getElementById('password-input').value;
+            var email = /** @type {HTMLInputElement} */ (document.getElementById('password-email')).value.trim();
+            var password = /** @type {HTMLInputElement} */ (document.getElementById('password-input')).value;
             var csrf = getCsrf();
 
             var errorEl = document.getElementById('password-error');
@@ -243,26 +243,38 @@
             e.preventDefault();
             forgotForm.classList.toggle('d-none');
             if (!forgotForm.classList.contains('d-none')) {
-                var prefill = document.getElementById('password-email').value.trim();
-                if (prefill) document.getElementById('forgot-password-email').value = prefill;
+                var prefill = /** @type {HTMLInputElement} */ (document.getElementById('password-email')).value.trim();
+                if (prefill) /** @type {HTMLInputElement} */ (document.getElementById('forgot-password-email')).value = prefill;
                 document.getElementById('forgot-password-email').focus();
             }
         });
 
         document.getElementById('forgot-password-submit-btn').addEventListener('click', async function () {
-            var email = document.getElementById('forgot-password-email').value.trim();
+            var email = /** @type {HTMLInputElement} */ (document.getElementById('forgot-password-email')).value.trim();
             var messageEl = document.getElementById('forgot-password-message');
             messageEl.classList.add('d-none');
 
             if (!email) return;
 
-            var btn = this;
+            var btn = /** @type {HTMLButtonElement} */ (this);
             btn.disabled = true;
             try {
+                // Include this form's anti-bot fields (audit M3): the token and
+                // the honeypot trap (empty for a human). The trap field name is
+                // randomised per render, so read it from the DOM rather than
+                // hard-coding it.
+                var body = 'email=' + encodeURIComponent(email) + '&_csrf_token=' + encodeURIComponent(getCsrf());
+                var hcToken = document.querySelector('#forgot-password-form input[name="human_check_token"]');
+                if (hcToken) body += '&human_check_token=' + encodeURIComponent(/** @type {HTMLInputElement} */ (hcToken).value);
+                var hcTrap = document.querySelector('#forgot-password-form .hc-trap input');
+                if (hcTrap) {
+                    var trap = /** @type {HTMLInputElement} */ (hcTrap);
+                    body += '&' + encodeURIComponent(trap.name) + '=' + encodeURIComponent(trap.value);
+                }
                 var res = await fetch('/password-reset/request', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    body: 'email=' + encodeURIComponent(email) + '&_csrf_token=' + encodeURIComponent(getCsrf())
+                    body: body
                 });
                 var data = await res.json();
                 messageEl.textContent = data.success
@@ -283,7 +295,7 @@
     }
 
     // --- Passkey login ---
-    var passkeyBtn = document.getElementById('passkey-login-btn');
+    var passkeyBtn = /** @type {HTMLButtonElement} */ (document.getElementById('passkey-login-btn'));
     if (passkeyBtn) {
         if (!window.PublicKeyCredential) {
             passkeyBtn.disabled = true;
@@ -309,7 +321,8 @@
                     });
                 }
 
-                var credential = await navigator.credentials.get({ publicKey: options });
+                var credential = /** @type {PublicKeyCredential} */ (await navigator.credentials.get({ publicKey: options }));
+                var assertionResponse = /** @type {AuthenticatorAssertionResponse} */ (credential.response);
 
                 var verifyRes = await fetch('/login/passkey/verify', {
                     method: 'POST',
@@ -318,11 +331,11 @@
                         id: credential.id,
                         rawId: bufferToBase64(credential.rawId),
                         response: {
-                            authenticatorData: bufferToBase64(credential.response.authenticatorData),
-                            clientDataJSON: bufferToBase64(credential.response.clientDataJSON),
-                            signature: bufferToBase64(credential.response.signature),
-                            userHandle: credential.response.userHandle
-                                ? bufferToBase64(credential.response.userHandle) : null
+                            authenticatorData: bufferToBase64(assertionResponse.authenticatorData),
+                            clientDataJSON: bufferToBase64(assertionResponse.clientDataJSON),
+                            signature: bufferToBase64(assertionResponse.signature),
+                            userHandle: assertionResponse.userHandle
+                                ? bufferToBase64(assertionResponse.userHandle) : null
                         },
                         type: credential.type,
                         rgpd_consent: true
@@ -352,4 +365,19 @@
         return btoa(String.fromCharCode.apply(null, new Uint8Array(buf)))
             .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
     }
+
+    // --- Test seam (no behavioural effect) ---------------------------------
+    // Everything above lives inside this IIFE and is therefore module-private.
+    // This adds ONE namespaced global so tests/js/auth.test.js can reach the
+    // base64url encode/decode helpers directly and exercise their edge cases
+    // (padding, empty buffers, URL-safe characters) exhaustively, rather than
+    // only through a fully mocked WebAuthn round-trip — same precedent as
+    // window.ChipPicker, window.ScoutMagicNav and
+    // news-form-builder.js's own ScoutMagicNewsFormBuilderInternals.
+    //
+    // Test-only: nothing in production reads this.
+    globalThis.ScoutMagicAuthInternals = {
+        base64ToBuffer: base64ToBuffer,
+        bufferToBase64: bufferToBase64,
+    };
 })();

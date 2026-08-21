@@ -112,6 +112,10 @@
         }
     }
 
+    /**
+     * @param {HTMLElement} el
+     * @param {boolean} selected
+     */
     function setItemSelected(el, selected) {
         el.dataset.selected = selected ? 'true' : 'false';
         el.setAttribute('aria-pressed', selected ? 'true' : 'false');
@@ -163,7 +167,8 @@
     }
 
     function init() {
-        document.querySelectorAll('.chip-picker').forEach(function (container) {
+        document.querySelectorAll('.chip-picker').forEach(function (containerEl) {
+            var container = /** @type {HTMLElement} */ (containerEl);
             truncate(container);
             if (container.dataset.mode === 'multi') initMulti(container);
         });
@@ -178,6 +183,11 @@
     // its mirrored sheet row, re-truncates, but never dispatches
     // chip-picker:change itself (the caller already knows what happened;
     // re-dispatching would loop back into its own listener).
+    /**
+     * @param {string} pickerId
+     * @param {string} id
+     * @param {boolean} selected
+     */
     function setSelected(pickerId, id, selected) {
         var container = document.getElementById(pickerId);
         if (!container) return;

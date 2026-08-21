@@ -243,7 +243,7 @@ class RetroBoardController extends AbstractController
             return $this->json(['success' => false, 'error' => 'Requête invalide.'], 400);
         }
 
-        $rateLimitHash = $this->rateLimitService->identifierHash($this->readVoterCookie($request), session_id());
+        $rateLimitHash = $this->rateLimitService->identifierHash((string) $request->getServer('REMOTE_ADDR', ''), $this->readVoterCookie($request), session_id());
         $moderationMode = $this->resolveModerationMode();
         $acceptedWarning = (bool) ($data['accepted_warning'] ?? false);
 
@@ -311,7 +311,7 @@ class RetroBoardController extends AbstractController
 
         try {
             $this->rateLimitService->checkAndRecord(
-                $this->rateLimitService->identifierHash($this->readVoterCookie($request), session_id()),
+                $this->rateLimitService->identifierHash((string) $request->getServer('REMOTE_ADDR', ''), $this->readVoterCookie($request), session_id()),
                 'shorten'
             );
             $shortened = $this->moderationService->shorten($body, $board->maxCommentLength);
@@ -343,7 +343,7 @@ class RetroBoardController extends AbstractController
         }
 
         try {
-            $this->rateLimitService->checkAndRecord($this->rateLimitService->identifierHash($this->readVoterCookie($request), session_id()), 'vote');
+            $this->rateLimitService->checkAndRecord($this->rateLimitService->identifierHash((string) $request->getServer('REMOTE_ADDR', ''), $this->readVoterCookie($request), session_id()), 'vote');
             $liked = $this->voteService->toggleLike($board, $comment, $voterIdentifier);
         } catch (RetroException $e) {
             return $this->json(['success' => false, 'error' => $e->getMessage()], 422);
@@ -410,7 +410,7 @@ class RetroBoardController extends AbstractController
 
         try {
             if ($add) {
-                $this->rateLimitService->checkAndRecord($this->rateLimitService->identifierHash($this->readVoterCookie($request), session_id()), 'vote');
+                $this->rateLimitService->checkAndRecord($this->rateLimitService->identifierHash((string) $request->getServer('REMOTE_ADDR', ''), $this->readVoterCookie($request), session_id()), 'vote');
                 $remaining = $this->voteService->addPoint($board, $comment, $voterIdentifier);
             } else {
                 $remaining = $this->voteService->removePoint($board, $comment, $voterIdentifier);

@@ -175,7 +175,8 @@ class CalendarChiefController extends AbstractController
                 $this->stringOrNull($data['location'] ?? null),
                 $this->stringOrNull($data['description'] ?? null),
                 AuthSession::getUserAccountId(),
-                ($data['auto_create_retro'] ?? false) === true
+                ($data['auto_create_retro'] ?? false) === true,
+                Role::fromString(AuthSession::getRole())
             );
         } catch (CalendarException $e) {
             return $this->json(['success' => false, 'error' => $e->getMessage()], 400);
@@ -217,7 +218,8 @@ class CalendarChiefController extends AbstractController
                 $this->stringOrNull($data['location'] ?? null),
                 $this->stringOrNull($data['description'] ?? null),
                 ($data['auto_create_retro'] ?? false) === true,
-                AuthSession::getUserAccountId()
+                AuthSession::getUserAccountId(),
+                Role::fromString(AuthSession::getRole())
             );
         } catch (CalendarException $e) {
             return $this->json(['success' => false, 'error' => $e->getMessage()], 400);
@@ -250,7 +252,7 @@ class CalendarChiefController extends AbstractController
         $eventId = (int) ($data['event_id'] ?? 0);
 
         try {
-            $this->calendarEventService->deleteEvent($eventId);
+            $this->calendarEventService->deleteEvent($eventId, Role::fromString(AuthSession::getRole()));
         } catch (CalendarException $e) {
             return $this->json(['success' => false, 'error' => $e->getMessage()], 400);
         }

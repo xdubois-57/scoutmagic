@@ -419,8 +419,11 @@ class ConfigControllerTest extends TestCase
     }
 
     /**
-     * An unreachable endpoint must come back as a clean JSON failure, never
-     * as an uncaught exception — the page reads this with response.json().
+     * A failed test-connection must come back as a clean JSON failure, never
+     * as an uncaught exception — the page reads this with response.json(). An
+     * internal endpoint (here loopback) is now refused up front by the SSRF
+     * guard (audit M5) rather than being connected to, which is exactly the
+     * clean-JSON outcome this test guards.
      */
     public function testTestConnectionReportsAnUnreachableEndpointAsJson(): void
     {
@@ -434,7 +437,24 @@ class ConfigControllerTest extends TestCase
         $decoded = json_decode($response->getBody(), true);
         $this->assertIsArray($decoded);
         $this->assertFalse($decoded['success']);
-        $this->assertStringContainsString('Échec de connexion', $decoded['error']);
+        $this->assertStringContainsString('Point de terminaison invalide', $decoded['error']);
+    }
+
+    public function testTestConnectionRefusesAnInternalEndpointBeforeConnecting(): void
+    {
+        // An https loopback endpoint (SSRF target) must be refused by the guard
+        // (audit M5) — the request never leaves the host.
+        $providerId = $this->providerRepository->create('Anthropic', 'anthropic', 'https://127.0.0.1/v1', 'sk-test', true);
+
+        $response = $this->controller->testConnection(
+            $this->jsonRequest(['_csrf_token' => $this->csrfToken()]),
+            ['id' => (string) $providerId]
+        );
+
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertIsArray($decoded);
+        $this->assertFalse($decoded['success']);
+        $this->assertStringContainsString('Point de terminaison invalide', $decoded['error']);
     }
 
     // --------------------------------------------------- ProviderRepository

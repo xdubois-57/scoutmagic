@@ -30,30 +30,48 @@ class RateLimitServiceTest extends TestCase
 
     public function testIdentifierHashNeverReturnsTheRawCookieValue(): void
     {
-        $hash = $this->service->identifierHash('my-cookie-value', 'session-id');
+        $hash = $this->service->identifierHash(null, 'my-cookie-value', 'session-id');
 
         $this->assertStringNotContainsString('my-cookie-value', $hash);
     }
 
     public function testIdentifierHashIsStableForTheSameCookie(): void
     {
-        $a = $this->service->identifierHash('cookie-x', 'session-1');
-        $b = $this->service->identifierHash('cookie-x', 'session-2');
+        $a = $this->service->identifierHash(null, 'cookie-x', 'session-1');
+        $b = $this->service->identifierHash(null, 'cookie-x', 'session-2');
 
         $this->assertSame($a, $b);
     }
 
-    public function testIdentifierHashFallsBackToSessionIdWhenNoCookie(): void
+    public function testIdentifierHashFallsBackToSessionIdWhenNoIpOrCookie(): void
     {
-        $a = $this->service->identifierHash(null, 'session-a');
-        $b = $this->service->identifierHash(null, 'session-b');
+        $a = $this->service->identifierHash(null, null, 'session-a');
+        $b = $this->service->identifierHash(null, null, 'session-b');
 
         $this->assertNotSame($a, $b);
     }
 
+    public function testIdentifierHashKeysOnTheIpNotTheAttackerControlledCookie(): void
+    {
+        // Same IP, different cookie/session → same bucket: discarding the
+        // cookie (or rotating the session) can no longer mint a fresh bucket
+        // for the paid endpoints (audit M13).
+        $a = $this->service->identifierHash('203.0.113.7', 'cookie-1', 'session-1');
+        $b = $this->service->identifierHash('203.0.113.7', 'cookie-2', 'session-2');
+        $this->assertSame($a, $b);
+
+        // Different IP → different bucket.
+        $c = $this->service->identifierHash('203.0.113.8', 'cookie-1', 'session-1');
+        $this->assertNotSame($a, $c);
+
+        // The IP wins over the cookie fallback entirely.
+        $withoutCookie = $this->service->identifierHash('203.0.113.7', null, 'session-x');
+        $this->assertSame($a, $withoutCookie);
+    }
+
     public function testCheckAndRecordAllowsActionsUnderTheLimit(): void
     {
-        $hash = $this->service->identifierHash('cookie', 'session');
+        $hash = $this->service->identifierHash(null, 'cookie', 'session');
 
         for ($i = 0; $i < 5; $i++) {
             $this->service->checkAndRecord($hash, 'comment');
@@ -64,7 +82,7 @@ class RateLimitServiceTest extends TestCase
 
     public function testCheckAndRecordThrowsPastTheLimit(): void
     {
-        $hash = $this->service->identifierHash('cookie', 'session');
+        $hash = $this->service->identifierHash(null, 'cookie', 'session');
         for ($i = 0; $i < 10; $i++) {
             $this->service->checkAndRecord($hash, 'comment');
         }
@@ -75,7 +93,7 @@ class RateLimitServiceTest extends TestCase
 
     public function testCheckAndRecordThrownExceptionHasRateLimitedType(): void
     {
-        $hash = $this->service->identifierHash('cookie', 'session');
+        $hash = $this->service->identifierHash(null, 'cookie', 'session');
         for ($i = 0; $i < 10; $i++) {
             $this->service->checkAndRecord($hash, 'comment');
         }
@@ -90,7 +108,7 @@ class RateLimitServiceTest extends TestCase
 
     public function testCommentAndVoteLimitsAreIndependent(): void
     {
-        $hash = $this->service->identifierHash('cookie', 'session');
+        $hash = $this->service->identifierHash(null, 'cookie', 'session');
         for ($i = 0; $i < 10; $i++) {
             $this->service->checkAndRecord($hash, 'comment');
         }
@@ -108,7 +126,7 @@ class RateLimitServiceTest extends TestCase
      */
     public function testShortenIsThrottled(): void
     {
-        $hash = $this->service->identifierHash(null, 'session-shorten');
+        $hash = $this->service->identifierHash(null, null, 'session-shorten');
 
         for ($i = 0; $i < 5; $i++) {
             $this->service->checkAndRecord($hash, 'shorten');
@@ -120,7 +138,7 @@ class RateLimitServiceTest extends TestCase
 
     public function testShortenLimitIsIndependentFromTheCommentLimit(): void
     {
-        $hash = $this->service->identifierHash(null, 'session-mixed');
+        $hash = $this->service->identifierHash(null, null, 'session-mixed');
 
         for ($i = 0; $i < 5; $i++) {
             $this->service->checkAndRecord($hash, 'shorten');

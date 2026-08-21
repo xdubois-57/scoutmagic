@@ -86,11 +86,11 @@
         <div class="card">
             <div class="card-body">
                 <div class="mb-3">
-                    <label class="form-label">Adresse email</label>
+                    <label class="form-label" for="password-email">Adresse email</label>
                     <input type="email" name="email" class="form-control" id="password-email" placeholder="nom@exemple.be" required autocomplete="email">
                 </div>
                 <div class="mb-2">
-                    <label class="form-label">Mot de passe</label>
+                    <label class="form-label" for="password-input">Mot de passe</label>
                     <input type="password" name="password" class="form-control" id="password-input" required autocomplete="current-password">
                 </div>
                 <div class="mb-3 text-end">
@@ -112,7 +112,10 @@
 
                 {# Inline "forgot password" mini-form — module addendum. #}
                 <div id="forgot-password-form" class="d-none mt-3 pt-3 border-top">
-                    <label class="form-label small">Adresse email du compte</label>
+                    {# Anti-bot fields for this form's own challenge (audit M3);
+                       auth.js includes them in the /password-reset/request POST. #}
+                    {% include 'partials/human_check_fields.html.twig' with { human_check: human_check_reset } %}
+                    <label class="form-label small" for="forgot-password-email">Adresse email du compte</label>
                     <input type="email" class="form-control form-control-sm mb-2" id="forgot-password-email" placeholder="nom@exemple.be">
                     <button type="button" class="btn btn-sm btn-outline-primary w-100" id="forgot-password-submit-btn">Recevoir un lien de réinitialisation</button>
                     <div id="forgot-password-message" class="small mt-2 d-none"></div>

@@ -27,6 +27,7 @@ use Modules\News\Service\FormService;
 use Modules\News\Service\NewsException;
 use Modules\News\Service\ResponseService;
 use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
+use PhpOffice\PhpSpreadsheet\Cell\DataType;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 use Twig\Environment;
@@ -486,14 +487,23 @@ class FormController extends AbstractController
             $columns[] = 'Statut paiement';
         }
 
+        // Explicit string typing on every cell that carries free text —
+        // header labels, the contact address, and each answer. Without it
+        // PhpSpreadsheet's DefaultValueBinder promotes a value beginning
+        // with '=' (or +, -, @) to a live formula, and form answers are
+        // submitted by anyone (POST /news/{id}/form/submit is public), so a
+        // crafted answer like =HYPERLINK(...) would execute in the staff
+        // member's spreadsheet when they open the export — the CSV/XLSX
+        // formula-injection class. Same treatment Core\Member\Export\
+        // MemberExportService already applies throughout.
         foreach ($columns as $index => $header) {
-            $sheet->setCellValue([$index + 1, 1], $header);
+            $sheet->setCellValueExplicit([$index + 1, 1], (string) $header, DataType::TYPE_STRING);
         }
 
         $rowNum = 2;
         foreach ($responses as $response) {
             $answers = $this->responseService->getAnswers($response->id);
-            $sheet->setCellValue([1, $rowNum], $response->contactEmail);
+            $sheet->setCellValueExplicit([1, $rowNum], (string) $response->contactEmail, DataType::TYPE_STRING);
 
             $colIndex = 2;
             foreach ($fields as $field) {
@@ -504,7 +514,7 @@ class FormController extends AbstractController
                 if ($field->fieldType === FormField::TYPE_SWITCH) {
                     $value = $value === '1' ? 'Oui' : 'Non';
                 }
-                $sheet->setCellValue([$colIndex, $rowNum], $value);
+                $sheet->setCellValueExplicit([$colIndex, $rowNum], (string) $value, DataType::TYPE_STRING);
                 $colIndex++;
             }
 
@@ -520,8 +530,8 @@ class FormController extends AbstractController
 
                 $status = $response->receivableId !== null ? $this->buildReceivableStatus($response) : null;
                 $sheet->setCellValue([$colIndex + 1, $rowNum], $status !== null ? $status['amount_received'] / 100 : 0);
-                $sheet->setCellValue([$colIndex + 2, $rowNum], $response->structuredCommunication ?? '');
-                $sheet->setCellValue([$colIndex + 3, $rowNum], $status !== null ? $this->statusLabel($status['status']) : 'Non payé');
+                $sheet->setCellValueExplicit([$colIndex + 2, $rowNum], (string) ($response->structuredCommunication ?? ''), DataType::TYPE_STRING);
+                $sheet->setCellValueExplicit([$colIndex + 3, $rowNum], $status !== null ? $this->statusLabel($status['status']) : 'Non payé', DataType::TYPE_STRING);
             }
 
             $rowNum++;

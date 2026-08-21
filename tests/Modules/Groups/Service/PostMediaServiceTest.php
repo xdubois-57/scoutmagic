@@ -233,6 +233,33 @@ class PostMediaServiceTest extends TestCase
         $this->assertSame([], $this->service($manager)->albumMediaById($group));
     }
 
+    public function testMediaByIdsReturnsOnlyTheRequestedOnesInTheGroupsAlbum(): void
+    {
+        $this->groupRepo->setGalleryAlbumId($this->groupId, 42);
+        $manager = $this->createMock(DelegatedAlbumManager::class);
+        $manager->expects($this->once())->method('listMedia')->with(42)->willReturn([
+            $this->delegatedMedia(10), $this->delegatedMedia(11), $this->delegatedMedia(12),
+        ]);
+
+        $group = $this->groupRepo->findById($this->groupId);
+        // 999 belongs to no album this group can see — silently absent
+        // from the result, same as every other id lookup this module
+        // scopes to an authorised group's own media.
+        $result = $this->service($manager)->mediaByIds($group, [11, 999]);
+
+        $this->assertSame([11], array_keys($result));
+        $this->assertSame(11, $result[11]->id);
+    }
+
+    public function testMediaByIdsIsEmptyWhenTheGroupHasNoAlbumYet(): void
+    {
+        $manager = $this->createMock(DelegatedAlbumManager::class);
+        $manager->expects($this->never())->method('listMedia');
+
+        $group = $this->groupRepo->findById($this->groupId);
+        $this->assertSame([], $this->service($manager)->mediaByIds($group, [1, 2]));
+    }
+
     public function testGroupGalleryMediaSortsNewestFirstById(): void
     {
         $this->groupRepo->setGalleryAlbumId($this->groupId, 42);

@@ -77,7 +77,7 @@ class CommentServiceTest extends TestCase
     public function testPostCommentCreatesAComment(): void
     {
         $board = $this->createBoard();
-        $hash = $this->rateLimitService->identifierHash('cookie', 'session');
+        $hash = $this->rateLimitService->identifierHash(null, 'cookie', 'session');
 
         $comment = $this->service->postComment($board, 'good', 'Super semaine !', $hash);
 
@@ -88,7 +88,7 @@ class CommentServiceTest extends TestCase
     public function testPostCommentRejectsWhenBoardClosed(): void
     {
         $board = $this->createBoard(['status' => 'closed']);
-        $hash = $this->rateLimitService->identifierHash('cookie', 'session');
+        $hash = $this->rateLimitService->identifierHash(null, 'cookie', 'session');
 
         $this->expectException(RetroException::class);
         $this->service->postComment($board, 'good', 'Text', $hash);
@@ -97,7 +97,7 @@ class CommentServiceTest extends TestCase
     public function testPostCommentRejectsInvalidColumn(): void
     {
         $board = $this->createBoard();
-        $hash = $this->rateLimitService->identifierHash('cookie', 'session');
+        $hash = $this->rateLimitService->identifierHash(null, 'cookie', 'session');
 
         $this->expectException(RetroException::class);
         $this->service->postComment($board, 'bogus-column', 'Text', $hash);
@@ -106,7 +106,7 @@ class CommentServiceTest extends TestCase
     public function testPostCommentRejectsEmptyBody(): void
     {
         $board = $this->createBoard();
-        $hash = $this->rateLimitService->identifierHash('cookie', 'session');
+        $hash = $this->rateLimitService->identifierHash(null, 'cookie', 'session');
 
         $this->expectException(RetroException::class);
         $this->service->postComment($board, 'good', '   ', $hash);
@@ -115,7 +115,7 @@ class CommentServiceTest extends TestCase
     public function testPostCommentRejectsTooLongBodyWithTooLongType(): void
     {
         $board = $this->createBoard(['maxCommentLength' => 120]);
-        $hash = $this->rateLimitService->identifierHash('cookie', 'session');
+        $hash = $this->rateLimitService->identifierHash(null, 'cookie', 'session');
 
         try {
             $this->service->postComment($board, 'good', str_repeat('a', 130), $hash);
@@ -128,7 +128,7 @@ class CommentServiceTest extends TestCase
     public function testPostCommentRejectsPastRateLimitBeforeReachingModeration(): void
     {
         $board = $this->createBoard();
-        $hash = $this->rateLimitService->identifierHash('cookie', 'session');
+        $hash = $this->rateLimitService->identifierHash(null, 'cookie', 'session');
         for ($i = 0; $i < 10; $i++) {
             $this->service->postComment($board, 'good', 'Text ' . $i, $hash);
         }
@@ -146,7 +146,7 @@ class CommentServiceTest extends TestCase
         // $this->service was built with a null ModerationService in setUp()
         // — a comment must still post successfully, unmoderated.
         $board = $this->createBoard();
-        $hash = $this->rateLimitService->identifierHash('cookie', 'session');
+        $hash = $this->rateLimitService->identifierHash(null, 'cookie', 'session');
 
         $comment = $this->service->postComment($board, 'good', 'Fine without AI.', $hash);
 
@@ -169,7 +169,7 @@ class CommentServiceTest extends TestCase
         $commentRepository = new CommentRepository($this->pdo);
         $service = new CommentService($commentRepository, $moderationService, $this->rateLimitService);
         $board = $this->createBoard();
-        $hash = $this->rateLimitService->identifierHash('cookie', 'session2');
+        $hash = $this->rateLimitService->identifierHash(null, 'cookie', 'session2');
 
         $comment = $service->postComment($board, 'good', 'Some text', $hash, 'disabled');
 
@@ -182,7 +182,7 @@ class CommentServiceTest extends TestCase
         $commentRepository = new CommentRepository($this->pdo);
         $service = new CommentService($commentRepository, $moderationService, $this->rateLimitService);
         $board = $this->createBoard();
-        $hash = $this->rateLimitService->identifierHash('cookie', 'session2');
+        $hash = $this->rateLimitService->identifierHash(null, 'cookie', 'session2');
 
         try {
             $service->postComment($board, 'good', 'Some text', $hash, 'warning', false);
@@ -200,7 +200,7 @@ class CommentServiceTest extends TestCase
         $commentRepository = new CommentRepository($this->pdo);
         $service = new CommentService($commentRepository, $moderationService, $this->rateLimitService);
         $board = $this->createBoard();
-        $hash = $this->rateLimitService->identifierHash('cookie', 'session2');
+        $hash = $this->rateLimitService->identifierHash(null, 'cookie', 'session2');
 
         $comment = $service->postComment($board, 'good', 'Some text', $hash, 'warning', true);
 
@@ -213,7 +213,7 @@ class CommentServiceTest extends TestCase
         $commentRepository = new CommentRepository($this->pdo);
         $service = new CommentService($commentRepository, $moderationService, $this->rateLimitService);
         $board = $this->createBoard();
-        $hash = $this->rateLimitService->identifierHash('cookie', 'session2');
+        $hash = $this->rateLimitService->identifierHash(null, 'cookie', 'session2');
 
         try {
             // acceptedWarning=true must NOT bypass moderation in enforced mode.
@@ -228,7 +228,7 @@ class CommentServiceTest extends TestCase
     {
         // $this->service was built with a null ModerationService in setUp().
         $board = $this->createBoard();
-        $hash = $this->rateLimitService->identifierHash('cookie', 'session');
+        $hash = $this->rateLimitService->identifierHash(null, 'cookie', 'session');
 
         $comment = $this->service->postComment($board, 'good', 'Fine without AI.', $hash, 'enforced');
 
@@ -238,7 +238,7 @@ class CommentServiceTest extends TestCase
     public function testHideAndUnhide(): void
     {
         $board = $this->createBoard();
-        $hash = $this->rateLimitService->identifierHash('cookie', 'session');
+        $hash = $this->rateLimitService->identifierHash(null, 'cookie', 'session');
         $comment = $this->service->postComment($board, 'good', 'Text', $hash);
 
         $this->service->hide($comment->id);
@@ -253,7 +253,7 @@ class CommentServiceTest extends TestCase
     public function testListForDisplaySortsByVotesWhenRequested(): void
     {
         $board = $this->createBoard();
-        $hash = $this->rateLimitService->identifierHash('cookie', 'session');
+        $hash = $this->rateLimitService->identifierHash(null, 'cookie', 'session');
         $commentRepository = new CommentRepository($this->pdo);
         $low = $this->service->postComment($board, 'good', 'Low', $hash);
         $high = $this->service->postComment($board, 'good', 'High', $hash);

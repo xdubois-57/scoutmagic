@@ -46,6 +46,7 @@ class MaintenanceControllerTest extends TestCase
     private SettingService $settingService;
     private SecretManager $secretManager;
     private Environment $twig;
+    private string $storagePath;
 
     /**
      * Configurable per-test — the "Vérifier maintenant" / dev-branch
@@ -85,6 +86,7 @@ class MaintenanceControllerTest extends TestCase
         $connection = new Connection('127.0.0.1', 3306, 'nonexistent_db', 'nobody', '');
         $storagePath = sys_get_temp_dir() . '/maintenance_controller_test_' . uniqid();
         mkdir($storagePath, 0755, true);
+        $this->storagePath = $storagePath;
         $backupService = new BackupService($connection, $storagePath, dirname($storagePath));
 
         $this->secretManager = new SecretManager($storagePath . '/keys/master.key', $storagePath . '/config/secrets.enc');
@@ -718,6 +720,96 @@ class MaintenanceControllerTest extends TestCase
         $this->assertSame([], $this->schedulerRepository->findByModuleAndTaskKey('core', 'restore_backup'));
     }
 
+    // --- Restauration : envoi fragmenté (audit M2) ---
+
+    private const RESTORE_UPLOAD_ID = 'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
+
+    /**
+     * Registers $bytes as this request's uploaded chunk and returns the
+     * matching Request for POST /config/maintenance/restore-upload-chunk.
+     */
+    private function restoreChunkRequest(string $bytes, int $offset, bool $isLast, string $token): Request
+    {
+        $path = tempnam(sys_get_temp_dir(), 'restore_chunk_');
+        file_put_contents($path, $bytes);
+        $_FILES['file'] = ['name' => 'chunk', 'tmp_name' => $path, 'error' => UPLOAD_ERR_OK, 'size' => strlen($bytes), 'type' => 'application/octet-stream'];
+
+        return new Request('POST', '/config/maintenance/restore-upload-chunk', [], [
+            '_csrf_token' => $token,
+            'upload_id' => self::RESTORE_UPLOAD_ID,
+            'chunk_offset' => (string) $offset,
+            'last' => $isLast ? '1' : '0',
+        ], [], []);
+    }
+
+    public function testRestoreUploadChunkValidatesCsrf(): void
+    {
+        $response = $this->controller->restoreUploadChunk($this->restoreChunkRequest('data', 0, false, 'bad'), []);
+
+        $this->assertSame(403, $response->getStatusCode());
+        $this->assertSame([], glob($this->storagePath . '/temp/chunked_uploads/*.part') ?: []);
+
+        unset($_FILES['file']);
+    }
+
+    public function testRestoreUploadChunkRejectsAnOutOfOrderChunkWith409(): void
+    {
+        $token = $this->csrfToken();
+        $this->controller->restoreUploadChunk($this->restoreChunkRequest('abcdef', 0, false, $token), []);
+
+        $response = $this->controller->restoreUploadChunk($this->restoreChunkRequest('ghijkl', 42, false, $token), []);
+
+        $this->assertSame(409, $response->getStatusCode());
+        $decoded = json_decode($response->getBody(), true);
+        $this->assertSame(6, $decoded['received']);
+
+        unset($_FILES['file']);
+    }
+
+    public function testRestoreBackupConsumesAChunkedUploadByItsId(): void
+    {
+        $token = $this->csrfToken();
+        $first = $this->controller->restoreUploadChunk($this->restoreChunkRequest('PK archive ', 0, false, $token), []);
+        $this->assertTrue(json_decode($first->getBody(), true)['success']);
+        $last = $this->controller->restoreUploadChunk($this->restoreChunkRequest('bytes', 11, true, $token), []);
+        $this->assertTrue(json_decode($last->getBody(), true)['success']);
+        unset($_FILES['file']);
+
+        $request = new Request('POST', '/config/maintenance/reset/restore', [], [
+            '_csrf_token' => $token, 'confirm_keyword' => 'RESTAURER', 'source' => 'upload',
+            'upload_id' => self::RESTORE_UPLOAD_ID,
+        ], [], []);
+
+        $response = $this->controller->restoreBackup($request, []);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertStringContainsString('restore_id=', $response->getHeaders()['Location'] ?? '');
+        $tasks = $this->schedulerRepository->findByModuleAndTaskKey('core', 'restore_backup');
+        $this->assertCount(1, $tasks);
+        $payload = json_decode((string) $tasks[0]['payload'], true);
+        $tempPath = (string) $payload['uploaded_temp_path'];
+        $this->assertFileExists($tempPath);
+        $this->assertSame('PK archive bytes', file_get_contents($tempPath));
+        // The assembled partial was moved, not copied.
+        $this->assertSame([], glob($this->storagePath . '/temp/chunked_uploads/*.part') ?: []);
+        @unlink($tempPath);
+    }
+
+    public function testRestoreBackupRejectsAnUnknownUploadId(): void
+    {
+        $token = $this->csrfToken();
+        $request = new Request('POST', '/config/maintenance/reset/restore', [], [
+            '_csrf_token' => $token, 'confirm_keyword' => 'RESTAURER', 'source' => 'upload',
+            'upload_id' => self::RESTORE_UPLOAD_ID,
+        ], [], []);
+
+        $response = $this->controller->restoreBackup($request, []);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertStringNotContainsString('restore_id=', $response->getHeaders()['Location'] ?? '');
+        $this->assertSame([], $this->schedulerRepository->findByModuleAndTaskKey('core', 'restore_backup'));
+    }
+
     public function testRestoreBackupSchedulesTheBackgroundTaskForAnExistingServerBackup(): void
     {
         $backupId = $this->backupRepository->create('database', 1);
@@ -848,6 +940,91 @@ class MaintenanceControllerTest extends TestCase
 
         $decoded = json_decode($response->getBody(), true);
         $this->assertFalse($decoded['success']);
+    }
+
+    // --- reconciliation of the pending weekly-slot install on save ---
+
+    /**
+     * @return array{0: int, 1: int} [historyId, actionId]
+     */
+    private function seedPendingScheduledInstall(string $versionTo): array
+    {
+        $historyId = $this->updateHistoryRepository->create('0.0.0', $versionTo, false, null);
+        $actionId = $this->schedulerRepository->create(
+            'core',
+            'install_update',
+            '2099-01-04 03:00:00',
+            json_encode(['history_id' => $historyId, 'download_url' => 'https://example.test/artifact.zip', 'source_type' => 'release']),
+            'scheduled_install'
+        );
+
+        return [$historyId, $actionId];
+    }
+
+    public function testSaveAutoUpdatePreferencesSwitchingToDevCancelsThePendingScheduledInstall(): void
+    {
+        [$historyId, $actionId] = $this->seedPendingScheduledInstall('2.4.2');
+
+        $request = $this->jsonRequest(['enabled' => true, 'level' => 'dev', 'branch' => 'main', '_csrf_token' => $this->csrfToken()]);
+        $response = $this->controller->saveAutoUpdatePreferences($request, []);
+
+        $this->assertTrue(json_decode($response->getBody(), true)['success']);
+        $this->assertSame('canceled', $this->schedulerRepository->findById($actionId)['status']);
+        $this->assertSame('failed', $this->updateHistoryRepository->findById($historyId)->status);
+    }
+
+    public function testSaveAutoUpdatePreferencesDisablingAutoUpdatesCancelsThePendingScheduledInstall(): void
+    {
+        [$historyId, $actionId] = $this->seedPendingScheduledInstall('2.4.2');
+
+        $request = $this->jsonRequest(['enabled' => false, 'level' => 'major', 'day' => 'monday', 'time' => '03:00', '_csrf_token' => $this->csrfToken()]);
+        $response = $this->controller->saveAutoUpdatePreferences($request, []);
+
+        $this->assertTrue(json_decode($response->getBody(), true)['success']);
+        $this->assertSame('canceled', $this->schedulerRepository->findById($actionId)['status']);
+        $this->assertSame('failed', $this->updateHistoryRepository->findById($historyId)->status);
+    }
+
+    public function testSaveAutoUpdatePreferencesMovesThePendingScheduledInstallToTheNewSlot(): void
+    {
+        // No VERSION file at dirname(storagePath) → installed is 0.0.0, so
+        // 0.0.0 → 2.4.2 is a major bump: allowed at level 'major'.
+        [$historyId, $actionId] = $this->seedPendingScheduledInstall('2.4.2');
+
+        $request = $this->jsonRequest(['enabled' => true, 'level' => 'major', 'day' => 'friday', 'time' => '22:30', '_csrf_token' => $this->csrfToken()]);
+        $response = $this->controller->saveAutoUpdatePreferences($request, []);
+
+        $this->assertTrue(json_decode($response->getBody(), true)['success']);
+        $this->assertSame('canceled', $this->schedulerRepository->findById($actionId)['status']);
+        // The target release is still wanted — its history row stays pending.
+        $this->assertSame('pending', $this->updateHistoryRepository->findById($historyId)->status);
+
+        $moved = $this->schedulerRepository->findByModuleAndKey('core', 'install_update', 'scheduled_install');
+        $this->assertNotNull($moved);
+        $payload = json_decode((string) $moved['payload'], true);
+        $this->assertSame($historyId, $payload['history_id']);
+        $this->assertSame('https://example.test/artifact.zip', $payload['download_url']);
+
+        // run_at is stored in the server's timezone; the configured slot is
+        // Brussels wall-clock time — convert back to check day + time.
+        $runAtLocal = (new \DateTimeImmutable((string) $moved['run_at']))
+            ->setTimezone(new \DateTimeZone('Europe/Brussels'));
+        $this->assertSame('5', $runAtLocal->format('N'), 'must land on a Friday (Brussels)');
+        $this->assertSame('22:30', $runAtLocal->format('H:i'));
+    }
+
+    public function testSaveAutoUpdatePreferencesCancelsAPendingInstallNoLongerAllowedByTheNarrowedLevel(): void
+    {
+        // 0.0.0 → 0.1.0 is a minor bump — no longer allowed once the admin
+        // narrows the level to 'patch'.
+        [$historyId, $actionId] = $this->seedPendingScheduledInstall('0.1.0');
+
+        $request = $this->jsonRequest(['enabled' => true, 'level' => 'patch', 'day' => 'monday', 'time' => '03:00', '_csrf_token' => $this->csrfToken()]);
+        $response = $this->controller->saveAutoUpdatePreferences($request, []);
+
+        $this->assertTrue(json_decode($response->getBody(), true)['success']);
+        $this->assertSame('canceled', $this->schedulerRepository->findById($actionId)['status']);
+        $this->assertSame('failed', $this->updateHistoryRepository->findById($historyId)->status);
     }
 
     // --- "Vérifier maintenant" (POST /config/maintenance/update/check-now) ---
