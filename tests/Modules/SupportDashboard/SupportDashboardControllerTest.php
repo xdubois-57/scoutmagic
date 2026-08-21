@@ -36,6 +36,14 @@ class SupportDashboardControllerTest extends TestCase
     private SupportDashboardController $controller;
     private int $installationId;
 
+    /**
+     * Distinctive on purpose: the page legitimately contains the French
+     * word "secret" (the deletion confirmation mentions l'empreinte du
+     * secret), so asserting on that word would test the prose rather than
+     * the credential.
+     */
+    private const SENDER_SECRET = 'f4d1c0ffee5eca11ab1e0ddba11deadbeef00042';
+
     protected function setUp(): void
     {
         $this->pdo = DatabaseTestHelper::createTestDatabase();
@@ -44,7 +52,7 @@ class SupportDashboardControllerTest extends TestCase
         $installations = new SupportInstallationRepository($this->pdo);
         $this->installationId = $installations->register(
             'aaaabbbbccccdddd',
-            password_hash('secret', PASSWORD_DEFAULT),
+            password_hash(self::SENDER_SECRET, PASSWORD_DEFAULT),
             (string) json_encode($this->payload()),
             StatisticsIntakeService::denormalize($this->payload())
         );
@@ -167,8 +175,10 @@ class SupportDashboardControllerTest extends TestCase
             ->handle(new Request('GET', '/support-dashboard/installations/' . $this->installationId, [], [], [], []))->getBody();
 
         foreach ([$index, $detail] as $body) {
-            $this->assertStringNotContainsString('secret', $body);
+            // The secret itself, and the bcrypt hash it is stored as.
+            $this->assertStringNotContainsString(self::SENDER_SECRET, $body);
             $this->assertStringNotContainsString('$2y$', $body);
+            $this->assertStringNotContainsString('secret_hash', $body);
         }
     }
 

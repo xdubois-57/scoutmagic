@@ -11,6 +11,7 @@ namespace Modules\SupportDashboard\Service;
 use Core\Journal\JournalService;
 use Core\Security\EncryptionService;
 use Modules\SupportDashboard\Repository\SupportInstallationRepository;
+use Modules\SupportDashboard\Repository\SupportMonthlyAggregateRepository;
 use Modules\SupportDashboard\Repository\SupportReportRateLimitRepository;
 
 /**
@@ -56,7 +57,8 @@ class StatisticsIntakeService
         private SupportInstallationRepository $installations,
         private SupportReportRateLimitRepository $rateLimits,
         private EncryptionService $encryption,
-        private JournalService $journal
+        private JournalService $journal,
+        private ?SupportMonthlyAggregateRepository $monthlyAggregates = null
     ) {
     }
 
@@ -108,6 +110,7 @@ class StatisticsIntakeService
                 $denormalized
             );
 
+            $this->recordMonthlyContribution($installationId);
             $this->journalAcceptance($installationId, true, $unknownFields);
 
             return StatisticsIntakeResult::accepted(true, $unknownFields);
@@ -118,6 +121,7 @@ class StatisticsIntakeService
         }
 
         $this->installations->recordReport((int) $existing['id'], $rawBody, $denormalized);
+        $this->recordMonthlyContribution($installationId);
         $this->journalAcceptance($installationId, false, $unknownFields);
 
         return StatisticsIntakeResult::accepted(false, $unknownFields);
@@ -160,6 +164,28 @@ class StatisticsIntakeService
         }
 
         return true;
+    }
+
+    /**
+     * Notes that this installation contributed to the current calendar
+     * month (ARCHITECTURE.md §8.50). Repeated reports in the same month
+     * collapse to one contribution, enforced by the table's unique index.
+     *
+     * Deliberately never fatal: the history is a nice-to-have next to
+     * actually accepting the report. A receiver that started refusing
+     * reports because a bookkeeping insert failed would trade the thing
+     * that matters for the thing that does not.
+     */
+    private function recordMonthlyContribution(string $installationId): void
+    {
+        try {
+            $this->monthlyAggregates?->recordContribution(
+                (new \DateTimeImmutable())->format('Y-m'),
+                $installationId
+            );
+        } catch (\Throwable) {
+            // Swallowed on purpose — see the docblock.
+        }
     }
 
     /**

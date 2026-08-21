@@ -33,6 +33,21 @@ class SupportDashboardTestHelper
             last_upgraded_at TEXT NULL
         )');
 
+        $pdo->exec('CREATE TABLE support_monthly_aggregates (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            month TEXT NOT NULL UNIQUE,
+            installation_count INTEGER NOT NULL,
+            finalized_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )');
+
+        $pdo->exec('CREATE TABLE support_monthly_contributions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            month TEXT NOT NULL,
+            installation_id TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE (month, installation_id)
+        )');
+
         $pdo->exec('CREATE TABLE support_report_rate_limits (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             ip_hash TEXT NOT NULL,

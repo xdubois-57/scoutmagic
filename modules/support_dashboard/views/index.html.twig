@@ -190,6 +190,45 @@
 </div>
 
 {# ---------------------------------------------------------------- #}
+{# Historique mensuel — exactement un graphe, et totalement           #}
+{# indépendant des filtres, de la recherche et du tri d'état courant. #}
+{# Son propre formulaire ne transporte que sa période, ce qui rend    #}
+{# cette indépendance structurelle et non déclarative.                #}
+{# ---------------------------------------------------------------- #}
+<div class="card mb-4">
+    <div class="card-body">
+        <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
+            <div>
+                <h2 class="h6 mb-1">Installations ayant émis, par mois</h2>
+                <p class="small text-body-secondary mb-0">
+                    Nombre d'installations distinctes ayant transmis au moins un rapport au cours du mois.
+                    Cet historique est indépendant des filtres ci-dessus.
+                </p>
+            </div>
+            <form method="get" action="/support-dashboard" class="d-flex align-items-center gap-2">
+                <label for="history-period" class="form-label mb-0 small">Période</label>
+                <select class="form-select form-select-sm w-auto" id="history-period" name="history"
+                        onchange="this.form.submit()">
+                    {% for months in history_choices %}
+                        <option value="{{ months }}" {{ history.period.value == months ~ '' ? 'selected' : '' }}>{{ months }} mois</option>
+                    {% endfor %}
+                    <option value="all" {{ history.period.value == 'all' ? 'selected' : '' }}>Tout l'historique</option>
+                </select>
+                <noscript><button type="submit" class="btn btn-sm btn-outline-secondary">Afficher</button></noscript>
+            </form>
+        </div>
+
+        {% if history.has_data %}
+            <div class="support-chart"><canvas id="chart-history"></canvas></div>
+        {% else %}
+            <p class="small text-body-secondary mb-0">
+                Aucun mois n'est encore finalisé. Un mois est finalisé peu après sa fin.
+            </p>
+        {% endif %}
+    </div>
+</div>
+
+{# ---------------------------------------------------------------- #}
 {# Table — progressive columns, mobile first.                        #}
 {# ---------------------------------------------------------------- #}
 <div class="card">
@@ -312,7 +351,8 @@
 {% set json_flags = constant('JSON_HEX_TAG') b-or constant('JSON_HEX_AMP') b-or constant('JSON_UNESCAPED_UNICODE') %}
 window.supportDashboardCharts = {
     versions: {{ view.charts.versions|json_encode(json_flags)|raw }},
-    autoUpdate: {{ view.charts.auto_update|json_encode(json_flags)|raw }}
+    autoUpdate: {{ view.charts.auto_update|json_encode(json_flags)|raw }},
+    history: {{ history.series|json_encode(json_flags)|raw }}
 };
 </script>
 {% endblock %}

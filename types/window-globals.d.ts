@@ -28,6 +28,7 @@ interface Window {
     supportDashboardCharts?: {
         versions: Array<{ label: string, count: number }>;
         autoUpdate: Array<{ label: string, count: number }>;
+        history: Array<{ month: string, count: number }>;
     };
     // Bootstrap 5's global, also reachable as the bare `bootstrap` binding
     // (see types/bootstrap.d.ts) — declared here too for the scripts that
