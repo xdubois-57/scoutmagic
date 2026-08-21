@@ -267,6 +267,32 @@ function e2e_provision(string $repoRoot, string $instanceDir, int $port): void
     }
     e2e_mkdir($instanceDir);
 
+    // --- Compiled Twig templates: dropped, every run. ---
+    //
+    // Not housekeeping — without this the browser tests can assert against
+    // TEMPLATES THAT ARE NO LONGER IN THE REPOSITORY. The instance runs
+    // with debug off (see config/app.php below, and its own comment for
+    // why), so Twig caches compiled templates and `auto_reload` is off;
+    // Core\View\TwigFactory keys that cache on VERSION alone, deliberately
+    // (a production install upgrades by version, and its own docblock says
+    // in-place .twig edits are what debug mode is for). It also anchors the
+    // cache to the REPOSITORY rather than to the instance — it resolves the
+    // directory from its own file location, and the instance loads core/
+    // from the repository through a symlink — so every run shares one
+    // cache, and a .twig edited since the last run is compiled once and
+    // then never again until VERSION changes.
+    //
+    // Found the way these things are found: a change to
+    // partials/post_card.html.twig rendered nothing different in the
+    // browser, and the scenario asserting the change went green against
+    // the previous version of the file.
+    //
+    // Safe to remove outright: it is derived data with no source of truth
+    // of its own, regenerated on the next request that needs a template,
+    // which is why it is not treated the way the stray migration backups
+    // in scripts/e2e.sh are (those could be a developer's real dumps).
+    e2e_remove_tree($repoRoot . '/storage/temp/twig_cache');
+
     e2e_copy_public($repoRoot . '/public', $instanceDir . '/public');
     symlink($repoRoot . '/public/assets', $instanceDir . '/public/assets');
 
@@ -428,6 +454,28 @@ function e2e_provision(string $repoRoot, string $instanceDir, int $port): void
     // scenario that drives the composer spends its time on the composer
     // rather than on re-importing a Desk export to obtain an identity.
     e2e_seed_member_for_admin($connection, $encryptionKey, $blindIndexKey, $adminEmail);
+
+    // --- A second person, so the suite can cover what one person cannot.
+    //
+    // Three of this module's behaviours only exist between two members and
+    // are unreachable with a single one: a comment being NEW to somebody
+    // (your own never is), reporting (never offered on your own message),
+    // and a moderator restoring what a report hid. An ordinary member —
+    // no super-admin flag, no function, so Core\Security\RoleResolver
+    // resolves them to `identified` — which is also the role most of a
+    // unit actually has.
+    e2e_seed_ordinary_member($connection, $encryptionKey, $blindIndexKey);
+
+    // --- One section, with both of them in it. ---
+    //
+    // A section group is how most real groups come to exist (a scheduled
+    // task creates one per section per year — Modules\Groups\Task\
+    // EnsureSectionGroupsHandler), and its membership is DERIVED: resolved
+    // per request from member_section_periods rather than materialised as
+    // rows. That is the path worth exercising, and it is the only one that
+    // puts two people in a group without a scenario having to invite one
+    // through the interface first.
+    e2e_seed_section_with_both_members($connection);
 
     // --- Every module, activated the way an admin activates one. ---
     //
@@ -766,6 +814,114 @@ function e2e_seed_member_for_admin(
         exit(1);
     }
     $userAccountRepository->updateProfile($account->id, 'Baden', 'Powell');
+}
+
+/**
+ * A second, ordinary member with a password account of their own —
+ * everything e2e_seed_member_for_admin() provisions for the super-admin,
+ * minus the super-admin flag.
+ *
+ * Their address and names are invented and land in the same
+ * @example.invalid domain (RFC 6761 — never a real mailbox); their
+ * password is generated per run like the admin's and exported by
+ * scripts/e2e.sh, so nothing password-shaped is ever committed.
+ *
+ * They are deliberately NOT a member of any group: a scenario that wants
+ * them in one invites them through the real members page, which is the
+ * only way somebody joins a group in this module (there is no directory,
+ * no self-join and no join request).
+ */
+function e2e_seed_ordinary_member(
+    Core\Database\Connection $connection,
+    string $encodedEncryptionKey,
+    string $encodedBlindIndexKey
+): void {
+    $pdo = $connection->getPdo();
+    $encryptionService = Core\Security\EncryptionService::fromEncodedKeys($encodedEncryptionKey, $encodedBlindIndexKey);
+    $email = e2e_member_email();
+    $blindIndex = $encryptionService->blindIndex($email, 'email');
+    $scoutYearId = (new Core\Config\ScoutYearService($pdo))->getCurrentYear()['id'];
+
+    $pdo->prepare('INSERT INTO members (desk_id) VALUES (?)')->execute(['E2E-MEMBER']);
+    $memberId = (int) $pdo->lastInsertId();
+
+    $statement = $pdo->prepare(
+        'INSERT INTO member_years'
+        . ' (member_id, scout_year_id, first_name_encrypted, last_name_encrypted, email_encrypted, email_blind_index, is_active)'
+        . ' VALUES (?, ?, ?, ?, ?, ?, 1)'
+    );
+    $statement->execute([
+        $memberId,
+        $scoutYearId,
+        $encryptionService->encrypt('Kaa', 'member_years.first_name'),
+        $encryptionService->encrypt('Serpent', 'member_years.last_name'),
+        $encryptionService->encrypt($email, 'member_years.email'),
+        $blindIndex,
+    ]);
+
+    $userAccountRepository = new Core\Security\UserAccountRepository($pdo, $encryptionService);
+    $account = $userAccountRepository->create($email, false);
+    $userAccountRepository->updatePasswordHash($account->id, password_hash(e2e_member_password(), PASSWORD_DEFAULT));
+    $userAccountRepository->updateProfile($account->id, 'Kaa', 'Serpent');
+}
+
+/**
+ * One section, and a membership period in it for both seeded members, for
+ * the current scout year.
+ *
+ * A period, not a `member_functions` row: Core\Member\
+ * SectionMembershipRepository::hasAnyPeriod() is what
+ * Modules\Groups\Service\GroupAccessService resolves derived membership
+ * from, and a period is also what a real Desk import writes
+ * (Core\Import\DeskImportService). Left open (end_date NULL), exactly as
+ * an import leaves a member who is still in the section.
+ *
+ * Deliberately no `member_functions` row, so neither member gains a role:
+ * Core\Security\RoleResolver reads functions, and giving one a chief's
+ * function would quietly turn "an ordinary member sees this" into "an
+ * animator sees this" in every scenario that follows.
+ */
+function e2e_seed_section_with_both_members(Core\Database\Connection $connection): void
+{
+    $pdo = $connection->getPdo();
+    $scoutYearId = (new Core\Config\ScoutYearService($pdo))->getCurrentYear()['id'];
+
+    $pdo->prepare('INSERT INTO age_branches (desk_code, label, sort_order) VALUES (?, ?, 1)')
+        ->execute(['E2E-BR', 'Branche E2E']);
+    $ageBranchId = (int) $pdo->lastInsertId();
+
+    $pdo->prepare('INSERT INTO sections (age_branch_id, desk_code, name, is_visible, is_active) VALUES (?, ?, ?, 1, 1)')
+        ->execute([$ageBranchId, 'E2E-SEC', 'Meute E2E']);
+    $sectionId = (int) $pdo->lastInsertId();
+
+    $statement = $pdo->prepare(
+        'INSERT INTO member_section_periods (member_id, section_id, scout_year_id, start_date, end_date)'
+        . ' SELECT id, ?, ?, ?, NULL FROM members WHERE desk_id = ?'
+    );
+    foreach (['E2E-ADMIN', 'E2E-MEMBER'] as $deskId) {
+        $statement->execute([$sectionId, $scoutYearId, date('Y-m-d', strtotime('-1 month')), $deskId]);
+    }
+}
+
+/**
+ * The ordinary member's address and password, both handed down by
+ * scripts/e2e.sh exactly like the admin's — see e2e_admin_email() and
+ * e2e_admin_password() for why neither is a literal in the repository.
+ */
+function e2e_member_email(): string
+{
+    return strtolower(trim(((string) getenv('E2E_MEMBER_EMAIL')) ?: 'kaa@example.invalid'));
+}
+
+function e2e_member_password(): string
+{
+    $password = (string) getenv('E2E_MEMBER_PASSWORD');
+    if ($password === '') {
+        fwrite(STDERR, "E2E provisioning failed: E2E_MEMBER_PASSWORD is not set (scripts/e2e.sh generates it).\n");
+        exit(1);
+    }
+
+    return $password;
 }
 
 /**

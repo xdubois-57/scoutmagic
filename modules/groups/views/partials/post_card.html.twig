@@ -19,13 +19,13 @@
 <article id="post-{{ row.post.id }}" class="card mb-2{% if row.is_hidden|default(false) %} groups-post-hidden{% endif %}">
     <div class="card-body py-3">
         {% if row.is_hidden|default(false) %}
-            <div class="alert alert-warning d-flex flex-wrap align-items-center gap-2 py-2 px-3 mb-2 small">
+            <div class="alert alert-warning d-flex flex-wrap align-items-center gap-2 py-2 px-3 mb-2 small groups-hidden-banner">
                 <span class="flex-grow-1">
                     <i class="bi bi-eye-slash me-1"></i>
                     Message masqué après {{ row.report_count }} signalement{{ row.report_count > 1 ? 's' : '' }}.
                     Vous seul, en tant que modérateur, le voyez.
                 </span>
-                <form method="post" action="/groups/{{ group.id }}/posts/{{ row.post.id }}/restore" class="m-0">
+                <form method="post" action="/groups/{{ group.id }}/posts/{{ row.post.id }}/restore" class="m-0 groups-restore-form">
                     {{ csrf_field()|raw }}
                     <button type="submit" class="btn btn-sm btn-outline-secondary d-flex align-items-center" style="min-height:44px;">
                         Rétablir
@@ -93,7 +93,7 @@
                         {% endif %}
                         {% if row.can_report|default(false) %}
                             <li>
-                                <form method="post" action="/groups/{{ group.id }}/posts/{{ row.post.id }}/report"
+                                <form method="post" action="/groups/{{ group.id }}/posts/{{ row.post.id }}/report" class="groups-report-form"
                                       data-confirm="Signaler ce message aux modérateurs du groupe ?">
                                     {{ csrf_field()|raw }}
                                     <button type="submit" class="dropdown-item d-flex align-items-center" style="min-height:44px;">
@@ -179,56 +179,111 @@
             </form>
         {% endif %}
 
-        {% if row.reply_count > 0 or post_permission.allowed|default(false) %}
-            <div class="groups-replies mt-2" id="post-replies-{{ row.post.id }}">
-                {% include '@groups/partials/reply_page.html.twig' with {
-                    replies: row.replies,
-                    group: group,
-                    post: row.post,
-                    replies_next_after_id: row.replies_next_after_id
-                } only %}
-            </div>
-        {% endif %}
+        {#
+          Filled in by groups.js when a report goes through without a
+          reload. Deliberately the one neutral sentence the server returns
+          and nothing else: the reporter learns whether their report was
+          received, never what came of it (Controller\ReportController's
+          own docblock).
+        #}
+        <p class="small text-success mt-2 mb-0 d-none groups-report-confirmation" role="status"></p>
 
-        {% if post_permission.allowed|default(false) %}
-            <form method="post" action="/groups/{{ group.id }}/posts/{{ row.post.id }}/replies"
-                  enctype="multipart/form-data" class="groups-reply-form mt-2">
-                {{ csrf_field()|raw }}
-                {% if author_options|default([]) is not empty %}
-                    <label class="visually-hidden" for="reply-author-{{ row.post.id }}">Répondre en tant que</label>
-                    <select class="form-select form-select-sm mb-2" id="reply-author-{{ row.post.id }}"
-                            name="author_member_id" style="min-height:44px;">
-                        {% for option in author_options %}
-                            <option value="{{ option.id }}">{{ option.name }}</option>
-                        {% endfor %}
-                    </select>
-                {% endif %}
-                <div class="d-flex align-items-center gap-2">
-                    <label class="visually-hidden" for="reply-body-input-{{ row.post.id }}">Répondre</label>
-                    {# Refilled only for the very post whose reply was refused, and only
-                       for its own author — see show.html.twig's panel. #}
-                    {# Same "@" autocomplete as the composer — see show.html.twig. #}
-                    <input type="text" class="form-control form-control-sm" id="reply-body-input-{{ row.post.id }}"
-                           name="body" placeholder="Répondre…" style="min-height:44px;"
-                           data-mention-url="/groups/{{ group.id }}/mention-search"
-                           value="{% if rejected_draft|default(null) and rejected_draft.post_id == row.post.id %}{{ rejected_draft.body }}{% endif %}"
-                           maxlength="{{ constant('Modules\\Groups\\Service\\ReplyService::MAX_BODY_LENGTH') }}">
-                    <label class="btn btn-sm btn-outline-secondary d-flex align-items-center mb-0"
-                           style="min-height:44px;" aria-label="Joindre une image à la réponse">
-                        <i class="bi bi-image"></i>
-                        {# One image maximum — no `multiple`, and the server rejects a second one anyway. #}
-                        <input type="file" name="image[]" class="visually-hidden groups-reply-image" accept="image/*">
-                    </label>
-                    <button type="submit" class="btn btn-sm btn-primary d-flex align-items-center"
-                            style="min-height:44px;" aria-label="Envoyer la réponse">
-                        <i class="bi bi-send"></i>
-                    </button>
+        {#
+          The conversation under a message, folded away behind a native
+          <details> so a feed of twenty messages reads as twenty messages
+          rather than as a wall of everything anybody ever answered.
+
+          <details>/<summary> rather than a Bootstrap collapse on purpose:
+          it is the browser's own disclosure widget, so it opens, closes,
+          takes focus and announces its expanded state with no JavaScript
+          at all — the same promise every other control in this module
+          keeps. groups.js only keeps the count in the summary honest as
+          comments come and go.
+
+          It opens by itself when something arrived since this reader's
+          last visit: a badge you have to click to act on is a badge that
+          gets ignored.
+        #}
+        {% set can_reply = post_permission.allowed|default(false) %}
+        {% set new_replies = row.new_reply_count|default(0) %}
+        {% if row.reply_count > 0 or can_reply %}
+            <details class="groups-thread mt-2" id="post-thread-{{ row.post.id }}"
+                     data-post="{{ row.post.id }}"
+                     {%- if new_replies > 0 or (rejected_draft|default(null) and rejected_draft.post_id == row.post.id) %} open{% endif %}>
+                <summary class="groups-thread-summary d-flex align-items-center gap-2">
+                    <i class="bi bi-chat-left-text" aria-hidden="true"></i>
+                    {#
+                      data-count is what groups.js reads and rewrites when a
+                      comment is added or deleted without a reload — the
+                      number, never the sentence, so the two can never
+                      disagree about the plural.
+                    #}
+                    <span class="groups-thread-count" data-count="{{ row.reply_count }}">
+                        {%- if row.reply_count == 0 -%}
+                            Commenter
+                        {%- elseif row.reply_count == 1 -%}
+                            1 commentaire
+                        {%- else -%}
+                            {{ row.reply_count }} commentaires
+                        {%- endif -%}
+                    </span>
+                    {% if new_replies > 0 %}
+                        <span class="badge bg-danger groups-thread-new">
+                            {{ new_replies }} nouveau{{ new_replies > 1 ? 'x' : '' }}
+                        </span>
+                    {% endif %}
+                </summary>
+
+                <div class="groups-replies" id="post-replies-{{ row.post.id }}">
+                    {% include '@groups/partials/reply_page.html.twig' with {
+                        replies: row.replies,
+                        group: group,
+                        post: row.post,
+                        replies_next_after_id: row.replies_next_after_id
+                    } only %}
                 </div>
-                <p class="small text-body-secondary mt-1 mb-0 d-none groups-reply-image-name"></p>
-                {# Filled in by groups.js on a refused/failed dynamic submit —
-                   see #groups-post-error's own comment in show.html.twig. #}
-                <p class="small text-danger mt-1 mb-0 d-none groups-reply-error" role="alert"></p>
-            </form>
+
+                {% if can_reply %}
+                <form method="post" action="/groups/{{ group.id }}/posts/{{ row.post.id }}/replies"
+                      enctype="multipart/form-data" class="groups-reply-form mt-2">
+                    {{ csrf_field()|raw }}
+                    {% if author_options|default([]) is not empty %}
+                        <label class="visually-hidden" for="reply-author-{{ row.post.id }}">Répondre en tant que</label>
+                        <select class="form-select form-select-sm mb-2" id="reply-author-{{ row.post.id }}"
+                                name="author_member_id" style="min-height:44px;">
+                            {% for option in author_options %}
+                                <option value="{{ option.id }}">{{ option.name }}</option>
+                            {% endfor %}
+                        </select>
+                    {% endif %}
+                    <div class="d-flex align-items-center gap-2">
+                        <label class="visually-hidden" for="reply-body-input-{{ row.post.id }}">Répondre</label>
+                        {# Refilled only for the very post whose reply was refused, and only
+                           for its own author — see show.html.twig's panel. #}
+                        {# Same "@" autocomplete as the composer — see show.html.twig. #}
+                        <input type="text" class="form-control form-control-sm" id="reply-body-input-{{ row.post.id }}"
+                               name="body" placeholder="Répondre…" style="min-height:44px;"
+                               data-mention-url="/groups/{{ group.id }}/mention-search"
+                               value="{% if rejected_draft|default(null) and rejected_draft.post_id == row.post.id %}{{ rejected_draft.body }}{% endif %}"
+                               maxlength="{{ constant('Modules\\Groups\\Service\\ReplyService::MAX_BODY_LENGTH') }}">
+                        <label class="btn btn-sm btn-outline-secondary d-flex align-items-center mb-0"
+                               style="min-height:44px;" aria-label="Joindre une image à la réponse">
+                            <i class="bi bi-image"></i>
+                            {# One image maximum — no `multiple`, and the server rejects a second one anyway. #}
+                            <input type="file" name="image[]" class="visually-hidden groups-reply-image" accept="image/*">
+                        </label>
+                        <button type="submit" class="btn btn-sm btn-primary d-flex align-items-center"
+                                style="min-height:44px;" aria-label="Envoyer la réponse">
+                            <i class="bi bi-send"></i>
+                        </button>
+                    </div>
+                    <p class="small text-body-secondary mt-1 mb-0 d-none groups-reply-image-name"></p>
+                    {# Filled in by groups.js on a refused/failed dynamic submit —
+                       see #groups-post-error's own comment in show.html.twig. #}
+                    <p class="small text-danger mt-1 mb-0 d-none groups-reply-error" role="alert"></p>
+                </form>
+                {% endif %}
+            </details>
         {% endif %}
     </div>
 </article>

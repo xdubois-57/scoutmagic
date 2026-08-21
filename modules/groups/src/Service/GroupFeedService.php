@@ -124,6 +124,21 @@ class GroupFeedService
         $postReactions = $this->reactionService->forPosts($postIds, $context->linkedMemberIds);
         $postReports = $this->reportService->forPosts($postIds, $context->linkedMemberIds);
         $seenCounts = $this->readStateService?->seenCountsForPosts($group, $posts) ?? [];
+
+        // "2 nouveaux" on a collapsed thread — replies that arrived since
+        // this reader last opened the group. Computed here rather than in
+        // the template because it needs the reader's own reading position,
+        // and skipped entirely for a first visit (lastReadAt() null), when
+        // every reply would qualify and none of them would mean anything.
+        //
+        // Controller\GroupController::show() marks the group read AFTER
+        // building this page, never before, which is what makes the
+        // numbers describe the visit the reader is arriving from rather
+        // than the one they are making.
+        $lastReadAt = $this->readStateService?->lastReadAt($group, $context);
+        $newReplyCounts = $lastReadAt === null || $postIds === []
+            ? []
+            : $this->replyRepository->countNewerForPosts($postIds, $lastReadAt, $context->linkedMemberIds, $canModerate);
         $polls = $this->pollService?->forPosts($postIds, $context->linkedMemberIds) ?? [];
         $events = $this->eventService?->summariesFor(
             array_map(fn(Post $p) => $p->calendarEventId, $posts),
@@ -150,6 +165,7 @@ class GroupFeedService
             'reactions' => $postReactions,
             'reports' => $postReports,
             'seen_counts' => $seenCounts,
+            'new_reply_counts' => $newReplyCounts,
             'events' => $events,
             'polls' => $polls,
         ];
@@ -228,6 +244,9 @@ class GroupFeedService
             // nobody, by definition — no query needed to say so.
             'seen_counts' => [$post->id => 0],
             'events' => $this->eventService?->summariesFor([$post->calendarEventId], $context->role) ?? [],
+            // A post that did not exist a moment ago has no replies, so
+            // none of them can be new either.
+            'new_reply_counts' => [],
             // A poll created alongside this very post: fetched, not
             // assumed empty, because Controller\PostController::create()
             // attaches it before rendering the fragment groups.js inserts.
@@ -251,6 +270,7 @@ class GroupFeedService
      *     reactions: array{counts: array<int, array<string, int>>, own: array<int, string>},
      *     reports: array{reported: array<int, true>, counts: array<int, int>},
      *     seen_counts?: array<int, int>,
+     *     new_reply_counts?: array<int, int>,
      *     events?: array<int, \Modules\Calendar\Api\EventSummary>,
      *     polls?: array<int, array<string, mixed>>
      * } $page
@@ -303,6 +323,10 @@ class GroupFeedService
             // server-side, this only decides whether the line is drawn.
             'can_see_seen_by' => in_array($post->authorMemberId, $context->linkedMemberIds, true),
             'seen_count' => $page['seen_counts'][$post->id] ?? 0,
+            // How many comments arrived since this reader's last visit —
+            // what decides both the thread's badge and whether it opens
+            // itself (partials/post_card.html.twig).
+            'new_reply_count' => $page['new_reply_counts'][$post->id] ?? 0,
             // Null whenever calendar is disabled, the event was deleted,
             // or this reader may not see the calendar it sits on — the
             // card then simply omits the line.

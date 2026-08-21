@@ -424,6 +424,48 @@
     border-radius: 0.5rem;
 }
 
+/* Modules\Groups\views\partials\post_card.html.twig — a message's
+   conversation, folded away behind the browser's own <details>/<summary>
+   disclosure so a feed reads as a list of messages rather than as every
+   answer anybody ever gave. Styled as a quiet text control, not a button:
+   it is the line you read past when you are not interested.
+
+   The default triangle marker is replaced by a chevron that turns with
+   the disclosure — `list-style: none` for every engine, plus the WebKit
+   pseudo-element Safari still needs. min-height keeps the whole line a
+   44px touch target (AGENTS.md § CSS / frontend). */
+.groups-thread-summary {
+    list-style: none;
+    cursor: pointer;
+    min-height: 44px;
+    font-size: 0.875rem;
+    color: var(--bs-secondary-color);
+    user-select: none;
+}
+.groups-thread-summary::-webkit-details-marker {
+    display: none;
+}
+.groups-thread-summary:hover,
+.groups-thread-summary:focus-visible {
+    color: var(--bs-body-color);
+}
+.groups-thread-summary .bi-chat-left-text {
+    transition: transform 0.15s ease-in-out;
+}
+.groups-thread[open] > .groups-thread-summary .bi-chat-left-text {
+    transform: rotate(-8deg);
+}
+.groups-thread-count {
+    text-decoration: underline;
+    text-underline-offset: 0.2em;
+}
+/* The "2 nouveaux" badge. The thread opens itself when it is there, so
+   this is a marker of what changed rather than a control — it is never
+   the only way to reach the new comments. */
+.groups-thread-new {
+    font-size: 0.7rem;
+}
+
 /* Modules\Groups — an auto-hidden post or reply, as its group's moderators
    see it. Nobody else ever receives this markup: the row is excluded in
    the SQL (Repository\PostRepository, Repository\ReplyRepository), so this

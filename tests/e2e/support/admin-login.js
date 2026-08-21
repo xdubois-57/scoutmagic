@@ -1,5 +1,6 @@
-// Shared end-to-end helper: sign in as the throwaway instance's
-// super-admin through the real login form.
+// Shared end-to-end helpers: sign in as one of the throwaway instance's
+// two accounts — the super-admin, or the ordinary member — through the
+// real login form.
 //
 // Not a shortcut around authentication — there is deliberately no
 // "inject a session cookie" path here. The login goes through
@@ -11,23 +12,29 @@
 // proves the whole authentication path still works.
 //
 // The credentials are provisioned by scripts/e2e-support.php and handed
-// down by scripts/e2e.sh through the environment — the password is
+// down by scripts/e2e.sh through the environment — both passwords are
 // generated fresh for every run, so nothing password-shaped lives in the
 // repository.
 import { expect } from '@playwright/test';
 
 /**
+ * Sign in as whoever the two environment variables name — the shared half
+ * of loginAsAdmin() and loginAsMember() below, which differ only in whose
+ * credentials they read and in what they check afterwards.
+ *
  * @param {import('@playwright/test').Page} page
+ * @param {string} emailVariable
+ * @param {string} passwordVariable
  */
-export async function loginAsAdmin(page) {
-    const email = process.env.E2E_ADMIN_EMAIL;
-    const password = process.env.E2E_ADMIN_PASSWORD;
+async function loginWithPassword(page, emailVariable, passwordVariable) {
+    const email = process.env[emailVariable];
+    const password = process.env[passwordVariable];
 
     if (!email || !password) {
         throw new Error(
-            'E2E_ADMIN_EMAIL / E2E_ADMIN_PASSWORD are not set. Run the end-to-end '
-            + 'tests via `npm run e2e` (scripts/e2e.sh), which provisions the '
-            + 'super-admin account and exports its credentials.',
+            `${emailVariable} / ${passwordVariable} are not set. Run the end-to-end `
+            + 'tests via `npm run e2e` (scripts/e2e.sh), which provisions both '
+            + 'accounts and exports their credentials.',
         );
     }
 
@@ -59,11 +66,41 @@ export async function loginAsAdmin(page) {
     // three assertions later as a puzzling 302 to /login.
     await page.waitForURL('**/', { waitUntil: 'domcontentloaded' });
 
+    // Proof that a session was really established, rather than merely
+    // that the browser navigated somewhere: partials/nav.html.twig offers
+    // the logout control to an authenticated visitor and to nobody else.
+    // Failing here, in the helper, beats letting a silently-anonymous
+    // session surface three assertions later as a puzzling redirect back
+    // to /login. .first() because the navigation renders it twice — once
+    // in the mobile drawer, once on the desktop bar — and either one
+    // proves the same thing.
+    await expect(page.getByRole('button', { name: 'Se déconnecter' }).first()).toBeVisible();
+}
+
+/**
+ * @param {import('@playwright/test').Page} page
+ */
+export async function loginAsAdmin(page) {
+    await loginWithPassword(page, 'E2E_ADMIN_EMAIL', 'E2E_ADMIN_PASSWORD');
+
     // Core\View\MenuBuilder only emits the "Espace chefs d'U" menu for a
-    // visitor whose resolved role reaches `admin` — proof the session was
-    // really established *and* really carries the admin role, rather than
-    // merely that the browser navigated somewhere. Failing here, in the
-    // helper, beats letting a silently-anonymous session surface three
-    // assertions later as a puzzling redirect back to /login.
+    // visitor whose resolved role reaches `admin` — so this checks not
+    // just that the session exists but that it really carries the admin
+    // role, which is what lets a scenario reach a `role_min: admin` page.
     await expect(page.getByRole('button', { name: "Espace chefs d'U" })).toBeVisible();
+}
+
+/**
+ * Sign in as the ordinary member — no super-admin flag and no function,
+ * so Core\Security\RoleResolver resolves them to `identified`, the role
+ * most of a real unit has. Asserting the ABSENCE of the admin menu is
+ * what keeps this helper honest: a scenario that means "an ordinary
+ * member sees this" must not quietly be running as an administrator.
+ *
+ * @param {import('@playwright/test').Page} page
+ */
+export async function loginAsMember(page) {
+    await loginWithPassword(page, 'E2E_MEMBER_EMAIL', 'E2E_MEMBER_PASSWORD');
+
+    await expect(page.getByRole('button', { name: "Espace chefs d'U" })).toHaveCount(0);
 }

@@ -54,6 +54,72 @@ class ReplyRepositoryTest extends TestCase
         }
     }
 
+    /**
+     * What a collapsed conversation's "2 nouveaux" badge counts
+     * (partials/post_card.html.twig).
+     */
+    public function testCountNewerForPostsCountsOnlyWhatArrivedAfterTheGivenMoment(): void
+    {
+        GroupsTestHelper::createReplyAt($this->pdo, $this->postId, 'avant', '2026-01-01 10:05:00', 1, 5);
+        GroupsTestHelper::createReplyAt($this->pdo, $this->postId, 'après 1', '2026-01-01 12:00:00', 1, 5);
+        GroupsTestHelper::createReplyAt($this->pdo, $this->postId, 'après 2', '2026-01-01 13:00:00', 1, 6);
+
+        $this->assertSame(
+            [$this->postId => 2],
+            $this->repository->countNewerForPosts([$this->postId], '2026-01-01 11:00:00')
+        );
+    }
+
+    /**
+     * A comment you wrote yourself is never new to you — without this,
+     * every thread you had just taken part in would wear a badge.
+     */
+    public function testCountNewerForPostsNeverCountsTheReadersOwnComments(): void
+    {
+        GroupsTestHelper::createReplyAt($this->pdo, $this->postId, 'la mienne', '2026-01-01 12:00:00', 1, 5);
+        GroupsTestHelper::createReplyAt($this->pdo, $this->postId, "d'un autre", '2026-01-01 12:30:00', 1, 9);
+
+        $this->assertSame(
+            [$this->postId => 1],
+            $this->repository->countNewerForPosts([$this->postId], '2026-01-01 11:00:00', [5])
+        );
+    }
+
+    public function testCountNewerForPostsExcludesAHiddenReplyUnlessTheReaderModerates(): void
+    {
+        $visible = GroupsTestHelper::createReplyAt($this->pdo, $this->postId, 'visible', '2026-01-01 12:00:00', 1, 9);
+        $hidden = GroupsTestHelper::createReplyAt($this->pdo, $this->postId, 'masquée', '2026-01-01 12:30:00', 1, 9);
+        $this->repository->setHiddenAt($hidden, '2026-01-01 12:31:00');
+
+        $this->assertSame(
+            [$this->postId => 1],
+            $this->repository->countNewerForPosts([$this->postId], '2026-01-01 11:00:00', [], false),
+            'a badge must never announce something the thread would not show'
+        );
+        $this->assertSame(
+            [$this->postId => 2],
+            $this->repository->countNewerForPosts([$this->postId], '2026-01-01 11:00:00', [], true)
+        );
+        $this->assertNotSame(0, $visible);
+    }
+
+    public function testCountNewerForPostsLeavesOutAPostWithNothingNew(): void
+    {
+        $otherPostId = GroupsTestHelper::createPostAt($this->pdo, $this->groupId, 'autre', '2026-01-01 10:00:00');
+        GroupsTestHelper::createReplyAt($this->pdo, $this->postId, 'récente', '2026-01-01 12:00:00', 1, 9);
+        GroupsTestHelper::createReplyAt($this->pdo, $otherPostId, 'ancienne', '2026-01-01 10:30:00', 1, 9);
+
+        $counts = $this->repository->countNewerForPosts([$this->postId, $otherPostId], '2026-01-01 11:00:00');
+
+        $this->assertSame([$this->postId => 1], $counts);
+        $this->assertArrayNotHasKey($otherPostId, $counts, 'absent, never present with a zero');
+    }
+
+    public function testCountNewerForPostsAnswersEmptyForNoPosts(): void
+    {
+        $this->assertSame([], $this->repository->countNewerForPosts([], '2026-01-01 11:00:00'));
+    }
+
     public function testCreateThenFindByIdRoundTrips(): void
     {
         $id = $this->repository->create($this->postId, 7, 3, 'Bonjour', 42, '2026-01-01 10:01:00');

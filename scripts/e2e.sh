@@ -59,12 +59,17 @@ set -euo pipefail
 #       developer running the suite for its result should pay for. CI's
 #       e2e-tests job turns it on — see .github/workflows/ci.yml.
 #   E2E_ADMIN_EMAIL / E2E_ADMIN_PASSWORD
-#       Credentials of the throwaway instance's super-admin account, which
-#       scenarios needing an authenticated admin log in with through the
-#       real login form. The address defaults to admin@example.invalid
-#       (.invalid is reserved by RFC 6761 — never a real mailbox); the
-#       password is generated fresh for every run, so nothing
-#       password-shaped is ever committed and no two runs share one.
+#   E2E_MEMBER_EMAIL / E2E_MEMBER_PASSWORD
+#       Credentials of the throwaway instance's two accounts — a
+#       super-admin and an ordinary member — which scenarios needing an
+#       authenticated session log in with through the real login form. Two
+#       of them because several of this application's behaviours only
+#       exist between two people (a comment being new to somebody,
+#       reporting, moderating a report) and are unreachable with one. Both
+#       addresses default to @example.invalid (.invalid is reserved by RFC
+#       6761 — never a real mailbox); both passwords are generated fresh
+#       for every run, so nothing password-shaped is ever committed and no
+#       two runs share one.
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${REPO_ROOT}"
@@ -94,8 +99,14 @@ E2E_ADMIN_EMAIL="${E2E_ADMIN_EMAIL:-admin@example.invalid}"
 # rather than openssl/urandom so the one interpreter this harness already
 # requires is the only thing it depends on, on macOS and Linux alike.
 E2E_ADMIN_PASSWORD="${E2E_ADMIN_PASSWORD:-$(php -r 'echo "E2e-" . bin2hex(random_bytes(16));')}"
+# The second, ordinary member — same rules as the admin above: an
+# .invalid address that can never be a real mailbox, and a password
+# generated fresh for every run.
+E2E_MEMBER_EMAIL="${E2E_MEMBER_EMAIL:-kaa@example.invalid}"
+E2E_MEMBER_PASSWORD="${E2E_MEMBER_PASSWORD:-$(php -r 'echo "E2e-" . bin2hex(random_bytes(16));')}"
 export E2E_DB_HOST E2E_DB_PORT E2E_DB_NAME E2E_DB_USER E2E_DB_PASSWORD
 export E2E_ADMIN_EMAIL E2E_ADMIN_PASSWORD
+export E2E_MEMBER_EMAIL E2E_MEMBER_PASSWORD
 
 SUPPORT="${REPO_ROOT}/scripts/e2e-support.php"
 

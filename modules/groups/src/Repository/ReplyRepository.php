@@ -153,6 +153,67 @@ class ReplyRepository
     }
 
     /**
+     * How many replies each of these posts has received since $since —
+     * what a collapsed thread's "2 nouveaux" badge counts.
+     *
+     * $excludeMemberIds is the reader's own members: a comment you wrote
+     * yourself is never new to you, and counting it would put a badge on
+     * every thread you have just taken part in.
+     *
+     * Posts with nothing new are simply absent from the result rather
+     * than present with a zero, so the caller's `?? 0` is the only place
+     * the default lives.
+     *
+     * @param int[] $postIds
+     * @param int[] $excludeMemberIds
+     * @return array<int, int> post id => how many replies are newer than $since
+     */
+    public function countNewerForPosts(array $postIds, string $since, array $excludeMemberIds = [], bool $includeHidden = false): array
+    {
+        if ($postIds === []) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($postIds), '?'));
+        // Same rule as findFirstForPosts(): a hidden reply is excluded in
+        // SQL for everyone but a moderator, so a badge can never announce
+        // something the reader would not find on opening the thread.
+        $hiddenClause = $includeHidden ? '' : ' AND hidden_at IS NULL';
+
+        // Two whole statements rather than one with an optional clause
+        // stitched into it: every interpolated fragment here is then either
+        // a ternary between two literals or an array_fill() placeholder run
+        // sitting inside its own IN (…), which is what makes the query
+        // provably parameterised — to a reader and to
+        // Tests\Security\SqlInjectionAuditTest alike. The five duplicated
+        // lines are worth that.
+        if ($excludeMemberIds === []) {
+            $stmt = $this->pdo->prepare(
+                "SELECT post_id, COUNT(*) AS total FROM discussion_group_replies
+                 WHERE post_id IN ({$placeholders}){$hiddenClause} AND created_at > ?
+                 GROUP BY post_id"
+            );
+            $stmt->execute([...array_values($postIds), $since]);
+        } else {
+            $authorPlaceholders = implode(',', array_fill(0, count($excludeMemberIds), '?'));
+            $stmt = $this->pdo->prepare(
+                "SELECT post_id, COUNT(*) AS total FROM discussion_group_replies
+                 WHERE post_id IN ({$placeholders}){$hiddenClause} AND created_at > ?
+                   AND author_member_id NOT IN ({$authorPlaceholders})
+                 GROUP BY post_id"
+            );
+            $stmt->execute([...array_values($postIds), $since, ...array_values($excludeMemberIds)]);
+        }
+
+        $counts = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $counts[(int) $row['post_id']] = (int) $row['total'];
+        }
+
+        return $counts;
+    }
+
+    /**
      * The ids of the posts that carry a matching reply — ids only, not
      * the replies themselves. A search result is a list of posts, and a
      * post whose thread mentions the term is exactly as much of a hit as
