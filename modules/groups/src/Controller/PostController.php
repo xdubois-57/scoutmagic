@@ -288,7 +288,9 @@ class PostController extends AbstractController
         }
 
         if ($poll !== null) {
-            $this->pollService?->attachTo($postId, $poll);
+            // Not nullsafe: $poll is itself the result of a call on
+            // $this->pollService, so reaching here proves it is there.
+            $this->pollService->attachTo($postId, $poll);
         }
 
         // The submitted id is re-resolved against the calendar's own
@@ -674,6 +676,12 @@ class PostController extends AbstractController
         );
     }
 
+    /**
+     * The one place this module turns "not a member" into a response, so
+     * the 404-not-403 rule is applied identically everywhere.
+     *
+     * @param array<string, string> $params
+     */
     private function readableGroup(array $params, GroupSessionContext $context): ?DiscussionGroup
     {
         $group = $this->groupRepository->findById((int) ($params['id'] ?? 0));

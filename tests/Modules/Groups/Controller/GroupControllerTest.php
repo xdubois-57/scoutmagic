@@ -212,7 +212,14 @@ class GroupControllerTest extends TestCase
                 new \Core\Journal\JournalService(new \Core\Journal\JournalRepository($this->pdo))
             ),
             null,
-            null,
+            // A real read-state service rather than null: production
+            // always passes one, and passing null here is how a
+            // mistyped hint on this very parameter once went unnoticed
+            // by the whole suite.
+            new \Modules\Groups\Service\GroupReadStateService(
+                new \Modules\Groups\Repository\GroupReadRepository($this->pdo),
+                $access
+            ),
             $groupsEventService
         );
     }

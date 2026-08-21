@@ -265,12 +265,6 @@ parameters:
 			path: public/index.php
 
 		-
-			message: '#^Variable \$bannerService might not be defined\.$#'
-			identifier: variable.undefined
-			count: 1
-			path: public/index.php
-
-		-
 			message: '#^Variable \$calendarEventRepo might not be defined\.$#'
 			identifier: variable.undefined
 			count: 4
