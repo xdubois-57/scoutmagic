@@ -92,7 +92,7 @@ class RentalVirtualEventProviderTest extends TestCase
     {
         $id = $this->assetRepository->create('Local', $name, $slug, 60, 1, '18:00', '11:00', '+32 470 00 00 00', true);
         if ($publish) {
-            $this->assetRepository->saveCalendarPublication($id, true, $calendarId, PublishFrom::CONFIRMATION);
+            $this->assetRepository->saveCalendarPublication($id, true, [$calendarId], PublishFrom::CONFIRMATION);
         }
 
         return $id;
@@ -356,7 +356,7 @@ class RentalVirtualEventProviderTest extends TestCase
 
     public function testAnAssetWithPublicationOffIsNeverPublished(): void
     {
-        $this->assetRepository->saveCalendarPublication($this->assetId, false, self::CALENDAR_ID, PublishFrom::CONFIRMATION);
+        $this->assetRepository->saveCalendarPublication($this->assetId, false, [self::CALENDAR_ID], PublishFrom::CONFIRMATION);
         $this->createBooking();
 
         $this->assertSame([], $this->collect($this->viewer('nobody@test.be')));
@@ -386,7 +386,7 @@ class RentalVirtualEventProviderTest extends TestCase
 
     public function testWithPublishFromHoldAHeldRequestIsPublished(): void
     {
-        $this->assetRepository->saveCalendarPublication($this->assetId, true, self::CALENDAR_ID, PublishFrom::HOLD);
+        $this->assetRepository->saveCalendarPublication($this->assetId, true, [self::CALENDAR_ID], PublishFrom::HOLD);
         $this->createBooking(
             'LOC-2027-0001',
             null,
@@ -401,7 +401,7 @@ class RentalVirtualEventProviderTest extends TestCase
     {
         // The case both options agree on.
         foreach ([PublishFrom::CONFIRMATION, PublishFrom::HOLD] as $setting) {
-            $this->assetRepository->saveCalendarPublication($this->assetId, true, self::CALENDAR_ID, $setting);
+            $this->assetRepository->saveCalendarPublication($this->assetId, true, [self::CALENDAR_ID], $setting);
             $this->pdo->exec('DELETE FROM rental_bookings');
             $this->createBooking();
 
@@ -411,7 +411,7 @@ class RentalVirtualEventProviderTest extends TestCase
 
     public function testALapsedHoldStopsBeingPublished(): void
     {
-        $this->assetRepository->saveCalendarPublication($this->assetId, true, self::CALENDAR_ID, PublishFrom::HOLD);
+        $this->assetRepository->saveCalendarPublication($this->assetId, true, [self::CALENDAR_ID], PublishFrom::HOLD);
         $this->createBooking(
             'LOC-2027-0001',
             null,
@@ -503,7 +503,7 @@ class RentalVirtualEventProviderTest extends TestCase
     {
         // The honest rendering of "we do not know the hour".
         $bare = $this->assetRepository->create('Terrain', 'Terrain', 'terrain', null, 1, null, null, null, true);
-        $this->assetRepository->saveCalendarPublication($bare, true, self::CALENDAR_ID, PublishFrom::CONFIRMATION);
+        $this->assetRepository->saveCalendarPublication($bare, true, [self::CALENDAR_ID], PublishFrom::CONFIRMATION);
         $this->createBooking('LOC-2027-0002', $bare);
 
         $events = array_values(array_filter(
@@ -567,11 +567,14 @@ class RentalVirtualEventProviderTest extends TestCase
         // And the fixed cost itself stays small. The budget below is what
         // one generation legitimately needs:
         //   1. findPublishingToCalendar() — which assets publish at all
-        //   2-3. the reader's identity, resolved ONCE for the whole
+        //   2. the calendars those assets publish onto, for the whole set
+        //      in one IN() — an asset now has several, and resolving them
+        //      per asset is exactly the regression this test exists for
+        //   3-4. the reader's identity, resolved ONCE for the whole
         //        generation by RentalAuthorizationService — never once per
         //        asset, which is the property that actually matters here
-        //   4. every booking of every publishing asset, in one range query
-        //   5. every block of those assets, likewise
+        //   5. every booking of every publishing asset, in one range query
+        //   6. every block of those assets, likewise
         // A regression that reintroduced a per-asset or per-day query would
         // break the assertion above; this one catches a new fixed query
         // creeping into the path.
@@ -582,7 +585,7 @@ class RentalVirtualEventProviderTest extends TestCase
      * The fixed number of statements one whole-window generation may cost,
      * whatever the window contains. See the itemised list above.
      */
-    private const WINDOW_QUERY_BUDGET = 5;
+    private const WINDOW_QUERY_BUDGET = 6;
 
     /**
      * Counts the statements one whole-window generation issues, by building
@@ -644,6 +647,109 @@ class RentalVirtualEventProviderTest extends TestCase
         return $counter->count;
     }
 
+    // ── Several calendars at once ───────────────────────────────────────
+
+    public function testAnAssetPublishesOntoEveryCalendarItWasGiven(): void
+    {
+        // A hall is very often both the unit's business and one section's.
+        // With a single `calendar_id` the other group simply never saw it.
+        $this->assetRepository->saveCalendarPublication(
+            $this->assetId,
+            true,
+            [self::CALENDAR_ID, self::CALENDAR_ID + 1],
+            PublishFrom::CONFIRMATION
+        );
+        $this->createBooking();
+
+        $reader = $this->viewer('nobody@test.be', [self::CALENDAR_ID, self::CALENDAR_ID + 1]);
+        $calendarIds = array_map(
+            static fn($event) => $event->calendarId,
+            $this->collect($reader)
+        );
+
+        sort($calendarIds);
+        $this->assertSame([self::CALENDAR_ID, self::CALENDAR_ID + 1], $calendarIds);
+    }
+
+    public function testTheSameBookingOnTwoCalendarsSurvivesTheRegistrysDeduplication(): void
+    {
+        // The registry keys events by UID alone, so two events sharing one
+        // would silently collapse into whichever calendar came first —
+        // which is why the UID carries the calendar.
+        $this->assetRepository->saveCalendarPublication(
+            $this->assetId,
+            true,
+            [self::CALENDAR_ID, self::CALENDAR_ID + 1],
+            PublishFrom::CONFIRMATION
+        );
+        $this->createBooking();
+
+        $registry = new VirtualEventRegistry();
+        $registry->register($this->provider);
+
+        $events = $registry->collect(
+            new \DateTimeImmutable('2027-06-01'),
+            new \DateTimeImmutable('2027-08-31'),
+            $this->viewer('nobody@test.be', [self::CALENDAR_ID, self::CALENDAR_ID + 1])
+        );
+
+        $this->assertCount(2, $events);
+    }
+
+    public function testAReaderOnlySeesTheCalendarsTheyAreActuallyLookingAt(): void
+    {
+        // The filter that stops a bare feed for one calendar quietly
+        // carrying the occupancy of an asset published onto another.
+        $this->assetRepository->saveCalendarPublication(
+            $this->assetId,
+            true,
+            [self::CALENDAR_ID, self::CALENDAR_ID + 1],
+            PublishFrom::CONFIRMATION
+        );
+        $this->createBooking();
+
+        $events = $this->collect($this->viewer('nobody@test.be', [self::CALENDAR_ID + 1]));
+
+        $this->assertCount(1, $events);
+        $this->assertSame(self::CALENDAR_ID + 1, $events[0]->calendarId);
+    }
+
+    public function testUntickingThePublicationBoxStopsEveryCalendarAtOnce(): void
+    {
+        $this->assetRepository->saveCalendarPublication(
+            $this->assetId,
+            false,
+            [self::CALENDAR_ID, self::CALENDAR_ID + 1],
+            PublishFrom::CONFIRMATION
+        );
+        $this->createBooking();
+
+        $this->assertSame(
+            [],
+            $this->collect($this->viewer('nobody@test.be', [self::CALENDAR_ID, self::CALENDAR_ID + 1]))
+        );
+    }
+
+    public function testABlockAlsoReachesEveryCalendar(): void
+    {
+        $this->assetRepository->saveCalendarPublication(
+            $this->assetId,
+            true,
+            [self::CALENDAR_ID, self::CALENDAR_ID + 1],
+            PublishFrom::CONFIRMATION
+        );
+        $this->blockRepository->create($this->assetId, '2027-07-10', '2027-07-12', 1, 'Chantier', null);
+
+        $events = $this->collect($this->viewer('nobody@test.be', [self::CALENDAR_ID, self::CALENDAR_ID + 1]));
+
+        $this->assertCount(2, $events);
+        $this->assertSame(
+            [$events[0]->uid, $events[1]->uid],
+            array_unique([$events[0]->uid, $events[1]->uid]),
+            'Two calendars means two distinct UIDs.'
+        );
+    }
+
     // ── Stable UIDs and deduplication (§6.32) ───────────────────────────
 
     public function testTheUidIsDerivedFromTheBookingAndIsStable(): void
@@ -654,7 +760,7 @@ class RentalVirtualEventProviderTest extends TestCase
         $second = $this->collect($this->viewer('nobody@test.be'))[0]->uid;
 
         $this->assertSame($first, $second);
-        $this->assertSame(RentalVirtualEventProvider::bookingUid($booking->id), $first);
+        $this->assertSame(RentalVirtualEventProvider::bookingUid($booking->id, self::CALENDAR_ID), $first);
     }
 
     public function testTheSameBookingReachingAReaderTwiceIsOneEvent(): void
@@ -672,8 +778,8 @@ class RentalVirtualEventProviderTest extends TestCase
     public function testABookingAndABlockNeverShareAUid(): void
     {
         $this->assertNotSame(
-            RentalVirtualEventProvider::bookingUid(1),
-            RentalVirtualEventProvider::blockUid(1)
+            RentalVirtualEventProvider::bookingUid(1, self::CALENDAR_ID),
+            RentalVirtualEventProvider::blockUid(1, self::CALENDAR_ID)
         );
     }
 
@@ -765,7 +871,9 @@ class RentalVirtualEventProviderTest extends TestCase
 
         $event = (new RenterFeedBuilder())->build($booking, $asset, 'the-token');
 
-        $this->assertSame(RentalVirtualEventProvider::bookingUid($booking->id), $event->uid);
+        // The renter's own feed is its own calendar, so its UIDs are the
+        // ones the provider would give on calendar 0 — see RenterFeedBuilder.
+        $this->assertSame(RentalVirtualEventProvider::bookingUid($booking->id, 0), $event->uid);
     }
 
     public function testACancelledBookingStillProducesAFeedRatherThanAnError(): void

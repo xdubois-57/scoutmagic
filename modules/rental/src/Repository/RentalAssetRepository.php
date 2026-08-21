@@ -30,6 +30,14 @@ class RentalAssetRepository
     ) {
     }
 
+    /**
+     * Whether adoptLegacyCalendarColumn() has already run in this process.
+     * Static: several repository instances are built per request in the
+     * composition root, and the backfill is a property of the database, not
+     * of any one of them.
+     */
+    private static bool $legacyCalendarAdopted = false;
+
     public function create(
         string $assetType,
         string $name,
@@ -72,7 +80,7 @@ class RentalAssetRepository
         $stmt->execute([$id]);
         $row = $stmt->fetch(\PDO::FETCH_ASSOC);
 
-        return $row !== false ? $this->hydrate($row) : null;
+        return $row !== false ? $this->hydrateAll([$row])[0] : null;
     }
 
     /**
@@ -87,7 +95,7 @@ class RentalAssetRepository
         $stmt->execute([$slug]);
         $row = $stmt->fetch(\PDO::FETCH_ASSOC);
 
-        return $row !== false ? $this->hydrate($row) : null;
+        return $row !== false ? $this->hydrateAll([$row])[0] : null;
     }
 
     /**
@@ -99,7 +107,7 @@ class RentalAssetRepository
     {
         $stmt = $this->pdo->query('SELECT * FROM rental_assets ORDER BY is_archived ASC, name ASC');
 
-        return array_map(fn(array $row) => $this->hydrate($row), $stmt->fetchAll(\PDO::FETCH_ASSOC));
+        return $this->hydrateAll($stmt->fetchAll(\PDO::FETCH_ASSOC));
     }
 
     /**
@@ -109,7 +117,7 @@ class RentalAssetRepository
     {
         $stmt = $this->pdo->query('SELECT * FROM rental_assets WHERE is_archived = 0 ORDER BY name ASC');
 
-        return array_map(fn(array $row) => $this->hydrate($row), $stmt->fetchAll(\PDO::FETCH_ASSOC));
+        return $this->hydrateAll($stmt->fetchAll(\PDO::FETCH_ASSOC));
     }
 
     /**
@@ -125,7 +133,7 @@ class RentalAssetRepository
             'SELECT * FROM rental_assets WHERE is_public = 1 AND is_archived = 0 ORDER BY name ASC'
         );
 
-        return array_map(fn(array $row) => $this->hydrate($row), $stmt->fetchAll(\PDO::FETCH_ASSOC));
+        return $this->hydrateAll($stmt->fetchAll(\PDO::FETCH_ASSOC));
     }
 
 
@@ -144,7 +152,7 @@ class RentalAssetRepository
         $stmt = $this->pdo->prepare("SELECT * FROM rental_assets WHERE id IN ({$placeholders}) ORDER BY name ASC");
         $stmt->execute($ids);
 
-        return array_map(fn(array $row) => $this->hydrate($row), $stmt->fetchAll(\PDO::FETCH_ASSOC));
+        return $this->hydrateAll($stmt->fetchAll(\PDO::FETCH_ASSOC));
     }
 
     /**
@@ -263,24 +271,122 @@ class RentalAssetRepository
      * configuration screen saves independently, and this one belongs with
      * the calendar rather than with the asset's general details.
      */
+    /**
+     * @param int[] $calendarIds Every calendar this asset publishes onto.
+     */
     public function saveCalendarPublication(
         int $assetId,
         bool $enabled,
-        ?int $calendarId,
+        array $calendarIds,
         \Modules\Rental\Calendar\PublishFrom $publishFrom
     ): void {
+        $calendarIds = array_values(array_unique(array_filter(
+            array_map('intval', $calendarIds),
+            static fn(int $id) => $id > 0
+        )));
+        sort($calendarIds);
+
+        $now = (new \DateTimeImmutable())->format('Y-m-d H:i:s');
+
         $stmt = $this->pdo->prepare(
-            'UPDATE rental_assets SET calendar_publication_enabled = ?, calendar_id = ?,
-                                      calendar_publish_from = ?, updated_at = ?
+            'UPDATE rental_assets SET calendar_publication_enabled = ?, calendar_publish_from = ?,
+                                      updated_at = ?
              WHERE id = ?'
         );
         $stmt->execute([
-            $enabled && $calendarId !== null ? 1 : 0,
-            $calendarId,
+            $enabled && $calendarIds !== [] ? 1 : 0,
             $publishFrom->value,
-            (new \DateTimeImmutable())->format('Y-m-d H:i:s'),
+            $now,
             $assetId,
         ]);
+
+        // Replace rather than diff: the form always posts the complete set,
+        // so anything not in it was unticked. Deleting first also cleans up
+        // rows pointing at a calendar that has since been deleted on the
+        // calendar module's side, which nothing else would.
+        $delete = $this->pdo->prepare('DELETE FROM rental_asset_calendars WHERE asset_id = ?');
+        $delete->execute([$assetId]);
+
+        $insert = $this->pdo->prepare(
+            'INSERT INTO rental_asset_calendars (asset_id, calendar_id, created_at) VALUES (?, ?, ?)'
+        );
+        foreach ($calendarIds as $calendarId) {
+            $insert->execute([$assetId, $calendarId, $now]);
+        }
+    }
+
+    /**
+     * The calendars each of $assetIds publishes onto — **one query for the
+     * whole set**, never one per asset.
+     *
+     * @param int[] $assetIds
+     * @return array<int, int[]> Keyed by asset id, ascending calendar ids.
+     */
+    private function calendarIdsFor(array $assetIds): array
+    {
+        if ($assetIds === []) {
+            return [];
+        }
+
+        $this->adoptLegacyCalendarColumn();
+
+        $placeholders = implode(',', array_fill(0, count($assetIds), '?'));
+        $stmt = $this->pdo->prepare(
+            "SELECT asset_id, calendar_id FROM rental_asset_calendars
+             WHERE asset_id IN ({$placeholders})
+             ORDER BY calendar_id ASC"
+        );
+        $stmt->execute($assetIds);
+
+        $byAsset = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $byAsset[(int) $row['asset_id']][] = (int) $row['calendar_id'];
+        }
+
+        return $byAsset;
+    }
+
+    /**
+     * Carries the retired single `calendar_id` column into
+     * rental_asset_calendars, once.
+     *
+     * An asset used to publish onto exactly one calendar, held in a column
+     * on the asset itself. That column no longer appears in schema.sql, so
+     * MigrationRunner leaves it alone (its data-loss safety net), and
+     * drops.sql deliberately does not drop it either — doing both in one
+     * release would race this backfill and lose whichever calendar a unit
+     * had already chosen.
+     *
+     * Runs at most one extra statement per process, and becomes a permanent
+     * no-op the moment the column is gone: a fresh install never had it, so
+     * the very first probe fails and nothing else is attempted.
+     */
+    private function adoptLegacyCalendarColumn(): void
+    {
+        if (self::$legacyCalendarAdopted) {
+            return;
+        }
+
+        self::$legacyCalendarAdopted = true;
+
+        try {
+            // `a.updated_at` rather than "now": the row is not new, it is
+            // the same choice made whenever it was made, and copying the
+            // asset's own timestamp keeps a literal out of the statement
+            // entirely.
+            $this->pdo->exec(
+                'INSERT INTO rental_asset_calendars (asset_id, calendar_id, created_at)
+                 SELECT a.id, a.calendar_id, a.updated_at
+                 FROM rental_assets a
+                 WHERE a.calendar_id IS NOT NULL
+                   AND NOT EXISTS (
+                       SELECT 1 FROM rental_asset_calendars c WHERE c.asset_id = a.id
+                   )'
+            );
+        } catch (\PDOException) {
+            // No such column: either a fresh install, or one that has
+            // already had it dropped. Both mean there is nothing to carry.
+        }
     }
 
     /**
@@ -294,19 +400,41 @@ class RentalAssetRepository
      */
     public function findPublishingToCalendar(): array
     {
+        $this->adoptLegacyCalendarColumn();
+
         $stmt = $this->pdo->query(
-            'SELECT * FROM rental_assets
-             WHERE calendar_publication_enabled = 1 AND calendar_id IS NOT NULL
-             ORDER BY name ASC'
+            'SELECT a.* FROM rental_assets a
+             WHERE a.calendar_publication_enabled = 1
+               AND EXISTS (SELECT 1 FROM rental_asset_calendars c WHERE c.asset_id = a.id)
+             ORDER BY a.name ASC'
         );
 
-        return array_map(fn(array $row) => $this->hydrate($row), $stmt === false ? [] : $stmt->fetchAll(\PDO::FETCH_ASSOC));
+        return $this->hydrateAll($stmt === false ? [] : $stmt->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
+    /**
+     * Hydrates a whole result set, resolving every asset's calendars in
+     * **one** extra query rather than one per row.
+     *
+     * @param array<int, array<string, mixed>> $rows
+     * @return RentalAsset[]
+     */
+    private function hydrateAll(array $rows): array
+    {
+        $ids = array_map(static fn(array $row) => (int) $row['id'], $rows);
+        $calendarsByAsset = $this->calendarIdsFor($ids);
+
+        return array_map(
+            fn(array $row) => $this->hydrate($row, $calendarsByAsset[(int) $row['id']] ?? []),
+            $rows
+        );
     }
 
     /**
      * @param array<string, mixed> $row
+     * @param int[] $calendarIds
      */
-    private function hydrate(array $row): RentalAsset
+    private function hydrate(array $row, array $calendarIds = []): RentalAsset
     {
         $encrypted = $row['emergency_phone_encrypted'] ?? null;
 
@@ -326,7 +454,7 @@ class RentalAssetRepository
             isPublic: (bool) $row['is_public'],
             vatExemptionNote: isset($row['vat_exemption_note']) ? (string) $row['vat_exemption_note'] : null,
             calendarPublicationEnabled: (bool) ($row['calendar_publication_enabled'] ?? false),
-            calendarId: isset($row['calendar_id']) ? (int) $row['calendar_id'] : null,
+            calendarIds: $calendarIds,
             calendarPublishFrom: \Modules\Rental\Calendar\PublishFrom::tryFrom(
                 (string) ($row['calendar_publish_from'] ?? '')
             ) ?? \Modules\Rental\Calendar\PublishFrom::CONFIRMATION

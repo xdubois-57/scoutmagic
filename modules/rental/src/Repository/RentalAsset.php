@@ -40,7 +40,19 @@ final class RentalAsset
         public readonly ?string $vatExemptionNote = null,
         /** §6.30 — occupancy published as virtual calendar events, never stored ones. */
         public readonly bool $calendarPublicationEnabled = false,
-        public readonly ?int $calendarId = null,
+        /**
+         * Every calendar this asset's occupancy appears on, ascending.
+         *
+         * A list rather than one id: a hall is very often both the unit's
+         * business and one section's, and a single choice meant the other
+         * group simply never saw it. Empty means "published nowhere", which
+         * is also what `$calendarPublicationEnabled` being false means —
+         * the two are kept apart so unticking the box does not forget which
+         * calendars had been picked.
+         *
+         * @var int[]
+         */
+        public readonly array $calendarIds = [],
         public readonly \Modules\Rental\Calendar\PublishFrom $calendarPublishFrom
             = \Modules\Rental\Calendar\PublishFrom::CONFIRMATION
     ) {
@@ -54,6 +66,18 @@ final class RentalAsset
     public function isStock(): bool
     {
         return $this->quantity > 1;
+    }
+
+    /**
+     * Whether this asset's occupancy actually reaches a calendar.
+     *
+     * Both halves have to hold: the box ticked AND at least one calendar
+     * picked. Asking the question in one place is what stops a caller
+     * checking only the flag and publishing onto nothing.
+     */
+    public function publishesToACalendar(): bool
+    {
+        return $this->calendarPublicationEnabled && $this->calendarIds !== [];
     }
 
 

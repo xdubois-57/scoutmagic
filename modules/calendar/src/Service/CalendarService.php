@@ -99,6 +99,81 @@ class CalendarService implements CalendarEventLookupInterface
         return $this->calendarRepository->findSupplementaryCalendars();
     }
 
+    /**
+     * Every calendar with a label fit to put in front of a human — the list
+     * any other module needs to offer a choice of calendar (ARCHITECTURE.md
+     * §7.5).
+     *
+     * A **section** calendar has no name of its own: `calendar_calendars.
+     * name` is null for it and the label belongs to the section, resolved
+     * through SectionService. Rendering `calendar.name` directly therefore
+     * produced a list of blank options with only "Animateurs" — the one
+     * supplementary calendar — readable, which is exactly what a consuming
+     * module did before this method existed. Resolving it here rather than
+     * in each consumer is what stops the next one making the same mistake.
+     *
+     * The fallbacks descend rather than give up: the section's name, its
+     * Desk code when it has not been named yet, and finally the calendar's
+     * own id. A unit that has not finished configuring its sections still
+     * gets a list it can tell apart.
+     *
+     * @return array<int, array{id: int, label: string, is_section: bool}>
+     */
+    public function listSelectableCalendars(): array
+    {
+        $sectionsById = [];
+        foreach ($this->sectionService->getAllWithBranches() as $section) {
+            $sectionsById[(int) $section['id']] = $section;
+        }
+
+        $selectable = [];
+
+        foreach ($this->getSectionCalendars() as $calendar) {
+            $section = $sectionsById[(int) $calendar->sectionId] ?? null;
+            $label = null;
+
+            if ($section !== null) {
+                // The section's own name when it has been given one, and
+                // its Desk code — always present — when it has not. A unit
+                // that has not finished naming its sections still gets a
+                // list it can tell apart.
+                $label = self::firstNonEmpty([$section['name'], $section['desk_code']]);
+            }
+
+            $selectable[] = [
+                'id' => $calendar->id,
+                'label' => $label ?? ('Section #' . $calendar->sectionId),
+                'is_section' => true,
+            ];
+        }
+
+        foreach ($this->getSupplementaryCalendars() as $calendar) {
+            $selectable[] = [
+                'id' => $calendar->id,
+                'label' => self::firstNonEmpty([$calendar->name]) ?? ('Calendrier #' . $calendar->id),
+                'is_section' => false,
+            ];
+        }
+
+        return $selectable;
+    }
+
+    /**
+     * The first of $candidates that is a non-blank string, or null.
+     *
+     * @param array<int, mixed> $candidates
+     */
+    private static function firstNonEmpty(array $candidates): ?string
+    {
+        foreach ($candidates as $candidate) {
+            if (is_string($candidate) && trim($candidate) !== '') {
+                return trim($candidate);
+            }
+        }
+
+        return null;
+    }
+
     public function findById(int $id): ?Calendar
     {
         return $this->calendarRepository->findById($id);

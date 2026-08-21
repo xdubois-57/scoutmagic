@@ -473,6 +473,13 @@ class RentalRequestController extends AbstractController
 
         return $this->render('@rental/public/request.html.twig', [
             'asset' => $asset,
+            // The generic fil d'Ariane, the way every other module does it:
+            // the index, then the asset the visitor came from, then this
+            // form. No hand-rolled back link above the title.
+            'breadcrumb_trail' => [
+                ['label' => 'Locations', 'url' => '/locations'],
+                ['label' => $asset->name, 'url' => '/locations/' . $asset->slug],
+            ],
             'categories' => $pricing->categories,
             'errors' => $errors,
             'conditions_html' => $this->conditionsText($asset),

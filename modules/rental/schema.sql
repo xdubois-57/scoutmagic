@@ -135,11 +135,9 @@ CREATE TABLE IF NOT EXISTS rental_assets (
     -- of truth and the two can never disagree. With the `calendar` module
     -- disabled these columns are simply never read.
     calendar_publication_enabled TINYINT(1) NOT NULL DEFAULT 0,
-    -- Which calendar the occupancy appears on. Points into the calendar
-    -- module and is reached only through its public API, so there is
-    -- deliberately no foreign key — a constraint would make `rental`
-    -- unusable without `calendar`.
-    calendar_id INT UNSIGNED NULL,
+    -- WHICH calendars is rental_asset_calendars, not a column here: a hall
+    -- belongs on the unit's calendar AND on the section's that mostly uses
+    -- it, and one column forced a choice nobody wanted to make.
     -- 'confirmation' | 'hold'. Publishing from the hold shows the unit its
     -- own pencilled-in dates; publishing from confirmation shows only what
     -- is actually let. Neither is right for everyone, which is why it is a
@@ -186,6 +184,30 @@ CREATE TABLE IF NOT EXISTS rental_assets (
 --
 -- ScoutMagic badges are never an ACL. This table is the only source of
 -- per-asset authority besides Staff d'U membership.
+-- ---------------------------------------------------------------------
+-- Which calendars an asset publishes onto (§6.30)
+-- ---------------------------------------------------------------------
+-- A row per (asset, calendar) pair rather than a `calendar_id` column on
+-- the asset: a hall is very often both the unit's business and one
+-- section's, and asking a manager to pick a single calendar meant the
+-- other group simply never saw it.
+--
+-- `calendar_id` points into the `calendar` module and is reached only
+-- through its public API, so there is deliberately NO foreign key onto it
+-- — a constraint would make `rental` unusable without `calendar`, which is
+-- exactly the coupling §7.5 forbids. A calendar deleted on that side
+-- leaves a row nothing resolves, and the provider skips it.
+CREATE TABLE IF NOT EXISTS rental_asset_calendars (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    asset_id INT UNSIGNED NOT NULL,
+    calendar_id INT UNSIGNED NOT NULL,
+    created_at DATETIME NOT NULL,
+    UNIQUE KEY uniq_rental_asset_calendar (asset_id, calendar_id),
+    KEY idx_rental_asset_calendars_calendar (calendar_id),
+    CONSTRAINT fk_rental_asset_calendars_asset
+        FOREIGN KEY (asset_id) REFERENCES rental_assets(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS rental_asset_managers (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     asset_id INT UNSIGNED NOT NULL,

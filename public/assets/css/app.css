@@ -306,6 +306,15 @@ td code,
         display: flex;
     }
 }
+/* A trail of real ancestor PAGES shows at every width, desktop included.
+   The rule above hides the bar on a desktop browser because the nav's own
+   submenus already reach everything a `parents` entry names; ancestor
+   pages nested under ONE menu entry (a group, a lettable asset, one of its
+   bookings) are not in any menu, so hiding them leaves no way back up at
+   all. See partials/breadcrumb_bar.html.twig. */
+.breadcrumb-bar--has-trail {
+    display: flex;
+}
 
 /* Core\Security\HumanCheck — partials/human_check_fields.html.twig's
    honeypot trap field. Global (app.css, loaded on every page by

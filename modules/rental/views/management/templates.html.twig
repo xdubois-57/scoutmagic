@@ -7,22 +7,24 @@
   lets its hall under is its managers' business, and a manager is not
   necessarily a chief (§6.4).
 
-  The editor is a plain HTML textarea rather than the rich-text modal, on
-  purpose. A contenteditable surface happily splits a run of text across
-  elements as it is edited, so a placeholder can silently become
-  `{{ pri<b>x</b>_total }}` — still readable to a human, no longer a keyword
-  to the substituter, and only noticed once a contract goes out with visible
-  braces in it. A textarea cannot do that.
+  The editor is the site's standard rich text field
+  (partials/rich_text_form_field.html.twig) — nobody should be asked to type
+  HTML to word a contract.
+
+  What used to make that impossible was the placeholders: a contenteditable
+  surface splits a run of text across elements as it is edited, so
+  `{{ '{{ prix_total }}' }}` could silently become
+  `{{ '{{ pri<b>x</b>_total }}' }}` — still readable to a human, no longer a
+  keyword to the substituter, and only noticed once a contract had gone out
+  with visible braces in it. The field solves that rather than avoiding it:
+  each placeholder is one indivisible `contenteditable="false"` chip the
+  browser cannot split, and there is a menu to insert them.
 
   Everything typed here is sanitized server-side before it is stored
   (EditableContentService, SECURITY.md §7).
 #}
 {% block content %}
     <div class="container py-4" style="max-width: 900px;">
-        <nav aria-label="Fil d'Ariane" class="mb-2">
-            <a href="/mes-locations/{{ asset.slug }}" class="small text-decoration-none">&larr; {{ asset.name }}</a>
-        </nav>
-
         <h1 class="h3 mb-3">Gabarits — {{ asset.name }}</h1>
 
         {% include '@rental/management/_nav.html.twig' %}
@@ -54,20 +56,33 @@
                         <input type="hidden" name="asset_id" value="{{ asset.id }}">
                         <input type="hidden" name="document_type" value="{{ template.type.value }}">
 
-                        <label class="form-label" for="body-{{ template.type.value }}">
-                            Texte du gabarit (HTML simple)
-                        </label>
-                        <textarea class="form-control font-monospace mb-3" rows="14"
-                                  id="body-{{ template.type.value }}" name="body">{{ template.body }}</textarea>
+                        {% include 'partials/rich_text_form_field.html.twig' with {
+                            field_id: 'body-' ~ template.type.value,
+                            field_name: 'body',
+                            value: template.body,
+                            label: 'Texte du gabarit',
+                            help: 'Mettez en forme le texte comme ailleurs sur le site. Les champs
+                                   insérés — en bleu — sont remplacés par les valeurs de la réservation
+                                   au moment où le document est généré.',
+                            placeholders: keywords,
+                            rows_height: '22rem',
+                        } %}
 
                         {% if template.type.value == 'invoice' %}
                             <div class="mb-3">
-                                <label class="form-label" for="vat-note">Mention de TVA</label>
+                                <label class="form-label" for="vat-note">
+                                    Phrase à imprimer à la place d'une ligne de TVA
+                                </label>
                                 <input type="text" class="form-control" id="vat-note" name="vat_exemption_note"
-                                       maxlength="255" value="{{ vat_note }}">
+                                       maxlength="255" value="{{ vat_note }}"
+                                       placeholder="Non assujetti à la TVA — article 44 du Code de la TVA">
                                 <div class="form-text">
-                                    Aucune TVA n'est jamais calculée : les prix sont ceux que paie le locataire.
-                                    Cette phrase explique pourquoi la facture n'en porte pas.
+                                    ScoutMagic ne calcule <strong>jamais</strong> de TVA : le prix affiché est
+                                    celui que le locataire paie, point. Une unité scoute n'est en principe pas
+                                    assujettie, mais une facture belge sans TVA doit dire pourquoi — c'est cette
+                                    phrase-là, reprise telle quelle en bas de la facture. Laissez vide si votre
+                                    unité n'émet pas de facture ou n'a pas besoin de cette mention. Elle est
+                                    aussi disponible comme champ <code>{{ '{{ mention_tva }}' }}</code>.
                                 </div>
                             </div>
                         {% endif %}
@@ -115,32 +130,58 @@
                         </div>
 
                         <div class="col-12 col-md-6">
-                            <label class="form-label" for="publication-calendar">Calendrier</label>
-                            <select class="form-select" id="publication-calendar" name="calendar_id">
-                                <option value="">—</option>
-                                {% for calendar in calendars %}
-                                    <option value="{{ calendar.id }}"
-                                            {{ asset.calendarId == calendar.id ? 'selected' : '' }}>
-                                        {{ calendar.name }}
-                                    </option>
-                                {% endfor %}
-                            </select>
+                            <fieldset>
+                                {# Checkboxes, not a single <select>: a hall is very
+                                   often both the unit's business and one section's,
+                                   and one choice meant the other group never saw
+                                   it. Labels come from the calendar module
+                                   (CalendarService::listSelectableCalendars) — a
+                                   section calendar has no name of its own. #}
+                                <legend class="form-label">Calendriers</legend>
+                                {% if calendars is empty %}
+                                    <p class="form-text mt-0">
+                                        Aucun calendrier n'existe encore. Créez-en un dans
+                                        « Configuration &gt; Calendrier ».
+                                    </p>
+                                {% else %}
+                                    {% for calendar in calendars %}
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox"
+                                                   id="publication-calendar-{{ calendar.id }}"
+                                                   name="calendar_ids[]" value="{{ calendar.id }}"
+                                                   {{ calendar.id in asset.calendarIds ? 'checked' : '' }}>
+                                            <label class="form-check-label" for="publication-calendar-{{ calendar.id }}">
+                                                {{ calendar.label }}
+                                            </label>
+                                        </div>
+                                    {% endfor %}
+                                    <div class="form-text">
+                                        L'occupation apparaît sur chacun des calendriers cochés.
+                                    </div>
+                                {% endif %}
+                            </fieldset>
                         </div>
 
                         <div class="col-12 col-md-6">
                             <label class="form-label" for="publication-from">Publier à partir de</label>
-                            <select class="form-select" id="publication-from" name="publish_from">
+                            {# Each option carries its own consequence text, exactly
+                               as the billing unit select does in the configuration
+                               page: the server stays the single source of truth and
+                               rental-publish-from.js only moves the selected one
+                               into the note below. Without that the note described
+                               whatever was saved, not what you had just picked. #}
+                            <select class="form-select" id="publication-from" name="publish_from"
+                                    data-explanation-target="publication-from-explanation">
                                 {% for option in publish_from_options %}
                                     <option value="{{ option.value }}"
+                                            data-explanation="{{ option.explanation }}"
                                             {{ asset.calendarPublishFrom.value == option.value ? 'selected' : '' }}>
                                         {{ option.label }}
                                     </option>
                                 {% endfor %}
                             </select>
-                            <div class="form-text">
-                                {% for option in publish_from_options %}
-                                    {% if asset.calendarPublishFrom.value == option.value %}{{ option.explanation }}{% endif %}
-                                {% endfor %}
+                            <div class="form-text" id="publication-from-explanation">
+                                {{ asset.calendarPublishFrom.explanation }}
                             </div>
                         </div>
 
@@ -157,8 +198,8 @@
             <div class="card-body">
                 <h2 class="h5 mb-2">Compteurs</h2>
                 <p class="text-body-secondary small">
-                    Ce qui se relève sur ce bien. Un compteur relié à un frais « relevé de compteur »
-                    est facturé à la consommation réelle ; sans frais, il est relevé sans être facturé.
+                    Ce qui se relève sur ce bien : électricité, eau, gaz, mazout. Un relevé est pris à
+                    l'arrivée et au départ, et la différence apparaît sur le décompte final du séjour.
                 </p>
 
                 {% if meters is empty %}
@@ -212,13 +253,25 @@
                                placeholder="kWh">
                     </div>
                     <div class="col-8 col-md-2">
-                        <label class="form-label" for="meter-fee">Frais</label>
-                        <select class="form-select form-select-sm" id="meter-fee" name="fee_id">
-                            <option value="">—</option>
+                        <label class="form-label" for="meter-fee">Prix unitaire</label>
+                        <select class="form-select form-select-sm" id="meter-fee" name="fee_id"
+                                {{ meter_fees is empty ? 'disabled' : '' }}>
+                            <option value="">Relevé seul, non facturé</option>
                             {% for fee in meter_fees %}
                                 <option value="{{ fee.id }}">{{ fee.label }}</option>
                             {% endfor %}
                         </select>
+                        <div class="form-text">
+                            {% if meter_fees is empty %}
+                                Pour facturer la consommation, créez d'abord un frais de nature
+                                « relevé de compteur » dans
+                                <a href="/admin/locations?asset_id={{ asset.id }}#tarification">la tarification du bien</a>
+                                — c'est lui qui porte le prix du kWh ou du m³.
+                            {% else %}
+                                Le frais « relevé de compteur » qui porte le prix d'une unité. Sans lui, le
+                                compteur est relevé mais rien n'est facturé.
+                            {% endif %}
+                        </div>
                     </div>
                     <div class="col-4 col-md-2">
                         <button type="submit" class="btn btn-sm btn-outline-primary w-100">Ajouter</button>
@@ -276,4 +329,17 @@
             </div>
         </div>
     </div>
+{% endblock %}
+
+{% block stylesheets %}
+{# The keyword chips and the editing surface are styled by components.css,
+   which base.html.twig deliberately does not load. #}
+<link rel="stylesheet" href="/assets/css/components.css">
+{% endblock %}
+
+{% block scripts %}
+    <script src="/assets/js/rich-text-form-field.js" defer></script>
+    {# Keeps the note under "Publier à partir de" describing the option
+       currently selected rather than the one that happens to be saved. #}
+    <script src="/assets/js/select-explanation.js" defer></script>
 {% endblock %}

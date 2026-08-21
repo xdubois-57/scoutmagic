@@ -104,22 +104,39 @@ class RentalVirtualEventProvider implements VirtualEventProviderInterface
                 continue;
             }
 
-            $event = $this->bookingEvent(
-                $booking,
-                $asset,
-                in_array($asset->id, $manageableAssetIds, true),
-                $now
-            );
+            // One event PER calendar the asset publishes onto and this
+            // reader sees: a hall on both the unit's calendar and its
+            // section's is genuinely two entries, and the registry keys
+            // events by UID alone, so a single one would be collapsed into
+            // whichever calendar happened to come first.
+            foreach ($this->visibleCalendarsFor($asset, $viewer) as $calendarId) {
+                $event = $this->bookingEvent(
+                    $booking,
+                    $asset,
+                    $calendarId,
+                    in_array($asset->id, $manageableAssetIds, true),
+                    $now
+                );
 
-            if ($event !== null) {
-                $events[] = $event;
+                if ($event !== null) {
+                    $events[] = $event;
+                }
             }
         }
 
         foreach ($this->blockRepository->findForAssetsBetween($assetIds, $from, $to) as $block) {
             $asset = $byId[$block->assetId] ?? null;
-            if ($asset !== null) {
-                $events[] = $this->blockEvent($block, $asset, in_array($asset->id, $manageableAssetIds, true));
+            if ($asset === null) {
+                continue;
+            }
+
+            foreach ($this->visibleCalendarsFor($asset, $viewer) as $calendarId) {
+                $events[] = $this->blockEvent(
+                    $block,
+                    $asset,
+                    $calendarId,
+                    in_array($asset->id, $manageableAssetIds, true)
+                );
             }
         }
 
@@ -139,7 +156,25 @@ class RentalVirtualEventProvider implements VirtualEventProviderInterface
     {
         return array_values(array_filter(
             $this->assetRepository->findPublishingToCalendar(),
-            static fn(RentalAsset $asset) => $viewer->seesCalendar($asset->calendarId)
+            fn(RentalAsset $asset) => $this->visibleCalendarsFor($asset, $viewer) !== []
+        ));
+    }
+
+    /**
+     * Which of $asset's calendars this reader is actually looking at.
+     *
+     * Filtering matters as much as it ever did: without it, a bare feed for
+     * the Animateurs calendar would quietly carry the occupancy of an asset
+     * published only onto a different one. What changed is that an asset
+     * now has several, and a reader may see any subset of them.
+     *
+     * @return int[]
+     */
+    private function visibleCalendarsFor(RentalAsset $asset, VirtualEventViewer $viewer): array
+    {
+        return array_values(array_filter(
+            $asset->calendarIds,
+            static fn(int $calendarId) => $viewer->seesCalendar($calendarId)
         ));
     }
 
@@ -181,6 +216,7 @@ class RentalVirtualEventProvider implements VirtualEventProviderInterface
     private function bookingEvent(
         RentalBooking $booking,
         RentalAsset $asset,
+        int $calendarId,
         bool $viewerManagesAsset,
         \DateTimeImmutable $now
     ): ?VirtualEvent {
@@ -195,8 +231,8 @@ class RentalVirtualEventProvider implements VirtualEventProviderInterface
         }
 
         return $viewerManagesAsset
-            ? $this->detailedBookingEvent($booking, $asset, $isCancelled)
-            : $this->publicBookingEvent($booking, $asset, $isCancelled);
+            ? $this->detailedBookingEvent($booking, $asset, $calendarId, $isCancelled)
+            : $this->publicBookingEvent($booking, $asset, $calendarId, $isCancelled);
     }
 
     /**
@@ -206,11 +242,12 @@ class RentalVirtualEventProvider implements VirtualEventProviderInterface
     private function publicBookingEvent(
         RentalBooking $booking,
         RentalAsset $asset,
+        int $calendarId,
         bool $isCancelled
     ): VirtualEvent {
         return new VirtualEvent(
-            uid: self::bookingUid($booking->id),
-            calendarId: (int) $asset->calendarId,
+            uid: self::bookingUid($booking->id, $calendarId),
+            calendarId: $calendarId,
             title: $asset->name . self::PUBLIC_LET_SUFFIX,
             startDate: $booking->arrivalDate,
             endDate: $booking->departureDate,
@@ -230,6 +267,7 @@ class RentalVirtualEventProvider implements VirtualEventProviderInterface
     private function detailedBookingEvent(
         RentalBooking $booking,
         RentalAsset $asset,
+        int $calendarId,
         bool $isCancelled
     ): VirtualEvent {
         $who = $booking->renterOrganisation ?? $booking->renterName;
@@ -245,8 +283,8 @@ class RentalVirtualEventProvider implements VirtualEventProviderInterface
         $details[] = $booking->renterEmail;
 
         return new VirtualEvent(
-            uid: self::bookingUid($booking->id),
-            calendarId: (int) $asset->calendarId,
+            uid: self::bookingUid($booking->id, $calendarId),
+            calendarId: $calendarId,
             title: $asset->name . ' — ' . $who,
             startDate: $booking->arrivalDate,
             endDate: $booking->departureDate,
@@ -266,11 +304,15 @@ class RentalVirtualEventProvider implements VirtualEventProviderInterface
      * from a letting, since why the unit cannot let its hall is nobody
      * else's business (§6.7).
      */
-    private function blockEvent(RentalBlock $block, RentalAsset $asset, bool $viewerManagesAsset): VirtualEvent
-    {
+    private function blockEvent(
+        RentalBlock $block,
+        RentalAsset $asset,
+        int $calendarId,
+        bool $viewerManagesAsset
+    ): VirtualEvent {
         return new VirtualEvent(
-            uid: self::blockUid($block->id),
-            calendarId: (int) $asset->calendarId,
+            uid: self::blockUid($block->id, $calendarId),
+            calendarId: $calendarId,
             title: $asset->name . self::PUBLIC_BLOCKED_SUFFIX,
             startDate: $block->startDate,
             endDate: $block->endDate,
@@ -292,14 +334,14 @@ class RentalVirtualEventProvider implements VirtualEventProviderInterface
      * calendar client updates its copy in place instead of accumulating one
      * per fetch.
      */
-    public static function bookingUid(int $bookingId): string
+    public static function bookingUid(int $bookingId, int $calendarId): string
     {
-        return 'rental-booking-' . $bookingId . '@scoutmagic';
+        return 'rental-booking-' . $bookingId . '-cal' . $calendarId . '@scoutmagic';
     }
 
-    public static function blockUid(int $blockId): string
+    public static function blockUid(int $blockId, int $calendarId): string
     {
-        return 'rental-block-' . $blockId . '@scoutmagic';
+        return 'rental-block-' . $blockId . '-cal' . $calendarId . '@scoutmagic';
     }
 
     private function manageUrl(RentalAsset $asset, RentalBooking $booking): ?string

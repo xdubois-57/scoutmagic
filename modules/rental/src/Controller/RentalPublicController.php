@@ -126,6 +126,12 @@ class RentalPublicController extends AbstractController
             'asset' => $asset,
             'can_manage' => $canManage,
             'breadcrumb_current' => $asset->name,
+            // The generic trail (partials/breadcrumb_bar.html.twig) rather
+            // than a hand-rolled "← Toutes les locations" link above the
+            // title: the index page IS this page's unambiguous ancestor,
+            // which is exactly what breadcrumb_trail is for, and every
+            // other module on the site navigates that way.
+            'breadcrumb_trail' => [['label' => 'Locations', 'url' => '/locations']],
             'billing_unit' => $pricing->billingUnit,
             'categories' => $pricing->categories,
             'constraints' => $constraints,

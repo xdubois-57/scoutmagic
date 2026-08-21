@@ -191,6 +191,7 @@ class RentalManagementController extends AbstractController
         return $this->render('@rental/management/compliance.html.twig', [
             'asset' => $asset,
             'breadcrumb_current' => 'Conformité',
+            'breadcrumb_trail' => $this->assetSubPageTrail($asset),
             'items' => $this->complianceService->forAsset($asset->id),
             'label_suggestions' => $this->complianceService->labelSuggestions(),
             'today' => new \DateTimeImmutable('today'),
@@ -384,6 +385,7 @@ class RentalManagementController extends AbstractController
         return $this->render('@rental/management/overview.html.twig', [
             'asset' => $asset,
             'breadcrumb_current' => $asset->name,
+            'breadcrumb_trail' => $this->assetTrail(),
             'bookings' => $bookings,
             'needs_attention' => array_values(array_filter(
                 $bookings,
@@ -431,6 +433,7 @@ class RentalManagementController extends AbstractController
         return $this->render('@rental/management/bookings.html.twig', [
             'asset' => $asset,
             'breadcrumb_current' => 'Réservations',
+            'breadcrumb_trail' => $this->assetSubPageTrail($asset),
             'bookings' => $bookings,
             'filter' => $filter,
             'statuses' => BookingStatus::cases(),
@@ -461,6 +464,7 @@ class RentalManagementController extends AbstractController
             'asset' => $asset,
             'booking' => $booking,
             'breadcrumb_current' => $booking->reference,
+            'breadcrumb_trail' => $this->bookingTrail($asset),
             'milestones' => BookingMilestones::for($booking, $now),
             'allowed_transitions' => BookingTransition::allowedFrom($booking->status),
             'can_confirm' => BookingTransition::isAllowed($booking->status, BookingStatus::CONFIRMED),
@@ -616,6 +620,7 @@ class RentalManagementController extends AbstractController
             'booking' => $booking,
             'document_type' => $type,
             'breadcrumb_current' => $type->label(),
+            'breadcrumb_trail' => $this->bookingTrail($asset, $booking),
             'body_html' => $body,
             // Level 1 for reference, so a manager can see what they are
             // diverging from without leaving the page.
@@ -940,6 +945,7 @@ class RentalManagementController extends AbstractController
         return $this->render('@rental/management/calendar.html.twig', [
             'asset' => $asset,
             'breadcrumb_current' => 'Calendrier',
+            'breadcrumb_trail' => $this->assetSubPageTrail($asset),
             'calendar' => $this->gridBuilder->build(
                 $window->year,
                 $window->month,
@@ -999,6 +1005,7 @@ class RentalManagementController extends AbstractController
         return $this->render('@rental/management/templates.html.twig', [
             'asset' => $asset,
             'breadcrumb_current' => 'Gabarits',
+            'breadcrumb_trail' => $this->assetSubPageTrail($asset),
             'templates' => $templates,
             'keywords' => DocumentKeywords::catalogue(),
             'vat_note' => $asset->vatExemptionNote,
@@ -1015,12 +1022,11 @@ class RentalManagementController extends AbstractController
             // Calendar publication (§6.30). With the module off there is
             // nothing to publish onto, and the section says so.
             'calendar_available' => $this->calendarService !== null,
-            'calendars' => $this->calendarService !== null
-                ? [
-                    ...$this->calendarService->getSectionCalendars(),
-                    ...$this->calendarService->getSupplementaryCalendars(),
-                ]
-                : [],
+            // Labels resolved by the calendar module itself
+            // (CalendarService::listSelectableCalendars): a section calendar
+            // has no name of its own, so rendering `calendar.name` gave a
+            // list of blank options with only "Animateurs" readable.
+            'calendars' => $this->calendarService?->listSelectableCalendars() ?? [],
             'publish_from_options' => PublishFrom::all(),
             'csrf_token' => CsrfGuard::generateToken(),
             'nav_page' => 'templates',
@@ -1135,13 +1141,25 @@ class RentalManagementController extends AbstractController
             return new Response('Not Found', 404);
         }
 
-        $calendarId = (int) $request->getBody('calendar_id', 0);
+        // Several, not one: a hall is very often both the unit's business
+        // and one section's, and the old single choice meant the other
+        // group simply never saw it. Cross-checked against the calendars
+        // that actually exist, so a stale id in a posted form cannot create
+        // a row pointing at nothing.
+        $existingIds = array_map(
+            static fn(array $calendar) => $calendar['id'],
+            $this->calendarService->listSelectableCalendars()
+        );
+        $calendarIds = array_values(array_intersect(
+            array_map('intval', (array) ($request->getBody('calendar_ids') ?? [])),
+            $existingIds
+        ));
         $enabled = $request->getBody('publication_enabled') !== null;
 
-        if ($enabled && $calendarId <= 0) {
+        if ($enabled && $calendarIds === []) {
             // Half-configured is worse than off: an asset that says
             // "publish" but has nowhere to publish to looks like it works.
-            FlashMessage::set('danger', 'Choisissez le calendrier sur lequel publier cette occupation.');
+            FlashMessage::set('danger', 'Choisissez au moins un calendrier sur lequel publier cette occupation.');
 
             return $this->redirect('/mes-locations/' . $asset->slug . '/gabarits');
         }
@@ -1149,7 +1167,7 @@ class RentalManagementController extends AbstractController
         $this->assetRepository->saveCalendarPublication(
             $asset->id,
             $enabled,
-            $calendarId > 0 ? $calendarId : null,
+            $calendarIds,
             PublishFrom::tryFrom((string) $request->getBody('publish_from', '')) ?? PublishFrom::CONFIRMATION
         );
 
@@ -1255,6 +1273,7 @@ class RentalManagementController extends AbstractController
             'asset' => $asset,
             'booking' => $booking,
             'breadcrumb_current' => 'Séjour',
+            'breadcrumb_trail' => $this->bookingTrail($asset, $booking),
             'consumptions' => $this->stayService->consumptionsFor($booking, $asset->id),
             'inventory' => $this->stayService->inventoryFor($booking->id),
             'inventory_states' => InventoryState::all(),
@@ -1875,6 +1894,66 @@ class RentalManagementController extends AbstractController
     private function bookingUrl(RentalAsset $asset, RentalBooking $booking): string
     {
         return '/mes-locations/' . $asset->slug . '/reservations/' . $booking->id;
+    }
+
+    /**
+     * The fil d'Ariane for a page inside one asset's managed space.
+     *
+     * The managed space is several levels deep — an asset, its bookings,
+     * one booking, that booking's stay or one of its documents — and the
+     * menu has ONE entry for the whole of it, so none of those ancestors
+     * is reachable from the nav. That is exactly what
+     * partials/breadcrumb_bar.html.twig's `breadcrumb_trail` is for: real
+     * links to real ancestor PAGES, resolved by the controller that knows
+     * the asset's slug and the booking's id.
+     *
+     * These three replace a hand-rolled "← Réservations" link that used to
+     * sit above the title of every page in the module — a pattern nothing
+     * else on the site used, which is what made the module feel foreign.
+     *
+     * @return array<int, array{label: string, url: string}>
+     */
+    private function assetTrail(): array
+    {
+        return [['label' => 'Mes locations', 'url' => '/mes-locations']];
+    }
+
+    /**
+     * One level deeper: a page belonging to an asset (its calendar, its
+     * bookings, its templates, its compliance register).
+     *
+     * @return array<int, array{label: string, url: string}>
+     */
+    private function assetSubPageTrail(RentalAsset $asset): array
+    {
+        return array_merge($this->assetTrail(), [
+            ['label' => $asset->name, 'url' => '/mes-locations/' . $asset->slug],
+        ]);
+    }
+
+    /**
+     * Deeper still: one booking, and — with $booking given — a page
+     * belonging to that booking (its stay, one of its documents).
+     *
+     * @return array<int, array{label: string, url: string}>
+     */
+    private function bookingTrail(RentalAsset $asset, ?RentalBooking $booking = null): array
+    {
+        $trail = array_merge($this->assetSubPageTrail($asset), [
+            [
+                'label' => 'Réservations',
+                'url' => '/mes-locations/' . $asset->slug . '/reservations',
+            ],
+        ]);
+
+        if ($booking !== null) {
+            $trail[] = [
+                'label' => $booking->reference,
+                'url' => '/mes-locations/' . $asset->slug . '/reservations/' . $booking->id,
+            ];
+        }
+
+        return $trail;
     }
 
     private function actorMemberId(): ?int

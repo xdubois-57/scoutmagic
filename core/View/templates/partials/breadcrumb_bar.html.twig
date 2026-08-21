@@ -50,7 +50,16 @@
    no parents) so it ends the trail the same way every other page does —
    an active, non-link "Accueil" item after the icon — rather than the
    icon being the only thing rendered there. #}
-<nav class="breadcrumb-bar border-bottom bg-light px-3 py-2" aria-label="Fil d'Ariane">
+{# `--has-trail` is what makes the bar visible on a desktop browser too
+   (app.css). The bar is normally mobile-and-PWA only because on a desktop
+   the nav bar's own submenus already offer every ancestor a `parents`
+   entry names. A `breadcrumb_trail` is the case that reasoning does not
+   cover: it names specific ancestor PAGES — a group, an asset, a booking —
+   that live under a single menu entry and that the nav therefore cannot
+   offer at all. Without this, a visitor several levels into such a section
+   has nothing but the browser's back button, which is exactly what pushed
+   one module into hand-rolling "← Réservations" links of its own. #}
+<nav class="breadcrumb-bar{{ breadcrumb_trail|default([]) is not empty ? ' breadcrumb-bar--has-trail' : '' }} border-bottom bg-light px-3 py-2" aria-label="Fil d'Ariane">
     <ol class="breadcrumb mb-0 small align-items-center">
         <li class="breadcrumb-item">
             <a href="/" class="text-decoration-none" aria-label="Accueil">

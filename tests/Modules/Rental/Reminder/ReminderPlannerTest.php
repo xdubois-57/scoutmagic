@@ -49,7 +49,7 @@ class ReminderPlannerTest extends TestCase
             isPublic: true,
             vatExemptionNote: null,
             calendarPublicationEnabled: false,
-            calendarId: null,
+            calendarIds: [],
             calendarPublishFrom: PublishFrom::CONFIRMATION
         );
     }

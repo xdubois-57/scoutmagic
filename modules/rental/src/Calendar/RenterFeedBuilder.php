@@ -48,10 +48,13 @@ class RenterFeedBuilder
         array $renterContacts = []
     ): VirtualEvent {
         return new VirtualEvent(
-            // The same UID as the calendar provider's, on purpose: if a
-            // renter somehow ends up with both feeds, one booking is one
-            // event (§6.32).
-            uid: RentalVirtualEventProvider::bookingUid($booking->id),
+            // The same UID the calendar provider would give this booking
+            // on THIS feed, on purpose: if a renter somehow ends up with
+            // both, one booking is one event (§6.32). The provider keys its
+            // UIDs by calendar because an asset publishes onto several and
+            // the registry keys events by UID alone — here the calendar is
+            // 0, the same value used just below, so the two agree.
+            uid: RentalVirtualEventProvider::bookingUid($booking->id, 0),
             // No calendar to belong to — this feed IS the calendar. Zero
             // rather than a made-up id, so nothing can mistake it for a
             // real one.

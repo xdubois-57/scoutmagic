@@ -1,6 +1,6 @@
 // Isolated JavaScript unit test — jsdom-simulated DOM only, no PHP server, no
 // network. Exercises the REAL implementation in
-// public/assets/js/rental-pricing.js (imported below, never reimplemented
+// public/assets/js/select-explanation.js (imported below, never reimplemented
 // here): the note under the billing-unit selector on
 // "Espace chefs d'U > Locations", which module spec §6.8 requires to describe
 // the CONSEQUENCE of the choice and to update as the choice changes.
@@ -12,7 +12,7 @@
 // which is exactly the drift the design avoids; the wording itself is
 // covered by RentalPricingEngineTest on the PHP side.
 import { beforeEach, describe, expect, it } from 'vitest';
-import { explanationForSelection, wireExplanation } from '../../public/assets/js/rental-pricing.js';
+import { explanationForSelection, wireExplanation } from '../../public/assets/js/select-explanation.js';
 
 /**
  * @param {Array<{value: string, explanation?: string|null}>} options

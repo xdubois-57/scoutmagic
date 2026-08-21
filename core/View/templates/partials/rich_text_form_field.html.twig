@@ -1,0 +1,113 @@
+{#
+ ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
+ Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
+#}
+{#
+  Generic reusable rich text field that is part of a FORM — the third member
+  of the family described in partials/rich_text_field.html.twig, alongside
+  the preview/edit-button pair.
+
+  Use this one whenever the text is a field of something a module owns, saved
+  with the rest of its form to the module's own route under the module's own
+  permission check. The preview/edit-button pair is for a value that belongs
+  to the generic editable-content store and saves itself over fetch(); asking
+  a module's form to go through that endpoint would mean two writes, two
+  permission models and a half-saved form when one of them fails.
+
+  What the caller gets: a toolbar, an editing surface, and a hidden input
+  carrying the HTML to post. Nothing here saves anything — the surrounding
+  form does.
+
+  Usage:
+  {% include 'partials/rich_text_form_field.html.twig' with {
+      field_id: 'template-contract',
+      field_name: 'body',
+      value: template.body,
+      label: 'Texte du gabarit',
+      help: 'Ce texte est le point de départ de chaque contrat.',
+      placeholders: keywords,          {# optional, see below #}
+      rows_height: '22rem'             {# optional #}
+  } %}
+
+  The calling PAGE must once, anywhere on it:
+    <script src="/assets/js/rich-text-form-field.js" defer></script>
+
+  `placeholders` (optional) is a list of
+  `{keyword, placeholder, description}` — the closed set of substitutions
+  the text may carry. Each becomes an insert button, and each occurrence in
+  the value renders as ONE indivisible chip rather than as ordinary text: a
+  contenteditable surface splits a run of text across elements as it is
+  edited, so `{{ '{{ prix_total }}' }}` typed by hand can silently become
+  `{{ '{{ pri<b>x</b>_total }}' }}` — still readable to a human, no longer a
+  keyword to whatever substitutes it, and only noticed once the document has
+  gone out. See public/assets/js/rich-text-form-field.js.
+
+  Without JavaScript the hidden input already holds the current value, so
+  submitting saves what was there rather than blanking it, and the surface
+  stays inert and aria-hidden until it is wired.
+#}
+<div class="rich-text-form-field mb-3"
+     data-keywords="{{ (placeholders|default([])|map(p => p.keyword))|json_encode }}">
+    {% if label is defined and label %}
+        <span class="form-label d-block" id="{{ field_id }}-label">{{ label }}</span>
+    {% endif %}
+
+    <div class="rich-text-toolbar mb-2 d-flex flex-wrap gap-1">
+        <button type="button" data-command="formatBlock" data-value="h2" class="btn btn-sm btn-outline-secondary" title="Titre 2"><strong>H2</strong></button>
+        <button type="button" data-command="formatBlock" data-value="h3" class="btn btn-sm btn-outline-secondary" title="Titre 3"><strong>H3</strong></button>
+        <button type="button" data-command="formatBlock" data-value="p" class="btn btn-sm btn-outline-secondary" title="Paragraphe"><i class="bi bi-text-paragraph"></i></button>
+        <span class="mx-1"></span>
+        <button type="button" data-command="bold" class="btn btn-sm btn-outline-secondary" title="Gras"><i class="bi bi-type-bold"></i></button>
+        <button type="button" data-command="italic" class="btn btn-sm btn-outline-secondary" title="Italique"><i class="bi bi-type-italic"></i></button>
+        <button type="button" data-command="underline" class="btn btn-sm btn-outline-secondary" title="Souligné"><i class="bi bi-type-underline"></i></button>
+        <span class="mx-1"></span>
+        <button type="button" data-command="insertUnorderedList" class="btn btn-sm btn-outline-secondary" title="Liste à puces"><i class="bi bi-list-ul"></i></button>
+        <button type="button" data-command="insertOrderedList" class="btn btn-sm btn-outline-secondary" title="Liste numérotée"><i class="bi bi-list-ol"></i></button>
+        <span class="mx-1"></span>
+        <button type="button" data-command="createLink" class="btn btn-sm btn-outline-secondary" title="Lien"><i class="bi bi-link-45deg"></i></button>
+        <button type="button" data-command="removeFormat" class="btn btn-sm btn-outline-secondary" title="Supprimer le formatage"><i class="bi bi-eraser"></i></button>
+
+        {% if placeholders is defined and placeholders is not empty %}
+            <span class="mx-1"></span>
+            <div class="dropdown">
+                <button type="button" class="btn btn-sm btn-outline-primary dropdown-toggle" data-bs-toggle="dropdown">
+                    Insérer un champ
+                </button>
+                <ul class="dropdown-menu" style="max-height: 20rem; overflow-y: auto;">
+                    {% for placeholder in placeholders %}
+                        <li>
+                            <button type="button" class="dropdown-item"
+                                    data-insert-keyword="{{ placeholder.keyword }}">
+                                <span class="d-block">{{ placeholder.placeholder }}</span>
+                                <span class="d-block small text-body-secondary">{{ placeholder.description }}</span>
+                            </button>
+                        </li>
+                    {% endfor %}
+                </ul>
+            </div>
+        {% endif %}
+    </div>
+
+    <div class="rich-text-form-surface form-control"
+         id="{{ field_id }}"
+         role="textbox"
+         aria-multiline="true"
+         aria-hidden="true"
+         {% if label is defined and label %}aria-labelledby="{{ field_id }}-label"{% endif %}
+         style="min-height: {{ rows_height|default('16rem') }}; overflow-y: auto;">{{ value|raw }}</div>
+
+    {# The value that is actually posted. Already correct on arrival, so a
+       form submitted before the script runs saves what was there. #}
+    <input type="hidden" class="rich-text-form-value" name="{{ field_name }}" value="{{ value }}">
+
+    {% if help is defined and help %}
+        <div class="form-text">{{ help }}</div>
+    {% endif %}
+
+    <noscript>
+        <div class="form-text text-danger">
+            L'éditeur de texte a besoin de JavaScript. Sans lui, enregistrer ce formulaire
+            conserve le texte actuel sans le modifier.
+        </div>
+    </noscript>
+</div>

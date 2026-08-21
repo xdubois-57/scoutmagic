@@ -44,7 +44,6 @@ class RentalTestHelper
             balance_due_days INTEGER,
             vat_exemption_note TEXT,
             calendar_publication_enabled INTEGER NOT NULL DEFAULT 0,
-            calendar_id INTEGER,
             calendar_publish_from TEXT NOT NULL DEFAULT "confirmation",
             security_deposit_mode TEXT NOT NULL DEFAULT "none",
             security_deposit_amount_cents INTEGER,
@@ -101,6 +100,14 @@ class RentalTestHelper
             sort_order INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (asset_id) REFERENCES rental_assets(id) ON DELETE CASCADE
+        )');
+
+        $pdo->exec('CREATE TABLE rental_asset_calendars (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            asset_id INTEGER NOT NULL,
+            calendar_id INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE (asset_id, calendar_id)
         )');
 
         $pdo->exec('CREATE TABLE rental_asset_managers (

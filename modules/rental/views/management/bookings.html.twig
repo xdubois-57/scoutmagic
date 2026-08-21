@@ -9,10 +9,6 @@
 #}
 {% block content %}
     <div class="container py-4" style="max-width: 960px;">
-        <nav aria-label="Fil d'Ariane" class="mb-2">
-            <a href="/mes-locations/{{ asset.slug }}" class="small text-decoration-none">&larr; {{ asset.name }}</a>
-        </nav>
-
         <h1 class="h3 mb-3">Réservations — {{ asset.name }}</h1>
 
         {% include '@rental/management/_nav.html.twig' %}

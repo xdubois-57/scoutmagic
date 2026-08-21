@@ -48,6 +48,58 @@ class CalendarServiceTest extends TestCase
         $this->service = new CalendarService($this->calendarRepository, $this->eventRepository, $sectionService, new CalendarUnitFeedTokenRepository($this->pdo, new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32))));
     }
 
+    public function testASelectableCalendarAlwaysCarriesALabelAHumanCanRead(): void
+    {
+        // A section calendar has no name of its own — `calendar_calendars
+        // .name` is null for it and the label belongs to the section. A
+        // consumer rendering `calendar.name` therefore got a list of blank
+        // options with only the supplementary "Animateurs" readable, which
+        // is exactly what this method exists to stop happening again.
+        $sectionId = $this->createRegularSection('LOUV', 'Louveteaux');
+        $this->calendarRepository->createSectionCalendar($sectionId, Calendar::VISIBILITY_PUBLIC);
+        $this->service->ensureDefaultCalendar();
+
+        $labels = array_column($this->service->listSelectableCalendars(), 'label');
+
+        $this->assertContains('Louveteaux', $labels);
+        $this->assertContains('Animateurs', $labels);
+        foreach ($labels as $label) {
+            $this->assertNotSame('', trim($label));
+        }
+    }
+
+    public function testAnUnnamedSectionFallsBackToItsDeskCodeRatherThanToNothing(): void
+    {
+        // A unit that has not finished configuring its sections still needs
+        // a list it can tell apart.
+        $stmt = $this->pdo->prepare('INSERT INTO age_branches (desk_code, label, sort_order) VALUES (?, ?, ?)');
+        $stmt->execute(['PION', 'PION', 40]);
+        $branchId = (int) $this->pdo->lastInsertId();
+
+        $stmt = $this->pdo->prepare('INSERT INTO sections (desk_code, age_branch_id, name) VALUES (?, ?, ?)');
+        $stmt->execute(['PION-1', $branchId, null]);
+        $sectionId = (int) $this->pdo->lastInsertId();
+
+        $this->calendarRepository->createSectionCalendar($sectionId, Calendar::VISIBILITY_PUBLIC);
+
+        $this->assertContains('PION-1', array_column($this->service->listSelectableCalendars(), 'label'));
+    }
+
+    public function testASectionCalendarIsMarkedAsOneSoAConsumerCanGroupThem(): void
+    {
+        $sectionId = $this->createRegularSection('BALA', 'Baladins');
+        $this->calendarRepository->createSectionCalendar($sectionId, Calendar::VISIBILITY_PUBLIC);
+        $this->service->ensureDefaultCalendar();
+
+        $byLabel = [];
+        foreach ($this->service->listSelectableCalendars() as $calendar) {
+            $byLabel[$calendar['label']] = $calendar['is_section'];
+        }
+
+        $this->assertTrue($byLabel['Baladins']);
+        $this->assertFalse($byLabel['Animateurs']);
+    }
+
     private function createRegularSection(string $deskCode, string $name, int $branchSortOrder = 10): int
     {
         $stmt = $this->pdo->prepare('INSERT INTO age_branches (desk_code, label, sort_order) VALUES (?, ?, ?)');

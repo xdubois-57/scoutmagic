@@ -12,11 +12,6 @@
 #}
 {% block content %}
     <div class="container py-4" style="max-width: 960px;">
-        <nav aria-label="Fil d'Ariane" class="mb-2">
-            <a href="/mes-locations/{{ asset.slug }}/reservations/{{ booking.id }}"
-               class="small text-decoration-none">&larr; {{ booking.reference }}</a>
-        </nav>
-
         <h1 class="h3 mb-1">Séjour — {{ booking.reference }}</h1>
         <p class="text-body-secondary small mb-3">
             {{ asset.name }} · du {{ booking.arrivalDate }} au {{ booking.departureDate }}

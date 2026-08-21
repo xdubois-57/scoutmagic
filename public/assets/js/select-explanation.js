@@ -2,20 +2,27 @@
  * ScoutMagic — Copyright (C) 2026 Xavier Dubois and contributors
  * Licensed under AGPL-3.0-or-later. See LICENSE and NOTICE.
  *
- * Keeps the billing-unit note in step with the selector on
- * "Espace chefs d'U > Locations" (module spec §6.8: the explanatory text
- * under the selector describes the CONSEQUENCE of the choice and updates as
- * the choice changes).
+ * Keeps a note in step with the <select> above it: wherever a choice has a
+ * CONSEQUENCE worth spelling out, the sentence under the selector describes
+ * the option currently selected and follows it as it changes.
  *
- * The texts themselves are NOT here. Each <option> carries its own, rendered
- * server-side from Modules\Rental\Pricing\BillingUnit::availabilityExplanation()
- * — the same method the page's initial render and every other surface use.
+ * Generic on purpose, and named for what it does rather than for the first
+ * page that needed it. Any `<select data-explanation-target="…">` on any
+ * page is wired, so a second use — the rentals module has two, the billing
+ * unit and "publier à partir de" — costs a script tag and nothing else. A
+ * note that silently kept describing the SAVED value while the visitor
+ * looked at a different one is exactly what this prevents.
+ *
+ * The texts themselves are NOT here. Each <option> carries its own,
+ * rendered server-side from whatever enum owns it (Rental's
+ * BillingUnit::availabilityExplanation(), PublishFrom::explanation()) — the
+ * same method the page's initial render and every other surface use.
  * Duplicating the sentences in JavaScript would create a second source of
  * truth that drifts the first time one of them is reworded, and the drift
- * would be invisible: the page would simply explain the calendar wrongly.
+ * would be invisible: the page would simply explain the choice wrongly.
  *
- * The page is fully usable with this script absent or not yet loaded — the
- * note is already correct on arrival, since the server rendered it.
+ * Every page is fully usable with this script absent or not yet loaded —
+ * the note is already correct on arrival, since the server rendered it.
  */
 
 /**

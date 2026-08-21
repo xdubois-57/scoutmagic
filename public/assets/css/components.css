@@ -738,3 +738,25 @@
     }
     .daygrid-day-number { font-size: 0.95rem; }
 }
+
+/* partials/rich_text_form_field.html.twig — a `{{ mot_cle }}` placeholder
+   rendered as one indivisible chip. The point is the `contenteditable=
+   "false"` in the markup, not the styling; what the styling adds is that an
+   author can SEE which parts of their text are substituted and which are
+   their own words. Kept alongside the editor rather than in app.css because
+   the field is opt-in per page, like everything else in this file. */
+.doc-keyword {
+    display: inline-block;
+    padding: 0 0.35em;
+    border-radius: 0.25rem;
+    background-color: var(--bs-primary-bg-subtle, #cfe2ff);
+    color: var(--bs-primary-text-emphasis, #052c65);
+    font-family: var(--bs-font-monospace, monospace);
+    font-size: 0.85em;
+    white-space: nowrap;
+    user-select: all;
+}
+.rich-text-form-surface:focus {
+    outline: 2px solid var(--bs-primary, #0d6efd);
+    outline-offset: 1px;
+}
