@@ -3204,16 +3204,18 @@ if (in_array('rental', $moduleManager->getEnabledModuleIds(), true)) {
     );
 
     // Occupancy sources (Modules\Rental\Availability\OccupancyProvider).
-    // The booking service is the first: from here on, every calendar,
-    // estimate and range validation accounts for real requests, holds
-    // included, without a line of AvailabilityCalculator changing. Manual
-    // blocks join this list in a later iteration the same way.
+    // Bookings and manual blocks, merged by RentalAvailabilityService: every
+    // calendar, estimate and range validation accounts for both without a
+    // line of AvailabilityCalculator changing. To the public they are
+    // indistinguishable, because an Occupancy carries nothing to tell them
+    // apart by.
     $rentalBookingRepository = new \Modules\Rental\Repository\RentalBookingRepository($pdo, $encryptionService);
     $rentalBookingService = new \Modules\Rental\Service\RentalBookingService(
         $rentalBookingRepository,
         $journalService
     );
-    $rentalOccupancyProviders = [$rentalBookingService];
+    $rentalBlockRepository = new \Modules\Rental\Repository\RentalBlockRepository($pdo);
+    $rentalOccupancyProviders = [$rentalBookingService, $rentalBlockRepository];
     $rentalAvailabilityService = new \Modules\Rental\Service\RentalAvailabilityService(
         new \Modules\Rental\Availability\AvailabilityCalculator(),
         new \Modules\Rental\Repository\RentalConstraintsRepository($pdo),
@@ -3241,10 +3243,32 @@ if (in_array('rental', $moduleManager->getEnabledModuleIds(), true)) {
             $rentalAvailabilityService, $rentalPricingService, new \Core\View\MonthGrid\DayStateGridBuilder()
         )
     );
+    $rentalEventRepository = new \Modules\Rental\Repository\RentalBookingEventRepository($pdo);
+    $rentalCommentRepository = new \Modules\Rental\Repository\RentalBookingCommentRepository($pdo, $encryptionService);
+    $rentalChangeRequestRepository = new \Modules\Rental\Repository\RentalChangeRequestRepository($pdo, $encryptionService);
+    $rentalOperationsService = new \Modules\Rental\Service\RentalOperationsService(
+        $rentalBookingRepository,
+        $rentalEventRepository,
+        $rentalCommentRepository,
+        $rentalChangeRequestRepository,
+        $rentalAvailabilityService,
+        $rentalPricingService,
+        new \Modules\Rental\Pricing\QuoteEditor(),
+        $journalService
+    );
+    $rentalBlockService = new \Modules\Rental\Service\RentalBlockService(
+        $rentalBlockRepository,
+        $journalService
+    );
+
     $frontController->registerController(
         \Modules\Rental\Controller\RentalManagementController::class,
         new \Modules\Rental\Controller\RentalManagementController(
-            $twig, $rentalAuthorizationService, $scoutYearService
+            $twig, $rentalAuthorizationService, $scoutYearService, $rentalAssetRepository,
+            $rentalBookingRepository, $rentalEventRepository, $rentalCommentRepository,
+            $rentalChangeRequestRepository, $rentalOperationsService, $rentalBlockService,
+            $rentalAvailabilityService, $rentalPricingService, $memberService,
+            new \Core\View\MonthGrid\DayStateGridBuilder()
         )
     );
     $frontController->registerController(
@@ -3256,7 +3280,7 @@ if (in_array('rental', $moduleManager->getEnabledModuleIds(), true)) {
                 $mailService, $twig, $settingService, $journalService
             ),
             $rentalManagerService, $memberService, $scoutYearService, $editableContentService,
-            $humanCheckService, $settingService
+            $humanCheckService, $settingService, $rentalOperationsService, $rentalChangeRequestRepository
         )
     );
 

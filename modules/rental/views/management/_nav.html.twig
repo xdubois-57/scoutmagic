@@ -1,0 +1,33 @@
+{#
+  Sub-navigation of one asset's managed space (§6.4), on the model of
+  modules/finance/views/_nav.html.twig: a thin mapping layer over
+  partials/chip_picker.html.twig rather than a raw horizontal-scroll row
+  (ARCHITECTURE.md §8.30).
+
+  Requires `asset` and `nav_page` in scope. Contract and Emails arrive in
+  later iterations and are deliberately absent rather than shown disabled —
+  a chip that does nothing is worse than one that is not there.
+#}
+{% set management_pages = [
+    {'key': 'overview', 'url': '/mes-locations/' ~ asset.slug, 'label': "Vue d'ensemble"},
+    {'key': 'calendar', 'url': '/mes-locations/' ~ asset.slug ~ '/calendrier', 'label': 'Calendrier'},
+    {'key': 'bookings', 'url': '/mes-locations/' ~ asset.slug ~ '/reservations', 'label': 'Réservations'},
+] %}
+{% set management_items = [] %}
+{% for page in management_pages %}
+    {% set management_items = management_items|merge([{
+        id: page.url,
+        label: page.label,
+        selected: nav_page == page.key,
+    }]) %}
+{% endfor %}
+<div class="rental-management-picker mb-3">
+    {% include 'partials/chip_picker.html.twig' with {
+        picker_id: 'rental-management-picker',
+        items: management_items,
+        mode: 'single',
+        base_url: '',
+        sheet_title: 'Choisir une page',
+        empty_text: 'Aucune page disponible.',
+    } %}
+</div>

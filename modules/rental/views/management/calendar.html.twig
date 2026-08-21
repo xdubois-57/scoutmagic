@@ -1,0 +1,137 @@
+{% extends 'base.html.twig' %}
+{% block title %}Calendrier — {{ asset.name }} — {{ site_name }}{% endblock %}
+{#
+  The private calendar (§6.18).
+
+  Two things it does that the public one deliberately does not: it pages into
+  the past — half a manager's work is about stays that already happened — and
+  it DISTINGUISHES what occupies each day. A visitor sees one undifferentiated
+  "occupé" because there is nothing in an Occupancy to tell a booking from a
+  block; a manager needs to know which is which before deciding anything, so
+  the two are listed separately below the grid rather than merged.
+#}
+{% block content %}
+    <div class="container py-4" style="max-width: 900px;">
+        <nav aria-label="Fil d'Ariane" class="mb-2">
+            <a href="/mes-locations/{{ asset.slug }}" class="small text-decoration-none">&larr; {{ asset.name }}</a>
+        </nav>
+
+        <h1 class="h3 mb-3">Calendrier — {{ asset.name }}</h1>
+
+        {% include '@rental/management/_nav.html.twig' %}
+
+        <div class="card mb-4">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-center mb-3 gap-2">
+                    {% if previous_month %}
+                        <a class="btn btn-sm btn-outline-secondary" href="?month={{ previous_month }}"
+                           aria-label="Mois précédent">&larr;</a>
+                    {% else %}
+                        <button type="button" class="btn btn-sm btn-outline-secondary" disabled
+                                aria-label="Mois précédent (indisponible)">&larr;</button>
+                    {% endif %}
+
+                    <h2 class="h5 mb-0 text-capitalize">{{ calendar_label }}</h2>
+
+                    {% if next_month %}
+                        <a class="btn btn-sm btn-outline-secondary" href="?month={{ next_month }}"
+                           aria-label="Mois suivant">&rarr;</a>
+                    {% else %}
+                        <button type="button" class="btn btn-sm btn-outline-secondary" disabled
+                                aria-label="Mois suivant (indisponible)">&rarr;</button>
+                    {% endif %}
+                </div>
+
+                {% include 'partials/month_day_grid.html.twig' with {
+                    weeks: calendar,
+                    caption: 'Occupation de ' ~ calendar_label,
+                } %}
+            </div>
+        </div>
+
+        <div class="card mb-4">
+            <div class="card-body">
+                <h2 class="h5 mb-3">Réservations sur la période</h2>
+                {% if bookings is empty %}
+                    <p class="text-body-secondary mb-0">Aucune.</p>
+                {% else %}
+                    <ul class="list-unstyled mb-0">
+                        {% for booking in bookings %}
+                            <li class="mb-2">
+                                <a href="/mes-locations/{{ asset.slug }}/reservations/{{ booking.id }}">{{ booking.reference }}</a>
+                                — du {{ booking.arrivalDate }} au {{ booking.departureDate }}
+                                <span class="badge bg-secondary ms-1">{{ booking.status.label }}</span>
+                                {% if booking.holdOrigin %}
+                                    <span class="badge bg-info text-dark ms-1">{{ booking.holdOrigin.managerLabel }}</span>
+                                {% endif %}
+                            </li>
+                        {% endfor %}
+                    </ul>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-body">
+                <h2 class="h5 mb-2">Blocages manuels</h2>
+                <p class="text-body-secondary small">
+                    Un blocage peut recouvrir une période déjà réservée : les deux coexistent et
+                    apparaissent tous les deux ici. Traitez alors chaque réservation individuellement.
+                </p>
+
+                {% if blocks is empty %}
+                    <p class="text-body-secondary">Aucun blocage.</p>
+                {% else %}
+                    <ul class="list-unstyled">
+                        {% for block in blocks %}
+                            <li class="d-flex justify-content-between align-items-center gap-2 border-bottom py-2">
+                                <span>
+                                    du {{ block.startDate }} au {{ block.endDate }}
+                                    {% if block.units > 1 %}<span class="text-body-secondary">({{ block.units }} unités)</span>{% endif %}
+                                    {% if block.reason %}
+                                        <span class="text-body-secondary small d-block">{{ block.reason }}</span>
+                                    {% endif %}
+                                </span>
+                                <form method="post" action="/mes-locations/blocage-supprimer">
+                                    {{ csrf_field()|raw }}
+                                    <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                                    <input type="hidden" name="block_id" value="{{ block.id }}">
+                                    <button type="submit" class="btn btn-sm btn-outline-danger"
+                                            data-confirm="Supprimer ce blocage ?">Supprimer</button>
+                                </form>
+                            </li>
+                        {% endfor %}
+                    </ul>
+                {% endif %}
+
+                <form method="post" action="/mes-locations/blocage" class="row g-2 align-items-end mt-2">
+                    {{ csrf_field()|raw }}
+                    <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                    <div class="col-6 col-md-3">
+                        <label class="form-label" for="block-start">Du</label>
+                        <input type="date" class="form-control form-control-sm" id="block-start" name="start" required>
+                    </div>
+                    <div class="col-6 col-md-3">
+                        <label class="form-label" for="block-end">Au</label>
+                        <input type="date" class="form-control form-control-sm" id="block-end" name="end" required>
+                    </div>
+                    {% if asset.quantity > 1 %}
+                        <div class="col-6 col-md-2">
+                            <label class="form-label" for="block-units">Quantité</label>
+                            <input type="number" min="1" max="{{ asset.quantity }}" value="1"
+                                   class="form-control form-control-sm" id="block-units" name="units">
+                        </div>
+                    {% endif %}
+                    <div class="col-12 col-md-{{ asset.quantity > 1 ? 2 : 4 }}">
+                        <label class="form-label" for="block-reason">Motif</label>
+                        <input type="text" class="form-control form-control-sm" id="block-reason" name="reason"
+                               placeholder="Chantier toiture">
+                    </div>
+                    <div class="col-12 col-md-2">
+                        <button type="submit" class="btn btn-sm btn-outline-primary w-100">Bloquer</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+{% endblock %}

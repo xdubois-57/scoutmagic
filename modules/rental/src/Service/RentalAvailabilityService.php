@@ -58,18 +58,82 @@ class RentalAvailabilityService
      * day and never one per booking. A month view asks once; an ICS feed
      * asks once.
      *
+     * @param string|null $excludeReference Drops the occupancy carrying this
+     *   reference — the "is this range free if I move THIS booking into it?"
+     *   question, which must not count a booking against itself.
      * @return Occupancy[]
      */
-    public function occupanciesFor(int $assetId, \DateTimeImmutable $from, \DateTimeImmutable $to): array
-    {
+    public function occupanciesFor(
+        int $assetId,
+        \DateTimeImmutable $from,
+        \DateTimeImmutable $to,
+        ?string $excludeReference = null
+    ): array {
         $all = [];
         foreach ($this->occupancyProviders as $provider) {
             foreach ($provider->findOccupancies($assetId, $from, $to) as $occupancy) {
+                if ($excludeReference !== null && $occupancy->reference === $excludeReference) {
+                    continue;
+                }
+
                 $all[] = $occupancy;
             }
         }
 
         return $all;
+    }
+
+    /**
+     * Whether $units of $asset are free over the range — **availability
+     * only**, with none of the public booking rules applied.
+     *
+     * Deliberately not `validateRange()`. Minimum notice, booking horizon
+     * and allowed arrival weekdays are rules for the *public form*: they
+     * shape what a visitor may ask for. A manager confirming a request that
+     * arrived three months ago for a stay next week must not be refused
+     * because the asset asks visitors for two weeks' notice — the rule was
+     * never about them. What still binds a manager is physical reality:
+     * the asset cannot be in two places at once, and there are only so many
+     * tents.
+     */
+    public function isRangeFree(
+        RentalAsset $asset,
+        BillingUnit $billingUnit,
+        \DateTimeImmutable $arrival,
+        \DateTimeImmutable $departure,
+        int $units,
+        ?string $excludeReference = null,
+        bool $firmOnly = false
+    ): bool {
+        $occupancies = $this->occupanciesFor(
+            $asset->id,
+            $arrival->modify('-7 days'),
+            $departure->modify('+7 days'),
+            $excludeReference
+        );
+
+        if ($firmOnly) {
+            // A competing request's temporary hold does not stand in the way
+            // of a confirmation: two requests for the same week are exactly
+            // what a manager is there to arbitrate, and if a soft hold
+            // blocked the confirmation neither could ever be accepted.
+            // Confirmed bookings and manual blocks are commitments and do
+            // stop it (Availability\Occupancy).
+            $occupancies = array_values(array_filter(
+                $occupancies,
+                static fn(Occupancy $occupancy) => $occupancy->isFirm
+            ));
+        }
+
+        return $this->calculator->isRangeAvailable(
+            $arrival,
+            $departure,
+            max(1, $units),
+            max(1, $asset->quantity),
+            $occupancies,
+            $billingUnit,
+            $this->constraintsFor($asset->id)->bufferNights
+        );
     }
 
     /**
@@ -121,7 +185,8 @@ class RentalAvailabilityService
         \DateTimeImmutable $departure,
         int $units,
         \DateTimeImmutable $today,
-        ?int $persons = null
+        ?int $persons = null,
+        ?string $excludeReference = null
     ): array {
         $constraints = $this->constraintsFor($asset->id);
 
@@ -146,7 +211,12 @@ class RentalAvailabilityService
             $departure,
             $units,
             max(1, $asset->quantity),
-            $this->occupanciesFor($asset->id, $arrival->modify('-7 days'), $departure->modify('+7 days')),
+            $this->occupanciesFor(
+                $asset->id,
+                $arrival->modify('-7 days'),
+                $departure->modify('+7 days'),
+                $excludeReference
+            ),
             $billingUnit,
             $constraints,
             $today,

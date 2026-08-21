@@ -319,6 +319,150 @@ class RentalBookingRepository
     }
 
     /**
+     * Moves the status, but **only from an expected one**.
+     *
+     * The `status = ?` in the WHERE clause is the whole point: it is the
+     * compare-and-set that stops two managers on two screens both
+     * confirming the same booking, and stops a manager confirming one that
+     * was cancelled while their page sat open. The second call matches no
+     * row, returns false, and the caller says so — instead of the later
+     * click silently winning.
+     *
+     * `setStatus()` remains for the cases with genuinely nothing to race
+     * against (the expiry task, which already selected on the deadline).
+     */
+    public function compareAndSetStatus(
+        int $id,
+        BookingStatus $expected,
+        BookingStatus $status,
+        \DateTimeImmutable $now
+    ): bool {
+        $timestamp = $now->format('Y-m-d H:i:s');
+        $stmt = $this->pdo->prepare(
+            'UPDATE rental_bookings SET status = ?, final_at = ?, updated_at = ?
+             WHERE id = ? AND status = ?'
+        );
+        $stmt->execute([
+            $status->value,
+            $status->isFinal() ? $timestamp : null,
+            $timestamp,
+            $id,
+            $expected->value,
+        ]);
+
+        return $stmt->rowCount() > 0;
+    }
+
+    /**
+     * Replaces the agreed price — the manager's working copy of the quote.
+     *
+     * Never touches `estimated_price_snapshot`: that one is frozen as the
+     * record of what the visitor was shown at submission, and the two
+     * columns exist precisely so a negotiated price cannot rewrite history
+     * (§6.11).
+     */
+    public function setAgreedPrice(int $id, ?PriceQuote $quote): void
+    {
+        $stmt = $this->pdo->prepare(
+            'UPDATE rental_bookings SET agreed_price_snapshot = ?, agreed_total_cents = ?, updated_at = ? WHERE id = ?'
+        );
+        $stmt->execute([
+            $quote !== null ? json_encode($quote->toArray(), JSON_UNESCAPED_UNICODE) : null,
+            $quote?->totalCents,
+            (new \DateTimeImmutable())->format('Y-m-d H:i:s'),
+            $id,
+        ]);
+    }
+
+    /**
+     * Moves the stay: dates, stock units and head count.
+     *
+     * Availability is the caller's business, not this method's — a
+     * repository that re-checked would be deciding, and the check has to
+     * happen inside the same transaction as the write anyway.
+     */
+    public function setStay(
+        int $id,
+        string $arrivalDate,
+        string $departureDate,
+        int $units,
+        ?int $estimatedPersons
+    ): void {
+        $stmt = $this->pdo->prepare(
+            'UPDATE rental_bookings
+             SET arrival_date = ?, departure_date = ?, units = ?, estimated_persons = ?, updated_at = ?
+             WHERE id = ?'
+        );
+        $stmt->execute([
+            $arrivalDate,
+            $departureDate,
+            max(1, $units),
+            $estimatedPersons,
+            (new \DateTimeImmutable())->format('Y-m-d H:i:s'),
+            $id,
+        ]);
+    }
+
+    /**
+     * Every booking on $assetId that holds its dates over the window,
+     * **excluding one** — the "is this range still free if I move THIS
+     * booking into it?" question, which must not count the booking against
+     * itself.
+     *
+     * @return RentalBooking[]
+     */
+    public function findOccupyingBetweenExcluding(int $assetId, string $from, string $to, int $excludedId): array
+    {
+        return array_values(array_filter(
+            $this->findOccupyingBetween($assetId, $from, $to),
+            static fn(RentalBooking $booking) => $booking->id !== $excludedId
+        ));
+    }
+
+    /**
+     * Runs $work with the booking rows for $assetId locked, so an
+     * availability check and the write that depends on it cannot be
+     * interleaved with another confirmation.
+     *
+     * `FOR UPDATE` is issued only on MySQL/MariaDB: SQLite has no row locks
+     * and does not need them — its transactions are whole-database — so the
+     * test database gets the same guarantee through a different mechanism
+     * rather than a weaker one.
+     *
+     * @template T
+     * @param callable(): T $work
+     * @return T
+     */
+    public function withAssetLocked(int $assetId, callable $work): mixed
+    {
+        $ownTransaction = !$this->pdo->inTransaction();
+        if ($ownTransaction) {
+            $this->pdo->beginTransaction();
+        }
+
+        try {
+            if ($this->pdo->getAttribute(\PDO::ATTR_DRIVER_NAME) !== 'sqlite') {
+                $lock = $this->pdo->prepare('SELECT id FROM rental_bookings WHERE asset_id = ? FOR UPDATE');
+                $lock->execute([$assetId]);
+                $lock->fetchAll();
+            }
+
+            $result = $work();
+
+            if ($ownTransaction) {
+                $this->pdo->commit();
+            }
+
+            return $result;
+        } catch (\Throwable $e) {
+            if ($ownTransaction) {
+                $this->pdo->rollBack();
+            }
+            throw $e;
+        }
+    }
+
+    /**
      * Claims and returns the next sequence number for a year.
      *
      * Deliberately a **counter that only moves forward**, not a MAX() over
@@ -410,18 +554,31 @@ class RentalBookingRepository
     }
 
     /**
+     * A stored `PriceQuote` snapshot, or null.
+     *
+     * A snapshot that fails to decode comes back as null rather than
+     * throwing: a booking whose price JSON was corrupted must still be
+     * readable — losing the breakdown is recoverable, losing access to the
+     * renter's dates and identity is not.
+     */
+    private static function decodeSnapshot(mixed $raw): ?PriceQuote
+    {
+        if (!is_string($raw) || $raw === '') {
+            return null;
+        }
+
+        $decoded = json_decode($raw, true);
+
+        return is_array($decoded) ? PriceQuote::fromArray($decoded) : null;
+    }
+
+    /**
      * @param array<string, mixed> $row
      */
     private function hydrate(array $row): RentalBooking
     {
-        $snapshot = $row['estimated_price_snapshot'] ?? null;
-        $decodedSnapshot = null;
-        if (is_string($snapshot) && $snapshot !== '') {
-            $decoded = json_decode($snapshot, true);
-            if (is_array($decoded)) {
-                $decodedSnapshot = PriceQuote::fromArray($decoded);
-            }
-        }
+        $decodedSnapshot = self::decodeSnapshot($row['estimated_price_snapshot'] ?? null);
+        $decodedAgreed = self::decodeSnapshot($row['agreed_price_snapshot'] ?? null);
 
         return new RentalBooking(
             id: (int) $row['id'],
@@ -445,6 +602,8 @@ class RentalBookingRepository
             holdOrigin: $row['hold_origin'] !== null ? HoldOrigin::tryFrom((string) $row['hold_origin']) : null,
             estimatedPrice: $decodedSnapshot,
             estimatedTotalCents: $row['estimated_total_cents'] !== null ? (int) $row['estimated_total_cents'] : null,
+            agreedPrice: $decodedAgreed,
+            agreedTotalCents: isset($row['agreed_total_cents']) ? (int) $row['agreed_total_cents'] : null,
             conditionsVersion: $row['conditions_version'] !== null ? (string) $row['conditions_version'] : null,
             conditionsHash: $row['conditions_hash'] !== null ? (string) $row['conditions_hash'] : null,
             conditionsAcceptedAt: $row['conditions_accepted_at'] !== null ? new \DateTimeImmutable((string) $row['conditions_accepted_at']) : null,

@@ -99,6 +99,97 @@
             </div>
         {% endif %}
 
+        {#
+          Change requests and the manager's proposals (§6.16).
+
+          Nothing here changes the booking on its own — that is the whole
+          rule. A request the renter sends waits for a manager; a proposal a
+          manager sent waits for the renter, right here.
+        #}
+        {% if change_requests is not empty or not booking.status.isFinal %}
+            <div class="card mb-4">
+                <div class="card-body">
+                    <h2 class="h5 mb-2">Modifier votre demande</h2>
+
+                    {% if change_requests is not empty %}
+                        <ul class="list-unstyled">
+                            {% for change in change_requests %}
+                                <li class="border-bottom py-2">
+                                    <div class="d-flex justify-content-between align-items-start gap-2">
+                                        <span>
+                                            <span class="fw-semibold">{{ change.kind.label }}</span>
+                                            <span class="text-body-secondary small d-block">{{ change.summary }}</span>
+                                        </span>
+                                        <span class="badge bg-secondary">{{ change.status.label }}</span>
+                                    </div>
+                                    {% if change.isPending and change.origin.value == 'manager' %}
+                                        <p class="small mb-2">
+                                            L'unité vous propose ces dates. Tant que vous n'avez pas répondu,
+                                            votre réservation reste inchangée.
+                                        </p>
+                                        <div class="d-flex gap-2">
+                                            <form method="post" action="/locations/suivi/{{ booking.id }}/{{ tracking_token }}/reponse">
+                                                {{ csrf_field()|raw }}
+                                                <input type="hidden" name="request_id" value="{{ change.id }}">
+                                                <input type="hidden" name="decision" value="accept">
+                                                <button type="submit" class="btn btn-sm btn-outline-success">Accepter</button>
+                                            </form>
+                                            <form method="post" action="/locations/suivi/{{ booking.id }}/{{ tracking_token }}/reponse">
+                                                {{ csrf_field()|raw }}
+                                                <input type="hidden" name="request_id" value="{{ change.id }}">
+                                                <input type="hidden" name="decision" value="refuse">
+                                                <button type="submit" class="btn btn-sm btn-outline-secondary">Refuser</button>
+                                            </form>
+                                        </div>
+                                    {% endif %}
+                                </li>
+                            {% endfor %}
+                        </ul>
+                    {% endif %}
+
+                    {% if not booking.status.isFinal %}
+                        <p class="text-body-secondary small">
+                            Vous pouvez demander d'autres dates, un autre nombre de participants, ou
+                            l'annulation. Votre demande est transmise aux gestionnaires : elle ne
+                            change rien tant qu'ils ne l'ont pas acceptée.
+                        </p>
+                        <form method="post" action="/locations/suivi/{{ booking.id }}/{{ tracking_token }}/demande"
+                              class="row g-2 align-items-end">
+                            {{ csrf_field()|raw }}
+                            <div class="col-12 col-md-4">
+                                <label class="form-label" for="change-kind">Votre demande</label>
+                                <select class="form-select form-select-sm" id="change-kind" name="kind">
+                                    <option value="dates">Changer les dates</option>
+                                    <option value="persons">Changer le nombre de participants</option>
+                                    <option value="cancellation">Annuler ma demande</option>
+                                </select>
+                            </div>
+                            <div class="col-6 col-md-2">
+                                <label class="form-label" for="change-arrival">Du</label>
+                                <input type="date" class="form-control form-control-sm" id="change-arrival" name="arrival">
+                            </div>
+                            <div class="col-6 col-md-2">
+                                <label class="form-label" for="change-departure">Au</label>
+                                <input type="date" class="form-control form-control-sm" id="change-departure" name="departure">
+                            </div>
+                            <div class="col-6 col-md-2">
+                                <label class="form-label" for="change-persons">Participants</label>
+                                <input type="number" min="1" class="form-control form-control-sm"
+                                       id="change-persons" name="persons">
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label" for="change-message">Message</label>
+                                <textarea class="form-control form-control-sm" id="change-message" name="message" rows="2"></textarea>
+                            </div>
+                            <div class="col-12">
+                                <button type="submit" class="btn btn-sm btn-outline-primary">Envoyer ma demande</button>
+                            </div>
+                        </form>
+                    {% endif %}
+                </div>
+            </div>
+        {% endif %}
+
         {% if renter_contacts is not empty or emergency_phone %}
             <div class="card">
                 <div class="card-body">

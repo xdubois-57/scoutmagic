@@ -65,6 +65,9 @@ class RentalRequestControllerTest extends TestCase
     private RentalAssetRepository $assetRepository;
     private RentalAssetManagerRepository $managerRepository;
     private RentalBookingRepository $bookingRepository;
+    private \Modules\Rental\Repository\RentalChangeRequestRepository $changeRequestRepository;
+    private \Modules\Rental\Repository\RentalBookingCommentRepository $commentRepository;
+    private \Modules\Rental\Service\RentalOperationsService $operationsService;
     private RentalConstraintsRepository $constraintsRepository;
     private RentalPricingService $pricingService;
     private EditableContentService $editableContentService;
@@ -101,6 +104,10 @@ class RentalRequestControllerTest extends TestCase
         $this->assetRepository = new RentalAssetRepository($this->pdo, $this->encryption);
         $this->managerRepository = new RentalAssetManagerRepository($this->pdo);
         $this->bookingRepository = new RentalBookingRepository($this->pdo, $this->encryption);
+        $this->changeRequestRepository = new \Modules\Rental\Repository\RentalChangeRequestRepository(
+            $this->pdo,
+            $this->encryption
+        );
         $this->constraintsRepository = new RentalConstraintsRepository($this->pdo);
         $this->editableContentService = new EditableContentService(new EditableContentRepository($this->pdo));
 
@@ -118,6 +125,21 @@ class RentalRequestControllerTest extends TestCase
         $this->pricingService = new RentalPricingService(
             new RentalPricingRepository($this->pdo),
             new RentalPricingEngine(),
+            $journalService
+        );
+
+        $this->commentRepository = new \Modules\Rental\Repository\RentalBookingCommentRepository(
+            $this->pdo,
+            $this->encryption
+        );
+        $this->operationsService = new \Modules\Rental\Service\RentalOperationsService(
+            $this->bookingRepository,
+            new \Modules\Rental\Repository\RentalBookingEventRepository($this->pdo),
+            $this->commentRepository,
+            $this->changeRequestRepository,
+            $availabilityService,
+            $this->pricingService,
+            new \Modules\Rental\Pricing\QuoteEditor(),
             $journalService
         );
 
@@ -157,7 +179,9 @@ class RentalRequestControllerTest extends TestCase
                 $settingService,
                 $journalService
             ),
-            $settingService
+            $settingService,
+            $this->operationsService,
+            $this->changeRequestRepository
         );
 
         if (session_status() === PHP_SESSION_NONE) {
@@ -803,6 +827,184 @@ class RentalRequestControllerTest extends TestCase
         $this->assertStringContainsString('+32 470 00 00 00', $body);
         $this->assertStringContainsString('contact@test.be', $body);
         $this->assertStringNotContainsString('interne@test.be', $body);
+    }
+
+    // ── Change requests from the renter's side (§6.16, §6.17) ───────────
+
+    /**
+     * @param array<string, string> $body
+     */
+    private function postToTracking(string $action, int $bookingId, string $token, array $body): \Core\Http\Response
+    {
+        $body['_csrf_token'] ??= CsrfGuard::generateToken();
+        $_POST = $body;
+
+        $path = '/locations/suivi/' . $bookingId . '/' . $token . '/'
+            . ($action === 'requestChange' ? 'demande' : 'reponse');
+
+        return $this->controller->{$action}(
+            new Request('POST', $path, [], $body, [], []),
+            ['id' => (string) $bookingId, 'token' => $token]
+        );
+    }
+
+    public function testARentersChangeRequestIsRecordedAndChangesNothing(): void
+    {
+        $this->createAsset();
+        [$bookingId, $token] = $this->submitAndTrack();
+
+        $response = $this->postToTracking('requestChange', $bookingId, $token, [
+            'kind' => 'dates',
+            'arrival' => $this->arrival(60),
+            'departure' => $this->departure(63),
+            'message' => 'Nous préférons la semaine suivante.',
+        ]);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $requests = $this->changeRequestRepository->findForBooking($bookingId);
+        $this->assertCount(1, $requests);
+        $this->assertTrue($requests[0]->isPending());
+        // The booking itself is untouched: that is the whole rule.
+        $this->assertSame($this->arrival(), $this->bookingRepository->findById($bookingId)?->arrivalDate);
+    }
+
+    public function testARentersChangeRequestNeedsTheRightToken(): void
+    {
+        // A POST is not less of an entry point than a GET.
+        $this->createAsset();
+        [$bookingId] = $this->submitAndTrack();
+
+        $response = $this->postToTracking('requestChange', $bookingId, str_repeat('f', 64), [
+            'kind' => 'cancellation',
+        ]);
+
+        $this->assertSame(404, $response->getStatusCode());
+        $this->assertSame([], $this->changeRequestRepository->findForBooking($bookingId));
+    }
+
+    public function testARentersChangeRequestNeedsAValidCsrfToken(): void
+    {
+        $this->createAsset();
+        [$bookingId, $token] = $this->submitAndTrack();
+
+        $response = $this->postToTracking('requestChange', $bookingId, $token, [
+            '_csrf_token' => 'forged',
+            'kind' => 'cancellation',
+        ]);
+
+        $this->assertSame(403, $response->getStatusCode());
+        $this->assertSame([], $this->changeRequestRepository->findForBooking($bookingId));
+    }
+
+    public function testTheRenterAcceptsAManagersProposalFromTheirOwnPage(): void
+    {
+        $this->createAsset();
+        [$bookingId, $token] = $this->submitAndTrack();
+        $booking = $this->bookingRepository->findById($bookingId);
+        $this->assertNotNull($booking);
+
+        $requestId = $this->operationsService->requestChange(
+            $booking,
+            \Modules\Rental\Booking\ChangeRequestOrigin::MANAGER,
+            \Modules\Rental\Booking\ChangeRequestKind::DATES,
+            $this->arrival(90),
+            $this->departure(93),
+            null,
+            null,
+            null,
+            'Ces dates nous arrangeraient mieux.',
+            1
+        );
+
+        $this->postToTracking('decideProposal', $bookingId, $token, [
+            'request_id' => (string) $requestId,
+            'decision' => 'accept',
+        ]);
+
+        $this->assertSame($this->arrival(90), $this->bookingRepository->findById($bookingId)?->arrivalDate);
+    }
+
+    public function testARenterCannotDecideTheirOwnRequest(): void
+    {
+        $this->createAsset();
+        [$bookingId, $token] = $this->submitAndTrack();
+        $booking = $this->bookingRepository->findById($bookingId);
+        $this->assertNotNull($booking);
+
+        $requestId = $this->operationsService->requestChange(
+            $booking,
+            \Modules\Rental\Booking\ChangeRequestOrigin::RENTER,
+            \Modules\Rental\Booking\ChangeRequestKind::DATES,
+            $this->arrival(90),
+            $this->departure(93),
+            null,
+            null,
+            null,
+            null
+        );
+
+        $this->postToTracking('decideProposal', $bookingId, $token, [
+            'request_id' => (string) $requestId,
+            'decision' => 'accept',
+        ]);
+
+        $this->assertSame($this->arrival(), $this->bookingRepository->findById($bookingId)?->arrivalDate);
+        $this->assertTrue($this->changeRequestRepository->findById($requestId)?->isPending());
+    }
+
+    public function testARenterCannotDecideAnotherRentersProposal(): void
+    {
+        // The booking check is the guard: a change-request id alone must not
+        // be enough.
+        $this->createAsset();
+        [$firstId, $firstToken] = $this->submitAndTrack();
+
+        $second = $this->submit($this->validBody([
+            'arrival' => $this->arrival(120),
+            'departure' => $this->departure(123),
+            'email' => 'marc@example.be',
+        ]));
+        $this->assertSame(302, $second->getStatusCode(), (string) $second->getBody());
+        $secondBooking = $this->bookingRepository->findById(2);
+        $this->assertNotNull($secondBooking);
+
+        $foreignRequestId = $this->operationsService->requestChange(
+            $secondBooking,
+            \Modules\Rental\Booking\ChangeRequestOrigin::MANAGER,
+            \Modules\Rental\Booking\ChangeRequestKind::CANCELLATION,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            1
+        );
+
+        $response = $this->postToTracking('decideProposal', $firstId, $firstToken, [
+            'request_id' => (string) $foreignRequestId,
+            'decision' => 'accept',
+        ]);
+
+        $this->assertSame(404, $response->getStatusCode());
+        $this->assertTrue($this->changeRequestRepository->findById($foreignRequestId)?->isPending());
+    }
+
+    public function testTheTrackingPageNeverShowsAnInternalComment(): void
+    {
+        // §6.6: the page does not even load them, which is stronger than a
+        // template remembering to hide them.
+        $this->createAsset();
+        [$bookingId, $token] = $this->submitAndTrack();
+        $booking = $this->bookingRepository->findById($bookingId);
+        $this->assertNotNull($booking);
+
+        $this->operationsService->addComment($booking, 1, 'Groupe difficile, surveiller la cuisine.');
+
+        $body = (string) $this->track($bookingId, $token)->getBody();
+
+        $this->assertStringNotContainsString('Groupe difficile', $body);
+        $this->assertStringNotContainsString('surveiller la cuisine', $body);
     }
 
     public function testTheTrackingPageShowsThePriceTheRenterWasQuoted(): void

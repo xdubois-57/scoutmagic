@@ -1,0 +1,88 @@
+{% extends 'base.html.twig' %}
+{% block title %}{{ asset.name }} — Gestion — {{ site_name }}{% endblock %}
+{#
+  One asset's managed space, first page (§6.4).
+
+  Answers the only question a manager opens this page with: what needs me
+  today. Everything else is one chip away.
+#}
+{% block content %}
+    <div class="container py-4" style="max-width: 900px;">
+        <nav aria-label="Fil d'Ariane" class="mb-2">
+            <a href="/mes-locations" class="small text-decoration-none">&larr; Mes locations</a>
+        </nav>
+
+        <h1 class="h3 mb-1">{{ asset.name }}</h1>
+        <p class="text-body-secondary small mb-3">
+            {{ asset.assetType }}
+            {% if asset.isArchived %}<span class="badge bg-secondary ms-1">Archivé</span>{% endif %}
+            {% if not asset.isPublic %}<span class="badge bg-light text-dark border ms-1">Non public</span>{% endif %}
+        </p>
+
+        {% include '@rental/management/_nav.html.twig' %}
+
+        <div class="card mb-4">
+            <div class="card-body">
+                <h2 class="h5 mb-3">À traiter</h2>
+                {% if needs_attention is empty %}
+                    <p class="text-body-secondary mb-0">Rien en attente. Tout est à jour.</p>
+                {% else %}
+                    <div class="list-group list-group-flush">
+                        {% for booking in needs_attention %}
+                            <a href="/mes-locations/{{ asset.slug }}/reservations/{{ booking.id }}"
+                               class="list-group-item list-group-item-action px-0">
+                                <div class="d-flex justify-content-between align-items-center gap-2">
+                                    <span>
+                                        <span class="fw-semibold">{{ booking.reference }}</span>
+                                        <span class="text-body-secondary small d-block">
+                                            du {{ booking.arrivalDate }} au {{ booking.departureDate }}
+                                        </span>
+                                    </span>
+                                    <span class="badge bg-warning text-dark">{{ booking.status.label }}</span>
+                                </div>
+                            </a>
+                        {% endfor %}
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+
+        {% if in_progress is not empty %}
+            <div class="card mb-4">
+                <div class="card-body">
+                    {# Derived from the dates, never stored — it can therefore
+                       never disagree with the calendar (§6.15). #}
+                    <h2 class="h5 mb-3">En cours en ce moment</h2>
+                    <ul class="list-unstyled mb-0">
+                        {% for booking in in_progress %}
+                            <li class="mb-1">
+                                <a href="/mes-locations/{{ asset.slug }}/reservations/{{ booking.id }}">{{ booking.reference }}</a>
+                                — jusqu'au {{ booking.departureDate }}
+                            </li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            </div>
+        {% endif %}
+
+        <div class="card">
+            <div class="card-body">
+                <h2 class="h5 mb-3">Blocages à venir</h2>
+                {% if upcoming_blocks is empty %}
+                    <p class="text-body-secondary mb-0">
+                        Aucun blocage. Vous pouvez en poser un depuis le calendrier.
+                    </p>
+                {% else %}
+                    <ul class="list-unstyled mb-0">
+                        {% for block in upcoming_blocks %}
+                            <li class="mb-1">
+                                du {{ block.startDate }} au {{ block.endDate }}
+                                {% if block.reason %}— {{ block.reason }}{% endif %}
+                            </li>
+                        {% endfor %}
+                    </ul>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+{% endblock %}

@@ -42,6 +42,22 @@ enum HoldOrigin: string
     }
 
     /**
+     * The same fact worded for a manager rather than for a renter.
+     *
+     * A renter is told what it means for them ("les dates sont bloquées le
+     * temps de vous répondre"); a manager needs to know which of the two
+     * mechanisms is running, because only one of them ends the booking when
+     * it lapses.
+     */
+    public function managerLabel(): string
+    {
+        return match ($this) {
+            self::AUTOMATIC => 'Dates bloquées automatiquement',
+            self::MANAGER => 'Option posée',
+        };
+    }
+
+    /**
      * Whether lapsing makes the booking expired (a promise not kept) rather
      * than merely returning it to the queue (nothing was ever promised).
      */

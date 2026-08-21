@@ -1,0 +1,75 @@
+{% extends 'base.html.twig' %}
+{% block title %}Réservations — {{ asset.name }} — {{ site_name }}{% endblock %}
+{#
+  The bookings list with its filters (§6.4).
+
+  Renter names are shown here because this page is behind
+  RentalAuthorizationService and only a manager of THIS asset reaches it —
+  the same data the public pages never carry a word of (§6.6).
+#}
+{% block content %}
+    <div class="container py-4" style="max-width: 960px;">
+        <nav aria-label="Fil d'Ariane" class="mb-2">
+            <a href="/mes-locations/{{ asset.slug }}" class="small text-decoration-none">&larr; {{ asset.name }}</a>
+        </nav>
+
+        <h1 class="h3 mb-3">Réservations — {{ asset.name }}</h1>
+
+        {% include '@rental/management/_nav.html.twig' %}
+
+        <div class="mb-3 d-flex flex-wrap gap-2">
+            <a href="/mes-locations/{{ asset.slug }}/reservations"
+               class="btn btn-sm {{ filter == '' ? 'btn-primary' : 'btn-outline-secondary' }}">Toutes</a>
+            <a href="/mes-locations/{{ asset.slug }}/reservations?statut=a_traiter"
+               class="btn btn-sm {{ filter == 'a_traiter' ? 'btn-primary' : 'btn-outline-secondary' }}">À traiter</a>
+            {% for status in statuses %}
+                <a href="/mes-locations/{{ asset.slug }}/reservations?statut={{ status.value }}"
+                   class="btn btn-sm {{ filter == status.value ? 'btn-primary' : 'btn-outline-secondary' }}">{{ status.label }}</a>
+            {% endfor %}
+        </div>
+
+        {% if bookings is empty %}
+            <p class="text-body-secondary">Aucune réservation ne correspond à ce filtre.</p>
+        {% else %}
+            <div class="table-responsive">
+                <table class="table align-middle">
+                    <thead>
+                        <tr>
+                            <th scope="col">Référence</th>
+                            <th scope="col">Locataire</th>
+                            <th scope="col">Séjour</th>
+                            <th scope="col">État</th>
+                            <th scope="col" class="text-end">Total</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for booking in bookings %}
+                            <tr>
+                                <td>
+                                    <a href="/mes-locations/{{ asset.slug }}/reservations/{{ booking.id }}">{{ booking.reference }}</a>
+                                </td>
+                                <td>
+                                    {{ booking.renterName }}
+                                    {% if booking.renterOrganisation %}
+                                        <span class="text-body-secondary small d-block">{{ booking.renterOrganisation }}</span>
+                                    {% endif %}
+                                </td>
+                                <td class="small">
+                                    du {{ booking.arrivalDate }}<br>au {{ booking.departureDate }}
+                                </td>
+                                <td><span class="badge bg-secondary">{{ booking.status.label }}</span></td>
+                                <td class="text-end">
+                                    {% if booking.effectiveTotalCents is not null %}
+                                        {{ (booking.effectiveTotalCents / 100)|number_format(2, ',', ' ') }} €
+                                    {% else %}
+                                        —
+                                    {% endif %}
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% endif %}
+    </div>
+{% endblock %}

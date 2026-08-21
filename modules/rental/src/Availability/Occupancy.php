@@ -23,6 +23,16 @@ namespace Modules\Rental\Availability;
  * 20th". Whether the departure day is itself taken depends on the asset's
  * billing unit, and resolving that is AvailabilityCalculator's job, never
  * the caller's.
+ *
+ * **`$isFirm` is the one distinction that survives**, and it is not a public
+ * one: it never changes what a visitor sees, because to a visitor the dates
+ * are taken either way. It exists for a single question only — "may a
+ * manager confirm this?" — where a temporary hold on somebody else's pending
+ * request must NOT stand in the way. Two requests for the same week are
+ * exactly the situation a manager is there to arbitrate; if a soft hold
+ * blocked the confirmation, neither could ever be accepted. A confirmed
+ * booking or a manual block is a different matter: those are commitments,
+ * and they do stop a confirmation.
  */
 final class Occupancy
 {
@@ -31,12 +41,14 @@ final class Occupancy
      * @param string $departureDate `Y-m-d`.
      * @param int $units How much of a countable stock this takes. 1 for an exclusive asset.
      * @param string|null $reference An internal identifier for the manager-facing calendar. NEVER rendered publicly — see the class docblock.
+     * @param bool $isFirm Whether this is a commitment or merely a temporary hold. See the note below.
      */
     public function __construct(
         public readonly string $arrivalDate,
         public readonly string $departureDate,
         public readonly int $units = 1,
-        public readonly ?string $reference = null
+        public readonly ?string $reference = null,
+        public readonly bool $isFirm = true
     ) {
     }
 }

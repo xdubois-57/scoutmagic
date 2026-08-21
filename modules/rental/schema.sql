@@ -350,6 +350,20 @@ CREATE TABLE IF NOT EXISTS rental_bookings (
     estimated_price_snapshot MEDIUMTEXT NULL,
     estimated_total_cents INT UNSIGNED NULL,
 
+    -- The AGREED price: the manager's working copy of the quote, and what
+    -- the renter is actually asked to pay. Starts as a copy of the estimate
+    -- the moment a manager first touches it, and from then on it is the
+    -- only one that moves — the estimate above stays frozen as the record
+    -- of what the visitor was shown at submission, which is the whole
+    -- reason the two are separate columns rather than one.
+    --
+    -- Lines a manager edited by hand carry `isManual` inside the snapshot
+    -- and are never recalculated afterwards (§6.12): re-quoting rebuilds
+    -- the automatic lines from the live tariff and carries the manual ones
+    -- across untouched.
+    agreed_price_snapshot MEDIUMTEXT NULL,
+    agreed_total_cents INT UNSIGNED NULL,
+
     -- ── Versioned acceptances (§6.13) ────────────────────────────────
     -- Two distinct tick-boxes, each recorded with the version and a hash of
     -- the exact text shown, so what was accepted can be proven later even
@@ -398,4 +412,163 @@ CREATE TABLE IF NOT EXISTS rental_reference_sequences (
     year SMALLINT UNSIGNED NOT NULL PRIMARY KEY,
     last_sequence INT UNSIGNED NOT NULL DEFAULT 0,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ─────────────────────────────────────────────────────────────────────
+-- Manual blocks (§6.18)
+-- ─────────────────────────────────────────────────────────────────────
+--
+-- A period a manager takes off the market: works, a unit camp, a caretaker
+-- away. Deliberately its own table rather than a booking with a special
+-- status — a block has no renter, no price, no lifecycle and no email, and
+-- forcing it into `rental_bookings` would put a nullable renter on every
+-- row and an "is this real?" check on every query that reads one.
+--
+-- **A block over an already-booked period must neither fail nor overwrite
+-- the booking.** The two coexist: availability adds them up, and the
+-- private calendar shows both. That is why nothing here references a
+-- booking and why there is no exclusion constraint.
+--
+-- To the public it is indistinguishable from a booking, because
+-- Availability\Occupancy has no discriminator to tell them apart by.
+CREATE TABLE IF NOT EXISTS rental_blocks (
+    id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    asset_id INT UNSIGNED NOT NULL,
+
+    -- Same half-open/closed convention as a booking: which one applies is
+    -- read off the asset's BillingUnit, never configured separately, or a
+    -- block and a booking would disagree about the same two dates.
+    start_date DATE NOT NULL,
+    end_date DATE NOT NULL,
+
+    -- How much of a stock asset the block takes. A hall is one unit; five
+    -- tents out of twelve leave seven bookable.
+    units INT UNSIGNED NOT NULL DEFAULT 1,
+
+    -- Internal only, and never rendered publicly. Free text a manager
+    -- writes for other managers ("chantier toiture"), so it is not
+    -- personal data by design — but it is not encrypted either, which is
+    -- exactly why the interface must keep it about the asset and never
+    -- about a person.
+    reason VARCHAR(255) NULL,
+
+    created_by_member_id INT UNSIGNED NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    KEY idx_rental_blocks_window (asset_id, start_date, end_date),
+    CONSTRAINT fk_rental_blocks_asset
+        FOREIGN KEY (asset_id) REFERENCES rental_assets (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
+-- ─────────────────────────────────────────────────────────────────────
+-- Internal comments on a booking (§6.4, §6.6)
+-- ─────────────────────────────────────────────────────────────────────
+--
+-- What managers write to each other about a booking. **Never visible to
+-- the renter**, on the tracking page or anywhere else — the tracking page
+-- does not read this table at all, which is a stronger guarantee than a
+-- template remembering to hide it.
+--
+-- Encrypted at rest even though it is staff-written: a comment about a
+-- booking is, in practice, a comment about the people making it ("le
+-- groupe de Mme Martin a laissé la cuisine sale"), so it carries the same
+-- protection as the renter's own fields rather than a weaker one.
+CREATE TABLE IF NOT EXISTS rental_booking_comments (
+    id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    booking_id INT UNSIGNED NOT NULL,
+    author_member_id INT UNSIGNED NULL,
+    body_encrypted BLOB NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    KEY idx_rental_booking_comments_booking (booking_id, created_at),
+    CONSTRAINT fk_rental_booking_comments_booking
+        FOREIGN KEY (booking_id) REFERENCES rental_bookings (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
+-- ─────────────────────────────────────────────────────────────────────
+-- History of what happened to a booking (§6.15)
+-- ─────────────────────────────────────────────────────────────────────
+--
+-- The visible, per-booking counterpart to the audit journal: who moved
+-- this booking, when, and from what to what. The journal answers "what
+-- happened on this site"; this answers "what happened to this rental", and
+-- a manager needs the second without being handed the first.
+--
+-- **No personal data, ever.** A summary here is about the booking — a
+-- status, a date range, a total — never about the renter. That rule is the
+-- reason this column is plain text while the comment table's is a BLOB.
+CREATE TABLE IF NOT EXISTS rental_booking_events (
+    id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    booking_id INT UNSIGNED NOT NULL,
+
+    -- 'status_changed' | 'hold_placed' | 'hold_cleared' | 'price_changed'
+    -- | 'dates_changed' | 'change_requested' | 'change_decided' |
+    -- 'comment_added'.
+    event_type VARCHAR(40) NOT NULL,
+    from_value VARCHAR(120) NULL,
+    to_value VARCHAR(120) NULL,
+    summary VARCHAR(255) NULL,
+
+    -- Null for anything the system did on its own (a hold lapsing), which
+    -- is a fact worth keeping distinct from "a manager did it".
+    actor_member_id INT UNSIGNED NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    KEY idx_rental_booking_events_booking (booking_id, created_at),
+    CONSTRAINT fk_rental_booking_events_booking
+        FOREIGN KEY (booking_id) REFERENCES rental_bookings (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+
+-- ─────────────────────────────────────────────────────────────────────
+-- Change requests and proposals (§6.16, §6.17)
+-- ─────────────────────────────────────────────────────────────────────
+--
+-- **One table for both directions**, because they are the same object seen
+-- from two ends: somebody proposes different dates, a different number of
+-- people, or an end to the booking, and somebody else decides. Two tables
+-- would mean two lifecycles, two expiry rules and two sets of tests for
+-- one concept.
+--
+-- The rule the spec is emphatic about: a renter's request **never modifies
+-- the booking silently**. It lands here as `pending` and changes nothing
+-- until a manager decides. A manager's proposal is symmetric — it changes
+-- nothing until the renter accepts it from their tracking page.
+CREATE TABLE IF NOT EXISTS rental_change_requests (
+    id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    booking_id INT UNSIGNED NOT NULL,
+
+    -- 'renter' | 'manager' — who is asking, which is also who may NOT
+    -- decide it.
+    origin VARCHAR(20) NOT NULL,
+    -- 'dates' | 'persons' | 'cancellation'.
+    kind VARCHAR(20) NOT NULL,
+    -- 'pending' | 'accepted' | 'refused' | 'withdrawn'.
+    status VARCHAR(20) NOT NULL DEFAULT 'pending',
+
+    proposed_arrival_date DATE NULL,
+    proposed_departure_date DATE NULL,
+    proposed_units INT UNSIGNED NULL,
+    proposed_persons INT UNSIGNED NULL,
+
+    -- A manager's proposal may carry a price, so the renter accepts dates
+    -- and amount together rather than agreeing to dates and discovering
+    -- the total afterwards. Self-contained, like every other PriceQuote
+    -- snapshot.
+    proposed_price_snapshot MEDIUMTEXT NULL,
+    proposed_total_cents INT UNSIGNED NULL,
+
+    -- Free text from either side. A renter writes it, so it is personal
+    -- data and encrypted like every other renter field.
+    message_encrypted BLOB NULL,
+
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    decided_at DATETIME NULL,
+    decided_by_member_id INT UNSIGNED NULL,
+
+    KEY idx_rental_change_requests_booking (booking_id, status, created_at),
+    CONSTRAINT fk_rental_change_requests_booking
+        FOREIGN KEY (booking_id) REFERENCES rental_bookings (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

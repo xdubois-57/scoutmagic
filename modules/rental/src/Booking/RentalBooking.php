@@ -42,8 +42,20 @@ final class RentalBooking
         public readonly ?\DateTimeImmutable $finalAt,
         public readonly ?\DateTimeImmutable $holdUntil,
         public readonly ?HoldOrigin $holdOrigin,
+        /**
+         * What the visitor was shown at submission. Frozen: a later
+         * negotiation writes to $agreedPrice, never here (§6.11).
+         */
         public readonly ?PriceQuote $estimatedPrice,
         public readonly ?int $estimatedTotalCents,
+        /**
+         * The manager's working copy, and what the renter is actually asked
+         * to pay. Null until somebody touches the price, which is why
+         * `effectivePrice()` exists rather than every caller writing the
+         * same `?:`.
+         */
+        public readonly ?PriceQuote $agreedPrice,
+        public readonly ?int $agreedTotalCents,
         public readonly ?string $conditionsVersion,
         /**
          * A hash of the exact text accepted, so what was agreed stays
@@ -100,7 +112,11 @@ final class RentalBooking
             arrivalDate: $this->arrivalDate,
             departureDate: $this->departureDate,
             units: max(1, $this->units),
-            reference: $this->reference
+            reference: $this->reference,
+            // A request still being weighed holds the dates against the
+            // public but is not a commitment, so it must not stop a manager
+            // confirming a competing request for the same week.
+            isFirm: $this->status->firmlyOccupiesTheAsset()
         );
     }
 
@@ -117,6 +133,30 @@ final class RentalBooking
         $today = $now->format('Y-m-d');
 
         return $today >= $this->arrivalDate && $today <= $this->departureDate;
+    }
+
+    /**
+     * The price that is actually in force: the agreed one once it exists,
+     * the estimate until then.
+     *
+     * The renter's tracking page and the manager's view both read this, so
+     * the two can never show different figures — which matters because
+     * §6.12 makes a price change visible to the renter immediately.
+     */
+    public function effectivePrice(): ?PriceQuote
+    {
+        return $this->agreedPrice ?? $this->estimatedPrice;
+    }
+
+    public function effectiveTotalCents(): ?int
+    {
+        return $this->agreedTotalCents ?? $this->estimatedTotalCents;
+    }
+
+    /** Whether the price has been negotiated away from the estimate. */
+    public function priceHasBeenAgreed(): bool
+    {
+        return $this->agreedPrice !== null;
     }
 
     /**
