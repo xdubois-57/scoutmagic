@@ -54,6 +54,30 @@ class Connection
     }
 
     /**
+     * The credentials this connection was built from, for the one caller
+     * shape that genuinely needs them: Core\Database\DatabaseDumper opens
+     * its own PDO connection from a DSN rather than reusing ours.
+     *
+     * Deliberately a narrow, named accessor rather than five getters — and
+     * it replaces a `ReflectionClass` read of these same private properties
+     * in Core\Maintenance\BackupService, which was strictly worse: it
+     * bypassed every visibility guarantee to obtain exactly this, with
+     * nothing to grep for.
+     *
+     * @return array{host: string, port: int, dbName: string, user: string, password: string}
+     */
+    public function dumpCredentials(): array
+    {
+        return [
+            'host' => $this->host,
+            'port' => $this->port,
+            'dbName' => $this->dbName,
+            'user' => $this->user,
+            'password' => $this->password,
+        ];
+    }
+
+    /**
      * Test the connection. Returns true on success, error message string on failure.
      */
     public function testConnection(): bool|string

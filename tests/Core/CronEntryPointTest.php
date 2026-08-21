@@ -20,10 +20,12 @@ use PHPUnit\Framework\TestCase;
 class CronEntryPointTest extends TestCase
 {
     private string $cron;
+    private string $index;
 
     protected function setUp(): void
     {
         $this->cron = (string) file_get_contents(dirname(__DIR__, 2) . '/public/cron.php');
+        $this->index = (string) file_get_contents(dirname(__DIR__, 2) . '/public/index.php');
     }
 
     public function testCronRefusesANonCliSapiBeforeDoingAnyWork(): void
@@ -46,5 +48,40 @@ class CronEntryPointTest extends TestCase
         $this->assertIsInt($processPos);
         $this->assertLessThan($autoloadPos, $guardPos, 'the SAPI guard must precede the autoloader');
         $this->assertLessThan($processPos, $guardPos, 'the SAPI guard must precede the scheduler pass');
+    }
+
+    /**
+     * A core task handler registered in only one of the two entry points
+     * fails silently under whichever trigger is missing it — the exact bug
+     * ARCHITECTURE.md §8.17 records for create_backup, which never ran under
+     * a real crontab. Both files now register from the single
+     * Core\Scheduler\CoreTaskHandlers list, and this test pins that: an
+     * entry point going back to its own hand-written list is the regression
+     * to catch.
+     */
+    public function testBothEntryPointsRegisterCoreHandlersFromTheSharedRegistry(): void
+    {
+        $this->assertStringContainsString('CoreTaskHandlers::registerAll(', $this->index);
+        $this->assertStringContainsString('CoreTaskHandlers::registerAll(', $this->cron);
+
+        $this->assertDoesNotMatchRegularExpression(
+            "/registerHandler\(\s*'core'/",
+            $this->index,
+            'public/index.php must not hand-register core handlers alongside the shared registry.'
+        );
+        $this->assertDoesNotMatchRegularExpression(
+            "/registerHandler\(\s*'core'/",
+            $this->cron,
+            'public/cron.php must not hand-register core handlers alongside the shared registry.'
+        );
+    }
+
+    public function testEveryCoreHandlerClassInTheRegistryExists(): void
+    {
+        foreach (\Core\Scheduler\CoreTaskHandlers::all() as $taskKey => $handlerClass) {
+            $this->assertNotSame('', $taskKey);
+            $this->assertTrue(class_exists($handlerClass), "{$handlerClass} must exist");
+            $this->assertInstanceOf(\Core\Scheduler\TaskHandlerInterface::class, new $handlerClass());
+        }
     }
 }

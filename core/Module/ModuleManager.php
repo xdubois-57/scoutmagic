@@ -46,7 +46,14 @@ class ModuleManager
         private JournalService $journalService,
         private Router $router,
         private ?NotificationService $notificationService = null,
-        private OfflineWhitelist $offlineWhitelist = new OfflineWhitelist()
+        private OfflineWhitelist $offlineWhitelist = new OfflineWhitelist(),
+        // Whether THIS installation is the one statistics are reported to
+        // (ARCHITECTURE.md §8.49). Resolved by the composition root from
+        // Core\Statistics\DestinationMatcher::isReceiver(base_url,
+        // statistics_destination) and passed in already decided —
+        // deliberately not a SettingService lookup inside this class, which
+        // has no business knowing what a statistics destination is.
+        private bool $isStatisticsReceiver = false
     ) {
     }
 
@@ -101,6 +108,17 @@ class ModuleManager
                         $validationError = $e->getMessage();
                         // Create a dummy manifest for display
                         $manifest = new ModuleManifest($dir, $dir, '0.0.0', [], [], [], [], []);
+                    }
+
+                    // A receiver-only module is invisible everywhere else:
+                    // filtered here, once, so routes, menus, the module
+                    // registry page and the scheduler all follow
+                    // automatically. This is ergonomic, not a security
+                    // boundary — the real protection is that a module which
+                    // is not loaded has no routes at all.
+                    if ($manifest->receiverOnly && !$this->isStatisticsReceiver) {
+                        unset($registryMap[$dir]);
+                        continue;
                     }
 
                     $registry = $registryMap[$dir] ?? null;

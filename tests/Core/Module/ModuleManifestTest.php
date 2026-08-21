@@ -688,4 +688,44 @@ class ModuleManifestTest extends TestCase
         $this->assertFalse($manifest->enabledByDefault);
         $this->assertSame([], $manifest->requires);
     }
+
+    public function testReceiverOnlyDefaultsToFalse(): void
+    {
+        $manifest = ModuleManifest::fromArray([
+            'id' => 'plain',
+            'name' => 'Plain',
+            'version' => '1.0.0',
+        ]);
+
+        $this->assertFalse($manifest->receiverOnly);
+    }
+
+    public function testReceiverOnlyIsReadFromTheManifest(): void
+    {
+        $manifest = ModuleManifest::fromArray([
+            'id' => 'receiver',
+            'name' => 'Receiver',
+            'version' => '1.0.0',
+            'receiver_only' => true,
+        ]);
+
+        $this->assertTrue($manifest->receiverOnly);
+    }
+
+    /**
+     * A string "false" is truthy in PHP, so a lenient cast would hide the
+     * module on every installation — a symptom that is close to
+     * undebuggable. Rejected at load time instead.
+     */
+    public function testANonBooleanReceiverOnlyIsRejected(): void
+    {
+        $this->expectException(ModuleException::class);
+
+        ModuleManifest::fromArray([
+            'id' => 'receiver',
+            'name' => 'Receiver',
+            'version' => '1.0.0',
+            'receiver_only' => 'false',
+        ]);
+    }
 }

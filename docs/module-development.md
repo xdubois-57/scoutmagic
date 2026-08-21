@@ -119,6 +119,17 @@ The directory name **must** match the `id` field in `module.json`.
 }
 ```
 
+## `receiver_only` — a module only the statistics receiver sees
+
+`"receiver_only": true` (top level, boolean, default false) marks a module that only makes sense on the ScoutMagic installation that **receives** usage statistics (ARCHITECTURE.md §8.47/§8.49). `ModuleManager` filters such a manifest out of `discoverModules()` on every other installation, which removes its routes, menu entries, registry listing and scheduled tasks in one stroke.
+
+Two things to know before using it:
+
+- It is **ergonomic, not a security boundary.** The real protection is that a module which is never loaded registers no routes at all. Do not use it as an access control.
+- It is **strictly typed.** `"receiver_only": "false"` is a load-time error rather than a truthy string, because getting it wrong hides the module on every installation and the symptom — a module that silently does not exist — is close to undebuggable.
+
+There is exactly one such module (`support_dashboard`), and there is unlikely to be a second: this is not a general "hide a module" mechanism.
+
 ## Manifest validation rules
 
 - **id**: required, must match directory name.
@@ -426,6 +437,12 @@ CREATE TABLE IF NOT EXISTS calendar_events (
 - Appear in the Paramètres page, grouped by module.
 - Access in code: `$settingService->get('default_view', 'calendar')`.
 - Access in Twig: `{{ param('default_view', 'calendar') }}`.
+
+### The `secret` type
+
+`"type": "secret"` marks a setting whose **value** must never be displayed or exported: it is filtered out of the Paramètres page entirely, and the support package's `configuration-parameters.xlsx` writes `[REDACTED]` in its place while keeping the key and label visible (ARCHITECTURE.md §8.48). Everything else behaves like `text`.
+
+Reach for it only when a credential genuinely has to live in `settings`. The established pattern for a module credential is an encrypted `BLOB` column in the module's own table (`Core\Security\EncryptionService`, decrypted only in the Repository) — `llm_providers.api_key` and the SOS telephony credentials both do this, and neither is ever read by the support package because neither is in `settings`. `secret` is the safety net for the case where that isn't practical, not a reason to stop using encrypted columns.
 
 ## Cookies
 

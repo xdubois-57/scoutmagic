@@ -27,6 +27,41 @@ class MailService
     }
 
     /**
+     * The configured delivery transport, `smtp` or `local`.
+     *
+     * Exposed for diagnostics (Core\Statistics\StatisticsPayloadBuilder,
+     * ARCHITECTURE.md §8.47) — a transport name, never a host, a port, a
+     * user or a password.
+     */
+    public function getDeliveryMode(): string
+    {
+        return $this->mode === 'smtp' ? 'smtp' : 'local';
+    }
+
+    /**
+     * Whether outgoing mail can plausibly be delivered: a From address is
+     * set and, in SMTP mode, a host and credentials are present.
+     *
+     * A boolean, deliberately — the same diagnostics caller must be able to
+     * report "email is configured" without any of the values that make it so
+     * ever leaving the installation.
+     */
+    public function isDeliveryConfigured(): bool
+    {
+        if (trim($this->fromAddress) === '') {
+            return false;
+        }
+
+        if ($this->getDeliveryMode() !== 'smtp') {
+            return true;
+        }
+
+        return trim((string) $this->smtpHost) !== ''
+            && trim((string) $this->smtpUser) !== ''
+            && (string) $this->smtpPassword !== '';
+    }
+
+    /**
      * Send a transactional email.
      *
      * @param array<int, array{path: string, name: string}> $attachments Absolute filesystem path + display name pairs.

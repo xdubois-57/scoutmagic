@@ -109,6 +109,38 @@ class SettingRepository
         $this->pdo->exec('UPDATE settings SET setting_value = default_value');
     }
 
+    /**
+     * Conditional write: set the value only while the setting is still
+     * empty, and report whether THIS call is the one that wrote it.
+     *
+     * Needed for lazily-generated, write-once values (Core\Statistics\
+     * InstallationIdentityService's installation id): two concurrent
+     * requests both finding the setting empty would otherwise both write,
+     * and the installation would change identity depending on which UPDATE
+     * landed last. A single `WHERE ... AND (setting_value IS NULL OR
+     * setting_value = '')` statement makes the claim atomic — the loser
+     * gets rowCount() 0 and adopts the winner's value on re-read.
+     *
+     * Returns false when the row doesn't exist at all, which the caller
+     * must treat as a wiring error rather than as "already claimed".
+     */
+    public function claimIfEmpty(?string $moduleId, string $key, string $value): bool
+    {
+        if ($moduleId === null) {
+            $stmt = $this->pdo->prepare(
+                "UPDATE settings SET setting_value = ? WHERE module_id IS NULL AND setting_key = ? AND (setting_value IS NULL OR setting_value = '')"
+            );
+            $stmt->execute([$value, $key]);
+        } else {
+            $stmt = $this->pdo->prepare(
+                "UPDATE settings SET setting_value = ? WHERE module_id = ? AND setting_key = ? AND (setting_value IS NULL OR setting_value = '')"
+            );
+            $stmt->execute([$value, $moduleId, $key]);
+        }
+
+        return $stmt->rowCount() === 1;
+    }
+
     public function updateValue(?string $moduleId, string $key, string $value): void
     {
         if ($moduleId === null) {

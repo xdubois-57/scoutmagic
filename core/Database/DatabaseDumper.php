@@ -58,4 +58,35 @@ final class DatabaseDumper
 
         $dumper->start($outputPath);
     }
+
+    /**
+     * Structure only: every table's `CREATE TABLE`, and **not one row of
+     * data**.
+     *
+     * The library's `no-data` setting takes either a table list or `true`
+     * for "all tables", so this is the same code path as dump()'s partial
+     * skip rather than a second mechanism. Used by the support package's
+     * `database-structure.sql` (ARCHITECTURE.md §8.48), where an `INSERT`
+     * appearing in the output would be exactly the kind of accidental data
+     * export the whole feature promises never to make.
+     *
+     * @throws \Exception on any connection or dump failure
+     */
+    public static function dumpStructure(
+        string $host,
+        int $port,
+        string $dbName,
+        string $user,
+        string $password,
+        string $outputPath
+    ): void {
+        $dsn = sprintf('mysql:host=%s;port=%d;dbname=%s;charset=utf8mb4', $host, $port, $dbName);
+
+        $dumper = new Mysqldump($dsn, $user, $password, [
+            'add-drop-table' => true,
+            'no-data' => true,
+        ]);
+
+        $dumper->start($outputPath);
+    }
 }

@@ -1,0 +1,60 @@
+{# Detail dialog body — rendered server-side so Twig escapes every value
+   reported by a remote installation. Fetched on click rather than embedded
+   once per row: a page of installations would otherwise carry a full JSON
+   payload each. #}
+{% macro metric(label, value) %}
+    <div class="col-12 col-md-6">
+        <p class="small text-body-secondary mb-0">{{ label }}</p>
+        <p class="mb-2">{% if value is null or value == '' %}<span class="text-body-secondary">Non renseigné</span>{% else %}{{ value }}{% endif %}</p>
+    </div>
+{% endmacro %}
+{% import _self as detail %}
+
+<div class="row">
+    {{ detail.metric('URL de l\'instance', installation.instance_url) }}
+    {{ detail.metric('Identifiant d\'installation', installation.installation_id) }}
+    {{ detail.metric('Version / build', installation.scoutmagic_version) }}
+    {{ detail.metric('Build de développement', installation.is_dev_build is null ? null : (installation.is_dev_build ? 'Oui' : 'Non')) }}
+    {{ detail.metric('Année scoute', installation.scout_year_label) }}
+    {{ detail.metric('Membres actifs', installation.active_members) }}
+    {{ detail.metric('Sections actives', installation.active_sections) }}
+    {{ detail.metric('Méthode d\'installation', installation.installation_method) }}
+    {{ detail.metric('Mises à jour automatiques', installation.auto_update_enabled is null ? null : (installation.auto_update_enabled ? 'Activées' : 'Désactivées')) }}
+    {{ detail.metric('Niveau de mise à jour', installation.auto_update_level) }}
+    {{ detail.metric('Date d\'installation', installation.installed_at) }}
+    {{ detail.metric('Dernière mise à jour', installation.last_upgraded_at) }}
+    {{ detail.metric('Première réception', installation.first_seen_at) }}
+    {{ detail.metric('Dernière réception', installation.last_received_at) }}
+    {{ detail.metric('Version de schéma des statistiques', installation.statistics_schema_version) }}
+    {{ detail.metric('Statut', installation.is_active ? 'Active' : 'Obsolète') }}
+</div>
+
+<h3 class="h6 mt-3">Modules</h3>
+{% if installation.modules is empty %}
+    <p class="small text-body-secondary">Non renseigné</p>
+{% else %}
+    <ul class="list-unstyled small mb-3">
+        {% for moduleId, module in installation.modules %}
+            <li>
+                <code>{{ moduleId }}</code>
+                {% if module.enabled %}<span class="badge text-bg-success">activé</span>{% else %}<span class="badge text-bg-secondary">désactivé</span>{% endif %}
+                {% if module.version %}<span class="text-body-secondary">{{ module.version }}</span>{% endif %}
+            </li>
+        {% endfor %}
+    </ul>
+{% endif %}
+
+<h3 class="h6">JSON brut du dernier rapport accepté</h3>
+<p class="small text-body-secondary">
+    Le document exact reçu, champs inconnus de ce receveur compris. Aucun identifiant de sécurité n'y figure.
+</p>
+<pre class="border rounded p-3 bg-body-tertiary small mb-3 support-raw-json"><code>{{ installation.raw_json }}</code></pre>
+
+{# Manual deletion, ahead of what retention would do on its own. The
+   confirmation is mandatory (base.html.twig's delegated data-confirm
+   handler); the CSRF token is what actually protects the endpoint. #}
+<form method="post" action="/support-dashboard/installations/{{ installation.id }}/delete"
+      data-confirm="Supprimer définitivement cet enregistrement ? L'identifiant, l'URL, le dernier rapport et l'empreinte du secret associé seront effacés. Les agrégats mensuels déjà finalisés ne sont pas modifiés.">
+    {{ csrf_field()|raw }}
+    <button type="submit" class="btn btn-sm btn-outline-danger">Supprimer cet enregistrement</button>
+</form>

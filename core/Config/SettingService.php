@@ -73,6 +73,24 @@ class SettingService
     }
 
     /**
+     * Claim a still-empty setting value atomically, returning whether THIS
+     * call is the one that wrote it — see SettingRepository::claimIfEmpty().
+     *
+     * For write-once values the application generates lazily rather than
+     * the admin typing them (Core\Statistics\InstallationIdentityService).
+     * Bypasses the `editable` guard like setInternal(), and deliberately
+     * skips type/regex validation: the caller generates the value itself,
+     * so there is no untrusted input to validate.
+     */
+    public function claimIfEmpty(string $key, string $value, ?string $moduleId = null): bool
+    {
+        $claimed = $this->repository->claimIfEmpty($moduleId, $key, $value);
+        $this->clearCache();
+
+        return $claimed;
+    }
+
+    /**
      * Register a setting if it doesn't exist yet.
      *
      * @param array<int, string>|null $selectOptions

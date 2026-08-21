@@ -72,7 +72,14 @@ class ModuleManifest
         // builds placeholder manifests positionally (new ModuleManifest($dir,
         // $dir, '0.0.0', [], [], [], [], [])), so inserting a parameter
         // anywhere earlier would silently shift those arguments.
-        public readonly array $requires = []
+        public readonly array $requires = [],
+        // Whether this module only makes sense on the installation that
+        // RECEIVES usage statistics (ARCHITECTURE.md §8.49). A receiver-only
+        // module is filtered out of discoverModules() everywhere else, so it
+        // never appears in the module registry page, a menu, a route table
+        // or the scheduler. Same "last parameter with a default" rule as
+        // $requires above, and for the same reason.
+        public readonly bool $receiverOnly = false
     ) {
     }
 
@@ -234,7 +241,16 @@ class ModuleManifest
         $enabledByDefault = (bool) ($data['enabled_by_default'] ?? false);
         $description = (string) ($data['description'] ?? '');
 
-        return new self($id, $data['name'], $data['version'], $routes, $settings, $cookies, $scheduledTasks, $storage, $enabledByDefault, $description, $notifications, $offline, $requires);
+        // Typed strictly rather than cast: a manifest saying
+        // "receiver_only": "false" (a string, which is truthy) would
+        // otherwise hide a module on every installation, and the symptom —
+        // a module that silently does not exist — is close to undebuggable.
+        if (isset($data['receiver_only']) && !is_bool($data['receiver_only'])) {
+            throw new ModuleException("Module '{$id}' receiver_only must be a boolean");
+        }
+        $receiverOnly = (bool) ($data['receiver_only'] ?? false);
+
+        return new self($id, $data['name'], $data['version'], $routes, $settings, $cookies, $scheduledTasks, $storage, $enabledByDefault, $description, $notifications, $offline, $requires, $receiverOnly);
     }
 
     /**

@@ -71,6 +71,7 @@ use Core\Http\Controller\ScheduledActionsController;
 use Core\Http\Controller\ScoutYearController;
 use Core\Http\Controller\SettingsController;
 use Core\Http\Controller\SetupController;
+use Core\Http\Controller\SupportController;
 use Core\Http\Controller\ShortUrlController;
 use Core\Http\Controller\StaffsController;
 use Core\Http\Controller\UploadController;
@@ -688,6 +689,53 @@ $settingService->register('human_check_rate_limit_max_attempts', '5', 'number', 
     'Nombre maximum de soumissions de formulaires publics autorisées pour une même adresse IP dans la fenêtre de limitation, au-delà duquel les soumissions suivantes sont rejetées.',
     null, '^\d+$', null, true, 273);
 
+// Usage statistics and support package (Core\Statistics, Core\Support —
+// ARCHITECTURE.md §8.47/§8.48). All five are deliberately kept out of the
+// generic Configuration > Paramètres page (Core\Http\Controller\
+// SettingsController::EXCLUDED_FROM_GENERIC_PAGE, same treatment as the
+// auto-update settings) — they are managed from the dedicated Support
+// page, which pairs the switch with the plain-language explanation of what
+// leaves the site, something a plain editable row cannot carry.
+$settingService->register('statistics_enabled', '1', 'boolean', 'Envoi automatique des statistiques d\'utilisation',
+    'Autorise l\'envoi quotidien d\'un rapport d\'utilisation agrégé vers ScoutMagic. Le rapport contient l\'adresse de ce site, jamais de donnée de membre. Géré depuis la page Support.',
+    null, null, null, true, 280);
+$settingService->register('statistics_destination', 'https://www.scoutmagic.be', 'url', 'Destination des statistiques',
+    'Adresse du site qui reçoit les rapports d\'utilisation. À ne modifier que pour pointer vers une autre installation ScoutMagic réceptrice.',
+    null, null, null, true, 281);
+$settingService->register('statistics_installation_id', '', 'text', 'Identifiant de cette installation',
+    'Identifiant aléatoire attribué une seule fois à cette installation pour reconnaître ses rapports d\'utilisation. Il ne dérive d\'aucune donnée personnelle.',
+    null, null, null, false, 282);
+$settingService->register('support_email', 'support@scoutmagic.be', 'email', 'Adresse du support ScoutMagic',
+    'Adresse à laquelle envoyer une archive de support. Affichée sur la page Support.',
+    null, null, null, false, 283);
+// Send-state bookkeeping, written by the daily task and shown read-only on
+// the Support page. The failure reason is a short, redacted code — never a
+// raw server response and never the authentication secret.
+$settingService->register('statistics_last_success_at', '', 'text', 'Dernier envoi de statistiques réussi',
+    'Horodatage du dernier rapport d\'utilisation transmis avec succès. Renseigné automatiquement.',
+    null, null, null, false, 285);
+$settingService->register('statistics_last_failure_at', '', 'text', 'Dernier échec d\'envoi de statistiques',
+    'Horodatage de la dernière tentative d\'envoi ayant échoué ou ayant été sautée. Renseigné automatiquement.',
+    null, null, null, false, 286);
+$settingService->register('statistics_last_failure_reason', '', 'text', 'Motif du dernier échec d\'envoi',
+    'Motif court du dernier échec ou saut d\'envoi des statistiques. Renseigné automatiquement.',
+    null, null, null, false, 287);
+// Support package bookkeeping (Core\Support, ARCHITECTURE.md §8.48) — one
+// package is ever kept, so two settings replace what would be a one-row table.
+$settingService->register('support_package_file_id', '', 'text', 'Paquet de support disponible',
+    'Identifiant du fichier de l\'archive de support actuellement conservée. Renseigné automatiquement.',
+    null, null, null, false, 288);
+$settingService->register('support_package_generated_at', '', 'text', 'Date de génération du paquet de support',
+    'Horodatage de génération de l\'archive de support conservée, utilisé pour sa purge automatique. Renseigné automatiquement.',
+    null, null, null, false, 289);
+// `installed_at` declares itself (Core\Statistics\InstallationDateService::
+// register()) because SetupController writes it before this file has ever
+// run — see that method's own comment. Backfilled here once for every
+// installation that predates the setting; strictly idempotent, it only
+// ever writes while the value is still empty.
+\Core\Statistics\InstallationDateService::register($settingService);
+(new \Core\Statistics\InstallationDateService($settingService, $pdo))->ensureRecorded();
+
 // Migrate non-secret settings from secrets.enc to settings table (one-time)
 if ($settingService->get('settings_migrated') !== '1') {
     $settingService->register('settings_migrated', '0', 'boolean', 'Migration effectuée',
@@ -1221,6 +1269,7 @@ $menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'RGPD', '/config/rgpd', '
 $menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Actions planifiées', '/config/scheduled', 'superadmin', 40);
 $menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Maintenance', '/config/maintenance', 'admin', 45);
 $menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Notifications', '/config/notifications', 'superadmin', 46);
+$menuBuilder->addPage(MenuBuilder::MENU_CONFIGURATION, 'Support', '/config/support', 'superadmin', 47);
 // order 10, not a leftover "after the separator" number — GROUP_CORE
 // (addPage()'s default) already sorts this after the dynamic member
 // entries/empty-state placeholder above regardless of the numeric order,
@@ -1239,6 +1288,15 @@ $offlineWhitelist = new OfflineWhitelist();
 // Create ModuleManager (modules loaded after core routes are registered)
 $modulesDir = __DIR__ . '/../modules';
 $moduleRegistryRepo = new ModuleRegistryRepository($pdo);
+// Is THIS installation the statistics receiver (ARCHITECTURE.md §8.49)?
+// Decided from base_url vs. statistics_destination, never from the Host
+// header, and resolved here so ModuleManager receives a plain boolean
+// rather than learning what a statistics destination is.
+$isStatisticsReceiver = \Core\Statistics\DestinationMatcher::isReceiver(
+    (string) ($settingService->get('base_url') ?? ''),
+    (string) ($settingService->get('statistics_destination') ?? '')
+);
+
 $moduleManager = new ModuleManager(
     $modulesDir,
     $settingService,
@@ -1249,7 +1307,26 @@ $moduleManager = new ModuleManager(
     $journalService,
     $router,
     $notificationService,
-    $offlineWhitelist
+    $offlineWhitelist,
+    $isStatisticsReceiver
+);
+
+// Usage statistics (Core\Statistics, ARCHITECTURE.md §8.47). Built here
+// because the payload needs the ModuleManager above (module list and
+// versions) and the MailService built earlier (transport mode, and whether
+// mail is configured — never the credentials themselves).
+$installationIdentityService = new \Core\Statistics\InstallationIdentityService(
+    $settingService,
+    $secretManager,
+    $journalService
+);
+$statisticsPayloadBuilder = new \Core\Statistics\StatisticsPayloadBuilder(
+    $settingService,
+    $pdo,
+    $installationIdentityService,
+    dirname(__DIR__),
+    $moduleManager,
+    $mailService
 );
 
 // Set up SchedulerRunner with ModuleManager and the context task handlers run
@@ -1267,19 +1344,12 @@ $schedulerRunner->setTaskContext(new TaskContext(
     $notificationService
 ));
 
-// Core (not module) scheduled task handlers — registered directly since
-// module.json's scheduled_tasks mechanism only applies to module handlers.
-$schedulerRunner->registerHandler('core', 'create_backup', new \Core\Maintenance\Task\CreateBackupHandler());
-$schedulerRunner->registerHandler('core', 'install_update', new \Core\Maintenance\Task\InstallUpdateHandler());
-$schedulerRunner->registerHandler('core', 'reset_settings', new \Core\Maintenance\Task\ResetSettingsHandler());
-$schedulerRunner->registerHandler('core', 'full_reset', new \Core\Maintenance\Task\FullResetHandler());
-$schedulerRunner->registerHandler('core', 'restore_backup', new \Core\Maintenance\Task\RestoreBackupHandler());
-$schedulerRunner->registerHandler('core', 'auto_backup', new \Core\Maintenance\Task\AutoBackupHandler());
-$schedulerRunner->registerHandler('core', 'check_stable_update', new \Core\Maintenance\Task\CheckStableUpdateHandler());
-$schedulerRunner->registerHandler('core', 'compress_section_document', new \Core\Member\Task\CompressSectionDocumentHandler());
-$schedulerRunner->registerHandler('core', 'send_notifications', new \Core\Notification\Task\SendNotificationsHandler());
-$schedulerRunner->registerHandler('core', 'purge_notifications', new \Core\Notification\Task\PurgeNotificationsHandler());
-$schedulerRunner->registerHandler('core', 'purge_human_check_rate_limits', new \Core\Security\HumanCheck\Task\PurgeHumanCheckRateLimitsHandler());
+// Core (not module) scheduled task handlers. Declared once in
+// Core\Scheduler\CoreTaskHandlers and registered identically here and in
+// public/cron.php — hand-maintaining two lists is exactly how create_backup
+// once ended up missing from cron.php, silently failing every background
+// backup under a real crontab (§8.17).
+\Core\Scheduler\CoreTaskHandlers::registerAll($schedulerRunner);
 
 // Bootstrap the recurring automatic backup — Task\AutoBackupHandler
 // re-schedules itself at the end of every run (same pattern as
@@ -1308,6 +1378,23 @@ if ($schedulerService->find('core', 'check_stable_update', 'daily') === null) {
 // HumanCheck\Task\PurgeHumanCheckRateLimitsHandler).
 if ($schedulerService->find('core', 'purge_human_check_rate_limits', \Core\Security\HumanCheck\Task\PurgeHumanCheckRateLimitsHandler::REFERENCE) === null) {
     $schedulerService->schedule('core', 'purge_human_check_rate_limits', new DateTimeImmutable(), [], \Core\Security\HumanCheck\Task\PurgeHumanCheckRateLimitsHandler::REFERENCE);
+}
+
+// Same bootstrap for the daily usage-statistics report (Core\Statistics\
+// Task\SendStatisticsHandler). The very first occurrence runs immediately;
+// every guard it can trip (reporting disabled, non-public host, this site
+// IS the receiver) is checked inside the handler, so seeding it here costs
+// nothing on an installation that will never actually report.
+if ($schedulerService->find('core', \Core\Statistics\Task\SendStatisticsHandler::TASK_KEY, \Core\Statistics\Task\SendStatisticsHandler::REFERENCE) === null) {
+    $schedulerService->schedule('core', \Core\Statistics\Task\SendStatisticsHandler::TASK_KEY, new DateTimeImmutable(), [], \Core\Statistics\Task\SendStatisticsHandler::REFERENCE);
+}
+
+// Same bootstrap for the support-package retention purge (Core\Support\
+// Task\PurgeSupportPackagesHandler) — the archive is the most sensitive
+// artefact this codebase produces on demand, so the purge must be running
+// from the first boot, not from the first generation.
+if ($schedulerService->find('core', \Core\Support\Task\PurgeSupportPackagesHandler::TASK_KEY, \Core\Support\Task\PurgeSupportPackagesHandler::REFERENCE) === null) {
+    $schedulerService->schedule('core', \Core\Support\Task\PurgeSupportPackagesHandler::TASK_KEY, new DateTimeImmutable(), [], \Core\Support\Task\PurgeSupportPackagesHandler::REFERENCE);
 }
 
 // Add dynamic member entries to Espace animés — group: GROUP_DYNAMIC keeps
@@ -1523,6 +1610,12 @@ $router->addRoute('GET', '/config/settings', SettingsController::class, 'index',
 $router->addRoute('POST', '/config/settings/update', SettingsController::class, 'update', 'superadmin');
 $router->addRoute('POST', '/config/settings/logo-delete', SettingsController::class, 'deleteLogo', 'superadmin');
 $router->addRoute('POST', '/config/settings/logo-notify-ios', SettingsController::class, 'notifyIosLogoUpdate', 'superadmin');
+
+// Support (Core\Statistics, Core\Support — ARCHITECTURE.md §8.47/§8.48)
+$router->addRoute('GET', '/config/support', SupportController::class, 'index', 'superadmin', ['label' => 'Support', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]]);
+$router->addRoute('POST', '/config/support/statistics', SupportController::class, 'saveStatistics', 'superadmin');
+$router->addRoute('POST', '/config/support/package', SupportController::class, 'generatePackage', 'superadmin');
+$router->addRoute('GET', '/api/support/package-status/{id}', SupportController::class, 'packageStatus', 'superadmin');
 
 // Scheduled actions
 $router->addRoute('GET', '/config/scheduled', ScheduledActionsController::class, 'index', 'superadmin', ['label' => 'Actions planifiées', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]]);
@@ -1834,6 +1927,13 @@ $frontController->registerController(JournalController::class, new JournalContro
 $frontController->registerController(MemberSearchController::class, new MemberSearchController($twig, $memberSearchService, $memberService, $scoutYearResolver, $memberYearService, $departureService));
 $frontController->registerController(TemporaryMemberController::class, new TemporaryMemberController($twig, $memberSearchService, $scoutYearResolver, $journalService));
 $frontController->registerController(SettingsController::class, new SettingsController($twig, $settingService, $journalService, $unitLogoService, $notificationService, $userAccountRepo));
+$frontController->registerController(SupportController::class, new SupportController(
+    $twig,
+    $settingService,
+    $journalService,
+    $statisticsPayloadBuilder,
+    $schedulerService
+));
 $frontController->registerController(ScheduledActionsController::class, new ScheduledActionsController($twig, $schedulerRepo));
 $frontController->registerController(ConfigGeneralController::class, new ConfigGeneralController($twig));
 $frontController->registerController(ConfigModulesController::class, new ConfigModulesController($twig, $moduleManager, $journalService));
@@ -2658,6 +2758,48 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
             $groupsMembershipService
         )
     );
+}
+
+// Modules\SupportDashboard — the statistics receiver (ARCHITECTURE.md
+// §8.49). Only ever discovered on the receiving installation, so this block
+// is dead code everywhere else by construction.
+if (in_array('support_dashboard', $moduleManager->getEnabledModuleIds(), true)) {
+    $supportInstallationRepo = new \Modules\SupportDashboard\Repository\SupportInstallationRepository($pdo);
+    $supportRateLimitRepo = new \Modules\SupportDashboard\Repository\SupportReportRateLimitRepository($pdo);
+    $supportMonthlyAggregateRepo = new \Modules\SupportDashboard\Repository\SupportMonthlyAggregateRepository($pdo);
+
+    $frontController->registerController(
+        \Modules\SupportDashboard\Controller\SupportDashboardController::class,
+        new \Modules\SupportDashboard\Controller\SupportDashboardController(
+            $twig,
+            new \Modules\SupportDashboard\Service\SupportDashboardService(
+                $supportInstallationRepo,
+                $settingService,
+                $supportMonthlyAggregateRepo
+            ),
+            $journalService
+        )
+    );
+
+    $frontController->registerController(
+        \Modules\SupportDashboard\Controller\StatisticsIntakeController::class,
+        new \Modules\SupportDashboard\Controller\StatisticsIntakeController(
+            $twig,
+            new \Modules\SupportDashboard\Service\StatisticsIntakeService(
+                $supportInstallationRepo,
+                $supportRateLimitRepo,
+                $encryptionService,
+                $journalService,
+                $supportMonthlyAggregateRepo
+            )
+        )
+    );
+
+    // Rate-limit rows are written on every accepted report and only ever
+    // read for the last hour — without this the table grows forever.
+    if ($schedulerService->find('support_dashboard', \Modules\SupportDashboard\Task\PurgeRateLimitsHandler::TASK_KEY, \Modules\SupportDashboard\Task\PurgeRateLimitsHandler::REFERENCE) === null) {
+        $schedulerService->schedule('support_dashboard', \Modules\SupportDashboard\Task\PurgeRateLimitsHandler::TASK_KEY, new DateTimeImmutable(), [], \Modules\SupportDashboard\Task\PurgeRateLimitsHandler::REFERENCE);
+    }
 }
 
 if (in_array('retro', $moduleManager->getEnabledModuleIds(), true)) {
