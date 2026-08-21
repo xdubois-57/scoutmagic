@@ -1,0 +1,59 @@
+{% extends 'base.html.twig' %}
+{% block title %}{{ asset.name }} — {{ site_name }}{% endblock %}
+{#
+  One public asset. Minimal in this iteration: the availability calendar,
+  the editable rich-text blocks and the request form all arrive in later
+  iterations. What is already load-bearing is what is NOT here — see §6.6,
+  and RentalPublicController's own docblock.
+
+  "Gérer ce bien" is rendered conditionally, and that is presentation only:
+  the managed space re-checks authority server-side on every request. A
+  hidden button is never a boundary (ARCHITECTURE.md §12).
+#}
+{% block content %}
+    <div class="container py-4" style="max-width: 900px;">
+        <nav aria-label="Fil d'Ariane" class="mb-2">
+            <a href="/locations" class="small text-decoration-none">&larr; Toutes les locations</a>
+        </nav>
+
+        <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
+            <div>
+                <h1 class="h3 mb-1">{{ asset.name }}</h1>
+                <p class="text-body-secondary mb-0">{{ asset.assetType }}</p>
+            </div>
+            {% if can_manage %}
+                <a href="/mes-locations" class="btn btn-outline-primary">Gérer ce bien</a>
+            {% endif %}
+        </div>
+
+        {% if not asset.isPubliclyVisible %}
+            <div class="alert alert-warning">
+                Ce bien n'est pas visible publiquement. Vous le voyez parce que vous le gérez.
+            </div>
+        {% endif %}
+
+        <div class="card">
+            <div class="card-body">
+                <h2 class="h5 mb-3">Informations pratiques</h2>
+                <dl class="row mb-0">
+                    {% if asset.capacity is not null %}
+                        <dt class="col-sm-4">Capacité</dt>
+                        <dd class="col-sm-8">{{ asset.capacity }} personnes</dd>
+                    {% endif %}
+                    {% if asset.isStock %}
+                        <dt class="col-sm-4">Exemplaires</dt>
+                        <dd class="col-sm-8">{{ asset.quantity }}</dd>
+                    {% endif %}
+                    {% if asset.arrivalTime %}
+                        <dt class="col-sm-4">Heure d'arrivée</dt>
+                        <dd class="col-sm-8">{{ asset.arrivalTime }}</dd>
+                    {% endif %}
+                    {% if asset.departureTime %}
+                        <dt class="col-sm-4">Heure de départ</dt>
+                        <dd class="col-sm-8">{{ asset.departureTime }}</dd>
+                    {% endif %}
+                </dl>
+            </div>
+        </div>
+    </div>
+{% endblock %}

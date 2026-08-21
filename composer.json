@@ -39,6 +39,7 @@
             "Modules\\MemberStats\\": "modules/member_stats/src/",
             "Modules\\News\\": "modules/news/src/",
             "Modules\\Registration\\": "modules/registration/src/",
+            "Modules\\Rental\\": "modules/rental/src/",
             "Modules\\Retro\\": "modules/retro/src/",
             "Modules\\SosStaff\\": "modules/sos_staff/src/",
             "Modules\\Trombinoscope\\": "modules/trombinoscope/src/"

@@ -121,6 +121,22 @@ class MemberService
     }
 
     /**
+     * Every `members.id` active for a scout year.
+     *
+     * Ids only, deliberately: a caller building a "pick a member" list pairs
+     * this with findDisplayNamesByMemberIds() below and never receives the
+     * full decrypted profiles — loading every member's addresses, functions
+     * and badges to render a checklist of names would decrypt the whole
+     * member table for nothing.
+     *
+     * @return int[]
+     */
+    public function findActiveMemberIdsForYear(int $scoutYearId): array
+    {
+        return $this->memberYearRepo->findActiveMemberIdsForYear($scoutYearId);
+    }
+
+    /**
      * Get a single member's full profile for a given scout year.
      * Includes: identity, addresses, functions, section info.
      * All personal data decrypted.

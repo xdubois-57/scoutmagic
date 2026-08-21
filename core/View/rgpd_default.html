@@ -235,6 +235,18 @@ Modèles : Llama, Qwen, divers modèles open source</li>
 <p><strong>Conservation</strong> : une demande encore en cours (en attente ou acceptée) est conservée sans limite de durée, comme le reste des données actives de l'unité (section 3.1). Une fois une demande clôturée (encodée dans Desk, refusée ou retirée), deux délais courent à partir de cette clôture, jamais à partir du dépôt initial : elle disparaît de l'espace personnel de la famille après un délai configurable par l'administrateur (3 mois par défaut ; une demande encodée en disparaît immédiatement, remplacée par la fiche membre réelle) puis est supprimée définitivement et irréversiblement après un second délai configurable, plus long (2 ans par défaut). Ces deux délais sont automatiquement appliqués chaque jour par une tâche planifiée.</p>
 <p><strong>Base légale</strong> : Consentement explicite (case à cocher obligatoire lors du dépôt de la demande) et intérêt légitime de l'unité (gestion des demandes d'inscription).</p>
 
+<h4>Module Locations</h4>
+<p><strong>Finalité</strong> : Permettre à l'unité de mettre en location ses propres biens (locaux, terrains, tentes, remorques, matériel) : présenter chaque bien publiquement et désigner, parmi les membres, les personnes qui en assurent la gestion.</p>
+<p><strong>Données traitées</strong> :</p>
+<ul>
+<li>Un numéro de téléphone d'urgence par bien, chiffré au repos (AES-256-CBC), communiqué au seul locataire du bien pendant sa location — jamais affiché publiquement</li>
+<li>La désignation des membres gestionnaires d'un bien : cette association ne référence que l'identifiant interne du membre, jamais son nom, son email ni son téléphone, qui restent lus depuis sa fiche de membre au moment de l'affichage. Un indicateur précise, par gestionnaire, si ses coordonnées peuvent être communiquées au locataire du bien qu'il gère — cet indicateur ne les rend jamais publiques</li>
+<li>Le nom, le type, la capacité et les horaires d'un bien : des informations sur un bâtiment ou un objet, jamais sur une personne</li>
+</ul>
+<p><strong>Mise à jour automatique après un import Desk</strong> : à chaque import depuis Desk, la désignation d'un gestionnaire qui n'apparaît plus dans l'unité est automatiquement désactivée — son accès au bien cesse immédiatement. Elle n'est jamais supprimée et se réactive d'elle-même si la personne réapparaît dans un import ultérieur. Le journal d'audit (section 2.5) n'en conserve qu'un décompte, jamais l'identité des personnes concernées.</p>
+<p><strong>Confidentialité publique</strong> : la page publique d'un bien ne montre jamais le nom, le téléphone ni l'email d'un gestionnaire, ni le téléphone d'urgence du bien, ni aucune information relative à un locataire ou à une réservation.</p>
+<p><strong>Base légale</strong> : Intérêt légitime (gestion du patrimoine de l'unité et des locations qui en financent les activités).</p>
+
 <h3>2.5. Sécurité et traçabilité</h3>
 <p><strong>Finalité</strong> : Détecter et prévenir les abus, assurer la sécurité du site.</p>
 <p><strong>Données traitées</strong> : Journal d'audit contenant l'adresse IP, l'identifiant du compte (jamais l'email en clair), la date et l'action effectuée.</p>
@@ -260,6 +272,7 @@ Modèles : Llama, Qwen, divers modèles open source</li>
 <li><strong>Marquage de départ</strong> : Lié à l'année scoute concernée — il n'est jamais reporté d'une année à l'autre et disparaît naturellement dès le prochain import Desk qui crée les données de la nouvelle année.</li>
 <li><strong>Notifications</strong> : Une notification lue est automatiquement supprimée après une durée configurable (par défaut 90 jours). Une notification non lue n'est jamais supprimée automatiquement, quelle que soit son ancienneté. Une souscription aux notifications push est automatiquement désinscrite après plusieurs échecs de livraison consécutifs (appareil désinstallé ou hors ligne durablement).</li>
 <li><strong>Groupes de discussion</strong> : trois durées distinctes, toutes configurables par l'administrateur — clôture d'un groupe inactif (12 mois par défaut), suppression définitive d'un message après sa dernière activité (24 mois par défaut, un message épinglé étant exempté), et suppression intégrale d'un groupe clôturé (12 mois après sa clôture par défaut). Voir la sous-section « Module Groupes de discussion » en section 2.4 pour le détail.</li>
+<li><strong>Locations</strong> : le téléphone d'urgence d'un bien et la désignation de ses gestionnaires sont conservés tant que le bien lui-même l'est ; un bien retiré de la circulation est archivé plutôt que supprimé, pour que l'historique comptable des locations reste exploitable. Voir la sous-section « Module Locations » en section 2.4.</li>
 <li><strong>Copies locales pour la consultation hors ligne</strong> : Une copie de page enregistrée localement sur votre appareil (section 2.6) n'est plus affichée au-delà d'une durée configurable (par défaut 30 jours) — la page hors ligne générique est montrée à la place plutôt qu'un contenu obsolète. Ces copies sont également effacées intégralement à la déconnexion ou au retrait du consentement aux cookies fonctionnels.</li>
 </ul>
 
