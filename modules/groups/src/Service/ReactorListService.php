@@ -8,7 +8,6 @@ declare(strict_types=1);
 
 namespace Modules\Groups\Service;
 
-use Core\Member\MemberService;
 use Modules\Groups\Repository\ReactionRepository;
 use Modules\Groups\Support\Reactions;
 
@@ -31,7 +30,7 @@ class ReactorListService
     public function __construct(
         private ReactionRepository $postReactions,
         private ReactionRepository $replyReactions,
-        private MemberService $memberService
+        private MemberIdentityService $identityService
     ) {
     }
 
@@ -61,21 +60,35 @@ class ReactorListService
             return [];
         }
 
-        $names = $this->memberService->findDisplayNamesByMemberIds(
+        // Named the way this module names anybody — the account, then its
+        // memberships (Service\MemberIdentityService). A reaction is
+        // recorded against a member, so this is the member-keyed end of
+        // that service; the reader still sees the human.
+        $identities = $this->identityService->forMembers(
             array_map(fn(array $row) => $row['member_id'], $rows),
             $scoutYearId
         );
 
         $namesByKey = [];
+        $seenByKey = [];
         foreach ($rows as $row) {
-            // A member who has since left the unit has no display name
-            // for this scout year any more — dropped silently, the same
-            // way Service\PostAuthorResolver falls back for an author,
-            // except here there is no account name to fall back to.
-            $name = $names[$row['member_id']] ?? null;
-            if ($name !== null) {
-                $namesByKey[$row['reaction_key']][] = $name;
+            $name = MemberIdentityService::label(
+                $identities[$row['member_id']] ?? ['account_name' => '', 'member_names' => []]
+            );
+            // A member who has since left the unit, with no account
+            // either, has nothing left to name them by — dropped
+            // silently rather than shown as a blank line.
+            if ($name === '') {
+                continue;
             }
+            // One line per human: a parent whose two children both reacted
+            // with the same emoji is one person reacting, not two, and
+            // both children are already inside their own parentheses.
+            if (isset($seenByKey[$row['reaction_key']][$name])) {
+                continue;
+            }
+            $seenByKey[$row['reaction_key']][$name] = true;
+            $namesByKey[$row['reaction_key']][] = $name;
         }
 
         $grouped = [];

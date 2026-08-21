@@ -30,10 +30,7 @@
         <div class="groups-reply-bubble{% if row.is_hidden|default(false) %} groups-post-hidden{% endif %}">
             <div class="d-flex justify-content-between align-items-start gap-2">
                 <p class="mb-1 small">
-                    <span class="fw-semibold">{{ row.display_name }}</span>
-                    {% if row.account_name %}
-                        <span class="text-body-secondary">({{ row.account_name }})</span>
-                    {% endif %}
+                    {% include '@groups/partials/identity.html.twig' with { identity: row.identity } only %}
                     <span class="text-body-tertiary ms-1" style="font-size:0.7rem;">
                         {{ row.reply.createdAt|french_date }} à {{ row.reply.createdAt|date('H:i') }}
                         {% if row.reply.isEdited %}· modifié{% endif %}

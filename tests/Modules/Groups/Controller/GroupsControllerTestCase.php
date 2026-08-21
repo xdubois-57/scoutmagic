@@ -78,6 +78,21 @@ abstract class GroupsControllerTestCase extends TestCase
             $this->moderatorMemberId
         );
         $this->memberId = GroupsTestHelper::createMemberWithPeriod($this->pdo, 'MEMBER', $this->sectionId, $this->currentYearId);
+        // Nameable, because every name this module renders now resolves
+        // through Service\MemberIdentityService — the account, then its
+        // memberships. A fixture member with no member_year and no account
+        // has nothing to be named by and renders as nothing at all.
+        GroupsTestHelper::giveMemberAnAccount(
+            $this->pdo,
+            $this->memberId,
+            'marie@example.test',
+            'Marie',
+            'Dupont',
+            'Marie',
+            'Akéla',
+            $this->currentYearId,
+            self::AUTHOR_ACCOUNT
+        );
         $this->postId = GroupsTestHelper::createPostAt(
             $this->pdo,
             $this->groupId,

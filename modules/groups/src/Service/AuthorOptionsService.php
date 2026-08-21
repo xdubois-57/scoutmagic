@@ -44,6 +44,12 @@ class AuthorOptionsService
             return [];
         }
 
+        // The ONE place in this module that still names a member and not
+        // the account behind them, and deliberately: this control exists
+        // to choose BETWEEN the members of a single account, so every
+        // option would carry the same account name and the same
+        // parentheses. What distinguishes them is exactly the totem —
+        // which is why it, and not the shared human name, is the label.
         $names = $this->memberService->findDisplayNamesByMemberIds(
             $memberIds,
             $group->scoutYearId ?? $context->effectiveScoutYearId

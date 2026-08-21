@@ -68,7 +68,7 @@ class ReactionControllerTest extends GroupsControllerTestCase
                 $this->groupRepo,
                 new \Modules\Groups\Repository\ReplyRepository($this->pdo)
             ),
-            new PostAuthorResolver($memberService, $accountRepo)
+            new PostAuthorResolver(GroupsTestHelper::identityService($this->pdo))
         )['reactionService'];
 
         return new ReactionController(
@@ -83,7 +83,7 @@ class ReactionControllerTest extends GroupsControllerTestCase
             new \Modules\Groups\Service\ReactorListService(
                 ReactionRepository::forPosts($this->pdo),
                 ReactionRepository::forReplies($this->pdo),
-                $memberService
+                GroupsTestHelper::identityService($this->pdo)
             )
         );
     }

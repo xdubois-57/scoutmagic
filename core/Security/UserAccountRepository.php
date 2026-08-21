@@ -104,6 +104,72 @@ class UserAccountRepository
     }
 
     /**
+     * The email blind index of each of these accounts — the batched twin
+     * of findByBlindIndex() read the other way round, and the join key
+     * between an account and the member_years rows that share its address
+     * (Core\Import\MemberYearRepository::findMemberIdsByEmailBlindIndexes()).
+     *
+     * A blind index, never an address: nothing on this path decrypts an
+     * email, exactly as Core\Security\RoleResolver and
+     * Modules\Groups\Service\GroupRecipientResolver already avoid doing.
+     * Batched because the caller has a whole page of authors at once and
+     * one query per author is the N+1 those callers exist to avoid.
+     *
+     * @param int[] $ids
+     * @return array<int, string> account id => email blind index
+     */
+    public function findEmailBlindIndexesByIds(array $ids): array
+    {
+        $ids = array_values(array_unique(array_map('intval', $ids)));
+        if ($ids === []) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($ids), '?'));
+        $stmt = $this->pdo->prepare(
+            "SELECT id, email_blind_index FROM user_accounts WHERE id IN ({$placeholders})"
+        );
+        $stmt->execute($ids);
+
+        $indexes = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $indexes[(int) $row['id']] = (string) $row['email_blind_index'];
+        }
+
+        return $indexes;
+    }
+
+    /**
+     * The account behind each of these blind indexes — the batched twin of
+     * findByBlindIndex(), for a caller holding a set of them rather than
+     * one. Ids only: a caller that also needs the names asks
+     * findNamesByIds() for exactly the ids this returned.
+     *
+     * @param string[] $blindIndexes
+     * @return array<string, int> blind index => account id
+     */
+    public function findIdsByBlindIndexes(array $blindIndexes): array
+    {
+        $blindIndexes = array_values(array_unique(array_filter($blindIndexes, static fn(string $i): bool => $i !== '')));
+        if ($blindIndexes === []) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($blindIndexes), '?'));
+        $stmt = $this->pdo->prepare(
+            "SELECT id, email_blind_index FROM user_accounts WHERE email_blind_index IN ({$placeholders})"
+        );
+        $stmt->execute($blindIndexes);
+
+        $ids = [];
+        foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
+            $ids[(string) $row['email_blind_index']] = (int) $row['id'];
+        }
+
+        return $ids;
+    }
+
+    /**
      * Find the first super-admin account (by id), for system-generated
      * alerts that need a human to notify but have no more specific
      * recipient (e.g. a scheduled task failure — see Core\Scheduler\TaskContext).

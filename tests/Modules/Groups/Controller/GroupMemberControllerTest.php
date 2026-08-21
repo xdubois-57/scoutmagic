@@ -149,8 +149,9 @@ class GroupMemberControllerTest extends TestCase
             $access,
             $this->groupService,
             new GroupSessionContextFactory($memberService, $accountRepo, $resolver),
-            $memberService,
-            $sectionService
+            $sectionService,
+            null,
+            GroupsTestHelper::identityService($this->pdo)
         );
     }
 
@@ -246,11 +247,13 @@ class GroupMemberControllerTest extends TestCase
         $byFirstName = json_decode($controller->search($this->searchRequest('bapt'), $this->params())->getBody(), true);
         $this->assertCount(2, $byFirstName);
 
+        // The human first, the membership in parentheses — the shape every
+        // other name in this module now takes.
         $byTotem = json_decode($controller->search($this->searchRequest('baloo'), $this->params())->getBody(), true);
-        $this->assertSame([['id' => 13, 'label' => 'Baloo (Marc Dupont)']], $byTotem);
+        $this->assertSame([['id' => 13, 'label' => 'Marc Dupont (Baloo)']], $byTotem);
 
         $byLastName = json_decode($controller->search($this->searchRequest('renard'), $this->params())->getBody(), true);
-        $this->assertSame([['id' => 11, 'label' => 'Akéla (Baptiste Renard)']], $byLastName);
+        $this->assertSame([['id' => 11, 'label' => 'Baptiste Renard (Akéla)']], $byLastName);
     }
 
     public function testSearchLabelHasNoTotemParenthesisWhenThereIsNoTotem(): void

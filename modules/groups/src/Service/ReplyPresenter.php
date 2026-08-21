@@ -65,8 +65,7 @@ class ReplyPresenter
         return array_map(
             fn(Reply $reply) => [
                 'reply' => $reply,
-                'display_name' => $labels[$reply->id]['display_name'] ?? '',
-                'account_name' => $labels[$reply->id]['account_name'] ?? '',
+                'identity' => $labels[$reply->id] ?? ['account_name' => '', 'member_names' => []],
                 // A media id present on the reply but absent from the
                 // album listing (a race with a concurrent delete) renders
                 // as no image rather than breaking the whole reply.

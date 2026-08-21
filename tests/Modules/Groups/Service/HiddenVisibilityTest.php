@@ -76,7 +76,7 @@ class HiddenVisibilityTest extends TestCase
         $memberService->method('findDisplayNamesByMemberIds')->willReturn([3 => 'Akéla', 4 => 'Baloo']);
         $accountRepo = $this->createStub(UserAccountRepository::class);
         $accountRepo->method('findNamesByIds')->willReturn([7 => ['first_name' => 'Marie', 'last_name' => 'Dupont']]);
-        $authorResolver = new PostAuthorResolver($memberService, $accountRepo);
+        $authorResolver = new PostAuthorResolver(GroupsTestHelper::identityService($this->pdo));
 
         $activityService = new GroupActivityService($this->groupRepo, $this->postRepo);
         $this->postMediaService = new PostMediaService(

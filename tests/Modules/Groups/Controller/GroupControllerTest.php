@@ -182,7 +182,7 @@ class GroupControllerTest extends TestCase
             new PostMediaRepository($this->pdo), $this->groupRepo,
             new \Modules\Groups\Repository\ReplyRepository($this->pdo)
         );
-        $authorResolver = new PostAuthorResolver($this->memberService, $accountRepo);
+        $authorResolver = new PostAuthorResolver(GroupsTestHelper::identityService($this->pdo));
         $stack = GroupsTestHelper::replyStack($this->pdo, $activityService, $postMediaService, $authorResolver);
         $feedService = new GroupFeedService(
             $postRepo, $authorResolver, $postService, $postMediaService,

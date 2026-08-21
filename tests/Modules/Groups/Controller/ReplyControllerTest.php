@@ -53,7 +53,7 @@ class ReplyControllerTest extends GroupsControllerTestCase
             $this->pdo,
             new GroupActivityService($this->groupRepo, $this->postRepo),
             $postMediaService,
-            new PostAuthorResolver($memberService, $accountRepo)
+            new PostAuthorResolver(GroupsTestHelper::identityService($this->pdo))
         );
 
         return new ReplyController(
