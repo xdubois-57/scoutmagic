@@ -966,13 +966,14 @@ Modules are sorted by id, so two builds of an unchanged installation differ only
 The guards run in this order, each producing a journaled skip:
 
 1. `statistics_enabled` off — skipped **silently, with no journal entry at all**. A deliberate opt-out is not an event, and recording it daily would be a year of "nothing happened" per installation.
-2. Development mode (`auto_update_enabled` on and `auto_update_level` `'dev'`) — `dev_mode`.
-3. `base_url`'s host is not public — `localhost`, a bare IP literal (v4 or v6), a single-label name, or a `.local`/`.test`/`.localhost`/`.invalid`/`.internal` suffix — `non_public_host`. A staging clone reporting under the production installation's identity would silently corrupt the receiver's view of it.
-4. This installation **is** the receiver (`DestinationMatcher::isReceiver`) — `self_destination`.
-5. Maintenance in progress (D-02: a non-terminal `update_history` row, or a `pending`/`processing` `core` task among `install_update`, `restore_backup`, `full_reset`) — `maintenance_in_progress`. A database that cannot answer the question at all counts as "yes", which is the safe direction. There is deliberately **no** global maintenance mode: `InstallUpdateHandler` is itself a scheduled task, so a global gate would block itself.
-6. A report already succeeded under 24 h ago — `already_sent_today`.
+2. `base_url`'s host is not public — `localhost`, a bare IP literal (v4 or v6), a single-label name, or a `.local`/`.test`/`.localhost`/`.invalid`/`.internal` suffix — `non_public_host`. A staging clone reporting under the production installation's identity would silently corrupt the receiver's view of it.
+3. This installation **is** the receiver (`DestinationMatcher::isReceiver`) — `self_destination`.
+4. Maintenance in progress (D-02: a non-terminal `update_history` row, or a `pending`/`processing` `core` task among `install_update`, `restore_backup`, `full_reset`) — `maintenance_in_progress`. A database that cannot answer the question at all counts as "yes", which is the safe direction. There is deliberately **no** global maintenance mode: `InstallUpdateHandler` is itself a scheduled task, so a global gate would block itself.
+5. A report already succeeded under 24 h ago — `already_sent_today`.
 
-Only the skips that mean something is genuinely in the way (2 to 5) are surfaced on the Support page's "État des envois"; "reporting is off" and "already reported today" are the normal state of a healthy installation, and showing either as the latest problem would read as a fault.
+**There is deliberately no development-mode guard.** An installation tracking the dev channel (`auto_update_level` `'dev'`) used to be skipped outright, producing a `dev_mode` reason; it now reports like any other. Knowing what the dev channel is actually running is worth more than keeping it out of the numbers, and a build nobody reports on is exactly the one whose bug reports arrive with no idea what was installed. Nothing is hidden by reporting either: `scoutmagic.is_dev_build` and `updates.auto_update_level` are both payload fields, and the receiver buckets a dev build separately from the release of the same number (§8.50), so a dev installation shows up *as* a dev installation rather than as a release. What keeps a developer's own working copy out of the receiver was never this guard but guard 2 — a checkout lives on `localhost`, an IP, or a `.test`/`.local` name.
+
+Only the skips that mean something is genuinely in the way (2 to 4) are surfaced on the Support page's "État des envois"; "reporting is off" and "already reported today" are the normal state of a healthy installation, and showing either as the latest problem would read as a fault.
 
 A success never clears the failure settings — "it failed once, and here is why" stays worth reading — so "État des envois" says which of the two came last instead: a failure older than the most recent success is greyed and marked resolved. Without that, a `non_public_host` from three weeks ago sat under the heading looking like the site's current state, and the person least likely to notice is the one who already fixed it.
 

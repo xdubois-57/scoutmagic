@@ -118,14 +118,19 @@ class StatisticsSender
             return 'disabled';
         }
 
-        // "Development mode" is auto_update_level = 'dev' while automatic
-        // updates are on (ARCHITECTURE.md §8.17) — the chantier document
-        // named a `dev_update_enabled` setting that does not exist.
-        if ($this->settingService->get('auto_update_enabled') === '1'
-            && $this->settingService->get('auto_update_level') === 'dev'
-        ) {
-            return 'dev_mode';
-        }
+        // There is deliberately NO development-mode guard. An installation
+        // tracking the dev channel (`auto_update_level` = 'dev') reports
+        // like any other, and the report says so: `scoutmagic.is_dev_build`
+        // and `updates.auto_update_level` are both fields, and the receiver
+        // buckets a dev build separately from the release of the same
+        // number (§8.50). Knowing what the dev channel is actually running
+        // is worth more than keeping it out of the numbers, and a build
+        // nobody reports on is exactly the one whose bug reports arrive
+        // with no idea what was installed.
+        //
+        // What keeps a developer's own machine out of the receiver is the
+        // next guard, not this one: a working copy lives on localhost, an
+        // IP, or a `.test`/`.local` name, none of which is a public host.
 
         $baseUrl = (string) ($this->settingService->get('base_url') ?? '');
         if (!self::isPublicHost($baseUrl)) {

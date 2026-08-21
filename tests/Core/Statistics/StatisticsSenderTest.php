@@ -162,20 +162,53 @@ class StatisticsSenderTest extends TestCase
         $this->assertSame('', $this->settings->get(StatisticsStateSettings::LAST_FAILURE_REASON));
     }
 
-    public function testADevelopmentBuildSkips(): void
+    /**
+     * An installation on the dev channel reports like any other. It used to
+     * be skipped outright, which meant the one build most likely to break
+     * was also the one nobody had a single fact about when its bug report
+     * arrived. Nothing about the dev channel is hidden by reporting: the
+     * payload carries `scoutmagic.is_dev_build` and
+     * `updates.auto_update_level`, and the receiver buckets a dev build
+     * separately from the release of the same number (ARCHITECTURE.md
+     * §8.50).
+     */
+    public function testADevelopmentChannelInstallationReportsLikeAnyOther(): void
     {
         $this->set('auto_update_level', 'dev');
+        $this->set('auto_update_enabled', '1');
         $transport = new RecordingTransport();
 
         $result = $this->sender($transport)->send();
 
-        $this->assertTrue($result->isSkipped());
-        $this->assertSame('dev_mode', $result->reason);
-        $this->assertSame([], $transport->calls);
-        $this->assertSame('statistics_send_skipped', $this->journalEntries()[0]['type']);
+        $this->assertTrue($result->isSent());
+        $this->assertCount(1, $transport->calls);
     }
 
-    public function testDevelopmentModeIsIgnoredWhenAutomaticUpdatesAreOff(): void
+    public function testTheDevChannelIsReportedInThePayloadRatherThanHidden(): void
+    {
+        $this->set('auto_update_level', 'dev');
+        $this->set('auto_update_enabled', '1');
+        $transport = new RecordingTransport();
+
+        $this->sender($transport)->send();
+
+        $payload = json_decode($transport->calls[0]['body'], true);
+        $this->assertSame('dev', $payload['updates']['auto_update_level']);
+        $this->assertTrue($payload['updates']['auto_update_enabled']);
+    }
+
+    public function testADevBuildVersionIsReportedAsSuch(): void
+    {
+        file_put_contents($this->projectRoot . '/VERSION', "dev-abc1234\n");
+        $transport = new RecordingTransport();
+
+        $this->sender($transport)->send();
+
+        $payload = json_decode($transport->calls[0]['body'], true);
+        $this->assertTrue($payload['scoutmagic']['is_dev_build']);
+    }
+
+    public function testDevelopmentModeWithAutomaticUpdatesOffAlsoReports(): void
     {
         $this->set('auto_update_level', 'dev');
         $this->set('auto_update_enabled', '0');
@@ -184,6 +217,24 @@ class StatisticsSenderTest extends TestCase
         $result = $this->sender($transport)->send();
 
         $this->assertTrue($result->isSent());
+    }
+
+    /**
+     * The guard that actually keeps a developer's working copy out of the
+     * receiver — and the reason removing the dev-mode one costs nothing. A
+     * checkout lives on localhost, an IP, or a `.test`/`.local` name.
+     */
+    public function testADevChannelInstallationOnALocalHostIsStillSkipped(): void
+    {
+        $this->set('auto_update_level', 'dev');
+        $this->set('base_url', 'https://scoutmagic.test');
+        $transport = new RecordingTransport();
+
+        $result = $this->sender($transport)->send();
+
+        $this->assertTrue($result->isSkipped());
+        $this->assertSame('non_public_host', $result->reason);
+        $this->assertSame([], $transport->calls);
     }
 
     /**
