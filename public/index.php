@@ -2629,13 +2629,13 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
     $groupsReplyPresenter = new \Modules\Groups\Service\ReplyPresenter(
         $groupsAuthorResolver, $groupsReplyService, $groupsReactionService, $groupsReportService
     );
-    $groupsAuthorOptionsService = new \Modules\Groups\Service\AuthorOptionsService($groupsAccessService, $memberService);
+    $groupsAuthorOptionsService = new \Modules\Groups\Service\AuthorOptionsService($groupsAccessService, $memberService, $groupsIdentityService);
 
     $groupsPollService = new \Modules\Groups\Service\PollService(
         new \Modules\Groups\Repository\PollRepository($pdo)
     );
     $groupsSeenByService = new \Modules\Groups\Service\SeenByService($groupsReadStateService, $groupsIdentityService);
-    $groupsMentionService = new \Modules\Groups\Service\MentionService($groupsRecipientResolver, $memberService);
+    $groupsMentionService = new \Modules\Groups\Service\MentionService($groupsRecipientResolver, $memberService, $groupsIdentityService);
 
     // Group files are readable only by the group's own members —
     // ARCHITECTURE.md §8.3's owner_type registry, appended here so it

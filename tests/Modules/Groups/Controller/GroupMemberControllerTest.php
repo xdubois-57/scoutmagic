@@ -256,6 +256,42 @@ class GroupMemberControllerTest extends TestCase
         $this->assertSame([['id' => 11, 'label' => 'Baptiste Renard (Akéla)']], $byLastName);
     }
 
+    /**
+     * When an account DOES stand behind a candidate, the row is named
+     * like every other name in this module: the human first, and the one
+     * membership being invited in the parentheses — never every
+     * membership the account holds, or two rows of the same parent would
+     * read identically and a moderator could not tell which child they
+     * were adding.
+     *
+     * Searching still matches the membership itself ("baloo"), which is
+     * what a moderator types; only the label changes.
+     */
+    public function testACandidateWithAnAccountIsNamedByTheHumanBehindThem(): void
+    {
+        $memberId = GroupsTestHelper::createMember($this->pdo, 'CHILD');
+        GroupsTestHelper::giveMemberAnAccount(
+            $this->pdo,
+            $memberId,
+            'sophie@example.test',
+            'Sophie',
+            'Martin',
+            'Marc',
+            'Baloo',
+            $this->currentYearId
+        );
+
+        $profiles = [$this->candidateProfile($memberId, 'Marc', 'Martin', 'Baloo')];
+
+        $body = json_decode(
+            $this->controller([$this->moderatorId], 'identified', null, $profiles)
+                ->search($this->searchRequest('baloo'), $this->params())->getBody(),
+            true
+        );
+
+        $this->assertSame([['id' => $memberId, 'label' => 'Sophie Martin (Baloo)']], $body);
+    }
+
     public function testSearchLabelHasNoTotemParenthesisWhenThereIsNoTotem(): void
     {
         $profiles = [$this->candidateProfile(12, 'Céline', 'Baptiste', null)];

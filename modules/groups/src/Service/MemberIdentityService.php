@@ -181,6 +181,75 @@ class MemberIdentityService
     }
 
     /**
+     * The account behind each of these memberships, named account-first
+     * but with the parentheses narrowed to THAT membership alone:
+     *
+     *     Marie Dupont (Akéla)
+     *
+     * For the two surfaces where the membership is what is being picked
+     * rather than who is speaking — "Publier en tant que" and the
+     * invite-candidate search. forMembers() would put every membership
+     * the account carries in the parentheses, which is right when naming
+     * an author (a parent is one human with three children) and wrong
+     * here: three options reading "Marie Dupont (Akéla, Baloo, Chil)"
+     * are three identical options, and a chooser that cannot tell its
+     * choices apart is not a chooser.
+     *
+     * Returns an EMPTY string for a membership with no account behind it,
+     * or whose account has no name of its own — deliberately, rather than
+     * a fallback of this class's choosing. There is no human name to put
+     * in front of those, and each caller's own fallback is better than a
+     * shared guess: the author selector wants the totem it already has,
+     * the invite search wants the full name it is searching by.
+     *
+     * @param int[] $memberIds
+     * @return array<int, string> member id => label, '' when no named account
+     */
+    public function accountLabelForMembers(array $memberIds, int $scoutYearId): array
+    {
+        $memberIds = array_values(array_unique(array_filter(
+            array_map('intval', $memberIds),
+            static fn(int $id): bool => $id > 0
+        )));
+        if ($memberIds === []) {
+            return [];
+        }
+
+        // The same blind-index join as forMembers(), read for the
+        // account's OWN name rather than through forAccounts() — whose
+        // no-name fallback (the memberships become the name) would make
+        // this render "Akéla, Baloo (Akéla)".
+        $blindIndexes = $this->memberYearRepository->findMostRecentEmailBlindIndexesForMembers($memberIds);
+        $accountIds = $this->userAccountRepository->findIdsByBlindIndexes(array_values($blindIndexes));
+        $accountNames = $this->userAccountRepository->findNamesByIds(array_values($accountIds));
+        $ownNames = $this->memberService->findDisplayNamesByMemberIds($memberIds, $scoutYearId);
+
+        $labels = [];
+        foreach ($memberIds as $memberId) {
+            $accountId = $accountIds[$blindIndexes[$memberId] ?? ''] ?? null;
+            $account = $accountId !== null ? ($accountNames[$accountId] ?? null) : null;
+            $accountName = $account !== null
+                ? trim(($account['first_name'] ?? '') . ' ' . ($account['last_name'] ?? ''))
+                : '';
+
+            if ($accountName === '') {
+                $labels[$memberId] = '';
+                continue;
+            }
+
+            // An account named exactly like the membership it is being
+            // shown next to says it twice; once is enough.
+            $ownName = $ownNames[$memberId] ?? '';
+            $labels[$memberId] = self::label([
+                'account_name' => $accountName,
+                'member_names' => ($ownName === '' || $ownName === $accountName) ? [] : [$ownName],
+            ]);
+        }
+
+        return $labels;
+    }
+
+    /**
      * The identity as one line — for the few places that can only carry a
      * string (a <select>'s option, a joined list). Everywhere with room
      * for markup renders partials/identity.html.twig instead, so the two

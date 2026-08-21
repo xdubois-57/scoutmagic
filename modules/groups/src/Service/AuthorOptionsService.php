@@ -30,7 +30,8 @@ class AuthorOptionsService
 {
     public function __construct(
         private GroupAccessService $accessService,
-        private MemberService $memberService
+        private MemberService $memberService,
+        private ?MemberIdentityService $identityService = null
     ) {
     }
 
@@ -44,19 +45,33 @@ class AuthorOptionsService
             return [];
         }
 
-        // The ONE place in this module that still names a member and not
-        // the account behind them, and deliberately: this control exists
-        // to choose BETWEEN the members of a single account, so every
-        // option would carry the same account name and the same
-        // parentheses. What distinguishes them is exactly the totem —
-        // which is why it, and not the shared human name, is the label.
-        $names = $this->memberService->findDisplayNamesByMemberIds(
-            $memberIds,
-            $group->scoutYearId ?? $context->effectiveScoutYearId
-        );
+        $scoutYearId = $group->scoutYearId ?? $context->effectiveScoutYearId;
+
+        // Account first, like everywhere else in this module — but with
+        // the parentheses narrowed to the one membership each option
+        // stands for (MemberIdentityService::accountLabelForMembers()).
+        // The full identity would render all three options of a parent
+        // with three children as the same string, and this control's
+        // whole job is telling them apart:
+        //
+        //     Marie Dupont (Akéla)
+        //     Marie Dupont (Baloo)
+        //
+        // The repeated human name is the point rather than noise: it is
+        // what the message will be signed with, so the selector shows the
+        // signature it is choosing between and not a fragment of it.
+        $names = $this->memberService->findDisplayNamesByMemberIds($memberIds, $scoutYearId);
+        $accountLabels = $this->identityService?->accountLabelForMembers($memberIds, $scoutYearId) ?? [];
 
         return array_map(
-            fn(int $memberId) => ['id' => $memberId, 'name' => $names[$memberId] ?? ('Membre #' . $memberId)],
+            fn(int $memberId) => [
+                'id' => $memberId,
+                // No named account behind this membership leaves the
+                // totem standing alone, which is all there is to say.
+                'name' => ($accountLabels[$memberId] ?? '') !== ''
+                    ? $accountLabels[$memberId]
+                    : ($names[$memberId] ?? ('Membre #' . $memberId)),
+            ],
             $memberIds
         );
     }

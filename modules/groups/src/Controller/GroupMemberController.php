@@ -142,10 +142,13 @@ class GroupMemberController extends AbstractController
             fn(MemberProfile $p) => $this->matchesQuery($p, $query)
         ));
 
+        $shown = array_slice($matches, 0, 10);
+        $accountLabels = $this->accountLabels($shown, $scoutYearId);
+
         return $this->json(array_map(fn(MemberProfile $p) => [
             'id' => $p->memberId,
-            'label' => $this->searchLabel($p),
-        ], array_slice($matches, 0, 10)));
+            'label' => $this->searchLabel($p, $accountLabels[$p->memberId] ?? ''),
+        ], $shown));
     }
 
     /**
@@ -361,6 +364,7 @@ class GroupMemberController extends AbstractController
             ));
 
             if ($candidates !== []) {
+                $accountLabels = $this->accountLabels($candidates, $scoutYearId);
                 $sectionLabel = (string) ($section['name'] ?? '');
                 $groups[] = [
                     'section' => $sectionLabel !== '' ? $sectionLabel : (string) $section['desk_code'],
@@ -369,7 +373,7 @@ class GroupMemberController extends AbstractController
                     // can never word the same person differently.
                     'members' => array_map(fn(MemberProfile $p) => [
                         'id' => $p->memberId,
-                        'label' => $this->searchLabel($p),
+                        'label' => $this->searchLabel($p, $accountLabels[$p->memberId] ?? ''),
                     ], $candidates),
                 ];
             }
@@ -432,20 +436,45 @@ class GroupMemberController extends AbstractController
     }
 
     /**
-     * "Marie Dupont (Akéla)" when there is a totem, the plain name
-     * otherwise — the human first, the membership in parentheses, which
-     * is the shape Service\MemberIdentityService gives every other name
-     * in this module.
+     * The account behind each of these candidates, named account-first,
+     * in one lookup for the whole list rather than one per row.
      *
-     * Built from the MEMBER's own first/last name rather than through
-     * that service, and that is the right source here: an invite
-     * candidate is somebody who is not in the group yet and very often
-     * has no account at all (most animés never do), so there would be
-     * nothing for it to resolve. The name on their membership is the
-     * human's name either way.
+     * @param MemberProfile[] $profiles
+     * @return array<int, string> member id => label, '' when no named account
      */
-    private function searchLabel(MemberProfile $profile): string
+    private function accountLabels(array $profiles, int $scoutYearId): array
     {
+        return $this->identityService?->accountLabelForMembers(
+            array_map(fn(MemberProfile $p) => $p->memberId, $profiles),
+            $scoutYearId
+        ) ?? [];
+    }
+
+    /**
+     * "Marie Dupont (Akéla)" — the human first, the membership in
+     * parentheses, the shape Service\MemberIdentityService gives every
+     * other name in this module.
+     *
+     * Resolved through that service when an account stands behind the
+     * membership, and from the membership itself when none does — see
+     * the two branches below.
+     */
+    private function searchLabel(MemberProfile $profile, string $accountLabel = ''): string
+    {
+        // Account first, like everywhere else in this module. Narrowed to
+        // this one membership rather than all of them: the moderator is
+        // picking a membership to invite, and "Marie Dupont (Akéla,
+        // Baloo)" on two separate rows would not say which is which.
+        if ($accountLabel !== '') {
+            return $accountLabel;
+        }
+
+        // No account behind them — which is the normal case here, since a
+        // candidate is by definition somebody not in the group yet and
+        // most animés never have one. Their own full name and totem is
+        // the whole answer, and a richer one than a bare totem: this is a
+        // search box, and a surname is what a moderator types into it.
+
         $fullName = trim($profile->firstName . ' ' . $profile->lastName);
         $totem = $profile->totem !== null && $profile->totem !== '' ? $profile->totem : null;
 

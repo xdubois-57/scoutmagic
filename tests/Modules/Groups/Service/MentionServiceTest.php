@@ -8,13 +8,19 @@ use Core\Member\MemberService;
 use Modules\Groups\Repository\DiscussionGroup;
 use Modules\Groups\Service\GroupRecipientResolver;
 use Modules\Groups\Service\MentionService;
+use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
+use Tests\DatabaseTestHelper;
+use Tests\Modules\Groups\GroupsTestHelper;
 
 /**
- * "@Akéla" turned into the member it names — resolved from the stored
- * body against the group's own membership, never from anything a client
- * sent.
+ * "@Marie Dupont" turned into the people it names — resolved from the
+ * stored body against the group's own membership, never from anything a
+ * client sent.
+ *
+ * @group database
  */
+#[Group('database')]
 class MentionServiceTest extends TestCase
 {
     private DiscussionGroup $group;
@@ -136,7 +142,7 @@ class MentionServiceTest extends TestCase
         $service = $this->service([4, 5], [4 => 'Marie Dupont', 5 => 'Baloo']);
 
         $this->assertSame(
-            [['id' => 4, 'label' => 'Marie Dupont']],
+            [['id' => 4, 'label' => 'Marie Dupont', 'mention' => 'Marie Dupont']],
             $service->suggest($this->group, 'dup', 7)
         );
     }
@@ -157,5 +163,172 @@ class MentionServiceTest extends TestCase
         $service = $this->service(array_keys($names), $names);
 
         $this->assertCount(3, $service->suggest($this->group, 'Membre', 7, 3));
+    }
+
+    // ---- Named by the account, like every other name in this module ----
+    //
+    // The identity service here is the REAL one, over real user_accounts
+    // and member_years rows joined by the same blind index production
+    // uses. The mocked service() above keeps exercising the path for a
+    // group whose members have no account at all — still the common case.
+
+    /**
+     * @param array<int, array{first_name: string, totem?: string}> $members
+     * @return array{service: MentionService, member_ids: int[], pdo: \PDO}
+     */
+    private function accountBackedService(array $seeds): array
+    {
+        $pdo = DatabaseTestHelper::createTestDatabase();
+        GroupsTestHelper::createTables($pdo);
+
+        $memberIds = [];
+        foreach ($seeds as $seed) {
+            $seeded = GroupsTestHelper::seedAccountWithMembers(
+                $pdo,
+                $seed['email'],
+                $seed['first_name'],
+                $seed['last_name'],
+                $seed['members']
+            );
+            $memberIds = array_merge($memberIds, $seeded['member_ids']);
+        }
+
+        $resolver = $this->createMock(GroupRecipientResolver::class);
+        $resolver->method('memberIdsFor')->willReturn($memberIds);
+
+        $encryption = GroupsTestHelper::testEncryption();
+        $memberService = new MemberService(
+            new \Core\Import\MemberYearRepository($pdo),
+            $encryption,
+            \Core\Database\Connection::withPdo($pdo)
+        );
+
+        return [
+            'service' => new MentionService($resolver, $memberService, GroupsTestHelper::identityService($pdo)),
+            'member_ids' => $memberIds,
+            'pdo' => $pdo,
+        ];
+    }
+
+    /**
+     * A group with no year of its own (an invitation group), so the
+     * effective year passed in is the one that counts — the seeded rows
+     * live in year 1. setUp()'s group is pinned to year 7 and would send
+     * the membership lookup to a year nothing was seeded in.
+     */
+    private function yearlessGroup(): DiscussionGroup
+    {
+        return new DiscussionGroup(
+            1, 'Louveteaux', null, 3, null, '2026-01-01 10:00:00', 1, '2026-01-01 09:00:00'
+        );
+    }
+
+    public function testAnAtNamesTheHumanNotTheTotem(): void
+    {
+        $built = $this->accountBackedService([[
+            'email' => 'marie@example.test',
+            'first_name' => 'Marie',
+            'last_name' => 'Dupont',
+            'members' => [['first_name' => 'Léa', 'totem' => 'Akéla']],
+        ]]);
+
+        $this->assertSame(
+            $built['member_ids'],
+            $built['service']->resolve($this->yearlessGroup(), 'Merci @Marie Dupont pour hier', 1)
+        );
+    }
+
+    /**
+     * Mentioning a parent of two reaches the parent — once — without the
+     * writer having to know which of the two totems to type. Both
+     * memberships come back because both are hers; the notification layer
+     * collapses them onto her one account.
+     */
+    public function testMentioningAParentReachesEveryMembershipTheyHold(): void
+    {
+        $built = $this->accountBackedService([[
+            'email' => 'marie@example.test',
+            'first_name' => 'Marie',
+            'last_name' => 'Dupont',
+            'members' => [['first_name' => 'Léa', 'totem' => 'Akéla'], ['first_name' => 'Tom', 'totem' => 'Baloo']],
+        ]]);
+
+        $found = $built['service']->resolve($this->yearlessGroup(), '@Marie Dupont tu viens ?', 1);
+
+        sort($found);
+        $expected = $built['member_ids'];
+        sort($expected);
+        $this->assertSame($expected, $found);
+    }
+
+    /**
+     * The autocomplete SHOWS the memberships so two people can be told
+     * apart, and INSERTS the account's name alone — nobody wants
+     * "@Marie Dupont (Akéla, Baloo)" in the middle of a sentence, and
+     * resolve() reads the short form back out of the stored body.
+     */
+    public function testTheAutocompleteShowsTheMembershipsAndInsertsTheAccountName(): void
+    {
+        $built = $this->accountBackedService([[
+            'email' => 'marie@example.test',
+            'first_name' => 'Marie',
+            'last_name' => 'Dupont',
+            'members' => [['first_name' => 'Léa', 'totem' => 'Akéla'], ['first_name' => 'Tom', 'totem' => 'Baloo']],
+        ]]);
+
+        $rows = $built['service']->suggest($this->yearlessGroup(), 'dupont', 1);
+
+        // ONE row for one human, not one per child.
+        $this->assertCount(1, $rows);
+        $this->assertSame('Marie Dupont (Akéla, Baloo)', $rows[0]['label']);
+        $this->assertSame('Marie Dupont', $rows[0]['mention']);
+    }
+
+    /**
+     * Typing the totem still finds the parent behind it: the memberships
+     * are part of the rendered name, so the search matches them too.
+     */
+    public function testTheAutocompleteStillFindsSomebodyByTheirTotem(): void
+    {
+        $built = $this->accountBackedService([[
+            'email' => 'marie@example.test',
+            'first_name' => 'Marie',
+            'last_name' => 'Dupont',
+            'members' => [['first_name' => 'Léa', 'totem' => 'Akéla']],
+        ]]);
+
+        $rows = $built['service']->suggest($this->yearlessGroup(), 'akél', 1);
+
+        $this->assertCount(1, $rows);
+        $this->assertSame('Marie Dupont (Akéla)', $rows[0]['label']);
+        $this->assertSame('Marie Dupont', $rows[0]['mention']);
+    }
+
+    /**
+     * The cap counts PEOPLE, not memberships — otherwise one parent of
+     * three would spend three of the ten a message is allowed.
+     */
+    public function testTheCapCountsPeopleAndNotMemberships(): void
+    {
+        $seeds = [];
+        for ($i = 1; $i <= MentionService::MAX_PER_MESSAGE + 2; $i++) {
+            $seeds[] = [
+                'email' => 'parent' . $i . '@example.test',
+                'first_name' => 'Parent',
+                'last_name' => 'Numero' . $i,
+                'members' => [['first_name' => 'A' . $i], ['first_name' => 'B' . $i]],
+            ];
+        }
+        $built = $this->accountBackedService($seeds);
+
+        $body = '';
+        for ($i = 1; $i <= MentionService::MAX_PER_MESSAGE + 2; $i++) {
+            $body .= '@Parent Numero' . $i . ' ';
+        }
+
+        $found = $built['service']->resolve($this->yearlessGroup(), $body, 1);
+
+        // Ten humans named, two memberships each.
+        $this->assertCount(MentionService::MAX_PER_MESSAGE * 2, $found);
     }
 }

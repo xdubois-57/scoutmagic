@@ -12,7 +12,7 @@ use Core\Member\MemberService;
 use Modules\Groups\Repository\DiscussionGroup;
 
 /**
- * "@Akéla" in a message, turned into the member it names.
+ * "@Marie Dupont" in a message, turned into the people it names.
  *
  * Resolved from the STORED body, server-side, every time — never from a
  * list of ids the client sent alongside it. The composer's autocomplete
@@ -41,8 +41,66 @@ class MentionService
 
     public function __construct(
         private GroupRecipientResolver $recipientResolver,
-        private MemberService $memberService
+        private MemberService $memberService,
+        private ?MemberIdentityService $identityService = null
     ) {
+    }
+
+    /**
+     * What an "@" names: the HUMAN, by the account's own name, the way
+     * every other name in this module is written
+     * (Service\MemberIdentityService).
+     *
+     * "@Marie Dupont" rather than "@Akéla", and one entry per human
+     * rather than one per membership — mentioning a parent of three no
+     * longer means knowing which of the three totems to type, and the
+     * notification goes to the same account either way
+     * (GroupNotificationService::mentioned() already collapses an account
+     * linked to several mentioned members into one).
+     *
+     * Only the account's OWN name is the token, never the parenthesised
+     * memberships: those are shown in the autocomplete so the reader can
+     * tell two people apart, but "@Marie Dupont (Akéla, Baloo)" in the
+     * middle of a sentence is not a thing anybody would type or want to
+     * read back.
+     *
+     * A member with no account keeps their own display name as the token,
+     * exactly as before. Two accounts sharing a name in one group resolve
+     * together — the same collision two identical totems have always had,
+     * and erring towards notifying both.
+     *
+     * @param int[] $memberIds
+     * @return array<string, array{member_ids: int[], label: string}> token => the humans behind it
+     */
+    private function humansFor(array $memberIds, int $scoutYearId): array
+    {
+        $identities = $this->identityService?->forMembers($memberIds, $scoutYearId);
+        if ($identities === null) {
+            // Constructed without the identity service (narrow unit
+            // tests only — public/index.php always passes it): the old
+            // membership-by-membership behaviour, unchanged.
+            $humans = [];
+            foreach ($this->memberService->findDisplayNamesByMemberIds($memberIds, $scoutYearId) as $memberId => $name) {
+                $humans[$name] = ['member_ids' => [(int) $memberId], 'label' => $name];
+            }
+
+            return $humans;
+        }
+
+        $humans = [];
+        foreach ($identities as $memberId => $identity) {
+            $token = $identity['account_name'];
+            if ($token === '') {
+                continue;
+            }
+
+            if (!isset($humans[$token])) {
+                $humans[$token] = ['member_ids' => [], 'label' => MemberIdentityService::label($identity)];
+            }
+            $humans[$token]['member_ids'][] = (int) $memberId;
+        }
+
+        return $humans;
     }
 
     /**
@@ -67,27 +125,33 @@ class MentionService
             return [];
         }
 
-        $scoutYearId = $group->scoutYearId ?? $effectiveScoutYearId;
-        $names = $this->memberService->findDisplayNamesByMemberIds($memberIds, $scoutYearId);
+        $humans = $this->humansFor($memberIds, $group->scoutYearId ?? $effectiveScoutYearId);
 
         // Longest first so a name that contains another is claimed whole.
-        uasort($names, static fn(string $a, string $b) => mb_strlen($b) <=> mb_strlen($a));
+        uksort($humans, static fn(string $a, string $b) => mb_strlen($b) <=> mb_strlen($a));
 
         $remaining = $body;
         $found = [];
-        foreach ($names as $memberId => $name) {
-            $needle = '@' . $name;
-            $at = mb_stripos($remaining, $needle);
-            if ($at === false) {
+        $named = 0;
+        foreach ($humans as $token => $human) {
+            $needle = '@' . $token;
+            if (mb_stripos($remaining, $needle) === false) {
                 continue;
             }
 
-            $found[] = (int) $memberId;
+            // Every membership that human holds in this group. They are
+            // one person, so this is one mention — the cap counts people,
+            // not rows, and a parent of three does not eat three of them.
+            foreach ($human['member_ids'] as $memberId) {
+                $found[] = $memberId;
+            }
+            $named++;
+
             // Blank out every occurrence of this name so a shorter name
             // nested inside it cannot match the same characters again.
             $remaining = str_ireplace($needle, str_repeat(' ', mb_strlen($needle)), $remaining);
 
-            if (count($found) >= self::MAX_PER_MESSAGE) {
+            if ($named >= self::MAX_PER_MESSAGE) {
                 break;
             }
         }
@@ -99,11 +163,20 @@ class MentionService
      * The group's members matching what is being typed after an "@" —
      * the composer's autocomplete, capped at a handful of rows.
      *
-     * Matched on any word of the display name, not only its start, so
+     * Matched anywhere in the rendered name, not only at its start, so
      * "@dup" finds "Marie Dupont" the way somebody reaching for a surname
-     * expects.
+     * expects — and, since the memberships are part of that name now,
+     * "@akela" still finds the parent behind Akéla.
      *
-     * @return array<int, array{id: int, label: string}>
+     * `label` is what the reader sees: the account, then its memberships,
+     * which is what tells two people apart. `mention` is what gets
+     * written into the message when the row is picked, and is the
+     * account's name alone — resolve() reads exactly that back out of the
+     * stored body. `id` is one of the memberships behind the row, carried
+     * for callers that want it; nothing trusts it, since a mention is
+     * always re-resolved server-side from the text.
+     *
+     * @return array<int, array{id: int, label: string, mention: string}>
      */
     public function suggest(DiscussionGroup $group, string $query, int $effectiveScoutYearId, int $limit = 8): array
     {
@@ -117,16 +190,19 @@ class MentionService
             return [];
         }
 
-        $names = $this->memberService->findDisplayNamesByMemberIds(
-            $memberIds,
-            $group->scoutYearId ?? $effectiveScoutYearId
-        );
+        $humans = $this->humansFor($memberIds, $group->scoutYearId ?? $effectiveScoutYearId);
 
         $matches = [];
-        foreach ($names as $memberId => $name) {
-            if (mb_stripos($name, $query) !== false) {
-                $matches[] = ['id' => (int) $memberId, 'label' => $name];
+        foreach ($humans as $token => $human) {
+            if (mb_stripos($human['label'], $query) === false) {
+                continue;
             }
+
+            $matches[] = [
+                'id' => $human['member_ids'][0],
+                'label' => $human['label'],
+                'mention' => $token,
+            ];
         }
 
         usort($matches, static fn(array $a, array $b) => strcoll($a['label'], $b['label']));
