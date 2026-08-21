@@ -59,7 +59,7 @@ class CalendarPublicControllerTest extends TestCase
         $this->encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $connection = Connection::withPdo($this->pdo);
 
-        $this->calendarRepository = new CalendarRepository($this->pdo);
+        $this->calendarRepository = new CalendarRepository($this->pdo, new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32)));
         $this->eventRepository = new CalendarEventRepository($this->pdo);
         $memberBadgeRepository = new MemberBadgeRepository($this->pdo);
         $sectionService = new SectionService($connection, $this->encryption, $memberBadgeRepository);
@@ -67,7 +67,7 @@ class CalendarPublicControllerTest extends TestCase
             $this->calendarRepository,
             $this->eventRepository,
             $sectionService,
-            new CalendarUnitFeedTokenRepository($this->pdo)
+            new CalendarUnitFeedTokenRepository($this->pdo, new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32)))
         );
 
         $memberYearRepo = new MemberYearRepository($this->pdo);
@@ -75,7 +75,7 @@ class CalendarPublicControllerTest extends TestCase
         $memberService = new MemberService($memberYearRepo, $this->encryption, $connection);
         $userAccountRepository = new UserAccountRepository($this->pdo, $this->encryption);
         $this->personalFeedService = new PersonalFeedService(
-            new CalendarPersonalTokenRepository($this->pdo),
+            new CalendarPersonalTokenRepository($this->pdo, new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32))),
             $this->calendarService,
             $this->eventRepository,
             $roleResolver,

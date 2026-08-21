@@ -41,14 +41,14 @@ class CalendarEventServiceTest extends TestCase
         $this->pdo = DatabaseTestHelper::createTestDatabase();
         CalendarTestHelper::createTables($this->pdo);
 
-        $calendarRepository = new CalendarRepository($this->pdo);
+        $calendarRepository = new CalendarRepository($this->pdo, new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32)));
         $eventRepository = new CalendarEventRepository($this->pdo);
         $sectionService = new SectionService(
             Connection::withPdo($this->pdo),
             new EncryptionService(str_repeat('a', 32), str_repeat('b', 32)),
             new MemberBadgeRepository($this->pdo)
         );
-        $this->calendarService = new CalendarService($calendarRepository, $eventRepository, $sectionService, new CalendarUnitFeedTokenRepository($this->pdo));
+        $this->calendarService = new CalendarService($calendarRepository, $eventRepository, $sectionService, new CalendarUnitFeedTokenRepository($this->pdo, new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32))));
         $settingService = new SettingService(new SettingRepository($this->pdo));
         $settingService->register('notify_multiday_events_enabled', '0', 'boolean', 'Rappels', 'desc', 'calendar');
         $settingService->register('notify_multiday_events_days_before', '14', 'text', 'Délai', 'desc', 'calendar');
@@ -159,7 +159,7 @@ class CalendarEventServiceTest extends TestCase
 
     private function createAdminOnlyCalendar(): int
     {
-        return (new CalendarRepository($this->pdo))
+        return (new CalendarRepository($this->pdo, new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32))))
             ->createSupplementaryCalendar('Direction', false, Calendar::VISIBILITY_ADMIN, 'tok-admin');
     }
 

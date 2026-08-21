@@ -169,7 +169,7 @@ class PasswordAuthMethodTest extends TestCase
         $hash = password_hash('RealPassword', PASSWORD_DEFAULT);
         $this->userRepo->updatePasswordHash($account->id, $hash);
 
-        $blindIndex = $this->encryption->blindIndex('locked@example.com');
+        $blindIndex = $this->encryption->blindIndex('locked@example.com', 'email');
 
         // Insert 5 failures directly
         $now = (new \DateTimeImmutable())->format('Y-m-d H:i:s');
@@ -193,7 +193,7 @@ class PasswordAuthMethodTest extends TestCase
         $hash = password_hash('MyPassword', PASSWORD_DEFAULT);
         $this->userRepo->updatePasswordHash($account->id, $hash);
 
-        $blindIndex = $this->encryption->blindIndex('recover@example.com');
+        $blindIndex = $this->encryption->blindIndex('recover@example.com', 'email');
 
         // Insert 3 failures (under threshold)
         $now = (new \DateTimeImmutable())->format('Y-m-d H:i:s');

@@ -12,6 +12,7 @@ use Core\Cookie\CookieConsentService;
 use Core\Http\FlashMessage;
 use Core\Http\Request;
 use Core\Http\Response;
+use Core\Member\TemporaryMemberSession;
 use Core\ScoutYear\ScoutYearResolver;
 use Core\ScoutYear\ScoutYearSession;
 use Core\Security\AuthService;
@@ -352,6 +353,7 @@ class AuthController extends AbstractController
         AuthSession::logout();
         PendingMagicLink::forget();
         ScoutYearSession::clear();
+        TemporaryMemberSession::clear();
         FlashMessage::set('success', 'Vous avez été déconnecté.');
 
         return $this->redirect('/');

@@ -272,6 +272,69 @@ class GroupNotificationServiceTest extends TestCase
         $this->assertSame('/groups/' . $this->groupId . '/posts/' . $post->id, $row['url']);
     }
 
+    // ---- type 5: a mention ----
+
+    public function testAMentionNotifiesEachNamedMemberWithTheMessageText(): void
+    {
+        $post = $this->post('Peux-tu apporter les tentes @Akéla ?');
+
+        $this->service([['userAccountId' => 55, 'memberId' => 9]])
+            ->mentioned($this->group(), $post->id, [9], $post->body, false, self::ACTOR_ACCOUNT, 1);
+
+        $rows = $this->rows();
+        $this->assertCount(1, $rows);
+        $this->assertSame('groups.mentioned', $rows[0]['type_id']);
+        $this->assertSame(55, $rows[0]['user_account_id']);
+        $this->assertSame('Vous êtes cité — Louveteaux', $rows[0]['title']);
+        $this->assertSame('Peux-tu apporter les tentes @Akéla ?', $rows[0]['body']);
+        $this->assertSame('/groups/' . $this->groupId . '/posts/' . $post->id, $rows[0]['url']);
+    }
+
+    public function testAMessageNamingNobodyNotifiesNobody(): void
+    {
+        $post = $this->post('Rendez-vous samedi');
+
+        $this->service([['userAccountId' => 55, 'memberId' => 9]])
+            ->mentioned($this->group(), $post->id, [], $post->body, false, self::ACTOR_ACCOUNT, 1);
+
+        $this->assertSame([], $this->rows());
+    }
+
+    /**
+     * Membership is re-checked at dispatch, exactly as it is for every
+     * other audience here: a name that resolved when the message was
+     * written must not notify somebody who has since left the group — the
+     * deep link would 404 for them.
+     */
+    public function testAMentionOfSomebodyNoLongerInTheGroupSendsNothing(): void
+    {
+        $post = $this->post('Merci @Akéla');
+        // A stub of its own rather than resolverReturning(): that helper
+        // already answers isCurrentMember() with true, and a second
+        // willReturn() on the same method does not replace the first.
+        $resolver = $this->createStub(GroupRecipientResolver::class);
+        $resolver->method('isCurrentMember')->willReturn(false);
+
+        $this->serviceWith($resolver)
+            ->mentioned($this->group(), $post->id, [9], $post->body, false, self::ACTOR_ACCOUNT, 1);
+
+        $this->assertSame([], $this->rows());
+    }
+
+    /**
+     * Same rule as every other payload in this class: a hidden item's
+     * text never reaches a lock screen, whoever it named.
+     */
+    public function testAMentionInAHiddenItemCarriesNoText(): void
+    {
+        $post = $this->post('propos masqués @Akéla', hidden: true);
+
+        $this->service([['userAccountId' => 55, 'memberId' => 9]])
+            ->mentioned($this->group(), $post->id, [9], $post->body, true, self::ACTOR_ACCOUNT, 1);
+
+        $this->assertSame('Ce contenu a été masqué.', $this->rows()[0]['body']);
+    }
+
     // ---- type 4: a report ----
 
     /**
@@ -561,8 +624,8 @@ class GroupNotificationServiceTest extends TestCase
         return array_map(fn(array $row): array => [
             'user_account_id' => (int) $row['user_account_id'],
             'type_id' => (string) $row['type_id'],
-            'title' => $this->encryption->decrypt($row['title']),
-            'body' => $this->encryption->decrypt($row['body']),
+            'title' => $this->encryption->decrypt($row['title'], 'notifications.title'),
+            'body' => $this->encryption->decrypt($row['body'], 'notifications.body'),
             'url' => $row['url'],
         ], $rows);
     }

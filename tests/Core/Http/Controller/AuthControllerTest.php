@@ -303,6 +303,19 @@ class AuthControllerTest extends TestCase
         $this->assertFalse(PendingMagicLink::matches(7));
     }
 
+    public function testLogoutClearsTheTemporaryMember(): void
+    {
+        $this->startTestSession();
+        AuthSession::login(1, 'user@test.com', 'admin');
+        \Core\Member\TemporaryMemberSession::set(42);
+        $token = CsrfGuard::generateToken();
+
+        $request = new Request('POST', '/logout', [], ['_csrf_token' => $token], [], []);
+        $this->controller->logout($request, []);
+
+        $this->assertNull(\Core\Member\TemporaryMemberSession::get());
+    }
+
     private function startTestSession(): void
     {
         if (session_status() !== PHP_SESSION_ACTIVE) {

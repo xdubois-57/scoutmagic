@@ -97,7 +97,7 @@ class MemberExportRowBuilderTest extends TestCase
         $memberYearId = $this->insertMemberYear($memberId, 'Alice', 'primary@example.com', '024651234', '0470123456');
         $this->attachFunction($memberYearId, $sectionId, 'identified');
         $stmt = $this->pdo->prepare("INSERT INTO member_emails (member_id, email_encrypted, email_blind_index, source, status) VALUES (?, ?, ?, 'manual', 'valid')");
-        $stmt->execute([$memberId, $this->encryption->encrypt('secondary@example.com'), $this->encryption->blindIndex('secondary@example.com')]);
+        $stmt->execute([$memberId, $this->encryption->encrypt('secondary@example.com', 'member_emails.email'), $this->encryption->blindIndex('secondary@example.com', 'email')]);
 
         $rows = $this->builder->buildForSections([$sectionId], $this->scoutYearId);
         $row = $rows[0];
@@ -150,11 +150,11 @@ class MemberExportRowBuilderTest extends TestCase
         );
         $stmt->execute([
             $memberYearId, 'main',
-            $this->encryption->encrypt('Rue de la Station'),
-            $this->encryption->encrypt('12'),
-            $this->encryption->encrypt('1000'),
-            $this->encryption->encrypt('Bruxelles'),
-            $this->encryption->encrypt('Belgique'),
+            $this->encryption->encrypt('Rue de la Station', 'member_addresses.street'),
+            $this->encryption->encrypt('12', 'member_addresses.number'),
+            $this->encryption->encrypt('1000', 'member_addresses.postal_code'),
+            $this->encryption->encrypt('Bruxelles', 'member_addresses.city'),
+            $this->encryption->encrypt('Belgique', 'member_addresses.country'),
         ]);
 
         $rows = $this->builder->buildForSections([$sectionId], $this->scoutYearId);
@@ -191,12 +191,12 @@ class MemberExportRowBuilderTest extends TestCase
         );
         $stmt->execute([
             $memberId, $this->scoutYearId,
-            $this->encryption->encrypt($firstName),
-            $this->encryption->encrypt('Dupont'),
-            $email !== null ? $this->encryption->encrypt($email) : null,
-            $email !== null ? $this->encryption->blindIndex($email) : null,
-            $phone !== null ? $this->encryption->encrypt($phone) : null,
-            $mobile !== null ? $this->encryption->encrypt($mobile) : null,
+            $this->encryption->encrypt($firstName, 'member_years.first_name'),
+            $this->encryption->encrypt('Dupont', 'member_years.last_name'),
+            $email !== null ? $this->encryption->encrypt($email, 'member_years.email') : null,
+            $email !== null ? $this->encryption->blindIndex($email, 'email') : null,
+            $phone !== null ? $this->encryption->encrypt($phone, 'member_years.phone') : null,
+            $mobile !== null ? $this->encryption->encrypt($mobile, 'member_years.mobile') : null,
         ]);
         return (int) $this->pdo->lastInsertId();
     }

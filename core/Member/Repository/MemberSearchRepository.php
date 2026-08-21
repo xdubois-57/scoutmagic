@@ -52,12 +52,12 @@ class MemberSearchRepository
             $fn = $functions[$id] ?? null;
             $results[] = new MemberSearchResult(
                 memberYearId: $id,
-                firstName: $this->decrypt($row['first_name_encrypted']),
-                lastName: $this->decrypt($row['last_name_encrypted']),
-                totem: $this->decryptNullable($row['totem_encrypted']),
-                email: $this->decryptNullable($row['email_encrypted']),
-                phone: $this->decryptNullable($row['phone_encrypted']),
-                mobile: $this->decryptNullable($row['mobile_encrypted']),
+                firstName: $this->decrypt($row['first_name_encrypted'], 'member_years.first_name'),
+                lastName: $this->decrypt($row['last_name_encrypted'], 'member_years.last_name'),
+                totem: $this->decryptNullable($row['totem_encrypted'], 'member_years.totem'),
+                email: $this->decryptNullable($row['email_encrypted'], 'member_years.email'),
+                phone: $this->decryptNullable($row['phone_encrypted'], 'member_years.phone'),
+                mobile: $this->decryptNullable($row['mobile_encrypted'], 'member_years.mobile'),
                 sectionName: $fn !== null ? $fn['section'] : null,
                 functionLabel: $fn !== null ? $fn['label'] : null,
                 addressText: $addresses[$id] ?? null,
@@ -126,13 +126,13 @@ class MemberSearchRepository
             }
             $address = new MemberAddress(
                 type: (string) $r['address_type'],
-                street: $this->decryptNullable($r['street_encrypted']),
-                number: $this->decryptNullable($r['number_encrypted']),
-                box: $this->decryptNullable($r['box_encrypted']),
-                complement: $this->decryptNullable($r['complement_encrypted']),
-                postalCode: $this->decryptNullable($r['postal_code_encrypted']),
-                city: $this->decryptNullable($r['city_encrypted']),
-                country: $this->decryptNullable($r['country_encrypted']),
+                street: $this->decryptNullable($r['street_encrypted'], 'member_addresses.street'),
+                number: $this->decryptNullable($r['number_encrypted'], 'member_addresses.number'),
+                box: $this->decryptNullable($r['box_encrypted'], 'member_addresses.box'),
+                complement: $this->decryptNullable($r['complement_encrypted'], 'member_addresses.complement'),
+                postalCode: $this->decryptNullable($r['postal_code_encrypted'], 'member_addresses.postal_code'),
+                city: $this->decryptNullable($r['city_encrypted'], 'member_addresses.city'),
+                country: $this->decryptNullable($r['country_encrypted'], 'member_addresses.country'),
             );
             $map[$myId] = $address->format();
         }
@@ -140,13 +140,13 @@ class MemberSearchRepository
         return $map;
     }
 
-    private function decrypt(mixed $value): string
+    private function decrypt(mixed $value, string $context): string
     {
-        return $value ? $this->encryption->decrypt($value) : '';
+        return $value ? $this->encryption->decrypt($value, $context) : '';
     }
 
-    private function decryptNullable(mixed $value): ?string
+    private function decryptNullable(mixed $value, string $context): ?string
     {
-        return $value ? $this->encryption->decrypt($value) : null;
+        return $value ? $this->encryption->decrypt($value, $context) : null;
     }
 }

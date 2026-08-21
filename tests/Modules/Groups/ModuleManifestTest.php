@@ -44,7 +44,7 @@ class ModuleManifestTest extends TestCase
      */
     public function testTheVersionIsBumpedWheneverTheSchemaChanges(): void
     {
-        $this->assertSame('1.8.0', $this->manifest->version);
+        $this->assertSame('1.15.0', $this->manifest->version);
     }
 
     /**
@@ -168,11 +168,31 @@ class ModuleManifestTest extends TestCase
         }
     }
 
-    public function testItDeclaresNoOfflinePageNoCookieAndNoStorage(): void
+    /**
+     * The group LIST is offline-cacheable; a group's CONVERSATION is
+     * deliberately not, and this test is the guard on that line.
+     *
+     * The list carries group names and activity times — enough to open the
+     * installed app on a train and see which groups exist and which have
+     * been busy. A group page carries the messages themselves, written in
+     * a space where minors write, plus their photos; a full copy of that
+     * on the device is a different privacy proposition entirely, and
+     * SECURITY.md §10 / docs/module-development.md ("if in doubt, don't
+     * declare it") both point the same way. Adding a `/groups/` child
+     * entry here should break this test — that is the point.
+     */
+    public function testItCachesTheGroupListOfflineButNeverAGroupsConversation(): void
     {
-        // Group content is private: it never goes into the offline cache
-        // (SECURITY.md §10), and the module stores no file of its own.
-        $this->assertSame([], $this->manifest->offline);
+        $this->assertSame(
+            [['path' => '/groups', 'label' => 'Groupes', 'match' => 'exact', 'role_min' => 'identified']],
+            $this->manifest->offline
+        );
+
+        $paths = array_column($this->manifest->offline, 'path');
+        $this->assertNotContains('/groups/', $paths, 'a group conversation must never be cached on the device');
+
+        // Unchanged: the module sets no cookie of its own, and stores no
+        // file outside gallery's delegated album.
         $this->assertSame([], $this->manifest->cookies);
         $this->assertSame([], $this->manifest->storage);
     }
@@ -216,10 +236,10 @@ class ModuleManifestTest extends TestCase
     }
 
     /**
-     * The four types this module can send, exactly as the preferences
-     * page will list them (grouped by `group`, labelled in French).
+     * Every type this module can send, exactly as the preferences page
+     * will list them (grouped by `group`, labelled in French).
      */
-    public function testItDeclaresTheFourNotificationTypes(): void
+    public function testItDeclaresItsNotificationTypes(): void
     {
         $byId = array_column($this->manifest->notifications, null, 'id');
 
@@ -228,6 +248,7 @@ class ModuleManifestTest extends TestCase
                 'groups.post_published',
                 'groups.reply_received',
                 'groups.reaction_received',
+                'groups.mentioned',
                 'groups.item_reported',
             ],
             array_keys($byId)
@@ -242,9 +263,9 @@ class ModuleManifestTest extends TestCase
     }
 
     /**
-     * Email is off — and LOCKED off — on all four: none of these is worth
-     * an email, and a member who switched it on would get one per
-     * reaction (module spec, "do not send email for any of these").
+     * Email is off — and LOCKED off — on every one of them: none of these
+     * is worth an email, and a member who switched it on would get one
+     * per reaction (module spec, "do not send email for any of these").
      */
     public function testNoNotificationTypeCanEverSendEmail(): void
     {
@@ -266,6 +287,10 @@ class ModuleManifestTest extends TestCase
         // interrupt anyone by default.
         $this->assertSame('default_on', $byId['groups.reaction_received']['channels']['in_app']);
         $this->assertSame('default_off', $byId['groups.reaction_received']['channels']['push']);
+
+        // Being named is: a mention is the type somebody keeps switched
+        // on precisely so they can switch the every-message one off.
+        $this->assertSame('default_on', $byId['groups.mentioned']['channels']['push']);
     }
 
     /**

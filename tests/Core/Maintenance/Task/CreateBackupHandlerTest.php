@@ -47,7 +47,7 @@ class CreateBackupHandlerTest extends TestCase
         $this->handler = new CreateBackupHandler();
 
         $stmt = $this->pdo->prepare('INSERT INTO user_accounts (email_encrypted, email_blind_index) VALUES (?, ?)');
-        $stmt->execute([$encryption->encrypt('backup-requester@test.example'), $encryption->blindIndex('backup-requester@test.example')]);
+        $stmt->execute([$encryption->encrypt('backup-requester@test.example', 'user_accounts.email'), $encryption->blindIndex('backup-requester@test.example', 'email')]);
         $this->userId = (int) $this->pdo->lastInsertId();
 
         $this->storagePath = sys_get_temp_dir() . '/create_backup_handler_test_' . uniqid();

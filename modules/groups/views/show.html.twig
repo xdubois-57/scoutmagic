@@ -9,6 +9,12 @@
 {% block content %}
     {% include '@groups/partials/group_header.html.twig' %}
     {% include '@groups/partials/group_edit_form.html.twig' %}
+    {#
+      Above the composer rather than below the feed: a member arriving to
+      find something said last month should not have to scroll past every
+      message to discover that looking for it is possible.
+    #}
+    {% include '@groups/partials/search_form.html.twig' with { group: group } only %}
 
     {#
       A message the AI moderation refused, given back to its own author.
@@ -38,7 +44,18 @@
             <div class="card-body">
                 <label class="form-label small mb-1" for="post-body">Écrire un message</label>
                 {{ csrf_field()|raw }}
+                {#
+                  data-mention-url turns on the "@" autocomplete
+                  (groups.js): typing @ then a few letters offers the
+                  group's own members, and picking one inserts their name
+                  as plain text. Nothing about the mention is submitted
+                  alongside the message — the server reads the names back
+                  out of the stored body itself (Service\MentionService),
+                  so a message typed with no JavaScript at all mentions
+                  exactly the same people.
+                #}
                 <textarea class="form-control mb-2" id="post-body" name="body" rows="3"
+                          data-mention-url="/groups/{{ group.id }}/mention-search"
                           maxlength="{{ max_body_length }}" placeholder="Votre message…">{% if rejected_draft|default(null) and not rejected_draft.post_id %}{{ rejected_draft.body }}{% endif %}</textarea>
 
                 {% if author_options is not empty %}
@@ -46,6 +63,57 @@
                     <select class="form-select mb-2" id="post-author" name="author_member_id" style="min-height:44px;">
                         {% for option in author_options %}
                             <option value="{{ option.id }}">{{ option.name }}</option>
+                        {% endfor %}
+                    </select>
+                {% endif %}
+
+                {#
+                  A poll, folded away behind a plain <details> so the
+                  composer stays a text box for the ordinary message. No
+                  JavaScript at all: the boxes are always in the DOM, and
+                  leaving them empty is what makes a post without a poll —
+                  Service\PollService::normalise() drops the blank rows
+                  and refuses anything with fewer than two real options,
+                  so a half-filled poll is simply not a poll.
+                #}
+                <details class="mb-2">
+                    <summary class="btn btn-sm btn-outline-secondary d-inline-flex align-items-center"
+                             style="min-height:44px;list-style:none;cursor:pointer;">
+                        <i class="bi bi-bar-chart me-1"></i> Ajouter un sondage
+                    </summary>
+                    <div class="border rounded p-2 mt-2">
+                        <label class="form-label small mb-1" for="poll-question">Question</label>
+                        <input type="text" class="form-control mb-2" id="poll-question" name="poll_question"
+                               style="min-height:44px;" maxlength="{{ constant('Modules\\Groups\\Service\\PollService::MAX_QUESTION_LENGTH') }}"
+                               placeholder="Ex. : Qui vient au week-end ?">
+                        {% for i in 1..poll_option_slots %}
+                            <label class="visually-hidden" for="poll-option-{{ i }}">Choix {{ i }}</label>
+                            <input type="text" class="form-control mb-1" id="poll-option-{{ i }}" name="poll_options[]"
+                                   style="min-height:44px;" maxlength="{{ constant('Modules\\Groups\\Service\\PollService::MAX_OPTION_LENGTH') }}"
+                                   placeholder="Choix {{ i }}{{ i > 2 ? ' (facultatif)' : '' }}">
+                        {% endfor %}
+                        <p class="small text-body-secondary mb-0 mt-1">
+                            Au moins {{ constant('Modules\\Groups\\Service\\PollService::MIN_OPTIONS') }} choix. Chaque membre vote une fois et peut changer d'avis.
+                        </p>
+                    </div>
+                </details>
+
+                {#
+                  Only rendered when the calendar module is enabled AND
+                  has something in the window to offer — an empty picker
+                  would advertise a feature this install does not have
+                  (Service\PostEventService, Controller\GroupController::
+                  show()). Optional: "Aucun" is the default, and the id is
+                  re-resolved server-side before it is stored, so a value
+                  typed in by hand cannot attach an event the member
+                  cannot see.
+                #}
+                {% if event_options|default([]) is not empty %}
+                    <label class="form-label small mb-1" for="post-event">Lier à un événement (facultatif)</label>
+                    <select class="form-select mb-2" id="post-event" name="calendar_event_id" style="min-height:44px;">
+                        <option value="">Aucun</option>
+                        {% for event in event_options %}
+                            <option value="{{ event.id }}">{{ event.title }} — {{ event.startDate|french_date }}</option>
                         {% endfor %}
                     </select>
                 {% endif %}
@@ -111,29 +179,21 @@
         {% endif %}
     </div>
 
+    {% include '@groups/partials/detail_modal.html.twig' %}
+
     {#
-      One shared dialog for every reaction tally on the page — a tally's
-      own click (groups.js) fetches partials/reactors_list.html.twig's
-      rendered output and fills #groups-reactors-modal-body with it before
-      showing this same modal, rather than one dialog per post/reply.
+      The photo viewer is gallery's own (@gallery/partials/lightbox.html.twig
+      driven by /assets/js/gallery.js) rather than a second one written
+      here: groups hard-requires gallery, every media in a post already
+      lives in a gallery delegated album, and post_media_grid.html.twig's
+      cells carry exactly the trigger attributes that lightbox reads.
+      gallery.js's other blocks each guard on their own DOM first, so
+      loading it on this page starts the lightbox and nothing else.
     #}
-    <div class="modal fade" id="groups-reactors-modal" tabindex="-1" aria-labelledby="groups-reactors-modal-label" aria-hidden="true">
-        <div class="modal-dialog modal-dialog-centered">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h2 class="modal-title h5" id="groups-reactors-modal-label">Réactions</h2>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fermer"></button>
-                </div>
-                <div class="modal-body" id="groups-reactors-modal-body">
-                    <div class="text-center py-3">
-                        <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
+    {% include '@gallery/partials/lightbox.html.twig' %}
 {% endblock %}
 
 {% block scripts %}
+<script src="/assets/js/gallery.js" defer nonce="{{ csp_nonce }}"></script>
 <script src="/assets/js/groups.js" defer nonce="{{ csp_nonce }}"></script>
 {% endblock %}

@@ -18,7 +18,7 @@ use Core\Support\SupportPackageService;
 /**
  * Daily retention purge for the support package
  * (`core`/`purge_support_packages`, reference `daily`) — ARCHITECTURE.md
- * §8.42.
+ * §8.44.
  *
  * The archive is the most sensitive artefact this codebase produces on
  * demand (PHP configuration, server logs, filesystem diagnostics), so it

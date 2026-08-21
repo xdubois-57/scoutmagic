@@ -14,7 +14,14 @@ use Core\Journal\JournalRepository;
 use Core\Journal\JournalService;
 use Core\ScoutYear\ScoutYearAdminService;
 use Core\ScoutYear\ScoutYearResolver;
+use Core\Photo\SectionPhotoRepository;
 use Core\ScoutYear\ScoutYearSession;
+use Core\ScoutYear\ScoutYearTransitionService;
+use Core\ScoutYear\ScoutYearTransitionStepRepository;
+use Core\Security\EncryptionService;
+use Core\Security\UserAccountRepository;
+use Modules\Calendar\Api\ScoutYearEventCountProvider;
+use Modules\Registration\Api\ScoutYearPreparationProvider;
 use Modules\Registration\Api\ScoutYearTransitionVetoProvider;
 use PHPUnit\Framework\TestCase;
 use Tests\DatabaseTestHelper;
@@ -50,24 +57,7 @@ class ScoutYearControllerTest extends TestCase
         $this->yearA = $scoutYearService->ensureYear('2024-2025');
         $this->yearB = $scoutYearService->ensureYear('2025-2026');
 
-        $templateDir = dirname(__DIR__, 4) . '/core/View/templates';
-        $twig = new Environment(new FilesystemLoader($templateDir), ['cache' => false, 'autoescape' => 'html']);
-        $twig->addGlobal('site_name', 'Test');
-        $twig->addGlobal('is_authenticated', true);
-        $twig->addGlobal('current_user_email', 'chief@test.com');
-        $twig->addGlobal('current_user_role', 'chief');
-        $twig->addGlobal('config_mode', false);
-        $twig->addGlobal('cookie_consent_given', true);
-        $twig->addGlobal('menus', null);
-        $twig->addGlobal('csp_nonce', 'test-nonce');
-        $twig->addFunction(new \Twig\TwigFunction('csrf_field', fn() => '<input type="hidden" name="_csrf_token" value="test">', ['is_safe' => ['html']]));
-        $twig->addFunction(new \Twig\TwigFunction('get_flash', fn() => null));
-        $twig->addFunction(new \Twig\TwigFunction('csrf_token', fn() => 'test'));
-        $twig->addFunction(new \Twig\TwigFunction('file_url', fn() => ''));
-        $twig->addFunction(new \Twig\TwigFunction('param', fn(string $k) => 'Test'));
-
-        $this->controller = new ClockableScoutYearController($twig, $resolver, $adminService, $scoutYearService, $journalService);
-        $this->controller->fakeNow = new \DateTimeImmutable('2026-08-15');
+        $this->controller = $this->makeController($resolver, $adminService, $scoutYearService, $journalService);
 
         $this->startSession();
         $_SESSION['_csrf_token'] = $this->token;
@@ -193,7 +183,9 @@ class ScoutYearControllerTest extends TestCase
 
         $this->assertStringContainsString('Importer les données Desk', $body);
         $this->assertStringContainsString('Activer pour le staff', $body);
-        $this->assertStringContainsString("Aller à l'import Desk", $body);
+        // Step labels are data now (ScoutYearTransitionService), so Twig
+        // escapes their apostrophes — decode before matching on French text.
+        $this->assertStringContainsString("Aller à l'import Desk", html_entity_decode($body, ENT_QUOTES, 'UTF-8'));
         $this->assertStringContainsString('2026-2027', $body); // dynamic target label
         $this->assertStringNotContainsString('bi-check-lg', $body); // nothing completed yet
     }
@@ -337,16 +329,112 @@ class ScoutYearControllerTest extends TestCase
         $this->assertStringNotContainsString("ne sont pas encore clôturées", $body);
     }
 
+    /**
+     * The manual check-off, end to end through the controller: the mark
+     * lands on the transition's target year (public + 1, never the year
+     * being previewed), survives a reload, is journalled, and can be taken
+     * back.
+     */
+    public function testToggleStepMarksAndUnmarksAStepForTheTargetYear(): void
+    {
+        $this->settingService->setInternal(ScoutYearResolver::SETTING_PUBLIC_YEAR, (string) $this->yearB);
+        $targetId = (new ScoutYearService($this->pdo))->ensureYear('2026-2027');
+
+        $request = $this->post('/admin/scout-year/step', ['_csrf_token' => $this->token, 'step_key' => 'fees', 'done' => '1']);
+        $response = $this->controller->toggleStep($request, []);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertSame([$targetId, 'fees'], $this->firstStepMark());
+        $this->assertJournalHas('scout_year_step_marked', 'info');
+
+        $body = $this->controller->index(new Request('GET', '/admin/scout-year', [], [], [], []), [])->getBody();
+        $this->assertStringContainsString('bi-check-lg', $body);
+
+        $request = $this->post('/admin/scout-year/step', ['_csrf_token' => $this->token, 'step_key' => 'fees', 'done' => '0']);
+        $this->controller->toggleStep($request, []);
+
+        $this->assertNull($this->firstStepMark());
+        $this->assertJournalHas('scout_year_step_unmarked', 'info');
+    }
+
+    public function testToggleStepRejectsInvalidCsrf(): void
+    {
+        $request = $this->post('/admin/scout-year/step', ['_csrf_token' => 'wrong', 'step_key' => 'fees', 'done' => '1']);
+        $response = $this->controller->toggleStep($request, []);
+
+        $this->assertSame(403, $response->getStatusCode());
+        $this->assertNull($this->firstStepMark());
+    }
+
+    /**
+     * The steps the site derives itself are not a chief's to assert. A
+     * forged POST naming one is refused rather than quietly ignored, so the
+     * page can never be made to claim the public year was activated when it
+     * was not.
+     */
+    public function testToggleStepRefusesAnAutoDerivedStep(): void
+    {
+        $request = $this->post('/admin/scout-year/step', ['_csrf_token' => $this->token, 'step_key' => 'activate_public', 'done' => '1']);
+        $response = $this->controller->toggleStep($request, []);
+
+        $this->assertSame(302, $response->getStatusCode());
+        $this->assertNull($this->firstStepMark());
+    }
+
+    /**
+     * Same refusal for a step whose module is disabled — here Inscriptions,
+     * which this controller is built without.
+     */
+    public function testToggleStepRefusesAStepOfADisabledModule(): void
+    {
+        $request = $this->post('/admin/scout-year/step', ['_csrf_token' => $this->token, 'step_key' => 'departures', 'done' => '1']);
+        $this->controller->toggleStep($request, []);
+
+        $this->assertNull($this->firstStepMark());
+    }
+
+    /**
+     * @return array{0: int, 1: string}|null
+     */
+    private function firstStepMark(): ?array
+    {
+        $row = $this->pdo->query('SELECT scout_year_id, step_key FROM scout_year_transition_steps')->fetch(\PDO::FETCH_ASSOC);
+
+        return $row === false ? null : [(int) $row['scout_year_id'], (string) $row['step_key']];
+    }
+
     private function buildControllerWithVeto(int $blockingCount): ClockableScoutYearController
     {
-        $scoutYearService = new ScoutYearService($this->pdo);
-        $resolver = new ScoutYearResolver($scoutYearService, $this->settingService, new MemberYearRepository($this->pdo));
-        $journalService = new JournalService(new JournalRepository($this->pdo));
-
         $veto = $this->createMock(ScoutYearTransitionVetoProvider::class);
         $veto->method('countBlockingRequests')->willReturn($blockingCount);
-        $adminService = new ScoutYearAdminService($this->settingService, $veto);
 
+        $scoutYearService = new ScoutYearService($this->pdo);
+
+        return $this->makeController(
+            new ScoutYearResolver($scoutYearService, $this->settingService, new MemberYearRepository($this->pdo)),
+            new ScoutYearAdminService($this->settingService, $veto),
+            $scoutYearService,
+            new JournalService(new JournalRepository($this->pdo))
+        );
+    }
+
+    /**
+     * One controller, built the way the composition root builds it. Every
+     * optional module provider defaults to absent — the shape a site with
+     * neither Inscriptions nor Calendrier enabled has, which is also the
+     * shape that must keep working (ARCHITECTURE.md §7.5).
+     *
+     * @param array<int, string> $enabledModuleIds
+     */
+    private function makeController(
+        ScoutYearResolver $resolver,
+        ScoutYearAdminService $adminService,
+        ScoutYearService $scoutYearService,
+        JournalService $journalService,
+        array $enabledModuleIds = [],
+        ?ScoutYearPreparationProvider $preparation = null,
+        ?ScoutYearEventCountProvider $eventCount = null
+    ): ClockableScoutYearController {
         $templateDir = dirname(__DIR__, 4) . '/core/View/templates';
         $twig = new Environment(new FilesystemLoader($templateDir), ['cache' => false, 'autoescape' => 'html']);
         $twig->addGlobal('site_name', 'Test');
@@ -363,7 +451,20 @@ class ScoutYearControllerTest extends TestCase
         $twig->addFunction(new \Twig\TwigFunction('file_url', fn() => ''));
         $twig->addFunction(new \Twig\TwigFunction('param', fn(string $k) => 'Test'));
 
-        $controller = new ClockableScoutYearController($twig, $resolver, $adminService, $scoutYearService, $journalService);
+        $transitionService = new ScoutYearTransitionService(
+            $resolver,
+            new ScoutYearTransitionStepRepository($this->pdo),
+            new SectionPhotoRepository($this->pdo),
+            new UserAccountRepository($this->pdo, new EncryptionService(str_repeat('a', 32), str_repeat('b', 32))),
+            $this->settingService,
+            $enabledModuleIds,
+            $preparation,
+            $eventCount
+        );
+
+        $controller = new ClockableScoutYearController(
+            $twig, $resolver, $adminService, $scoutYearService, $transitionService, $journalService
+        );
         $controller->fakeNow = new \DateTimeImmutable('2026-08-15');
 
         return $controller;

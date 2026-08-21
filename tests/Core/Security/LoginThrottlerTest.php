@@ -197,7 +197,7 @@ class LoginThrottlerTest extends TestCase
 
         $this->assertNotSame('', $stored);
         $this->assertStringNotContainsString('203.0.113.14', $stored);
-        $this->assertSame($this->encryption->blindIndex('203.0.113.14'), $stored);
+        $this->assertSame($this->encryption->blindIndex('203.0.113.14', 'login_ip'), $stored);
     }
 
     /**

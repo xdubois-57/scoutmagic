@@ -28,7 +28,7 @@ class DepartureRepository
     public function markLeaving(int $memberYearId, ?string $comment): void
     {
         $trimmed = $comment !== null ? trim($comment) : '';
-        $commentEncrypted = $trimmed !== '' ? $this->encryption->encrypt($trimmed) : null;
+        $commentEncrypted = $trimmed !== '' ? $this->encryption->encrypt($trimmed, 'member_years.leaving_comment') : null;
 
         $stmt = $this->pdo->prepare(
             'UPDATE member_years SET leaving = 1, leaving_marked_at = ?, leaving_comment_encrypted = ? WHERE id = ?'
@@ -56,7 +56,7 @@ class DepartureRepository
     public function updateComment(int $memberYearId, ?string $comment): void
     {
         $trimmed = $comment !== null ? trim($comment) : '';
-        $commentEncrypted = $trimmed !== '' ? $this->encryption->encrypt($trimmed) : null;
+        $commentEncrypted = $trimmed !== '' ? $this->encryption->encrypt($trimmed, 'member_years.leaving_comment') : null;
 
         $stmt = $this->pdo->prepare('UPDATE member_years SET leaving_comment_encrypted = ? WHERE id = ?');
         $stmt->execute([$commentEncrypted, $memberYearId]);
@@ -76,7 +76,7 @@ class DepartureRepository
         return new DepartureStatus(
             leaving: (bool) $row['leaving'],
             markedAt: $row['leaving_marked_at'] !== null ? new \DateTimeImmutable($row['leaving_marked_at']) : null,
-            comment: $row['leaving_comment_encrypted'] !== null ? $this->encryption->decrypt($row['leaving_comment_encrypted']) : null
+            comment: $row['leaving_comment_encrypted'] !== null ? $this->encryption->decrypt($row['leaving_comment_encrypted'], 'member_years.leaving_comment') : null
         );
     }
 

@@ -58,7 +58,7 @@ class AiCategorizationServiceTest extends TestCase
         $this->accountRepository = new AccountRepository($this->pdo, $this->encryption);
         $this->transactionAttachmentRepository = new TransactionAttachmentRepository($this->pdo);
         $this->attachmentRepository = new AttachmentRepository($this->pdo, $this->encryption);
-        $this->calendarRepository = new CalendarRepository($this->pdo);
+        $this->calendarRepository = new CalendarRepository($this->pdo, new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32)));
         $this->calendarEventRepository = new CalendarEventRepository($this->pdo);
 
         $stmt = $this->pdo->prepare("INSERT INTO finance_accounts (name, account_type) VALUES ('Compte', 'bank')");

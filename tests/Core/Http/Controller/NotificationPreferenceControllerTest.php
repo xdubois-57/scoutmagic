@@ -101,7 +101,7 @@ class NotificationPreferenceControllerTest extends TestCase
         );
 
         $stmt = $this->pdo->prepare('INSERT INTO user_accounts (email_encrypted, email_blind_index) VALUES (?, ?)');
-        $stmt->execute([$encryption->encrypt('member@test.example'), $encryption->blindIndex('member@test.example')]);
+        $stmt->execute([$encryption->encrypt('member@test.example', 'user_accounts.email'), $encryption->blindIndex('member@test.example', 'email')]);
         $this->userId = (int) $this->pdo->lastInsertId();
 
         if (session_status() === PHP_SESSION_NONE) {

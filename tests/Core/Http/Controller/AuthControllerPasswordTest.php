@@ -148,7 +148,7 @@ class AuthControllerPasswordTest extends TestCase
         $this->userRepo->updatePasswordHash($account->id, $hash);
 
         // Insert 5 failures to trigger lockout
-        $blindIndex = $this->encryption->blindIndex('locked@example.com');
+        $blindIndex = $this->encryption->blindIndex('locked@example.com', 'email');
         $now = (new \DateTimeImmutable())->format('Y-m-d H:i:s');
         for ($i = 0; $i < 5; $i++) {
             $stmt = $this->pdo->prepare('INSERT INTO login_attempts (email_blind_index, attempted_at) VALUES (?, ?)');

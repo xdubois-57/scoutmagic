@@ -266,6 +266,67 @@ class GroupLifecycleActionsTest extends GroupsControllerTestCase
         $this->assertNull($groupRepo->findById($groupId)->scoutYearId);
     }
 
+    // ---- edit: description ----
+
+    public function testAModeratorMaySetTheGroupsDescription(): void
+    {
+        $this->withCsrf(['name' => 'Louveteaux', 'description' => "  Coordination du camp d'été 2026  "]);
+
+        $this->groupController([$this->moderatorMemberId])->edit($this->request(), $this->params());
+
+        $this->assertSame("Coordination du camp d'été 2026", $this->group()->description);
+    }
+
+    /**
+     * An emptied box means "remove it", not "leave the old one alone" —
+     * the form is always rendered carrying the current value, so a blank
+     * field can only be a deliberate erasure (Controller\GroupController).
+     */
+    public function testSubmittingAnEmptyDescriptionClearsIt(): void
+    {
+        $this->withCsrf(['name' => 'Louveteaux', 'description' => 'Provisoire']);
+        $this->groupController([$this->moderatorMemberId])->edit($this->request(), $this->params());
+
+        $this->withCsrf(['name' => 'Louveteaux', 'description' => '   ']);
+        $this->groupController([$this->moderatorMemberId])->edit($this->request(), $this->params());
+
+        $this->assertNull($this->group()->description);
+    }
+
+    public function testADescriptionOver300CharactersIsTruncated(): void
+    {
+        $this->withCsrf(['name' => 'Louveteaux', 'description' => str_repeat('a', 400)]);
+
+        $this->groupController([$this->moderatorMemberId])->edit($this->request(), $this->params());
+
+        $this->assertSame(300, mb_strlen((string) $this->group()->description));
+    }
+
+    /**
+     * A refused name is refused whole: nothing at all is written, so a
+     * moderator cannot lose the description to a typo in the name field.
+     */
+    public function testAnEmptyNameLeavesTheDescriptionUntouched(): void
+    {
+        $this->withCsrf(['name' => 'Louveteaux', 'description' => 'Le camp']);
+        $this->groupController([$this->moderatorMemberId])->edit($this->request(), $this->params());
+
+        $this->withCsrf(['name' => '   ', 'description' => 'Autre chose']);
+        $this->groupController([$this->moderatorMemberId])->edit($this->request(), $this->params());
+
+        $this->assertSame('Le camp', $this->group()->description);
+    }
+
+    public function testAnOrdinaryMemberMayNotSetTheDescription(): void
+    {
+        $this->withCsrf(['name' => 'Louveteaux', 'description' => 'Injecté']);
+
+        $response = $this->groupController([$this->memberId])->edit($this->request(), $this->params());
+
+        $this->assertSame(403, $response->getStatusCode());
+        $this->assertNull($this->group()->description);
+    }
+
     // ---- leave ----
 
     public function testLeaveRejectsAMissingCsrfToken(): void

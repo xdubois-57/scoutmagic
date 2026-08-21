@@ -95,8 +95,8 @@ class PassageServiceTest extends TestCase
         );
         $stmt->execute([
             $memberId, $this->currentYearId,
-            $this->encryption->encrypt($firstName), $this->encryption->encrypt('Dupont'),
-            $this->encryption->encrypt($birthDate), $leaving ? 1 : 0,
+            $this->encryption->encrypt($firstName, 'member_years.first_name'), $this->encryption->encrypt('Dupont', 'member_years.last_name'),
+            $this->encryption->encrypt($birthDate, 'member_years.birth_date'), $leaving ? 1 : 0,
         ]);
         $memberYearId = (int) $this->pdo->lastInsertId();
 
@@ -112,11 +112,11 @@ class PassageServiceTest extends TestCase
         $stmt->execute([$memberYearId, $functionId, $sectionId, $branchId]);
 
         if ($street !== null) {
-            $blind = $this->encryption->blindIndex(\Core\Member\AddressNormalizer::normalize($street, '1', null, $postalCode ?? '1000'));
+            $blind = $this->encryption->blindIndex(\Core\Member\AddressNormalizer::normalize($street, '1', null, $postalCode ?? '1000'), 'address');
             $stmt = $this->pdo->prepare(
                 'INSERT INTO member_addresses (member_year_id, address_type, street_encrypted, address_normalized_blind_index) VALUES (?, ?, ?, ?)'
             );
-            $stmt->execute([$memberYearId, 'home', $this->encryption->encrypt($street), $blind]);
+            $stmt->execute([$memberYearId, 'home', $this->encryption->encrypt($street, 'member_addresses.street'), $blind]);
         }
 
         return ['member_id' => $memberId, 'member_year_id' => $memberYearId];
@@ -138,7 +138,7 @@ class PassageServiceTest extends TestCase
         $animes = $this->service->getAnimeMemberYears($this->currentYearId);
 
         $names = array_map(
-            fn(array $row) => $this->encryption->decrypt($row['first_name_encrypted']),
+            fn(array $row) => $this->encryption->decrypt($row['first_name_encrypted'], 'member_years.first_name'),
             $animes
         );
         $this->assertSame(['Anime'], $names);

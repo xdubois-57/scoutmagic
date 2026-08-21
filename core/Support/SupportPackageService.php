@@ -14,7 +14,7 @@ use Core\File\EncryptedFileStorageService;
 use Core\File\FileRepository;
 
 /**
- * Builds the diagnostic support package (ARCHITECTURE.md §8.42).
+ * Builds the diagnostic support package (ARCHITECTURE.md §8.44).
  *
  * The contract is deliberately one-sided: **a package is always produced**.
  * Every collector runs inside its own try/catch, and a collector that

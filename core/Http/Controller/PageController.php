@@ -16,6 +16,7 @@ use Core\Http\Response;
 use Core\Member\SectionService;
 use Core\Member\UnitStaffSectionService;
 use Core\Module\HomeBannerProvider;
+use Core\Module\HomeGroupActivityProvider;
 use Core\Module\HomeNewsProvider;
 use Core\Module\SectionResponsableProvider;
 use Core\Security\AuthSession;
@@ -28,6 +29,13 @@ class PageController extends AbstractController
 {
     private const HOME_NEWS_LIMIT = 5;
 
+    /**
+     * Deliberately smaller than the news limit: this is a nudge toward a
+     * conversation, not a feed of its own. Three keeps the card short
+     * enough to sit above the fold next to the news column on mobile.
+     */
+    private const HOME_GROUPS_LIMIT = 3;
+
     public function __construct(
         protected Environment $twig,
         private EditableContentService $editableContentService,
@@ -39,7 +47,8 @@ class PageController extends AbstractController
         private ScoutYearService $scoutYearService,
         private ?HomeBannerProvider $bannerProvider = null,
         private ?HomeNewsProvider $newsProvider = null,
-        private ?SectionResponsableProvider $sectionResponsableProvider = null
+        private ?SectionResponsableProvider $sectionResponsableProvider = null,
+        private ?HomeGroupActivityProvider $groupActivityProvider = null
     ) {
     }
 
@@ -53,6 +62,10 @@ class PageController extends AbstractController
         return $this->render('pages/home.html.twig', [
             'banner_html' => $this->bannerProvider?->getRandomBannerHtml(AuthSession::getRole()),
             'news_articles' => $this->newsProvider?->getLatestPublicArticles(self::HOME_NEWS_LIMIT) ?? [],
+            // The provider resolves the caller from the session itself and
+            // answers [] for a visitor with no groups (and for an
+            // anonymous one), so there is nothing to gate on here.
+            'unread_groups' => $this->groupActivityProvider?->getUnreadGroupsForCurrentUser(self::HOME_GROUPS_LIMIT) ?? [],
         ]);
     }
 

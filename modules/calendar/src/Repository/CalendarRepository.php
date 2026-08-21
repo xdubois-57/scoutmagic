@@ -8,10 +8,17 @@ declare(strict_types=1);
 
 namespace Modules\Calendar\Repository;
 
+use Core\Security\EncryptionService;
+
 class CalendarRepository
 {
-    public function __construct(private \PDO $pdo)
-    {
+    private const TOKEN_ENCRYPTION_CONTEXT = 'calendar_calendars.ics_token';
+    private const TOKEN_BLIND_INDEX_PURPOSE = 'calendar_ics_token';
+
+    public function __construct(
+        private \PDO $pdo,
+        private EncryptionService $encryption
+    ) {
     }
 
     public function findById(int $id): ?Calendar
@@ -32,10 +39,17 @@ class CalendarRepository
 
     public function findByIcsToken(string $token): ?Calendar
     {
-        $stmt = $this->pdo->prepare('SELECT * FROM calendar_calendars WHERE ics_token = ?');
-        $stmt->execute([$token]);
+        $stmt = $this->pdo->prepare('SELECT * FROM calendar_calendars WHERE ics_token_blind_index = ?');
+        $stmt->execute([$this->encryption->blindIndex($token, self::TOKEN_BLIND_INDEX_PURPOSE)]);
         $row = $stmt->fetch(\PDO::FETCH_ASSOC);
-        return $row !== false ? $this->hydrate($row) : null;
+        if ($row === false) {
+            return null;
+        }
+
+        // Verify exact match (blind index collisions are theoretically possible).
+        $calendar = $this->hydrate($row);
+
+        return $calendar->icsToken !== null && hash_equals($calendar->icsToken, $token) ? $calendar : null;
     }
 
     /** @return Calendar[] */
@@ -90,9 +104,13 @@ class CalendarRepository
     public function createSupplementaryCalendar(string $name, bool $isDefault, string $visibility, string $icsToken): int
     {
         $stmt = $this->pdo->prepare(
-            'INSERT INTO calendar_calendars (name, is_default, visibility, ics_token) VALUES (?, ?, ?, ?)'
+            'INSERT INTO calendar_calendars (name, is_default, visibility, ics_token_encrypted, ics_token_blind_index) VALUES (?, ?, ?, ?, ?)'
         );
-        $stmt->execute([$name, $isDefault ? 1 : 0, $visibility, $icsToken]);
+        $stmt->execute([
+            $name, $isDefault ? 1 : 0, $visibility,
+            $this->encryption->encrypt($icsToken, self::TOKEN_ENCRYPTION_CONTEXT),
+            $this->encryption->blindIndex($icsToken, self::TOKEN_BLIND_INDEX_PURPOSE),
+        ]);
         return (int) $this->pdo->lastInsertId();
     }
 
@@ -104,14 +122,30 @@ class CalendarRepository
 
     public function updateIcsToken(int $id, string $token): void
     {
-        $stmt = $this->pdo->prepare('UPDATE calendar_calendars SET ics_token = ? WHERE id = ?');
-        $stmt->execute([$token, $id]);
+        $stmt = $this->pdo->prepare('UPDATE calendar_calendars SET ics_token_encrypted = ?, ics_token_blind_index = ? WHERE id = ?');
+        $stmt->execute([
+            $this->encryption->encrypt($token, self::TOKEN_ENCRYPTION_CONTEXT),
+            $this->encryption->blindIndex($token, self::TOKEN_BLIND_INDEX_PURPOSE),
+            $id,
+        ]);
     }
 
     public function delete(int $id): void
     {
         $stmt = $this->pdo->prepare('DELETE FROM calendar_calendars WHERE id = ?');
         $stmt->execute([$id]);
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     */
+    private function decryptToken(array $row): ?string
+    {
+        if ($row['ics_token_encrypted'] === null) {
+            return null;
+        }
+
+        return $this->encryption->decrypt((string) $row['ics_token_encrypted'], self::TOKEN_ENCRYPTION_CONTEXT);
     }
 
     /**
@@ -126,7 +160,7 @@ class CalendarRepository
             color: $row['color'] !== null ? (string) $row['color'] : null,
             isDefault: (bool) $row['is_default'],
             visibility: (string) $row['visibility'],
-            icsToken: $row['ics_token'] !== null ? (string) $row['ics_token'] : null
+            icsToken: $this->decryptToken($row)
         );
     }
 }

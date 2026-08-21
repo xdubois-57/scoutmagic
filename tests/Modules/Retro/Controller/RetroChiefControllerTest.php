@@ -40,7 +40,7 @@ class RetroChiefControllerTest extends TestCase
         $this->pdo = DatabaseTestHelper::createTestDatabase();
         RetroTestHelper::createTables($this->pdo);
 
-        $this->boardRepository = new BoardRepository($this->pdo);
+        $this->boardRepository = new BoardRepository($this->pdo, new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32)));
         $this->settingService = new SettingService(new SettingRepository($this->pdo));
         $this->boardService = $this->createMock(BoardService::class);
         $this->boardService->method('publicUrl')->willReturn('/r/token');

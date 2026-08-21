@@ -84,9 +84,9 @@ class MemberControllerScoutYearOffsetTest extends TestCase
         $stmt->execute([
             $memberId,
             $this->scoutYearId,
-            $this->encryption->encrypt('John'),
-            $this->encryption->encrypt('Doe'),
-            $this->encryption->encrypt($birthDate),
+            $this->encryption->encrypt('John', 'member_years.first_name'),
+            $this->encryption->encrypt('Doe', 'member_years.last_name'),
+            $this->encryption->encrypt($birthDate, 'member_years.birth_date'),
         ]);
 
         return (int) $this->pdo->lastInsertId();

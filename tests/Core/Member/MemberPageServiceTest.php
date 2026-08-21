@@ -132,7 +132,7 @@ class MemberPageServiceTest extends TestCase
             'INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted)
              VALUES (?, ?, ?, ?)'
         );
-        $stmt->execute([$memberId, $this->scoutYearId, $this->encryption->encrypt('Jean'), $this->encryption->encrypt('Dupont')]);
+        $stmt->execute([$memberId, $this->scoutYearId, $this->encryption->encrypt('Jean', 'member_years.first_name'), $this->encryption->encrypt('Dupont', 'member_years.last_name')]);
         $memberYearId = (int) $this->pdo->lastInsertId();
 
         $stmt = $this->pdo->prepare(
@@ -149,7 +149,7 @@ class MemberPageServiceTest extends TestCase
         $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('NOSEC')");
         $memberId = (int) $this->pdo->lastInsertId();
         $stmt = $this->pdo->prepare('INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted) VALUES (?, ?, ?, ?)');
-        $stmt->execute([$memberId, $this->scoutYearId, $this->encryption->encrypt('No'), $this->encryption->encrypt('Section')]);
+        $stmt->execute([$memberId, $this->scoutYearId, $this->encryption->encrypt('No', 'member_years.first_name'), $this->encryption->encrypt('Section', 'member_years.last_name')]);
         $memberYearId = (int) $this->pdo->lastInsertId();
         $profile = $this->memberService->getMemberProfile($memberYearId);
 
@@ -198,7 +198,7 @@ class MemberPageServiceTest extends TestCase
         $this->pdo->exec("INSERT INTO functions (desk_code, label, role, confirmed) VALUES ('CHEF', 'Chef', 'admin', 1)");
         $functionId = (int) $this->pdo->lastInsertId();
         $stmt = $this->pdo->prepare('INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted) VALUES (?, ?, ?, ?)');
-        $stmt->execute([$memberId, $this->scoutYearId, $this->encryption->encrypt('Chief'), $this->encryption->encrypt('One')]);
+        $stmt->execute([$memberId, $this->scoutYearId, $this->encryption->encrypt('Chief', 'member_years.first_name'), $this->encryption->encrypt('One', 'member_years.last_name')]);
         $memberYearId = (int) $this->pdo->lastInsertId();
         $stmt = $this->pdo->prepare('INSERT INTO member_functions (member_year_id, function_id, section_id, is_main_function) VALUES (?, ?, ?, 1)');
         $stmt->execute([$memberYearId, $functionId, $staffSectionId]);
@@ -244,11 +244,11 @@ class MemberPageServiceTest extends TestCase
         );
         $stmt->execute([
             $lead->memberYearId,
-            $this->encryption->encrypt('Rue de la Station'),
-            $this->encryption->encrypt('12'),
-            $this->encryption->encrypt('5000'),
-            $this->encryption->encrypt('Namur'),
-            $this->encryption->encrypt('Belgique'),
+            $this->encryption->encrypt('Rue de la Station', 'member_addresses.street'),
+            $this->encryption->encrypt('12', 'member_addresses.number'),
+            $this->encryption->encrypt('5000', 'member_addresses.postal_code'),
+            $this->encryption->encrypt('Namur', 'member_addresses.city'),
+            $this->encryption->encrypt('Belgique', 'member_addresses.country'),
         ]);
 
         $provider = $this->createMock(SectionResponsableProvider::class);
@@ -269,7 +269,7 @@ class MemberPageServiceTest extends TestCase
         $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('CHIEF2')");
         $chiefMemberId = (int) $this->pdo->lastInsertId();
         $stmt = $this->pdo->prepare('INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted, totem_encrypted) VALUES (?, ?, ?, ?, ?)');
-        $stmt->execute([$chiefMemberId, $this->scoutYearId, $this->encryption->encrypt('Marie'), $this->encryption->encrypt('Curie'), $this->encryption->encrypt('Loutre')]);
+        $stmt->execute([$chiefMemberId, $this->scoutYearId, $this->encryption->encrypt('Marie', 'member_years.first_name'), $this->encryption->encrypt('Curie', 'member_years.last_name'), $this->encryption->encrypt('Loutre', 'member_years.totem')]);
         $chiefMemberYearId = (int) $this->pdo->lastInsertId();
         $stmt = $this->pdo->prepare('INSERT INTO member_functions (member_year_id, function_id, section_id, is_main_function) VALUES (?, ?, ?, 1)');
         $stmt->execute([$chiefMemberYearId, $chiefFunctionId, $this->sectionId]);
@@ -297,7 +297,7 @@ class MemberPageServiceTest extends TestCase
         $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('REFERENT1')");
         $referentMemberId = (int) $this->pdo->lastInsertId();
         $stmt = $this->pdo->prepare('INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted, totem_encrypted) VALUES (?, ?, ?, ?, ?)');
-        $stmt->execute([$referentMemberId, $this->scoutYearId, $this->encryption->encrypt('Referent'), $this->encryption->encrypt('One'), $this->encryption->encrypt('Aigle')]);
+        $stmt->execute([$referentMemberId, $this->scoutYearId, $this->encryption->encrypt('Referent', 'member_years.first_name'), $this->encryption->encrypt('One', 'member_years.last_name'), $this->encryption->encrypt('Aigle', 'member_years.totem')]);
         $referentMemberYearId = (int) $this->pdo->lastInsertId();
         $this->memberBadgeRepository->assign($referentMemberYearId, $referentBadgeId, null);
 

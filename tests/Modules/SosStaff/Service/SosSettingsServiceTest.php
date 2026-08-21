@@ -96,10 +96,10 @@ class SosSettingsServiceTest extends TestCase
         );
         $stmt->execute([
             $memberId, $this->scoutYearId,
-            $this->encryption->encrypt('Jean'),
-            $this->encryption->encrypt('Dupont'),
-            $this->encryption->encrypt($totem),
-            $mobile !== null ? $this->encryption->encrypt($mobile) : null,
+            $this->encryption->encrypt('Jean', 'member_years.first_name'),
+            $this->encryption->encrypt('Dupont', 'member_years.last_name'),
+            $this->encryption->encrypt($totem, 'member_years.totem'),
+            $mobile !== null ? $this->encryption->encrypt($mobile, 'member_years.mobile') : null,
         ]);
         $memberYearId = (int) $this->pdo->lastInsertId();
 
@@ -130,10 +130,10 @@ class SosSettingsServiceTest extends TestCase
         );
         $stmt->execute([
             $memberId, $this->scoutYearId,
-            $this->encryption->encrypt('Jean'),
-            $this->encryption->encrypt('Dupont'),
-            $this->encryption->encrypt($totem),
-            $mobile !== null ? $this->encryption->encrypt($mobile) : null,
+            $this->encryption->encrypt('Jean', 'member_years.first_name'),
+            $this->encryption->encrypt('Dupont', 'member_years.last_name'),
+            $this->encryption->encrypt($totem, 'member_years.totem'),
+            $mobile !== null ? $this->encryption->encrypt($mobile, 'member_years.mobile') : null,
         ]);
         $memberYearId = (int) $this->pdo->lastInsertId();
 

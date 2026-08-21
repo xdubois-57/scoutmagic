@@ -38,7 +38,7 @@ class MemberYearRepositoryTest extends TestCase
     public function testFindAllByEmailReturnsMatchingRows(): void
     {
         $email = 'test@example.com';
-        $blindIndex = $this->encryption->blindIndex($email);
+        $blindIndex = $this->encryption->blindIndex($email, 'email');
 
         $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('d001')");
         $memberId = (int) $this->pdo->lastInsertId();
@@ -49,9 +49,9 @@ class MemberYearRepositoryTest extends TestCase
         );
         $stmt->execute([
             $memberId, $this->scoutYearId,
-            $this->encryption->encrypt('Test'),
-            $this->encryption->encrypt('User'),
-            $this->encryption->encrypt($email),
+            $this->encryption->encrypt('Test', 'member_years.first_name'),
+            $this->encryption->encrypt('User', 'member_years.last_name'),
+            $this->encryption->encrypt($email, 'member_years.email'),
             $blindIndex,
         ]);
 
@@ -72,7 +72,7 @@ class MemberYearRepositoryTest extends TestCase
         $memberId = (int) $this->pdo->lastInsertId();
 
         $this->pdo->prepare('INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted) VALUES (?, ?, ?, ?)')
-            ->execute([$memberId, $this->scoutYearId, $this->encryption->encrypt('Test'), $this->encryption->encrypt('User')]);
+            ->execute([$memberId, $this->scoutYearId, $this->encryption->encrypt('Test', 'member_years.first_name'), $this->encryption->encrypt('User', 'member_years.last_name')]);
 
         $this->assertNull($this->repo->findMostRecentEmailBlindIndexForMember($memberId));
     }
@@ -85,14 +85,14 @@ class MemberYearRepositoryTest extends TestCase
         $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES ('2024-2025', '2024-09-01', '2025-08-31', 0)");
         $olderYearId = (int) $this->pdo->lastInsertId();
 
-        $oldBlindIndex = $this->encryption->blindIndex('old@example.com');
-        $newBlindIndex = $this->encryption->blindIndex('new@example.com');
+        $oldBlindIndex = $this->encryption->blindIndex('old@example.com', 'email');
+        $newBlindIndex = $this->encryption->blindIndex('new@example.com', 'email');
 
         $insert = $this->pdo->prepare(
             'INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted, email_blind_index) VALUES (?, ?, ?, ?, ?)'
         );
-        $insert->execute([$memberId, $olderYearId, $this->encryption->encrypt('Test'), $this->encryption->encrypt('User'), $oldBlindIndex]);
-        $insert->execute([$memberId, $this->scoutYearId, $this->encryption->encrypt('Test'), $this->encryption->encrypt('User'), $newBlindIndex]);
+        $insert->execute([$memberId, $olderYearId, $this->encryption->encrypt('Test', 'member_years.first_name'), $this->encryption->encrypt('User', 'member_years.last_name'), $oldBlindIndex]);
+        $insert->execute([$memberId, $this->scoutYearId, $this->encryption->encrypt('Test', 'member_years.first_name'), $this->encryption->encrypt('User', 'member_years.last_name'), $newBlindIndex]);
 
         $this->assertSame($newBlindIndex, $this->repo->findMostRecentEmailBlindIndexForMember($memberId));
     }
@@ -105,14 +105,14 @@ class MemberYearRepositoryTest extends TestCase
         $this->pdo->exec("INSERT INTO scout_years (label, start_date, end_date, is_current) VALUES ('2024-2025', '2024-09-01', '2025-08-31', 0)");
         $olderYearId = (int) $this->pdo->lastInsertId();
 
-        $oldBlindIndex = $this->encryption->blindIndex('old@example.com');
+        $oldBlindIndex = $this->encryption->blindIndex('old@example.com', 'email');
 
         $insert = $this->pdo->prepare(
             'INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted, email_blind_index) VALUES (?, ?, ?, ?, ?)'
         );
-        $insert->execute([$memberId, $olderYearId, $this->encryption->encrypt('Test'), $this->encryption->encrypt('User'), $oldBlindIndex]);
+        $insert->execute([$memberId, $olderYearId, $this->encryption->encrypt('Test', 'member_years.first_name'), $this->encryption->encrypt('User', 'member_years.last_name'), $oldBlindIndex]);
         // Current year has no email at all.
-        $insert->execute([$memberId, $this->scoutYearId, $this->encryption->encrypt('Test'), $this->encryption->encrypt('User'), null]);
+        $insert->execute([$memberId, $this->scoutYearId, $this->encryption->encrypt('Test', 'member_years.first_name'), $this->encryption->encrypt('User', 'member_years.last_name'), null]);
 
         $this->assertSame($oldBlindIndex, $this->repo->findMostRecentEmailBlindIndexForMember($memberId));
     }
@@ -125,10 +125,10 @@ class MemberYearRepositoryTest extends TestCase
     private function encryptedPayload(): array
     {
         return [
-            'first_name_encrypted' => $this->encryption->encrypt('Test'),
-            'last_name_encrypted' => $this->encryption->encrypt('User'),
-            'gender_encrypted' => $this->encryption->encrypt('M'),
-            'birth_date_encrypted' => $this->encryption->encrypt('2015-06-01'),
+            'first_name_encrypted' => $this->encryption->encrypt('Test', 'member_years.first_name'),
+            'last_name_encrypted' => $this->encryption->encrypt('User', 'member_years.last_name'),
+            'gender_encrypted' => $this->encryption->encrypt('M', 'member_years.gender'),
+            'birth_date_encrypted' => $this->encryption->encrypt('2015-06-01', 'member_years.birth_date'),
             'phone_encrypted' => null,
             'mobile_encrypted' => null,
             'email_encrypted' => null,

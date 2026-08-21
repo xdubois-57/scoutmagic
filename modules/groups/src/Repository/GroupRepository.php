@@ -78,6 +78,18 @@ class GroupRepository
     }
 
     /**
+     * The group's optional one-liner. Separate from rename() rather than
+     * folded into it: the two are edited together today, but a name is
+     * required and a description is not, and collapsing them would make
+     * "clear the description" indistinguishable from "do not touch it".
+     */
+    public function setDescription(int $id, ?string $description): void
+    {
+        $stmt = $this->pdo->prepare('UPDATE discussion_groups SET description = ? WHERE id = ?');
+        $stmt->execute([$description, $id]);
+    }
+
+    /**
      * Links or unlinks an invitation group to a scout year — never called
      * for a section group (Service\GroupService::edit() is the actual
      * enforcement of that; see its own docblock).
@@ -229,7 +241,8 @@ class GroupRepository
             (string) $row['last_activity_at'],
             $row['created_by_member_id'] !== null ? (int) $row['created_by_member_id'] : null,
             (string) $row['created_at'],
-            $row['gallery_album_id'] !== null ? (int) $row['gallery_album_id'] : null
+            $row['gallery_album_id'] !== null ? (int) $row['gallery_album_id'] : null,
+            ($row['description'] ?? null) !== null ? (string) $row['description'] : null
         );
     }
 }

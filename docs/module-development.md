@@ -121,7 +121,7 @@ The directory name **must** match the `id` field in `module.json`.
 
 ## `receiver_only` — a module only the statistics receiver sees
 
-`"receiver_only": true` (top level, boolean, default false) marks a module that only makes sense on the ScoutMagic installation that **receives** usage statistics (ARCHITECTURE.md §8.41/§8.43). `ModuleManager` filters such a manifest out of `discoverModules()` on every other installation, which removes its routes, menu entries, registry listing and scheduled tasks in one stroke.
+`"receiver_only": true` (top level, boolean, default false) marks a module that only makes sense on the ScoutMagic installation that **receives** usage statistics (ARCHITECTURE.md §8.43/§8.45). `ModuleManager` filters such a manifest out of `discoverModules()` on every other installation, which removes its routes, menu entries, registry listing and scheduled tasks in one stroke.
 
 Two things to know before using it:
 
@@ -391,7 +391,7 @@ CREATE TABLE IF NOT EXISTS calendar_events (
 
 ### The `secret` type
 
-`"type": "secret"` marks a setting whose **value** must never be displayed or exported: it is filtered out of the Paramètres page entirely, and the support package's `configuration-parameters.xlsx` writes `[REDACTED]` in its place while keeping the key and label visible (ARCHITECTURE.md §8.42). Everything else behaves like `text`.
+`"type": "secret"` marks a setting whose **value** must never be displayed or exported: it is filtered out of the Paramètres page entirely, and the support package's `configuration-parameters.xlsx` writes `[REDACTED]` in its place while keeping the key and label visible (ARCHITECTURE.md §8.44). Everything else behaves like `text`.
 
 Reach for it only when a credential genuinely has to live in `settings`. The established pattern for a module credential is an encrypted `BLOB` column in the module's own table (`Core\Security\EncryptionService`, decrypted only in the Repository) — `llm_providers.api_key` and the SOS telephony credentials both do this, and neither is ever read by the support package because neither is in `settings`. `secret` is the safety net for the case where that isn't practical, not a reason to stop using encrypted columns.
 

@@ -43,7 +43,7 @@ class ExpectedReceivableRepository
             $accountId,
             $amountDueCents,
             $communication,
-            $label !== null ? $this->encryption->encrypt($label) : null,
+            $label !== null ? $this->encryption->encrypt($label, 'finance_expected_receivables.label') : null,
         ]);
         return (int) $this->pdo->lastInsertId();
     }
@@ -114,7 +114,7 @@ class ExpectedReceivableRepository
             accountId: (int) $row['account_id'],
             amountDueCents: (int) $row['amount_due_cents'],
             communication: (string) $row['communication'],
-            label: $row['label_encrypted'] !== null ? $this->encryption->decrypt($row['label_encrypted']) : null,
+            label: $row['label_encrypted'] !== null ? $this->encryption->decrypt($row['label_encrypted'], 'finance_expected_receivables.label') : null,
             createdAt: (string) $row['created_at']
         );
     }

@@ -38,12 +38,12 @@ class S3SecretRepository
             $encrypted = stream_get_contents($encrypted);
         }
 
-        return $this->encryption->decrypt((string) $encrypted);
+        return $this->encryption->decrypt((string) $encrypted, 'gallery_s3_secret.secret_key');
     }
 
     public function set(string $secretKey): void
     {
-        $encrypted = $this->encryption->encrypt($secretKey);
+        $encrypted = $this->encryption->encrypt($secretKey, 'gallery_s3_secret.secret_key');
         $now = date('Y-m-d H:i:s');
 
         // Portable insert-or-update (no MySQL-only ON DUPLICATE KEY —

@@ -15,10 +15,19 @@ use Core\Security\Role;
 
 class MemberService
 {
+    /**
+     * $temporaryMemberProvider is deliberately optional and trailing: only
+     * public/index.php's composition root has a session to resolve an
+     * override against, while scheduled tasks, module factories and the
+     * whole test suite construct this service with three arguments and get
+     * the plain email-only behavior. Same backward-compatibility shape as
+     * Core\Http\FrontController's optional OfflineWhitelist.
+     */
     public function __construct(
         private MemberYearRepository $memberYearRepo,
         private EncryptionService $encryption,
-        private Connection $connection
+        private Connection $connection,
+        private ?TemporaryMemberProviderInterface $temporaryMemberProvider = null
     ) {
     }
 
@@ -31,14 +40,59 @@ class MemberService
     public function getLinkedMembers(string $email, int $scoutYearId): array
     {
         $normalizedEmail = strtolower(trim($email));
-        $blindIndex = $this->encryption->blindIndex($normalizedEmail);
+        $blindIndex = $this->encryption->blindIndex($normalizedEmail, 'email');
         $memberYearRows = $this->memberYearRepo->findAllByEmail($blindIndex, $scoutYearId);
 
         $profiles = [];
+        $seenMemberYearIds = [];
         foreach ($memberYearRows as $row) {
+            $seenMemberYearIds[] = (int) $row['id'];
             $profiles[] = $this->hydrateMemberProfile($row);
         }
+
+        $temporaryRow = $this->resolveTemporaryMemberRow($email, $scoutYearId);
+        if ($temporaryRow !== null && !in_array((int) $temporaryRow['id'], $seenMemberYearIds, true)) {
+            $profiles[] = $this->hydrateMemberProfile($temporaryRow);
+        }
+
         return $profiles;
+    }
+
+    /**
+     * The member_years row of the session's temporary member (§8.42), when
+     * there is one AND it belongs to $scoutYearId — null otherwise.
+     *
+     * The year check is what makes the override behave correctly across a
+     * scout-year preview instead of needing to be purged on every year
+     * switch: a member_years row belongs to exactly one year, so previewing
+     * another year simply stops resolving it, and switching back restores
+     * it. Callers that ask about a past year therefore never see a member
+     * temporarily added against the current one.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function resolveTemporaryMemberRow(string $email, int $scoutYearId): ?array
+    {
+        $memberYearId = $this->temporaryMemberProvider?->resolveMemberYearId($email);
+        if ($memberYearId === null) {
+            return null;
+        }
+
+        $row = $this->memberYearRepo->findById($memberYearId);
+        if ($row === null || (int) $row['scout_year_id'] !== $scoutYearId) {
+            return null;
+        }
+
+        // findAllByEmail() only ever returns is_active = 1 rows, and an
+        // injected member has to be indistinguishable from a genuinely
+        // linked one — nothing downstream expects an inactive member_year
+        // in this list. This also closes the case where a member is
+        // deactivated by a Desk import while an override still names them.
+        if ((int) ($row['is_active'] ?? 0) !== 1) {
+            return null;
+        }
+
+        return $row;
     }
 
     /**
@@ -148,8 +202,19 @@ class MemberService
             return false;
         }
 
-        $userBlindIndex = $this->encryption->blindIndex(strtolower(trim($userEmail)));
-        return $row['email_blind_index'] === $userBlindIndex;
+        $userBlindIndex = $this->encryption->blindIndex(strtolower(trim($userEmail)), 'email');
+        if ($row['email_blind_index'] === $userBlindIndex) {
+            return true;
+        }
+
+        // A temporary member (ARCHITECTURE.md §8.42) passes this check too.
+        // It matters most where canAccess() is called with 'identified'
+        // rather than the caller's real role — Core\Http\Controller\
+        // MemberController::show()'s $isSelf probe, which is what decides
+        // whether the member page renders its owner-only affordances
+        // (private documents, own-photo replacement) rather than the staff
+        // view an admin would otherwise get.
+        return $this->temporaryMemberProvider?->resolveMemberYearId($userEmail) === $memberYearId;
     }
 
     /**
@@ -180,8 +245,19 @@ class MemberService
             return false;
         }
 
-        $userBlindIndex = $this->encryption->blindIndex(strtolower(trim($email)));
-        return $row['email_blind_index'] === $userBlindIndex;
+        $userBlindIndex = $this->encryption->blindIndex(strtolower(trim($email)), 'email');
+        if ($row['email_blind_index'] === $userBlindIndex) {
+            return true;
+        }
+
+        // A temporary member (§8.42) counts as linked here too. This is the
+        // deliberate widening of the "this is really you" boundary that
+        // feature carries: the member page's own photo upload, which has no
+        // chief/admin bypass of its own, becomes reachable while the
+        // override is active.
+        $temporaryRow = $this->resolveTemporaryMemberRow($email, $scoutYearId);
+
+        return $temporaryRow !== null && (int) $temporaryRow['member_id'] === $memberId;
     }
 
     /**
@@ -207,8 +283,8 @@ class MemberService
 
         $names = [];
         foreach ($this->memberYearRepo->findAllByMemberIds($memberIds, $scoutYearId) as $row) {
-            $totem = $row['totem_encrypted'] !== null ? $this->encryption->decrypt($row['totem_encrypted']) : null;
-            $firstName = $row['first_name_encrypted'] !== null ? $this->encryption->decrypt($row['first_name_encrypted']) : '';
+            $totem = $row['totem_encrypted'] !== null ? $this->encryption->decrypt($row['totem_encrypted'], 'member_years.totem') : null;
+            $firstName = $row['first_name_encrypted'] !== null ? $this->encryption->decrypt($row['first_name_encrypted'], 'member_years.first_name') : '';
             $displayName = $totem !== null && $totem !== '' ? $totem : $firstName;
 
             if ($displayName !== '') {
@@ -235,13 +311,13 @@ class MemberService
         foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $addrRow) {
             $addresses[] = new MemberAddress(
                 type: $addrRow['address_type'],
-                street: $addrRow['street_encrypted'] ? $this->encryption->decrypt($addrRow['street_encrypted']) : null,
-                number: $addrRow['number_encrypted'] ? $this->encryption->decrypt($addrRow['number_encrypted']) : null,
-                box: $addrRow['box_encrypted'] ? $this->encryption->decrypt($addrRow['box_encrypted']) : null,
-                complement: $addrRow['complement_encrypted'] ? $this->encryption->decrypt($addrRow['complement_encrypted']) : null,
-                postalCode: $addrRow['postal_code_encrypted'] ? $this->encryption->decrypt($addrRow['postal_code_encrypted']) : null,
-                city: $addrRow['city_encrypted'] ? $this->encryption->decrypt($addrRow['city_encrypted']) : null,
-                country: $addrRow['country_encrypted'] ? $this->encryption->decrypt($addrRow['country_encrypted']) : null,
+                street: $addrRow['street_encrypted'] ? $this->encryption->decrypt($addrRow['street_encrypted'], 'member_addresses.street') : null,
+                number: $addrRow['number_encrypted'] ? $this->encryption->decrypt($addrRow['number_encrypted'], 'member_addresses.number') : null,
+                box: $addrRow['box_encrypted'] ? $this->encryption->decrypt($addrRow['box_encrypted'], 'member_addresses.box') : null,
+                complement: $addrRow['complement_encrypted'] ? $this->encryption->decrypt($addrRow['complement_encrypted'], 'member_addresses.complement') : null,
+                postalCode: $addrRow['postal_code_encrypted'] ? $this->encryption->decrypt($addrRow['postal_code_encrypted'], 'member_addresses.postal_code') : null,
+                city: $addrRow['city_encrypted'] ? $this->encryption->decrypt($addrRow['city_encrypted'], 'member_addresses.city') : null,
+                country: $addrRow['country_encrypted'] ? $this->encryption->decrypt($addrRow['country_encrypted'], 'member_addresses.country') : null,
             );
         }
 
@@ -279,20 +355,20 @@ class MemberService
             memberYearId: (int) $row['id'],
             memberId: (int) $row['member_id'],
             deskId: $row['desk_id'],
-            firstName: $this->encryption->decrypt($row['first_name_encrypted']),
-            lastName: $this->encryption->decrypt($row['last_name_encrypted']),
-            totem: $row['totem_encrypted'] ? $this->encryption->decrypt($row['totem_encrypted']) : null,
-            quali: $row['quali_encrypted'] ? $this->encryption->decrypt($row['quali_encrypted']) : null,
-            gender: $row['gender_encrypted'] ? $this->encryption->decrypt($row['gender_encrypted']) : null,
-            birthDate: $row['birth_date_encrypted'] ? $this->encryption->decrypt($row['birth_date_encrypted']) : null,
-            phone: $row['phone_encrypted'] ? $this->encryption->decrypt($row['phone_encrypted']) : null,
-            mobile: $row['mobile_encrypted'] ? $this->encryption->decrypt($row['mobile_encrypted']) : null,
-            email: $row['email_encrypted'] ? $this->encryption->decrypt($row['email_encrypted']) : null,
-            patrol: $row['patrol_encrypted'] ? $this->encryption->decrypt($row['patrol_encrypted']) : null,
+            firstName: $this->encryption->decrypt($row['first_name_encrypted'], 'member_years.first_name'),
+            lastName: $this->encryption->decrypt($row['last_name_encrypted'], 'member_years.last_name'),
+            totem: $row['totem_encrypted'] ? $this->encryption->decrypt($row['totem_encrypted'], 'member_years.totem') : null,
+            quali: $row['quali_encrypted'] ? $this->encryption->decrypt($row['quali_encrypted'], 'member_years.quali') : null,
+            gender: $row['gender_encrypted'] ? $this->encryption->decrypt($row['gender_encrypted'], 'member_years.gender') : null,
+            birthDate: $row['birth_date_encrypted'] ? $this->encryption->decrypt($row['birth_date_encrypted'], 'member_years.birth_date') : null,
+            phone: $row['phone_encrypted'] ? $this->encryption->decrypt($row['phone_encrypted'], 'member_years.phone') : null,
+            mobile: $row['mobile_encrypted'] ? $this->encryption->decrypt($row['mobile_encrypted'], 'member_years.mobile') : null,
+            email: $row['email_encrypted'] ? $this->encryption->decrypt($row['email_encrypted'], 'member_years.email') : null,
+            patrol: $row['patrol_encrypted'] ? $this->encryption->decrypt($row['patrol_encrypted'], 'member_years.patrol') : null,
             formationLevel: $row['formation_level'],
             federationMailConsent: (bool) $row['federation_mail_consent'],
             unitMailConsent: (bool) $row['unit_mail_consent'],
-            handicap: !empty($row['handicap_encrypted']) ? $this->encryption->decrypt($row['handicap_encrypted']) : null,
+            handicap: !empty($row['handicap_encrypted']) ? $this->encryption->decrypt($row['handicap_encrypted'], 'member_years.handicap') : null,
             supplementaryInsurance: $row['supplementary_insurance'] ?? null,
             addresses: $addresses,
             functions: $functions,

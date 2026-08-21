@@ -925,7 +925,7 @@ class SetupController extends AbstractController
             'admin_email' => trim((string) $request->getBody('admin_email', '')),
             'admin_password' => (string) $request->getBody('admin_password', ''),
             // Usage statistics switch, first install only (Core\Statistics,
-            // ARCHITECTURE.md §8.41). An unchecked checkbox sends nothing at
+            // ARCHITECTURE.md §8.43). An unchecked checkbox sends nothing at
             // all, so "absent" has to mean "off" — the default-on state lives
             // in the rendered form, not here.
             'statistics_enabled' => (string) $request->getBody('statistics_enabled', '') === '1' ? '1' : '0',
@@ -1048,8 +1048,8 @@ class SetupController extends AbstractController
         $encryptionService = EncryptionService::fromEncodedKeys($encryptionKey, $blindIndexKey);
         $normalizedEmail = strtolower(trim($email));
 
-        $emailEncrypted = $encryptionService->encrypt($normalizedEmail);
-        $emailBlindIndex = $encryptionService->blindIndex($normalizedEmail);
+        $emailEncrypted = $encryptionService->encrypt($normalizedEmail, 'user_accounts.email');
+        $emailBlindIndex = $encryptionService->blindIndex($normalizedEmail, 'email');
         $passwordHash = password_hash($password, PASSWORD_DEFAULT);
 
         $pdo = $connection->getPdo();
@@ -1071,7 +1071,7 @@ class SetupController extends AbstractController
             (string) $secrets['blind_index_key']
         );
         $normalizedEmail = strtolower(trim($email));
-        $blindIndex = $encryptionService->blindIndex($normalizedEmail);
+        $blindIndex = $encryptionService->blindIndex($normalizedEmail, 'email');
         $passwordHash = password_hash($password, PASSWORD_DEFAULT);
 
         $pdo = $connection->getPdo();
@@ -1087,7 +1087,7 @@ class SetupController extends AbstractController
             $stmt->execute([$passwordHash, $existing['id']]);
         } else {
             // Create new admin account
-            $emailEncrypted = $encryptionService->encrypt($normalizedEmail);
+            $emailEncrypted = $encryptionService->encrypt($normalizedEmail, 'user_accounts.email');
             $stmt = $pdo->prepare(
                 'INSERT INTO user_accounts (email_encrypted, email_blind_index, password_hash, is_super_admin) VALUES (?, ?, ?, TRUE)'
             );

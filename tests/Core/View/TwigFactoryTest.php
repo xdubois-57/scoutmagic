@@ -32,6 +32,84 @@ class TwigFactoryTest extends TestCase
         $this->assertSame('31 décembre 2026', $callable('2026-12-31 10:30:00'));
     }
 
+    private function relativeDateFilter(Environment $twig): callable
+    {
+        foreach ($twig->getFilters() as $f) {
+            if ($f->getName() === 'relative_date') {
+                return $f->getCallable();
+            }
+        }
+        $this->fail('relative_date filter not registered.');
+    }
+
+    /**
+     * Stored timestamps are UTC everywhere in this codebase — parsing them
+     * under PHP's ambient timezone instead would put every age out by the
+     * server's offset, which is the whole reason the filter is explicit
+     * about it.
+     */
+    public function testRelativeDateReadsStoredTimestampsAsUtc(): void
+    {
+        $twig = TwigFactory::create(dirname(__DIR__, 3) . '/core/View/templates');
+        $filter = $this->relativeDateFilter($twig);
+        $twoHoursAgo = (new \DateTimeImmutable('-2 hours', new \DateTimeZone('UTC')))->format('Y-m-d H:i:s');
+
+        $this->assertSame('il y a 2 heures', $filter($twoHoursAgo));
+    }
+
+    /**
+     * @return iterable<string, array{string, string}>
+     */
+    public static function relativeAges(): iterable
+    {
+        yield 'seconds' => ['-30 seconds', "à l'instant"];
+        yield 'one minute' => ['-1 minute', 'il y a 1 minute'];
+        yield 'minutes' => ['-5 minutes', 'il y a 5 minutes'];
+        yield 'one hour' => ['-1 hour', 'il y a 1 heure'];
+        yield 'one day' => ['-1 day', 'il y a 1 jour'];
+        yield 'days' => ['-3 days', 'il y a 3 jours'];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('relativeAges')]
+    public function testRelativeDateRendersCoarseFrenchAges(string $offset, string $expected): void
+    {
+        $twig = TwigFactory::create(dirname(__DIR__, 3) . '/core/View/templates');
+        $stored = (new \DateTimeImmutable($offset, new \DateTimeZone('UTC')))->format('Y-m-d H:i:s');
+
+        $this->assertSame($expected, $this->relativeDateFilter($twig)($stored));
+    }
+
+    /**
+     * Past a week "il y a 23 jours" stops being easier to read than the
+     * date itself, so the filter hands over to french_date.
+     */
+    public function testRelativeDateFallsBackToTheAbsoluteDatePastAWeek(): void
+    {
+        $twig = TwigFactory::create(dirname(__DIR__, 3) . '/core/View/templates');
+
+        $this->assertSame('le 12 juillet 2020', $this->relativeDateFilter($twig)('2020-07-12 08:00:00'));
+    }
+
+    /**
+     * A clock skew (or a timestamp a second into the future) must read as
+     * "just now", never as a negative age.
+     */
+    public function testRelativeDateHandlesAFutureTimestampWithoutGoingNegative(): void
+    {
+        $twig = TwigFactory::create(dirname(__DIR__, 3) . '/core/View/templates');
+        $future = (new \DateTimeImmutable('+2 minutes', new \DateTimeZone('UTC')))->format('Y-m-d H:i:s');
+
+        $this->assertSame("à l'instant", $this->relativeDateFilter($twig)($future));
+    }
+
+    public function testRelativeDateIsEmptyForNoDate(): void
+    {
+        $twig = TwigFactory::create(dirname(__DIR__, 3) . '/core/View/templates');
+
+        $this->assertSame('', $this->relativeDateFilter($twig)(null));
+        $this->assertSame('', $this->relativeDateFilter($twig)(''));
+    }
+
     private function fullNameFilter(Environment $twig): callable
     {
         foreach ($twig->getFilters() as $f) {

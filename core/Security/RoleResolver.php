@@ -48,7 +48,7 @@ class RoleResolver
     public function resolve(string $email, int $currentScoutYearId): string
     {
         $normalizedEmail = strtolower(trim($email));
-        $blindIndex = $this->encryption->blindIndex($normalizedEmail);
+        $blindIndex = $this->encryption->blindIndex($normalizedEmail, 'email');
 
         // Check super admin
         $stmt = $this->pdo->prepare(
@@ -106,7 +106,7 @@ class RoleResolver
     public function getLinkedMemberYears(string $email, int $currentScoutYearId): array
     {
         $normalizedEmail = strtolower(trim($email));
-        $blindIndex = $this->encryption->blindIndex($normalizedEmail);
+        $blindIndex = $this->encryption->blindIndex($normalizedEmail, 'email');
         $memberYears = $this->findAllMatchingMemberYears($blindIndex, $currentScoutYearId);
 
         return array_map(fn(array $my) => $my['id'], $memberYears);
@@ -125,7 +125,7 @@ class RoleResolver
     public function isEmailAuthorizedToLogin(string $email, int $currentScoutYearId): bool
     {
         $normalizedEmail = strtolower(trim($email));
-        $blindIndex = $this->encryption->blindIndex($normalizedEmail);
+        $blindIndex = $this->encryption->blindIndex($normalizedEmail, 'email');
 
         $stmt = $this->pdo->prepare('SELECT is_super_admin FROM user_accounts WHERE email_blind_index = ?');
         $stmt->execute([$blindIndex]);

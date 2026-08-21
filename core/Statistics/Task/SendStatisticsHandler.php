@@ -17,7 +17,7 @@ use Core\Statistics\StatisticsServiceFactory;
 
 /**
  * The daily usage-statistics report (`core`/`send_statistics`, reference
- * `daily`) — ARCHITECTURE.md §8.41.
+ * `daily`) — ARCHITECTURE.md §8.43.
  *
  * Self-rescheduling, like every other recurring task in this codebase
  * (Core\Scheduler has no first-class recurring concept — see

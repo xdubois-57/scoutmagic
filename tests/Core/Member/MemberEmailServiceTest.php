@@ -243,6 +243,37 @@ class MemberEmailServiceTest extends TestCase
         $this->assertFalse($this->service->confirmEmail(999999, 'whatever'));
     }
 
+    // --- canConfirmEmail() — the GET confirm page's read-only check ---
+
+    public function testCanConfirmEmailNeverConsumesTheToken(): void
+    {
+        $rawToken = $this->addPendingRowAndCaptureToken('precheck@example.com');
+
+        // A mail scanner may hit the GET page any number of times — the
+        // token must survive every one of them, then still confirm.
+        $this->assertTrue($this->service->canConfirmEmail($this->lastRowId, $rawToken));
+        $this->assertTrue($this->service->canConfirmEmail($this->lastRowId, $rawToken));
+        $this->assertTrue($this->repository->findById($this->lastRowId)->isPending());
+
+        $this->assertTrue($this->service->confirmEmail($this->lastRowId, $rawToken));
+    }
+
+    public function testCanConfirmEmailRejectsAWrongTokenWithoutMutating(): void
+    {
+        $this->addPendingRowAndCaptureToken('precheckwrong@example.com');
+
+        $this->assertFalse($this->service->canConfirmEmail($this->lastRowId, 'not-the-right-token'));
+        $this->assertTrue($this->repository->findById($this->lastRowId)->isPending());
+    }
+
+    public function testCanConfirmEmailIsFalseOnceConfirmed(): void
+    {
+        $rawToken = $this->addPendingRowAndCaptureToken('precheckused@example.com');
+        $this->service->confirmEmail($this->lastRowId, $rawToken);
+
+        $this->assertFalse($this->service->canConfirmEmail($this->lastRowId, $rawToken));
+    }
+
     // --- resendConfirmation() (5 min cooldown, enforced server-side) ---
 
     public function testResendConfirmationRejectedWithinCooldown(): void
@@ -407,7 +438,7 @@ class MemberEmailServiceTest extends TestCase
         $stmt = $this->pdo->prepare(
             'INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted) VALUES (?, ?, ?, ?)'
         );
-        $stmt->execute([$this->memberId, $scoutYearId, $this->encryption->encrypt('Jean'), $this->encryption->encrypt('Dupont')]);
+        $stmt->execute([$this->memberId, $scoutYearId, $this->encryption->encrypt('Jean', 'member_years.first_name'), $this->encryption->encrypt('Dupont', 'member_years.last_name')]);
 
         $row = $this->service->addEmail($this->memberId, 'notify@example.com', null);
         $this->repository->markValid($row->id);
@@ -450,11 +481,11 @@ class MemberEmailServiceTest extends TestCase
     public function testUnsubscribeRevokesLoginForADeskSourcedAddress(): void
     {
         $deskRow = $this->repository->findOrCreateDeskOverride($this->memberId, 'desk-login@example.com');
-        $this->assertFalse($this->repository->isBlindIndexInactiveForMember($this->memberId, $this->encryption->blindIndex('desk-login@example.com')));
+        $this->assertFalse($this->repository->isBlindIndexInactiveForMember($this->memberId, $this->encryption->blindIndex('desk-login@example.com', 'email')));
 
         $this->service->unsubscribe($deskRow->id);
 
-        $this->assertTrue($this->repository->isBlindIndexInactiveForMember($this->memberId, $this->encryption->blindIndex('desk-login@example.com')));
+        $this->assertTrue($this->repository->isBlindIndexInactiveForMember($this->memberId, $this->encryption->blindIndex('desk-login@example.com', 'email')));
     }
 
     // --- listForMember() (Desk row synthesis) ---

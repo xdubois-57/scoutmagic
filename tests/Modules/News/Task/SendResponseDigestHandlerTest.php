@@ -42,7 +42,7 @@ class SendResponseDigestHandlerTest extends TestCase
         $this->encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
 
         $stmt = $this->pdo->prepare('INSERT INTO user_accounts (email_encrypted, email_blind_index) VALUES (?, ?)');
-        $stmt->execute([$this->encryption->encrypt('author@test.com'), $this->encryption->blindIndex('author@test.com')]);
+        $stmt->execute([$this->encryption->encrypt('author@test.com', 'user_accounts.email'), $this->encryption->blindIndex('author@test.com', 'email')]);
         $authorId = (int) $this->pdo->lastInsertId();
 
         $articleId = (new ArticleRepository($this->pdo))->create('Camp', Article::VISIBILITY_PUBLIC, false, null, null, $authorId);

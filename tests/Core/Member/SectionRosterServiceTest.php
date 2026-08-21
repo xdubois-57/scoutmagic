@@ -118,7 +118,7 @@ class SectionRosterServiceTest extends TestCase
             "INSERT INTO member_emails (member_id, email_encrypted, email_blind_index, source, status)
              VALUES (?, ?, ?, 'manual', 'valid')"
         );
-        $stmt->execute([$memberId, $this->encryption->encrypt('alice.secondary@example.com'), $this->encryption->blindIndex('alice.secondary@example.com')]);
+        $stmt->execute([$memberId, $this->encryption->encrypt('alice.secondary@example.com', 'member_emails.email'), $this->encryption->blindIndex('alice.secondary@example.com', 'email')]);
 
         $roster = $this->service->buildRoster([$this->sectionId], $this->scoutYearId);
         $row = $this->findRow($roster, $memberYearId);
@@ -138,7 +138,7 @@ class SectionRosterServiceTest extends TestCase
             "INSERT INTO member_emails (member_id, email_encrypted, email_blind_index, source, status)
              VALUES (?, ?, ?, 'manual', 'pending')"
         );
-        $stmt->execute([$memberId, $this->encryption->encrypt('pending@example.com'), $this->encryption->blindIndex('pending@example.com')]);
+        $stmt->execute([$memberId, $this->encryption->encrypt('pending@example.com', 'member_emails.email'), $this->encryption->blindIndex('pending@example.com', 'email')]);
 
         $roster = $this->service->buildRoster([$this->sectionId], $this->scoutYearId);
         $row = $this->findRow($roster, $memberYearId);
@@ -232,12 +232,12 @@ class SectionRosterServiceTest extends TestCase
         );
         $stmt->execute([
             $memberId, $this->scoutYearId,
-            $this->encryption->encrypt($firstName),
-            $this->encryption->encrypt('Dupont'),
-            $email !== null ? $this->encryption->encrypt($email) : null,
-            $email !== null ? $this->encryption->blindIndex(strtolower($email)) : null,
-            $phone !== null ? $this->encryption->encrypt($phone) : null,
-            $mobile !== null ? $this->encryption->encrypt($mobile) : null,
+            $this->encryption->encrypt($firstName, 'member_years.first_name'),
+            $this->encryption->encrypt('Dupont', 'member_years.last_name'),
+            $email !== null ? $this->encryption->encrypt($email, 'member_years.email') : null,
+            $email !== null ? $this->encryption->blindIndex(strtolower($email), 'email') : null,
+            $phone !== null ? $this->encryption->encrypt($phone, 'member_years.phone') : null,
+            $mobile !== null ? $this->encryption->encrypt($mobile, 'member_years.mobile') : null,
         ]);
         return (int) $this->pdo->lastInsertId();
     }

@@ -75,8 +75,9 @@ class ScoutYearAdminService
 
     /**
      * 0 when the registration module is disabled/absent (no veto provider
-     * wired) or reports nothing open. Used both for step 4's hard block
-     * (above) and step 3's non-blocking warning (ScoutYearController).
+     * wired) or reports nothing open. Used both for the public-activation
+     * step's hard block (above) and the staff-year step's non-blocking
+     * warning (Core\ScoutYear\ScoutYearTransitionService).
      */
     public function countBlockingRegistrationRequests(): int
     {

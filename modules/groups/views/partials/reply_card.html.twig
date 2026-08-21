@@ -70,7 +70,7 @@
                             {% if row.can_delete %}
                                 <li>
                                     <form method="post" action="/groups/{{ group.id }}/replies/{{ row.reply.id }}/delete"
-                                          data-confirm="Supprimer définitivement cette réponse ?">
+                                          class="groups-reply-delete-form" data-confirm="Supprimer définitivement cette réponse ?">
                                         {{ csrf_field()|raw }}
                                         <button type="submit" class="dropdown-item text-danger d-flex align-items-center" style="min-height:44px;">
                                             Supprimer

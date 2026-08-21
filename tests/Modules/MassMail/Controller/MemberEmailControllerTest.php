@@ -54,15 +54,15 @@ class MemberEmailControllerTest extends TestCase
         $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('DESK_1')");
         $this->memberId = (int) $this->pdo->lastInsertId();
 
-        $emailBlindIndex = $this->encryption->blindIndex('member@test.example');
+        $emailBlindIndex = $this->encryption->blindIndex('member@test.example', 'email');
         $stmt = $this->pdo->prepare(
             'INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted, email_encrypted, email_blind_index)
              VALUES (?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([
             $this->memberId, $scoutYearId,
-            $this->encryption->encrypt('John'), $this->encryption->encrypt('Doe'),
-            $this->encryption->encrypt('member@test.example'), $emailBlindIndex,
+            $this->encryption->encrypt('John', 'member_years.first_name'), $this->encryption->encrypt('Doe', 'member_years.last_name'),
+            $this->encryption->encrypt('member@test.example', 'member_years.email'), $emailBlindIndex,
         ]);
         $this->memberYearId = (int) $this->pdo->lastInsertId();
     }

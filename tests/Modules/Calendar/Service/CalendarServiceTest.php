@@ -37,7 +37,7 @@ class CalendarServiceTest extends TestCase
         $this->pdo = DatabaseTestHelper::createTestDatabase();
         CalendarTestHelper::createTables($this->pdo);
 
-        $this->calendarRepository = new CalendarRepository($this->pdo);
+        $this->calendarRepository = new CalendarRepository($this->pdo, new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32)));
         $this->eventRepository = new CalendarEventRepository($this->pdo);
         $sectionService = new SectionService(
             Connection::withPdo($this->pdo),
@@ -45,7 +45,7 @@ class CalendarServiceTest extends TestCase
             new MemberBadgeRepository($this->pdo)
         );
         $this->unitStaffSectionService = new UnitStaffSectionService($this->pdo);
-        $this->service = new CalendarService($this->calendarRepository, $this->eventRepository, $sectionService, new CalendarUnitFeedTokenRepository($this->pdo));
+        $this->service = new CalendarService($this->calendarRepository, $this->eventRepository, $sectionService, new CalendarUnitFeedTokenRepository($this->pdo, new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32))));
     }
 
     private function createRegularSection(string $deskCode, string $name, int $branchSortOrder = 10): int

@@ -189,7 +189,7 @@ class SqlParserTest extends TestCase
         $schemaPath = dirname(__DIR__, 3) . '/schema/core.sql';
         $tables = $this->parser->parseFile($schemaPath);
 
-        $this->assertCount(36, $tables);
+        $this->assertCount(37, $tables);
 
         $tableNames = array_map(fn($t) => $t->name, $tables);
         $this->assertContains('scout_years', $tableNames);
@@ -211,6 +211,7 @@ class SqlParserTest extends TestCase
         $this->assertContains('notifications', $tableNames);
         $this->assertContains('backups', $tableNames);
         $this->assertContains('update_history', $tableNames);
+        $this->assertContains('scout_year_transition_steps', $tableNames);
 
         // Verify scout_years structure
         $scoutYears = null;

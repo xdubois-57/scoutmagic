@@ -192,7 +192,7 @@ class ImportService
      */
     private function verifyIban(string $sourceIban, string $accountIban): void
     {
-        if ($this->encryption->blindIndex($sourceIban) === $this->encryption->blindIndex($accountIban)) {
+        if ($this->encryption->blindIndex($sourceIban, 'finance_iban') === $this->encryption->blindIndex($accountIban, 'finance_iban')) {
             return;
         }
 

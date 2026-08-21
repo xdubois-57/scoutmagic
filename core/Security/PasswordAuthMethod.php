@@ -58,7 +58,7 @@ class PasswordAuthMethod
     {
         $email = strtolower(trim($input['email']));
         $password = $input['password'];
-        $blindIndex = $this->encryption->blindIndex($email);
+        $blindIndex = $this->encryption->blindIndex($email, 'email');
         // Counted alongside the email so a spray of one password across many
         // accounts from a single source is slowed too — per-email counting
         // alone never accumulates enough failures on any one address to see it.

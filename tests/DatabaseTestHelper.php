@@ -283,6 +283,17 @@ class DatabaseTestHelper
             FOREIGN KEY (file_id) REFERENCES files(id)
         )');
 
+        $pdo->exec('CREATE TABLE scout_year_transition_steps (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            scout_year_id INTEGER NOT NULL,
+            step_key TEXT NOT NULL,
+            done_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            done_by INTEGER,
+            UNIQUE(scout_year_id, step_key),
+            FOREIGN KEY (scout_year_id) REFERENCES scout_years(id),
+            FOREIGN KEY (done_by) REFERENCES user_accounts(id)
+        )');
+
         $pdo->exec('CREATE TABLE member_documents (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             member_id INTEGER NOT NULL,
@@ -453,7 +464,7 @@ class DatabaseTestHelper
         $pdo->exec('CREATE TABLE short_urls (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             code TEXT NOT NULL UNIQUE,
-            target_url TEXT NOT NULL,
+            target_url_encrypted BLOB NOT NULL,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             created_by INTEGER,
             FOREIGN KEY (created_by) REFERENCES user_accounts(id) ON DELETE SET NULL

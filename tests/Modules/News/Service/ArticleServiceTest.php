@@ -37,7 +37,7 @@ class ArticleServiceTest extends TestCase
         $this->articleRepository = new ArticleRepository($this->pdo);
         $formRepository = new FormRepository($this->pdo);
         $editableContentService = new EditableContentService(new EditableContentRepository($this->pdo));
-        $shortUrlService = new ShortUrlService(new ShortUrlRepository($this->pdo));
+        $shortUrlService = new ShortUrlService(new ShortUrlRepository($this->pdo, new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32))));
 
         $this->service = new ArticleService($this->articleRepository, $formRepository, $editableContentService, $shortUrlService);
 

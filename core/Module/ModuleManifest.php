@@ -74,7 +74,7 @@ class ModuleManifest
         // anywhere earlier would silently shift those arguments.
         public readonly array $requires = [],
         // Whether this module only makes sense on the installation that
-        // RECEIVES usage statistics (ARCHITECTURE.md §8.43). A receiver-only
+        // RECEIVES usage statistics (ARCHITECTURE.md §8.45). A receiver-only
         // module is filtered out of discoverModules() everywhere else, so it
         // never appears in the module registry page, a menu, a route table
         // or the scheduler. Same "last parameter with a default" rule as

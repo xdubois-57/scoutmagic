@@ -230,7 +230,7 @@ class SendBatchHandlerTest extends TestCase
         $stmt = $this->pdo->prepare(
             'INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted) VALUES (?, ?, ?, ?)'
         );
-        $stmt->execute([$this->memberId, $this->scoutYearId, $this->encryption->encrypt('Jean'), $this->encryption->encrypt('Dupont')]);
+        $stmt->execute([$this->memberId, $this->scoutYearId, $this->encryption->encrypt('Jean', 'member_years.first_name'), $this->encryption->encrypt('Dupont', 'member_years.last_name')]);
         $memberYearId = (int) $this->pdo->lastInsertId();
 
         $mailService = $this->createMock(MailService::class);

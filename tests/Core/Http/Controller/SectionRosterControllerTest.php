@@ -320,10 +320,10 @@ class SectionRosterControllerTest extends TestCase
         );
         $stmt->execute([
             $memberId, $scoutYearId,
-            $this->encryption->encrypt($firstName),
-            $this->encryption->encrypt('Dupont'),
-            $this->encryption->encrypt('member@test.be'),
-            $this->encryption->blindIndex('member@test.be'),
+            $this->encryption->encrypt($firstName, 'member_years.first_name'),
+            $this->encryption->encrypt('Dupont', 'member_years.last_name'),
+            $this->encryption->encrypt('member@test.be', 'member_years.email'),
+            $this->encryption->blindIndex('member@test.be', 'email'),
         ]);
         $memberYearId = (int) $this->pdo->lastInsertId();
 

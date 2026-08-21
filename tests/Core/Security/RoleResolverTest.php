@@ -43,15 +43,15 @@ class RoleResolverTest extends TestCase
         $stmt = $this->pdo->prepare(
             'INSERT INTO user_accounts (email_encrypted, email_blind_index, is_super_admin) VALUES (?, ?, ?)'
         );
-        $blindIndex = $this->encryption->blindIndex(strtolower($email));
-        $stmt->execute([$this->encryption->encrypt(strtolower($email)), $blindIndex, $isSuperAdmin ? 1 : 0]);
+        $blindIndex = $this->encryption->blindIndex(strtolower($email), 'email');
+        $stmt->execute([$this->encryption->encrypt(strtolower($email), 'user_accounts.email'), $blindIndex, $isSuperAdmin ? 1 : 0]);
         return (int) $this->pdo->lastInsertId();
     }
 
     private function createMemberWithFunction(string $email, string $functionCode, string $role, bool $confirmed): void
     {
         $normalizedEmail = strtolower($email);
-        $blindIndex = $this->encryption->blindIndex($normalizedEmail);
+        $blindIndex = $this->encryption->blindIndex($normalizedEmail, 'email');
 
         // Create member
         $this->pdo->exec("INSERT INTO members (desk_id) VALUES ('desk_" . uniqid() . "')");
@@ -73,9 +73,9 @@ class RoleResolverTest extends TestCase
         );
         $stmt->execute([
             $memberId, $this->scoutYearId,
-            $this->encryption->encrypt('Test'),
-            $this->encryption->encrypt('User'),
-            $this->encryption->encrypt($normalizedEmail),
+            $this->encryption->encrypt('Test', 'member_years.first_name'),
+            $this->encryption->encrypt('User', 'member_years.last_name'),
+            $this->encryption->encrypt($normalizedEmail, 'member_years.email'),
             $blindIndex,
         ]);
         $memberYearId = (int) $this->pdo->lastInsertId();
@@ -119,7 +119,7 @@ class RoleResolverTest extends TestCase
 
         // Add a second function with higher role on same member_year... 
         // We need to add another member_function to the existing member_year
-        $blindIndex = $this->encryption->blindIndex('multi@test.com');
+        $blindIndex = $this->encryption->blindIndex('multi@test.com', 'email');
         $stmt = $this->pdo->prepare('SELECT my.id FROM member_years my WHERE my.email_blind_index = ?');
         $stmt->execute([$blindIndex]);
         $memberYearId = (int) $stmt->fetchColumn();
@@ -194,7 +194,7 @@ class RoleResolverTest extends TestCase
     private function memberIdForEmail(string $email): int
     {
         $stmt = $this->pdo->prepare('SELECT member_id FROM member_years WHERE email_blind_index = ?');
-        $stmt->execute([$this->encryption->blindIndex(strtolower($email))]);
+        $stmt->execute([$this->encryption->blindIndex(strtolower($email), 'email')]);
         return (int) $stmt->fetchColumn();
     }
 
@@ -207,8 +207,8 @@ class RoleResolverTest extends TestCase
         );
         $stmt->execute([
             $memberId,
-            $this->encryption->encrypt($normalized),
-            $this->encryption->blindIndex($normalized),
+            $this->encryption->encrypt($normalized, 'member_emails.email'),
+            $this->encryption->blindIndex($normalized, 'email'),
             'manual',
             $status,
         ]);
@@ -301,8 +301,8 @@ class RoleResolverTest extends TestCase
         );
         $stmt->execute([
             $memberId,
-            $this->encryption->encrypt('unsubscribed-desk@test.com'),
-            $this->encryption->blindIndex('unsubscribed-desk@test.com'),
+            $this->encryption->encrypt('unsubscribed-desk@test.com', 'member_emails.email'),
+            $this->encryption->blindIndex('unsubscribed-desk@test.com', 'email'),
             'desk',
             'inactive',
         ]);

@@ -125,7 +125,7 @@ final class MemberExportRowBuilder
     ): MemberExportRow {
         $emails = [];
         if (!empty($memberYearRow['email_encrypted'])) {
-            $emails[] = $this->encryption->decrypt($memberYearRow['email_encrypted']);
+            $emails[] = $this->encryption->decrypt($memberYearRow['email_encrypted'], 'member_years.email');
         }
         foreach ($validSecondaryEmails as $secondary) {
             if (!in_array($secondary->email, $emails, true)) {
@@ -135,10 +135,10 @@ final class MemberExportRowBuilder
 
         $phones = [];
         if (!empty($memberYearRow['phone_encrypted'])) {
-            $phones[] = 'Téléphone : ' . TextNormalizerService::normalizePhone($this->encryption->decrypt($memberYearRow['phone_encrypted']));
+            $phones[] = 'Téléphone : ' . TextNormalizerService::normalizePhone($this->encryption->decrypt($memberYearRow['phone_encrypted'], 'member_years.phone'));
         }
         if (!empty($memberYearRow['mobile_encrypted'])) {
-            $phones[] = 'GSM : ' . TextNormalizerService::normalizePhone($this->encryption->decrypt($memberYearRow['mobile_encrypted']));
+            $phones[] = 'GSM : ' . TextNormalizerService::normalizePhone($this->encryption->decrypt($memberYearRow['mobile_encrypted'], 'member_years.mobile'));
         }
 
         $previousSection = $movement->previousSectionId !== null ? ($sectionsById[$movement->previousSectionId] ?? null) : null;
@@ -154,20 +154,20 @@ final class MemberExportRowBuilder
             memberYearId: $entry->memberYearId,
             deskId: (string) $memberYearRow['desk_id'],
             scoutYearLabel: $scoutYearLabel,
-            firstName: $this->encryption->decrypt($memberYearRow['first_name_encrypted']),
-            lastName: $this->encryption->decrypt($memberYearRow['last_name_encrypted']),
-            totem: !empty($memberYearRow['totem_encrypted']) ? $this->encryption->decrypt($memberYearRow['totem_encrypted']) : null,
-            quali: !empty($memberYearRow['quali_encrypted']) ? $this->encryption->decrypt($memberYearRow['quali_encrypted']) : null,
-            gender: !empty($memberYearRow['gender_encrypted']) ? $this->encryption->decrypt($memberYearRow['gender_encrypted']) : null,
-            birthDate: !empty($memberYearRow['birth_date_encrypted']) ? $this->encryption->decrypt($memberYearRow['birth_date_encrypted']) : null,
+            firstName: $this->encryption->decrypt($memberYearRow['first_name_encrypted'], 'member_years.first_name'),
+            lastName: $this->encryption->decrypt($memberYearRow['last_name_encrypted'], 'member_years.last_name'),
+            totem: !empty($memberYearRow['totem_encrypted']) ? $this->encryption->decrypt($memberYearRow['totem_encrypted'], 'member_years.totem') : null,
+            quali: !empty($memberYearRow['quali_encrypted']) ? $this->encryption->decrypt($memberYearRow['quali_encrypted'], 'member_years.quali') : null,
+            gender: !empty($memberYearRow['gender_encrypted']) ? $this->encryption->decrypt($memberYearRow['gender_encrypted'], 'member_years.gender') : null,
+            birthDate: !empty($memberYearRow['birth_date_encrypted']) ? $this->encryption->decrypt($memberYearRow['birth_date_encrypted'], 'member_years.birth_date') : null,
             emails: $emails,
             phones: $phones,
-            street: $addressRow !== null && !empty($addressRow['street_encrypted']) ? $this->encryption->decrypt($addressRow['street_encrypted']) : null,
-            number: $addressRow !== null && !empty($addressRow['number_encrypted']) ? $this->encryption->decrypt($addressRow['number_encrypted']) : null,
-            box: $addressRow !== null && !empty($addressRow['box_encrypted']) ? $this->encryption->decrypt($addressRow['box_encrypted']) : null,
-            postalCode: $addressRow !== null && !empty($addressRow['postal_code_encrypted']) ? $this->encryption->decrypt($addressRow['postal_code_encrypted']) : null,
-            city: $addressRow !== null && !empty($addressRow['city_encrypted']) ? $this->encryption->decrypt($addressRow['city_encrypted']) : null,
-            country: $addressRow !== null && !empty($addressRow['country_encrypted']) ? $this->encryption->decrypt($addressRow['country_encrypted']) : null,
+            street: $addressRow !== null && !empty($addressRow['street_encrypted']) ? $this->encryption->decrypt($addressRow['street_encrypted'], 'member_addresses.street') : null,
+            number: $addressRow !== null && !empty($addressRow['number_encrypted']) ? $this->encryption->decrypt($addressRow['number_encrypted'], 'member_addresses.number') : null,
+            box: $addressRow !== null && !empty($addressRow['box_encrypted']) ? $this->encryption->decrypt($addressRow['box_encrypted'], 'member_addresses.box') : null,
+            postalCode: $addressRow !== null && !empty($addressRow['postal_code_encrypted']) ? $this->encryption->decrypt($addressRow['postal_code_encrypted'], 'member_addresses.postal_code') : null,
+            city: $addressRow !== null && !empty($addressRow['city_encrypted']) ? $this->encryption->decrypt($addressRow['city_encrypted'], 'member_addresses.city') : null,
+            country: $addressRow !== null && !empty($addressRow['country_encrypted']) ? $this->encryption->decrypt($addressRow['country_encrypted'], 'member_addresses.country') : null,
             sectionName: $section['name'] ?? $section['desk_code'] ?? null,
             sectionCode: $section['desk_code'] ?? null,
             branchName: $section['branch_name'] ?? null,
@@ -178,8 +178,8 @@ final class MemberExportRowBuilder
             formationLevel: $memberYearRow['formation_level'] !== null ? (string) $memberYearRow['formation_level'] : null,
             supplementaryInsurance: $memberYearRow['supplementary_insurance'] !== null ? (string) $memberYearRow['supplementary_insurance'] : null,
             leaving: (bool) $memberYearRow['leaving'],
-            leavingComment: !empty($memberYearRow['leaving_comment_encrypted']) ? $this->encryption->decrypt($memberYearRow['leaving_comment_encrypted']) : null,
-            handicap: !empty($memberYearRow['handicap_encrypted']) ? $this->encryption->decrypt($memberYearRow['handicap_encrypted']) : null,
+            leavingComment: !empty($memberYearRow['leaving_comment_encrypted']) ? $this->encryption->decrypt($memberYearRow['leaving_comment_encrypted'], 'member_years.leaving_comment') : null,
+            handicap: !empty($memberYearRow['handicap_encrypted']) ? $this->encryption->decrypt($memberYearRow['handicap_encrypted'], 'member_years.handicap') : null,
             movementStatusLabel: $movement->status->label(),
             previousSectionName: $previousSection['name'] ?? $previousSection['desk_code'] ?? null,
             previousBranchName: $previousSection['branch_name'] ?? null

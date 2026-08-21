@@ -100,8 +100,8 @@ class FormResponseRepository
         );
         $stmt->execute([
             $formId, $userAccountId, $memberYearId,
-            $this->encryption->encrypt(strtolower(trim($contactEmail))),
-            $this->encryption->blindIndex(strtolower(trim($contactEmail))),
+            $this->encryption->encrypt(strtolower(trim($contactEmail)), 'news_form_responses.contact_email'),
+            $this->encryption->blindIndex(strtolower(trim($contactEmail)), 'news_contact_email'),
             $structuredCommunication, $receivableId, date('Y-m-d H:i:s'),
         ]);
         $responseId = (int) $this->pdo->lastInsertId();
@@ -122,8 +122,8 @@ class FormResponseRepository
             'UPDATE news_form_responses SET contact_email = ?, contact_email_blind_index = ?, updated_at = ? WHERE id = ?'
         );
         $stmt->execute([
-            $this->encryption->encrypt(strtolower(trim($contactEmail))),
-            $this->encryption->blindIndex(strtolower(trim($contactEmail))),
+            $this->encryption->encrypt(strtolower(trim($contactEmail)), 'news_form_responses.contact_email'),
+            $this->encryption->blindIndex(strtolower(trim($contactEmail)), 'news_contact_email'),
             date('Y-m-d H:i:s'),
             $responseId,
         ]);
@@ -144,7 +144,7 @@ class FormResponseRepository
 
         $values = [];
         foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $row) {
-            $values[(int) $row['field_id']] = $row['value'] !== null ? $this->encryption->decrypt($row['value']) : '';
+            $values[(int) $row['field_id']] = $row['value'] !== null ? $this->encryption->decrypt($row['value'], 'news_form_response_values.value') : '';
         }
         return $values;
     }
@@ -180,7 +180,7 @@ class FormResponseRepository
             if ($row['value'] === null) {
                 continue;
             }
-            $sum += (float) $this->encryption->decrypt($row['value']);
+            $sum += (float) $this->encryption->decrypt($row['value'], 'news_form_response_values.value');
         }
 
         return $sum;
@@ -214,7 +214,7 @@ class FormResponseRepository
     {
         $stmt = $this->pdo->prepare('INSERT INTO news_form_response_values (response_id, field_id, value) VALUES (?, ?, ?)');
         foreach ($values as $fieldId => $value) {
-            $stmt->execute([$responseId, $fieldId, $value !== '' ? $this->encryption->encrypt($value) : null]);
+            $stmt->execute([$responseId, $fieldId, $value !== '' ? $this->encryption->encrypt($value, 'news_form_response_values.value') : null]);
         }
     }
 
@@ -228,7 +228,7 @@ class FormResponseRepository
             formId: (int) $row['form_id'],
             userAccountId: $row['user_account_id'] !== null ? (int) $row['user_account_id'] : null,
             memberYearId: $row['member_year_id'] !== null ? (int) $row['member_year_id'] : null,
-            contactEmail: $this->encryption->decrypt($row['contact_email']),
+            contactEmail: $this->encryption->decrypt($row['contact_email'], 'news_form_responses.contact_email'),
             structuredCommunication: $row['structured_communication'] !== null ? (string) $row['structured_communication'] : null,
             receivableId: $row['receivable_id'] !== null ? (int) $row['receivable_id'] : null,
             submittedAt: (string) $row['submitted_at'],

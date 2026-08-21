@@ -99,6 +99,13 @@ class PageControllerTest extends TestCase
         $twig->addFilter(new \Twig\TwigFilter('display_name', function ($member) {
             return $member instanceof MemberProfile ? $member->getDisplayName() : (string) $member;
         }));
+        // Minimal stand-in for TwigFactory::create()'s own relative_date —
+        // the real French/UTC formatting is covered in full by
+        // Tests\Core\View\TwigFactoryTest; here it only needs to exist so
+        // pages/home.html.twig's groups activity card can render.
+        $twig->addFilter(new \Twig\TwigFilter('relative_date', function ($date) {
+            return (string) $date;
+        }));
 
         $sectionRepo = new SectionRepository($this->pdo);
 
@@ -272,7 +279,7 @@ class PageControllerTest extends TestCase
         $stmt = $this->pdo->prepare(
             'INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted, totem_encrypted) VALUES (?, ?, ?, ?, ?)'
         );
-        $stmt->execute([$memberId, $scoutYearId, $encryption->encrypt('Jean'), $encryption->encrypt('Dupont'), $encryption->encrypt('Baloo')]);
+        $stmt->execute([$memberId, $scoutYearId, $encryption->encrypt('Jean', 'member_years.first_name'), $encryption->encrypt('Dupont', 'member_years.last_name'), $encryption->encrypt('Baloo', 'member_years.totem')]);
         $memberYearId = (int) $this->pdo->lastInsertId();
         $stmt = $this->pdo->prepare(
             'INSERT INTO member_functions (member_year_id, function_id, section_id, is_main_function) VALUES (?, ?, ?, 1)'
@@ -313,7 +320,7 @@ class PageControllerTest extends TestCase
         $stmt = $this->pdo->prepare(
             'INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted, totem_encrypted) VALUES (?, ?, ?, ?, ?)'
         );
-        $stmt->execute([$memberId, $scoutYearId, $encryption->encrypt('Marie'), $encryption->encrypt('Curie'), $encryption->encrypt('Aigle')]);
+        $stmt->execute([$memberId, $scoutYearId, $encryption->encrypt('Marie', 'member_years.first_name'), $encryption->encrypt('Curie', 'member_years.last_name'), $encryption->encrypt('Aigle', 'member_years.totem')]);
         $memberYearId = (int) $this->pdo->lastInsertId();
 
         $profile = $this->sectionService->hydrateMemberProfile($memberYearId);

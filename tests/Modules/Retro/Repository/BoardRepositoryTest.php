@@ -22,7 +22,7 @@ class BoardRepositoryTest extends TestCase
     {
         $this->pdo = DatabaseTestHelper::createTestDatabase();
         RetroTestHelper::createTables($this->pdo);
-        $this->repository = new BoardRepository($this->pdo);
+        $this->repository = new BoardRepository($this->pdo, new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32)));
     }
 
     private function createBoard(array $overrides = []): int
@@ -69,6 +69,24 @@ class BoardRepositoryTest extends TestCase
     public function testFindByTokenReturnsNullForUnknownToken(): void
     {
         $this->assertNull($this->repository->findByToken('does-not-exist'));
+    }
+
+    public function testTheTokenIsNeverStoredInPlaintext(): void
+    {
+        // A long-lived bearer credential: any DB read (SQLi, stolen dump)
+        // must not yield a working /r/{token} URL. Encrypted at rest, and
+        // the blind index is a keyed HMAC — neither column contains the
+        // token itself.
+        $token = bin2hex(random_bytes(32));
+        $id = $this->createBoard(['token' => $token]);
+
+        $row = $this->pdo->query('SELECT token_encrypted, token_blind_index FROM retro_boards WHERE id = ' . $id)->fetch(\PDO::FETCH_ASSOC);
+        $this->assertStringNotContainsString($token, (string) $row['token_encrypted']);
+        $this->assertNotSame($token, $row['token_blind_index']);
+        $this->assertNotSame(hash('sha256', $token), $row['token_blind_index']);
+
+        // Still fully usable: lookup by value, and re-displayable.
+        $this->assertSame($token, $this->repository->findByToken($token)?->token);
     }
 
     public function testFindOpenExcludesClosedBoards(): void

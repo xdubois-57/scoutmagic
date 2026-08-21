@@ -42,12 +42,12 @@ class VoteService
 
     public function voterHash(int $boardId, int $commentId, string $voterIdentifier): string
     {
-        return $this->encryption->blindIndex("retro_vote:{$voterIdentifier}:{$boardId}:{$commentId}");
+        return $this->encryption->blindIndex("{$voterIdentifier}:{$boardId}:{$commentId}", 'retro_vote');
     }
 
     public function voterBoardHash(int $boardId, string $voterIdentifier): string
     {
-        return $this->encryption->blindIndex("retro_vote_board:{$voterIdentifier}:{$boardId}");
+        return $this->encryption->blindIndex("{$voterIdentifier}:{$boardId}", 'retro_vote_board');
     }
 
     /**

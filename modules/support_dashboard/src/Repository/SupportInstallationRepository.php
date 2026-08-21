@@ -10,7 +10,7 @@ namespace Modules\SupportDashboard\Repository;
 
 /**
  * The receiver's record of every installation that reports to it
- * (ARCHITECTURE.md §8.43).
+ * (ARCHITECTURE.md §8.45).
  *
  * One row per installation, never a history: each accepted report
  * overwrites the previous one. The shared secret is stored **only** as a

@@ -160,11 +160,11 @@ class AuthServiceTest extends TestCase
 
         $memberId = 42;
         $this->pdo->prepare('INSERT INTO member_years (member_id, scout_year_id, email_blind_index) VALUES (?, 1, ?)')
-            ->execute([$memberId, $this->encryption->blindIndex('primary@test.com')]);
+            ->execute([$memberId, $this->encryption->blindIndex('primary@test.com', 'email')]);
         $this->pdo->prepare(
             'INSERT INTO member_emails (member_id, email_encrypted, email_blind_index, source, status)
              VALUES (?, ?, ?, "manual", "valid")'
-        )->execute([$memberId, $this->encryption->encrypt('secondary@test.com'), $this->encryption->blindIndex('secondary@test.com')]);
+        )->execute([$memberId, $this->encryption->encrypt('secondary@test.com', 'member_emails.email'), $this->encryption->blindIndex('secondary@test.com', 'email')]);
 
         $result = $this->authService->requestMagicLink('secondary@test.com');
 
@@ -175,7 +175,7 @@ class AuthServiceTest extends TestCase
         // index, not the secondary address's — otherwise verifyMagicLink()
         // could never find a matching user_accounts row.
         $stmt = $this->pdo->query('SELECT email_blind_index FROM magic_links ORDER BY id DESC LIMIT 1');
-        $this->assertSame($this->encryption->blindIndex('primary@test.com'), $stmt->fetchColumn());
+        $this->assertSame($this->encryption->blindIndex('primary@test.com', 'email'), $stmt->fetchColumn());
     }
 
     public function testRequestMagicLinkWithPendingSecondaryEmailDoesNotSend(): void
@@ -184,11 +184,11 @@ class AuthServiceTest extends TestCase
 
         $memberId = 43;
         $this->pdo->prepare('INSERT INTO member_years (member_id, scout_year_id, email_blind_index) VALUES (?, 1, ?)')
-            ->execute([$memberId, $this->encryption->blindIndex('primary2@test.com')]);
+            ->execute([$memberId, $this->encryption->blindIndex('primary2@test.com', 'email')]);
         $this->pdo->prepare(
             'INSERT INTO member_emails (member_id, email_encrypted, email_blind_index, source, status)
              VALUES (?, ?, ?, "manual", "pending")'
-        )->execute([$memberId, $this->encryption->encrypt('unconfirmed@test.com'), $this->encryption->blindIndex('unconfirmed@test.com')]);
+        )->execute([$memberId, $this->encryption->encrypt('unconfirmed@test.com', 'member_emails.email'), $this->encryption->blindIndex('unconfirmed@test.com', 'email')]);
 
         $result = $this->authService->requestMagicLink('unconfirmed@test.com');
 
@@ -219,7 +219,7 @@ class AuthServiceTest extends TestCase
         // Manually create a magic link with a known token
         $rawToken = bin2hex(random_bytes(32));
         $tokenHash = password_hash($rawToken, PASSWORD_DEFAULT);
-        $blindIndex = $this->encryption->blindIndex('verify@test.com');
+        $blindIndex = $this->encryption->blindIndex('verify@test.com', 'email');
         $expiresAt = (new \DateTimeImmutable('+15 minutes'))->format('Y-m-d H:i:s');
 
         $stmt = $this->pdo->prepare(
@@ -238,7 +238,7 @@ class AuthServiceTest extends TestCase
     public function testVerifyMagicLinkWithWrongToken(): void
     {
         $this->userRepo->create('user@test.com');
-        $blindIndex = $this->encryption->blindIndex('user@test.com');
+        $blindIndex = $this->encryption->blindIndex('user@test.com', 'email');
 
         $stmt = $this->pdo->prepare(
             'INSERT INTO magic_links (email_blind_index, token_hash, expires_at) VALUES (?, ?, ?)'
@@ -253,7 +253,7 @@ class AuthServiceTest extends TestCase
     public function testVerifyMagicLinkExpired(): void
     {
         $this->userRepo->create('user@test.com');
-        $blindIndex = $this->encryption->blindIndex('user@test.com');
+        $blindIndex = $this->encryption->blindIndex('user@test.com', 'email');
         $rawToken = 'test_token';
 
         $stmt = $this->pdo->prepare(
@@ -269,7 +269,7 @@ class AuthServiceTest extends TestCase
     public function testVerifyMagicLinkAlreadyUsed(): void
     {
         $this->userRepo->create('user@test.com');
-        $blindIndex = $this->encryption->blindIndex('user@test.com');
+        $blindIndex = $this->encryption->blindIndex('user@test.com', 'email');
         $rawToken = 'test_token';
 
         $stmt = $this->pdo->prepare(

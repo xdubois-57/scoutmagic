@@ -74,7 +74,7 @@ class ReconciliationServiceTest extends TestCase
         );
         $stmt->execute([
             $memberId, $this->scoutYearId,
-            $this->encryption->encrypt($firstName), $this->encryption->encrypt($lastName), $this->encryption->encrypt($birthDate),
+            $this->encryption->encrypt($firstName, 'member_years.first_name'), $this->encryption->encrypt($lastName, 'member_years.last_name'), $this->encryption->encrypt($birthDate, 'member_years.birth_date'),
         ]);
 
         return $memberId;

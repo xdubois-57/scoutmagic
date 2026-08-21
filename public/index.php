@@ -105,6 +105,7 @@ use Core\Import\MappingResolver;
 use Core\Import\MemberRepository;
 use Core\Import\MemberYearRepository;
 use Core\Member\Controller\MemberSearchController;
+use Core\Member\Controller\TemporaryMemberController;
 use Core\Member\MemberService;
 use Core\Member\MemberYearService;
 use Core\Member\Repository\MemberSearchRepository;
@@ -137,6 +138,7 @@ use Core\Notification\VapidKeyPairFactory;
 use Minishlink\WebPush\WebPush;
 use Twig\TwigFunction;
 use Core\View\ConfigurationMode;
+use Core\View\DynamicMenuRegistrar;
 use Core\View\EditableContentRepository;
 use Core\View\EditableContentService;
 use Core\View\RgpdContentService;
@@ -609,6 +611,16 @@ $settingService->register('rgpd_custom_prompt', '', 'textarea', 'Prompt RGPD per
 $settingService->register('section_document_reference_date', '30-09', 'text', 'Date de référence — documents de section',
     'Jour et mois (JJ-MM) utilisés pour déterminer qui était actif dans quelle section une année scoute donnée, pour l\'accès aux documents de section.',
     null, '^(0[1-9]|[12]\d|3[01])-(0[1-9]|1[0-2])$', null, true, 250);
+// Scout year transition (Core\ScoutYear\ScoutYearTransitionService) — the
+// day the "Année scoute" page starts presenting the Desk encoding phase as
+// the current one. A signpost and nothing else: it labels the phases and
+// says which one the calendar is in, and it never enables, disables or
+// triggers anything. specifications.md §16.4 removed date-driven
+// transitions deliberately (a computed date cannot be told "not yet" by
+// the registration veto), and this parameter does not bring them back.
+$settingService->register('scout_year_desk_encoding_date', '08-15', 'text', 'Bascule vers l\'encodage dans Desk',
+    'Jour et mois (MM-JJ) à partir desquels la page « Année scoute » présente l\'encodage dans Desk comme la période en cours — jamais d\'année à indiquer, la même configuration se répète d\'une année scoute à l\'autre. Purement indicatif : cette date n\'active, ne bloque et ne déclenche jamais rien.',
+    null, '^(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$', null, true, 252);
 $settingService->register('section_document_compression_enabled', '1', 'boolean', 'Compression des documents PDF de section',
     'Compresse automatiquement les documents PDF de section en arrière-plan après leur ajout, si un outil de compression est disponible sur le serveur.',
     null, null, null, true, 251);
@@ -678,7 +690,7 @@ $settingService->register('human_check_rate_limit_max_attempts', '5', 'number', 
     null, '^\d+$', null, true, 273);
 
 // Usage statistics and support package (Core\Statistics, Core\Support —
-// ARCHITECTURE.md §8.41/§8.42). All five are deliberately kept out of the
+// ARCHITECTURE.md §8.43/§8.44). All five are deliberately kept out of the
 // generic Configuration > Paramètres page (Core\Http\Controller\
 // SettingsController::EXCLUDED_FROM_GENERIC_PAGE, same treatment as the
 // auto-update settings) — they are managed from the dedicated Support
@@ -708,7 +720,7 @@ $settingService->register('statistics_last_failure_at', '', 'text', 'Dernier éc
 $settingService->register('statistics_last_failure_reason', '', 'text', 'Motif du dernier échec d\'envoi',
     'Motif court du dernier échec ou saut d\'envoi des statistiques. Renseigné automatiquement.',
     null, null, null, false, 287);
-// Support package bookkeeping (Core\Support, ARCHITECTURE.md §8.42) — one
+// Support package bookkeeping (Core\Support, ARCHITECTURE.md §8.44) — one
 // package is ever kept, so two settings replace what would be a one-row table.
 $settingService->register('support_package_file_id', '', 'text', 'Paquet de support disponible',
     'Identifiant du fichier de l\'archive de support actuellement conservée. Renseigné automatiquement.',
@@ -889,7 +901,7 @@ $passwordResetService = new PasswordResetService(
 // Create generic short-URL service (Core\Url) and A4 poster PDF service
 // (Core\Pdf) — not module-specific, see schema/core.sql's short_urls table
 // doc comment.
-$shortUrlRepository = new ShortUrlRepository($pdo);
+$shortUrlRepository = new ShortUrlRepository($pdo, $encryptionService);
 $shortUrlService = new ShortUrlService($shortUrlRepository);
 $posterPdfService = new PosterPdfService();
 
@@ -962,7 +974,11 @@ $notificationService = new NotificationService(
     $scoutYearService
 );
 
-$memberService = new MemberService($memberYearRepo, $encryptionService, $connection);
+// The one session-aware temporary-member resolver (ARCHITECTURE.md §8.42).
+// Constructed here, in the composition root, because it is the only place
+// with a session to read: MemberService itself never touches $_SESSION.
+$temporaryMemberProvider = new \Core\Member\SessionTemporaryMemberProvider();
+$memberService = new MemberService($memberYearRepo, $encryptionService, $connection, $temporaryMemberProvider);
 $memberYearService = new MemberYearService();
 $memberSearchService = new MemberSearchService(new MemberSearchRepository($connection, $encryptionService));
 // "Won't be back next scout year" marking (ARCHITECTURE.md §8) — a plain
@@ -1053,7 +1069,8 @@ $memberPhotoService = new MemberPhotoService(new MemberPhotoRepository($pdo));
 // Same "one per year, fall back to the most recent earlier one" component
 // as above, keyed by section instead of member — the Staffs page's group
 // photo of a section's chiefs. See Core\Photo\SectionPhotoService.
-$sectionPhotoService = new SectionPhotoService(new SectionPhotoRepository($pdo));
+$sectionPhotoRepository = new SectionPhotoRepository($pdo);
+$sectionPhotoService = new SectionPhotoService($sectionPhotoRepository);
 $sectionPhotoProcessor = new SectionPhotoProcessor();
 
 // Generic, reusable-anywhere "editable image" landscape crop (home page
@@ -1098,6 +1115,7 @@ $effectiveScoutYear = $scoutYearResolver->getEffectiveYear(
 $displayName = AuthSession::getEmail() ?? '';
 $memberCount = 0;
 $linkedMembers = [];
+$temporaryMemberName = null;
 if (AuthSession::isAuthenticated()) {
     $linkedMembers = $memberService->getLinkedMembers(
         AuthSession::getEmail(),
@@ -1107,6 +1125,22 @@ if (AuthSession::isAuthenticated()) {
         $primaryMember = MemberService::getHighestRoleMember($linkedMembers);
         $displayName = $primaryMember !== null ? $primaryMember->getDisplayName() : $displayName;
         $memberCount = count($linkedMembers);
+    }
+
+    // A temporary member (ARCHITECTURE.md §8.42) takes over the header
+    // identity outright, rather than going through getHighestRoleMember():
+    // an animé carries no function at all, so the "highest role" rule would
+    // always keep showing the admin's own member and the override would be
+    // invisible in the one place it most needs to be legible. The banner
+    // right below the nav is what stops that from reading as "you are
+    // logged in as this person".
+    $temporaryMemberYearId = $temporaryMemberProvider->resolveMemberYearId(AuthSession::getEmail() ?? '');
+    foreach ($linkedMembers as $member) {
+        if ($member->memberYearId === $temporaryMemberYearId) {
+            $displayName = $member->getDisplayName();
+            $temporaryMemberName = $member->getDisplayName();
+            break;
+        }
     }
 }
 
@@ -1166,6 +1200,10 @@ $twig->addGlobal(
 $twig->addGlobal('current_user_role_label', $roleLabelMap[$currentRole] ?? 'Public');
 $twig->addGlobal('current_path', $request->getPath());
 $twig->addGlobal('config_mode', ConfigurationMode::isActive());
+// Drives the "vous agissez au nom de" banner in base.html.twig. Null
+// whenever no temporary member is active, or when one is set but does not
+// resolve against the year currently in effect (ARCHITECTURE.md §8.42).
+$twig->addGlobal('temporary_member_name', $temporaryMemberName);
 $twig->addGlobal('effective_scout_year', $effectiveScoutYear->label);
 $twig->addGlobal('effective_scout_year_id', $effectiveScoutYear->id);
 $twig->addGlobal('is_year_overridden', $effectiveScoutYear->isOverridden());
@@ -1195,6 +1233,11 @@ $twig->addGlobal(
 
 // Build menu
 $menuBuilder = new MenuBuilder(Role::fromString($currentRole));
+// Applies every enabled module's Core\Module\MenuEntryProvider late in this
+// file (once module services exist) and re-derives the active-page
+// highlight for what they added — see the class docblock for why that
+// re-derivation cannot happen in the first pass below.
+$dynamicMenuRegistrar = new DynamicMenuRegistrar();
 
 // Register core pages in menus
 $menuBuilder->addPage(MenuBuilder::MENU_NOTRE_UNITE, 'Accueil', '/', 'public', 10);
@@ -1245,7 +1288,7 @@ $offlineWhitelist = new OfflineWhitelist();
 // Create ModuleManager (modules loaded after core routes are registered)
 $modulesDir = __DIR__ . '/../modules';
 $moduleRegistryRepo = new ModuleRegistryRepository($pdo);
-// Is THIS installation the statistics receiver (ARCHITECTURE.md §8.43)?
+// Is THIS installation the statistics receiver (ARCHITECTURE.md §8.45)?
 // Decided from base_url vs. statistics_destination, never from the Host
 // header, and resolved here so ModuleManager receives a plain boolean
 // rather than learning what a statistics destination is.
@@ -1268,7 +1311,7 @@ $moduleManager = new ModuleManager(
     $isStatisticsReceiver
 );
 
-// Usage statistics (Core\Statistics, ARCHITECTURE.md §8.41). Built here
+// Usage statistics (Core\Statistics, ARCHITECTURE.md §8.43). Built here
 // because the payload needs the ModuleManager above (module list and
 // versions) and the MailService built earlier (transport mode, and whether
 // mail is configured — never the credentials themselves).
@@ -1453,8 +1496,10 @@ $router->addRoute('POST', '/members/{id}/emails/{email_id}/resend', \Core\Http\C
 $router->addRoute('POST', '/members/{id}/emails/{email_id}/reactivate', \Core\Http\Controller\MemberEmailAddressController::class, 'reactivate', 'identified');
 $router->addRoute('POST', '/members/{id}/emails/{email_id}/delete', \Core\Http\Controller\MemberEmailAddressController::class, 'delete', 'identified');
 // The confirmation link's target — public, unauthenticated, same reasoning
-// as /auth/verify and /password-reset/{id}.
+// as /auth/verify and /password-reset/{id}. The GET only renders a confirm
+// page (prefetch-safe); the POST behind its button is what confirms.
 $router->addRoute('GET', '/members/emails/confirm/{id}', \Core\Http\Controller\MemberEmailAddressController::class, 'confirm', 'public');
+$router->addRoute('POST', '/members/emails/confirm/{id}', \Core\Http\Controller\MemberEmailAddressController::class, 'confirmPost', 'public');
 // The email-detail route (/members/{id}/emails/{recipient_id}) is
 // registered inside the mass_mail module block below (module-owned data,
 // core only ever links to it) — it doesn't exist at all when mass_mail is
@@ -1545,12 +1590,20 @@ $router->addRoute('GET', '/admin/journal', JournalController::class, 'index', 'a
 
 // Scout year navigation and transition
 $router->addRoute('GET', '/admin/members', MemberSearchController::class, 'index', 'admin', ['label' => 'Membres', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ADMIN)]]);
+// Temporary member override (ARCHITECTURE.md §8.42). The static "remove"
+// path is registered BEFORE the parameterised "add" one: Router::resolve()
+// is first-match-wins and both patterns are four segments deep, so
+// registration order is what keeps /admin/members/temporary-access/remove
+// from being read as {id} = "temporary-access".
+$router->addRoute('POST', '/admin/members/temporary-access/remove', TemporaryMemberController::class, 'remove', 'admin');
+$router->addRoute('POST', '/admin/members/{id}/temporary-access', TemporaryMemberController::class, 'add', 'admin');
 $router->addRoute('GET', '/admin/scout-year', ScoutYearController::class, 'index', 'admin', ['label' => 'Année scoute', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_ESPACE_ADMIN)]]);
 $router->addRoute('POST', '/admin/scout-year/preview', ScoutYearController::class, 'preview', 'admin');
 $router->addRoute('POST', '/admin/scout-year/clear-preview', ScoutYearController::class, 'clearPreview', 'admin');
 $router->addRoute('POST', '/admin/scout-year/activate-staff', ScoutYearController::class, 'activateStaff', 'admin');
 $router->addRoute('POST', '/admin/scout-year/deactivate-staff', ScoutYearController::class, 'deactivateStaff', 'admin');
 $router->addRoute('POST', '/admin/scout-year/activate-public', ScoutYearController::class, 'activatePublic', 'admin');
+$router->addRoute('POST', '/admin/scout-year/step', ScoutYearController::class, 'toggleStep', 'admin');
 
 // Settings
 $router->addRoute('GET', '/config/settings', SettingsController::class, 'index', 'superadmin', ['label' => 'Paramètres', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]]);
@@ -1558,7 +1611,7 @@ $router->addRoute('POST', '/config/settings/update', SettingsController::class, 
 $router->addRoute('POST', '/config/settings/logo-delete', SettingsController::class, 'deleteLogo', 'superadmin');
 $router->addRoute('POST', '/config/settings/logo-notify-ios', SettingsController::class, 'notifyIosLogoUpdate', 'superadmin');
 
-// Support (Core\Statistics, Core\Support — ARCHITECTURE.md §8.41/§8.42)
+// Support (Core\Statistics, Core\Support — ARCHITECTURE.md §8.43/§8.44)
 $router->addRoute('GET', '/config/support', SupportController::class, 'index', 'superadmin', ['label' => 'Support', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]]);
 $router->addRoute('POST', '/config/support/statistics', SupportController::class, 'saveStatistics', 'superadmin');
 $router->addRoute('POST', '/config/support/package', SupportController::class, 'generatePackage', 'superadmin');
@@ -1830,7 +1883,8 @@ $frontController->registerController(EditableContentController::class, $editable
 // photos in the manifest" when that module is disabled.
 $offlineManifestService = new \Core\Offline\OfflineManifestService(
     $offlineWhitelist, $memberService, $memberPhotoService, $sectionPhotoService, $sectionService,
-    $unitStaffSectionService, $scoutYearService, $editableContentService, $ageBranchRepo, null
+    $unitStaffSectionService, $scoutYearService, $editableContentService, $ageBranchRepo, null,
+    $temporaryMemberProvider
 );
 $offlineController = new OfflineController($twig, $offlineManifestService);
 $frontController->registerController(OfflineController::class, $offlineController);
@@ -1839,8 +1893,8 @@ $uploadController->setJournalService($journalService);
 $frontController->registerController(UploadController::class, $uploadController);
 $frontController->registerController(\Core\Http\Controller\PwaController::class, new \Core\Http\Controller\PwaController($twig, $settingService, $unitLogoService));
 $frontController->registerController(JournalController::class, new JournalController($twig, $journalRepo, $userAccountRepo));
-$frontController->registerController(ScoutYearController::class, new ScoutYearController($twig, $scoutYearResolver, $scoutYearAdminService, $scoutYearService, $journalService));
 $frontController->registerController(MemberSearchController::class, new MemberSearchController($twig, $memberSearchService, $memberService, $scoutYearResolver, $memberYearService, $departureService));
+$frontController->registerController(TemporaryMemberController::class, new TemporaryMemberController($twig, $memberSearchService, $scoutYearResolver, $journalService));
 $frontController->registerController(SettingsController::class, new SettingsController($twig, $settingService, $journalService, $unitLogoService, $notificationService, $userAccountRepo));
 $frontController->registerController(SupportController::class, new SupportController(
     $twig,
@@ -1907,16 +1961,23 @@ if (in_array('trombinoscope', $moduleManager->getEnabledModuleIds(), true)) {
         OfflineController::class,
         new OfflineController($twig, new \Core\Offline\OfflineManifestService(
             $offlineWhitelist, $memberService, $memberPhotoService, $sectionPhotoService, $sectionService,
-            $unitStaffSectionService, $scoutYearService, $editableContentService, $ageBranchRepo, $trombinoscopeService
+            $unitStaffSectionService, $scoutYearService, $editableContentService, $ageBranchRepo, $trombinoscopeService,
+            $temporaryMemberProvider
         ))
     );
 }
 
 if (in_array('calendar', $moduleManager->getEnabledModuleIds(), true)) {
-    $calendarRepo = new \Modules\Calendar\Repository\CalendarRepository($pdo);
+    $calendarRepo = new \Modules\Calendar\Repository\CalendarRepository($pdo, $encryptionService);
     $calendarEventRepo = new \Modules\Calendar\Repository\CalendarEventRepository($pdo);
-    $calendarPersonalTokenRepo = new \Modules\Calendar\Repository\CalendarPersonalTokenRepository($pdo);
-    $calendarUnitFeedTokenRepo = new \Modules\Calendar\Repository\CalendarUnitFeedTokenRepository($pdo);
+    $calendarPersonalTokenRepo = new \Modules\Calendar\Repository\CalendarPersonalTokenRepository($pdo, $encryptionService);
+    $calendarUnitFeedTokenRepo = new \Modules\Calendar\Repository\CalendarUnitFeedTokenRepository($pdo, $encryptionService);
+
+    // Api\ScoutYearEventCountProvider (ARCHITECTURE.md §7.5) — read by the
+    // "Année scoute" workflow to tell whether this year's éphémérides have
+    // been encoded. Left null below when this module is off, which is what
+    // makes that workflow drop its "encoder les éphémérides" step.
+    $calendarScoutYearEventCount = new \Modules\Calendar\Service\ScoutYearEventCountService($calendarEventRepo);
 
     $calendarService = new \Modules\Calendar\Service\CalendarService(
         $calendarRepo, $calendarEventRepo, $sectionService, $calendarUnitFeedTokenRepo
@@ -2390,8 +2451,16 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
         $groupsMemberRepo, $groupsSectionRepo, $sectionMembershipRepository
     );
     $groupsService = new \Modules\Groups\Service\GroupService($groupsGroupRepo, $groupsSectionRepo, $groupsMemberRepo);
+    // Per-member "last time I opened this group": drives the unread badge
+    // on the group list, the home page's own activity card, and a post's
+    // "vu par" list — all three read the same single mark, written once
+    // per group page view by Service\GroupReadStateService.
+    $groupsReadRepo = new \Modules\Groups\Repository\GroupReadRepository($pdo);
     $groupsListService = new \Modules\Groups\Service\GroupListService(
-        $groupsGroupRepo, $groupsSectionRepo, $groupsMemberRepo, $sectionMembershipRepository
+        $groupsGroupRepo, $groupsSectionRepo, $groupsMemberRepo, $sectionMembershipRepository, $groupsReadRepo
+    );
+    $groupsReadStateService = new \Modules\Groups\Service\GroupReadStateService(
+        $groupsReadRepo, $groupsAccessService
     );
     $groupsContextFactory = new \Modules\Groups\Service\GroupSessionContextFactory(
         $memberService, $userAccountRepo, $scoutYearResolver
@@ -2522,6 +2591,9 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
     );
     $groupsAuthorOptionsService = new \Modules\Groups\Service\AuthorOptionsService($groupsAccessService, $memberService);
 
+    $groupsPollService = new \Modules\Groups\Service\PollService(
+        new \Modules\Groups\Repository\PollRepository($pdo)
+    );
     $groupsFeedService = new \Modules\Groups\Service\GroupFeedService(
         $groupsPostRepo,
         $groupsAuthorResolver,
@@ -2531,8 +2603,16 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
         $groupsReplyRepo,
         $groupsReplyPresenter,
         $groupsReactionService,
-        $groupsReportService
+        $groupsReportService,
+        $groupsReadStateService,
+        // No event service here: calendar's lookup does not exist yet.
+        // The block at the end of this file re-registers the two
+        // controllers that need it — see its own comment.
+        null,
+        $groupsPollService
     );
+    $groupsSeenByService = new \Modules\Groups\Service\SeenByService($groupsReadStateService, $memberService);
+    $groupsMentionService = new \Modules\Groups\Service\MentionService($groupsRecipientResolver, $memberService);
 
     // Group files are readable only by the group's own members —
     // ARCHITECTURE.md §8.3's owner_type registry, appended here so it
@@ -2559,7 +2639,26 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
             $twig, $groupsGroupRepo, $groupsListService, $groupsAccessService, $groupsService,
             $groupsContextFactory, $sectionService, $groupsFeedService, $groupsPostMediaService,
             $groupsAuthorOptionsService, $groupsPostRepo, $groupsSectionGroupSync, $groupsMembershipService,
-            $settingService
+            $settingService, $groupsReadStateService
+        )
+    );
+
+    // Re-registers PageController with the groups activity hook — same
+    // core-hook precedent as the banner/news/trombinoscope blocks above
+    // (ARCHITECTURE.md §7.4), and the same "reuse whatever the earlier
+    // blocks already set" rule, so enabling groups never silently drops
+    // another module's homepage contribution. This block runs after all
+    // three of them, so each variable is either the real provider or the
+    // null it was initialised to.
+    $frontController->registerController(
+        PageController::class,
+        new PageController(
+            $twig, $editableContentService, $sectionRepository, $settingService, $rgpdContentService,
+            $sectionService, $unitStaffSectionService, $scoutYearService,
+            in_array('banner', $moduleManager->getEnabledModuleIds(), true) ? $bannerService : null,
+            in_array('news', $moduleManager->getEnabledModuleIds(), true) ? $newsArticleService : null,
+            $sectionResponsableProvider,
+            new \Modules\Groups\Api\HomeActivityService($groupsListService, $groupsContextFactory)
         )
     );
     $frontController->registerController(
@@ -2568,7 +2667,7 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
             $twig, $groupsGroupRepo, $groupsPostRepo, $groupsAccessService, $groupsFeedService,
             $groupsPostService, $groupsContextFactory, $groupsPostMediaService, $groupsPostLinkService,
             $groupsReplyService, $groupsAuthorOptionsService, $groupsReportService,
-            $groupsNotificationService
+            $groupsNotificationService, $groupsSeenByService, $groupsMentionService, null, $groupsPollService
         )
     );
     $frontController->registerController(
@@ -2576,7 +2675,7 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
         new \Modules\Groups\Controller\ReplyController(
             $twig, $groupsGroupRepo, $groupsPostRepo, $groupsReplyRepo, $groupsAccessService,
             $groupsReplyService, $groupsReplyPresenter, $groupsPostMediaService, $groupsContextFactory,
-            $groupsReportService, $groupsNotificationService
+            $groupsReportService, $groupsNotificationService, $groupsMentionService
         )
     );
     $frontController->registerController(
@@ -2606,7 +2705,7 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
 }
 
 // Modules\SupportDashboard — the statistics receiver (ARCHITECTURE.md
-// §8.43). Only ever discovered on the receiving installation, so this block
+// §8.45). Only ever discovered on the receiving installation, so this block
 // is dead code everywhere else by construction.
 if (in_array('support_dashboard', $moduleManager->getEnabledModuleIds(), true)) {
     $supportInstallationRepo = new \Modules\SupportDashboard\Repository\SupportInstallationRepository($pdo);
@@ -2641,7 +2740,7 @@ if (in_array('support_dashboard', $moduleManager->getEnabledModuleIds(), true)) 
 }
 
 if (in_array('retro', $moduleManager->getEnabledModuleIds(), true)) {
-    $retroBoardRepo = new \Modules\Retro\Repository\BoardRepository($pdo);
+    $retroBoardRepo = new \Modules\Retro\Repository\BoardRepository($pdo, $encryptionService);
     $retroCommentRepo = new \Modules\Retro\Repository\CommentRepository($pdo);
     $retroVoteRepo = new \Modules\Retro\Repository\VoteRepository($pdo);
     $retroRateLimitRepo = new \Modules\Retro\Repository\RateLimitRepository($pdo);
@@ -2741,6 +2840,57 @@ if (in_array('calendar', $moduleManager->getEnabledModuleIds(), true)) {
             $sectionService, $memberService, $scoutYearResolver, $journalService, $settingService, $moduleManager
         )
     );
+
+    // Groups' optional "ce message parle de la réunion de samedi" link.
+    // Re-registered here rather than wired in groups' own block for the
+    // same reason PageController is re-registered there: $calendarEventLookup
+    // does not exist until this block (it needs the retro lookup, whose
+    // block runs after groups'), and groups' block runs earlier. With
+    // calendar disabled this never runs and the pair registered earlier —
+    // with no event service at all — stays in place, which is exactly the
+    // "works with the other module switched off" contract of
+    // ARCHITECTURE.md §7.5.
+    //
+    // Both constructor calls below MUST stay identical to the ones in the
+    // groups block apart from the trailing event service: a parameter
+    // added there and forgotten here would silently disable a feature on
+    // calendar-enabled installs only.
+    if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
+        $groupsPostEventService = new \Modules\Groups\Service\PostEventService($calendarEventLookup);
+        $groupsFeedService = new \Modules\Groups\Service\GroupFeedService(
+            $groupsPostRepo,
+            $groupsAuthorResolver,
+            $groupsPostService,
+            $groupsPostMediaService,
+            $groupsPostLinkRepo,
+            $groupsReplyRepo,
+            $groupsReplyPresenter,
+            $groupsReactionService,
+            $groupsReportService,
+            $groupsReadStateService,
+            $groupsPostEventService,
+            $groupsPollService
+        );
+        $frontController->registerController(
+            \Modules\Groups\Controller\GroupController::class,
+            new \Modules\Groups\Controller\GroupController(
+                $twig, $groupsGroupRepo, $groupsListService, $groupsAccessService, $groupsService,
+                $groupsContextFactory, $sectionService, $groupsFeedService, $groupsPostMediaService,
+                $groupsAuthorOptionsService, $groupsPostRepo, $groupsSectionGroupSync, $groupsMembershipService,
+                $settingService, $groupsReadStateService, $groupsPostEventService
+            )
+        );
+        $frontController->registerController(
+            \Modules\Groups\Controller\PostController::class,
+            new \Modules\Groups\Controller\PostController(
+                $twig, $groupsGroupRepo, $groupsPostRepo, $groupsAccessService, $groupsFeedService,
+                $groupsPostService, $groupsContextFactory, $groupsPostMediaService, $groupsPostLinkService,
+                $groupsReplyService, $groupsAuthorOptionsService, $groupsReportService,
+                $groupsNotificationService, $groupsSeenByService, $groupsMentionService, $groupsPostEventService,
+                $groupsPollService
+            )
+        );
+    }
 }
 
 if (in_array('registration', $moduleManager->getEnabledModuleIds(), true)) {
@@ -2848,15 +2998,22 @@ if (in_array('registration', $moduleManager->getEnabledModuleIds(), true)) {
 
     // Iteration 7 — the year-transition veto (Api\
     // ScoutYearTransitionVetoProvider, ARCHITECTURE.md §7.5/§8.38): Core\
-    // ScoutYear\ScoutYearAdminService/ScoutYearController were already
-    // registered earlier (before this module's services existed, same
-    // ordering constraint as ImportController/mass_mail above) with a
-    // null veto — rebuilt and re-registered here with the real one.
+    // ScoutYear\ScoutYearAdminService was built earlier with a null veto,
+    // before this module's services existed — rebuilt here with the real
+    // one. ScoutYearController is no longer re-registered here: two
+    // different modules now feed that page (this one and calendar), so it
+    // is registered once, after every module block, with whichever
+    // providers exist by then.
     $registrationScoutYearVeto = new \Modules\Registration\Service\ScoutYearTransitionVetoService($registrationRequestRepo);
     $scoutYearAdminService = new ScoutYearAdminService($settingService, $registrationScoutYearVeto);
-    $frontController->registerController(
-        ScoutYearController::class,
-        new ScoutYearController($twig, $scoutYearResolver, $scoutYearAdminService, $scoutYearService, $journalService)
+
+    // Api\ScoutYearPreparationProvider (ARCHITECTURE.md §7.5) — the second
+    // half of what the "Année scoute" workflow asks this module: how much
+    // of the Passage page is still undecided. Its absence is also what
+    // makes that workflow drop its three preparation steps, which are this
+    // module's own pages.
+    $registrationScoutYearPreparation = new \Modules\Registration\Service\ScoutYearPreparationService(
+        $registrationPassageService, $scoutYearResolver, $scoutYearService
     );
 
     // Iteration 7 — "Prévisions" (own ForecastService, reusing
@@ -2945,47 +3102,36 @@ if (in_array('registration', $moduleManager->getEnabledModuleIds(), true)) {
         $schedulerService->schedule('registration', 'auto_assign_passage', new DateTimeImmutable(), [], 'hourly');
     }
 
-    // Espace animés menu hook (Core\Module\EspaceAnimesEntryProvider,
-    // ARCHITECTURE.md §7.4) — one entry per pending registration request
-    // linked to the visitor's email. $menuBuilder->build() was already
-    // called above (before this module's services existed); addPage() only
-    // mutates MenuBuilder's own internal list, so calling build() again
-    // here safely picks up these entries too, and the Twig global is
-    // re-set to the refreshed array. The highlight/active-page scan above
-    // ran before these URLs existed, so it's re-applied here for exact
-    // matches only (same "isDynamic entries: exact match only" rule as the
-    // original scan — see its own comment).
-    if (AuthSession::isAuthenticated()) {
-        $registrationMenuEmail = AuthSession::getEmail();
-        if ($registrationMenuEmail !== null) {
-            $registrationMenuEntries = $registrationMenuHookService->getEntriesForEmail($registrationMenuEmail);
-            foreach ($registrationMenuEntries as $registrationMenuIndex => $registrationMenuEntry) {
-                $menuBuilder->addPage(
-                    MenuBuilder::MENU_ESPACE_ANIMES,
-                    $registrationMenuEntry['label'],
-                    $registrationMenuEntry['url'],
-                    'identified',
-                    1000 + $registrationMenuIndex,
-                    true,
-                    $registrationMenuEntry['subtitle'],
-                    MenuBuilder::GROUP_DYNAMIC
-                );
-            }
-            if ($registrationMenuEntries !== []) {
-                $menus = $menuBuilder->build();
-                $twig->addGlobal('menus', $menus);
+    // Menu hook (Core\Module\MenuEntryProvider, ARCHITECTURE.md §7.4) — one
+    // entry per pending registration request linked to the visitor's email.
+    // $menuBuilder->build() was already called above (before this module's
+    // services existed); addPage() only mutates MenuBuilder's own internal
+    // list, so calling build() again here safely picks up these entries too,
+    // and the Twig global is re-set to the refreshed array. The
+    // highlight/active-page scan above ran before these URLs existed, so
+    // DynamicMenuRegistrar::resolveActive() re-applies it over just the new
+    // entries, carrying the earlier scan's best match forward.
+    $registrationMenuEntries = $dynamicMenuRegistrar->register(
+        $menuBuilder,
+        [$registrationMenuHookService],
+        AuthSession::isAuthenticated() ? AuthSession::getEmail() : null
+    );
+    if ($registrationMenuEntries !== []) {
+        $menus = $menuBuilder->build();
+        $twig->addGlobal('menus', $menus);
 
-                foreach ($registrationMenuEntries as $registrationMenuEntry) {
-                    if ($registrationMenuEntry['url'] === $currentPath && strlen($registrationMenuEntry['url']) > $bestMatchLength) {
-                        $activeMenuId = MenuBuilder::MENU_ESPACE_ANIMES;
-                        $activePageUrl = $registrationMenuEntry['url'];
-                        $bestMatchLength = strlen($registrationMenuEntry['url']);
-                    }
-                }
-                $twig->addGlobal('active_menu_id', $activeMenuId);
-                $twig->addGlobal('active_page_url', $activePageUrl);
-            }
-        }
+        $registrationMenuActive = $dynamicMenuRegistrar->resolveActive(
+            $registrationMenuEntries,
+            $currentPath,
+            $activeMenuId,
+            $activePageUrl,
+            $bestMatchLength
+        );
+        $activeMenuId = $registrationMenuActive['menuId'];
+        $activePageUrl = $registrationMenuActive['pageUrl'];
+        $bestMatchLength = $registrationMenuActive['matchLength'];
+        $twig->addGlobal('active_menu_id', $activeMenuId);
+        $twig->addGlobal('active_page_url', $activePageUrl);
     }
 }
 
@@ -3063,6 +3209,35 @@ if (isset($galleryAlbumService, $galleryMediaService, $galleryMediaRepo, $galler
         )
     );
 }
+
+// Scout year transition workflow — registered here, after every module
+// block, rather than next to the other core controllers: the "Année
+// scoute" page is fed by two optional modules at once (registration, for
+// the veto and the Passage/Départs steps, and calendar, for the
+// éphémérides step), and both are wired above. Registering it earlier and
+// re-registering it inside each module block would have made the page's
+// contents depend on which module happened to be enabled last.
+//
+// Every provider below is null when its module is off (ARCHITECTURE.md
+// §7.5); Core\ScoutYear\ScoutYearTransitionService then simply drops the
+// steps that module owns.
+$scoutYearTransitionService = new \Core\ScoutYear\ScoutYearTransitionService(
+    $scoutYearResolver,
+    new \Core\ScoutYear\ScoutYearTransitionStepRepository($pdo),
+    $sectionPhotoRepository,
+    $userAccountRepo,
+    $settingService,
+    $moduleManager->getEnabledModuleIds(),
+    $registrationScoutYearPreparation ?? null,
+    $calendarScoutYearEventCount ?? null
+);
+$frontController->registerController(
+    ScoutYearController::class,
+    new ScoutYearController(
+        $twig, $scoutYearResolver, $scoutYearAdminService, $scoutYearService,
+        $scoutYearTransitionService, $journalService
+    )
+);
 
 // RGPD configuration controller
 $frontController->registerController(RgpdConfigController::class, new RgpdConfigController($twig, $editableContentService, $rgpdContentService, $settingService, $moduleManager, $journalService));

@@ -177,8 +177,8 @@ class SosAdminControllerTest extends TestCase
         );
         $stmt->execute([
             $memberId, $this->scoutYearId,
-            $encryption->encrypt('Jean'), $encryption->encrypt('Dupont'),
-            $encryption->encrypt($totem), $encryption->encrypt($mobile),
+            $encryption->encrypt('Jean', 'member_years.first_name'), $encryption->encrypt('Dupont', 'member_years.last_name'),
+            $encryption->encrypt($totem, 'member_years.totem'), $encryption->encrypt($mobile, 'member_years.mobile'),
         ]);
         $memberYearId = (int) $this->pdo->lastInsertId();
 

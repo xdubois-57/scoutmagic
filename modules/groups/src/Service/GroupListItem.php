@@ -18,12 +18,17 @@ final class GroupListItem
 {
     /**
      * @param int[] $sectionIds
+     * @param bool $hasUnread whether the group has been active since this
+     *        account last opened it. A group never opened at all counts as
+     *        unread only when it has genuinely had activity — otherwise a
+     *        brand-new empty group would announce itself as "new" forever.
      */
     public function __construct(
         public readonly DiscussionGroup $group,
         public readonly bool $isModerator,
         public readonly bool $isArchived,
-        public readonly array $sectionIds
+        public readonly array $sectionIds,
+        public readonly bool $hasUnread = false
     ) {
     }
 }

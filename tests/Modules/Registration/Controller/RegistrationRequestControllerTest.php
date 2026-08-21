@@ -202,8 +202,8 @@ class RegistrationRequestControllerTest extends TestCase
         );
         $stmt->execute([
             $memberId, $this->publicYearId,
-            $this->encryption->encrypt('MARIE'), $this->encryption->encrypt('DUPONT'),
-            $this->encryption->encrypt('2018-03-01'),
+            $this->encryption->encrypt('MARIE', 'member_years.first_name'), $this->encryption->encrypt('DUPONT', 'member_years.last_name'),
+            $this->encryption->encrypt('2018-03-01', 'member_years.birth_date'),
         ]);
 
         $created = $this->requestRepository->create($this->targetYearId, [

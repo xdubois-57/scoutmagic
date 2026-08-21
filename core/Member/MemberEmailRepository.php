@@ -48,8 +48,8 @@ class MemberEmailRepository
         $now = (new \DateTimeImmutable())->format('Y-m-d H:i:s');
         $stmt->execute([
             $memberId,
-            $this->encryption->encrypt($normalized),
-            $this->encryption->blindIndex($normalized),
+            $this->encryption->encrypt($normalized, 'member_emails.email'),
+            $this->encryption->blindIndex($normalized, 'email'),
             $source,
             $status,
             $confirmationTokenHash,
@@ -126,7 +126,7 @@ class MemberEmailRepository
      */
     public function findByMemberAndEmail(int $memberId, string $email): ?MemberEmail
     {
-        $blindIndex = $this->encryption->blindIndex(strtolower(trim($email)));
+        $blindIndex = $this->encryption->blindIndex(strtolower(trim($email)), 'email');
         $stmt = $this->pdo->prepare('SELECT * FROM member_emails WHERE member_id = ? AND email_blind_index = ?');
         $stmt->execute([$memberId, $blindIndex]);
         $row = $stmt->fetch(\PDO::FETCH_ASSOC);
@@ -148,7 +148,7 @@ class MemberEmailRepository
      */
     public function findAllByEmail(string $email): array
     {
-        $blindIndex = $this->encryption->blindIndex(strtolower(trim($email)));
+        $blindIndex = $this->encryption->blindIndex(strtolower(trim($email)), 'email');
         $stmt = $this->pdo->prepare('SELECT * FROM member_emails WHERE email_blind_index = ?');
         $stmt->execute([$blindIndex]);
 
@@ -302,7 +302,7 @@ class MemberEmailRepository
         return new MemberEmail(
             id: (int) $row['id'],
             memberId: (int) $row['member_id'],
-            email: $this->encryption->decrypt($row['email_encrypted']),
+            email: $this->encryption->decrypt($row['email_encrypted'], 'member_emails.email'),
             source: (string) $row['source'],
             status: (string) $row['status'],
             confirmationTokenHash: $row['confirmation_token_hash'] !== null ? (string) $row['confirmation_token_hash'] : null,

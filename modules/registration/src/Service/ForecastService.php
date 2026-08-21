@@ -130,7 +130,7 @@ class ForecastService
             $targetMemberIds[$memberId] = true;
 
             $birthYear = MemberYearService::extractBirthYear(
-                $row['birth_date_encrypted'] !== null ? $this->encryption->decrypt($row['birth_date_encrypted']) : null
+                $row['birth_date_encrypted'] !== null ? $this->encryption->decrypt($row['birth_date_encrypted'], 'member_years.birth_date') : null
             );
             $effectiveAge = $this->memberYearService->getEffectiveAge(
                 $birthYear,
@@ -145,7 +145,7 @@ class ForecastService
                 'section_id' => $row['section_id'] !== null ? (int) $row['section_id'] : null,
                 'year_in_branch' => $effectiveAge->yearInBranch,
                 'gender' => $this->classifyGender(
-                    $row['gender_encrypted'] !== null ? $this->encryption->decrypt($row['gender_encrypted']) : null
+                    $row['gender_encrypted'] !== null ? $this->encryption->decrypt($row['gender_encrypted'], 'member_years.gender') : null
                 ),
                 'birth_year' => $birthYear,
                 'certain' => true,
@@ -167,7 +167,7 @@ class ForecastService
             }
 
             $birthYear = MemberYearService::extractBirthYear(
-                $row['birth_date_encrypted'] !== null ? $this->encryption->decrypt($row['birth_date_encrypted']) : null
+                $row['birth_date_encrypted'] !== null ? $this->encryption->decrypt($row['birth_date_encrypted'], 'member_years.birth_date') : null
             );
             $currentAge = $this->memberYearService->getEffectiveAge($birthYear, (int) $row['scout_year_offset'], $currentReferenceYear);
             $projectedAge = $this->memberYearService->getEffectiveAge($birthYear, (int) $row['scout_year_offset'], $targetReferenceYear);
@@ -193,7 +193,7 @@ class ForecastService
                 'section_id' => $row['section_id'] !== null ? (int) $row['section_id'] : null,
                 'year_in_branch' => $projectedAge->yearInBranch,
                 'gender' => $this->classifyGender(
-                    $row['gender_encrypted'] !== null ? $this->encryption->decrypt($row['gender_encrypted']) : null
+                    $row['gender_encrypted'] !== null ? $this->encryption->decrypt($row['gender_encrypted'], 'member_years.gender') : null
                 ),
                 'birth_year' => $birthYear,
                 'certain' => false,
@@ -409,10 +409,10 @@ class ForecastService
             }
             $source = $byMemberId[$row['member_id']] ?? null;
             $row['gender'] = $this->classifyGender(
-                $source !== null && $source['gender_encrypted'] !== null ? $this->encryption->decrypt($source['gender_encrypted']) : null
+                $source !== null && $source['gender_encrypted'] !== null ? $this->encryption->decrypt($source['gender_encrypted'], 'member_years.gender') : null
             );
             $birthYear = $source !== null
-                ? MemberYearService::extractBirthYear($source['birth_date_encrypted'] !== null ? $this->encryption->decrypt($source['birth_date_encrypted']) : null)
+                ? MemberYearService::extractBirthYear($source['birth_date_encrypted'] !== null ? $this->encryption->decrypt($source['birth_date_encrypted'], 'member_years.birth_date') : null)
                 : null;
             $row['birth_year'] = $birthYear;
             $row['year_in_branch'] = $source !== null

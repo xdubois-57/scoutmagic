@@ -55,7 +55,7 @@ class PasswordResetService
     public function requestReset(string $email): void
     {
         $normalizedEmail = strtolower(trim($email));
-        $blindIndex = $this->encryption->blindIndex($normalizedEmail);
+        $blindIndex = $this->encryption->blindIndex($normalizedEmail, 'email');
 
         if ($this->resetRepo->countRecentByEmail($blindIndex) >= self::MAX_REQUESTS_PER_HOUR) {
             return;

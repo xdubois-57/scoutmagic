@@ -74,7 +74,7 @@ class EncryptedFileStorageService
             mkdir($targetDir, 0755, true);
         }
 
-        $encrypted = $this->encryption->encrypt($content);
+        $encrypted = $this->encryption->encrypt($content, 'file_storage');
         if (file_put_contents($this->storagePath . '/' . $relativePath, $encrypted) === false) {
             throw new \RuntimeException('Impossible d\'écrire le fichier chiffré sur le disque.');
         }
@@ -112,7 +112,7 @@ class EncryptedFileStorageService
             throw new \RuntimeException("Fichier {$fileId} illisible sur le disque.");
         }
 
-        return $this->encryption->decrypt($raw);
+        return $this->encryption->decrypt($raw, 'file_storage');
     }
 
     /**
@@ -131,7 +131,7 @@ class EncryptedFileStorageService
             throw new \RuntimeException("Fichier {$fileId} introuvable.");
         }
 
-        $encrypted = $this->encryption->encrypt($newContent);
+        $encrypted = $this->encryption->encrypt($newContent, 'file_storage');
         if (file_put_contents($this->storagePath . '/' . $file->relativePath, $encrypted) === false) {
             throw new \RuntimeException('Impossible d\'écrire le fichier chiffré sur le disque.');
         }

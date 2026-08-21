@@ -27,6 +27,7 @@ use Modules\Groups\Service\GroupSessionContext;
 use Modules\Groups\Service\GroupNotificationService;
 use Modules\Groups\Service\GroupSessionContextFactory;
 use Modules\Groups\Service\GroupsException;
+use Modules\Groups\Service\MentionService;
 use Modules\Groups\Service\PostMediaService;
 use Modules\Groups\Service\ReplyPresenter;
 use Modules\Groups\Service\ReplyService;
@@ -57,7 +58,8 @@ class ReplyController extends AbstractController
         private PostMediaService $postMediaService,
         private GroupSessionContextFactory $contextFactory,
         private ReportService $reportService,
-        private ?GroupNotificationService $notificationService = null
+        private ?GroupNotificationService $notificationService = null,
+        private ?MentionService $mentionService = null
     ) {
     }
 
@@ -201,6 +203,11 @@ class ReplyController extends AbstractController
         $reply = $this->replyRepository->findById($replyId);
         if ($reply !== null) {
             $this->notificationService?->replyReceived($group, $post, $reply, $context->effectiveScoutYearId);
+            // Where a mention earns its keep most: a reply otherwise
+            // reaches the post's author and nobody else, so a question
+            // aimed at a third person three replies down a thread used to
+            // reach no one at all.
+            $this->notifyMentions($group, $post, $reply, $context);
         }
 
         // groups.js appends this fragment straight under the post instead
@@ -209,24 +216,36 @@ class ReplyController extends AbstractController
         // Service\ReplyPresenter for a whole page, just for the one just
         // created.
         if ($this->wantsJson($request) && $reply !== null) {
-            $canModerate = $this->accessService->canModerate($group, $context);
-            $rows = $this->replyPresenter->decorate(
-                [$reply],
-                $context,
-                $canModerate,
-                $group->scoutYearId ?? $context->effectiveScoutYearId,
-                $this->postMediaService->albumMediaById($group)
-            );
-
-            return $this->json([
-                'html' => $this->twig->render('@groups/partials/reply_card.html.twig', [
-                    'row' => $rows[0],
-                    'group' => $group,
-                ]),
-            ]);
+            return $this->json(['html' => $this->renderReplyCard($group, $reply, $context)]);
         }
 
         return $this->redirect('/groups/' . $group->id);
+    }
+
+    /**
+     * One reply, rendered exactly as a whole page of them would be —
+     * groups.js appends it under the post (a new reply) or swaps the
+     * existing card for it (an edit) instead of reloading.
+     *
+     * Goes through Service\ReplyPresenter rather than building the row
+     * here, so a single reply can never disagree with the same reply
+     * rendered as part of a page about, say, whether its edit window is
+     * still open.
+     */
+    private function renderReplyCard(DiscussionGroup $group, Reply $reply, GroupSessionContext $context): string
+    {
+        $rows = $this->replyPresenter->decorate(
+            [$reply],
+            $context,
+            $this->accessService->canModerate($group, $context),
+            $group->scoutYearId ?? $context->effectiveScoutYearId,
+            $this->postMediaService->albumMediaById($group)
+        );
+
+        return $this->twig->render('@groups/partials/reply_card.html.twig', [
+            'row' => $rows[0],
+            'group' => $group,
+        ]);
     }
 
     /**
@@ -252,11 +271,30 @@ class ReplyController extends AbstractController
             // its own — the same "text alone or image alone" rule as
             // creation.
             if ($this->replyService->isReplyable($body, $reply->galleryMediaId !== null)) {
+                // Read before the write: whoever this reply already named
+                // has been told once, and an edit must not tell them
+                // again — only whoever the edit newly names.
+                $alreadyMentioned = $this->mentionService?->resolve($group, $reply->body, $context->effectiveScoutYearId) ?? [];
+
                 try {
                     $this->replyService->edit($reply, $body);
                 } catch (GroupsException $e) {
                     return $this->refuse($request, $e, $group->id, $body, $reply->postId);
                 }
+
+                $post = $this->postRepository->findById($reply->postId);
+                $edited = $this->replyRepository->findById($reply->id);
+                if ($post !== null && $edited !== null) {
+                    $this->notifyMentions($group, $post, $edited, $context, $alreadyMentioned);
+                }
+            }
+
+            // Re-read so the fragment carries the edited body and the
+            // "modifié" marker, rather than the stale instance the action
+            // was resolved from.
+            $updated = $this->replyRepository->findById($reply->id);
+            if ($this->wantsJson($request) && $updated !== null) {
+                return $this->json(['html' => $this->renderReplyCard($group, $updated, $context)]);
             }
 
             return $this->redirect('/groups/' . $group->id);
@@ -270,7 +308,7 @@ class ReplyController extends AbstractController
      */
     public function delete(Request $request, array $params): Response
     {
-        return $this->replyAction($params, function (DiscussionGroup $group, Reply $reply, GroupSessionContext $context) {
+        return $this->replyAction($params, function (DiscussionGroup $group, Reply $reply, GroupSessionContext $context) use ($request) {
             $canModerate = $this->accessService->canModerate($group, $context);
             if (!$this->replyService->canDelete($reply, $context, $canModerate)) {
                 return new Response('Vous ne pouvez pas supprimer cette réponse.', 403);
@@ -286,6 +324,12 @@ class ReplyController extends AbstractController
             // CASCADE reach) before the row itself; the reply's own
             // reactions go with it by CASCADE.
             $this->replyService->delete($reply, $group);
+
+            // groups.js removes the card from the DOM instead of
+            // reloading — same shape as a post's own deletion.
+            if ($this->wantsJson($request)) {
+                return $this->json(['deleted' => true]);
+            }
 
             return $this->redirect('/groups/' . $group->id);
         });
@@ -404,6 +448,42 @@ class ReplyController extends AbstractController
     /**
      * @param array<string, string> $params
      */
+    /**
+     * Notifies whoever this reply's STORED body names after an "@" — the
+     * reply's own text, resolved server-side (Service\MentionService),
+     * never a list of ids the request claimed.
+     *
+     * The deep link points at the POST, because that is where the reply
+     * lives and what a member needs to open to answer it.
+     *
+     * @param int[] $alreadyNotified member ids to leave alone, so an edit
+     *        only tells the people the edit newly named
+     */
+    private function notifyMentions(
+        DiscussionGroup $group,
+        Post $post,
+        Reply $reply,
+        GroupSessionContext $context,
+        array $alreadyNotified = []
+    ): void {
+        if ($this->mentionService === null || $this->notificationService === null || $context->userAccountId === null) {
+            return;
+        }
+
+        $this->notificationService->mentioned(
+            $group,
+            $post->id,
+            array_values(array_diff(
+                $this->mentionService->resolve($group, $reply->body, $context->effectiveScoutYearId),
+                $alreadyNotified
+            )),
+            $reply->body,
+            $reply->isHidden() || $post->isHidden(),
+            $context->userAccountId,
+            $context->effectiveScoutYearId
+        );
+    }
+
     private function readableGroup(array $params, GroupSessionContext $context): ?DiscussionGroup
     {
         $group = $this->groupRepository->findById((int) ($params['id'] ?? 0));

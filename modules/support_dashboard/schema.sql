@@ -1,5 +1,5 @@
 -- Modules\SupportDashboard — the statistics receiver's own tables
--- (ARCHITECTURE.md §8.43).
+-- (ARCHITECTURE.md §8.45).
 --
 -- This module only ever exists on the installation that RECEIVES usage
 -- reports: `"receiver_only": true` in module.json keeps it out of

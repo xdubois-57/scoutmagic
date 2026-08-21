@@ -51,7 +51,7 @@ class ProviderCredentialRepository
      */
     public function save(string $provider, array $config): void
     {
-        $encrypted = $this->encryption->encrypt((string) json_encode($config));
+        $encrypted = $this->encryption->encrypt((string) json_encode($config), 'sos_provider_credentials.config');
 
         if ($this->findByProvider($provider) === null) {
             $stmt = $this->pdo->prepare(
@@ -86,7 +86,7 @@ class ProviderCredentialRepository
      */
     private function hydrate(array $row): ProviderCredential
     {
-        $decrypted = $this->encryption->decrypt($row['config_encrypted']);
+        $decrypted = $this->encryption->decrypt($row['config_encrypted'], 'sos_provider_credentials.config');
         $config = json_decode($decrypted, true);
 
         return new ProviderCredential(

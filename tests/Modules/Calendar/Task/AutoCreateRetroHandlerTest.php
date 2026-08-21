@@ -43,7 +43,7 @@ class AutoCreateRetroHandlerTest extends TestCase
         $this->calendarId = (int) $this->pdo->lastInsertId();
 
         $this->eventRepository = new CalendarEventRepository($this->pdo);
-        $this->boardRepository = new BoardRepository($this->pdo);
+        $this->boardRepository = new BoardRepository($this->pdo, new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32)));
 
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $this->context = new TaskContext(

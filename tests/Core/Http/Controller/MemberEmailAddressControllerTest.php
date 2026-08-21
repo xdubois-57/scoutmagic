@@ -227,15 +227,16 @@ class MemberEmailAddressControllerTest extends TestCase
         $this->assertSame(403, $response->getStatusCode());
     }
 
-    // --- confirm() — public, unauthenticated, must fail gracefully ---
+    // --- confirm() (GET) — public, prefetch-safe: never mutates ---
 
-    public function testConfirmRendersConfirmedTrueOnSuccess(): void
+    public function testConfirmGetNeverConfirmsEvenWithAValidToken(): void
     {
-        $this->memberEmailService->method('confirmEmail')->with(7, 'goodtoken')->willReturn(true);
+        $this->memberEmailService->method('canConfirmEmail')->with(7, 'goodtoken')->willReturn(true);
+        $this->memberEmailService->expects($this->never())->method('confirmEmail');
         $twig = $this->createMock(Environment::class);
         $twig->expects($this->once())
             ->method('render')
-            ->with('members/email_confirmed.html.twig', ['confirmed' => true])
+            ->with('members/email_confirmed.html.twig', ['state' => 'confirm', 'email_id' => 7, 'token' => 'goodtoken'])
             ->willReturn('<html></html>');
         $controller = new MemberEmailAddressController($twig, $this->memberEmailService, $this->memberService);
 
@@ -247,16 +248,76 @@ class MemberEmailAddressControllerTest extends TestCase
         $this->assertSame(200, $response->getStatusCode());
     }
 
-    public function testConfirmRendersConfirmedFalseOnFailureWithoutThrowing(): void
+    public function testConfirmGetRendersInvalidOnFailureWithoutThrowing(): void
     {
-        $this->memberEmailService->method('confirmEmail')->willReturn(false);
+        $this->memberEmailService->method('canConfirmEmail')->willReturn(false);
+        $this->memberEmailService->expects($this->never())->method('confirmEmail');
         $twig = $this->createMock(Environment::class);
-        $twig->method('render')->with('members/email_confirmed.html.twig', ['confirmed' => false])->willReturn('<html></html>');
+        $twig->method('render')
+            ->with('members/email_confirmed.html.twig', ['state' => 'invalid', 'email_id' => 999, 'token' => 'wrong'])
+            ->willReturn('<html></html>');
         $controller = new MemberEmailAddressController($twig, $this->memberEmailService, $this->memberService);
 
         $response = $controller->confirm(
             new Request('GET', '/members/emails/confirm/999', ['token' => 'wrong'], [], [], []),
             ['id' => '999']
+        );
+
+        $this->assertSame(200, $response->getStatusCode());
+    }
+
+    // --- confirmPost() (POST) — the only action that confirms ---
+
+    public function testConfirmPostConfirmsWithABodyToken(): void
+    {
+        $this->memberEmailService->expects($this->once())
+            ->method('confirmEmail')->with(7, 'goodtoken')->willReturn(true);
+        $twig = $this->createMock(Environment::class);
+        $twig->expects($this->once())
+            ->method('render')
+            ->with('members/email_confirmed.html.twig', ['state' => 'done'])
+            ->willReturn('<html></html>');
+        $controller = new MemberEmailAddressController($twig, $this->memberEmailService, $this->memberService);
+
+        $response = $controller->confirmPost(
+            new Request('POST', '/members/emails/confirm/7', [], ['token' => 'goodtoken'], [], []),
+            ['id' => '7']
+        );
+
+        $this->assertSame(200, $response->getStatusCode());
+    }
+
+    public function testConfirmPostRendersInvalidOnFailureWithoutThrowing(): void
+    {
+        $this->memberEmailService->method('confirmEmail')->willReturn(false);
+        $twig = $this->createMock(Environment::class);
+        $twig->method('render')
+            ->with('members/email_confirmed.html.twig', ['state' => 'invalid'])
+            ->willReturn('<html></html>');
+        $controller = new MemberEmailAddressController($twig, $this->memberEmailService, $this->memberService);
+
+        $response = $controller->confirmPost(
+            new Request('POST', '/members/emails/confirm/999', [], ['token' => 'wrong'], [], []),
+            ['id' => '999']
+        );
+
+        $this->assertSame(200, $response->getStatusCode());
+    }
+
+    public function testConfirmPostIgnoresAQueryStringToken(): void
+    {
+        // The token must ride the form body — a bare URL with ?token= that a
+        // scanner "posts" without a body must not confirm on this shape.
+        $this->memberEmailService->expects($this->never())->method('confirmEmail');
+        $twig = $this->createMock(Environment::class);
+        $twig->method('render')
+            ->with('members/email_confirmed.html.twig', ['state' => 'invalid'])
+            ->willReturn('<html></html>');
+        $controller = new MemberEmailAddressController($twig, $this->memberEmailService, $this->memberService);
+
+        $response = $controller->confirmPost(
+            new Request('POST', '/members/emails/confirm/7', ['token' => 'goodtoken'], [], [], []),
+            ['id' => '7']
         );
 
         $this->assertSame(200, $response->getStatusCode());

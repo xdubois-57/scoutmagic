@@ -151,7 +151,10 @@ class TrackingController extends AbstractController
      * GET /inscriptions/suivi/emails/confirm/{id}?token=... — same
      * fail-quietly contract as Core\Http\Controller\
      * MemberEmailAddressController::confirm(): never a stack trace or an
-     * account-enumeration hint, just a confirmed/not-confirmed flag.
+     * account-enumeration hint. Read-only by design (mail scanners
+     * prefetch every GET in an email) — shows a confirm button whose
+     * POST, confirmEmailPost(), is what acts; the bearer token is the
+     * authentication, re-verified there.
      *
      * @param array<string, string> $params
      */
@@ -160,9 +163,31 @@ class TrackingController extends AbstractController
         $id = (int) ($params['id'] ?? 0);
         $token = (string) $request->getQuery('token', '');
 
+        $valid = $id > 0 && $token !== '' && $this->secondaryEmailService->canConfirmEmail($id, $token);
+
+        return $this->render('@registration/email_confirmed.html.twig', [
+            'state' => $valid ? 'confirm' : 'invalid',
+            'email_id' => $id,
+            'token' => $token,
+        ]);
+    }
+
+    /**
+     * POST /inscriptions/suivi/emails/confirm/{id} — the confirm page's
+     * submit, the only action that mutates (token in a hidden field).
+     *
+     * @param array<string, string> $params
+     */
+    public function confirmEmailPost(Request $request, array $params): Response
+    {
+        $id = (int) ($params['id'] ?? 0);
+        $token = (string) $request->getBody('token', '');
+
         $confirmed = $id > 0 && $token !== '' && $this->secondaryEmailService->confirmEmail($id, $token);
 
-        return $this->render('@registration/email_confirmed.html.twig', ['confirmed' => $confirmed]);
+        return $this->render('@registration/email_confirmed.html.twig', [
+            'state' => $confirmed ? 'done' : 'invalid',
+        ]);
     }
 
     /**

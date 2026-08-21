@@ -81,7 +81,7 @@ class MemberControllerDepartureTest extends TestCase
             'INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted)
              VALUES (?, ?, ?, ?)'
         );
-        $stmt->execute([$memberId, $this->scoutYearId, $this->encryption->encrypt('John'), $this->encryption->encrypt('Doe')]);
+        $stmt->execute([$memberId, $this->scoutYearId, $this->encryption->encrypt('John', 'member_years.first_name'), $this->encryption->encrypt('Doe', 'member_years.last_name')]);
 
         return (int) $this->pdo->lastInsertId();
     }

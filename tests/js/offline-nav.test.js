@@ -500,3 +500,131 @@ describe('offline-nav.js: showDialog()', () => {
         expect(modalInstance.show).toHaveBeenCalledTimes(2);
     });
 });
+
+/**
+ * The visible half of layer 1b: every cached page is READ ONLY offline,
+ * and says so up front rather than letting a member fill in a form and
+ * only then discover it cannot be sent.
+ *
+ * The fields themselves must stay editable throughout — a member may
+ * legitimately write a message offline and send it when the signal comes
+ * back, which is exactly what the groups composer's own localStorage
+ * draft cache exists for. Disabling the text would defeat it.
+ */
+describe('offline-nav.js: read-only offline (submit controls + banner)', () => {
+    function buildBanner() {
+        const banner = document.createElement('div');
+        banner.id = 'offline-readonly-banner';
+        banner.className = 'd-none';
+        document.body.appendChild(banner);
+        return banner;
+    }
+
+    function buildForm() {
+        document.body.insertAdjacentHTML('beforeend', `
+            <form id="composer">
+                <textarea name="body"></textarea>
+                <input type="text" name="title">
+                <button type="button" id="not-a-submit">Annuler</button>
+                <button type="submit" id="send">Publier</button>
+            </form>
+        `);
+        return document.getElementById('composer');
+    }
+
+    it('disables every submit control and marks the form while offline', async () => {
+        buildConfig(CORE_WHITELIST);
+        const form = buildForm();
+        setOnline(false);
+        await boot();
+
+        expect(document.getElementById('send').disabled).toBe(true);
+        expect(form.classList.contains('offline-form-disabled')).toBe(true);
+    });
+
+    it('leaves the fields editable so an offline draft can still be written', async () => {
+        buildConfig(CORE_WHITELIST);
+        buildForm();
+        setOnline(false);
+        await boot();
+
+        expect(document.querySelector('textarea[name="body"]').disabled).toBe(false);
+        expect(document.querySelector('input[name="title"]').disabled).toBe(false);
+        expect(document.getElementById('not-a-submit').disabled).toBe(false);
+    });
+
+    it('re-enables the submit control when the connection comes back', async () => {
+        buildConfig(CORE_WHITELIST);
+        const form = buildForm();
+        setOnline(false);
+        await boot();
+        expect(document.getElementById('send').disabled).toBe(true);
+
+        setOnline(true);
+        window.dispatchEvent(new Event('online'));
+
+        expect(document.getElementById('send').disabled).toBe(false);
+        expect(form.classList.contains('offline-form-disabled')).toBe(false);
+    });
+
+    /**
+     * A control something else disabled for its own reasons (a composer
+     * mid-submit) must not be silently released by coming back online.
+     */
+    it('never re-enables a control it did not disable itself', async () => {
+        buildConfig(CORE_WHITELIST);
+        buildForm();
+        document.getElementById('send').disabled = true;
+        setOnline(false);
+        await boot();
+
+        setOnline(true);
+        window.dispatchEvent(new Event('online'));
+
+        expect(document.getElementById('send').disabled).toBe(true);
+    });
+
+    it('leaves a form marked data-offline-safe alone', async () => {
+        buildConfig(CORE_WHITELIST);
+        document.body.insertAdjacentHTML('beforeend',
+            '<form id="filter" data-offline-safe><button type="submit" id="apply">Filtrer</button></form>');
+        setOnline(false);
+        await boot();
+
+        expect(document.getElementById('apply').disabled).toBe(false);
+        expect(document.getElementById('filter').classList.contains('offline-form-disabled')).toBe(false);
+    });
+
+    it('reveals the read-only banner offline and hides it again online', async () => {
+        buildConfig(CORE_WHITELIST);
+        const banner = buildBanner();
+        setOnline(false);
+        await boot();
+        expect(banner.classList.contains('d-none')).toBe(false);
+
+        setOnline(true);
+        window.dispatchEvent(new Event('online'));
+        expect(banner.classList.contains('d-none')).toBe(true);
+    });
+
+    it('does nothing at all while online', async () => {
+        buildConfig(CORE_WHITELIST);
+        const form = buildForm();
+        const banner = buildBanner();
+        setOnline(true);
+        await boot();
+
+        expect(document.getElementById('send').disabled).toBe(false);
+        expect(form.classList.contains('offline-form-disabled')).toBe(false);
+        expect(banner.classList.contains('d-none')).toBe(true);
+    });
+
+    it('works on a page with no banner element at all', async () => {
+        buildConfig(CORE_WHITELIST);
+        buildForm();
+        setOnline(false);
+
+        await expect(boot()).resolves.not.toThrow();
+        expect(document.getElementById('send').disabled).toBe(true);
+    });
+});

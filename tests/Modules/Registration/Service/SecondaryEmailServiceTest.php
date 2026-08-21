@@ -105,6 +105,30 @@ class SecondaryEmailServiceTest extends TestCase
         $this->assertFalse($this->service->confirmEmail($id, $rawToken));
     }
 
+    public function testCanConfirmEmailNeverConsumesTheToken(): void
+    {
+        $rawToken = bin2hex(random_bytes(32));
+        $id = $this->repository->create($this->requestId, 'secondary@example.com', password_hash($rawToken, PASSWORD_DEFAULT), new \DateTimeImmutable('+48 hours'));
+
+        // The GET confirm page may be prefetched any number of times — the
+        // token must survive every check, then still confirm.
+        $this->assertTrue($this->service->canConfirmEmail($id, $rawToken));
+        $this->assertTrue($this->service->canConfirmEmail($id, $rawToken));
+        $this->assertTrue($this->repository->findById($id)->isPending());
+
+        $this->assertTrue($this->service->confirmEmail($id, $rawToken));
+        $this->assertFalse($this->service->canConfirmEmail($id, $rawToken));
+    }
+
+    public function testCanConfirmEmailRejectsAWrongTokenWithoutMutating(): void
+    {
+        $rawToken = bin2hex(random_bytes(32));
+        $id = $this->repository->create($this->requestId, 'secondary@example.com', password_hash($rawToken, PASSWORD_DEFAULT), new \DateTimeImmutable('+48 hours'));
+
+        $this->assertFalse($this->service->canConfirmEmail($id, 'wrong-token'));
+        $this->assertTrue($this->repository->findById($id)->isPending());
+    }
+
     public function testRemoveEmailRejectsRowFromAnotherRequest(): void
     {
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));

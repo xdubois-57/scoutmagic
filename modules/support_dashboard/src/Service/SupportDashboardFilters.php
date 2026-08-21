@@ -10,7 +10,7 @@ namespace Modules\SupportDashboard\Service;
 
 /**
  * The dashboard's view state, built from the query string and from nothing
- * else (ARCHITECTURE.md §8.44).
+ * else (ARCHITECTURE.md §8.46).
  *
  * **No filter, search, sort, page or period is ever persisted.** No cookie,
  * no local storage, no session, no user preference row — arriving at

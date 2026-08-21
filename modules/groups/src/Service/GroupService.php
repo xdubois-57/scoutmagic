@@ -64,10 +64,16 @@ class GroupService
      * Controller\GroupController's edit form happens to offer: nothing
      * anywhere in this module can detach a section group from its
      * section's year by calling this method directly.
+     *
+     * $description is required rather than defaulted so that a caller
+     * cannot clear a group's one-liner by forgetting to pass it: null
+     * here always means "the moderator emptied the field", never "this
+     * caller had nothing to say about it".
      */
-    public function edit(DiscussionGroup $group, string $name, ?int $scoutYearId): void
+    public function edit(DiscussionGroup $group, string $name, ?int $scoutYearId, ?string $description): void
     {
         $this->groupRepository->rename($group->id, $name);
+        $this->groupRepository->setDescription($group->id, $description);
 
         if (!$group->isSectionGroup()) {
             $this->groupRepository->setScoutYearId($group->id, $scoutYearId);

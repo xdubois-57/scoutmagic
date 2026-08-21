@@ -66,9 +66,9 @@ class MemberResolutionRepositoryTest extends TestCase
         );
         $stmt->execute([
             $memberId, $this->scoutYearId,
-            $this->encryption->encrypt('John'), $this->encryption->encrypt('Doe'),
-            $email !== '' ? $this->encryption->encrypt($email) : null,
-            $email !== '' ? $this->encryption->blindIndex($email) : null,
+            $this->encryption->encrypt('John', 'member_years.first_name'), $this->encryption->encrypt('Doe', 'member_years.last_name'),
+            $email !== '' ? $this->encryption->encrypt($email, 'member_years.email') : null,
+            $email !== '' ? $this->encryption->blindIndex($email, 'email') : null,
             $active ? 1 : 0,
         ]);
         $memberYearId = (int) $this->pdo->lastInsertId();

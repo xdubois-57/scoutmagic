@@ -50,7 +50,7 @@ class EventReminderHandler implements TaskHandlerInterface
             return;
         }
 
-        $calendarLabel = $this->resolveCalendarName((new CalendarRepository($pdo))->findById($event->calendarId), $pdo);
+        $calendarLabel = $this->resolveCalendarName((new CalendarRepository($pdo, $context->encryption))->findById($event->calendarId), $pdo);
 
         $context->notifications->dispatch('calendar.event_reminder', $recipients, [
             'title' => 'Rappel d\'activité',

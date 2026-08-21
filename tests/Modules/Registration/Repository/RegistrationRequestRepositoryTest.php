@@ -102,7 +102,7 @@ class RegistrationRequestRepositoryTest extends TestCase
         $created = $this->repository->create($this->scoutYearId, $this->sampleFields(['email' => 'a@example.com']), null, []);
         $this->repository->create($this->scoutYearId, $this->sampleFields(['email' => 'b@example.com']), null, []);
 
-        $blindIndex = $this->encryption->blindIndex(RegistrationRequestRepository::normalizeEmail('a@example.com'));
+        $blindIndex = $this->encryption->blindIndex(RegistrationRequestRepository::normalizeEmail('a@example.com'), 'registration_email');
         $matches = $this->repository->findAllByEmailBlindIndex($blindIndex);
 
         $this->assertCount(1, $matches);

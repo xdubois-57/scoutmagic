@@ -260,9 +260,15 @@ class GroupRecipientResolver
      * member appearing in both (an invited member who is also in one of
      * the sections) is still one member.
      *
+     * Public because Service\MentionService needs exactly this list and
+     * nothing else: a mention may only ever resolve to somebody who is
+     * currently in the group, and re-deriving "who is in this group"
+     * anywhere else would be a second answer waiting to disagree with
+     * this one.
+     *
      * @return int[]
      */
-    private function memberIdsFor(DiscussionGroup $group, int $effectiveScoutYearId): array
+    public function memberIdsFor(DiscussionGroup $group, int $effectiveScoutYearId): array
     {
         $memberIds = array_map(
             static fn($member): int => $member->memberId,
@@ -341,7 +347,7 @@ class GroupRecipientResolver
         }
 
         foreach ($this->memberEmailRepository->findValidByMember($memberId) as $secondary) {
-            $indexes[] = $this->encryption->blindIndex(strtolower(trim($secondary->email)));
+            $indexes[] = $this->encryption->blindIndex(strtolower(trim($secondary->email)), 'email');
         }
 
         return array_values(array_unique($indexes));

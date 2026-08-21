@@ -47,7 +47,7 @@ class PushSubscriptionRepository
 
     public function findByEndpoint(int $userAccountId, string $endpoint): ?PushSubscription
     {
-        $blindIndex = $this->encryption->blindIndex($endpoint);
+        $blindIndex = $this->encryption->blindIndex($endpoint, 'push_endpoint');
         $stmt = $this->pdo->prepare(
             'SELECT * FROM push_subscriptions WHERE user_account_id = ? AND endpoint_blind_index = ?'
         );
@@ -65,10 +65,10 @@ class PushSubscriptionRepository
         );
         $stmt->execute([
             $userAccountId,
-            $this->encryption->encrypt($endpoint),
-            $this->encryption->blindIndex($endpoint),
-            $this->encryption->encrypt($authKey),
-            $this->encryption->encrypt($p256dhKey),
+            $this->encryption->encrypt($endpoint, 'push_subscriptions.endpoint'),
+            $this->encryption->blindIndex($endpoint, 'push_endpoint'),
+            $this->encryption->encrypt($authKey, 'push_subscriptions.auth_key'),
+            $this->encryption->encrypt($p256dhKey, 'push_subscriptions.p256dh_key'),
             $deviceLabel,
         ]);
 
@@ -83,7 +83,7 @@ class PushSubscriptionRepository
 
     public function deleteByEndpoint(int $userAccountId, string $endpoint): void
     {
-        $blindIndex = $this->encryption->blindIndex($endpoint);
+        $blindIndex = $this->encryption->blindIndex($endpoint, 'push_endpoint');
         $stmt = $this->pdo->prepare(
             'DELETE FROM push_subscriptions WHERE user_account_id = ? AND endpoint_blind_index = ?'
         );
@@ -133,9 +133,9 @@ class PushSubscriptionRepository
         return new PushSubscription(
             id: (int) $row['id'],
             userAccountId: (int) $row['user_account_id'],
-            endpoint: $this->encryption->decrypt($this->readBlob($row['endpoint'])),
-            authKey: $this->encryption->decrypt($this->readBlob($row['auth_key'])),
-            p256dhKey: $this->encryption->decrypt($this->readBlob($row['p256dh_key'])),
+            endpoint: $this->encryption->decrypt($this->readBlob($row['endpoint']), 'push_subscriptions.endpoint'),
+            authKey: $this->encryption->decrypt($this->readBlob($row['auth_key']), 'push_subscriptions.auth_key'),
+            p256dhKey: $this->encryption->decrypt($this->readBlob($row['p256dh_key']), 'push_subscriptions.p256dh_key'),
             deviceLabel: $row['device_label'] !== null ? (string) $row['device_label'] : null,
             createdAt: (string) $row['created_at'],
             lastSuccessAt: $row['last_success_at'] !== null ? (string) $row['last_success_at'] : null,

@@ -179,6 +179,6 @@ class LoginThrottler
             return null;
         }
 
-        return $this->encryption->blindIndex(strtolower(trim($ip)));
+        return $this->encryption->blindIndex(strtolower(trim($ip)), 'login_ip');
     }
 }

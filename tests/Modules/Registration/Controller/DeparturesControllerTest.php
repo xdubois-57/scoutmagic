@@ -127,9 +127,9 @@ class DeparturesControllerTest extends TestCase
         );
         $stmt->execute([
             $memberId, $this->scoutYearId,
-            $this->encryption->encrypt($firstName), $this->encryption->encrypt('Dupont'),
-            $this->encryption->encrypt($email), $this->encryption->blindIndex(mb_strtolower(trim($email))),
-            $this->encryption->encrypt('2015-01-01'),
+            $this->encryption->encrypt($firstName, 'member_years.first_name'), $this->encryption->encrypt('Dupont', 'member_years.last_name'),
+            $this->encryption->encrypt($email, 'member_years.email'), $this->encryption->blindIndex(mb_strtolower(trim($email)), 'email'),
+            $this->encryption->encrypt('2015-01-01', 'member_years.birth_date'),
         ]);
         $memberYearId = (int) $this->pdo->lastInsertId();
 

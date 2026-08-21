@@ -24,7 +24,7 @@ class CalendarRepositoryTest extends TestCase
     {
         $this->pdo = DatabaseTestHelper::createTestDatabase();
         CalendarTestHelper::createTables($this->pdo);
-        $this->repository = new CalendarRepository($this->pdo);
+        $this->repository = new CalendarRepository($this->pdo, new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32)));
 
         $this->pdo->exec("INSERT INTO age_branches (desk_code, label, sort_order) VALUES ('BAL', 'Baladins', 10)");
         $branchId = (int) $this->pdo->lastInsertId();
@@ -146,5 +146,18 @@ class CalendarRepositoryTest extends TestCase
         $this->repository->createSupplementaryCalendar('Animateurs', true, Calendar::VISIBILITY_PUBLIC, 'tok');
 
         $this->assertCount(2, $this->repository->findAll());
+    }
+
+    public function testTheIcsTokenIsNeverStoredInPlaintext(): void
+    {
+        $token = bin2hex(random_bytes(32));
+        $id = $this->repository->createSupplementaryCalendar('Animateurs', true, 'public', $token);
+
+        $row = $this->pdo->query('SELECT ics_token_encrypted, ics_token_blind_index FROM calendar_calendars WHERE id = ' . $id)->fetch(\PDO::FETCH_ASSOC);
+        $this->assertStringNotContainsString($token, (string) $row['ics_token_encrypted']);
+        $this->assertNotSame($token, $row['ics_token_blind_index']);
+        $this->assertNotSame(hash('sha256', $token), $row['ics_token_blind_index']);
+
+        $this->assertSame($token, $this->repository->findByIcsToken($token)?->icsToken);
     }
 }

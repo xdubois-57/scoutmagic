@@ -55,11 +55,11 @@ class MemberSearchServiceTest extends TestCase
         $stmt->execute([
             $memberId,
             $yearId ?? $this->yearId,
-            $this->enc->encrypt($first),
-            $this->enc->encrypt($last),
-            $totem !== null ? $this->enc->encrypt($totem) : null,
-            $email !== null ? $this->enc->encrypt($email) : null,
-            $mobile !== null ? $this->enc->encrypt($mobile) : null,
+            $this->enc->encrypt($first, 'member_years.first_name'),
+            $this->enc->encrypt($last, 'member_years.last_name'),
+            $totem !== null ? $this->enc->encrypt($totem, 'member_years.totem') : null,
+            $email !== null ? $this->enc->encrypt($email, 'member_years.email') : null,
+            $mobile !== null ? $this->enc->encrypt($mobile, 'member_years.mobile') : null,
             $active ? 1 : 0,
         ]);
 

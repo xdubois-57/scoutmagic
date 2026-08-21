@@ -76,7 +76,7 @@ class AccountRepositoryTest extends TestCase
         $this->repository->create('Compte', Account::TYPE_BANK, null, 'BE92001511757023', 'Titulaire', 'intendant');
 
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
-        $this->assertNull($this->repository->findByIbanBlindIndex($encryption->blindIndex('BE00000000000000')));
+        $this->assertNull($this->repository->findByIbanBlindIndex($encryption->blindIndex('BE00000000000000', 'finance_iban')));
     }
 
     public function testUpdateStatus(): void
@@ -150,6 +150,6 @@ class AccountRepositoryTest extends TestCase
     private function blindIndexFor(Account $account): string
     {
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
-        return $encryption->blindIndex($account->iban);
+        return $encryption->blindIndex($account->iban, 'finance_iban');
     }
 }

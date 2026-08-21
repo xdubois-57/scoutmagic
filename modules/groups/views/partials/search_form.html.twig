@@ -1,0 +1,19 @@
+{#
+  The group's search box, shared by the group page and the results page
+  so the two can never disagree about where it posts or what it is named.
+
+  A GET form on purpose: a search is a read, its result is a page worth
+  linking to and going back to, and a GET carries no CSRF token because
+  it changes nothing. `query` is the term already run, refilled so the
+  results page shows what produced them.
+#}
+<form method="get" action="/groups/{{ group.id }}/search" class="d-flex gap-2 mb-3" role="search">
+    <label class="visually-hidden" for="group-search-q">Rechercher dans ce groupe</label>
+    <input type="search" class="form-control" id="group-search-q" name="q" style="min-height:44px;"
+           maxlength="{{ constant('Modules\\Groups\\Support\\SearchTerm::MAX_LENGTH') }}"
+           placeholder="Rechercher dans ce groupe…" value="{{ query|default('') }}">
+    <button type="submit" class="btn btn-outline-secondary d-flex align-items-center" style="min-height:44px;"
+            aria-label="Lancer la recherche">
+        <i class="bi bi-search"></i>
+    </button>
+</form>

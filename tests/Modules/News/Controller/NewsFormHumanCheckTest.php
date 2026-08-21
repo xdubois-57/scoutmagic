@@ -76,7 +76,7 @@ class NewsFormHumanCheckTest extends TestCase
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
 
         $stmt = $this->pdo->prepare('INSERT INTO user_accounts (email_encrypted, email_blind_index) VALUES (?, ?)');
-        $stmt->execute([$encryption->encrypt('chief@test.com'), $encryption->blindIndex('chief@test.com')]);
+        $stmt->execute([$encryption->encrypt('chief@test.com', 'user_accounts.email'), $encryption->blindIndex('chief@test.com', 'email')]);
         $this->chiefAccountId = (int) $this->pdo->lastInsertId();
 
         $this->articleRepository = new ArticleRepository($this->pdo);
@@ -85,7 +85,7 @@ class NewsFormHumanCheckTest extends TestCase
         $responseRepository = new FormResponseRepository($this->pdo, $encryption);
 
         $editableContentService = new EditableContentService(new EditableContentRepository($this->pdo));
-        $shortUrlService = new ShortUrlService(new ShortUrlRepository($this->pdo));
+        $shortUrlService = new ShortUrlService(new ShortUrlRepository($this->pdo, new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32))));
         $articleService = new ArticleService($this->articleRepository, $this->formRepository, $editableContentService, $shortUrlService);
         $formService = new FormService($this->formRepository, $this->fieldRepository, $articleService);
 

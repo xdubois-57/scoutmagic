@@ -219,8 +219,8 @@ describe('groups.js dynamic reactions, in-place pagination and inline edit toggl
     it('a reaction tally click fetches and shows who reacted in the shared modal', async () => {
         document.body.innerHTML = `
             <button type="button" class="groups-reaction-tally" data-reactors-url="/groups/1/posts/9/reactions"></button>
-            <div class="modal" id="groups-reactors-modal"></div>
-            <div id="groups-reactors-modal-body"></div>
+            <div class="modal" id="groups-detail-modal"></div>
+            <div id="groups-detail-modal-body"></div>
         `;
         var modal = { show: vi.fn() };
         global.bootstrap = { Modal: { getOrCreateInstance: vi.fn(() => modal) } };
@@ -230,27 +230,156 @@ describe('groups.js dynamic reactions, in-place pagination and inline edit toggl
         }));
 
         document.querySelector('.groups-reaction-tally').click();
-        await vi.waitFor(() => expect(document.getElementById('groups-reactors-modal-body').innerHTML).toContain('Akéla, Baloo'));
+        await vi.waitFor(() => expect(document.getElementById('groups-detail-modal-body').innerHTML).toContain('Akéla, Baloo'));
 
         expect(fetch).toHaveBeenCalledWith(
             '/groups/1/posts/9/reactions',
             { headers: { 'X-Requested-With': 'XMLHttpRequest' } }
         );
-        expect(bootstrap.Modal.getOrCreateInstance).toHaveBeenCalledWith(document.getElementById('groups-reactors-modal'));
+        expect(bootstrap.Modal.getOrCreateInstance).toHaveBeenCalledWith(document.getElementById('groups-detail-modal'));
         expect(modal.show).toHaveBeenCalled();
     });
 
     it('shows an error in the modal when the reactors request fails', async () => {
         document.body.innerHTML = `
             <button type="button" class="groups-reaction-tally" data-reactors-url="/groups/1/posts/9/reactions"></button>
-            <div class="modal" id="groups-reactors-modal"></div>
-            <div id="groups-reactors-modal-body"></div>
+            <div class="modal" id="groups-detail-modal"></div>
+            <div id="groups-detail-modal-body"></div>
         `;
         global.bootstrap = { Modal: { getOrCreateInstance: vi.fn(() => ({ show: vi.fn() })) } };
         global.fetch = vi.fn(() => Promise.resolve({ ok: false }));
 
         document.querySelector('.groups-reaction-tally').click();
-        await vi.waitFor(() => expect(document.getElementById('groups-reactors-modal-body').textContent).toContain('Impossible de charger'));
+        await vi.waitFor(() => expect(document.getElementById('groups-detail-modal-body').textContent).toContain('Impossible de charger'));
+    });
+
+    it('a "vu par" click fills the same shared dialog and retitles it', async () => {
+        document.body.innerHTML = `
+            <button type="button" class="groups-seen-by" data-url="/groups/1/posts/9/seen-by" data-dialog-title="Vu par"></button>
+            <div class="modal" id="groups-detail-modal"></div>
+            <h2 id="groups-detail-modal-label">Réactions</h2>
+            <div id="groups-detail-modal-body"></div>
+        `;
+        global.bootstrap = { Modal: { getOrCreateInstance: vi.fn(() => ({ show: vi.fn() })) } };
+        global.fetch = vi.fn(() => Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ html: '<li>Akéla</li>' })
+        }));
+
+        document.querySelector('.groups-seen-by').click();
+        await vi.waitFor(() => expect(document.getElementById('groups-detail-modal-body').innerHTML).toContain('Akéla'));
+
+        // The dialog is shared with the reaction tallies, so the title has
+        // to follow the trigger or a "vu par" list would open under
+        // "Réactions".
+        expect(document.getElementById('groups-detail-modal-label').textContent).toBe('Vu par');
+        expect(fetch).toHaveBeenCalledWith(
+            '/groups/1/posts/9/seen-by',
+            { headers: { 'X-Requested-With': 'XMLHttpRequest' } }
+        );
+    });
+
+    it('a poll vote swaps the poll block in place without reloading', async () => {
+        document.body.innerHTML = `
+            <div class="groups-poll">
+                <form class="groups-poll-form" action="/groups/1/posts/9/vote" method="post">
+                    <input type="hidden" name="option_id" value="4">
+                    <button type="submit">Samedi</button>
+                </form>
+            </div>
+        `;
+        global.fetch = vi.fn(() => Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ html: '<div class="groups-poll">3 votes</div>' })
+        }));
+
+        document.querySelector('.groups-poll-form button').click();
+
+        await vi.waitFor(() => expect(document.body.innerHTML).toContain('3 votes'));
+        // jsdom resolves form.action to an absolute URL.
+        expect(fetch).toHaveBeenCalledWith(
+            expect.stringContaining('/groups/1/posts/9/vote'),
+            expect.objectContaining({ method: 'POST' })
+        );
+    });
+
+    // The "@" autocomplete. It only ever types plain text into the field:
+    // no id travels with the message, because the server resolves the
+    // names back out of the stored body (Service\MentionService).
+    describe('the @ autocomplete', () => {
+        function composer(value) {
+            document.body.innerHTML =
+                '<textarea id="post-body" data-mention-url="/groups/1/mention-search"></textarea>';
+            var field = /** @type {HTMLTextAreaElement} */ (document.getElementById('post-body'));
+            field.value = value;
+            field.setSelectionRange(value.length, value.length);
+
+            return field;
+        }
+
+        function type(field) {
+            field.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+
+        it('queries the group for what is typed after an @ and inserts the chosen name', async () => {
+            vi.useFakeTimers();
+            try {
+                global.fetch = vi.fn(() => Promise.resolve({
+                    ok: true,
+                    json: () => Promise.resolve([{ id: 4, label: 'Marie Dupont' }])
+                }));
+                var field = composer('Merci @Mar');
+
+                type(field);
+                await vi.advanceTimersByTimeAsync(300);
+
+                expect(fetch).toHaveBeenCalledWith(
+                    '/groups/1/mention-search?q=Mar',
+                    { headers: { 'X-Requested-With': 'XMLHttpRequest' } }
+                );
+
+                var option = document.querySelector('.groups-mention-option');
+                expect(option.textContent).toBe('Marie Dupont');
+
+                option.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+                expect(field.value).toBe('Merci @Marie Dupont ');
+            } finally {
+                vi.useRealTimers();
+            }
+        });
+
+        it('does not query on a bare @ — one character is not a search', async () => {
+            vi.useFakeTimers();
+            try {
+                global.fetch = vi.fn();
+                var field = composer('Merci @');
+
+                type(field);
+                await vi.advanceTimersByTimeAsync(300);
+
+                expect(fetch).not.toHaveBeenCalled();
+            } finally {
+                vi.useRealTimers();
+            }
+        });
+
+        it('ignores a field that does not opt in', async () => {
+            vi.useFakeTimers();
+            try {
+                global.fetch = vi.fn();
+                document.body.innerHTML = '<textarea id="plain"></textarea>';
+                var field = /** @type {HTMLTextAreaElement} */ (document.getElementById('plain'));
+                field.value = 'Merci @Marie';
+                field.setSelectionRange(field.value.length, field.value.length);
+
+                type(field);
+                await vi.advanceTimersByTimeAsync(300);
+
+                expect(fetch).not.toHaveBeenCalled();
+            } finally {
+                vi.useRealTimers();
+            }
+        });
     });
 
     it('toggles a post into edit mode and back', async () => {
@@ -413,6 +542,130 @@ describe('groups.js dynamic reactions, in-place pagination and inline edit toggl
 
         const [url] = fetch.mock.calls[0];
         expect(url).toContain('/groups/1/posts/9/delete');
+    });
+
+    it('copies a message\'s absolute link and confirms briefly', async () => {
+        vi.useFakeTimers();
+        try {
+            document.body.innerHTML =
+                '<button class="groups-copy-link" data-url="/groups/1/posts/9">Copier le lien</button>';
+            const writeText = vi.fn(() => Promise.resolve());
+            Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+
+            document.querySelector('.groups-copy-link').click();
+            await vi.waitFor(() => expect(writeText).toHaveBeenCalled());
+
+            // Absolute, so the copied link works when pasted anywhere.
+            expect(writeText).toHaveBeenCalledWith(window.location.origin + '/groups/1/posts/9');
+            expect(document.querySelector('.groups-copy-link').textContent).toBe('Lien copié');
+
+            await vi.advanceTimersByTimeAsync(2000);
+            expect(document.querySelector('.groups-copy-link').textContent).toBe('Copier le lien');
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('falls back to a prompt when the clipboard API is unavailable, never silently doing nothing', async () => {
+        document.body.innerHTML =
+            '<button class="groups-copy-link" data-url="/groups/1/posts/9">Copier le lien</button>';
+        Object.defineProperty(navigator, 'clipboard', { configurable: true, value: undefined });
+        const promptSpy = vi.spyOn(window, 'prompt').mockReturnValue(null);
+
+        document.querySelector('.groups-copy-link').click();
+        await vi.waitFor(() => expect(promptSpy).toHaveBeenCalled());
+
+        expect(promptSpy).toHaveBeenCalledWith(
+            'Copiez le lien de ce message :',
+            window.location.origin + '/groups/1/posts/9'
+        );
+    });
+
+    it('deleting a reply removes its own .groups-reply, not the whole post', async () => {
+        document.body.innerHTML = `
+            <article id="post-9">
+                <div class="groups-reply" id="reply-3">
+                    <form class="groups-reply-delete-form" action="/groups/1/replies/3/delete" data-confirm="Supprimer ?">
+                        <button type="submit">Supprimer</button>
+                    </form>
+                </div>
+            </article>
+        `;
+        global.fetch = vi.fn(() => Promise.resolve({ ok: true }));
+        vi.spyOn(window, 'confirm').mockReturnValue(true);
+
+        document.querySelector('.groups-reply-delete-form button').click();
+        await vi.waitFor(() => expect(document.getElementById('reply-3')).toBeNull());
+
+        expect(document.getElementById('post-9')).not.toBeNull();
+        expect(fetch.mock.calls[0][0]).toContain('/groups/1/replies/3/delete');
+    });
+
+    it('editing a post swaps only its body, leaving the replies underneath alone', async () => {
+        document.body.innerHTML = `
+            <article id="post-9">
+                <p id="post-body-9" class="groups-post-body">Ancien texte</p>
+                <div class="groups-replies"><div class="groups-reply" id="reply-3">une réponse</div></div>
+                <form class="groups-edit-form" id="post-edit-9" action="/groups/1/posts/9/edit">
+                    <textarea name="body">Nouveau texte</textarea>
+                    <button type="submit">Enregistrer</button>
+                </form>
+            </article>
+        `;
+        global.fetch = vi.fn(() => Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ html: '<p id="post-body-9" class="groups-post-body">Nouveau texte</p>' })
+        }));
+
+        document.querySelector('.groups-edit-form button').click();
+        await vi.waitFor(() => expect(document.getElementById('post-body-9').textContent).toBe('Nouveau texte'));
+
+        expect(document.getElementById('reply-3')).not.toBeNull();
+        expect(document.getElementById('post-edit-9').classList.contains('d-none')).toBe(true);
+    });
+
+    it('editing a reply swaps its whole card', async () => {
+        document.body.innerHTML = `
+            <div class="groups-reply" id="reply-3">
+                <p id="reply-body-3">Ancien</p>
+                <form class="groups-reply-edit-form" id="reply-edit-3" action="/groups/1/replies/3/edit">
+                    <textarea name="body">Nouveau</textarea>
+                    <button type="submit">Enregistrer</button>
+                </form>
+            </div>
+        `;
+        global.fetch = vi.fn(() => Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ html: '<div class="groups-reply" id="reply-3"><p id="reply-body-3">Nouveau</p></div>' })
+        }));
+
+        document.querySelector('.groups-reply-edit-form button').click();
+        await vi.waitFor(() => expect(document.getElementById('reply-body-3').textContent).toBe('Nouveau'));
+
+        expect(document.getElementById('reply-edit-3')).toBeNull();
+    });
+
+    it('shows a refused edit without closing the form, so the text can be revised', async () => {
+        document.body.innerHTML = `
+            <article id="post-9">
+                <p id="post-body-9">Ancien texte</p>
+                <form class="groups-edit-form" id="post-edit-9" action="/groups/1/posts/9/edit">
+                    <textarea name="body">Grossier</textarea>
+                    <button type="submit">Enregistrer</button>
+                </form>
+            </article>
+        `;
+        const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => {});
+        global.fetch = vi.fn(() => Promise.resolve({
+            ok: false,
+            json: () => Promise.resolve({ error: 'Ce message a été refusé.', type: 'offensive' })
+        }));
+
+        document.querySelector('.groups-edit-form button').click();
+        await vi.waitFor(() => expect(alertSpy).toHaveBeenCalledWith('Ce message a été refusé.'));
+
+        expect(document.getElementById('post-body-9').textContent).toBe('Ancien texte');
+        expect(document.getElementById('post-edit-9').classList.contains('d-none')).toBe(false);
     });
 
     it('falls back to a real form submit when the delete request fails', async () => {

@@ -87,11 +87,11 @@ class MultidayEventReminderHandlerTest extends TestCase
         );
         $stmt->execute([
             $memberId, $this->scoutYearId,
-            $this->encryption->encrypt('Jean'),
-            $this->encryption->encrypt('Dupont'),
-            $this->encryption->encrypt($totem),
-            $email !== null ? $this->encryption->encrypt($email) : null,
-            $email !== null ? $this->encryption->blindIndex($email) : null,
+            $this->encryption->encrypt('Jean', 'member_years.first_name'),
+            $this->encryption->encrypt('Dupont', 'member_years.last_name'),
+            $this->encryption->encrypt($totem, 'member_years.totem'),
+            $email !== null ? $this->encryption->encrypt($email, 'member_years.email') : null,
+            $email !== null ? $this->encryption->blindIndex($email, 'email') : null,
         ]);
         $memberYearId = (int) $this->pdo->lastInsertId();
 
@@ -116,7 +116,7 @@ class MultidayEventReminderHandlerTest extends TestCase
     public function testHandleSendsReminderToSectionStaffWithEmail(): void
     {
         $this->createStaffMember('Akela', 'akela@example.test');
-        $calendarRepository = new CalendarRepository($this->pdo);
+        $calendarRepository = new CalendarRepository($this->pdo, new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32)));
         $calendarId = $calendarRepository->createSectionCalendar($this->sectionId, Calendar::VISIBILITY_PUBLIC);
         $eventId = $this->createEvent($calendarId, '2026-08-10', '2026-08-13');
 
@@ -143,7 +143,7 @@ class MultidayEventReminderHandlerTest extends TestCase
     public function testHandleSkipsMembersWithoutEmail(): void
     {
         $this->createStaffMember('Akela', null);
-        $calendarRepository = new CalendarRepository($this->pdo);
+        $calendarRepository = new CalendarRepository($this->pdo, new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32)));
         $calendarId = $calendarRepository->createSectionCalendar($this->sectionId, Calendar::VISIBILITY_PUBLIC);
         $eventId = $this->createEvent($calendarId, '2026-08-10', '2026-08-13');
 

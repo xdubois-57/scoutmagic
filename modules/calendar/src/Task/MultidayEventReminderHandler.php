@@ -43,7 +43,7 @@ class MultidayEventReminderHandler implements TaskHandlerInterface
             return; // deleted since scheduling
         }
 
-        $calendarRepository = new CalendarRepository($pdo);
+        $calendarRepository = new CalendarRepository($pdo, $context->encryption);
         $calendar = $calendarRepository->findById($event->calendarId);
         if ($calendar === null || $calendar->sectionId === null) {
             return; // calendar deleted, or no longer a section calendar

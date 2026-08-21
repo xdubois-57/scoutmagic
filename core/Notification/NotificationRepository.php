@@ -27,8 +27,8 @@ class NotificationRepository
             $userAccountId,
             $memberId,
             $typeId,
-            $this->encryption->encrypt($title),
-            $this->encryption->encrypt($body),
+            $this->encryption->encrypt($title, 'notifications.title'),
+            $this->encryption->encrypt($body, 'notifications.body'),
             $url,
         ]);
 
@@ -127,8 +127,8 @@ class NotificationRepository
             userAccountId: (int) $row['user_account_id'],
             memberId: $row['member_id'] !== null ? (int) $row['member_id'] : null,
             typeId: (string) $row['type_id'],
-            title: $this->encryption->decrypt($this->readBlob($row['title'])),
-            body: $this->encryption->decrypt($this->readBlob($row['body'])),
+            title: $this->encryption->decrypt($this->readBlob($row['title']), 'notifications.title'),
+            body: $this->encryption->decrypt($this->readBlob($row['body']), 'notifications.body'),
             url: $row['url'] !== null ? (string) $row['url'] : null,
             readAt: $row['read_at'] !== null ? (string) $row['read_at'] : null,
             createdAt: (string) $row['created_at']

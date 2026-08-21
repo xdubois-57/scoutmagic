@@ -16,8 +16,8 @@ use Core\Module\ModuleManager;
 
 /**
  * Builds the exact document an installation reports to the statistics
- * receiver (ARCHITECTURE.md §8.41) — and, unchanged, the `statistics.json`
- * of a support package (§8.42).
+ * receiver (ARCHITECTURE.md §8.43) — and, unchanged, the `statistics.json`
+ * of a support package (§8.44).
  *
  * Three rules govern everything here:
  *
@@ -28,7 +28,7 @@ use Core\Module\ModuleManager;
  * 2. **Nothing about a person, ever.** No member, no section name, no
  *    email, no contact, no hostname, no server IP, no credential, no module
  *    configuration value. The instance URL is the one identifying field,
- *    and it is deliberate (§8.41) — a report you cannot tie to the site you
+ *    and it is deliberate (§8.43) — a report you cannot tie to the site you
  *    are supporting is close to useless.
  * 3. **Every collector is independent.** Each metric is gathered inside its
  *    own try/catch: one throwing sets its own field to `null` and changes

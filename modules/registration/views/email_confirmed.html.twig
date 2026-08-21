@@ -8,12 +8,22 @@
 
     <div class="card">
         <div class="card-body text-center py-4">
-            {% if confirmed %}
+            {% if state == 'confirm' %}
+                {# The bare GET never confirms (mail scanners prefetch every
+                   link) — only this form's POST does, re-verifying the same
+                   single-use token it carries. #}
+                <p class="mb-3">Cliquez sur le bouton ci-dessous pour confirmer cette adresse email.</p>
+                <form method="post" action="/inscriptions/suivi/emails/confirm/{{ email_id }}">
+                    <input type="hidden" name="token" value="{{ token }}">
+                    <button type="submit" class="btn btn-primary">Confirmer mon adresse email</button>
+                </form>
+            {% elseif state == 'done' %}
                 <p class="text-success mb-3"><i class="bi bi-check-circle"></i> Votre adresse email a bien été confirmée.</p>
+                <a href="/inscriptions" class="btn btn-outline-secondary">Retour à la page d'inscriptions</a>
             {% else %}
                 <p class="text-danger mb-3">Ce lien de confirmation n'est plus valide (expiré, déjà utilisé, ou incorrect).</p>
+                <a href="/inscriptions" class="btn btn-outline-secondary">Retour à la page d'inscriptions</a>
             {% endif %}
-            <a href="/inscriptions" class="btn btn-outline-secondary">Retour à la page d'inscriptions</a>
         </div>
     </div>
 </div>

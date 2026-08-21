@@ -61,12 +61,12 @@ class SectionServiceTest extends TestCase
         $stmt->execute([
             $memberId,
             $this->scoutYearId,
-            $this->encryption->encrypt($firstName),
-            $this->encryption->encrypt('Dupont'),
-            $this->encryption->encrypt($firstName . '@test.be'),
-            $this->encryption->blindIndex($firstName . '@test.be'),
-            $this->encryption->encrypt('0470123456'),
-            $this->encryption->encrypt('0498765432'),
+            $this->encryption->encrypt($firstName, 'member_years.first_name'),
+            $this->encryption->encrypt('Dupont', 'member_years.last_name'),
+            $this->encryption->encrypt($firstName . '@test.be', 'member_years.email'),
+            $this->encryption->blindIndex($firstName . '@test.be', 'email'),
+            $this->encryption->encrypt('0470123456', 'member_years.phone'),
+            $this->encryption->encrypt('0498765432', 'member_years.mobile'),
             $formationLevel,
         ]);
         $memberYearId = (int) $this->pdo->lastInsertId();

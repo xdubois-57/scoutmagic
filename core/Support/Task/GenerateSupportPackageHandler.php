@@ -14,7 +14,7 @@ use Core\Support\SupportPackageFactory;
 
 /**
  * Background generation of the diagnostic support package
- * (`core`/`generate_support_package`) — ARCHITECTURE.md §8.42.
+ * (`core`/`generate_support_package`) — ARCHITECTURE.md §8.44.
  *
  * A background task rather than a synchronous request for the same reason
  * as `create_backup` (§8.15): the system collectors shell out, walk the

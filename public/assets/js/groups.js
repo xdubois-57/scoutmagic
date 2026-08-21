@@ -544,6 +544,203 @@
         });
     })();
 
+    // The "@" autocomplete, shared by the composer and every reply box —
+    // any field carrying data-mention-url (show.html.twig, partials/
+    // post_card.html.twig).
+    //
+    // It only ever inserts PLAIN TEXT: picking a name types "@Marie
+    // Dupont" into the field and nothing else. No hidden id travels with
+    // the message, because the server resolves the names back out of the
+    // stored body itself (Service\MentionService) — which is also why a
+    // member with no JavaScript can mention somebody by simply typing
+    // their name, and why this whole block is optional.
+    (function () {
+        // One menu for the whole page, positioned under whichever field
+        // is being typed into. Appended to <body> rather than next to the
+        // field: the composer and a reply box sit in very different
+        // boxes, and an absolutely-positioned child would need each of
+        // them to be a positioning context.
+        var menu = null;
+        var activeField = null;
+        var activeStart = -1;
+        var searchTimer = null;
+
+        function closeMenu() {
+            if (menu) {
+                menu.classList.add('d-none');
+            }
+            activeField = null;
+            activeStart = -1;
+        }
+
+        function ensureMenu() {
+            if (menu) {
+                return menu;
+            }
+            menu = document.createElement('ul');
+            menu.id = 'groups-mention-menu';
+            menu.className = 'list-group shadow-sm d-none';
+            menu.style.position = 'absolute';
+            menu.style.zIndex = '1080';
+            menu.style.maxHeight = '15rem';
+            menu.style.overflowY = 'auto';
+            menu.setAttribute('role', 'listbox');
+            document.body.appendChild(menu);
+
+            return menu;
+        }
+
+        function placeMenu(field) {
+            var rect = field.getBoundingClientRect();
+            menu.style.left = (rect.left + window.scrollX) + 'px';
+            menu.style.top = (rect.bottom + window.scrollY + 2) + 'px';
+            menu.style.minWidth = rect.width + 'px';
+        }
+
+        // The "@…" being typed right before the caret, or null. Bounded to
+        // two words so a message that merely contains an "@" somewhere
+        // does not keep querying for the rest of the sentence.
+        function tokenBeforeCaret(field) {
+            var caret = field.selectionStart;
+            if (typeof caret !== 'number') {
+                return null;
+            }
+            var match = /@([\p{L}][\p{L}\-']*(?:\s[\p{L}][\p{L}\-']*)?)?$/u.exec(field.value.slice(0, caret));
+            if (!match) {
+                return null;
+            }
+
+            return { start: caret - match[0].length, query: match[1] || '' };
+        }
+
+        function insertName(label) {
+            if (!activeField || activeStart < 0) {
+                return;
+            }
+            var caret = activeField.selectionStart;
+            var before = activeField.value.slice(0, activeStart);
+            var after = activeField.value.slice(caret);
+            activeField.value = before + '@' + label + ' ' + after;
+            var newCaret = (before + '@' + label + ' ').length;
+            activeField.setSelectionRange(newCaret, newCaret);
+            activeField.focus();
+            // The composer caches drafts on its own input listener, so the
+            // inserted name has to look like typing to it.
+            activeField.dispatchEvent(new Event('input', { bubbles: true }));
+            closeMenu();
+        }
+
+        function render(members) {
+            if (members.length === 0) {
+                closeMenu();
+                return;
+            }
+            menu.innerHTML = '';
+            members.forEach(function (member, index) {
+                var item = document.createElement('li');
+                item.className = 'list-group-item list-group-item-action groups-mention-option';
+                item.style.cursor = 'pointer';
+                item.style.minHeight = '44px';
+                item.setAttribute('role', 'option');
+                item.dataset.label = member.label;
+                item.textContent = member.label;
+                if (index === 0) {
+                    item.classList.add('active');
+                }
+                menu.appendChild(item);
+            });
+            menu.classList.remove('d-none');
+        }
+
+        function highlighted() {
+            return menu && !menu.classList.contains('d-none')
+                ? /** @type {HTMLElement} */ (menu.querySelector('.groups-mention-option.active'))
+                : null;
+        }
+
+        function move(step) {
+            var current = highlighted();
+            if (!current) {
+                return;
+            }
+            var options = Array.prototype.slice.call(menu.querySelectorAll('.groups-mention-option'));
+            var next = options[(options.indexOf(current) + step + options.length) % options.length];
+            current.classList.remove('active');
+            next.classList.add('active');
+        }
+
+        document.addEventListener('input', function (event) {
+            var field = /** @type {HTMLInputElement|HTMLTextAreaElement} */ (
+                /** @type {HTMLElement} */ (event.target).closest('[data-mention-url]')
+            );
+            if (!field) {
+                return;
+            }
+
+            clearTimeout(searchTimer);
+            var token = tokenBeforeCaret(field);
+            // Two letters before querying, same floor as the invite box:
+            // "@" alone in a group of forty is not a search.
+            if (!token || token.query.length < 2) {
+                closeMenu();
+                return;
+            }
+
+            activeField = field;
+            activeStart = token.start;
+            searchTimer = setTimeout(function () {
+                fetch(field.dataset.mentionUrl + '?q=' + encodeURIComponent(token.query), {
+                    headers: { 'X-Requested-With': 'XMLHttpRequest' }
+                }).then(function (response) {
+                    return response.ok ? response.json() : [];
+                }).then(function (members) {
+                    if (activeField !== field) {
+                        return;
+                    }
+                    ensureMenu();
+                    placeMenu(field);
+                    render(members);
+                }).catch(closeMenu);
+            }, 250);
+        });
+
+        // Enter would submit a reply box and Tab would leave the field, so
+        // both are intercepted while the menu is open — and only then.
+        document.addEventListener('keydown', function (event) {
+            var option = highlighted();
+            if (!option || !activeField) {
+                return;
+            }
+
+            if (event.key === 'Escape') {
+                closeMenu();
+                return;
+            }
+            if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                event.preventDefault();
+                move(event.key === 'ArrowDown' ? 1 : -1);
+                return;
+            }
+            if (event.key === 'Enter' || event.key === 'Tab') {
+                event.preventDefault();
+                insertName(option.dataset.label);
+            }
+        });
+
+        document.addEventListener('click', function (event) {
+            var target = /** @type {HTMLElement} */ (event.target);
+            var option = /** @type {HTMLElement} */ (target.closest('.groups-mention-option'));
+            if (option) {
+                event.preventDefault();
+                insertName(option.dataset.label);
+                return;
+            }
+            if (menu && !menu.contains(target)) {
+                closeMenu();
+            }
+        });
+    })();
+
     // Polls for a photo/video still being resized in the background so
     // the real thumbnail appears in place the moment it is ready, with no
     // page reload. Every 'pending'/'processing' media cell already
@@ -620,41 +817,108 @@
     // page never reloads, each falling back to the real form submit on
     // anything its own JSON path does not recognise (a stale CSRF token,
     // an unexpected response).
+    // "Supprimer", on a post or on a reply: the base.html.twig confirm()
+    // dialog is answered HERE rather than left to that later, separately
+    // registered listener — this one runs first (it is registered by the
+    // time base.html.twig's own script tag runs, later in the page) and
+    // would otherwise fire off the delete fetch() before the member had
+    // even answered the prompt. stopImmediatePropagation() is what stops
+    // base.html.twig's listener from then asking a second, redundant time.
+    //
+    // The caller has already called preventDefault/stopImmediatePropagation
+    // — this only decides what the confirmed deletion does.
+    function submitDeleteInPlace(form, removeSelector) {
+        var container = form.closest(removeSelector);
+        fetch(form.action, {
+            method: 'POST',
+            body: new FormData(form),
+            headers: { 'X-Requested-With': 'XMLHttpRequest' }
+        }).then(function (response) {
+            if (response.ok && container) {
+                container.remove();
+            } else {
+                form.submit();
+            }
+        }).catch(function () {
+            form.submit();
+        });
+    }
+
+    // An inline edit: the server answers with the re-rendered fragment,
+    // which replaces `target`. What `target` is differs by item on
+    // purpose — a post's is only its own <p> body, so the reply thread
+    // expanded underneath survives the edit; a reply's is its whole card,
+    // which has no thread of its own to preserve (and carries the edit
+    // form itself, so closing it is implicit in the swap).
+    function submitInlineEdit(form, target, closeFormAfter) {
+        if (!target) {
+            form.submit();
+            return;
+        }
+
+        fetch(form.action, {
+            method: 'POST',
+            body: new FormData(form),
+            headers: { 'X-Requested-With': 'XMLHttpRequest' }
+        }).then(function (response) {
+            return response.json().catch(function () { return null; }).then(function (data) {
+                return { ok: response.ok, data: data };
+            });
+        }).then(function (result) {
+            if (result.ok && result.data && typeof result.data.html === 'string') {
+                target.outerHTML = result.data.html;
+                if (closeFormAfter) {
+                    form.classList.add('d-none');
+                }
+                kickOffMediaPolling();
+            } else if (result.data && typeof result.data.error === 'string') {
+                // A refusal the server actually returned (the moderation
+                // layer, most often) — the edit form stays open with the
+                // member's text in it so they can revise and resend.
+                window.alert(result.data.error);
+            } else {
+                form.submit();
+            }
+        }).catch(function () {
+            form.submit();
+        });
+    }
+
     document.addEventListener('submit', function (event) {
         var target = /** @type {HTMLElement} */ (event.target);
 
-        // "Supprimer" on a post: the base.html.twig confirm() dialog is
-        // handled here instead of being left to that later, separately
-        // registered listener — this one runs first (it is registered by
-        // the time base.html.twig's own script tag runs, later in the
-        // page) and would otherwise fire off the delete fetch() before
-        // the member had even answered the confirm() prompt.
-        // stopImmediatePropagation() is what stops base.html.twig's
-        // listener from then asking a second, redundant time.
-        var deleteForm = /** @type {HTMLFormElement} */ (target.closest('.groups-post-delete-form'));
+        var postDeleteForm = /** @type {HTMLFormElement} */ (target.closest('.groups-post-delete-form'));
+        var replyDeleteForm = /** @type {HTMLFormElement} */ (target.closest('.groups-reply-delete-form'));
+        var deleteForm = postDeleteForm || replyDeleteForm;
         if (deleteForm) {
-            if (deleteForm.dataset.confirm && !confirm(deleteForm.dataset.confirm)) {
-                event.preventDefault();
-                event.stopImmediatePropagation();
-                return;
-            }
             event.preventDefault();
             event.stopImmediatePropagation();
+            if (deleteForm.dataset.confirm && !confirm(deleteForm.dataset.confirm)) {
+                return;
+            }
+            submitDeleteInPlace(deleteForm, postDeleteForm ? 'article' : '.groups-reply');
+            return;
+        }
 
-            var article = deleteForm.closest('article');
-            fetch(deleteForm.action, {
-                method: 'POST',
-                body: new FormData(deleteForm),
-                headers: { 'X-Requested-With': 'XMLHttpRequest' }
-            }).then(function (response) {
-                if (response.ok && article) {
-                    article.remove();
-                } else {
-                    deleteForm.submit();
-                }
-            }).catch(function () {
-                deleteForm.submit();
-            });
+        // Editing a post: only its own <p> body is swapped (see
+        // submitInlineEdit) so the replies underneath are left alone.
+        var postEditForm = /** @type {HTMLFormElement} */ (target.closest('.groups-edit-form'));
+        if (postEditForm) {
+            event.preventDefault();
+            submitInlineEdit(
+                postEditForm,
+                document.getElementById('post-body-' + postEditForm.id.replace('post-edit-', '')),
+                true
+            );
+            return;
+        }
+
+        // Editing a reply: the whole card comes back, since a reply has no
+        // thread of its own to preserve underneath it.
+        var replyEditForm = /** @type {HTMLFormElement} */ (target.closest('.groups-reply-edit-form'));
+        if (replyEditForm) {
+            event.preventDefault();
+            submitInlineEdit(replyEditForm, replyEditForm.closest('.groups-reply'), false);
             return;
         }
 
@@ -713,29 +977,45 @@
             return;
         }
 
-        // A reaction button's form still posts and redirects with no JS at
-        // all (partials/reactions.html.twig's own docblock promise) — this
-        // only upgrades that same POST to a fetch() so the page never
-        // reloads. The `X-Requested-With` header is what tells
-        // Controller\ReactionController to answer with the freshly rendered
-        // fragment (JSON: {outcome, html}) instead of its usual redirect;
-        // any failure — network, non-2xx, a malformed body — falls through
-        // to the plain form submit, so a stale CSRF token or a dropped
-        // connection degrades to a page reload rather than doing nothing.
+        // A reaction button's form still posts and redirects with no JS
+        // at all (partials/reactions.html.twig's own docblock promise) —
+        // this only upgrades that same POST to a fetch() so the page
+        // never reloads. See swapFragmentOnSubmit() below.
+        // A poll option, upgraded the same way and swapped the same way:
+        // its form posts and redirects perfectly well with no JS
+        // (partials/poll.html.twig's own docblock promise).
+        var pollForm = /** @type {HTMLFormElement} */ (target.closest('.groups-poll-form'));
+        if (pollForm) {
+            event.preventDefault();
+            swapFragmentOnSubmit(pollForm, '.groups-poll');
+            return;
+        }
+
         var form = /** @type {HTMLFormElement} */ (target.closest('.groups-reaction-form'));
         if (!form) {
             return;
         }
         event.preventDefault();
+        swapFragmentOnSubmit(form, '.groups-reactions');
+    });
 
-        var container = form.closest('.groups-reactions');
+    // Shared by a reaction button and a poll option: POST the form, then
+    // replace the block it lives in with the server's freshly rendered
+    // answer. The `X-Requested-With` header is what tells the controller
+    // to return that fragment (JSON: {html}) instead of its usual
+    // redirect; ANY failure — network, non-2xx, a malformed body — falls
+    // through to the plain form submit, so a stale CSRF token or a
+    // dropped connection degrades to a page reload rather than to
+    // nothing happening at all.
+    function swapFragmentOnSubmit(form, containerSelector) {
+        var container = form.closest(containerSelector);
         fetch(form.action, {
             method: 'POST',
             body: new FormData(form),
             headers: { 'X-Requested-With': 'XMLHttpRequest' }
         }).then(function (response) {
             if (!response.ok) {
-                throw new Error('reaction request failed');
+                throw new Error('request failed');
             }
             return response.json();
         }).then(function (data) {
@@ -747,31 +1027,39 @@
         }).catch(function () {
             form.submit();
         });
-    });
+    }
 
-    // A reaction tally's own click: "who reacted, and with what"
-    // (Controller\ReactionController's postReactors()/replyReactors()).
-    // A plain <button> with no bootstrap data-* attributes of its own
-    // — nothing here breaks if groups.js never loads, the tally just
-    // stops being clickable and stays a plain summary.
-    async function handleReactionTallyClick(tally) {
-        var modalEl = document.getElementById('groups-reactors-modal');
-        var modalBody = document.getElementById('groups-reactors-modal-body');
+    // The shared "who…?" dialog: a reaction tally's "who reacted, and
+    // with what" (Controller\ReactionController's postReactors()/
+    // replyReactors()) and a post's "vu par" (Controller\PostController::
+    // seenBy()) both land here — one dialog per page, filled with
+    // whatever the trigger's own URL renders.
+    //
+    // Every trigger is a plain <button> with no bootstrap data-*
+    // attributes of its own, so nothing breaks if groups.js never loads:
+    // the line just stops being clickable and stays a plain summary.
+    async function openDetailDialog(url, title, errorText) {
+        var modalEl = document.getElementById('groups-detail-modal');
+        var modalBody = document.getElementById('groups-detail-modal-body');
         if (!modalEl || !modalBody || typeof bootstrap === 'undefined') {
             return;
+        }
+        var label = document.getElementById('groups-detail-modal-label');
+        if (label && title) {
+            label.textContent = title;
         }
         modalBody.innerHTML = '<div class="text-center py-3"><span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span></div>';
         var modal = bootstrap.Modal.getOrCreateInstance(modalEl);
         modal.show();
 
-        var reactorsResponse = await fetch(tally.dataset.reactorsUrl, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
-        if (reactorsResponse.ok) {
-            var reactorsData = await reactorsResponse.json();
-            if (typeof reactorsData.html === 'string') {
-                modalBody.innerHTML = reactorsData.html;
+        var response = await fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+        if (response.ok) {
+            var data = await response.json();
+            if (typeof data.html === 'string') {
+                modalBody.innerHTML = data.html;
             }
         } else {
-            modalBody.innerHTML = '<p class="text-danger mb-0">Impossible de charger les réactions.</p>';
+            modalBody.textContent = errorText;
         }
     }
 
@@ -791,6 +1079,30 @@
         }
     }
 
+    // "Copier le lien" on a post. The absolute URL is built here from the
+    // relative one the template renders, so the copied link works when
+    // pasted anywhere — a bare "/groups/3/posts/12" would not.
+    //
+    // navigator.clipboard needs a secure context (https, or localhost) and
+    // is simply absent otherwise; window.prompt with the URL pre-selected
+    // is the honest fallback — the member can still copy it by hand,
+    // rather than the entry silently doing nothing.
+    async function copyMessageLink(button) {
+        var url = new URL(button.dataset.url, window.location.origin).href;
+        var original = button.textContent;
+
+        try {
+            if (!navigator.clipboard) {
+                throw new Error('clipboard unavailable');
+            }
+            await navigator.clipboard.writeText(url);
+            button.textContent = 'Lien copié';
+            setTimeout(function () { button.textContent = original; }, 2000);
+        } catch (e) {
+            window.prompt('Copiez le lien de ce message :', url);
+        }
+    }
+
     function toggleEditForm(prefix, id, showEdit) {
         document.getElementById(prefix + '-edit-' + id)?.classList.toggle('d-none', !showEdit);
         document.getElementById(prefix + '-body-' + id)?.classList.toggle('d-none', showEdit);
@@ -803,9 +1115,34 @@
     document.addEventListener('click', async function (event) {
         var target = /** @type {HTMLElement} */ (event.target);
 
+        // A media cell is a REAL <a> to the media's large rendition, so it
+        // works with no JS at all. gallery.js's lightbox binds its own
+        // click on the same element without preventing that navigation —
+        // so suppressing it is this file's job, and only when the viewer
+        // is genuinely on the page AND the cell has a rendition to show.
+        // A still-processing or failed media keeps the plain link, which
+        // is exactly what its missing data-medium-url already signals.
+        var mediaCell = /** @type {HTMLElement} */ (target.closest('.groups-media-cell.gallery-lightbox-trigger'));
+        if (mediaCell && mediaCell.dataset.mediumUrl && document.getElementById('gallery-lightbox')) {
+            event.preventDefault();
+            return;
+        }
+
+        var copyLink = /** @type {HTMLElement} */ (target.closest('.groups-copy-link'));
+        if (copyLink) {
+            await copyMessageLink(copyLink);
+            return;
+        }
+
         var tally = /** @type {HTMLElement} */ (target.closest('.groups-reaction-tally'));
         if (tally) {
-            await handleReactionTallyClick(tally);
+            await openDetailDialog(tally.dataset.reactorsUrl, 'Réactions', 'Impossible de charger les réactions.');
+            return;
+        }
+
+        var seenBy = /** @type {HTMLElement} */ (target.closest('.groups-seen-by'));
+        if (seenBy) {
+            await openDetailDialog(seenBy.dataset.url, seenBy.dataset.dialogTitle, 'Impossible de charger la liste.');
             return;
         }
 

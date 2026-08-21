@@ -16,7 +16,7 @@ use Twig\Environment;
 
 /**
  * `POST /api/statistics` (`role_min: public`) — where reporting
- * installations send their daily usage report (ARCHITECTURE.md §8.43).
+ * installations send their daily usage report (ARCHITECTURE.md §8.45).
  *
  * **The second deliberate CSRF exception in this codebase**, after
  * `POST /api/webhook/github`, and for the same reason: the caller is a

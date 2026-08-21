@@ -156,8 +156,8 @@ class FormResponseRepositoryTest extends TestCase
     {
         $encryption = new EncryptionService(str_repeat('a', 32), str_repeat('b', 32));
         $stmt = $this->pdo->prepare('INSERT INTO news_form_responses (form_id, contact_email, contact_email_blind_index, submitted_at) VALUES (?, ?, ?, ?)');
-        $stmt->execute([$this->formId, $encryption->encrypt('x@test.com'), $encryption->blindIndex('x@test.com'), '2026-01-01 00:00:00']);
-        $stmt->execute([$this->formId, $encryption->encrypt('x@test.com'), $encryption->blindIndex('x@test.com'), '2026-06-01 00:00:00']);
+        $stmt->execute([$this->formId, $encryption->encrypt('x@test.com', 'news_form_responses.contact_email'), $encryption->blindIndex('x@test.com', 'news_contact_email'), '2026-01-01 00:00:00']);
+        $stmt->execute([$this->formId, $encryption->encrypt('x@test.com', 'news_form_responses.contact_email'), $encryption->blindIndex('x@test.com', 'news_contact_email'), '2026-06-01 00:00:00']);
 
         $recent = $this->repository->findByFormIdSince($this->formId, '2026-03-01 00:00:00');
 

@@ -478,3 +478,103 @@
     max-height: 20rem;
     overflow: auto;
 }
+
+/* ── Availability month grid (Core\View\MonthGrid\DayStateGridBuilder,
+   partials/month_day_grid.html.twig) ──────────────────────────────────────
+   The sibling of .calendar-week above, and deliberately a separate set of
+   rules rather than a variant of it: that grid stacks event bars under a
+   day number (its cell height is driven by --calendar-bar-height and a row
+   cap), this one has exactly one uniform square per day and nothing to
+   stack. Sharing a class between them would couple two layouts that only
+   look alike.
+
+   Every state gets its colour from --daygrid-day-color, which the partial
+   sets inline per cell only when the caller supplied one; the defaults
+   below are what a caller gets for free. Colour is never the sole carrier
+   of meaning — the partial always renders the state's French label as
+   visually-hidden text and as a native tooltip. Mobile-first: cells are
+   sized off the viewport by default, capped from the md breakpoint. */
+.daygrid {
+    border-left: 1px solid var(--bs-border-color, #dee2e6);
+    border-top: 1px solid var(--bs-border-color, #dee2e6);
+}
+.daygrid-week {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+}
+.daygrid-day {
+    /* 44px minimum touch target (AGENTS.md § CSS / frontend). The aspect
+       ratio keeps the cells square as the grid widens, so the month reads
+       as a calendar rather than a stretched table. */
+    min-height: 44px;
+    aspect-ratio: 1 / 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    /* User-agent reset — the partial renders this element as a real
+       <button> when the day is selectable, so the button and the div it
+       replaces must render identically. Same reason as
+       .calendar-day-cell above. */
+    appearance: none;
+    -webkit-appearance: none;
+    padding: 0;
+    font: inherit;
+    color: inherit;
+    border: 0;
+    border-radius: 0;
+    border-right: 1px solid var(--bs-border-color, #dee2e6);
+    border-bottom: 1px solid var(--bs-border-color, #dee2e6);
+    background-color: var(--daygrid-day-color, var(--bs-body-bg, #fff));
+}
+.daygrid-day-number {
+    font-size: 0.85rem;
+    line-height: 1;
+}
+.daygrid-day.is-padding {
+    opacity: 0.45;
+}
+.daygrid-day.is-today .daygrid-day-number {
+    font-weight: 700;
+    text-decoration: underline;
+}
+
+/* Default palette per DayState::STATE_* — overridden per cell whenever the
+   caller passes an explicit colour. */
+.daygrid-day--free { --daygrid-day-color: var(--bs-success-bg-subtle, #d1e7dd); }
+.daygrid-day--occupied { --daygrid-day-color: var(--bs-danger-bg-subtle, #f8d7da); }
+.daygrid-day--partial { --daygrid-day-color: var(--bs-warning-bg-subtle, #fff3cd); }
+.daygrid-day--selected { --daygrid-day-color: var(--bs-primary, #0d6efd); color: #fff; }
+/* "Occupied in the morning, free from midday" — a diagonal split rather
+   than a third flat colour, because the day genuinely is half of each and
+   a flat blend would read as its own unrelated status. */
+.daygrid-day--departing {
+    background-image: linear-gradient(
+        135deg,
+        var(--bs-danger-bg-subtle, #f8d7da) 0 50%,
+        var(--bs-success-bg-subtle, #d1e7dd) 50% 100%
+    );
+}
+/* Past, inside a notice window, or beyond the horizon — greyed out, and
+   pointedly NOT the occupied colour: telling a visitor "taken" for a day
+   that is merely too late to request makes them give up on a free day. */
+.daygrid-day--unselectable {
+    --daygrid-day-color: var(--bs-tertiary-bg, #f8f9fa);
+    color: var(--bs-secondary-color, #6c757d);
+}
+.daygrid-day--selectable {
+    cursor: pointer;
+}
+.daygrid-day--selectable:hover {
+    filter: brightness(0.94);
+}
+.daygrid-day--selectable:focus-visible {
+    outline: 2px solid var(--bs-primary, #0d6efd);
+    outline-offset: -2px;
+}
+@media (min-width: 768px) {
+    .daygrid-day {
+        aspect-ratio: auto;
+        min-height: 3rem;
+    }
+    .daygrid-day-number { font-size: 0.95rem; }
+}

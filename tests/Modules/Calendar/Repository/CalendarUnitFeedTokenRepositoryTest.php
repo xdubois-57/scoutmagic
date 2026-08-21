@@ -22,7 +22,7 @@ class CalendarUnitFeedTokenRepositoryTest extends TestCase
     {
         $this->pdo = DatabaseTestHelper::createTestDatabase();
         CalendarTestHelper::createTables($this->pdo);
-        $this->repository = new CalendarUnitFeedTokenRepository($this->pdo);
+        $this->repository = new CalendarUnitFeedTokenRepository($this->pdo, new \Core\Security\EncryptionService(str_repeat('a', 32), str_repeat('b', 32)));
     }
 
     public function testFindTokenReturnsNullWhenNoneExists(): void
@@ -53,5 +53,19 @@ class CalendarUnitFeedTokenRepositoryTest extends TestCase
 
         $this->assertTrue($this->repository->tokenExists('tok-1'));
         $this->assertFalse($this->repository->tokenExists('nope'));
+    }
+
+    public function testTheTokenIsNeverStoredInPlaintext(): void
+    {
+        $token = bin2hex(random_bytes(32));
+        $this->repository->setToken($token);
+
+        $row = $this->pdo->query('SELECT token_encrypted, token_blind_index FROM calendar_unit_feed_token')->fetch(\PDO::FETCH_ASSOC);
+        $this->assertStringNotContainsString($token, (string) $row['token_encrypted']);
+        $this->assertNotSame($token, $row['token_blind_index']);
+        $this->assertNotSame(hash('sha256', $token), $row['token_blind_index']);
+
+        $this->assertTrue($this->repository->tokenExists($token));
+        $this->assertSame($token, $this->repository->findToken());
     }
 }

@@ -138,7 +138,7 @@ class UploadControllerTest extends TestCase
      */
     private function linkMemberToEmail(string $email): void
     {
-        $blindIndex = $this->encryption->blindIndex(strtolower(trim($email)));
+        $blindIndex = $this->encryption->blindIndex(strtolower(trim($email)), 'email');
         $stmt = $this->pdo->prepare(
             'INSERT INTO member_years (member_id, scout_year_id, first_name_encrypted, last_name_encrypted, email_encrypted, email_blind_index)
              VALUES (?, ?, ?, ?, ?, ?)'
@@ -146,9 +146,9 @@ class UploadControllerTest extends TestCase
         $stmt->execute([
             $this->memberId,
             $this->scoutYearId,
-            $this->encryption->encrypt('Test'),
-            $this->encryption->encrypt('Member'),
-            $this->encryption->encrypt($email),
+            $this->encryption->encrypt('Test', 'member_years.first_name'),
+            $this->encryption->encrypt('Member', 'member_years.last_name'),
+            $this->encryption->encrypt($email, 'member_years.email'),
             $blindIndex,
         ]);
     }

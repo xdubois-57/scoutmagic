@@ -31,10 +31,12 @@ use Modules\Groups\Service\GroupSessionContext;
 use Modules\Groups\Service\GroupMembershipService;
 use Modules\Groups\Service\GroupSessionContextFactory;
 use Modules\Groups\Service\ReopenOutcome;
+use Modules\Groups\Service\PostEventService;
 use Modules\Groups\Service\PostMediaService;
 use Modules\Groups\Service\PostService;
 use Modules\Groups\Service\SectionGroupSyncService;
 use Modules\Groups\Support\RejectedDraft;
+use Modules\Groups\Support\SearchTerm;
 use Twig\Environment;
 
 /**
@@ -56,6 +58,17 @@ class GroupController extends AbstractController
     private const SETTING_DRAFT_TTL_MINUTES = 'groups_draft_ttl_minutes';
     private const DEFAULT_DRAFT_TTL_MINUTES = 60;
 
+    /**
+     * Matches discussion_groups.description's own VARCHAR(300): the cut
+     * here is what keeps a pasted paragraph from being silently truncated
+     * by the database instead. One line about what the group is for, not
+     * a second place to hold a conversation.
+     */
+    public const MAX_DESCRIPTION_LENGTH = 300;
+
+    /** How many poll-option boxes the composer offers — see show(). */
+    private const POLL_OPTION_SLOTS = 4;
+
     public function __construct(
         protected Environment $twig,
         private GroupRepository $groupRepository,
@@ -70,7 +83,9 @@ class GroupController extends AbstractController
         private PostRepository $postRepository,
         private ?SectionGroupSyncService $sectionGroupSyncService = null,
         private ?GroupMembershipService $membershipService = null,
-        private ?SettingService $settingService = null
+        private ?SettingService $settingService = null,
+        private ?GroupReadStateService $readStateService = null,
+        private ?PostEventService $eventService = null
     ) {
     }
 
@@ -135,6 +150,11 @@ class GroupController extends AbstractController
         $canModerate = $this->accessService->canModerate($group, $context);
         $page = $this->feedService->page($group, $context, $canModerate);
 
+        // Opening the group is what clears its unread badge — recorded
+        // after the feed is built, so a failure here can never cost the
+        // render, and never before, so a page that 404s marks nothing.
+        $this->readStateService?->markRead($group, $context);
+
         return $this->render('@groups/show.html.twig', [
             'group' => $group,
             'badges' => $this->badges($group, $context),
@@ -156,6 +176,16 @@ class GroupController extends AbstractController
             'max_media_per_post' => PostMediaService::MAX_MEDIA_PER_POST,
             'video_upload_allowed' => $this->postMediaService->videoUploadAllowed(),
             'draft_ttl_minutes' => $this->draftTtlMinutes(),
+            // Empty whenever the calendar module is disabled, which is
+            // also what hides the picker — the composer never mentions a
+            // feature this install does not have.
+            'event_options' => $this->eventService?->options($context) ?? [],
+            // How many option boxes the poll section offers. Four is
+            // enough for the questions a group actually asks and short
+            // enough to stay a form rather than a wall; the two beyond
+            // the minimum are labelled optional, and blank ones are
+            // dropped server-side (Service\PollService::normalise()).
+            'poll_option_slots' => self::POLL_OPTION_SLOTS,
             // A message the AI moderation just refused, handed back to
             // its author so the composer is not emptied. Read-and-clear:
             // it survives exactly this one render, and lives nowhere but
@@ -168,6 +198,62 @@ class GroupController extends AbstractController
             // direct link is safe here and not for an ordinary parent.
             'breadcrumb_trail' => [['label' => 'Groupes', 'url' => '/groups']],
             'breadcrumb_current' => $group->name,
+        ]);
+    }
+
+    /**
+     * GET /groups/{id}/search?q=… — the group's own messages matching a
+     * term, rendered as the same cards the feed uses.
+     *
+     * Scoped to one group and to what this reader may see, in that order:
+     * readableGroup() applies the module's usual 404-not-403 rule first,
+     * and every query underneath is given that authorised group's id and
+     * this reader's moderator flag — a search box is exactly the kind of
+     * feature through which an auto-hidden message would otherwise leak
+     * back to the member it was hidden from.
+     *
+     * Nothing here is journaled: what somebody searched for in a group is
+     * as personal as what they wrote in it (SECURITY.md §11).
+     *
+     * @param array<string, string> $params
+     */
+    public function search(Request $request, array $params): Response
+    {
+        $context = $this->context();
+        $group = $this->readableGroup($params, $context);
+        if ($group === null) {
+            return new Response('Not Found', 404);
+        }
+
+        $query = SearchTerm::normalise((string) $request->getQuery('q', ''));
+        $usable = SearchTerm::isUsable($query);
+
+        return $this->render('@groups/search.html.twig', [
+            'group' => $group,
+            'badges' => $this->badges($group, $context),
+            'query' => $query,
+            // Three states, not two: nothing typed yet, a term too short
+            // to run, and a term that ran. The template says something
+            // different for each rather than showing "aucun résultat" to
+            // somebody who has not searched for anything.
+            'has_searched' => $query !== '',
+            'too_short' => $query !== '' && !$usable,
+            'min_length' => SearchTerm::MIN_LENGTH,
+            'result_limit' => GroupFeedService::RESULT_LIMIT,
+            'results' => $usable
+                ? $this->feedService->search(
+                    $group,
+                    $context,
+                    $this->accessService->canModerate($group, $context),
+                    SearchTerm::pattern($query)
+                )
+                : [],
+            // Same trail as gallery(): "Groupes", then this group's own
+            // page, both real links.
+            'breadcrumb_trail' => [
+                ['label' => 'Groupes', 'url' => '/groups'],
+                ['label' => $group->name, 'url' => '/groups/' . $group->id],
+            ],
         ]);
     }
 
@@ -361,8 +447,9 @@ class GroupController extends AbstractController
     }
 
     /**
-     * POST /groups/{id}/edit — moderator only. Renames the group and, for
-     * an invitation group, links or unlinks it to the current scout year
+     * POST /groups/{id}/edit — moderator only. Renames the group, sets
+     * its optional one-liner description, and, for an invitation group,
+     * links or unlinks it to the current scout year
      * — same "tie_to_year" checkbox and semantics as create() above. A
      * section group's own scout-year link is never editable (its year
      * comes from its section, schema.sql); the checkbox is not offered
@@ -381,8 +468,14 @@ class GroupController extends AbstractController
             }
             $name = mb_substr($name, 0, 150);
 
+            // An emptied field clears the description rather than leaving
+            // the old one in place — the form always carries the current
+            // value, so a blank box is a deliberate erasure.
+            $description = trim((string) $request->getBody('description', ''));
+            $description = $description === '' ? null : mb_substr($description, 0, self::MAX_DESCRIPTION_LENGTH);
+
             $scoutYearId = $request->getBody('tie_to_year') !== null ? $context->effectiveScoutYearId : null;
-            $this->groupService->edit($group, $name, $scoutYearId);
+            $this->groupService->edit($group, $name, $scoutYearId, $description);
 
             FlashMessage::set('success', 'Les informations du groupe ont été mises à jour.');
 
@@ -513,6 +606,10 @@ class GroupController extends AbstractController
             'is_moderator' => $item->isModerator,
             'is_archived' => $item->isArchived,
             'section_names' => $this->sectionNames($item->sectionIds),
+            // Never on the archives tab: a past-year group is a read-only
+            // archive, so "you have not caught up" is not a call to
+            // action there, just noise on something already finished.
+            'has_unread' => $item->hasUnread && !$item->isArchived,
         ], $items);
     }
 

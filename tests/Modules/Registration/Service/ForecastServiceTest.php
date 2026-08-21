@@ -114,8 +114,8 @@ class ForecastServiceTest extends TestCase
         );
         $stmt->execute([
             $memberId, $scoutYearId,
-            $this->encryption->encrypt($firstName), $this->encryption->encrypt('Dupont'),
-            $this->encryption->encrypt($birthDate), $this->encryption->encrypt($gender), $leaving ? 1 : 0,
+            $this->encryption->encrypt($firstName, 'member_years.first_name'), $this->encryption->encrypt('Dupont', 'member_years.last_name'),
+            $this->encryption->encrypt($birthDate, 'member_years.birth_date'), $this->encryption->encrypt($gender, 'member_years.gender'), $leaving ? 1 : 0,
             $scoutYearOffset,
         ]);
         $memberYearId = (int) $this->pdo->lastInsertId();
@@ -130,11 +130,11 @@ class ForecastServiceTest extends TestCase
         $stmt->execute([$memberYearId, $functionId, $sectionId, $branchId]);
 
         if ($street !== null) {
-            $blind = $this->encryption->blindIndex(AddressNormalizer::normalize($street, '1', null, $postalCode ?? '1000'));
+            $blind = $this->encryption->blindIndex(AddressNormalizer::normalize($street, '1', null, $postalCode ?? '1000'), 'address');
             $stmt = $this->pdo->prepare(
                 'INSERT INTO member_addresses (member_year_id, address_type, street_encrypted, address_normalized_blind_index) VALUES (?, ?, ?, ?)'
             );
-            $stmt->execute([$memberYearId, 'home', $this->encryption->encrypt($street), $blind]);
+            $stmt->execute([$memberYearId, 'home', $this->encryption->encrypt($street, 'member_addresses.street'), $blind]);
         }
 
         return ['member_id' => $memberId, 'member_year_id' => $memberYearId];
@@ -295,8 +295,8 @@ class ForecastServiceTest extends TestCase
         );
         $stmt->execute([
             $intendantMemberId, $this->currentYearId,
-            $this->encryption->encrypt('Intendant'), $this->encryption->encrypt('Dupont'),
-            $this->encryption->encrypt('1990-01-01'), $this->encryption->encrypt('M'),
+            $this->encryption->encrypt('Intendant', 'member_years.first_name'), $this->encryption->encrypt('Dupont', 'member_years.last_name'),
+            $this->encryption->encrypt('1990-01-01', 'member_years.birth_date'), $this->encryption->encrypt('M', 'member_years.gender'),
         ]);
         $intendantMemberYearId = (int) $this->pdo->lastInsertId();
 

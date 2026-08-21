@@ -23,6 +23,14 @@
                 <span class="badge bg-primary-subtle text-primary-emphasis">Modérateur</span>
             {% endif %}
         </div>
+        {#
+          Member-supplied plain text, escaped by Twig like every other one
+          in this module. Under the badges rather than between the title
+          and them, so the badges stay glued to the name they qualify.
+        #}
+        {% if group.description %}
+            <p class="text-body-secondary small mb-0 mt-1" style="max-width:60ch;">{{ group.description }}</p>
+        {% endif %}
     </div>
     <div class="d-flex gap-2 flex-wrap">
         {#
