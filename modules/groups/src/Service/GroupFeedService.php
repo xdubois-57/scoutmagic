@@ -262,7 +262,7 @@ class GroupFeedService
      * what kept this signature from growing a parameter per feature.
      *
      * @param array{
-     *     labels: array<int, array{display_name: string, account_name: string}>,
+     *     labels: array<int, array{account_name: string, member_names: string[]}>,
      *     media: array<int, \Modules\Gallery\Api\DelegatedMedia[]>,
      *     links: array<int, \Modules\Groups\Repository\PostLink>,
      *     replies: array<int, array<int, array<string, mixed>>>,
@@ -278,14 +278,16 @@ class GroupFeedService
      */
     private function decorate(Post $post, array $page, GroupSessionContext $context, bool $canModerate): array
     {
-        $label = $page['labels'][$post->id] ?? ['display_name' => '', 'account_name' => ''];
+        $identity = $page['labels'][$post->id] ?? ['account_name' => '', 'member_names' => []];
         $shownReplies = $page['replies'][$post->id] ?? [];
         $totalReplies = $page['reply_counts'][$post->id] ?? 0;
 
         return [
             'post' => $post,
-            'display_name' => $label['display_name'],
-            'account_name' => $label['account_name'],
+            // Service\MemberIdentityService's shape, rendered by
+            // partials/identity.html.twig — the account, then its
+            // memberships.
+            'identity' => $identity,
             'media' => $page['media'][$post->id] ?? [],
             'link' => $page['links'][$post->id] ?? null,
             'replies' => $shownReplies,

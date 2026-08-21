@@ -36,10 +36,7 @@
         <div class="d-flex justify-content-between align-items-start gap-2">
             <div class="min-width-0">
                 <p class="mb-1 small">
-                    <span class="fw-semibold">{{ row.display_name }}</span>
-                    {% if row.account_name %}
-                        <span class="text-body-secondary">({{ row.account_name }})</span>
-                    {% endif %}
+                    {% include '@groups/partials/identity.html.twig' with { identity: row.identity } only %}
                 </p>
                 <p class="text-body-tertiary mb-0" style="font-size:0.75rem;">
                     {{ row.post.createdAt|french_date }} à {{ row.post.createdAt|date('H:i') }}

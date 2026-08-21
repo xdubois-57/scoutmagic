@@ -8,7 +8,6 @@ declare(strict_types=1);
 
 namespace Modules\Groups\Service;
 
-use Core\Member\MemberService;
 use Modules\Groups\Repository\DiscussionGroup;
 use Modules\Groups\Repository\Post;
 
@@ -33,7 +32,7 @@ class SeenByService
 {
     public function __construct(
         private GroupReadStateService $readStateService,
-        private MemberService $memberService
+        private MemberIdentityService $identityService
     ) {
     }
 
@@ -53,10 +52,23 @@ class SeenByService
             return [];
         }
 
-        // A member who has since left the unit has no display name for
-        // this scout year any more; dropped silently, exactly as
-        // Service\ReactorListService drops one.
-        $names = array_values($this->memberService->findDisplayNamesByMemberIds($memberIds, $scoutYearId));
+        // Named the way this module names anybody — the account, then its
+        // memberships (Service\MemberIdentityService). Deduplicated on the
+        // rendered line for the same reason the reactors list is: a parent
+        // whose two children have both opened the group is one person who
+        // has seen the message, not two.
+        $names = [];
+        foreach ($this->identityService->forMembers($memberIds, $scoutYearId) as $identity) {
+            $label = MemberIdentityService::label($identity);
+            // A member who has since left the unit, with no account
+            // either, has nothing left to name them by; dropped silently,
+            // exactly as Service\ReactorListService drops one.
+            if ($label !== '') {
+                $names[$label] = true;
+            }
+        }
+
+        $names = array_keys($names);
         sort($names, SORT_NATURAL | SORT_FLAG_CASE);
 
         return $names;

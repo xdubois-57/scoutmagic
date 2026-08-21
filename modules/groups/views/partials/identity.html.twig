@@ -1,0 +1,19 @@
+{#
+  How this module names a person, everywhere it names one: the ACCOUNT —
+  the human — then, in parentheses, the memberships that account carries
+  for the year in question.
+
+      Marie Dupont (Akéla, Baloo)
+
+  `identity` is Service\MemberIdentityService's own shape. That service's
+  docblock holds the reasoning; this file only draws it, in one place, so
+  a message, a comment, "qui a réagi", "vu par" and the members page can
+  never start disagreeing about how the same person is written.
+
+  Both halves are plain escaped text — an account's first/last name and a
+  member's totem are personal data, never markup.
+#}
+<span class="groups-identity fw-semibold">{{ identity.account_name }}</span>
+{%- if identity.member_names is not empty %}
+    <span class="groups-identity-members text-body-secondary">({{ identity.member_names|join(', ') }})</span>
+{%- endif %}

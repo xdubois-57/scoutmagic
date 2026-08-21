@@ -128,6 +128,15 @@ test('a member writes in a discussion group: a message, a link, a poll, a reply 
     await expect(feed.getByRole('article')).toHaveCount(1);
     await expect(composerError).toBeHidden();
     await expect(feed.locator(POST_BODY)).toContainText(MESSAGE);
+    // Signed the way this module names anyone: the ACCOUNT — the human who
+    // typed it — then the memberships that account carries, in
+    // parentheses. Never the other way round, which used to put a child's
+    // totem in front of a message a parent had written
+    // (Modules\Groups\Service\MemberIdentityService).
+    await expect(feed.getByRole('article').first().locator('.groups-identity').first())
+        .toHaveText('Baden Powell');
+    await expect(feed.getByRole('article').first().locator('.groups-identity-members').first())
+        .toHaveText('(Baden)');
     // The empty-state line lives inside the feed container the new card is
     // inserted into, and has to go with the first message published.
     await expect(page.getByText('Aucun message dans ce groupe pour le moment.')).toBeHidden();
@@ -216,6 +225,13 @@ test('a member writes in a discussion group: a message, a link, a poll, a reply 
 
     await expect(firstPost.locator('.groups-reply')).toHaveCount(1);
     await expect(firstPost.locator('.groups-reply-bubble')).toContainText('Parfait, je serai là.');
+    // A comment is signed by the same rule as the message above it — and
+    // this card came back from the reply endpoint, not from the page the
+    // server first rendered, so both paths are covered.
+    await expect(firstPost.locator('.groups-reply .groups-identity').first())
+        .toHaveText('Baden Powell');
+    await expect(firstPost.locator('.groups-reply .groups-identity-members').first())
+        .toHaveText('(Baden)');
     await expect(firstPost.locator('.groups-reply-error')).toBeHidden();
     // The summary counts what was just added, without a reload and with
     // the right plural.
@@ -238,7 +254,10 @@ test('a member writes in a discussion group: a message, a link, a poll, a reply 
     await tally.click();
     const dialog = page.locator('#groups-detail-modal');
     await expect(dialog).toBeVisible();
-    await expect(dialog.locator('#groups-detail-modal-body')).toContainText('Baden');
+    // "Qui a réagi" names the same human the same way, which is the whole
+    // point of resolving identity in one service: one person must not read
+    // as two different people across two surfaces.
+    await expect(dialog.locator('#groups-detail-modal-body')).toContainText('Baden Powell (Baden)');
     await dialog.getByRole('button', { name: 'Fermer' }).click();
     await expect(dialog).toBeHidden();
 
@@ -379,6 +398,11 @@ test('a comment from somebody else is announced as new, and can be reported with
     await expect(thread).toHaveJSProperty('open', true);
     await expect(thread.locator('.groups-reply-bubble')).toContainText(COMMENT);
     await expect(thread.locator('.groups-thread-count')).toHaveText('1 commentaire');
+    // And it is signed by the OTHER human, account first — a second
+    // account, resolved on a page rendered entirely server-side, so the
+    // rule holds for somebody who is not the reader.
+    await expect(thread.locator('.groups-reply .groups-identity').first()).toHaveText('Kaa Serpent');
+    await expect(thread.locator('.groups-reply .groups-identity-members').first()).toHaveText('(Kaa)');
 
     // --- Reporting it. Offered at all only because somebody else wrote it,
     // and answered where the reader is looking instead of by reloading the
@@ -458,17 +482,31 @@ test('on a phone the reaction picker folds away — and comes back when the scri
     // exact: the six emoji buttons are each labelled "Réagir : <clé>", so
     // a substring match would find all seven.
     const toggle = reactions.getByRole('button', { name: 'Réagir', exact: true });
+    const picker = reactions.locator('.groups-reaction-picker');
     const thumbsUp = reactions.getByRole('button', { name: 'Réagir : thumbs_up' });
 
     // Folded: one button instead of six.
     await expect(toggle).toBeVisible();
     await expect(thumbsUp).toBeHidden();
 
+    // Folded, not merely invisible: it is clipped to zero width, which is
+    // what lets it UNFOLD rather than appear. A `display: none` picker
+    // could not be animated at all, so this is the assertion that keeps
+    // the effect from quietly regressing to a snap.
+    const foldedWidth = await picker.evaluate((el) => el.getBoundingClientRect().width);
+    expect(foldedWidth).toBe(0);
+    expect(
+        await picker.evaluate((el) => getComputedStyle(el).transitionProperty),
+        'the picker has to animate open, not appear',
+    ).toContain('max-width');
+
     await toggle.click();
     // The picker takes the toggle's place rather than sitting beside it,
     // so the row is no wider open than closed.
     await expect(thumbsUp).toBeVisible();
     await expect(toggle).toBeHidden();
+    // Unfolded to its full run of six.
+    expect(await picker.evaluate((el) => el.getBoundingClientRect().width)).toBeGreaterThan(foldedWidth);
 
     // And the reaction itself still goes through the same dynamic path.
     await thumbsUp.click();
@@ -485,6 +523,11 @@ test('on a phone the reaction picker folds away — and comes back when the scri
     const plainReactions = page.locator('#groups-feed .groups-reactions').first();
     await expect(plainReactions.getByRole('button', { name: 'Réagir : thumbs_up' })).toBeVisible();
     await expect(plainReactions.getByRole('button', { name: 'Réagir', exact: true })).toBeHidden();
+    // Nothing is clipped either: the fold is gated on the same class, so
+    // the picker keeps its full width and needs no button to reveal it.
+    expect(
+        await plainReactions.locator('.groups-reaction-picker').evaluate((el) => el.getBoundingClientRect().width),
+    ).toBeGreaterThan(0);
 
     // The rest of the module degrades the same way: the conversation is a
     // native <details> and the composer a real form, so both still work.

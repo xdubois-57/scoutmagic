@@ -37,6 +37,9 @@ class GroupFeedServiceTest extends TestCase
     private PostRepository $postRepo;
     private GroupRepository $groupRepo;
     private int $groupId;
+    /** The author every seeded post is signed by: one account, one member. */
+    private int $authorAccountId;
+    private int $authorMemberId;
 
     protected function setUp(): void
     {
@@ -46,12 +49,21 @@ class GroupFeedServiceTest extends TestCase
         $this->groupRepo = new GroupRepository($this->pdo);
         $this->postRepo = new PostRepository($this->pdo);
 
-        $memberService = $this->createMock(MemberService::class);
-        $memberService->method('findDisplayNamesByMemberIds')->willReturn([3 => 'Akéla']);
-        $accountRepo = $this->createMock(UserAccountRepository::class);
-        $accountRepo->method('findNamesByIds')->willReturn([7 => ['first_name' => 'Marie', 'last_name' => 'Dupont']]);
+        // A real account with a real membership behind it: every name this
+        // module shows now resolves through the blind-index join between
+        // the two (Service\MemberIdentityService), so a mocked name would
+        // no longer be exercising anything.
+        $author = GroupsTestHelper::seedAccountWithMembers(
+            $this->pdo,
+            'marie@example.test',
+            'Marie',
+            'Dupont',
+            [['first_name' => 'Marie', 'totem' => 'Akéla']]
+        );
+        $this->authorAccountId = $author['account_id'];
+        $this->authorMemberId = $author['member_ids'][0];
 
-        $this->feedService = $this->buildFeedService(new PostAuthorResolver($memberService, $accountRepo));
+        $this->feedService = $this->buildFeedService(new PostAuthorResolver(GroupsTestHelper::identityService($this->pdo)));
 
         $this->groupId = $this->groupRepo->create('Louveteaux', null, null, 1);
     }
@@ -94,10 +106,10 @@ class GroupFeedServiceTest extends TestCase
      * added to the group explicitly so GroupAccessService resolves the
      * same identity markRead() and the badge both key on.
      */
-    private function feedServiceWithReadState(int $memberId = 3): GroupFeedService
+    private function feedServiceWithReadState(?int $memberId = null): GroupFeedService
     {
         $memberRepo = new \Modules\Groups\Repository\GroupMemberRepository($this->pdo);
-        $memberRepo->add($this->groupId, $memberId, false, null);
+        $memberRepo->add($this->groupId, $memberId ?? $this->authorMemberId, false, null);
 
         $access = new \Modules\Groups\Service\GroupAccessService(
             $memberRepo,
@@ -111,7 +123,7 @@ class GroupFeedServiceTest extends TestCase
         $accountRepo->method('findNamesByIds')->willReturn([7 => ['first_name' => 'Marie', 'last_name' => 'Dupont']]);
 
         return $this->buildFeedService(
-            new PostAuthorResolver($memberService, $accountRepo),
+            new PostAuthorResolver(GroupsTestHelper::identityService($this->pdo)),
             new \Modules\Groups\Service\GroupReadStateService(
                 new \Modules\Groups\Repository\GroupReadRepository($this->pdo),
                 $access
@@ -121,7 +133,7 @@ class GroupFeedServiceTest extends TestCase
 
     private function context(): GroupSessionContext
     {
-        return new GroupSessionContext(7, Role::IDENTIFIED, [3], 1, true);
+        return new GroupSessionContext($this->authorAccountId, Role::IDENTIFIED, [$this->authorMemberId], 1, true);
     }
 
     /**
@@ -149,8 +161,8 @@ class GroupFeedServiceTest extends TestCase
                 'post ' . $i,
                 (new \DateTimeImmutable('2026-01-01 10:00:00', new \DateTimeZone('UTC')))
                     ->modify('+' . $i . ' minutes')->format('Y-m-d H:i:s'),
-                7,
-                3
+                $this->authorAccountId,
+                $this->authorMemberId
             );
         }
 
@@ -263,14 +275,50 @@ class GroupFeedServiceTest extends TestCase
         }
     }
 
-    public function testAuthorLabelsCarryBothIdentities(): void
+    /**
+     * The account first — the human who actually wrote it — then the
+     * memberships that account carries. It used to read the other way
+     * round, which put a child's totem in front of a message their parent
+     * had written.
+     */
+    public function testAuthorLabelsNameTheAccountThenItsMemberships(): void
     {
         $this->seed(1);
 
         $row = $this->feedService->page($this->groupRepo->findById($this->groupId), $this->context(), false)->posts[0];
 
-        $this->assertSame('Akéla', $row['display_name']);
-        $this->assertSame('Marie Dupont', $row['account_name']);
+        $this->assertSame('Marie Dupont', $row['identity']['account_name']);
+        $this->assertSame(['Akéla'], $row['identity']['member_names']);
+    }
+
+    /**
+     * ALL of them, not merely the one the message was signed as: a parent
+     * posting for one child is the same human with the same memberships,
+     * and which one a given message was attributed to is stored
+     * (author_member_id) rather than displayed.
+     */
+    public function testAnAccountWithSeveralMembersListsThemAll(): void
+    {
+        $parent = GroupsTestHelper::seedAccountWithMembers(
+            $this->pdo,
+            'claire@example.test',
+            'Claire',
+            'Martin',
+            [['first_name' => 'Léa', 'totem' => 'Akéla'], ['first_name' => 'Tom', 'totem' => 'Baloo']]
+        );
+        GroupsTestHelper::createPostAt(
+            $this->pdo,
+            $this->groupId,
+            'de la part de Léa',
+            '2026-01-01 11:00:00',
+            $parent['account_id'],
+            $parent['member_ids'][0]
+        );
+
+        $row = $this->feedService->page($this->groupRepo->findById($this->groupId), $this->context(), false)->posts[0];
+
+        $this->assertSame('Claire Martin', $row['identity']['account_name']);
+        $this->assertSame(['Akéla', 'Baloo'], $row['identity']['member_names']);
     }
 
     public function testTheModeratorFlagDecidesWhetherPinningIsOffered(): void
@@ -282,16 +330,28 @@ class GroupFeedServiceTest extends TestCase
         $this->assertTrue($this->feedService->page($group, $this->context(), true)->posts[0]['can_pin']);
     }
 
+    /**
+     * The N+1 guard, now one level deeper: names resolve through
+     * Service\MemberIdentityService, which batches the whole set and
+     * memoises what it resolved — so a page of twenty posts by one author
+     * asks for that author's account names ONCE, not twenty times.
+     */
     public function testAuthorNamesAreResolvedInAFixedNumberOfQueriesWhateverThePageSize(): void
     {
-        // The N+1 guard: one call per page for member names, one for
-        // account names — never one per post.
-        $memberService = $this->createMock(MemberService::class);
-        $memberService->expects($this->once())->method('findDisplayNamesByMemberIds')->willReturn([3 => 'Akéla']);
         $accountRepo = $this->createMock(UserAccountRepository::class);
-        $accountRepo->expects($this->once())->method('findNamesByIds')->willReturn([7 => ['first_name' => 'Marie', 'last_name' => 'Dupont']]);
+        $accountRepo->expects($this->once())->method('findNamesByIds')
+            ->willReturn([$this->authorAccountId => ['first_name' => 'Marie', 'last_name' => 'Dupont']]);
+        $accountRepo->expects($this->once())->method('findEmailBlindIndexesByIds')->willReturn([]);
 
-        $feedService = $this->buildFeedService(new PostAuthorResolver($memberService, $accountRepo));
+        $memberService = $this->createMock(MemberService::class);
+        $memberService->method('findDisplayNamesByMemberIds')->willReturn([]);
+
+        $identityService = new \Modules\Groups\Service\MemberIdentityService(
+            $accountRepo,
+            new \Core\Import\MemberYearRepository($this->pdo),
+            $memberService
+        );
+        $feedService = $this->buildFeedService(new PostAuthorResolver($identityService));
 
         $this->seed(GroupFeedService::PAGE_SIZE);
         $page = $feedService->page($this->groupRepo->findById($this->groupId), $this->context(), false);
@@ -304,7 +364,7 @@ class GroupFeedServiceTest extends TestCase
         $feed = $this->feedServiceWithReadState();
         $postId = GroupsTestHelper::createPostAt($this->pdo, $this->groupId, 'sujet', '2026-01-01 09:00:00');
         (new \Modules\Groups\Repository\GroupReadRepository($this->pdo))
-            ->markRead($this->groupId, 3, '2026-01-01 11:00:00');
+            ->markRead($this->groupId, $this->authorMemberId, '2026-01-01 11:00:00');
 
         GroupsTestHelper::createReplyAt($this->pdo, $postId, 'avant', '2026-01-01 10:00:00', 1, 9);
         GroupsTestHelper::createReplyAt($this->pdo, $postId, 'après', '2026-01-01 12:00:00', 1, 9);
@@ -325,9 +385,9 @@ class GroupFeedServiceTest extends TestCase
         $feed = $this->feedServiceWithReadState();
         $postId = GroupsTestHelper::createPostAt($this->pdo, $this->groupId, 'sujet', '2026-01-01 09:00:00');
         (new \Modules\Groups\Repository\GroupReadRepository($this->pdo))
-            ->markRead($this->groupId, 3, '2026-01-01 11:00:00');
+            ->markRead($this->groupId, $this->authorMemberId, '2026-01-01 11:00:00');
 
-        GroupsTestHelper::createReplyAt($this->pdo, $postId, 'la mienne', '2026-01-01 12:00:00', 7, 3);
+        GroupsTestHelper::createReplyAt($this->pdo, $postId, 'la mienne', '2026-01-01 12:00:00', $this->authorAccountId, $this->authorMemberId);
 
         $row = $feed->page($this->groupRepo->findById($this->groupId), $this->context(), false)->posts[0];
 

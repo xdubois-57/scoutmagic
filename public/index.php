@@ -2556,15 +2556,24 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
         \Modules\Groups\Repository\ReactionRepository::forReplies($pdo),
         $groupsActivityService
     );
+    // How this module names a person, on every one of its surfaces: the
+    // account first, its memberships in parentheses. One instance, shared
+    // by everything below that shows a name, because it memoises what it
+    // resolves for the request (Service\MemberIdentityService).
+    $groupsIdentityService = new \Modules\Groups\Service\MemberIdentityService(
+        $userAccountRepo,
+        $memberYearRepo,
+        $memberService
+    );
     // "Who reacted, and with what" — the dialog behind a reaction tally's
     // own click. A separate, read-only service from $groupsReactionService
     // above (Service\ReactorListService's own docblock explains why).
     $groupsReactorListService = new \Modules\Groups\Service\ReactorListService(
         \Modules\Groups\Repository\ReactionRepository::forPosts($pdo),
         \Modules\Groups\Repository\ReactionRepository::forReplies($pdo),
-        $memberService
+        $groupsIdentityService
     );
-    $groupsAuthorResolver = new \Modules\Groups\Service\PostAuthorResolver($memberService, $userAccountRepo);
+    $groupsAuthorResolver = new \Modules\Groups\Service\PostAuthorResolver($groupsIdentityService);
     // One group per visible, active section per scout year (prompt 11).
     // Injected into the list controller so the page itself heals a
     // missing group, exactly as Core\Badge\BadgeService's own sync does
@@ -2625,7 +2634,7 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
     $groupsPollService = new \Modules\Groups\Service\PollService(
         new \Modules\Groups\Repository\PollRepository($pdo)
     );
-    $groupsSeenByService = new \Modules\Groups\Service\SeenByService($groupsReadStateService, $memberService);
+    $groupsSeenByService = new \Modules\Groups\Service\SeenByService($groupsReadStateService, $groupsIdentityService);
     $groupsMentionService = new \Modules\Groups\Service\MentionService($groupsRecipientResolver, $memberService);
 
     // Group files are readable only by the group's own members —
@@ -2754,8 +2763,8 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
         \Modules\Groups\Controller\GroupMemberController::class,
         new \Modules\Groups\Controller\GroupMemberController(
             $twig, $groupsGroupRepo, $groupsMemberRepo, $groupsSectionRepo, $groupsAccessService,
-            $groupsService, $groupsContextFactory, $memberService, $sectionService,
-            $groupsMembershipService
+            $groupsService, $groupsContextFactory, $sectionService,
+            $groupsMembershipService, $groupsIdentityService
         )
     );
 }
