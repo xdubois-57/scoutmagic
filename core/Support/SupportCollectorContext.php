@@ -49,24 +49,65 @@ class SupportCollectorContext
     }
 
     /**
-     * Sanitise a free-text value before it goes into the archive: control
-     * characters collapsed, length capped, and every known secret replaced.
+     * Sanitise a free-text value before it goes into the archive: every
+     * known secret replaced, then control characters collapsed and the
+     * length capped.
      *
      * The canonical case is a scheduled task's `last_error` — a PDO failure
      * message routinely quotes the credentials it failed with, and this
      * archive is destined for email. The same routine sanitises collector
      * failure reasons in `collection-status.json`.
+     *
+     * **Substitution comes first, and the order is the whole point.** The
+     * secrets handed in are every value of `secrets.enc` — the database and
+     * SMTP passwords among them — and a password may perfectly well contain
+     * a space or a tab. Collapsing whitespace before searching for it turns
+     * "hunter  2" in the message into "hunter 2", which no longer matches
+     * the needle, and the credential rides into an archive destined for
+     * email. Core\Statistics\StatisticsSender::redact() has always redacted
+     * first for exactly this reason; this method now agrees with it.
      */
     public function redact(string $value, int $maxLength = 300): string
     {
-        $value = (string) preg_replace('/[\x00-\x1F\x7F]+/u', ' ', $value);
-        $value = trim((string) preg_replace('/\s+/u', ' ', $value));
-
         foreach ($this->secretsToRedact as $secret) {
             $value = str_ireplace($secret, '[REDACTED]', $value);
         }
 
+        $value = self::collapseWhitespace($value);
+
         return mb_strlen($value) > $maxLength ? mb_substr($value, 0, $maxLength) : $value;
+    }
+
+    /**
+     * Control characters and runs of whitespace collapsed to single spaces.
+     *
+     * Deliberately byte-oriented rather than `/u`: a PDO driver error, a
+     * log line or a command banner is routinely *not* valid UTF-8, and `preg_replace()`
+     * with the `/u` flag returns `null` on such a subject — which the old
+     * `(string)` cast turned into an empty string, silently discarding the
+     * one clue the archive existed to carry. The ASCII ranges being matched
+     * never occur inside a multi-byte UTF-8 sequence, so dropping `/u`
+     * costs nothing and cannot corrupt a valid one.
+     */
+    public static function collapseWhitespace(string $value): string
+    {
+        $value = (string) preg_replace('/[\x00-\x1F\x7F]+/', ' ', $value);
+        $value = (string) preg_replace('/[ \t]+/', ' ', $value);
+        $value = trim($value);
+
+        // …and then made valid UTF-8, because the destination is JSON.
+        // `json_encode()` returns `false` — not a throw, not a partial
+        // string — on a subject carrying an invalid byte sequence, and
+        // SupportPackageService casts that result to string: one collector
+        // reporting a latin-1 driver error would have emptied the whole of
+        // `collection-status.json`, taking every other collector's status
+        // with it. Dropping the offending bytes keeps the readable part,
+        // which is the part worth having.
+        if (!mb_check_encoding($value, 'UTF-8')) {
+            $value = (string) mb_convert_encoding($value, 'UTF-8', 'UTF-8');
+        }
+
+        return $value;
     }
 
     /**
@@ -141,10 +182,16 @@ class SupportCollectorContext
     /**
      * Record a detail worth surfacing next to the collector's status —
      * a truncated file, a skipped candidate, a partial result.
+     *
+     * Redacted on the way in, like every other free text that reaches
+     * `collection-status.json`. Today's notes are counts and paths a
+     * collector composed itself, but "notes are the one string nobody
+     * scrubs" is not a property worth relying on the next collector to
+     * remember.
      */
     public function addNote(string $note): void
     {
-        $this->notes[] = $note;
+        $this->notes[] = $this->redact($note);
     }
 
     public function unavailableReason(): ?string

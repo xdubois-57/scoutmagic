@@ -268,8 +268,14 @@
                     {% for row in view.rows %}
                         <tr>
                             <td>
-                                {% if row.instance_url %}
-                                    <a href="{{ row.instance_url }}" target="_blank" rel="noopener noreferrer">{{ row.instance_url }}</a>
+                                {# Linked only when the URL is http(s). The value comes from an
+                                   unauthenticated remote installation, and Twig's HTML escaping
+                                   says nothing about a `javascript:` scheme — so a URL that is
+                                   not one is printed as plain text rather than made clickable. #}
+                                {% if row.instance_url_href %}
+                                    <a href="{{ row.instance_url_href }}" target="_blank" rel="noopener noreferrer">{{ row.instance_url }}</a>
+                                {% elseif row.instance_url %}
+                                    {{ row.instance_url }}
                                 {% else %}
                                     <span class="text-body-secondary">Non renseigné</span>
                                 {% endif %}

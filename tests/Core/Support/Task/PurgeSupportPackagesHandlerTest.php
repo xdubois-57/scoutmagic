@@ -129,6 +129,95 @@ class PurgeSupportPackagesHandlerTest extends TestCase
         $this->assertContains('support_package_generated', $types);
     }
 
+    /**
+     * `requested_by_user_account_id` (ARCHITECTURE.md §8.16) is what lets a
+     * background task tell the person who asked for it that it is done —
+     * SchedulerRunner copies the column into the payload, and this handler
+     * is one of the few that acts on it. Untested, the notification branch
+     * is exactly the kind that quietly stops working.
+     */
+    public function testTheRequesterIsNotifiedAndNamedOnTheStoredFile(): void
+    {
+        $notifications = $this->createMock(\Core\Notification\NotificationService::class);
+        $notifications->expects($this->once())
+            ->method('dispatch')
+            ->with(
+                'core.support_package_ready',
+                [['userAccountId' => 7, 'memberId' => null]],
+                $this->callback(static fn(array $data): bool => ($data['url'] ?? null) === '/config/support')
+            );
+
+        $context = new TaskContext(
+            $this->context->connection,
+            $this->context->encryption,
+            $this->context->mailService,
+            $this->context->journal,
+            $this->context->settings,
+            $this->context->userAccounts,
+            $this->context->storagePath,
+            $notifications
+        );
+
+        (new GenerateSupportPackageHandler())->handle(['requested_by_user_account_id' => 7], $context);
+
+        $this->settings->clearCache();
+        $fileId = (int) $this->settings->get(SupportPackageState::FILE_ID);
+        $record = (new FileRepository($this->pdo))->findById($fileId);
+        $this->assertNotNull($record);
+
+        $stmt = $this->pdo->prepare('SELECT user_account_id FROM event_log WHERE event_type = ?');
+        $stmt->execute(['support_package_generated']);
+        $this->assertSame(7, (int) $stmt->fetchColumn());
+    }
+
+    /**
+     * Nobody to notify is the ordinary case for a task the scheduler picked
+     * up on its own; it must not be an error, and must not stop the package
+     * being produced.
+     */
+    public function testAPackageWithNoRequesterNotifiesNobodyAndStillGenerates(): void
+    {
+        $notifications = $this->createMock(\Core\Notification\NotificationService::class);
+        $notifications->expects($this->never())->method('dispatch');
+
+        $context = new TaskContext(
+            $this->context->connection,
+            $this->context->encryption,
+            $this->context->mailService,
+            $this->context->journal,
+            $this->context->settings,
+            $this->context->userAccounts,
+            $this->context->storagePath,
+            $notifications
+        );
+
+        (new GenerateSupportPackageHandler())->handle([], $context);
+
+        $this->settings->clearCache();
+        $this->assertGreaterThan(0, (int) $this->settings->get(SupportPackageState::FILE_ID));
+    }
+
+    /**
+     * Exactly one package is ever kept: generating replaces the previous
+     * file *and* its FileRecord (ARCHITECTURE.md §8.48). An archive of
+     * phpinfo output and server logs left lying around per generation is
+     * the opposite of what its storage rules are for.
+     */
+    public function testGeneratingASecondPackageReplacesTheFirstEntirely(): void
+    {
+        (new GenerateSupportPackageHandler())->handle([], $this->context);
+        $this->settings->clearCache();
+        $first = (int) $this->settings->get(SupportPackageState::FILE_ID);
+
+        (new GenerateSupportPackageHandler())->handle([], $this->context);
+        $this->settings->clearCache();
+        $second = (int) $this->settings->get(SupportPackageState::FILE_ID);
+
+        $this->assertNotSame($first, $second);
+        $this->assertNull((new FileRepository($this->pdo))->findById($first));
+        $this->assertNotNull((new FileRepository($this->pdo))->findById($second));
+    }
+
     public function testThePurgeReschedulesItselfDaily(): void
     {
         (new PurgeSupportPackagesHandler())->handle([], $this->context);

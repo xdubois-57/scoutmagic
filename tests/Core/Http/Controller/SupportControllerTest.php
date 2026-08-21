@@ -297,6 +297,118 @@ class SupportControllerTest extends TestCase
     }
 
     /**
+     * The destination is where this installation's bearer secret is sent,
+     * in a header, from inside the hosting network — the shape
+     * Core\Security\SsrfUrlValidator guards on every other configured
+     * outbound endpoint. It is refused here rather than a day later as a
+     * failed send nobody is watching.
+     */
+    #[\PHPUnit\Framework\Attributes\DataProvider('refusedDestinations')]
+    public function testADestinationThatIsNotAPublicHttpsSiteIsRefused(string $destination): void
+    {
+        $token = $this->issueCsrfToken();
+
+        $this->controller->saveStatistics(new Request('POST', '/config/support/statistics', [], [
+            '_csrf_token' => $token,
+            'statistics_enabled' => '1',
+            'statistics_destination' => 'https://stats.exemple.be',
+        ], [], []), []);
+
+        $this->controller->saveStatistics(new Request('POST', '/config/support/statistics', [], [
+            '_csrf_token' => $token,
+            'statistics_enabled' => '1',
+            'statistics_destination' => $destination,
+        ], [], []), []);
+
+        $this->settings->clearCache();
+        $this->assertSame(
+            'https://stats.exemple.be',
+            $this->settings->get('statistics_destination'),
+            $destination . ' must not have been accepted'
+        );
+    }
+
+    /**
+     * @return array<string, array{0: string}>
+     */
+    public static function refusedDestinations(): array
+    {
+        return [
+            'cleartext' => ['http://stats.exemple.be'],
+            'localhost' => ['https://localhost/'],
+            'private IPv4' => ['https://192.168.1.10/'],
+            'cloud metadata' => ['https://169.254.169.254/'],
+            'single label' => ['https://intranet/'],
+            'dot-test' => ['https://stats.test/'],
+        ];
+    }
+
+    /**
+     * Refusing the destination must not silently swallow the switch the
+     * administrator was actually toggling — nothing is written at all, and
+     * the page says why.
+     */
+    public function testARefusedDestinationLeavesTheReportingSwitchUntouched(): void
+    {
+        $token = $this->issueCsrfToken();
+
+        $this->controller->saveStatistics(new Request('POST', '/config/support/statistics', [], [
+            '_csrf_token' => $token,
+            'statistics_enabled' => '',
+            'statistics_destination' => 'https://localhost/',
+        ], [], []), []);
+
+        $this->settings->clearCache();
+        $this->assertSame('1', $this->settings->get('statistics_enabled'));
+        $this->assertSame([], $this->journalEventTypes());
+    }
+
+    // --- "État des envois" ---
+
+    /**
+     * StatisticsSender deliberately never clears the failure settings on a
+     * later success, so a motif from weeks ago sits under "État des envois"
+     * looking like the site's current state. The page now says which of the
+     * two came last.
+     */
+    public function testAFailureOlderThanTheLastSuccessIsShownAsResolved(): void
+    {
+        $this->settingRepository->updateValue(null, \Core\Statistics\StatisticsStateSettings::LAST_FAILURE_AT, '2026-08-01T03:00:00+00:00');
+        $this->settingRepository->updateValue(null, \Core\Statistics\StatisticsStateSettings::LAST_FAILURE_REASON, 'non_public_host');
+        $this->settingRepository->updateValue(null, \Core\Statistics\StatisticsStateSettings::LAST_SUCCESS_AT, '2026-08-20T03:00:00+00:00');
+        $this->settings->clearCache();
+
+        $body = $this->controller->index(new Request('GET', '/config/support', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('non_public_host', $body);
+        $this->assertStringContainsString('cet échec est résolu', $body);
+    }
+
+    public function testAFailureNewerThanTheLastSuccessIsNotShownAsResolved(): void
+    {
+        $this->settingRepository->updateValue(null, \Core\Statistics\StatisticsStateSettings::LAST_SUCCESS_AT, '2026-08-01T03:00:00+00:00');
+        $this->settingRepository->updateValue(null, \Core\Statistics\StatisticsStateSettings::LAST_FAILURE_AT, '2026-08-20T03:00:00+00:00');
+        $this->settingRepository->updateValue(null, \Core\Statistics\StatisticsStateSettings::LAST_FAILURE_REASON, 'http_502');
+        $this->settings->clearCache();
+
+        $body = $this->controller->index(new Request('GET', '/config/support', [], [], [], []), [])->getBody();
+
+        $this->assertStringContainsString('http_502', $body);
+        $this->assertStringNotContainsString('cet échec est résolu', $body);
+    }
+
+    public function testAFailureWithNoSuccessAtAllIsNeverShownAsResolved(): void
+    {
+        $this->settingRepository->updateValue(null, \Core\Statistics\StatisticsStateSettings::LAST_FAILURE_AT, '2026-08-20T03:00:00+00:00');
+        $this->settingRepository->updateValue(null, \Core\Statistics\StatisticsStateSettings::LAST_FAILURE_REASON, 'http_502');
+        $this->settings->clearCache();
+
+        $body = $this->controller->index(new Request('GET', '/config/support', [], [], [], []), [])->getBody();
+
+        $this->assertStringNotContainsString('cet échec est résolu', $body);
+    }
+
+    /**
      * @return array<int, string>
      */
     private function journalEventTypes(): array

@@ -36,6 +36,7 @@ class PurgeInstallationsHandlerTest extends TestCase
 
     protected function setUp(): void
     {
+        SupportDashboardTestHelper::ensureAutoloadable();
         $this->pdo = DatabaseTestHelper::createTestDatabase();
         SupportDashboardTestHelper::createTables($this->pdo);
         $this->installations = new SupportInstallationRepository($this->pdo);

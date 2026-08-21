@@ -54,6 +54,13 @@ class InstallationIdentityService
      * and adopts whatever is actually persisted rather than keeping the
      * identifier it just generated.
      *
+     * A stored value that is not 32 hex characters is corruption, not an
+     * identity — a hand-edited row, a half-restored backup. It cannot be
+     * adopted, and leaving it in place makes every future report malformed
+     * forever, so it is replaced. The conditional claim cannot do that
+     * (the row is not empty), which is why this one case falls through to
+     * an unconditional write.
+     *
      * @throws StatisticsException when the setting row does not exist,
      *         i.e. the composition root never registered it — a wiring bug,
      *         deliberately loud rather than a silently unpersisted identity.
@@ -67,6 +74,11 @@ class InstallationIdentityService
 
         $candidate = bin2hex(random_bytes(self::INSTALLATION_ID_BYTES));
         $claimed = $this->settingService->claimIfEmpty(self::INSTALLATION_ID_SETTING, $candidate);
+
+        if (!$claimed && $this->hasStoredValue()) {
+            $this->settingService->setInternal(self::INSTALLATION_ID_SETTING, $candidate);
+            $claimed = true;
+        }
 
         $persisted = $this->readInstallationId();
         if ($persisted !== null) {
@@ -148,6 +160,19 @@ class InstallationIdentityService
             'security',
             'Identité de cette installation régénérée pour les statistiques d\'utilisation'
         );
+    }
+
+    /**
+     * Whether the setting row exists and holds something — valid or not.
+     * Distinguishes "the composition root never registered this setting"
+     * (a wiring bug worth throwing over) from "the row holds nonsense"
+     * (recoverable by replacing it).
+     */
+    private function hasStoredValue(): bool
+    {
+        $value = $this->settingService->get(self::INSTALLATION_ID_SETTING);
+
+        return is_string($value) && trim($value) !== '';
     }
 
     private function readInstallationId(): ?string

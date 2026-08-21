@@ -36,6 +36,22 @@ class FilesystemCollector implements SupportCollectorInterface
 {
     private const SHALLOW_DEPTH = 2;
 
+    /**
+     * How many entries the full-depth `storage/` walk may list.
+     *
+     * `storage/` is walked entirely because that is where permission
+     * problems live — but it is also where every uploaded photo, every
+     * generated variant and every cached thumbnail lives, so on a unit with
+     * an active gallery "entirely" is tens of thousands of entries, each
+     * costing an `lstat()` and two passwd lookups, all held in memory as
+     * one string. That is how a diagnostic that must always be produced
+     * (ARCHITECTURE.md §8.48) instead exhausts `memory_limit` and produces
+     * nothing. The cap is generous enough that an ordinary install is
+     * listed in full, and reaching it is reported in the file and as a
+     * note rather than applied silently.
+     */
+    private const MAX_STORAGE_ENTRIES = 5000;
+
     /** @var array<int, string> */
     private const SHALLOW_ROOTS = ['core', 'modules', 'public', 'schema', 'config'];
 
@@ -53,7 +69,10 @@ class FilesystemCollector implements SupportCollectorInterface
         $lines[] = '# Colonnes : type | permissions | propriétaire | groupe | taille | modifié le | chemin';
         $lines[] = '';
 
-        $lines[] = '## Racine du projet (profondeur ' . self::SHALLOW_DEPTH . ')';
+        // First level only, and the heading now says so. Recursing here
+        // would re-list core/, modules/, public/, schema/ and config/ a
+        // second time, since each gets its own depth-2 section below.
+        $lines[] = '## Racine du projet (premier niveau)';
         foreach ($this->entriesOfDirectory($projectRoot) as $entry) {
             $lines[] = $this->describe($entry, $projectRoot);
         }
@@ -76,8 +95,19 @@ class FilesystemCollector implements SupportCollectorInterface
         $storagePath = rtrim($context->storagePath(), '/');
         $lines[] = '## storage/ (profondeur complète)';
         if (is_dir($storagePath)) {
-            foreach ($this->walk($storagePath, PHP_INT_MAX) as $entry) {
+            // One over the cap, so "there was more" is knowable without
+            // ever holding the whole list of a gallery-sized storage tree.
+            $entries = $this->walk($storagePath, PHP_INT_MAX, self::MAX_STORAGE_ENTRIES + 1);
+            $overflowed = count($entries) > self::MAX_STORAGE_ENTRIES;
+            if ($overflowed) {
+                $entries = array_slice($entries, 0, self::MAX_STORAGE_ENTRIES);
+            }
+            foreach ($entries as $entry) {
                 $lines[] = $this->describe($entry, $projectRoot);
+            }
+            if ($overflowed) {
+                $lines[] = '(… liste tronquée : limite de ' . self::MAX_STORAGE_ENTRIES . ' entrées atteinte)';
+                $context->addNote('storage/ tronqué à ' . self::MAX_STORAGE_ENTRIES . ' entrées');
             }
         } else {
             $lines[] = '(absent)';
@@ -117,9 +147,10 @@ class FilesystemCollector implements SupportCollectorInterface
      * Every entry under $root down to $maxDepth levels, sorted, symlinks
      * never followed (a link into `/` would otherwise walk the whole disk).
      *
+     * @param int $maxEntries stop once this many entries have been gathered
      * @return array<int, string> absolute paths
      */
-    private function walk(string $root, int $maxDepth): array
+    private function walk(string $root, int $maxDepth, int $maxEntries = PHP_INT_MAX): array
     {
         $paths = [];
         $queue = [[$root, 1]];
@@ -128,6 +159,11 @@ class FilesystemCollector implements SupportCollectorInterface
             [$directory, $depth] = array_shift($queue);
             foreach ($this->entriesOfDirectory($directory) as $path) {
                 $paths[] = $path;
+                if (count($paths) >= $maxEntries) {
+                    sort($paths);
+
+                    return $paths;
+                }
                 if ($depth < $maxDepth && is_dir($path) && !is_link($path)) {
                     $queue[] = [$path, $depth + 1];
                 }

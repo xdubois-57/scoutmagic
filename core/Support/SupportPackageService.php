@@ -241,7 +241,12 @@ class SupportPackageService
                     $outcomes
                 ),
             ],
-            JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE
+            // JSON_INVALID_UTF8_SUBSTITUTE as a second line after
+            // SupportCollectorContext::redact()'s own coercion: this file
+            // is the record of what did and did not work, and the one
+            // outcome it may never have is "empty because one collector's
+            // reason carried a stray byte".
+            JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE
         );
     }
 

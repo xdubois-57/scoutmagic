@@ -72,11 +72,24 @@ class SupportInstallationRepository
      */
     public function register(string $installationId, string $secretHash, string $rawPayload, array $denormalized): int
     {
+        // Both timestamps are written from PHP rather than left to the
+        // column's DEFAULT CURRENT_TIMESTAMP. recordReport() has always
+        // stamped last_received_at from PHP, so leaving the first one to
+        // the database made a fresh registration and its next report use
+        // two different clocks — and on a host where PHP and MySQL sit in
+        // different timezones that difference is hours, applied directly to
+        // the value the dashboard compares against its active/stale
+        // threshold and against which retention deletes.
+        $now = (new \DateTimeImmutable())->format('Y-m-d H:i:s');
+
         $columns = array_merge(
-            ['installation_id', 'secret_hash', 'payload'],
+            ['installation_id', 'secret_hash', 'payload', 'first_seen_at', 'last_received_at'],
             array_keys($denormalized)
         );
-        $values = self::bindable(array_merge([$installationId, $secretHash, $rawPayload], array_values($denormalized)));
+        $values = self::bindable(array_merge(
+            [$installationId, $secretHash, $rawPayload, $now, $now],
+            array_values($denormalized)
+        ));
 
         $stmt = $this->pdo->prepare(
             'INSERT INTO support_installations (' . implode(', ', $columns) . ')

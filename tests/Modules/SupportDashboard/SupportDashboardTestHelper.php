@@ -10,6 +10,30 @@ namespace Tests\Modules\SupportDashboard;
  */
 class SupportDashboardTestHelper
 {
+    /**
+     * Make `Modules\SupportDashboard\*` resolvable no matter which tests
+     * ran first.
+     *
+     * The prefix is declared in composer.json but is absent from a
+     * `vendor/composer/autoload_psr4.php` generated before this module
+     * existed — the very case Core\System\ComposerAutoloadSync exists to
+     * patch at boot in production. Under `vendor/bin/phpunit` the whole
+     * suite only resolves these classes because some *other* test happens
+     * to have applied that sync first, which makes any subset run
+     * ("phpunit tests/Modules/SupportDashboard") fail with "Class not
+     * found". Applying it ourselves costs one small JSON parse and removes
+     * the ordering dependency.
+     */
+    public static function ensureAutoloadable(): void
+    {
+        $root = dirname(__DIR__, 3);
+
+        /** @var \Composer\Autoload\ClassLoader $loader */
+        $loader = require $root . '/vendor/autoload.php';
+
+        \Core\System\ComposerAutoloadSync::apply($loader, $root . '/composer.json');
+    }
+
     public static function createTables(\PDO $pdo): void
     {
         $pdo->exec('CREATE TABLE support_installations (

@@ -38,6 +38,32 @@ class LogsCollector implements SupportCollectorInterface
     public const WINDOW_HOURS = 48;
     public const MAX_BYTES_PER_FILE = 2 * 1024 * 1024;
 
+    /**
+     * Bounds on the collection as a whole, not just on each file.
+     *
+     * The per-file cap alone is not a bound: a shared host's `~/logs`
+     * routinely holds one rotated access and error log per domain per day,
+     * so "a few files" is often a few hundred. At 2 MB each that is
+     * hundreds of megabytes assembled as PHP strings inside one scheduled
+     * task — an archive nobody can email, produced by a process that will
+     * more likely hit `memory_limit` first and produce **no archive at
+     * all**. "A package is always produced" (ARCHITECTURE.md §8.48) is the
+     * contract this collector has to keep, and an unbounded read is the
+     * clearest way to break it.
+     *
+     * What is dropped is reported, never silently omitted: the summary
+     * names every candidate that was not copied, and a note says how many.
+     */
+    public const MAX_FILES = 25;
+    public const MAX_TOTAL_BYTES = 8 * 1024 * 1024;
+
+    /**
+     * Reserved: this collector writes its own summary under that name, and
+     * a host log file that happens to be called `summary.txt` would
+     * otherwise be copied to `logs/summary.txt` and then overwritten by it.
+     */
+    private const SUMMARY_NAME = 'summary.txt';
+
     public function name(): string
     {
         return 'logs';
@@ -53,7 +79,9 @@ class LogsCollector implements SupportCollectorInterface
         $summary[] = '';
 
         $collected = 0;
-        $usedNames = [];
+        $skippedForBudget = 0;
+        $totalBytes = 0;
+        $usedNames = [self::SUMMARY_NAME => true];
 
         foreach ($candidates as $path) {
             if (!is_file($path) || !is_readable($path)) {
@@ -61,7 +89,13 @@ class LogsCollector implements SupportCollectorInterface
                 continue;
             }
 
-            $extract = $this->extractRecent($path);
+            if ($collected >= self::MAX_FILES || $totalBytes >= self::MAX_TOTAL_BYTES) {
+                $summary[] = '- ' . $path . ' : non copié (budget global atteint)';
+                $skippedForBudget++;
+                continue;
+            }
+
+            $extract = $this->extractRecent($path, self::MAX_TOTAL_BYTES - $totalBytes);
             if ($extract === null) {
                 $summary[] = '- ' . $path . ' : illisible';
                 continue;
@@ -70,6 +104,7 @@ class LogsCollector implements SupportCollectorInterface
             $name = $this->uniqueName($path, $usedNames);
             $context->addFileFromContent('logs/' . $name, $extract['content']);
             $collected++;
+            $totalBytes += strlen($extract['content']);
 
             $summary[] = '- ' . $path . ' : copié sous logs/' . $name
                 . ' (' . $extract['lines'] . ' ligne(s)'
@@ -80,7 +115,14 @@ class LogsCollector implements SupportCollectorInterface
             }
         }
 
-        $context->addFileFromContent('logs/summary.txt', implode("\n", $summary) . "\n");
+        if ($skippedForBudget > 0) {
+            $summary[] = '';
+            $summary[] = '# ' . $skippedForBudget . ' fichier(s) non copié(s) : limite de '
+                . self::MAX_FILES . ' fichiers / ' . self::MAX_TOTAL_BYTES . ' octets atteinte.';
+            $context->addNote($skippedForBudget . ' journal(aux) non copié(s), budget global atteint');
+        }
+
+        $context->addFileFromContent('logs/' . self::SUMMARY_NAME, implode("\n", $summary) . "\n");
 
         if ($collected === 0) {
             $context->markUnavailable('no_readable_log_file');
@@ -142,17 +184,21 @@ class LogsCollector implements SupportCollectorInterface
      * carry no timestamp of their own would mangle exactly the entries
      * worth reading.
      *
+     * @param int $byteBudget how much of the run's total budget is left —
+     *        the effective cap is the smaller of this and MAX_BYTES_PER_FILE
      * @return array{content: string, lines: int, truncated: bool}|null
      */
-    private function extractRecent(string $path): ?array
+    private function extractRecent(string $path, int $byteBudget = self::MAX_BYTES_PER_FILE): ?array
     {
         $size = @filesize($path);
         if ($size === false) {
             return null;
         }
 
-        $truncated = $size > self::MAX_BYTES_PER_FILE;
-        $offset = $truncated ? $size - self::MAX_BYTES_PER_FILE : 0;
+        $cap = max(0, min(self::MAX_BYTES_PER_FILE, $byteBudget));
+
+        $truncated = $size > $cap;
+        $offset = $truncated ? $size - $cap : 0;
 
         $raw = @file_get_contents($path, false, null, $offset);
         if ($raw === false) {

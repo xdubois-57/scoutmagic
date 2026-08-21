@@ -46,6 +46,7 @@ class SupportDashboardControllerTest extends TestCase
 
     protected function setUp(): void
     {
+        SupportDashboardTestHelper::ensureAutoloadable();
         $this->pdo = DatabaseTestHelper::createTestDatabase();
         SupportDashboardTestHelper::createTables($this->pdo);
 

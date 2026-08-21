@@ -41,6 +41,23 @@ class StatisticsIntakeService
 
     private const SUPPORTED_SCHEMA_VERSIONS = [1];
 
+    /** The largest value an `INT UNSIGNED` column will accept. */
+    private const MAX_UNSIGNED_INT = 4294967295;
+
+    /** The `DATETIME` range, which is narrower than PHP's date range. */
+    private const MIN_DATETIME_YEAR = 1000;
+    private const MAX_DATETIME_YEAR = 9999;
+
+    /**
+     * How many unknown top-level field names one rejected-shape warning may
+     * name, and how long each may be. The names come verbatim from a
+     * stranger's JSON, and a 64 KB body can carry a few thousand of them —
+     * the journal entry is a warning about a sender being ahead of us, not
+     * a place to mirror an arbitrary document.
+     */
+    private const MAX_UNKNOWN_FIELDS_REPORTED = 20;
+    private const MAX_UNKNOWN_FIELD_LENGTH = 64;
+
     /**
      * The payload fields this receiver understands. Anything else is kept
      * in the raw JSON and warned about, never rejected.
@@ -202,7 +219,7 @@ class StatisticsIntakeService
     public static function denormalize(array $payload): array
     {
         return [
-            'instance_url' => self::stringOrNull($payload['instance_url'] ?? null, 255),
+            'instance_url' => self::httpUrlOrNull($payload['instance_url'] ?? null, 255),
             'statistics_schema_version' => self::intOrNull($payload['statistics_schema_version'] ?? null),
             'scoutmagic_version' => self::stringOrNull(self::path($payload, ['scoutmagic', 'version']), 50),
             'is_dev_build' => self::boolOrNull(self::path($payload, ['scoutmagic', 'is_dev_build'])),
@@ -222,6 +239,12 @@ class StatisticsIntakeService
      * reject — a sender one version ahead must keep working — but worth a
      * warning, and the values themselves survive in the stored raw JSON.
      *
+     * Bounded in both count and per-name length: these names are a
+     * stranger's text, and the journal entry exists to say "somebody is
+     * ahead of us", not to copy an arbitrary document into `event_log`. A
+     * truncated list ends with a count of what it left out, so the entry
+     * never reads as complete when it is not.
+     *
      * @param array<string, mixed> $payload
      * @return array<int, string>
      */
@@ -232,6 +255,20 @@ class StatisticsIntakeService
             if (!in_array((string) $field, self::KNOWN_TOP_LEVEL_FIELDS, true)) {
                 $unknown[] = (string) $field;
             }
+        }
+
+        $overflow = count($unknown) - self::MAX_UNKNOWN_FIELDS_REPORTED;
+        if ($overflow > 0) {
+            $unknown = array_slice($unknown, 0, self::MAX_UNKNOWN_FIELDS_REPORTED);
+        }
+
+        $unknown = array_map(
+            static fn(string $field): string => mb_substr($field, 0, self::MAX_UNKNOWN_FIELD_LENGTH),
+            $unknown
+        );
+
+        if ($overflow > 0) {
+            $unknown[] = '… (+' . $overflow . ')';
         }
 
         return $unknown;
@@ -322,6 +359,38 @@ class StatisticsIntakeService
         return $value;
     }
 
+    /**
+     * `instance_url`, but only when it really is one.
+     *
+     * This is the single field of an unauthenticated stranger's payload
+     * that the dashboard turns into a clickable link, and a scheme is not a
+     * detail there: `javascript:…` and `data:text/html,…` are perfectly
+     * valid strings that Twig's HTML escaping does nothing about, so
+     * storing one would put a superadmin one click away from running a
+     * remote installation's script in the receiver's own origin. The
+     * codebase's CSP (`script-src 'self' 'nonce-…'`, no `unsafe-inline`)
+     * blocks the payload today; that is a mitigation, not a reason to
+     * accept the value.
+     *
+     * Anything that is not `http://` or `https://` becomes NULL — the same
+     * "not reported" the rest of this class uses — rather than rejecting
+     * the whole report: the URL is one optional field among twenty, and a
+     * sender whose `base_url` is a typo still has useful counters to
+     * contribute. The verbatim value survives in the stored raw JSON, which
+     * is where the detail dialog shows it as plain text.
+     */
+    private static function httpUrlOrNull(mixed $value, int $maxLength): ?string
+    {
+        $url = self::stringOrNull($value, $maxLength);
+        if ($url === null) {
+            return null;
+        }
+
+        $scheme = strtolower((string) parse_url($url, PHP_URL_SCHEME));
+
+        return in_array($scheme, ['http', 'https'], true) ? $url : null;
+    }
+
     private static function stringOrNull(mixed $value, int $maxLength): ?string
     {
         if (!is_string($value)) {
@@ -333,9 +402,25 @@ class StatisticsIntakeService
         return $value !== '' ? mb_substr($value, 0, $maxLength) : null;
     }
 
+    /**
+     * A counter, or NULL.
+     *
+     * Bounded on both ends, and that is not defensive decoration: every
+     * integer column here is `INT UNSIGNED`, so a payload saying
+     * `"active_members": -1` or `"active_members": 9000000000` is an
+     * out-of-range write that MySQL refuses under strict mode. The
+     * resulting PDOException escapes an endpoint whose whole contract is to
+     * answer a status code and nothing else, turning a crafted 2 KB body
+     * into a 500 on a `public` route. Out of range is "not reported",
+     * exactly like a missing field.
+     */
     private static function intOrNull(mixed $value): ?int
     {
-        return is_int($value) ? $value : null;
+        if (!is_int($value)) {
+            return null;
+        }
+
+        return ($value >= 0 && $value <= self::MAX_UNSIGNED_INT) ? $value : null;
     }
 
     private static function boolOrNull(mixed $value): ?bool
@@ -343,6 +428,15 @@ class StatisticsIntakeService
         return is_bool($value) ? $value : null;
     }
 
+    /**
+     * An instant, normalised to UTC, or NULL.
+     *
+     * Range-checked for the same reason as intOrNull(): `DATETIME` accepts
+     * 1000-01-01 through 9999-12-31 and refuses anything else under strict
+     * mode, so `"installed_at": "-5000-01-01"` — which `DateTimeImmutable`
+     * parses perfectly happily — would otherwise reach the column and fault
+     * the request.
+     */
     private static function datetimeOrNull(mixed $value): ?string
     {
         if (!is_string($value) || trim($value) === '') {
@@ -350,11 +444,16 @@ class StatisticsIntakeService
         }
 
         try {
-            return (new \DateTimeImmutable($value))
-                ->setTimezone(new \DateTimeZone('UTC'))
-                ->format('Y-m-d H:i:s');
+            $normalized = (new \DateTimeImmutable($value))->setTimezone(new \DateTimeZone('UTC'));
         } catch (\Throwable) {
             return null;
         }
+
+        $year = (int) $normalized->format('Y');
+        if ($year < self::MIN_DATETIME_YEAR || $year > self::MAX_DATETIME_YEAR) {
+            return null;
+        }
+
+        return $normalized->format('Y-m-d H:i:s');
     }
 }

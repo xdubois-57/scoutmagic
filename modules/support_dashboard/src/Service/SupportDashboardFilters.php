@@ -79,10 +79,18 @@ final class SupportDashboardFilters
             default => null,
         };
 
-        $page = (int) ($query['page'] ?? 1);
+        // Both read through the same is_string() guard the other parameters
+        // already use. `?q[]=x` reaches here as an array, and the old
+        // `(string)` cast turned that into an "Array to string conversion"
+        // warning in the error log plus the literal search term "Array" —
+        // noise in one place and a nonsense filter in the other, from a URL
+        // anyone can hand a superadmin.
+        $page = is_string($query['page'] ?? null) || is_int($query['page'] ?? null)
+            ? (int) $query['page']
+            : 1;
 
         return new self(
-            mb_substr(trim((string) ($query['q'] ?? '')), 0, 120),
+            mb_substr(self::stringOrNull($query['q'] ?? null) ?? '', 0, 120),
             $status,
             self::stringOrNull($query['version'] ?? null),
             self::stringOrNull($query['installation_method'] ?? null),

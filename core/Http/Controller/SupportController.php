@@ -17,6 +17,7 @@ use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Core\Scheduler\SchedulerService;
 use Core\Statistics\StatisticsPayloadBuilder;
+use Core\Statistics\StatisticsSender;
 use Core\Statistics\StatisticsStateSettings;
 use Core\Support\SupportPackageService;
 use Core\Support\SupportPackageState;
@@ -63,13 +64,25 @@ class SupportController extends AbstractController
      */
     public function index(Request $request, array $params): Response
     {
+        $lastSuccessAt = self::nonEmpty($this->settingService->get(self::LAST_SUCCESS_SETTING));
+        $lastFailureAt = self::nonEmpty($this->settingService->get(self::LAST_FAILURE_SETTING));
+
         return $this->render('config/support.html.twig', [
             'statistics_enabled' => $this->settingService->get('statistics_enabled') === '1',
             'statistics_destination' => (string) ($this->settingService->get('statistics_destination') ?? ''),
             'support_email' => (string) ($this->settingService->get('support_email') ?? ''),
-            'last_success_at' => self::nonEmpty($this->settingService->get(self::LAST_SUCCESS_SETTING)),
-            'last_failure_at' => self::nonEmpty($this->settingService->get(self::LAST_FAILURE_SETTING)),
+            'last_success_at' => $lastSuccessAt,
+            'last_failure_at' => $lastFailureAt,
             'last_failure_reason' => self::nonEmpty($this->settingService->get(self::LAST_FAILURE_REASON_SETTING)),
+            // Core\Statistics\StatisticsSender never clears the failure
+            // settings on a later success — deliberately, since "it failed
+            // once and here is why" stays worth reading. But a motif from
+            // three weeks ago, sitting under "État des envois" with nothing
+            // saying it has since been resolved, reads as the site's current
+            // state and sends people chasing a problem that is gone. The
+            // page says which of the two came last; the comparison belongs
+            // here rather than as a string comparison in Twig.
+            'last_failure_superseded' => self::isBefore($lastFailureAt, $lastSuccessAt),
             // Built and shown whether or not reporting is enabled: someone
             // deciding whether to turn it ON has to be able to read what
             // would leave the site first.
@@ -164,6 +177,26 @@ class SupportController extends AbstractController
             return $this->redirect('/config/support');
         }
 
+        // Refused here rather than discovered a day later as a failed send.
+        // Two separate facts, two separate messages, because they have two
+        // separate fixes: a cleartext destination would carry the bearer
+        // secret in an `Authorization` header over http, and a destination
+        // that is not a public name (localhost, an IP literal, `intranet`,
+        // a `.local`/`.test` suffix) points that same credential at
+        // something inside the hosting network. Core\Statistics\
+        // StatisticsSender enforces both again at send time — a setting can
+        // also arrive from a restored backup, which never passes through
+        // this form.
+        if ($destination !== '' && !str_starts_with(strtolower($destination), 'https://')) {
+            FlashMessage::set('error', 'L\'adresse de destination doit être en https : le secret d\'authentification voyage dans un en-tête.');
+            return $this->redirect('/config/support');
+        }
+
+        if ($destination !== '' && !StatisticsSender::isPublicHost($destination)) {
+            FlashMessage::set('error', 'L\'adresse de destination doit désigner un site public. Une adresse locale, une adresse IP ou un nom interne n\'est pas acceptée.');
+            return $this->redirect('/config/support');
+        }
+
         $this->settingService->setInternal('statistics_enabled', $enabled ? '1' : '0');
         if ($destination !== '') {
             $this->settingService->setInternal('statistics_destination', $destination);
@@ -188,6 +221,24 @@ class SupportController extends AbstractController
         FlashMessage::set('success', 'Préférences de support enregistrées.');
 
         return $this->redirect('/config/support');
+    }
+
+    /**
+     * Whether $earlier is strictly older than $later. Either being absent
+     * or unparseable answers false — "we cannot tell" must never read as
+     * "resolved".
+     */
+    private static function isBefore(?string $earlier, ?string $later): bool
+    {
+        if ($earlier === null || $later === null) {
+            return false;
+        }
+
+        try {
+            return (new \DateTimeImmutable($earlier)) < (new \DateTimeImmutable($later));
+        } catch (\Throwable) {
+            return false;
+        }
     }
 
     private static function nonEmpty(mixed $value): ?string

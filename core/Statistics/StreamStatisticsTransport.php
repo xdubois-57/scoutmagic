@@ -54,6 +54,15 @@ final class StreamStatisticsTransport implements StatisticsTransportInterface
             }
         }
 
+        // No parseable status line is a transport failure, not a status of
+        // zero: letting 0 through made StatisticsSender record the failure
+        // reason "http_0", which reads like a real HTTP answer and is not
+        // one. StatisticsTransportResponse already has the state for "we
+        // never got an answer we could read".
+        if ($status === 0) {
+            return StatisticsTransportResponse::transportError('no_status_line');
+        }
+
         return StatisticsTransportResponse::response($status, $body);
     }
 }
