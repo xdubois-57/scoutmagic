@@ -41,7 +41,7 @@ class ModuleManifestTest extends TestCase
      */
     public function testTheVersionIsBumpedWheneverTheSchemaChanges(): void
     {
-        $this->assertSame('1.3.0', $this->manifest->version);
+        $this->assertSame('1.4.0', $this->manifest->version);
     }
 
     /**
@@ -52,6 +52,16 @@ class ModuleManifestTest extends TestCase
     public function testEveryStateChangingRouteIsPostOnly(): void
     {
         $writePaths = [
+            '/mes-locations/statut',
+            '/mes-locations/option',
+            '/mes-locations/commentaire',
+            '/mes-locations/ligne',
+            '/mes-locations/proposition',
+            '/mes-locations/demande',
+            '/mes-locations/blocage',
+            '/mes-locations/blocage-supprimer',
+            '/locations/suivi/{id}/{token}/demande',
+            '/locations/suivi/{id}/{token}/reponse',
             '/admin/locations/create',
             '/admin/locations/general',
             '/admin/locations/managers',
@@ -110,6 +120,15 @@ class ModuleManifestTest extends TestCase
         }
 
         $this->assertSame('identified', $roles['/mes-locations']);
+        // The whole managed space sits at the same floor: raising one route
+        // would lock ordinary managers out of part of their own asset,
+        // lowering one would open it to any logged-in visitor.
+        foreach ($roles as $path => $role) {
+            if (str_starts_with($path, '/mes-locations')) {
+                $this->assertSame('identified', $role, $path . ' is part of the managed space.');
+            }
+        }
+
         $this->assertSame('public', $roles['/locations']);
         $this->assertSame('public', $roles['/locations/{slug}']);
     }

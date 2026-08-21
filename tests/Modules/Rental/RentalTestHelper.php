@@ -131,6 +131,8 @@ class RentalTestHelper
             hold_origin TEXT,
             estimated_price_snapshot TEXT,
             estimated_total_cents INTEGER,
+            agreed_price_snapshot TEXT,
+            agreed_total_cents INTEGER,
             conditions_version TEXT,
             conditions_hash TEXT,
             conditions_accepted_at TEXT,
@@ -142,7 +144,59 @@ class RentalTestHelper
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (asset_id) REFERENCES rental_assets(id) ON DELETE CASCADE
         )');
+        $pdo->exec('CREATE TABLE rental_blocks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            asset_id INTEGER NOT NULL,
+            start_date TEXT NOT NULL,
+            end_date TEXT NOT NULL,
+            units INTEGER NOT NULL DEFAULT 1,
+            reason TEXT,
+            created_by_member_id INTEGER,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (asset_id) REFERENCES rental_assets(id) ON DELETE CASCADE
+        )');
+
+        $pdo->exec('CREATE TABLE rental_booking_comments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            booking_id INTEGER NOT NULL,
+            author_member_id INTEGER,
+            body_encrypted BLOB NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (booking_id) REFERENCES rental_bookings(id) ON DELETE CASCADE
+        )');
+
+        $pdo->exec('CREATE TABLE rental_booking_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            booking_id INTEGER NOT NULL,
+            event_type TEXT NOT NULL,
+            from_value TEXT,
+            to_value TEXT,
+            summary TEXT,
+            actor_member_id INTEGER,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (booking_id) REFERENCES rental_bookings(id) ON DELETE CASCADE
+        )');
+
+        $pdo->exec('CREATE TABLE rental_change_requests (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            booking_id INTEGER NOT NULL,
+            origin TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT "pending",
+            proposed_arrival_date TEXT,
+            proposed_departure_date TEXT,
+            proposed_units INTEGER,
+            proposed_persons INTEGER,
+            proposed_price_snapshot TEXT,
+            proposed_total_cents INTEGER,
+            message_encrypted BLOB,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            decided_at TEXT,
+            decided_by_member_id INTEGER,
+            FOREIGN KEY (booking_id) REFERENCES rental_bookings(id) ON DELETE CASCADE
+        )');
     }
+
 
     public static function insertMember(\PDO $pdo, string $deskId): int
     {

@@ -25,7 +25,11 @@ use Modules\Rental\Repository\RentalAsset;
 use Modules\Rental\Repository\RentalAssetRepository;
 use Modules\Rental\Service\RentalAvailabilityService;
 use Modules\Rental\Service\RentalBookingMailService;
+use Modules\Rental\Booking\ChangeRequestKind;
+use Modules\Rental\Booking\ChangeRequestOrigin;
+use Modules\Rental\Repository\RentalChangeRequestRepository;
 use Modules\Rental\Service\RentalBookingService;
+use Modules\Rental\Service\RentalOperationsService;
 use Modules\Rental\Service\RentalException;
 use Modules\Rental\Service\RentalManagerService;
 use Modules\Rental\Service\RentalPricingService;
@@ -67,7 +71,9 @@ class RentalRequestController extends AbstractController
         private ScoutYearService $scoutYearService,
         private EditableContentService $editableContentService,
         private HumanCheckService $humanCheckService,
-        private SettingService $settingService
+        private SettingService $settingService,
+        private RentalOperationsService $operationsService,
+        private RentalChangeRequestRepository $changeRequestRepository
     ) {
         parent::__construct($twig);
     }
@@ -248,8 +254,148 @@ class RentalRequestController extends AbstractController
             'renter_contacts' => $this->managerService->listRenterContactsForAsset($asset->id, $scoutYearId),
             // Shown only here, never publicly (§6.6).
             'emergency_phone' => $asset->emergencyPhone,
+            // Change requests and the manager's proposals (§6.16). Internal
+            // comments are deliberately absent — the tracking page does not
+            // even load them, which is a stronger guarantee than a template
+            // remembering to hide them.
+            'change_requests' => $this->changeRequestRepository->findForBooking($booking->id),
+            // Echoed back so this page's own forms post to a URL that still
+            // carries the capability. It is already in the address bar; it
+            // is never journaled and never leaves this page.
+            'tracking_token' => (string) ($params['token'] ?? ''),
+            'csrf_token' => CsrfGuard::generateToken(),
             'breadcrumb_current' => $booking->reference,
         ]);
+    }
+
+    /**
+     * POST /locations/suivi/{id}/{token}/demande — the renter asks for a
+     * change or an outright cancellation (§6.16, §6.17).
+     *
+     * Records the request and **changes nothing**: that is the rule the spec
+     * is emphatic about. A manager decides, from the booking's own page.
+     *
+     * The token is verified exactly as on the GET, because a POST is not
+     * less of an entry point than a GET.
+     *
+     * @param array<string, string> $params
+     */
+    public function requestChange(Request $request, array $params): Response
+    {
+        if (!CsrfGuard::validateRequest()) {
+            return new Response('Forbidden', 403);
+        }
+
+        $booking = $this->bookingService->findByTrackingToken(
+            (int) ($params['id'] ?? 0),
+            (string) ($params['token'] ?? '')
+        );
+
+        if ($booking === null) {
+            return new Response('Not Found', 404);
+        }
+
+        $kind = ChangeRequestKind::tryFrom((string) $request->getBody('kind', ''));
+        if ($kind === null) {
+            FlashMessage::set('danger', "Ce type de demande n'existe pas.");
+
+            return $this->backToTracking($params);
+        }
+
+        try {
+            $this->operationsService->requestChange(
+                $booking,
+                ChangeRequestOrigin::RENTER,
+                $kind,
+                self::optionalString($request->getBody('arrival')),
+                self::optionalString($request->getBody('departure')),
+                null,
+                $request->getBody('persons') !== null && (int) $request->getBody('persons') > 0
+                    ? (int) $request->getBody('persons')
+                    : null,
+                null,
+                self::optionalString($request->getBody('message'))
+            );
+
+            FlashMessage::set(
+                'success',
+                'Votre demande a bien été transmise. Elle ne change rien à votre réservation '
+                . "tant qu'un gestionnaire ne l'a pas acceptée."
+            );
+        } catch (RentalException $e) {
+            FlashMessage::set('danger', $e->getMessage());
+        }
+
+        return $this->backToTracking($params);
+    }
+
+    /**
+     * POST /locations/suivi/{id}/{token}/reponse — the renter accepts or
+     * refuses a manager's proposal (§6.16).
+     *
+     * @param array<string, string> $params
+     */
+    public function decideProposal(Request $request, array $params): Response
+    {
+        if (!CsrfGuard::validateRequest()) {
+            return new Response('Forbidden', 403);
+        }
+
+        $booking = $this->bookingService->findByTrackingToken(
+            (int) ($params['id'] ?? 0),
+            (string) ($params['token'] ?? '')
+        );
+
+        if ($booking === null) {
+            return new Response('Not Found', 404);
+        }
+
+        $asset = $this->assetRepository->findById($booking->assetId);
+        if ($asset === null) {
+            return new Response('Not Found', 404);
+        }
+
+        $changeRequest = $this->changeRequestRepository->findById((int) $request->getBody('request_id', 0));
+        // The booking check is the guard that matters: a change-request id
+        // alone must not let one renter decide another's proposal.
+        if ($changeRequest === null || $changeRequest->bookingId !== $booking->id) {
+            return new Response('Not Found', 404);
+        }
+
+        try {
+            if ((string) $request->getBody('decision', '') === 'accept') {
+                $this->operationsService->acceptChange(
+                    $changeRequest,
+                    $booking,
+                    $asset,
+                    ChangeRequestOrigin::RENTER,
+                    null,
+                    new \DateTimeImmutable()
+                );
+                FlashMessage::set('success', 'Proposition acceptée. Votre réservation a été mise à jour.');
+            } else {
+                $this->operationsService->refuseChange($changeRequest, ChangeRequestOrigin::RENTER, null);
+                FlashMessage::set('success', 'Proposition refusée. Votre réservation est inchangée.');
+            }
+        } catch (RentalException $e) {
+            FlashMessage::set('danger', $e->getMessage());
+        }
+
+        return $this->backToTracking($params);
+    }
+
+    /**
+     * Back to the renter's own page, token included — it is the only way
+     * back in, so a redirect that dropped it would lock them out of their
+     * own booking.
+     *
+     * @param array<string, string> $params
+     */
+    private function backToTracking(array $params): Response
+    {
+        return $this->redirect(
+            '/locations/suivi/' . (int) ($params['id'] ?? 0) . '/' . (string) ($params['token'] ?? '')
+        );
     }
 
     /**

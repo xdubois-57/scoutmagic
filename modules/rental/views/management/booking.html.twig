@@ -1,0 +1,429 @@
+{% extends 'base.html.twig' %}
+{% block title %}{{ booking.reference }} — {{ asset.name }} — {{ site_name }}{% endblock %}
+{#
+  One booking's file (§6.4, §6.12, §6.15, §6.16).
+
+  Behind RentalAuthorizationService and reached only by a manager of THIS
+  asset, which is why it carries everything the public surfaces never do:
+  the renter's identity, the internal comments, the full history.
+
+  The milestone checklist is DERIVED from the booking's own state — nothing
+  on it is stored, so it can never drift from the status. Items belonging to
+  iterations that have not landed yet render greyed rather than unticked: an
+  unreachable box reads as outstanding work.
+#}
+{% block content %}
+    <div class="container py-4" style="max-width: 900px;">
+        <nav aria-label="Fil d'Ariane" class="mb-2">
+            <a href="/mes-locations/{{ asset.slug }}/reservations" class="small text-decoration-none">&larr; Réservations</a>
+        </nav>
+
+        <h1 class="h3 mb-1">{{ booking.reference }}</h1>
+        <p class="text-body-secondary small mb-3">
+            {{ asset.name }} · du {{ booking.arrivalDate }} au {{ booking.departureDate }}
+            {% if is_in_progress %}<span class="badge bg-success ms-1">En cours</span>{% endif %}
+        </p>
+
+        {% include '@rental/management/_nav.html.twig' %}
+
+        {# ── Milestones ────────────────────────────────────────────── #}
+        <div class="card mb-4">
+            <div class="card-body">
+                <h2 class="h5 mb-3">Où en est cette location</h2>
+                <ul class="list-unstyled mb-0">
+                    {% for milestone in milestones %}
+                        <li class="mb-1 {{ milestone.isApplicable ? '' : 'text-body-secondary opacity-50' }}">
+                            {% if not milestone.isApplicable %}
+                                <i class="bi bi-dash-square" aria-hidden="true"></i>
+                                <span class="visually-hidden">Sans objet :</span>
+                            {% elseif milestone.isDone %}
+                                <i class="bi bi-check-square" aria-hidden="true"></i>
+                                <span class="visually-hidden">Fait :</span>
+                            {% else %}
+                                <i class="bi bi-square" aria-hidden="true"></i>
+                                <span class="visually-hidden">À faire :</span>
+                            {% endif %}
+                            {{ milestone.label }}
+                            {% if milestone.detail %}
+                                <span class="text-body-secondary small">— {{ milestone.detail }}</span>
+                            {% endif %}
+                        </li>
+                    {% endfor %}
+                </ul>
+            </div>
+        </div>
+
+        {# ── Renter ────────────────────────────────────────────────── #}
+        <div class="card mb-4">
+            <div class="card-body">
+                <h2 class="h5 mb-3">Le locataire</h2>
+                <dl class="row mb-0">
+                    <dt class="col-sm-4">Nom</dt>
+                    <dd class="col-sm-8">{{ booking.renterName }}</dd>
+                    <dt class="col-sm-4">Email</dt>
+                    <dd class="col-sm-8"><a href="mailto:{{ booking.renterEmail }}">{{ booking.renterEmail }}</a></dd>
+                    {% if booking.renterPhone %}
+                        <dt class="col-sm-4">Téléphone</dt>
+                        <dd class="col-sm-8"><a href="tel:{{ booking.renterPhone|replace({' ': ''}) }}">{{ booking.renterPhone }}</a></dd>
+                    {% endif %}
+                    {% if booking.renterOrganisation %}
+                        <dt class="col-sm-4">Organisation</dt>
+                        <dd class="col-sm-8">{{ booking.renterOrganisation }}</dd>
+                    {% endif %}
+                    {% if booking.estimatedPersons %}
+                        <dt class="col-sm-4">Participants annoncés</dt>
+                        <dd class="col-sm-8">{{ booking.estimatedPersons }}</dd>
+                    {% endif %}
+                    {% if booking.purpose %}
+                        <dt class="col-sm-4">Objet</dt>
+                        <dd class="col-sm-8">{{ booking.purpose }}</dd>
+                    {% endif %}
+                    {% if booking.renterComment %}
+                        <dt class="col-sm-4">Message</dt>
+                        <dd class="col-sm-8">{{ booking.renterComment|nl2br }}</dd>
+                    {% endif %}
+                </dl>
+            </div>
+        </div>
+
+        {# ── Lifecycle ─────────────────────────────────────────────── #}
+        <div class="card mb-4">
+            <div class="card-body">
+                <h2 class="h5 mb-3">État</h2>
+                <p class="mb-3"><span class="badge bg-secondary">{{ booking.status.label }}</span></p>
+
+                {% if allowed_transitions is empty %}
+                    <p class="text-body-secondary mb-0">
+                        Cette réservation est dans un état définitif : elle ne peut plus changer.
+                        Une nouvelle demande est nécessaire.
+                    </p>
+                {% else %}
+                    <div class="d-flex flex-wrap gap-2">
+                        {% for target in allowed_transitions %}
+                            <form method="post" action="/mes-locations/statut" class="d-inline">
+                                {{ csrf_field()|raw }}
+                                <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                                <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                                <input type="hidden" name="status" value="{{ target.value }}">
+                                <button type="submit"
+                                        class="btn btn-sm {{ target.value == 'confirmed' ? 'btn-success' : 'btn-outline-secondary' }}"
+                                        {% if target.value in ['refused', 'cancelled'] %}
+                                            data-confirm="Confirmer le passage à « {{ target.label }} » ? Les dates seront libérées."
+                                        {% endif %}>
+                                    {{ target.label }}
+                                </button>
+                            </form>
+                        {% endfor %}
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+
+        {# ── Manager's option (§6.14) ──────────────────────────────── #}
+        {% if not booking.status.isFinal %}
+            <div class="card mb-4">
+                <div class="card-body">
+                    <h2 class="h5 mb-2">Blocage des dates</h2>
+                    <p class="text-body-secondary small">
+                        Une option engage l'unité jusqu'à l'échéance. Si elle passe sans confirmation,
+                        la réservation devient expirée et les dates se libèrent.
+                    </p>
+                    <form method="post" action="/mes-locations/option" class="row g-2 align-items-end">
+                        {{ csrf_field()|raw }}
+                        <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                        <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                        <div class="col-12 col-sm-7">
+                            <label class="form-label" for="option-until">Option jusqu'au</label>
+                            <input type="datetime-local" class="form-control" id="option-until" name="until"
+                                   value="{{ booking.holdUntil ? booking.holdUntil|date('Y-m-d\\TH:i') : '' }}">
+                            <div class="form-text">Laisser vide et enregistrer lève le blocage.</div>
+                        </div>
+                        <div class="col-12 col-sm-5">
+                            <button type="submit" class="btn btn-outline-primary w-100">Enregistrer l'option</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        {% endif %}
+
+        {# ── Price (§6.12) ─────────────────────────────────────────── #}
+        <div class="card mb-4">
+            <div class="card-body">
+                <h2 class="h5 mb-2">Prix</h2>
+                {% if booking.status.value == 'confirmed' %}
+                    <div class="alert alert-warning">
+                        <strong>Cette réservation est confirmée.</strong> Modifier le prix maintenant :
+                        <ul class="mb-0">
+                            <li>le contrat sera à régénérer en nouvelle version ;</li>
+                            <li>la créance sera mise à jour ;</li>
+                            <li>le changement est visible immédiatement du locataire ;</li>
+                            <li>les paiements déjà reçus ne sont pas touchés — seul le solde change,
+                                et un trop-perçu est possible si le nouveau total passe sous le montant encaissé.</li>
+                        </ul>
+                    </div>
+                {% endif %}
+
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-2">
+                        <thead>
+                            <tr>
+                                <th scope="col">Ligne</th>
+                                <th scope="col" class="text-end">Quantité</th>
+                                <th scope="col" class="text-end">Montant</th>
+                                <th scope="col"><span class="visually-hidden">Actions</span></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for line in quote.lines %}
+                                <tr>
+                                    <td>
+                                        {{ line.label }}
+                                        {% if line.isManual %}
+                                            <span class="badge bg-info text-dark ms-1"
+                                                  title="Cette ligne ne sera plus recalculée">Modifiée à la main</span>
+                                        {% endif %}
+                                        {% if line.isInformational %}
+                                            <span class="text-body-secondary small d-block">
+                                                Facturé sur relevé — hors total
+                                            </span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="text-end">{{ line.quantity }}</td>
+                                    <td class="text-end">{{ (line.amountCents / 100)|number_format(2, ',', ' ') }} €</td>
+                                    <td class="text-end">
+                                        <form method="post" action="/mes-locations/ligne" class="d-inline">
+                                            {{ csrf_field()|raw }}
+                                            <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                                            <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                                            <input type="hidden" name="line_action" value="remove">
+                                            <input type="hidden" name="index" value="{{ loop.index0 }}">
+                                            <button type="submit" class="btn btn-sm btn-outline-danger"
+                                                    data-confirm="Supprimer la ligne « {{ line.label }} » ?">
+                                                Supprimer
+                                            </button>
+                                        </form>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td colspan="4" class="pt-0">
+                                        <form method="post" action="/mes-locations/ligne" class="row g-2 align-items-end">
+                                            {{ csrf_field()|raw }}
+                                            <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                                            <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                                            <input type="hidden" name="line_action" value="edit">
+                                            <input type="hidden" name="index" value="{{ loop.index0 }}">
+                                            <div class="col-12 col-md-5">
+                                                <label class="form-label visually-hidden" for="label-{{ loop.index0 }}">Libellé</label>
+                                                <input type="text" class="form-control form-control-sm"
+                                                       id="label-{{ loop.index0 }}" name="label" value="{{ line.label }}">
+                                            </div>
+                                            <div class="col-6 col-md-2">
+                                                <label class="form-label visually-hidden" for="qty-{{ loop.index0 }}">Quantité</label>
+                                                <input type="number" min="1" class="form-control form-control-sm"
+                                                       id="qty-{{ loop.index0 }}" name="quantity" value="{{ line.quantity }}">
+                                            </div>
+                                            <div class="col-6 col-md-3">
+                                                <label class="form-label visually-hidden" for="amount-{{ loop.index0 }}">Montant</label>
+                                                <input type="text" class="form-control form-control-sm"
+                                                       id="amount-{{ loop.index0 }}" name="amount"
+                                                       value="{{ (line.amountCents / 100)|number_format(2, ',', '') }}"
+                                                       inputmode="decimal">
+                                            </div>
+                                            <div class="col-12 col-md-2">
+                                                <button type="submit" class="btn btn-sm btn-outline-primary w-100">Modifier</button>
+                                            </div>
+                                        </form>
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                        <tfoot>
+                            <tr class="fw-semibold">
+                                <td colspan="2">Total</td>
+                                <td class="text-end">{{ (quote.totalCents / 100)|number_format(2, ',', ' ') }} €</td>
+                                <td></td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+
+                <form method="post" action="/mes-locations/ligne" class="row g-2 align-items-end mb-3">
+                    {{ csrf_field()|raw }}
+                    <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                    <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                    <input type="hidden" name="line_action" value="add">
+                    <div class="col-12 col-md-5">
+                        <label class="form-label" for="new-label">Nouvelle ligne</label>
+                        <input type="text" class="form-control form-control-sm" id="new-label" name="label"
+                               placeholder="Remise exceptionnelle">
+                    </div>
+                    <div class="col-6 col-md-2">
+                        <label class="form-label" for="new-quantity">Quantité</label>
+                        <input type="number" min="1" class="form-control form-control-sm" id="new-quantity"
+                               name="quantity" value="1">
+                    </div>
+                    <div class="col-6 col-md-3">
+                        <label class="form-label" for="new-amount">Montant</label>
+                        <input type="text" class="form-control form-control-sm" id="new-amount" name="amount"
+                               inputmode="decimal" placeholder="-50,00">
+                    </div>
+                    <div class="col-12 col-md-2">
+                        <button type="submit" class="btn btn-sm btn-outline-primary w-100">Ajouter</button>
+                    </div>
+                </form>
+
+                <form method="post" action="/mes-locations/ligne">
+                    {{ csrf_field()|raw }}
+                    <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                    <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                    <input type="hidden" name="line_action" value="recalculate">
+                    <button type="submit" class="btn btn-sm btn-outline-secondary">
+                        Recalculer les lignes automatiques
+                    </button>
+                    <span class="form-text d-block">
+                        Reprend le tarif en vigueur pour les lignes automatiques. Les lignes modifiées
+                        à la main sont conservées telles quelles.
+                    </span>
+                </form>
+            </div>
+        </div>
+
+        {# ── Change requests (§6.16) ───────────────────────────────── #}
+        <div class="card mb-4">
+            <div class="card-body">
+                <h2 class="h5 mb-2">Demandes et propositions</h2>
+                <p class="text-body-secondary small">
+                    Une demande ne modifie jamais la réservation d'elle-même : elle attend une décision.
+                </p>
+
+                {% if change_requests is empty %}
+                    <p class="text-body-secondary">Aucune demande.</p>
+                {% else %}
+                    <ul class="list-unstyled">
+                        {% for change in change_requests %}
+                            <li class="border-bottom py-2">
+                                <div class="d-flex justify-content-between align-items-start gap-2">
+                                    <span>
+                                        <span class="fw-semibold">{{ change.origin.label }}</span> —
+                                        {{ change.kind.label }}
+                                        <span class="text-body-secondary small d-block">{{ change.summary }}</span>
+                                        {% if change.message %}
+                                            <span class="small d-block">{{ change.message|nl2br }}</span>
+                                        {% endif %}
+                                    </span>
+                                    <span class="badge bg-secondary">{{ change.status.label }}</span>
+                                </div>
+                                {% if change.isPending and change.origin.value == 'renter' %}
+                                    <div class="d-flex gap-2 mt-2">
+                                        <form method="post" action="/mes-locations/demande">
+                                            {{ csrf_field()|raw }}
+                                            <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                                            <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                                            <input type="hidden" name="request_id" value="{{ change.id }}">
+                                            <input type="hidden" name="decision" value="accept">
+                                            <button type="submit" class="btn btn-sm btn-outline-success">Accepter</button>
+                                        </form>
+                                        <form method="post" action="/mes-locations/demande">
+                                            {{ csrf_field()|raw }}
+                                            <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                                            <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                                            <input type="hidden" name="request_id" value="{{ change.id }}">
+                                            <input type="hidden" name="decision" value="refuse">
+                                            <button type="submit" class="btn btn-sm btn-outline-danger">Refuser</button>
+                                        </form>
+                                    </div>
+                                {% endif %}
+                            </li>
+                        {% endfor %}
+                    </ul>
+                {% endif %}
+
+                {% if not booking.status.isFinal %}
+                    <form method="post" action="/mes-locations/proposition" class="row g-2 align-items-end mt-2">
+                        {{ csrf_field()|raw }}
+                        <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                        <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                        <input type="hidden" name="kind" value="dates">
+                        <div class="col-6 col-md-3">
+                            <label class="form-label" for="propose-arrival">Proposer du</label>
+                            <input type="date" class="form-control form-control-sm" id="propose-arrival" name="arrival">
+                        </div>
+                        <div class="col-6 col-md-3">
+                            <label class="form-label" for="propose-departure">au</label>
+                            <input type="date" class="form-control form-control-sm" id="propose-departure" name="departure">
+                        </div>
+                        <div class="col-12 col-md-4">
+                            <label class="form-label" for="propose-message">Message</label>
+                            <input type="text" class="form-control form-control-sm" id="propose-message" name="message">
+                        </div>
+                        <div class="col-12 col-md-2">
+                            <button type="submit" class="btn btn-sm btn-outline-primary w-100">Proposer</button>
+                        </div>
+                    </form>
+                {% endif %}
+            </div>
+        </div>
+
+        {# ── Internal comments (§6.6) ──────────────────────────────── #}
+        <div class="card mb-4">
+            <div class="card-body">
+                <h2 class="h5 mb-2">Commentaires internes</h2>
+                <p class="text-body-secondary small">
+                    Visibles des seuls gestionnaires. Ils n'apparaissent jamais sur la page de suivi du locataire.
+                </p>
+
+                {% if comments is empty %}
+                    <p class="text-body-secondary">Aucun commentaire.</p>
+                {% else %}
+                    <ul class="list-unstyled">
+                        {% for comment in comments %}
+                            <li class="border-bottom py-2">
+                                <div class="small text-body-secondary">
+                                    {{ comment.author_name ?: 'Auteur inconnu' }} —
+                                    {{ comment.created_at|date('d/m/Y à H\\hi') }}
+                                </div>
+                                {{ comment.body|nl2br }}
+                            </li>
+                        {% endfor %}
+                    </ul>
+                {% endif %}
+
+                <form method="post" action="/mes-locations/commentaire">
+                    {{ csrf_field()|raw }}
+                    <input type="hidden" name="asset_id" value="{{ asset.id }}">
+                    <input type="hidden" name="booking_id" value="{{ booking.id }}">
+                    <label class="form-label" for="comment-body">Ajouter un commentaire</label>
+                    <textarea class="form-control mb-2" id="comment-body" name="body" rows="3"></textarea>
+                    <button type="submit" class="btn btn-sm btn-outline-primary">Enregistrer</button>
+                </form>
+            </div>
+        </div>
+
+        {# ── History (§6.15) ───────────────────────────────────────── #}
+        <div class="card">
+            <div class="card-body">
+                <h2 class="h5 mb-2">Historique</h2>
+                {% if history is empty %}
+                    <p class="text-body-secondary mb-0">Rien encore.</p>
+                {% else %}
+                    <ul class="list-unstyled mb-0 small">
+                        {% for entry in history %}
+                            <li class="mb-1">
+                                <span class="text-body-secondary">{{ entry.created_at|date('d/m/Y H:i') }}</span>
+                                — {{ entry.summary ?: entry.event_type }}
+                                {% if entry.from_value or entry.to_value %}
+                                    <span class="text-body-secondary">
+                                        ({{ entry.from_value ?: '—' }} → {{ entry.to_value ?: '—' }})
+                                    </span>
+                                {% endif %}
+                                {% if entry.author_name %}
+                                    <span class="text-body-secondary">par {{ entry.author_name }}</span>
+                                {% endif %}
+                            </li>
+                        {% endfor %}
+                    </ul>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+{% endblock %}

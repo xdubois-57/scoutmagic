@@ -2,7 +2,8 @@
 {% block title %}Mes locations — {{ site_name }}{% endblock %}
 {#
   "Mes locations" (§6.5) — the managers' daily entry point: every asset they
-  manage, all assets at once. The public page stays a secondary way in.
+  manage, all assets at once, with the number of requests waiting on each.
+  The public page stays a secondary way in.
 
   Reached only by someone who manages at least one asset; the controller
   refuses outright otherwise, rather than rendering an empty page.
@@ -18,19 +19,52 @@
             {% endif %}
         </p>
 
+        {% if pending_bookings is not empty %}
+            <div class="card mb-4">
+                <div class="card-body">
+                    <h2 class="h5 mb-3">À traiter, tous biens confondus</h2>
+                    <div class="list-group list-group-flush">
+                        {% for booking in pending_bookings %}
+                            {% set booking_asset = assets_by_id[booking.assetId] %}
+                            <a href="/mes-locations/{{ booking_asset.slug }}/reservations/{{ booking.id }}"
+                               class="list-group-item list-group-item-action px-0">
+                                <div class="d-flex justify-content-between align-items-center gap-2">
+                                    <span>
+                                        <span class="fw-semibold">{{ booking.reference }}</span>
+                                        <span class="text-body-secondary small d-block">
+                                            {{ booking_asset.name }} · du {{ booking.arrivalDate }} au {{ booking.departureDate }}
+                                        </span>
+                                    </span>
+                                    <span class="badge bg-warning text-dark">{{ booking.status.label }}</span>
+                                </div>
+                            </a>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        {% endif %}
+
+        <h2 class="h5 mb-2">Mes biens</h2>
         <div class="list-group">
             {% for asset in assets %}
-                <a href="/locations/{{ asset.slug }}" class="list-group-item list-group-item-action">
+                <a href="/mes-locations/{{ asset.slug }}" class="list-group-item list-group-item-action">
                     <div class="d-flex justify-content-between align-items-center gap-2">
                         <span>
                             <span class="fw-semibold">{{ asset.name }}</span>
                             <span class="text-body-secondary small d-block">{{ asset.assetType }}</span>
                         </span>
-                        {% if asset.isArchived %}
-                            <span class="badge bg-secondary">Archivé</span>
-                        {% elseif not asset.isPublic %}
-                            <span class="badge bg-light text-dark border">Non public</span>
-                        {% endif %}
+                        <span>
+                            {% if pending_counts[asset.id] is defined %}
+                                <span class="badge bg-warning text-dark">
+                                    {{ pending_counts[asset.id] }} à traiter
+                                </span>
+                            {% endif %}
+                            {% if asset.isArchived %}
+                                <span class="badge bg-secondary">Archivé</span>
+                            {% elseif not asset.isPublic %}
+                                <span class="badge bg-light text-dark border">Non public</span>
+                            {% endif %}
+                        </span>
                     </div>
                 </a>
             {% endfor %}

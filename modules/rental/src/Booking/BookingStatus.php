@@ -67,6 +67,21 @@ enum BookingStatus: string
     }
 
     /**
+     * Whether this booking is a **commitment** rather than a request still
+     * being weighed.
+     *
+     * The distinction only ever matters at confirmation (see
+     * Availability\Occupancy): a pending request holds the dates against
+     * the public, but must not stop a manager confirming a competing one —
+     * arbitrating between two requests for the same week is the manager's
+     * whole job there.
+     */
+    public function firmlyOccupiesTheAsset(): bool
+    {
+        return $this === self::CONFIRMED || $this === self::CLOSED;
+    }
+
+    /**
      * Whether this is a final state, and therefore starts the retention
      * clock. Never `received_at` — a request that sat open for a year must
      * not be purged the moment it closes.

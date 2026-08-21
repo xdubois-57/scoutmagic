@@ -2,7 +2,7 @@
   "id": "rental",
   "name": "Locations",
   "description": "Location des biens de l'unité : locaux, terrains, tentes, remorques, matériel. Calendrier de disponibilité public, demandes en ligne et suivi des réservations.",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "enabled_by_default": false,
   "routes": [
     {
@@ -25,6 +25,36 @@
       "method": "GET",
       "controller": "Modules\\Rental\\Controller\\RentalRequestController",
       "action": "tracking",
+      "menu": "notre_unite",
+      "role_min": "public",
+      "label": "",
+      "breadcrumb": {
+        "label": "Suivi de votre demande",
+        "parents": [
+          "Notre unité"
+        ]
+      }
+    },
+    {
+      "path": "/locations/suivi/{id}/{token}/demande",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalRequestController",
+      "action": "requestChange",
+      "menu": "notre_unite",
+      "role_min": "public",
+      "label": "",
+      "breadcrumb": {
+        "label": "Suivi de votre demande",
+        "parents": [
+          "Notre unité"
+        ]
+      }
+    },
+    {
+      "path": "/locations/suivi/{id}/{token}/reponse",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalRequestController",
+      "action": "decideProposal",
       "menu": "notre_unite",
       "role_min": "public",
       "label": "",
@@ -62,6 +92,142 @@
         "label": "Mes locations",
         "parents": [
           "Espace animés"
+        ]
+      }
+    },
+    {
+      "path": "/mes-locations/statut",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "changeStatus",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/mes-locations/option",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "placeOption",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/mes-locations/commentaire",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "addComment",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/mes-locations/ligne",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "priceLine",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/mes-locations/proposition",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "propose",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/mes-locations/demande",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "decideChange",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/mes-locations/blocage",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "createBlock",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/mes-locations/blocage-supprimer",
+      "method": "POST",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "deleteBlock",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": ""
+    },
+    {
+      "path": "/mes-locations/{slug}",
+      "method": "GET",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "overview",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": "",
+      "breadcrumb": {
+        "label": "Gestion",
+        "parents": [
+          "Espace animés",
+          "Mes locations"
+        ]
+      }
+    },
+    {
+      "path": "/mes-locations/{slug}/calendrier",
+      "method": "GET",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "calendar",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": "",
+      "breadcrumb": {
+        "label": "Calendrier",
+        "parents": [
+          "Espace animés",
+          "Mes locations"
+        ]
+      }
+    },
+    {
+      "path": "/mes-locations/{slug}/reservations",
+      "method": "GET",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "bookings",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": "",
+      "breadcrumb": {
+        "label": "Réservations",
+        "parents": [
+          "Espace animés",
+          "Mes locations"
+        ]
+      }
+    },
+    {
+      "path": "/mes-locations/{slug}/reservations/{id}",
+      "method": "GET",
+      "controller": "Modules\\Rental\\Controller\\RentalManagementController",
+      "action": "booking",
+      "menu": "espace_animes",
+      "role_min": "identified",
+      "label": "",
+      "breadcrumb": {
+        "label": "Réservation",
+        "parents": [
+          "Espace animés",
+          "Mes locations"
         ]
       }
     },

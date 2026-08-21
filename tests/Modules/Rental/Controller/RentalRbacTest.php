@@ -148,10 +148,36 @@ class RentalRbacTest extends TestCase
             $pricingService,
             $availabilityService
         );
+        $bookingRepository = new \Modules\Rental\Repository\RentalBookingRepository($this->pdo, $encryption);
+        $eventRepository = new \Modules\Rental\Repository\RentalBookingEventRepository($this->pdo);
+        $commentRepository = new \Modules\Rental\Repository\RentalBookingCommentRepository($this->pdo, $encryption);
+        $changeRequestRepository = new \Modules\Rental\Repository\RentalChangeRequestRepository($this->pdo, $encryption);
+        $blockRepository = new \Modules\Rental\Repository\RentalBlockRepository($this->pdo);
+
         $this->managementController = new RentalManagementController(
             $this->twig,
             $authorizationService,
-            $scoutYearService
+            $scoutYearService,
+            $this->assetRepository,
+            $bookingRepository,
+            $eventRepository,
+            $commentRepository,
+            $changeRequestRepository,
+            new \Modules\Rental\Service\RentalOperationsService(
+                $bookingRepository,
+                $eventRepository,
+                $commentRepository,
+                $changeRequestRepository,
+                $availabilityService,
+                $pricingService,
+                new \Modules\Rental\Pricing\QuoteEditor(),
+                $journalService
+            ),
+            new \Modules\Rental\Service\RentalBlockService($blockRepository, $journalService),
+            $availabilityService,
+            $pricingService,
+            $memberService,
+            new DayStateGridBuilder()
         );
         $this->publicController = new RentalPublicController(
             $this->twig,
