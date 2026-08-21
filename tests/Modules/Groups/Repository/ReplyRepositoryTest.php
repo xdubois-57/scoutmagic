@@ -199,38 +199,89 @@ class ReplyRepositoryTest extends TestCase
         $this->assertSame(5, $this->repository->countForPost($otherPostId));
     }
 
-    public function testFindFirstForPostsLimitsPerPostAndReportsTrueTotals(): void
+    /**
+     * The LAST few, not the first: a thread of forty comments opened on
+     * its five oldest is a thread nobody can use. Still returned
+     * oldest-first, because that is the order they are read in once on
+     * screen.
+     */
+    public function testFindLastForPostsKeepsTheEndOfTheThreadAndReportsTrueTotals(): void
     {
         $otherPostId = GroupsTestHelper::createPostAt($this->pdo, $this->groupId, 'other', '2026-01-01 11:00:00');
         $this->seed(6);
         $this->seed(2, $otherPostId);
 
-        $result = $this->repository->findFirstForPosts([$this->postId, $otherPostId], 3);
+        $result = $this->repository->findLastForPosts([$this->postId, $otherPostId], 3);
 
         // The per-post limit is applied inside the database, so a post
-        // with many replies still transfers only the first few.
-        $this->assertSame(['reply 1', 'reply 2', 'reply 3'], $this->bodies($result['replies'][$this->postId]));
+        // with many replies still transfers only the tail of them.
+        $this->assertSame(['reply 4', 'reply 5', 'reply 6'], $this->bodies($result['replies'][$this->postId]));
         $this->assertCount(2, $result['replies'][$otherPostId]);
         // …but the count is the real one, which is what decides whether
-        // "Voir plus de réponses" appears.
+        // "Voir les commentaires précédents" appears.
         $this->assertSame(6, $result['counts'][$this->postId]);
         $this->assertSame(2, $result['counts'][$otherPostId]);
     }
 
-    public function testFindFirstForPostsOmitsAPostWithNoReplies(): void
+    public function testFindLastForPostsOmitsAPostWithNoReplies(): void
     {
         $emptyPostId = GroupsTestHelper::createPostAt($this->pdo, $this->groupId, 'quiet', '2026-01-01 11:00:00');
         $this->seed(1);
 
-        $result = $this->repository->findFirstForPosts([$this->postId, $emptyPostId], 3);
+        $result = $this->repository->findLastForPosts([$this->postId, $emptyPostId], 3);
 
         $this->assertArrayNotHasKey($emptyPostId, $result['replies']);
         $this->assertArrayNotHasKey($emptyPostId, $result['counts']);
     }
 
-    public function testFindFirstForPostsWithNoIdsReturnsEmptyWithoutQuerying(): void
+    public function testFindLastForPostsWithNoIdsReturnsEmptyWithoutQuerying(): void
     {
-        $this->assertSame(['replies' => [], 'counts' => []], $this->repository->findFirstForPosts([], 3));
+        $this->assertSame(['replies' => [], 'counts' => []], $this->repository->findLastForPosts([], 3));
+    }
+
+    /**
+     * Paging backwards from the oldest reply on screen, and still handed
+     * back oldest-first — what is fetched last is displayed first.
+     */
+    public function testFindPageBeforeWalksBackwardsAndComesBackInReadingOrder(): void
+    {
+        $this->seed(6);
+        $all = $this->repository->findPage($this->postId, 10);
+        $fourth = $all[3]->id;
+
+        $page = $this->repository->findPageBefore($this->postId, 2, $fourth);
+
+        $this->assertSame(['reply 2', 'reply 3'], $this->bodies($page));
+    }
+
+    public function testFindPageBeforeStopsAtTheStartOfTheThread(): void
+    {
+        $this->seed(3);
+        $first = $this->repository->findPage($this->postId, 10)[0]->id;
+
+        $this->assertSame([], $this->repository->findPageBefore($this->postId, 5, $first));
+    }
+
+    /**
+     * The same rule the rest of this class follows: an auto-hidden reply
+     * is excluded in the SQL for everyone but a moderator, so paging can
+     * never be the way a member reaches one.
+     */
+    public function testFindPageBeforeHidesAnAutoHiddenReplyFromOrdinaryMembers(): void
+    {
+        $this->seed(4);
+        $all = $this->repository->findPage($this->postId, 10);
+        $this->pdo->prepare('UPDATE discussion_group_replies SET hidden_at = ? WHERE id = ?')
+            ->execute(['2026-02-01 10:00:00', $all[1]->id]);
+
+        $this->assertSame(
+            ['reply 1', 'reply 3'],
+            $this->bodies($this->repository->findPageBefore($this->postId, 5, $all[3]->id))
+        );
+        $this->assertSame(
+            ['reply 1', 'reply 2', 'reply 3'],
+            $this->bodies($this->repository->findPageBefore($this->postId, 5, $all[3]->id, true))
+        );
     }
 
     public function testFindMediaIdsForPostReturnsOnlyTheRepliesThatHaveOne(): void

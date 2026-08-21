@@ -1682,8 +1682,13 @@
             return;
         }
 
-        // "Voir plus de réponses" — same in-place pagination as "Charger
-        // plus" above, degrading the same way if this script never runs.
+        // "Voir les commentaires précédents" — same in-place pagination as
+        // "Charger plus" above, degrading the same way if this script
+        // never runs. It needs no special casing for its direction: the
+        // partial renders its button ABOVE the cards it returns
+        // (partials/reply_page.html.twig), and the wrapper being replaced
+        // already sits above the thread, so older comments land above the
+        // ones already on screen and the next button ends up at the top.
         var repliesMore = /** @type {HTMLButtonElement} */ (target.closest('.groups-replies-more'));
         if (repliesMore) {
             await loadMoreInPlace(repliesMore, '.groups-replies-more-wrapper');

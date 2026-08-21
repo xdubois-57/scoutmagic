@@ -420,6 +420,15 @@
 .groups-reaction-toggle {
     display: none;
 }
+/* A message's own text. `overflow-wrap: anywhere` because a member can
+   paste a URL with no space in it for two hundred characters: the anchor
+   elides what it SHOWS (Core\View\TextLinker), but a single unbroken
+   60-character token still has to be allowed to break rather than push
+   the card wider than the phone holding it. */
+.groups-post-body {
+    overflow-wrap: anywhere;
+}
+
 /* Owned here rather than by Bootstrap's `d-inline-flex` utility, which is
    `display: inline-flex !important` and would make both of these
    impossible to hide. */

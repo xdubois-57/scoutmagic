@@ -53,8 +53,40 @@ class ReplyRepository
     }
 
     /**
+     * The $limit replies immediately BEFORE $beforeId, oldest first — the
+     * "Voir les commentaires précédents" direction, which is the one a
+     * long thread is read in: what was just said is on screen, and older
+     * comments are fetched backwards from there.
+     *
+     * Selected newest-first so the LIMIT takes the ones nearest the
+     * cursor, then reversed, because what is fetched last still has to be
+     * displayed first.
+     *
+     * @return Reply[]
+     */
+    public function findPageBefore(int $postId, int $limit, int $beforeId, bool $includeHidden = false): array
+    {
+        $hiddenClause = $includeHidden ? '' : ' AND hidden_at IS NULL';
+        // LIMIT interpolated rather than bound, for the reason findPage()
+        // gives below.
+        $stmt = $this->pdo->prepare(
+            'SELECT * FROM discussion_group_replies WHERE post_id = ? AND id < ?' . $hiddenClause
+            . ' ORDER BY id DESC LIMIT ' . $limit
+        );
+        $stmt->execute([$postId, $beforeId]);
+
+        return array_reverse(array_map([$this, 'hydrate'], $stmt->fetchAll(\PDO::FETCH_ASSOC)));
+    }
+
+    /**
      * One page of a post's replies, oldest first. $afterId is the last id
      * of the previous page, or null for the first page.
+     *
+     * The general read accessor for a post's replies — but no longer how
+     * the UI pages through them: a thread opens on its end and walks
+     * backwards (findPageBefore(), findLastForPosts()). Reaching for the
+     * $afterId cursor to paginate a thread again would put a reader back
+     * at the oldest comment, which is the thing that was wrong.
      *
      * @return Reply[]
      */
@@ -82,10 +114,17 @@ class ReplyRepository
     }
 
     /**
-     * The first $perPost replies of each of several posts, plus each
-     * post's total reply count — the feed's own "show the first few, offer
-     * Charger plus" need, in two queries for the whole page rather than
-     * two per post.
+     * The LAST $perPost replies of each of several posts, plus each post's
+     * total reply count — the feed's own "show the end of the
+     * conversation, offer the rest" need, in two queries for the whole
+     * page rather than two per post.
+     *
+     * The last, not the first: a thread of forty comments opened on its
+     * five oldest is a thread nobody can use, because the five that matter
+     * are the ones somebody wrote this morning and reaching them meant
+     * paging forward seven times. Ranked newest-first inside the window
+     * and ordered oldest-first outside it, so the SELECT takes the tail
+     * and the display still reads as a conversation.
      *
      * ROW_NUMBER() does the per-post limiting inside the database, so a
      * post with a thousand replies still transfers only $perPost of them.
@@ -95,9 +134,10 @@ class ReplyRepository
      * @param int[] $postIds
      * @return array{replies: array<int, Reply[]>, counts: array<int, int>}
      *         both keyed by post id; `replies` holds at most $perPost per
-     *         post, oldest first, and `counts` the true total.
+     *         post — the newest ones, in oldest-first display order — and
+     *         `counts` the true total.
      */
-    public function findFirstForPosts(array $postIds, int $perPost, bool $includeHidden = false): array
+    public function findLastForPosts(array $postIds, int $perPost, bool $includeHidden = false): array
     {
         if ($postIds === []) {
             return ['replies' => [], 'counts' => []];
@@ -113,7 +153,7 @@ class ReplyRepository
 
         $stmt = $this->pdo->prepare(
             "SELECT * FROM (
-                 SELECT *, ROW_NUMBER() OVER (PARTITION BY post_id ORDER BY id ASC) AS row_num
+                 SELECT *, ROW_NUMBER() OVER (PARTITION BY post_id ORDER BY id DESC) AS row_num
                  FROM discussion_group_replies
                  WHERE post_id IN ({$placeholders}){$hiddenClause}
              ) ranked
@@ -175,7 +215,7 @@ class ReplyRepository
         }
 
         $placeholders = implode(',', array_fill(0, count($postIds), '?'));
-        // Same rule as findFirstForPosts(): a hidden reply is excluded in
+        // Same rule as findLastForPosts(): a hidden reply is excluded in
         // SQL for everyone but a moderator, so a badge can never announce
         // something the reader would not find on opening the thread.
         $hiddenClause = $includeHidden ? '' : ' AND hidden_at IS NULL';

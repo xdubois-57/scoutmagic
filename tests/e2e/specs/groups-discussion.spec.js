@@ -265,6 +265,29 @@ test('a member writes in a discussion group: a message, a link, a poll, a reply 
     // the right plural.
     await expect(threadCount).toHaveText('1 commentaire');
 
+    // --- A URL typed in a comment is a real link.
+    //
+    // Only observable here: Core\View\TextLinker escapes the text and
+    // then builds the anchor around it, and whether that produced a
+    // working <a> or an escaped one is a question about rendered HTML
+    // that neither PHPUnit's string assertions nor jsdom-without-a-server
+    // can answer as directly.
+    await replyBox.fill('Le formulaire est ici ' + LINK_URL + ' merci !');
+    await firstPost.getByRole('button', { name: 'Envoyer la réponse' }).click();
+
+    await expect(firstPost.locator('.groups-reply')).toHaveCount(2);
+    const link = firstPost.locator('.groups-reply-bubble a').first();
+    await expect(link).toHaveAttribute('href', LINK_URL);
+    // User-generated content pointing at the open web: opened beside the
+    // conversation, and telling the destination nothing about where it
+    // was linked from.
+    await expect(link).toHaveAttribute('target', '_blank');
+    await expect(link).toHaveAttribute('rel', 'nofollow ugc noopener noreferrer');
+    // The sentence around it survived as text, and the trailing "!" is
+    // part of that sentence rather than part of the link.
+    await expect(firstPost.locator('.groups-reply-bubble').nth(1)).toContainText('Le formulaire est ici');
+    await expect(firstPost.locator('.groups-reply-bubble').nth(1)).toContainText('merci !');
+
     // --- 5. A reaction on that same message, and the dialog behind its
     // tally.
     //
@@ -305,15 +328,19 @@ test('a member writes in a discussion group: a message, a link, a poll, a reply 
     await expect(reloadedTextPost.locator('.groups-reaction-tally').first()).toContainText('1');
 
     // The conversation comes back folded, and counted — and carries no
-    // "nouveau" badge, because the only comment on it is this reader's
-    // own (Repository\ReplyRepository::countNewerForPosts()).
+    // "nouveau" badge, because every comment on it is this reader's own
+    // (Repository\ReplyRepository::countNewerForPosts()).
     const reloadedThread = reloadedTextPost.locator('details.groups-thread');
-    await expect(reloadedThread.locator('.groups-thread-count')).toHaveText('1 commentaire');
+    await expect(reloadedThread.locator('.groups-thread-count')).toHaveText('2 commentaires');
     await expect(reloadedThread.locator('.groups-thread-new')).toHaveCount(0);
-    await expect(reloadedThread.locator('.groups-reply-bubble')).toBeHidden();
+    await expect(reloadedThread.locator('.groups-reply-bubble').first()).toBeHidden();
 
     await reloadedThread.locator('summary').click();
-    await expect(reloadedThread.locator('.groups-reply-bubble')).toContainText('Parfait, je serai là.');
+    await expect(reloadedThread.locator('.groups-reply-bubble').first()).toContainText('Parfait, je serai là.');
+    // The link survived the round trip as a link, not as escaped text —
+    // the server rendered this one, the fragment above rendered the other.
+    await expect(reloadedThread.locator('.groups-reply-bubble a').first())
+        .toHaveAttribute('href', LINK_URL);
 
     // --- 7. And deleting everything brings the empty group back.
     //

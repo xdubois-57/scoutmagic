@@ -359,6 +359,75 @@ class GroupFeedServiceTest extends TestCase
         $this->assertCount(GroupFeedService::PAGE_SIZE, $page->posts);
     }
 
+    /**
+     * A thread opens on the END of the conversation. Showing its five
+     * oldest comments meant a busy post opened three weeks in the past,
+     * with seven clicks between the reader and what somebody wrote this
+     * morning — the one thing they came for.
+     */
+    public function testAThreadShowsTheMostRecentCommentsAndNotTheOldest(): void
+    {
+        $postId = GroupsTestHelper::createPostAt($this->pdo, $this->groupId, 'sujet', '2026-01-01 09:00:00');
+        for ($i = 1; $i <= \Modules\Groups\Service\ReplyService::PAGE_SIZE + 3; $i++) {
+            GroupsTestHelper::createReplyAt(
+                $this->pdo,
+                $postId,
+                'commentaire ' . $i,
+                (new \DateTimeImmutable('2026-01-01 10:00:00'))->modify('+' . $i . ' minutes')->format('Y-m-d H:i:s'),
+                1,
+                9
+            );
+        }
+
+        $row = $this->feedService->page($this->groupRepo->findById($this->groupId), $this->context(), false)->posts[0];
+
+        $bodies = array_map(static fn(array $r): string => $r['reply']->body, $row['replies']);
+
+        // The tail of the thread, still in reading order.
+        $this->assertSame('commentaire 4', $bodies[0]);
+        $this->assertSame('commentaire ' . (\Modules\Groups\Service\ReplyService::PAGE_SIZE + 3), end($bodies));
+        $this->assertCount(\Modules\Groups\Service\ReplyService::PAGE_SIZE, $bodies);
+        // …and the count is still the real one.
+        $this->assertSame(\Modules\Groups\Service\ReplyService::PAGE_SIZE + 3, $row['reply_count']);
+    }
+
+    /**
+     * The cursor points backwards: "Voir les commentaires précédents"
+     * resumes from the OLDEST comment on screen.
+     */
+    public function testTheThreadCursorResumesFromTheOldestCommentOnScreen(): void
+    {
+        $postId = GroupsTestHelper::createPostAt($this->pdo, $this->groupId, 'sujet', '2026-01-01 09:00:00');
+        for ($i = 1; $i <= \Modules\Groups\Service\ReplyService::PAGE_SIZE + 1; $i++) {
+            GroupsTestHelper::createReplyAt(
+                $this->pdo,
+                $postId,
+                'commentaire ' . $i,
+                (new \DateTimeImmutable('2026-01-01 10:00:00'))->modify('+' . $i . ' minutes')->format('Y-m-d H:i:s'),
+                1,
+                9
+            );
+        }
+
+        $row = $this->feedService->page($this->groupRepo->findById($this->groupId), $this->context(), false)->posts[0];
+
+        $this->assertSame($row['replies'][0]['reply']->id, $row['replies_prev_before_id']);
+    }
+
+    /**
+     * Everything already fits, so there is nothing before it and no
+     * button to offer.
+     */
+    public function testAShortThreadOffersNoCursorAtAll(): void
+    {
+        $postId = GroupsTestHelper::createPostAt($this->pdo, $this->groupId, 'sujet', '2026-01-01 09:00:00');
+        GroupsTestHelper::createReplyAt($this->pdo, $postId, 'seul commentaire', '2026-01-01 10:00:00', 1, 9);
+
+        $row = $this->feedService->page($this->groupRepo->findById($this->groupId), $this->context(), false)->posts[0];
+
+        $this->assertNull($row['replies_prev_before_id']);
+    }
+
     public function testAThreadCountsWhatArrivedSinceTheReaderLastOpenedTheGroup(): void
     {
         $feed = $this->feedServiceWithReadState();

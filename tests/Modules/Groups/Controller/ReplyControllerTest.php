@@ -515,7 +515,23 @@ class ReplyControllerTest extends GroupsControllerTestCase
         $this->assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM discussion_group_reply_reactions')->fetchColumn());
     }
 
-    public function testThePaginationEndpointReturnsOneOldestFirstPageAtATime(): void
+    /**
+     * A cursor is not optional here: this endpoint only ever fetches what
+     * came BEFORE something already on screen, and the feed renders the
+     * end of the thread itself. A request with no cursor is a malformed
+     * request, not a request for the first page.
+     */
+    public function testThePaginationEndpointRefusesARequestWithNoCursor(): void
+    {
+        $response = $this->controller([$this->memberId])->page(
+            new Request('GET', '/groups/1/posts/1/replies', [], [], [], []),
+            $this->params($this->postId)
+        );
+
+        $this->assertSame(400, $response->getStatusCode());
+    }
+
+    public function testThePaginationEndpointReturnsThePageBeforeTheCursor(): void
     {
         for ($i = 1; $i <= ReplyService::PAGE_SIZE + 2; $i++) {
             GroupsTestHelper::createReplyAt(
@@ -528,21 +544,26 @@ class ReplyControllerTest extends GroupsControllerTestCase
             );
         }
 
+        // The thread already shows the last PAGE_SIZE; this asks for what
+        // sits immediately before them.
+        $ids = $this->pdo->query('SELECT id FROM discussion_group_replies ORDER BY id ASC')
+            ->fetchAll(\PDO::FETCH_COLUMN);
+        $oldestOnScreen = (int) $ids[2];
+
         $response = $this->controller([$this->memberId])->page(
-            new Request('GET', '/groups/' . $this->groupId . '/posts/' . $this->postId . '/replies', [], [], [], []),
+            new Request('GET', '/groups/1/posts/1/replies', ['before' => (string) $oldestOnScreen], [], [], []),
             $this->params($this->postId)
         );
 
         $this->assertSame(200, $response->getStatusCode());
         $body = $response->getBody();
         $this->assertStringContainsString('réponse 1', $body);
-        $this->assertStringContainsString('réponse ' . ReplyService::PAGE_SIZE, $body);
-        // The page is capped, and the button to continue is present.
-        $this->assertStringNotContainsString('réponse ' . (ReplyService::PAGE_SIZE + 1), $body);
-        $this->assertStringContainsString('Voir plus de réponses', $body);
+        $this->assertStringContainsString('réponse 2', $body);
+        // Nothing older than these two, so no button to go further back.
+        $this->assertStringNotContainsString('Voir les commentaires précédents', $body);
     }
 
-    public function testThePaginationEndpointWalksToTheNextPageWithTheAfterCursor(): void
+    public function testThePaginationEndpointCapsThePageAndOffersToGoFurtherBack(): void
     {
         $ids = [];
         for ($i = 1; $i <= ReplyService::PAGE_SIZE + 2; $i++) {
@@ -556,17 +577,21 @@ class ReplyControllerTest extends GroupsControllerTestCase
             );
         }
 
+        // Ask from the very end, so a full page comes back with more
+        // still behind it.
         $response = $this->controller([$this->memberId])->page(
-            new Request('GET', '/groups/1/posts/1/replies', ['after' => (string) $ids[ReplyService::PAGE_SIZE - 1]], [], [], []),
+            new Request('GET', '/groups/1/posts/1/replies', ['before' => (string) $ids[count($ids) - 1]], [], [], []),
             $this->params($this->postId)
         );
 
         $body = $response->getBody();
+        // The page holds the PAGE_SIZE replies immediately before the
+        // cursor — and never reaches the very first one, which is what
+        // the button is for.
         $this->assertStringContainsString('réponse ' . (ReplyService::PAGE_SIZE + 1), $body);
-        $this->assertStringContainsString('réponse ' . (ReplyService::PAGE_SIZE + 2), $body);
+        $this->assertStringContainsString('réponse 2', $body);
         $this->assertStringNotContainsString('réponse 1<', $body);
-        // Nothing left after this page, so no button.
-        $this->assertStringNotContainsString('Voir plus de réponses', $body);
+        $this->assertStringContainsString('Voir les commentaires précédents', $body);
     }
 
     public function testThePaginationEndpointIs404ForANonMember(): void
