@@ -21,6 +21,7 @@ use Modules\Rental\Repository\RentalAssetRepository;
 use Modules\Rental\Service\RentalAssetService;
 use Modules\Rental\Service\RentalException;
 use Modules\Rental\Service\RentalManagerService;
+use Modules\Rental\Service\RentalAvailabilityService;
 use Modules\Rental\Service\RentalPricingService;
 use Twig\Environment;
 
@@ -60,7 +61,8 @@ class RentalConfigController extends AbstractController
         private MemberService $memberService,
         private ScoutYearService $scoutYearService,
         private SettingService $settingService,
-        private RentalPricingService $pricingService
+        private RentalPricingService $pricingService,
+        private RentalAvailabilityService $availabilityService
     ) {
         parent::__construct($twig);
     }
@@ -90,6 +92,9 @@ class RentalConfigController extends AbstractController
             'billing_units' => \Modules\Rental\Pricing\BillingUnit::all(),
             'fee_natures' => \Modules\Rental\Pricing\RentalFee::natures(),
             'pricing' => $pricingSettings,
+            'constraints' => $selected !== null
+                ? $this->availabilityService->constraintsFor($selected->id)
+                : null,
             // The simulator runs through the very same engine as the public
             // page and the contract (see RentalPricingController::simulate()),
             // which is the only thing that makes it a real guard-rail against

@@ -48,7 +48,7 @@ class ModuleManager
         private ?NotificationService $notificationService = null,
         private OfflineWhitelist $offlineWhitelist = new OfflineWhitelist(),
         // Whether THIS installation is the one statistics are reported to
-        // (ARCHITECTURE.md §8.48). Resolved by the composition root from
+        // (ARCHITECTURE.md §8.49). Resolved by the composition root from
         // Core\Statistics\DestinationMatcher::isReceiver(base_url,
         // statistics_destination) and passed in already decided —
         // deliberately not a SettingService lookup inside this class, which

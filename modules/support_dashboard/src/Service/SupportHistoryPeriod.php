@@ -10,7 +10,7 @@ namespace Modules\SupportDashboard\Service;
 
 /**
  * The history section's period selector: 6, 12, 24 months or everything,
- * defaulting to 12 (ARCHITECTURE.md §8.50).
+ * defaulting to 12 (ARCHITECTURE.md §8.51).
  *
  * Like every other piece of view state on this page it lives in the query
  * string and is **not persisted between visits** — no cookie, no local

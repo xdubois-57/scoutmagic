@@ -95,6 +95,20 @@ SectionPicker → section header (name/code, branch badge, count) → section st
 
 **import_journal**: `scout_year_id`, `user_account_id`, `line_count`, `new_functions_count`, `imported_at`.
 
+### 2.5.1 Usage-statistics entities
+
+Present on every installation, as `settings` keys rather than tables (ARCHITECTURE.md §8.47): `statistics_enabled`, `statistics_destination`, `statistics_installation_id`, `support_email`, `installed_at`, plus the three send-state keys `statistics_last_success_at`, `statistics_last_failure_at`, `statistics_last_failure_reason`. The authentication secret is **not** among them — it lives only in `secrets.enc`.
+
+Present only on the installation acting as receiver (`modules/support_dashboard`, §8.49):
+
+**support_installations**: `installation_id` (unique), `instance_url`, `secret_hash`, `payload` (JSON, the exact document received), `statistics_schema_version`, `first_seen_at`, `last_received_at`, plus denormalised copies of the payload fields the dashboard filters and sorts on (`scoutmagic_version`, `is_dev_build`, `active_members`, `active_sections`, `installation_method`, `auto_update_enabled`, `auto_update_level`, `scout_year_label`, `installed_at`, `last_upgraded_at`). **Every denormalised column is nullable, and NULL always means "not reported" — never 0 and never false.** One row per installation; each accepted report overwrites the previous one.
+
+**support_report_rate_limits**: `ip_hash`, `created_at`. Same shape and same rule as `human_check_rate_limits` — the raw address is never stored, only its blind index.
+
+**support_monthly_contributions**: `month`, `installation_id`, unique on the pair. A **working** table only: its rows for a month are deleted when that month is finalised.
+
+**support_monthly_aggregates**: `month` (unique), `installation_count`, `finalized_at`. Immutable once written, kept indefinitely, and holding **no individual identifier** — no installation id, no URL (§8.51).
+
 ### 2.6 Encryption strategy
 
 | Category | Storage | Search |
@@ -103,7 +117,9 @@ SectionPicker → section header (name/code, branch badge, count) → section st
 | Email (needs match) | BLOB + HMAC blind index | WHERE on blind index |
 | Section email (organizational) | Clear VARCHAR | Normal WHERE |
 | IDs, FKs, flags, timestamps | Clear | Normal WHERE |
-| Secrets (DB, SMTP) | `secrets.enc` file | N/A |
+| Secrets (DB, SMTP, statistics) | `secrets.enc` file | N/A |
+| Reporting installation URL / id | Clear VARCHAR | Normal WHERE |
+| Reporting installation's secret | `password_hash()` only | `password_verify()` |
 
 ## 3. Deployment
 

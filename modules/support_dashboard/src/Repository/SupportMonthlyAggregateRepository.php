@@ -10,7 +10,7 @@ namespace Modules\SupportDashboard\Repository;
 
 /**
  * The monthly history: a working table of contributions, and the immutable
- * aggregates it is collapsed into (ARCHITECTURE.md §8.50).
+ * aggregates it is collapsed into (ARCHITECTURE.md §8.51).
  */
 class SupportMonthlyAggregateRepository
 {

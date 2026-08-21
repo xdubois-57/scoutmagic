@@ -21,7 +21,7 @@ use Twig\Environment;
 
 /**
  * `/support-dashboard` (`role_min: superadmin`) — the receiver's view of
- * every installation reporting to it (ARCHITECTURE.md §8.49).
+ * every installation reporting to it (ARCHITECTURE.md §8.50).
  *
  * View state lives entirely in the query string: no cookie, no local
  * storage, no session. Arriving with no query string always yields the same
@@ -44,7 +44,7 @@ class SupportDashboardController extends AbstractController
         $filters = SupportDashboardFilters::fromQuery($request->getQueryAll());
 
         // The history takes its own period and nothing else: it must not
-        // move when a current-state filter does (ARCHITECTURE.md §8.50).
+        // move when a current-state filter does (ARCHITECTURE.md §8.51).
         return $this->render('@support_dashboard/index.html.twig', [
             'filters' => $filters,
             'view' => $this->dashboardService->buildView($filters),

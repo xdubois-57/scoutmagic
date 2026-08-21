@@ -17,7 +17,7 @@ use Modules\SupportDashboard\Repository\SupportMonthlyAggregateRepository;
 /**
  * Closes every calendar month that has ended and is not yet finalised
  * (`support_dashboard`/`finalize_monthly_aggregate`, daily,
- * self-rescheduling — ARCHITECTURE.md §8.50).
+ * self-rescheduling — ARCHITECTURE.md §8.51).
  *
  * It runs daily and finalises **every** eligible month rather than "last
  * month", which is what makes catch-up free: a receiver left idle for a

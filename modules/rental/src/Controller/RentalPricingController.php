@@ -16,6 +16,7 @@ use Core\Security\AuthSession;
 use Core\Security\CsrfGuard;
 use Modules\Rental\Pricing\PricingSettings;
 use Modules\Rental\Service\RentalException;
+use Modules\Rental\Service\RentalAvailabilityService;
 use Modules\Rental\Service\RentalPricingService;
 use Twig\Environment;
 
@@ -34,7 +35,8 @@ class RentalPricingController extends AbstractController
 {
     public function __construct(
         Environment $twig,
-        private RentalPricingService $pricingService
+        private RentalPricingService $pricingService,
+        private RentalAvailabilityService $availabilityService
     ) {
         parent::__construct($twig);
     }
@@ -201,6 +203,36 @@ class RentalPricingController extends AbstractController
             $this->pricingService->deleteFee($assetId, (int) $request->getBody('fee_id', 0));
 
             return 'Le frais a été supprimé.';
+        });
+    }
+
+    /**
+     * POST /admin/locations/constraints — what a visitor may ASK for.
+     *
+     * Its own section, deliberately separate from pricing: constraints
+     * decide whether a range may be requested, availability decides whether
+     * the asset is free, and conflating them is how a free day inside the
+     * notice window ends up shown as "occupé" (§6.7).
+     *
+     * @param array<string, string> $params
+     */
+    public function saveConstraints(Request $request, array $params): Response
+    {
+        return $this->guarded($request, function (int $assetId) use ($request): string {
+            $weekdays = $request->getBody('allowed_arrival_weekdays', []);
+
+            $this->availabilityService->saveConstraints(
+                $assetId,
+                max(0, (int) $request->getBody('min_nights', 0)),
+                max(0, (int) $request->getBody('max_nights', 0)),
+                max(0, (int) $request->getBody('min_notice_days', 0)),
+                max(0, (int) $request->getBody('max_horizon_days', 0)),
+                is_array($weekdays) ? $weekdays : [],
+                self::optionalInt($request->getBody('max_persons')),
+                max(0, (int) $request->getBody('buffer_nights', 0))
+            );
+
+            return 'Les règles de réservation ont été enregistrées.';
         });
     }
 

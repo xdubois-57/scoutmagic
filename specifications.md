@@ -125,6 +125,7 @@ All pages in this menu require the `superadmin` role, except Maintenance (`admin
 | Configuration RGPD | Choose the RGPD page's content mode: default reference text, custom rich text, or AI-generated from an admin-provided prompt (requires an AI connector module to be enabled). Auto-saved on every mode/content change; each mode tracks its own last real content-change date/time (UTC), never "today" on every view. |
 | Maintenance | Backups (on-demand + automatic, database-only/config-only/full, encrypted); update from GitHub releases (check/install with automatic rollback on failure); reset actions (settings to defaults, restore a backup, full reinstall) — each destructive action requires typing an exact confirmation word. |
 | Support | Usage-statistics switch and destination, with the plain-language explanation of what is reported and an explicit statement that the report is **not** anonymous (it carries the instance URL). Read-only state of the last successful and last failed/skipped send. Exact JSON preview of what would be sent, shown whether reporting is on or off. Diagnostic support package: generate on demand (background task, progress indicator, then a download link), the warning about what an archive can contain, and the configured support address. One package is kept at a time, encrypted at rest, superadmin-only, purged after 7 days, never transmitted automatically. Deliberately no bug-report form (no name, no contact email, no incident description) and no "next scheduled send". |
+| Tableau de bord support (module) | Present **only** on the ScoutMagic installation acting as statistics receiver — the module declares `receiver_only` and is filtered out of module discovery everywhere else. Table of the installations reporting in, with filters, free search, sort and pagination; five indicator cards and two current-state charts, all recomputed on the filtered set; a detail dialog carrying every metric plus the exact raw JSON of the last accepted report; XLSX export of the filtered set; manual deletion behind a confirmation; and a monthly-history chart independent of all of the above. `superadmin` only. |
 | Finances (module) | Accounts, categories, categorization rules, danger zone |
 | Galerie (module) | Storage location (local/S3), default location for new albums |
 | Calendrier (module) | Default view, supplementary calendars, ICS feed links |
@@ -537,3 +538,36 @@ Four nightly tasks, each with its own admin-configurable duration and none of th
 | Close inactive groups | A group with no post, reply or reaction for `groups_inactivity_close_months` (12 by default) is closed: read-only, still fully visible to its members. A group that never held anything is counted from its creation. A moderator may also close a group by hand. |
 | Purge posts | A post is deleted `groups_post_retention_months` (24 by default) after its last activity, with its replies, reactions, reports, media and cached link image — the files themselves, not only the rows. A pinned post is never purged, at any age. |
 | Purge closed groups | A closed group is deleted `groups_closed_purge_months` (12 by default) after its closure, gallery album included. A group of the current or a future scout year is never purged. |
+
+
+## 21. Usage statistics, support package and support dashboard (core + module support_dashboard)
+
+Three responsibilities that are deliberately **separate**, because each answers a different question, each has a different audience, and each fails independently of the other two. Conflating them is how a diagnostic archive ends up being transmitted automatically, or a telemetry switch ends up disabling a support tool.
+
+### 21.1 Usage statistics — what an installation reports, once a day
+
+An installation sends a small aggregated report to a configured destination, at most once per 24 hours. It exists so that a maintainer receiving a bug report can answer "what is actually running over there?" — PHP version, database engine, which modules at which versions, which hosting layout, real cron or poor-man's cron.
+
+**It is not anonymous, and the page says so in as many words.** The report carries the instance's own URL, because a report you cannot tie back to a site you are supporting is close to worthless. It carries **no member data of any kind**: no name, no email, no section, no individual activity, no file content, no module configuration value. Counts of active members and active sections are just that — counts.
+
+The switch is on the Support page, on by default, and offered again as a pre-checked box during first-time setup with a "voir ce qui sera envoyé" disclosure. **Turning it off disables sending and nothing else**: the Support page, the JSON preview and the support package all keep working. Nothing is ever sent retroactively for a period during which reporting was off.
+
+A send is skipped, never retried within the day, when: reporting is off; the installation is in development-update mode; its `base_url` host is not publicly resolvable (localhost, a bare IP, a `.local`/`.test`/`.localhost`/`.invalid`/`.internal` name); the installation *is* the receiver; a maintenance operation is in progress; or a send already succeeded in the last 24 hours. Skips are journaled with a reason; a skip is not a failure. There is deliberately **no "next scheduled send"** anywhere in the interface.
+
+### 21.2 Support package — a diagnostic archive the unit sends by hand, or not at all
+
+A superadmin can generate a ZIP of diagnostics on demand: the same statistics document, a database **structure** dump with no application rows, the settings, the last 48 hours of the event journal, the declared scheduled tasks, `phpinfo`, a filesystem listing, external-command availability, `.htaccess` files and readable logs.
+
+**Nothing is ever transmitted automatically** — no mail, no upload, no pre-filled attachment. The archive is generated locally, kept encrypted at rest, downloadable only by a superadmin, replaced each time a new one is generated, and purged after seven days. Exactly one is kept.
+
+The page warns, **before** any action, that the archive can contain information specific to the system, that it is not intended to contain personal data but that this cannot be guaranteed, and that its contents should be checked before sending — particularly the PHP information, the access and error logs, and the filesystem diagnostics. `phpinfo` is captured without its variables section, so no live session cookie or environment credential is in it. There is deliberately **no bug-report form**: no name, no contact email, no incident description.
+
+Each collector runs in isolation. A collector that fails, or that cannot run on a given host, is recorded in `collection-status.json` with a reason and never prevents the archive from being produced — on constrained shared hosting several will report "unavailable" permanently, and that is an expected result.
+
+### 21.3 Support dashboard — what the receiver does with the reports
+
+One ScoutMagic installation acts as the receiver. Its intake endpoint authenticates each sender with a bearer secret, registering an unknown installation on first contact and verifying every later report against the stored hash — the secret itself is never stored in clear anywhere. Unknown fields from a newer sender are kept verbatim and never cause a rejection.
+
+The dashboard shows one row per installation, defaulting to the active ones. **No view state is remembered between visits** — no filter, search, sort, page or period — so the page never opens on somebody else's stale filter, and it sets no cookie. **An absent value is shown as "Non renseigné", never as `0` or "Non"**: reports come from installations of differing versions, so "this sender could not measure it" is a permanent, first-class state.
+
+Installations go stale after a configurable number of days (still visible, behind a filter) and are deleted in full after a configurable number of months, or sooner by hand. A separate monthly history counts, per calendar month, how many distinct installations reported at least once. Once a month is finalised its aggregate is **immutable, holds no individual identifier at all, and is kept indefinitely** — a later deletion never rewrites it.

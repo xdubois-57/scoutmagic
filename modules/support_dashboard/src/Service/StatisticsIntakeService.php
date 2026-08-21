@@ -16,7 +16,7 @@ use Modules\SupportDashboard\Repository\SupportReportRateLimitRepository;
 
 /**
  * Accepts, authenticates and stores one incoming usage report
- * (ARCHITECTURE.md §8.48).
+ * (ARCHITECTURE.md §8.49).
  *
  * The whole endpoint is an unauthenticated entry point until the bearer
  * token is checked, so the order of operations matters as much as the
@@ -168,7 +168,7 @@ class StatisticsIntakeService
 
     /**
      * Notes that this installation contributed to the current calendar
-     * month (ARCHITECTURE.md §8.50). Repeated reports in the same month
+     * month (ARCHITECTURE.md §8.51). Repeated reports in the same month
      * collapse to one contribution, enforced by the table's unique index.
      *
      * Deliberately never fatal: the history is a nice-to-have next to

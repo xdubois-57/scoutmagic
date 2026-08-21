@@ -72,7 +72,7 @@ class SettingsController extends AbstractController
         // here, in any module's group. This page renders a value as plain
         // text next to its key, so displaying one would defeat the very
         // point of the type — the support package redacts it for exactly
-        // the same reason (ARCHITECTURE.md §8.47). No setting carries the
+        // the same reason (ARCHITECTURE.md §8.48). No setting carries the
         // type today; the filter exists before the first one does.
         foreach ($groups as $groupId => $group) {
             $groups[$groupId]['settings'] = array_values(array_filter(

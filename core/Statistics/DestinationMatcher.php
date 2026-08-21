@@ -10,7 +10,7 @@ namespace Core\Statistics;
 
 /**
  * Answers the single question "is this installation the statistics
- * receiver?" — the one place allowed to decide it (ARCHITECTURE.md §8.46).
+ * receiver?" — the one place allowed to decide it (ARCHITECTURE.md §8.47).
  *
  * The comparison is always between the configured `base_url` setting and
  * the configured `statistics_destination` setting, never against

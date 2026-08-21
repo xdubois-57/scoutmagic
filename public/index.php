@@ -690,7 +690,7 @@ $settingService->register('human_check_rate_limit_max_attempts', '5', 'number', 
     null, '^\d+$', null, true, 273);
 
 // Usage statistics and support package (Core\Statistics, Core\Support —
-// ARCHITECTURE.md §8.46/§8.47). All five are deliberately kept out of the
+// ARCHITECTURE.md §8.47/§8.48). All five are deliberately kept out of the
 // generic Configuration > Paramètres page (Core\Http\Controller\
 // SettingsController::EXCLUDED_FROM_GENERIC_PAGE, same treatment as the
 // auto-update settings) — they are managed from the dedicated Support
@@ -720,7 +720,7 @@ $settingService->register('statistics_last_failure_at', '', 'text', 'Dernier éc
 $settingService->register('statistics_last_failure_reason', '', 'text', 'Motif du dernier échec d\'envoi',
     'Motif court du dernier échec ou saut d\'envoi des statistiques. Renseigné automatiquement.',
     null, null, null, false, 287);
-// Support package bookkeeping (Core\Support, ARCHITECTURE.md §8.47) — one
+// Support package bookkeeping (Core\Support, ARCHITECTURE.md §8.48) — one
 // package is ever kept, so two settings replace what would be a one-row table.
 $settingService->register('support_package_file_id', '', 'text', 'Paquet de support disponible',
     'Identifiant du fichier de l\'archive de support actuellement conservée. Renseigné automatiquement.',
@@ -1288,7 +1288,7 @@ $offlineWhitelist = new OfflineWhitelist();
 // Create ModuleManager (modules loaded after core routes are registered)
 $modulesDir = __DIR__ . '/../modules';
 $moduleRegistryRepo = new ModuleRegistryRepository($pdo);
-// Is THIS installation the statistics receiver (ARCHITECTURE.md §8.48)?
+// Is THIS installation the statistics receiver (ARCHITECTURE.md §8.49)?
 // Decided from base_url vs. statistics_destination, never from the Host
 // header, and resolved here so ModuleManager receives a plain boolean
 // rather than learning what a statistics destination is.
@@ -1311,7 +1311,7 @@ $moduleManager = new ModuleManager(
     $isStatisticsReceiver
 );
 
-// Usage statistics (Core\Statistics, ARCHITECTURE.md §8.46). Built here
+// Usage statistics (Core\Statistics, ARCHITECTURE.md §8.47). Built here
 // because the payload needs the ModuleManager above (module list and
 // versions) and the MailService built earlier (transport mode, and whether
 // mail is configured — never the credentials themselves).
@@ -1611,7 +1611,7 @@ $router->addRoute('POST', '/config/settings/update', SettingsController::class, 
 $router->addRoute('POST', '/config/settings/logo-delete', SettingsController::class, 'deleteLogo', 'superadmin');
 $router->addRoute('POST', '/config/settings/logo-notify-ios', SettingsController::class, 'notifyIosLogoUpdate', 'superadmin');
 
-// Support (Core\Statistics, Core\Support — ARCHITECTURE.md §8.46/§8.47)
+// Support (Core\Statistics, Core\Support — ARCHITECTURE.md §8.47/§8.48)
 $router->addRoute('GET', '/config/support', SupportController::class, 'index', 'superadmin', ['label' => 'Support', 'parents' => [MenuBuilder::labelFor(MenuBuilder::MENU_CONFIGURATION)]]);
 $router->addRoute('POST', '/config/support/statistics', SupportController::class, 'saveStatistics', 'superadmin');
 $router->addRoute('POST', '/config/support/package', SupportController::class, 'generatePackage', 'superadmin');
@@ -2761,7 +2761,7 @@ if (in_array('groups', $moduleManager->getEnabledModuleIds(), true)) {
 }
 
 // Modules\SupportDashboard — the statistics receiver (ARCHITECTURE.md
-// §8.48). Only ever discovered on the receiving installation, so this block
+// §8.49). Only ever discovered on the receiving installation, so this block
 // is dead code everywhere else by construction.
 if (in_array('support_dashboard', $moduleManager->getEnabledModuleIds(), true)) {
     $supportInstallationRepo = new \Modules\SupportDashboard\Repository\SupportInstallationRepository($pdo);
@@ -3203,21 +3203,36 @@ if (in_array('rental', $moduleManager->getEnabledModuleIds(), true)) {
         $journalService
     );
 
+    // Occupancy sources. Empty today: bookings arrive in a later iteration
+    // and manual blocks in the one after, each registering its own provider
+    // here without anything else changing. An asset therefore reads as
+    // entirely free for now, which is honest rather than a stub.
+    $rentalOccupancyProviders = [];
+    $rentalAvailabilityService = new \Modules\Rental\Service\RentalAvailabilityService(
+        new \Modules\Rental\Availability\AvailabilityCalculator(),
+        new \Modules\Rental\Repository\RentalConstraintsRepository($pdo),
+        $rentalOccupancyProviders
+    );
+
     $frontController->registerController(
         \Modules\Rental\Controller\RentalConfigController::class,
         new \Modules\Rental\Controller\RentalConfigController(
             $twig, $rentalAssetRepository, $rentalAssetService, $rentalManagerService,
-            $memberService, $scoutYearService, $settingService, $rentalPricingService
+            $memberService, $scoutYearService, $settingService, $rentalPricingService,
+            $rentalAvailabilityService
         )
     );
     $frontController->registerController(
         \Modules\Rental\Controller\RentalPricingController::class,
-        new \Modules\Rental\Controller\RentalPricingController($twig, $rentalPricingService)
+        new \Modules\Rental\Controller\RentalPricingController(
+            $twig, $rentalPricingService, $rentalAvailabilityService
+        )
     );
     $frontController->registerController(
         \Modules\Rental\Controller\RentalPublicController::class,
         new \Modules\Rental\Controller\RentalPublicController(
-            $twig, $rentalAssetRepository, $rentalAuthorizationService, $scoutYearService
+            $twig, $rentalAssetRepository, $rentalAuthorizationService, $scoutYearService,
+            $rentalAvailabilityService, $rentalPricingService, new \Core\View\MonthGrid\DayStateGridBuilder()
         )
     );
     $frontController->registerController(

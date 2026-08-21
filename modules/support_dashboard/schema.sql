@@ -1,5 +1,5 @@
 -- Modules\SupportDashboard — the statistics receiver's own tables
--- (ARCHITECTURE.md §8.48).
+-- (ARCHITECTURE.md §8.49).
 --
 -- This module only ever exists on the installation that RECEIVES usage
 -- reports: `"receiver_only": true` in module.json keeps it out of
@@ -58,7 +58,7 @@ CREATE TABLE support_report_rate_limits (
     INDEX idx_support_report_rate_limits_lookup (ip_hash, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Monthly history (ARCHITECTURE.md §8.50). One row per calendar month, and
+-- Monthly history (ARCHITECTURE.md §8.51). One row per calendar month, and
 -- deliberately nothing else: how many DISTINCT installations reported at
 -- least once during it.
 --

@@ -10,7 +10,7 @@ namespace Core\Statistics;
 
 /**
  * The three `settings` keys recording the outcome of the last reporting
- * attempt (ARCHITECTURE.md §8.46).
+ * attempt (ARCHITECTURE.md §8.47).
  *
  * A tiny holder rather than constants on either side, because both the
  * writer (Core\Statistics\StatisticsSender) and the reader

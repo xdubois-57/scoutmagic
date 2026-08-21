@@ -13,7 +13,7 @@ use Core\Journal\JournalService;
 
 /**
  * Reports this installation's usage statistics to the configured receiver,
- * at most once a day (ARCHITECTURE.md §8.46).
+ * at most once a day (ARCHITECTURE.md §8.47).
  *
  * Everything interesting here is a guard. The transmission itself is a
  * single authenticated POST; what makes this class worth reading is the

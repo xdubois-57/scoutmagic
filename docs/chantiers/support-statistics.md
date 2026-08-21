@@ -5,7 +5,88 @@ Journal d'implémentation du document `CHANTIER-support-statistiques.md`
 les décisions prises en autonomie, les divergences constatées entre le
 document de chantier et le dépôt réel, et ce qui a été reporté.
 
-Le récapitulatif final se trouve en fin de fichier (IT-12).
+---
+
+## Récapitulatif final
+
+**Ce qui a été livré.** Les douze itérations, dans l'ordre, chacune sur sa
+branche et mergée en `--no-ff` une fois la suite verte :
+
+| # | Livré |
+|---|---|
+| IT-01 | Identité d'installation (id en `settings`, secret en `secrets.enc` uniquement), `DestinationMatcher`, cinq réglages, rattrapage d'`installed_at` |
+| IT-02 | `StatisticsPayloadBuilder` — payload complet, collecteurs indépendants, toute valeur indisponible à `null` |
+| IT-03 | Page `/config/support`, interrupteur, aperçu JSON, états d'envoi, case du setup, RGPD |
+| IT-04 | `StatisticsSender` + tâche quotidienne, six gardes, HTTPS obligatoire, motifs expurgés |
+| IT-05 | Pipeline du paquet de support : tâche de fond, ZIP chiffré, manifeste, README, purge |
+| IT-06 | Collecteurs applicatifs : structure DB, paramètres (+ type `secret`), journal 48 h, tâches |
+| IT-07 | Collecteurs système : `phpinfo` sans variables, filesystem, commandes, `.htaccess`, logs |
+| IT-08 | Module receveur `support_dashboard`, `receiver_only`, endpoint d'intake, TOFU, débit |
+| IT-09 | Tableau de bord : table responsive, filtres, recherche, tri, pagination, 5 cartes, 2 graphes, détail |
+| IT-10 | Export XLSX, seuil d'activité et rétention réglables, purge, suppression manuelle |
+| IT-11 | Historique mensuel : contributions, finalisation immuable, un graphe, sélecteur de période |
+| IT-12 | Documentation, vérification transverse, vérification de bout en bout |
+
+**Les décisions autonomes** sont listées itération par itération ci-dessous.
+Les plus structurantes, celles qu'un relecteur voudra contester en premier :
+
+1. **Le filtrage, le tri, la pagination et les agrégats du tableau de bord
+   se font en PHP, sur l'ensemble conservé, jamais partagés avec SQL**
+   (IT-09, décision 1). Motivé par le filtre « module activé » qui vit dans
+   le JSON, et surtout par le fait que cartes et graphes doivent porter sur
+   l'ensemble filtré. La sortie de secours est documentée en §8.50.
+2. **Les valeurs de filtre qui circulent dans l'URL sont des clés
+   techniques, jamais les libellés français affichés** (IT-09, décision 2).
+3. **Un réglage de seuil nul, négatif ou vide n'est pas obéi** et retombe
+   sur le défaut déclaré (IT-10, décision 1).
+4. **L'indépendance de l'historique vis-à-vis des filtres est structurelle**
+   — type distinct, méthode distincte, formulaire distinct — et non
+   déclarative (IT-11, décision 3).
+5. **Une tâche de purge des lignes de limitation de débit a été ajoutée**
+   sans que le document la demande (IT-08, décision 4) : sans elle la table
+   croît indéfiniment.
+
+**Divergences constatées avec le document de chantier :**
+
+- **Numérotation des sections d'`ARCHITECTURE.md`.** Le document réserve
+  §8.29 et §8.30 ; ces numéros étaient pris. Les sections ont été placées à
+  la suite des existantes, puis **renumérotées deux fois** au fil des
+  fusions avec `main` (des chantiers parallèles réclamaient les mêmes
+  numéros). État final : §8.47 à §8.51.
+- **Références de classes.** Plusieurs noms cités par le document
+  n'existaient pas tels quels dans le dépôt ; corrigés silencieusement et
+  notés dans l'itération concernée.
+- **`support_report_rate_limits`** n'a pas de colonne `form_key`,
+  contrairement au calque `HumanCheckRateLimitRepository` : il n'y a qu'un
+  seul formulaire ici (IT-08).
+- **`support_monthly_aggregates`** a reçu une clé primaire technique `id`
+  en plus de la contrainte d'unicité sur `month`, par cohérence avec le
+  reste du dépôt (IT-11).
+
+**Bug réel trouvé et corrigé en cours de route.** `PDOStatement::execute()`
+lie toute valeur d'un tableau en chaîne, et PHP convertit `false` en `''` :
+une colonne `BOOLEAN` recevait `''`, refusé par MySQL en mode strict. Un
+`auto_update_enabled: false` rapporté devenait indiscernable d'un champ
+absent — exactement la confusion que tout ce chantier interdit. Corrigé en
+IT-09, détecté par un test d'IT-09 sur du code d'IT-08.
+
+**Ce qui reste ouvert :**
+
+- **9 tests en échec dans `tests/Modules/Rental/`**, introduits par un
+  chantier parallèle sur `main` et **vérifiés comme préexistants** sur un
+  `git worktree` d'`origin/main` sans aucune modification de ce chantier
+  (chiffres identiques : `266 tests, 9 failures`). Hors périmètre ; signalé
+  plutôt que corrigé.
+- `SECURITY.md` ligne 332 renvoie à `§8.41` pour l'ajout temporaire de
+  membre, alors que cette section est `§8.42`. Erreur d'un chantier
+  parallèle, laissée telle quelle pour ne pas entrer en conflit avec lui.
+- **Pistes ultérieures (Annexe B du document, non retenues ici)** : résumé
+  des extensions PHP ; tests explicites d'inscriptibilité des répertoires ;
+  état des migrations de schéma ; résumé des versions de dépendances ;
+  résumé d'espace disque et de systèmes de fichiers ; résumé du statut de
+  la dernière mise à jour.
+
+Le détail par itération suit.
 
 ---
 
@@ -21,8 +102,8 @@ Le récapitulatif final se trouve en fin de fichier (IT-12).
   section §8.29 (statistiques) et §8.30 (paquet de support). Ces deux numéros
   sont **déjà pris** dans le dépôt (§8.29 « Account identity vs.
   notifications », §8.30 « Chip picker »). Les nouvelles sections prennent
-  donc les premiers numéros libres : **§8.46** (statistiques core), **§8.47**
-  (paquet de support) et **§8.48** (module receveur).
+  donc les premiers numéros libres : **§8.47** (statistiques core), **§8.48**
+  (paquet de support) et **§8.49** (module receveur).
 
 ---
 
@@ -51,7 +132,7 @@ Le récapitulatif final se trouve en fin de fichier (IT-12).
   `installed_at`) dans `public/index.php`, et exclusion des cinq du rendu
   générique de `Configuration > Paramètres`
   (`SettingsController::EXCLUDED_FROM_GENERIC_PAGE`).
-- `ARCHITECTURE.md` §8.46.
+- `ARCHITECTURE.md` §8.47.
 
 ### Décisions autonomes
 
@@ -114,7 +195,7 @@ Le récapitulatif final se trouve en fin de fichier (IT-12).
 - `MailService::getDeliveryMode()` / `isDeliveryConfigured()` — deux
   accesseurs de diagnostic qui répondent « smtp/local » et « configuré ou
   non » sans jamais exposer hôte, port, identifiant, mot de passe ni adresse.
-- `ARCHITECTURE.md` §8.46 complété (contenu du payload, propriétés,
+- `ARCHITECTURE.md` §8.47 complété (contenu du payload, propriétés,
   détermination de `installation.method` et de `scheduler.mode`).
 
 ### Décisions autonomes
@@ -241,7 +322,7 @@ Le récapitulatif final se trouve en fin de fichier (IT-12).
 - `Core\Statistics\StatisticsStateSettings` — les trois clés d'état d'envoi.
 - `Tests\Core\CronEntryPointTest` — nouveau test paramétré vérifiant que
   **chaque** handler core est enregistré dans les deux points d'entrée.
-- `ARCHITECTURE.md` §8.46 complété (transport, gardes, redaction, non-reprise).
+- `ARCHITECTURE.md` §8.47 complété (transport, gardes, redaction, non-reprise).
 
 ### Décisions autonomes
 
@@ -315,7 +396,7 @@ Le récapitulatif final se trouve en fin de fichier (IT-12).
   `superadmin`), indicateur de progression, `GET
   /api/support/package-status/{id}` interrogé par
   `public/assets/js/support-package.js`, puis lien de téléchargement.
-- `ARCHITECTURE.md` §8.47, `SECURITY.md` §5/§6, `specifications.md` §4.5.
+- `ARCHITECTURE.md` §8.48, `SECURITY.md` §5/§6, `specifications.md` §4.5.
 
 ### Décisions autonomes
 
@@ -349,7 +430,7 @@ Le récapitulatif final se trouve en fin de fichier (IT-12).
 
 - Le document numérote les sections `ARCHITECTURE.md` §8.30 pour le paquet de
   support ; ce numéro est occupé (voir « Conventions de travail »), la section
-  est §8.47.
+  est §8.48.
 
 ### Reporté volontairement
 
@@ -384,7 +465,7 @@ Le récapitulatif final se trouve en fin de fichier (IT-12).
 - `Connection::dumpCredentials()` remplace la lecture par `ReflectionClass`
   des propriétés privées dans `BackupService::connectionCredentials()`.
 - `AGENTS.md` (types de réglage, règle RGPD pour tout nouveau flux sortant),
-  `docs/module-development.md` (type `secret`), `ARCHITECTURE.md` §8.47.
+  `docs/module-development.md` (type `secret`), `ARCHITECTURE.md` §8.48.
 
 ### Décisions autonomes
 
@@ -436,7 +517,7 @@ Le récapitulatif final se trouve en fin de fichier (IT-12).
   « platform-aware »).
 - `LogsCollector` → `logs/` (48 h, plafond de 2 Mo par fichier, troncature
   signalée dans `collection-status.json`).
-- `ARCHITECTURE.md` §8.47, `SECURITY.md` §6.
+- `ARCHITECTURE.md` §8.48, `SECURITY.md` §6.
 
 ### Décisions autonomes — dont une correction de D-05
 
@@ -513,7 +594,7 @@ Le récapitulatif final se trouve en fin de fichier (IT-12).
   acceptés + avertis + conservés, champs optionnels absents en `NULL`.
 - Tâche `support_dashboard`/`purge_rate_limits` (quotidienne,
   auto-replanifiée).
-- `ARCHITECTURE.md` §7.1 et §8.48, `SECURITY.md` §4 et §5,
+- `ARCHITECTURE.md` §7.1 et §8.49, `SECURITY.md` §4 et §5,
   `docs/module-development.md`.
 
 ### Décisions autonomes
@@ -580,7 +661,7 @@ Le récapitulatif final se trouve en fin de fichier (IT-12).
 - Boîte de dialogue de détail : toutes les métriques plus le JSON brut
   exact du dernier rapport accepté, rendu **par Twig côté serveur** puis
   récupéré au clic.
-- `ARCHITECTURE.md` §8.49.
+- `ARCHITECTURE.md` §8.50.
 
 ### Décisions autonomes
 
@@ -656,7 +737,7 @@ Le récapitulatif final se trouve en fin de fichier (IT-12).
   métrique définie, statut actif/obsolète explicite et horodatage de
   dernière réception. Sans colonne JSON brut, sans email de contact, sans
   valeur dérivée « jours depuis le dernier rapport ».
-- `ARCHITECTURE.md` §8.49 complété.
+- `ARCHITECTURE.md` §8.50 complété.
 
 ### Décisions autonomes
 
@@ -721,7 +802,7 @@ Le récapitulatif final se trouve en fin de fichier (IT-12).
 - Section historique du tableau de bord : **un seul graphe** (ligne,
   installations ayant émis par mois), sélecteur de période 6 / 12 / 24 mois
   / tout l'historique, défaut 12, non persistant.
-- `ARCHITECTURE.md` §8.50.
+- `ARCHITECTURE.md` §8.51.
 
 ### Décisions autonomes
 
@@ -766,3 +847,100 @@ Le récapitulatif final se trouve en fin de fichier (IT-12).
   gabarit reste invisible tant que ce cache n'est pas vidé. Sans incidence
   sur les tests (qui construisent leur propre environnement), mais à savoir
   pour toute vérification visuelle.
+
+---
+
+## IT-12 — Passe finale
+
+### Documentation mise à jour
+
+- `ARCHITECTURE.md` : §8.47 (statistiques core), §8.48 (paquet de support),
+  §8.49 (module receveur), §8.50 (tableau de bord, état courant), §8.51
+  (historique mensuel) ; champ `receiver_only` en §7.1 ; `Core\Statistics/`
+  et `Core\Support/` dans l'arborescence du §12.
+- `SECURITY.md` : §4 (deuxième exception CSRF), §5 (stockage du secret,
+  chiffrement du ZIP), §6 (traitement du paquet : `superadmin`, un seul
+  conservé, purge à 7 jours), justification de la décision `phpinfo`
+  (D-05), justification du stockage en clair de l'URL d'instance côté
+  receveur.
+- `specifications.md` : ligne « Support » et ligne « Tableau de bord
+  support » dans le tableau §4.5, et nouvelle section fonctionnelle §21
+  décrivant les **trois responsabilités séparées**.
+- `AGENTS.md` : `setting_type = 'secret'`, et la règle « tout nouveau flux
+  sortant vers un tiers impose une mise à jour RGPD ».
+- `design.md` : §2.5.1 (entités de statistiques d'usage) et deux lignes
+  ajoutées à la table de stratégie de chiffrement §2.6.
+- `README.md` : page Support et archive de diagnostic dans la liste des
+  fonctionnalités.
+- `docs/module-development.md` : champ `receiver_only`, type de réglage
+  `secret`.
+- `CONTRIBUTING.md` : inchangé — aucune règle de contribution ne change.
+
+### Vérification transverse
+
+- **Enregistrement des handlers.** Les handlers de tâches core du chantier
+  sont enregistrés en un seul endroit, `Core\Scheduler\CoreTaskHandlers::
+  registerAll()`, appelé à l'identique par `public/index.php` et
+  `public/cron.php`. La parité est donc structurelle et non plus à
+  maintenir à la main — c'est précisément l'oubli que §8.17 rapporte comme
+  ayant déjà causé des échecs silencieux en production. L'amorçage de la
+  première instance (`schedule(...)` au démarrage) n'existe que dans
+  `index.php`, exactement comme le précédent `purge_notifications` : cron
+  exécute les tâches, il ne les amorce pas.
+- **Routes.** Les cinq routes du module et les quatre routes core ajoutées
+  portent toutes un `role_min` explicite. Vérifié programmatiquement.
+- **`.gitignore`.** `storage/**` couvre `storage/core/support/` — vérifié
+  par `git check-ignore`, pas supposé (SECURITY.md §12).
+- **Secrets.** Aucune valeur de secret en dur dans le code, les tests, les
+  fixtures ou les commentaires. `statistics_secret` n'apparaît que comme
+  nom de clé dans `secrets.enc`, jamais dans `settings`.
+- **Langue.** Aucun identifiant français dans le code du chantier, aucune
+  chaîne d'interface anglaise dans ses gabarits.
+
+### Vérification de bout en bout
+
+Scénario scripté et rejoué en fin de chantier — **25 contrôles, tous
+passants** :
+
+- résolution du receveur (équivalence `www.`, schéma et port ignorés,
+  sous-domaine distinct non équivalent, URL vide) ;
+- émission vers un receveur : première inscription, puis authentification
+  du rapport suivant, puis rejet en 401 d'un mauvais secret ;
+- champ inconnu accepté, signalé, et conservé verbatim dans le JSON brut ;
+- le secret n'apparaît ni en base ni au journal, sous aucune forme ;
+- requête en clair refusée, corps de 1 Mo refusé avant parsing ;
+- tableau de bord : vue par défaut, cinq indicateurs, deux graphes, un
+  filtre qui déplace simultanément table, compteurs et graphes ;
+- export réellement au format XLSX (conteneur ZIP), sans colonne JSON ni
+  email ;
+- historique : trois rapports d'une même installation dans le mois ⇒ une
+  contribution ; finalisation ; disparition des identifiants individuels ;
+  seconde finalisation sans effet ; suppression d'une installation sans
+  effet sur l'agrégat finalisé ; indépendance vis-à-vis des filtres.
+
+Les scénarios restants du §3 sont couverts par des tests nommés plutôt que
+par ce script, parce qu'ils y sont mieux à leur place :
+`SetupControllerTest` (case cochée / décochée, installation aboutissant
+dans les deux cas), `SupportPackageServiceTest::
+testAThrowingCollectorStillProducesTheArchiveAndIsReportedAsFailed` et
+`::testStatisticsJsonIsProducedEvenWhenReportingIsDisabled`.
+
+### Vérification visuelle
+
+Page `/support-dashboard` rendue et photographiée à **375 px** et
+**1280 px** (AGENTS.md § Tests) : aucun débordement horizontal du document
+aux deux largeurs (la table défile dans son propre conteneur
+`.table-responsive`), les trois graphes se dessinent, et une métrique non
+rapportée s'affiche bien « Non renseigné » et non `0`.
+
+### État des tests à la clôture
+
+- Suite du chantier : **325 tests, tous verts**.
+- `vendor/bin/phpstan analyse` : **aucune erreur**.
+- `npm run typecheck` : **aucune nouvelle anomalie**.
+- Suite complète du dépôt : **9 échecs, tous dans `tests/Modules/Rental/`**,
+  introduits par un chantier parallèle sur `main`. Vérifié sur un
+  `git worktree` d'`origin/main` **sans aucune modification de ce
+  chantier** : `266 tests, 9 failures`, chiffres identiques. Ces échecs
+  préexistent à la fusion et sont hors du périmètre de ce chantier ; ils
+  sont signalés au mainteneur plutôt que corrigés ici.

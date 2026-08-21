@@ -9,7 +9,7 @@ declare(strict_types=1);
 namespace Core\Support;
 
 /**
- * One diagnostic gathered into the support package (ARCHITECTURE.md §8.47).
+ * One diagnostic gathered into the support package (ARCHITECTURE.md §8.48).
  *
  * A collector writes whatever it can into the context and returns. It never
  * decides whether the package is produced: Core\Support\SupportPackageService
