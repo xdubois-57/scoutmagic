@@ -29,7 +29,10 @@ declare(strict_types=1);
  *   provision <instance> <port>
  *                              Build the throwaway application instance
  *                              at <instance> and its database, ready to
- *                              be served on 127.0.0.1:<port>.
+ *                              be served on 127.0.0.1:<port>, with EVERY
+ *                              module the repository ships activated —
+ *                              see e2e_activate_all_modules() for why all
+ *                              of them and not just the default three.
  *   teardown-db                Drop every table of the E2E database and
  *                              the database itself.
  *   merge-coverage <dir> <out> Fold every per-request coverage fragment
@@ -44,58 +47,76 @@ declare(strict_types=1);
  * @see scripts/e2e.sh
  */
 
-if (PHP_SAPI !== 'cli') {
-    fwrite(STDERR, "e2e-support.php is a CLI script.\n");
-    exit(1);
+// Defined by tests/Core/System/E2eActivationOrderTest.php before it
+// requires this file, exactly as tests/Bootstrap/BootstrapTest.php does
+// with bootstrap/bootstrap.php: the pure helpers below are worth testing,
+// and the command dispatcher must not run when they are.
+if (!defined('E2E_SUPPORT_TEST')) {
+    e2e_support_main($argv);
 }
 
-$repoRoot = dirname(__DIR__);
-
-$command = $argv[1] ?? '';
-
-switch ($command) {
-    case 'free-port':
-        echo e2e_free_port(), "\n";
-        exit(0);
-
-    case 'wait-http':
-        $url = $argv[2] ?? '';
-        $timeoutSeconds = (int) ($argv[3] ?? 30);
-        if ($url === '' || $timeoutSeconds <= 0) {
-            fwrite(STDERR, "Usage: e2e-support.php wait-http <url> <timeout-seconds>\n");
-            exit(1);
-        }
-        exit(e2e_wait_http($url, $timeoutSeconds) ? 0 : 1);
-
-    case 'provision':
-        $instanceDir = $argv[2] ?? '';
-        $port = (int) ($argv[3] ?? 0);
-        if ($instanceDir === '' || $port <= 0) {
-            fwrite(STDERR, "Usage: e2e-support.php provision <instance-dir> <port>\n");
-            exit(1);
-        }
-        require_once $repoRoot . '/vendor/autoload.php';
-        e2e_provision($repoRoot, $instanceDir, $port);
-        exit(0);
-
-    case 'teardown-db':
-        require_once $repoRoot . '/vendor/autoload.php';
-        e2e_teardown_database();
-        exit(0);
-
-    case 'merge-coverage':
-        $coverageDir = $argv[2] ?? '';
-        $outputPath = $argv[3] ?? '';
-        if ($coverageDir === '' || $outputPath === '') {
-            fwrite(STDERR, "Usage: e2e-support.php merge-coverage <fragment-dir> <clover-output>\n");
-            exit(1);
-        }
-        require_once $repoRoot . '/vendor/autoload.php';
-        exit(e2e_merge_coverage($repoRoot, $coverageDir, $outputPath) ? 0 : 1);
-
-    default:
-        fwrite(STDERR, "Unknown command: '{$command}'. See this file's header for the command list.\n");
+/**
+ * Every side effect this file has: reads argv, writes to the streams,
+ * exits. Nothing below it does any of the three except the provisioning
+ * steps it calls.
+ *
+ * @param string[] $argv
+ */
+function e2e_support_main(array $argv): void
+{
+    if (PHP_SAPI !== 'cli') {
+        fwrite(STDERR, "e2e-support.php is a CLI script.\n");
         exit(1);
+    }
+
+    $repoRoot = dirname(__DIR__);
+
+    $command = $argv[1] ?? '';
+
+    switch ($command) {
+        case 'free-port':
+            echo e2e_free_port(), "\n";
+            exit(0);
+
+        case 'wait-http':
+            $url = $argv[2] ?? '';
+            $timeoutSeconds = (int) ($argv[3] ?? 30);
+            if ($url === '' || $timeoutSeconds <= 0) {
+                fwrite(STDERR, "Usage: e2e-support.php wait-http <url> <timeout-seconds>\n");
+                exit(1);
+            }
+            exit(e2e_wait_http($url, $timeoutSeconds) ? 0 : 1);
+
+        case 'provision':
+            $instanceDir = $argv[2] ?? '';
+            $port = (int) ($argv[3] ?? 0);
+            if ($instanceDir === '' || $port <= 0) {
+                fwrite(STDERR, "Usage: e2e-support.php provision <instance-dir> <port>\n");
+                exit(1);
+            }
+            require_once $repoRoot . '/vendor/autoload.php';
+            e2e_provision($repoRoot, $instanceDir, $port);
+            exit(0);
+
+        case 'teardown-db':
+            require_once $repoRoot . '/vendor/autoload.php';
+            e2e_teardown_database();
+            exit(0);
+
+        case 'merge-coverage':
+            $coverageDir = $argv[2] ?? '';
+            $outputPath = $argv[3] ?? '';
+            if ($coverageDir === '' || $outputPath === '') {
+                fwrite(STDERR, "Usage: e2e-support.php merge-coverage <fragment-dir> <clover-output>\n");
+                exit(1);
+            }
+            require_once $repoRoot . '/vendor/autoload.php';
+            exit(e2e_merge_coverage($repoRoot, $coverageDir, $outputPath) ? 0 : 1);
+
+        default:
+            fwrite(STDERR, "Unknown command: '{$command}'. See this file's header for the command list.\n");
+            exit(1);
+    }
 }
 
 /**
@@ -364,8 +385,8 @@ function e2e_provision(string $repoRoot, string $instanceDir, int $port): void
     // Those dumps are of the throwaway E2E database and are worthless the
     // moment the run ends; scripts/e2e.sh removes exactly the ones the run
     // created, and it does so around the whole run rather than here,
-    // because the first HTTP request migrates too (every module enabled by
-    // default applies its own schema.sql on first boot).
+    // because the module activation below migrates too (every module
+    // applies its own schema.sql as it is switched on).
     $result = $migrationRunner()->migrate([$schemaPath]);
 
     if (!$result->complete) {
@@ -396,7 +417,144 @@ function e2e_provision(string $repoRoot, string $instanceDir, int $port): void
     // otherwise empty install.
     e2e_create_super_admin($connection, $encryptionKey, $blindIndexKey, $adminEmail, e2e_admin_password());
 
+    // --- Every module, activated the way an admin activates one. ---
+    $activated = e2e_activate_all_modules($repoRoot, $connection, $migrationRunner());
+
     echo "E2E instance provisioned at {$instanceDir} (database '{$config['name']}', port {$port}).\n";
+    echo 'E2E: ' . count($activated) . ' modules activated: ' . implode(', ', $activated) . ".\n";
+}
+
+/**
+ * Activate every module the repository ships, through the application's
+ * own Core\Module\ModuleManager::activate() — the same call the admin
+ * modules page makes, so each module's schema.sql, default settings,
+ * registry row and journal entry all land exactly as they do on a real
+ * install.
+ *
+ * Why all of them rather than the three `enabled_by_default` ones: the
+ * E2E harness exists to answer "does the application boot and serve a
+ * page", and public/index.php wires EVERY enabled module into the front
+ * controller before it routes anything. A module left disabled here is a
+ * block of that wiring no browser test ever executes — which is not
+ * theoretical: a controller constructor whose type hint named a class
+ * that did not exist took every route on the live site to HTTP 500, and
+ * the E2E suite stayed green because the module concerned was not one of
+ * the three (see Tests\Core\System\TypeHintResolutionTest, the unit-level
+ * twin of this).
+ *
+ * Fails closed: a module that cannot be activated aborts provisioning
+ * with its own message, rather than quietly leaving the run with less
+ * coverage than it claims.
+ *
+ * @return string[] the module ids activated, in the order they were
+ */
+function e2e_activate_all_modules(
+    string $repoRoot,
+    Core\Database\Connection $connection,
+    Core\Database\MigrationRunner $migrationRunner
+): array {
+    $pdo = $connection->getPdo();
+    $modulesDir = $repoRoot . '/modules';
+
+    $moduleManager = new Core\Module\ModuleManager(
+        $modulesDir,
+        new Core\Config\SettingService(new Core\Config\SettingRepository($pdo)),
+        new Core\Cookie\CookieConsentService(),
+        new Core\View\MenuBuilder(Core\Security\Role::SUPERADMIN),
+        new Core\Module\ModuleRegistryRepository($pdo),
+        $migrationRunner,
+        new Core\Journal\JournalService(new Core\Journal\JournalRepository($pdo)),
+        new Core\Http\Router()
+    );
+
+    // discoverModules() returns a LIST (sorted by the admin's own module
+    // order), so the id comes from each manifest, never from the key.
+    $requirements = [];
+    foreach ($moduleManager->discoverModules() as $module) {
+        if (!$module->presentOnDisk) {
+            continue;
+        }
+
+        $moduleId = $module->manifest->id;
+
+        if ($module->validationError !== null) {
+            fwrite(
+                STDERR,
+                "E2E provisioning failed: module '{$moduleId}' has an invalid module.json — {$module->validationError}\n"
+            );
+            exit(1);
+        }
+
+        $requirements[$moduleId] = $module->manifest->requires;
+    }
+
+    $order = e2e_module_activation_order($requirements);
+    if ($order === null) {
+        fwrite(
+            STDERR,
+            "E2E provisioning failed: the modules' `requires` declarations do not form an installable order "
+            . "(a cycle, or a module requiring one that is not on disk).\n"
+        );
+        exit(1);
+    }
+
+    foreach ($order as $moduleId) {
+        try {
+            // null activator: a system-initiated activation, exactly like
+            // the enabled_by_default auto-activation index.php performs.
+            $moduleManager->activate($moduleId, null);
+        } catch (Throwable $e) {
+            fwrite(STDERR, "E2E provisioning failed: module '{$moduleId}' could not be activated — {$e->getMessage()}\n");
+            exit(1);
+        }
+    }
+
+    return $order;
+}
+
+/**
+ * The order modules have to be activated in for every module's hard
+ * dependencies to already be enabled when its turn comes —
+ * Core\Module\ModuleManager::activate() refuses a module whose
+ * requirements are unmet, so "all of them, alphabetically" is not good
+ * enough (groups requires gallery).
+ *
+ * Alphabetical among the modules that are ready at each step, so the same
+ * repository always produces the same order and a failure is reproducible.
+ * Returns null when no order exists: a dependency cycle, or a module
+ * requiring one that is not on disk.
+ *
+ * Pure, and tested as such — see tests/Core/System/E2eActivationOrderTest.php.
+ *
+ * @param array<string, string[]> $requirements module id => required module ids
+ * @return string[]|null
+ */
+function e2e_module_activation_order(array $requirements): ?array
+{
+    $pending = $requirements;
+    $order = [];
+
+    while ($pending !== []) {
+        $ready = [];
+        foreach ($pending as $moduleId => $requires) {
+            $unmet = array_filter($requires, static fn(string $required): bool => !in_array($required, $order, true));
+            if ($unmet === []) {
+                $ready[] = $moduleId;
+            }
+        }
+
+        if ($ready === []) {
+            return null;
+        }
+
+        sort($ready);
+        foreach ($ready as $moduleId) {
+            $order[] = $moduleId;
+            unset($pending[$moduleId]);
+        }
+    }
+
+    return $order;
 }
 
 /**

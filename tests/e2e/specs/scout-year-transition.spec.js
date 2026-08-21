@@ -49,13 +49,13 @@
 // a file upload, a module being switched on mid-flight, and a multi-request
 // stateful workflow.
 //
-// This scenario deliberately mutates global instance state (it enables a
-// module, moves the public year, and imports members): that is the feature
-// under test. Every `npm run e2e` provisions a fresh database, and the
-// suite runs on a single worker, so nothing leaks between runs — but a
-// future scenario that depends on the public year, or on the Inscriptions
-// module being off, must not assume it still is what the harness
-// provisioned.
+// This scenario deliberately mutates global instance state (it switches a
+// module off and back on, moves the public year, and imports members):
+// that is the feature under test. Every `npm run e2e` provisions a fresh
+// database with every module activated, and the suite runs on a single
+// worker, so nothing leaks between runs — but a future scenario that
+// depends on the public year, or on which modules are on, must not assume
+// it still is what the harness provisioned.
 //
 // No year label is ever hardcoded: ScoutYearService derives them from the
 // calendar, so a hardcoded "2025-2026" would start failing on its own in
@@ -173,6 +173,39 @@ async function stepKeys(page) {
     );
 }
 
+/**
+ * Switch one module on or off through the real Modules page, and wait for
+ * the stored state to come back — never the click the browser just
+ * registered.
+ *
+ * The toggle is a fetch() followed by window.location.reload(), landing
+ * back on the page we are already on, so waiting on the URL would resolve
+ * instantly against the pre-submit DOM (same reasoning as toggleStep()).
+ *
+ * @param {import('@playwright/test').Page} page
+ * @param {string} moduleName the module's name as the page labels it
+ * @param {boolean} enabled
+ */
+async function toggleModule(page, moduleName, enabled) {
+    const label = `Activer ou désactiver le module ${moduleName}`;
+
+    await page.goto('/config/modules', { waitUntil: 'domcontentloaded' });
+    await Promise.all([
+        page.waitForResponse((response) => response.url().includes('/config/modules/toggle')),
+        enabled
+            ? page.getByRole('checkbox', { name: label }).check()
+            : page.getByRole('checkbox', { name: label }).uncheck(),
+    ]);
+    await page.waitForLoadState('domcontentloaded');
+
+    const checkbox = page.getByRole('checkbox', { name: label });
+    if (enabled) {
+        await expect(checkbox).toBeChecked();
+    } else {
+        await expect(checkbox).not.toBeChecked();
+    }
+}
+
 test('the whole site transitions to the next scout year through the documented workflow', async ({ page }) => {
     /** @type {string[]} */
     const pageErrors = [];
@@ -198,17 +231,31 @@ test('the whole site transitions to the next scout year through the documented w
     await expect(page.getByRole('heading', { level: 1, name: 'Année scoute' })).toBeVisible();
 
     // ---------------------------------------------------------------
-    // Graceful degradation (ARCHITECTURE.md §7.5). The harness
-    // provisions the instance with Inscriptions off (it is not
-    // enabled_by_default), so the three steps that module owns — and the
-    // whole "Préparation" phase, which is nothing but those three — are
-    // simply not there. Not greyed out: absent.
+    // Graceful degradation (ARCHITECTURE.md §7.5), driven in both
+    // directions. The harness provisions the instance with EVERY module
+    // activated (scripts/e2e-support.php), so the workflow starts whole —
+    // and the way to prove a step really belongs to its module is to take
+    // that module away and watch the step go, then give it back.
     // ---------------------------------------------------------------
+    await expect(phase(page, 'preparation')).toHaveCount(1);
+    for (const key of ['departures', 'passage', 'confirm_registrations']) {
+        await expect(step(page, key)).toHaveCount(1);
+    }
+
+    // Switch Inscriptions OFF through the real Modules page.
+    await toggleModule(page, 'Inscriptions', false);
+
+    await page.goto('/admin/scout-year', { waitUntil: 'domcontentloaded' });
+
+    // The three steps that module owns — and the whole "Préparation"
+    // phase, which is nothing but those three — are now simply not there.
+    // Not greyed out: absent.
     await expect(phase(page, 'preparation')).toHaveCount(0);
     for (const key of ['departures', 'passage', 'confirm_registrations']) {
         await expect(step(page, key)).toHaveCount(0);
     }
-    // Calendrier and Trombinoscope *are* enabled by default, so theirs are.
+    // Calendrier's and Trombinoscope's steps are untouched: switching one
+    // module off never costs another module its own contribution.
     await expect(step(page, 'ephemerides')).toHaveCount(1);
     await expect(step(page, 'trombinoscope')).toHaveCount(1);
 
@@ -220,22 +267,10 @@ test('the whole site transitions to the next scout year through the documented w
     await expect(step(page, shortWorkflow[0]).locator('.step-circle')).toHaveText('1');
 
     // ---------------------------------------------------------------
-    // Switch Inscriptions on, through the real Modules page, and the
-    // workflow grows its preparation phase back.
+    // Switch Inscriptions back on, and the workflow grows its preparation
+    // phase back — the rest of the scenario runs on the whole workflow.
     // ---------------------------------------------------------------
-    await page.goto('/config/modules', { waitUntil: 'domcontentloaded' });
-    // Same reasoning as toggleStep(): the toggle is a fetch() followed by
-    // window.location.reload(), landing back on the page we are already on.
-    await Promise.all([
-        page.waitForResponse((response) => response.url().includes('/config/modules/toggle')),
-        page.getByRole('checkbox', { name: 'Activer ou désactiver le module Inscriptions' }).check(),
-    ]);
-    await page.waitForLoadState('domcontentloaded');
-    // Survives the reload the toggle triggers, so this is the module's
-    // stored state and not the click the browser just registered. What it
-    // actually did to the workflow is asserted on the next page.
-    await expect(page.getByRole('checkbox', { name: 'Activer ou désactiver le module Inscriptions' }))
-        .toBeChecked();
+    await toggleModule(page, 'Inscriptions', true);
 
     await page.goto('/admin/scout-year', { waitUntil: 'domcontentloaded' });
 

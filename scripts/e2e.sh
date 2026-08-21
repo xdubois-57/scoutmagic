@@ -18,8 +18,10 @@ set -euo pipefail
 #   2. Resolve the MySQL server to use, starting a throwaway Docker
 #      container if none is reachable and Docker is available.
 #   3. Provision a throwaway instance directory + a dedicated, empty E2E
-#      database (scripts/e2e-support.php provision — see its header for
-#      why the instance is a directory of its own).
+#      database, with EVERY module the repository ships activated
+#      (scripts/e2e-support.php provision — see its header for why the
+#      instance is a directory of its own, and e2e_activate_all_modules()
+#      for why all the modules and not just the default three).
 #   4. Start `php -S` on a free local port, document root = the instance's
 #      public/.
 #   5. Poll (never sleep) until the server answers.
