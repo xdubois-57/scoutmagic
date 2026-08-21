@@ -14,6 +14,25 @@
       "menu": "notre_unite",
       "role_min": "public",
       "label": ""
+    },
+    {
+      "path": "/support-dashboard",
+      "method": "GET",
+      "controller": "Modules\\SupportDashboard\\Controller\\SupportDashboardController",
+      "action": "index",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": "Tableau de bord support",
+      "breadcrumb": { "label": "Tableau de bord support", "parents": ["Configuration"] }
+    },
+    {
+      "path": "/support-dashboard/installations/{id}",
+      "method": "GET",
+      "controller": "Modules\\SupportDashboard\\Controller\\SupportDashboardController",
+      "action": "detail",
+      "menu": "configuration",
+      "role_min": "superadmin",
+      "label": ""
     }
   ],
   "settings": [],

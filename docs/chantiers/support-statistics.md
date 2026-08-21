@@ -553,3 +553,81 @@ Le récapitulatif final se trouve en fin de fichier (IT-12).
   filtres, les indicateurs et les graphes arrivent en IT-09.
 - Aucun dispositif de blocage ou de liste noire d'IP (hors périmètre,
   Annexe A).
+
+---
+
+## IT-09 — Tableau de bord : état courant
+
+### Implémenté
+
+- Page `/support-dashboard` (`role_min: superadmin`, menu `configuration`)
+  et `GET /support-dashboard/installations/{id}` pour le corps de la boîte
+  de dialogue de détail.
+- `SupportDashboardFilters` : tout l'état de vue est construit depuis la
+  seule chaîne de requête (aucun cookie, aucun stockage local, aucune
+  session). `queryString()` reconstruit les liens de tri et de pagination
+  sans jamais perdre un filtre en cours.
+- `SupportDashboardService` : filtrage, recherche, tri, pagination,
+  cinq cartes d'indicateurs et deux graphes, tous recalculés **sur
+  l'ensemble filtré**.
+- Filtres : statut actif/obsolète, version/build, méthode d'installation,
+  mode de mise à jour automatique, module + état d'activation du module.
+  Recherche libre sur URL, identifiant, version/build, année scoute.
+- Tri sur dernière réception, membres actifs, version/build, date
+  d'installation, URL. Pagination à 25.
+- Table responsive par palier (mobile → xxl) conforme au document,
+  URL cliquable en `target="_blank" rel="noopener noreferrer"`.
+- Boîte de dialogue de détail : toutes les métriques plus le JSON brut
+  exact du dernier rapport accepté, rendu **par Twig côté serveur** puis
+  récupéré au clic.
+- `ARCHITECTURE.md` §8.44.
+
+### Décisions autonomes
+
+1. **Filtrage, tri, pagination et agrégats se font en PHP, jamais en
+   SQL.** Le filtre « ce module est-il activé » vit dans le JSON stocké :
+   en SQL cela impose `JSON_CONTAINS`, propre à MySQL, donc intestable.
+   Surtout, cartes et graphes doivent porter sur l'ensemble filtré —
+   séparer le filtre (SQL) des agrégats (PHP) est précisément ainsi qu'une
+   table et ses propres compteurs finissent par se contredire.
+2. **Les valeurs de filtre qui circulent dans l'URL sont des clés
+   techniques, jamais les libellés français affichés.** Le filtre de mise à
+   jour automatique voyage en `disabled`/`patch`/`minor`/`major` ; le
+   libellé est produit une seule fois, au rendu. Une URL n'est pas un
+   artefact de traduction. (Corrigé au cours de l'itération : la première
+   version comparait sur la chaîne `désactivées`.)
+3. **Une valeur absente trie toujours en dernier, dans les deux sens.**
+   L'enterrer sous un tri décroissant serait le même mensonge que de
+   l'afficher `0`.
+4. **Le corps de la boîte de dialogue est rendu par Twig et récupéré au
+   clic**, plutôt qu'embarqué une fois par ligne : une page de vingt-cinq
+   installations transporterait sinon vingt-cinq payloads JSON complets.
+   Bénéfice secondaire : aucune valeur émanant d'une installation distante
+   n'est assemblée en HTML côté client (SECURITY.md §28).
+5. **Le seuil d'activité reste la constante
+   `SupportDashboardService::ACTIVE_THRESHOLD_DAYS = 14`**, lue par une
+   méthode `protected activeThresholdDays()` — le réglage
+   `support_active_threshold_days` d'IT-10 n'aura qu'à la surcharger.
+6. **Pas de test Vitest pour `support-dashboard.js`.** Le script est de la
+   colle DOM : il transmet des séries calculées côté serveur à Chart.js et
+   injecte un fragment HTML rendu par Twig. Aucune logique indépendante à
+   isoler (AGENTS.md § Tests admet explicitement ce cas). `npm run
+   typecheck` couvre les signatures.
+
+### Divergence / correction hors périmètre apparent
+
+- **Bug réel corrigé dans `SupportInstallationRepository` (IT-08).**
+  `PDOStatement::execute()` lie toute valeur d'un tableau en chaîne, et PHP
+  convertit `false` en `''` : une colonne `BOOLEAN` recevait donc `''`,
+  refusé par MySQL en mode strict et stocké en SQLite comme une chaîne vide
+  relue ensuite en « non renseigné ». Un `auto_update_enabled: false`
+  rapporté devenait indiscernable d'un champ absent — exactement la
+  confusion que tout ce chantier interdit. Les booléens sont désormais
+  convertis en entiers au moment du bind. Détecté par le test de filtre
+  d'IT-09, corrigé ici plutôt que reporté.
+
+### Reporté volontairement
+
+- Réglages `support_active_threshold_days` / `support_retention_months`,
+  export XLSX, rétention automatique et suppression manuelle : IT-10.
+- Section historique et son unique graphe : IT-11.

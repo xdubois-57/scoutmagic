@@ -129,6 +129,18 @@ class Request
         return $this->body;
     }
 
+    /**
+     * The full query array — the twin of getBodyAll(), for a caller that
+     * builds its whole view state from the query string at once
+     * (Modules\SupportDashboard\Service\SupportDashboardFilters).
+     *
+     * @return array<string, mixed>
+     */
+    public function getQueryAll(): array
+    {
+        return $this->query;
+    }
+
     public function getCookie(string $key, mixed $default = null): mixed
     {
         return $this->cookies[$key] ?? $default;

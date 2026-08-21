@@ -2613,6 +2613,14 @@ if (in_array('support_dashboard', $moduleManager->getEnabledModuleIds(), true)) 
     $supportRateLimitRepo = new \Modules\SupportDashboard\Repository\SupportReportRateLimitRepository($pdo);
 
     $frontController->registerController(
+        \Modules\SupportDashboard\Controller\SupportDashboardController::class,
+        new \Modules\SupportDashboard\Controller\SupportDashboardController(
+            $twig,
+            new \Modules\SupportDashboard\Service\SupportDashboardService($supportInstallationRepo)
+        )
+    );
+
+    $frontController->registerController(
         \Modules\SupportDashboard\Controller\StatisticsIntakeController::class,
         new \Modules\SupportDashboard\Controller\StatisticsIntakeController(
             $twig,

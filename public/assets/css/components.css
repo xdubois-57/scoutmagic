@@ -461,3 +461,20 @@
     max-height: 26rem;
     overflow: auto;
 }
+
+/* Modules\SupportDashboard — the two current-state charts. Chart.js needs a
+   sized container to render into (its canvas is responsive but has no
+   intrinsic height), and a fixed height keeps the two cards level whatever
+   each chart's legend does. */
+.support-chart {
+    position: relative;
+    height: 260px;
+}
+
+/* Modules\SupportDashboard — the raw report JSON in the detail dialog. The
+   dialog already scrolls; this caps the JSON block so the metrics above it
+   stay reachable without scrolling past a hundred lines. */
+.support-raw-json {
+    max-height: 20rem;
+    overflow: auto;
+}

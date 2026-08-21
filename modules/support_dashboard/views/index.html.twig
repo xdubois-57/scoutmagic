@@ -1,0 +1,309 @@
+{% extends 'base.html.twig' %}
+{% block title %}Tableau de bord support — {{ site_name }}{% endblock %}
+
+{% macro value_or_missing(value) %}{% if value is null or value == '' %}<span class="text-body-secondary">Non renseigné</span>{% else %}{{ value }}{% endif %}{% endmacro %}
+
+{% block content %}
+{% import _self as display %}
+
+<h1 class="mb-4">Tableau de bord support</h1>
+
+{# ---------------------------------------------------------------- #}
+{# Indicator cards — always recomputed on the currently filtered set. #}
+{# ---------------------------------------------------------------- #}
+<div class="row row-cols-2 row-cols-lg-5 g-3 mb-4">
+    <div class="col">
+        <div class="card h-100">
+            <div class="card-body">
+                <p class="text-body-secondary small mb-1">Installations actives</p>
+                <p class="h4 mb-0">{{ view.indicators.active_installations }}</p>
+            </div>
+        </div>
+    </div>
+    <div class="col">
+        <div class="card h-100">
+            <div class="card-body">
+                <p class="text-body-secondary small mb-1">Total membres actifs</p>
+                <p class="h4 mb-0">{{ display.value_or_missing(view.indicators.total_active_members) }}</p>
+            </div>
+        </div>
+    </div>
+    <div class="col">
+        <div class="card h-100">
+            <div class="card-body">
+                <p class="text-body-secondary small mb-1">Total sections actives</p>
+                <p class="h4 mb-0">{{ display.value_or_missing(view.indicators.total_active_sections) }}</p>
+            </div>
+        </div>
+    </div>
+    <div class="col">
+        <div class="card h-100">
+            <div class="card-body">
+                <p class="text-body-secondary small mb-1">Version la plus répandue</p>
+                <p class="h4 mb-0">{{ display.value_or_missing(view.indicators.most_common_version) }}</p>
+                {% if view.indicators.most_common_version_count %}
+                    <p class="small text-body-secondary mb-0">{{ view.indicators.most_common_version_count }} installation(s)</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    <div class="col">
+        <div class="card h-100">
+            <div class="card-body">
+                <p class="text-body-secondary small mb-1">Mises à jour automatiques</p>
+                <p class="h4 mb-0">
+                    {% if view.indicators.auto_update_percentage is null %}
+                        <span class="text-body-secondary">Non renseigné</span>
+                    {% else %}{{ view.indicators.auto_update_percentage }} %{% endif %}
+                </p>
+                {% if view.indicators.auto_update_known_count %}
+                    <p class="small text-body-secondary mb-0">sur {{ view.indicators.auto_update_known_count }} renseignée(s)</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+{# ---------------------------------------------------------------- #}
+{# Filters and search — plain GET form, so the whole view state is    #}
+{# the query string and nothing is ever remembered between visits.    #}
+{# ---------------------------------------------------------------- #}
+<form method="get" action="/support-dashboard" class="card mb-4">
+    <div class="card-body">
+        <div class="row g-3">
+            <div class="col-12 col-lg-4">
+                <label for="filter-q" class="form-label">Recherche</label>
+                <input type="search" class="form-control" id="filter-q" name="q" value="{{ filters.search }}"
+                       placeholder="URL, identifiant, version, année scoute">
+            </div>
+
+            <div class="col-6 col-lg-2">
+                <label for="filter-status" class="form-label">Statut</label>
+                <select class="form-select" id="filter-status" name="status">
+                    <option value="active" {{ filters.status == 'active' ? 'selected' : '' }}>Actives</option>
+                    <option value="stale" {{ filters.status == 'stale' ? 'selected' : '' }}>Obsolètes</option>
+                    <option value="all" {{ filters.status == 'all' ? 'selected' : '' }}>Toutes</option>
+                </select>
+            </div>
+
+            <div class="col-6 col-lg-2">
+                <label for="filter-version" class="form-label">Version / build</label>
+                <select class="form-select" id="filter-version" name="version">
+                    <option value="">Toutes</option>
+                    {% for version in view.available.versions %}
+                        <option value="{{ version }}" {{ filters.version == version ? 'selected' : '' }}>{{ version }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="col-6 col-lg-2">
+                <label for="filter-method" class="form-label">Méthode d'installation</label>
+                <select class="form-select" id="filter-method" name="installation_method">
+                    <option value="">Toutes</option>
+                    {% for method in view.available.installation_methods %}
+                        <option value="{{ method }}" {{ filters.installationMethod == method ? 'selected' : '' }}>{{ method }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="col-6 col-lg-2">
+                <label for="filter-auto-update" class="form-label">Mise à jour automatique</label>
+                <select class="form-select" id="filter-auto-update" name="auto_update">
+                    <option value="">Toutes</option>
+                    {% for level in view.available.auto_update_levels %}
+                        <option value="{{ level.key }}" {{ filters.autoUpdate == level.key ? 'selected' : '' }}>{{ level.label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="col-6 col-lg-3">
+                <label for="filter-module" class="form-label">Module</label>
+                <select class="form-select" id="filter-module" name="module">
+                    <option value="">Tous</option>
+                    {% for moduleId in view.available.modules %}
+                        <option value="{{ moduleId }}" {{ filters.moduleId == moduleId ? 'selected' : '' }}>{{ moduleId }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="col-6 col-lg-3">
+                <label for="filter-module-state" class="form-label">État du module</label>
+                <select class="form-select" id="filter-module-state" name="module_state">
+                    <option value="">Peu importe</option>
+                    <option value="enabled" {{ filters.moduleEnabled is same as(true) ? 'selected' : '' }}>Activé</option>
+                    <option value="disabled" {{ filters.moduleEnabled is same as(false) ? 'selected' : '' }}>Désactivé</option>
+                </select>
+            </div>
+
+            {# Every sortable field is reachable here, including the two the
+               responsive table has no column for (date d'installation) or
+               no header link on. The clickable column headers below are a
+               shortcut onto the same query parameters, never a second,
+               narrower vocabulary. #}
+            <div class="col-6 col-lg-3">
+                <label for="filter-sort" class="form-label">Trier par</label>
+                <select class="form-select" id="filter-sort" name="sort">
+                    <option value="last_received" {{ filters.sort == 'last_received' ? 'selected' : '' }}>Dernière réception</option>
+                    <option value="active_members" {{ filters.sort == 'active_members' ? 'selected' : '' }}>Membres actifs</option>
+                    <option value="version" {{ filters.sort == 'version' ? 'selected' : '' }}>Version / build</option>
+                    <option value="installed_at" {{ filters.sort == 'installed_at' ? 'selected' : '' }}>Date d'installation</option>
+                    <option value="instance_url" {{ filters.sort == 'instance_url' ? 'selected' : '' }}>URL d'instance</option>
+                </select>
+            </div>
+
+            <div class="col-6 col-lg-3">
+                <label for="filter-dir" class="form-label">Sens</label>
+                <select class="form-select" id="filter-dir" name="dir">
+                    <option value="desc" {{ filters.descending ? 'selected' : '' }}>Décroissant</option>
+                    <option value="asc" {{ filters.descending ? '' : 'selected' }}>Croissant</option>
+                </select>
+            </div>
+
+            <div class="col-12 col-lg-6 d-flex align-items-end gap-2">
+                <button type="submit" class="btn btn-primary">Filtrer</button>
+                <a href="/support-dashboard" class="btn btn-outline-secondary">Réinitialiser</a>
+            </div>
+        </div>
+    </div>
+</form>
+
+{# ---------------------------------------------------------------- #}
+{# Current-state charts — exactly two, recomputed on the filtered set. #}
+{# ---------------------------------------------------------------- #}
+<div class="row g-3 mb-4">
+    <div class="col-12 col-lg-6">
+        <div class="card h-100">
+            <div class="card-body">
+                <h2 class="h6">Répartition des versions / builds</h2>
+                <div class="support-chart"><canvas id="chart-versions"></canvas></div>
+            </div>
+        </div>
+    </div>
+    <div class="col-12 col-lg-6">
+        <div class="card h-100">
+            <div class="card-body">
+                <h2 class="h6">Répartition des modes de mise à jour automatique</h2>
+                <div class="support-chart"><canvas id="chart-auto-update"></canvas></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{# ---------------------------------------------------------------- #}
+{# Table — progressive columns, mobile first.                        #}
+{# ---------------------------------------------------------------- #}
+<div class="card">
+    <div class="card-body">
+        <p class="small text-body-secondary">
+            {{ view.filtered_count }} installation(s) affichée(s) sur {{ view.total_count }} conservée(s).
+            Une installation est considérée active si son dernier rapport date de moins de
+            {{ view.active_threshold_days }} jours.
+        </p>
+
+        <div class="table-responsive">
+            <table class="table table-hover align-middle">
+                <thead>
+                    <tr>
+                        <th scope="col"><a href="/support-dashboard{{ filters.queryString({'sort': 'instance_url', 'dir': filters.sort == 'instance_url' and filters.descending ? 'asc' : null, 'page': null}) }}">URL</a></th>
+                        <th scope="col"><a href="/support-dashboard{{ filters.queryString({'sort': 'version', 'dir': filters.sort == 'version' and filters.descending ? 'asc' : null, 'page': null}) }}">Version / build</a></th>
+                        <th scope="col">Dernière mise à jour</th>
+                        <th scope="col" class="d-none d-md-table-cell">Statut</th>
+                        <th scope="col" class="d-none d-md-table-cell"><a href="/support-dashboard{{ filters.queryString({'sort': 'last_received', 'dir': filters.sort == 'last_received' and filters.descending ? 'asc' : null, 'page': null}) }}">Dernière réception</a></th>
+                        <th scope="col" class="d-none d-lg-table-cell"><a href="/support-dashboard{{ filters.queryString({'sort': 'active_members', 'dir': filters.sort == 'active_members' and filters.descending ? 'asc' : null, 'page': null}) }}">Membres actifs</a></th>
+                        <th scope="col" class="d-none d-lg-table-cell">Installation</th>
+                        <th scope="col" class="d-none d-lg-table-cell">Mise à jour auto.</th>
+                        <th scope="col" class="d-none d-xxl-table-cell">Sections actives</th>
+                        <th scope="col" class="text-end">Détail</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in view.rows %}
+                        <tr>
+                            <td>
+                                {% if row.instance_url %}
+                                    <a href="{{ row.instance_url }}" target="_blank" rel="noopener noreferrer">{{ row.instance_url }}</a>
+                                {% else %}
+                                    <span class="text-body-secondary">Non renseigné</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {{ display.value_or_missing(row.scoutmagic_version) }}
+                                {% if row.is_dev_build %}<span class="badge text-bg-warning">dev</span>{% endif %}
+                            </td>
+                            <td>{{ display.value_or_missing(row.last_upgraded_at) }}</td>
+                            <td class="d-none d-md-table-cell">
+                                {% if row.is_active %}
+                                    <span class="badge text-bg-success">Active</span>
+                                {% else %}
+                                    <span class="badge text-bg-secondary">Obsolète</span>
+                                {% endif %}
+                            </td>
+                            <td class="d-none d-md-table-cell">{{ display.value_or_missing(row.last_received_at) }}</td>
+                            <td class="d-none d-lg-table-cell">{{ display.value_or_missing(row.active_members) }}</td>
+                            <td class="d-none d-lg-table-cell">{{ display.value_or_missing(row.installation_method) }}</td>
+                            <td class="d-none d-lg-table-cell">
+                                {% if row.auto_update_key is null %}
+                                    <span class="text-body-secondary">Non renseigné</span>
+                                {% else %}
+                                    {{ row.auto_update_label }}
+                                {% endif %}
+                            </td>
+                            <td class="d-none d-xxl-table-cell">{{ display.value_or_missing(row.active_sections) }}</td>
+                            <td class="text-end">
+                                <button type="button" class="btn btn-sm btn-outline-secondary support-detail-btn"
+                                        data-installation-id="{{ row.id }}">
+                                    Voir
+                                </button>
+                            </td>
+                        </tr>
+                    {% else %}
+                        <tr><td colspan="10" class="text-center text-body-secondary">Aucune installation ne correspond aux critères.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        {% if view.page_count > 1 %}
+            <nav aria-label="Pagination des installations">
+                <ul class="pagination pagination-sm mb-0">
+                    {% for pageNumber in 1..view.page_count %}
+                        <li class="page-item {{ pageNumber == view.page ? 'active' : '' }}">
+                            <a class="page-link" href="/support-dashboard{{ filters.queryString({'page': pageNumber}) }}">{{ pageNumber }}</a>
+                        </li>
+                    {% endfor %}
+                </ul>
+            </nav>
+        {% endif %}
+    </div>
+</div>
+
+<div class="modal fade" id="support-detail-modal" tabindex="-1" aria-labelledby="support-detail-title" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title h5" id="support-detail-title">Détail de l'installation</h2>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Fermer"></button>
+            </div>
+            <div class="modal-body" id="support-detail-body">
+                <p class="text-body-secondary mb-0">Chargement…</p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/assets/vendor/chartjs/chart.umd.min.js"></script>
+<script src="/assets/js/support-dashboard.js" defer></script>
+<script nonce="{{ csp_nonce }}">
+{# JSON_HEX_TAG/JSON_HEX_AMP: a version string is reported by a remote
+   installation, so it is untrusted text — without them a value containing
+   tag-closing characters would break out of this script block. The nonce
+   CSP stops it executing either way, but it would still break the page. #}
+{% set json_flags = constant('JSON_HEX_TAG') b-or constant('JSON_HEX_AMP') b-or constant('JSON_UNESCAPED_UNICODE') %}
+window.supportDashboardCharts = {
+    versions: {{ view.charts.versions|json_encode(json_flags)|raw }},
+    autoUpdate: {{ view.charts.auto_update|json_encode(json_flags)|raw }}
+};
+</script>
+{% endblock %}

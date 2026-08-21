@@ -35,6 +35,37 @@ class SupportInstallationRepository
     }
 
     /**
+     * @return array<string, mixed>|null
+     */
+    public function findById(int $id): ?array
+    {
+        $stmt = $this->pdo->prepare('SELECT * FROM support_installations WHERE id = ?');
+        $stmt->execute([$id]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+        return is_array($row) ? $row : null;
+    }
+
+    /**
+     * Every retained installation, newest report first.
+     *
+     * Deliberately unpaginated and unfiltered: filtering, searching,
+     * sorting and paging all happen in Modules\SupportDashboard\Service\
+     * SupportDashboardService. See its docblock for why — the short version
+     * is that one of the filters reads the stored JSON payload, which no
+     * portable SQL can express, and splitting the work would make the
+     * table, the counters and the KPI cards disagree with each other.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function findAll(): array
+    {
+        $stmt = $this->pdo->query('SELECT * FROM support_installations ORDER BY last_received_at DESC, id DESC');
+
+        return $stmt !== false ? ($stmt->fetchAll(\PDO::FETCH_ASSOC) ?: []) : [];
+    }
+
+    /**
      * First registration: an installation id nobody has seen before.
      *
      * @param array<string, mixed> $denormalized
@@ -45,7 +76,7 @@ class SupportInstallationRepository
             ['installation_id', 'secret_hash', 'payload'],
             array_keys($denormalized)
         );
-        $values = array_merge([$installationId, $secretHash, $rawPayload], array_values($denormalized));
+        $values = self::bindable(array_merge([$installationId, $secretHash, $rawPayload], array_values($denormalized)));
 
         $stmt = $this->pdo->prepare(
             'INSERT INTO support_installations (' . implode(', ', $columns) . ')
@@ -79,6 +110,25 @@ class SupportInstallationRepository
         $stmt = $this->pdo->prepare(
             'UPDATE support_installations SET ' . implode(', ', $assignments) . ' WHERE id = ?'
         );
-        $stmt->execute($values);
+        $stmt->execute(self::bindable($values));
+    }
+
+    /**
+     * PDOStatement::execute() binds every value of its array as a string,
+     * and PHP casts `false` to `''` — which MySQL refuses for a BOOLEAN
+     * (TINYINT) column under strict mode, and which SQLite silently stores
+     * as an empty string that then reads back as "not reported". Both are
+     * wrong for the same reason: `false` is a reported value, not a missing
+     * one. NULL is left untouched — that one really is "not reported".
+     *
+     * @param array<int, mixed> $values
+     * @return array<int, mixed>
+     */
+    private static function bindable(array $values): array
+    {
+        return array_map(
+            static fn(mixed $value): mixed => is_bool($value) ? (int) $value : $value,
+            $values
+        );
     }
 }

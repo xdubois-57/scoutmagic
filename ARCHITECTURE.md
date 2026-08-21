@@ -899,6 +899,22 @@ A rejection is journaled as `statistics_report_rejected` (`warning`) **with the 
 
 Neither the instance URL nor the installation id is personal data (a scout unit is an association, not a natural person), and both are needed in clear to filter and search, so both are stored as plain columns — justified in SECURITY.md rather than left as an unexplained exception.
 
+### 8.44 Support dashboard, current state (`/support-dashboard`)
+
+The consultation half of §8.43: `role_min: 'superadmin'`, menu `configuration`, one row per installation retained by the receiver.
+
+**No view state is ever persisted.** Filters, free search, sort and page live in the query string and nowhere else — no cookie, no local storage, no session, no per-user preference row. Two reasons, and the first is the real one: a support dashboard that silently reopens on a filter somebody set three weeks ago shows a confidently wrong picture to whoever looks next, and the person least likely to notice is the one who did not set it. The second is a pleasant side effect — a page that stores nothing on the device adds nothing to the cookie registry and needs no consent category. Arriving at `/support-dashboard` with no query string always produces the same default view: **active installations only**, most recently received first.
+
+**Filtering, sorting, paging and every aggregate happen in PHP, over the whole retained set — never split with SQL.** One of the required filters is "does this installation have module X enabled", and the module list lives inside the stored JSON payload; expressing that in SQL means `JSON_CONTAINS`, which is MySQL-only and would leave the filter untestable. More importantly, the five indicator cards and both charts have to be recomputed **on the filtered set**: doing the filter in SQL and the aggregates in PHP is exactly how a table and its own counters end up disagreeing with each other. The population is scout units in one federation — dozens, plausibly a few hundred — so loading them all costs a few hundred kilobytes. If that ever grows by an order of magnitude, the fix is to denormalise the module list into its own table and move the *whole* pipeline into SQL, not to split it.
+
+**An absent value stays absent, everywhere.** `NULL` means "not reported", and it is rendered "Non renseigné" — never `0`, never "Non", never "Désactivé". It is excluded from a total rather than added as zero (a total over entirely unreported values is itself `null`, not `0`), excluded from the auto-update percentage rather than counted as off, and it always sorts **last in both directions** — burying an unknown at the bottom of a descending sort would be the same lie as showing it as zero. This is a rule about the whole dashboard, not a formatting preference: the receiver's data comes from installations of differing versions, so "this sender could not measure it" is a permanent, first-class state.
+
+**Filter values in the URL are technical keys, never the French labels the page renders.** The auto-update filter travels as `disabled`/`patch`/`minor`/`major`, and the label is produced once at the edge. A URL is not a translation artefact, and a filter keyed on displayed text breaks the day the wording is improved.
+
+The table is responsive by tier rather than by squeezing every metric into a column: URL, version/build and last upgrade on mobile; status and last reception on tablet; active members, installation method and auto-update on desktop; active sections on very wide. Clicking a row opens a dialog whose body is **fetched and rendered server-side by Twig**, carrying every available metric plus the exact raw JSON of the last accepted report — including fields this receiver does not understand. Nothing on the page assembles markup from a remote installation's values client-side: those values are untrusted text, and Twig's autoescaping is a stronger guarantee than an escaper written in the page's own script (SECURITY.md §28).
+
+Exactly **five indicator cards** and exactly **two charts** (version/build distribution, auto-update mode distribution), both on the vendored Chart.js. The restraint is deliberate and is part of the specification, not an unfinished state: every other breakdown the payload would allow — by module, by installation method, by PHP version, by database engine, by OS, by HTTPS, by cron mode — is explicitly out of scope. A dashboard nobody can read at a glance answers no support question.
+
 ## 9. Installation / bootstrap
 
 ### 9.1 First install: bootstrap.php
