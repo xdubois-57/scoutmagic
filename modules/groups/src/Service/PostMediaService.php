@@ -195,16 +195,37 @@ class PostMediaService
      * id — fetched once per feed page (Service\GroupFeedService) and
      * reused to decorate every post on it, rather than once per post.
      *
+     * Re-reads the group's own gallery_album_id from the repository when
+     * the instance it was handed says null, for exactly the reason
+     * deleteAllForPost() and deleteOne() already do — and this method is
+     * where the omission actually cost something.
+     *
+     * The group's FIRST photo, on a post or on a comment, creates the
+     * album mid-request (ensureAlbumId() above). DiscussionGroup is
+     * immutable, so the instance the controller is still holding was
+     * fetched before that write and reads as null; the card rendered
+     * straight afterwards for groups.js to insert therefore found no
+     * media at all and showed the message, or the comment, with its photo
+     * silently missing. A comment carrying nothing BUT a photo came out as
+     * an empty bubble — which is indistinguishable from "you cannot
+     * attach a photo without text", and was reported as exactly that. A
+     * reload showed the photo, because by then the group had been fetched
+     * again.
+     *
+     * One primary-key lookup, and only for a group that has never held
+     * any media — every later request carries the id on the instance.
+     *
      * @return array<int, DelegatedMedia>
      */
     public function albumMediaById(DiscussionGroup $group): array
     {
-        if ($group->galleryAlbumId === null) {
+        $albumId = $group->galleryAlbumId ?? $this->groupRepository->findById($group->id)?->galleryAlbumId;
+        if ($albumId === null) {
             return [];
         }
 
         $byId = [];
-        foreach ($this->delegatedAlbumManager->listMedia($group->galleryAlbumId) as $media) {
+        foreach ($this->delegatedAlbumManager->listMedia($albumId) as $media) {
             $byId[$media->id] = $media;
         }
 

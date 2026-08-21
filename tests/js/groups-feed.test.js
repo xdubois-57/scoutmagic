@@ -487,31 +487,95 @@ describe('groups.js dynamic reactions, in-place pagination and inline edit toggl
         expect(fetch).toHaveBeenCalledWith('/groups/1/posts/9/replies?after=3', { headers: { 'X-Requested-With': 'fetch' } });
     });
 
-    it('shows the picked filename next to a reply image input, and hides it again when cleared', async () => {
-        document.body.innerHTML = `
-            <form>
-                <input type="file" class="groups-reply-image">
-                <span class="groups-reply-image-name d-none"></span>
-            </form>
-        `;
-        const input = document.querySelector('.groups-reply-image');
-        const label = document.querySelector('.groups-reply-image-name');
+    // A photo attached to a comment is SHOWN before the comment is sent,
+    // not merely named: "did the picker work?" was the only question the
+    // old filename label answered, and "is this the right photo?" is the
+    // one people actually have.
+    describe('the photo attached to a comment', () => {
+        function composer() {
+            document.body.innerHTML = `
+                <form class="groups-reply-form">
+                    <input type="file" class="groups-reply-image">
+                    <div class="groups-reply-image-preview d-none">
+                        <span class="groups-reply-image-thumb">
+                            <img alt="" class="groups-reply-image-thumb-img">
+                            <button type="button" class="groups-reply-image-remove">×</button>
+                        </span>
+                        <span class="groups-reply-image-name"></span>
+                    </div>
+                </form>
+            `;
+        }
 
-        // This listener is delegated on `document` (groups.js has no
-        // per-element listener for a reply's image input, unlike the
-        // composer's own picker) — only a BUBBLING event reaches it, which
-        // `new Event('change')` is not by default, unlike a real browser's
-        // native change event or the .click()-driven ones used elsewhere in
-        // this file.
-        Object.defineProperty(input, 'files', { value: [new File(['x'], 'photo.jpg')], configurable: true });
-        input.dispatchEvent(new Event('change', { bubbles: true }));
-        expect(label.textContent).toBe('photo.jpg');
-        expect(label.classList.contains('d-none')).toBe(false);
+        function pick(name) {
+            const input = document.querySelector('.groups-reply-image');
+            Object.defineProperty(input, 'files', {
+                value: name === null ? [] : [new File(['x'], name, { type: 'image/jpeg' })],
+                configurable: true,
+            });
+            // Delegated on `document`, so only a BUBBLING event reaches it —
+            // which `new Event('change')` is not by default, unlike a real
+            // browser's native change event.
+            input.dispatchEvent(new Event('change', { bubbles: true }));
+        }
 
-        Object.defineProperty(input, 'files', { value: [], configurable: true });
-        input.dispatchEvent(new Event('change', { bubbles: true }));
-        expect(label.textContent).toBe('');
-        expect(label.classList.contains('d-none')).toBe(true);
+        beforeEach(() => {
+            // jsdom implements neither, and the preview is built entirely
+            // out of them. The URL is never asserted on, only its lifecycle.
+            global.URL.createObjectURL = vi.fn(() => 'blob:preview');
+            global.URL.revokeObjectURL = vi.fn();
+        });
+
+        it('draws the picked photo straight away, from the file itself', async () => {
+            composer();
+
+            pick('photo.jpg');
+
+            const preview = document.querySelector('.groups-reply-image-preview');
+            expect(preview.classList.contains('d-none')).toBe(false);
+            expect(document.querySelector('.groups-reply-image-thumb-img').getAttribute('src')).toBe('blob:preview');
+            expect(document.querySelector('.groups-reply-image-name').textContent).toBe('photo.jpg');
+            // Drawn from the File itself: nothing is uploaded until the
+            // comment is, so abandoning the composer uploads nothing.
+            expect(URL.createObjectURL).toHaveBeenCalledTimes(1);
+        });
+
+        it('replaces the preview when another photo is picked, and lets the first one go', async () => {
+            composer();
+
+            pick('photo.jpg');
+            pick('autre.jpg');
+
+            expect(document.querySelector('.groups-reply-image-name').textContent).toBe('autre.jpg');
+            // An object URL keeps its File alive until it is revoked.
+            expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:preview');
+        });
+
+        it('hides the preview again when the picker is cleared', async () => {
+            composer();
+
+            pick('photo.jpg');
+            pick(null);
+
+            const preview = document.querySelector('.groups-reply-image-preview');
+            expect(preview.classList.contains('d-none')).toBe(true);
+            expect(document.querySelector('.groups-reply-image-thumb-img').hasAttribute('src')).toBe(false);
+            expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:preview');
+        });
+
+        // Emptying the input's own .files is what actually detaches the
+        // photo; clearing only the preview would send a photo nothing on
+        // screen still showed.
+        it('really detaches the photo when the remove button is used', async () => {
+            composer();
+            pick('photo.jpg');
+
+            document.querySelector('.groups-reply-image-remove').click();
+
+            expect(document.querySelector('.groups-reply-image-preview').classList.contains('d-none')).toBe(true);
+            expect(document.querySelector('.groups-reply-image').value).toBe('');
+            expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:preview');
+        });
     });
 
     it('replying fetches and appends the new reply under the post, then resets the form', async () => {
@@ -520,7 +584,10 @@ describe('groups.js dynamic reactions, in-place pagination and inline edit toggl
                 <div class="groups-replies"></div>
                 <form class="groups-reply-form" action="/groups/1/posts/9/replies" method="post">
                     <input type="text" name="body">
-                    <p class="groups-reply-image-name">photo.jpg</p>
+                    <div class="groups-reply-image-preview d-flex">
+                        <img alt="" class="groups-reply-image-thumb-img" src="blob:preview">
+                        <span class="groups-reply-image-name">photo.jpg</span>
+                    </div>
                     <button type="submit">Envoyer</button>
                 </form>
             </article>
@@ -536,9 +603,11 @@ describe('groups.js dynamic reactions, in-place pagination and inline edit toggl
 
         expect(document.querySelector('.groups-replies').lastElementChild.id).toBe('reply-5');
         expect(document.querySelector('input[name="body"]').value).toBe('');
-        const imageName = document.querySelector('.groups-reply-image-name');
-        expect(imageName.textContent).toBe('');
-        expect(imageName.classList.contains('d-none')).toBe(true);
+        // The photo goes with the comment it was attached to.
+        const preview = document.querySelector('.groups-reply-image-preview');
+        expect(preview.classList.contains('d-none')).toBe(true);
+        expect(document.querySelector('.groups-reply-image-name').textContent).toBe('');
+        expect(document.querySelector('.groups-reply-image-thumb-img').hasAttribute('src')).toBe(false);
         const [url, options] = fetch.mock.calls[0];
         expect(url).toContain('/groups/1/posts/9/replies');
         expect(options.headers).toEqual({ 'X-Requested-With': 'XMLHttpRequest' });

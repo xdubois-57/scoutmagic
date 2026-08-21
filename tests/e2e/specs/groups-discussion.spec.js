@@ -491,3 +491,97 @@ test('on a phone the reaction picker folds away — and comes back when the scri
     await expect(page.locator('details.groups-thread')).toHaveCount(1);
     await expect(page.locator('#groups-post-form')).toBeVisible();
 });
+
+// ============================================================================
+// A photo in a comment: seen before it is sent, and enough on its own.
+//
+// Both halves were reported as broken together, and one fault explained
+// both. A group's FIRST photo creates its gallery album mid-request
+// (Service\PostMediaService::ensureAlbumId()); DiscussionGroup is
+// immutable, so the instance the controller still held read as null and
+// the card it rendered for the browser to insert found no media at all.
+// A comment carrying nothing BUT a photo therefore arrived as an empty
+// bubble — indistinguishable from "you cannot attach a photo without
+// text". A reload showed it, which is what made it hard to see.
+//
+// So this scenario uses a brand-new group deliberately: on any group that
+// has ever held a photo, the bug does not reproduce.
+// ============================================================================
+
+// A real 1×1 PNG rather than random bytes: the upload path sniffs the type
+// from the content (Core\File\UploadHandler), so anything else is rejected
+// before it can prove anything.
+const ONE_PIXEL_PNG = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+    'base64',
+);
+
+test('a comment can be a photo and nothing else, and the photo is visible before sending', async ({ page }) => {
+    /** @type {string[]} */
+    const serverErrors = [];
+    page.on('response', (response) => {
+        if (response.status() >= 500) {
+            serverErrors.push(`HTTP ${response.status()} on ${response.url()}`);
+        }
+    });
+
+    await loginAsAdmin(page);
+    await page.goto('/groups', { waitUntil: 'domcontentloaded' });
+    await page.getByLabel('Nom du groupe').fill(`Photo ${Date.now()}`);
+    await page.getByRole('button', { name: 'Créer' }).click();
+
+    await page.getByLabel('Écrire un message').fill('Des photos du week-end ?');
+    await page.locator('#groups-post-form').getByRole('button', { name: 'Publier' }).click();
+    await expect(page.locator('#groups-feed').getByRole('article')).toHaveCount(1);
+
+    const thread = page.locator('details.groups-thread');
+    await thread.locator('summary').click();
+
+    const preview = thread.locator('.groups-reply-image-preview');
+    await expect(preview).toBeHidden();
+
+    await thread.locator('.groups-reply-image').setInputFiles({
+        name: 'photo.png',
+        mimeType: 'image/png',
+        buffer: ONE_PIXEL_PNG,
+    });
+
+    // Visible immediately, drawn from the file itself — nothing has been
+    // sent yet, and the comment box is still empty.
+    await expect(preview).toBeVisible();
+    await expect(preview.locator('.groups-reply-image-name')).toHaveText('photo.png');
+    await expect(preview.locator('.groups-reply-image-thumb-img')).toHaveAttribute('src', /^blob:/);
+    await expect(thread.getByPlaceholder('Répondre…')).toHaveValue('');
+
+    // Changing your mind really detaches it, rather than only hiding it.
+    await preview.getByRole('button', { name: 'Retirer cette photo' }).click();
+    await expect(preview).toBeHidden();
+    await expect(thread.locator('.groups-reply-image')).toHaveJSProperty('value', '');
+
+    await thread.locator('.groups-reply-image').setInputFiles({
+        name: 'photo.png',
+        mimeType: 'image/png',
+        buffer: ONE_PIXEL_PNG,
+    });
+    await expect(preview).toBeVisible();
+
+    // --- Sent with no text at all.
+    await page.getByRole('button', { name: 'Envoyer la réponse' }).click();
+
+    const comment = thread.locator('.groups-reply').first();
+    await expect(comment).toHaveCount(1);
+    await expect(thread.locator('.groups-reply-error')).toBeHidden();
+    // The photo is ON the comment, in the card the server rendered for the
+    // browser to insert — this is the assertion the album-id bug failed.
+    await expect(comment.locator('.groups-reply-image-link')).toHaveCount(1);
+    await expect(thread.locator('.groups-thread-count')).toHaveText('1 commentaire');
+    // And the composer is empty again, photo included.
+    await expect(preview).toBeHidden();
+
+    // Still there after a real reload: stored, not just drawn.
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.locator('details.groups-thread summary').click();
+    await expect(page.locator('.groups-reply-image-link')).toHaveCount(1);
+
+    expect(serverErrors, 'no request in this scenario may answer 5xx').toEqual([]);
+});

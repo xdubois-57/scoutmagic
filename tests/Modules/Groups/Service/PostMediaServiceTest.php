@@ -233,6 +233,41 @@ class PostMediaServiceTest extends TestCase
         $this->assertSame([], $this->service($manager)->albumMediaById($group));
     }
 
+    /**
+     * The group's FIRST photo, and the bug it hid.
+     *
+     * ensureAlbumId() creates the album mid-request and persists it, but
+     * DiscussionGroup is immutable — the instance the controller is still
+     * holding was fetched before that write and reads as null. Rendering
+     * the card straight afterwards (which is what both dynamic paths do:
+     * Controller\PostController::create() and Controller\ReplyController's
+     * renderReplyCard()) therefore found no media at all, and the message
+     * or comment arrived with its photo silently missing.
+     *
+     * A comment carrying nothing BUT a photo came out as an empty bubble,
+     * which is indistinguishable from "you cannot attach a photo without
+     * text" — and was reported as exactly that. A reload showed it,
+     * because by then the group had been fetched again.
+     */
+    public function testAlbumMediaByIdFindsAnAlbumCREATEDDuringThisRequest(): void
+    {
+        $manager = $this->createMock(DelegatedAlbumManager::class);
+        $manager->method('ensureAlbum')->willReturn(new DelegatedAlbum(77, 'Louveteaux', '2026-01-01'));
+        $manager->expects($this->once())->method('listMedia')->with(77)->willReturn([$this->delegatedMedia(5)]);
+        $service = $this->service($manager);
+
+        // The instance a controller holds for the whole request, fetched
+        // before any photo existed.
+        $stale = $this->groupRepo->findById($this->groupId);
+        $this->assertNull($stale->galleryAlbumId);
+
+        $service->ensureAlbumId($stale, 7);
+
+        $media = $service->albumMediaById($stale);
+
+        $this->assertSame([5], array_keys($media), 'the photo just stored must be on the card rendered for it');
+    }
+
     public function testMediaByIdsReturnsOnlyTheRequestedOnesInTheGroupsAlbum(): void
     {
         $this->groupRepo->setGalleryAlbumId($this->groupId, 42);

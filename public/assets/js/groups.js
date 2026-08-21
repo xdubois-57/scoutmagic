@@ -1436,11 +1436,7 @@
                     adjustThreadCount(replyForm, 1);
                     replyForm.reset();
                     clearReplyDraft(replyForm);
-                    var replyImageName = replyForm.querySelector('.groups-reply-image-name');
-                    if (replyImageName) {
-                        replyImageName.textContent = '';
-                        replyImageName.classList.add('d-none');
-                    }
+                    clearReplyImagePreview(replyForm);
                 } else if (result.data && typeof result.data.error === 'string' && replyError) {
                     replyError.textContent = result.data.error === 'empty' ? 'Une réponse ne peut pas être vide.' : result.data.error;
                     replyError.classList.remove('d-none');
@@ -1689,23 +1685,119 @@
         }
     });
 
-    // The reply composer's image picker is a bare <input type="file"> with no
-    // preview grid (one image, not four) — this only surfaces the chosen
-    // filename so the member can tell something is attached before sending.
+    // The comment composer's photo: shown before the comment is sent, not
+    // merely named.
+    //
+    // It used to print the filename and nothing else, which answers "did
+    // the picker work?" but not "is this the right photo?" — the question
+    // people actually have, and the one that otherwise costs a comment
+    // sent, looked at, and deleted. The thumbnail is drawn from the File
+    // itself through an object URL: nothing is uploaded until the comment
+    // is, and abandoning the composer uploads nothing at all.
+    //
+    // One image per comment (the input has no `multiple`, and the server
+    // refuses a second), so this is a single thumbnail rather than the
+    // message composer's grid.
+    //
+    // Every element it fills is in partials/post_card.html.twig and starts
+    // empty and hidden, so a browser that never runs this file keeps the
+    // plain file input working exactly as before.
+
+    /**
+     * The object URL currently drawn in each composer, so it can be
+     * revoked when it is replaced or cleared — an object URL keeps its
+     * File alive until it is, and a member picking photo after photo
+     * would otherwise hold every one of them for the life of the page.
+     *
+     * @type {WeakMap<HTMLElement, string>}
+     */
+    var replyImageUrls = new WeakMap();
+
+    /**
+     * @param {HTMLFormElement} form
+     */
+    function clearReplyImagePreview(form) {
+        var preview = /** @type {HTMLElement} */ (form.querySelector('.groups-reply-image-preview'));
+        if (!preview) {
+            return;
+        }
+
+        var previous = replyImageUrls.get(preview);
+        if (previous) {
+            URL.revokeObjectURL(previous);
+            replyImageUrls.delete(preview);
+        }
+
+        var image = /** @type {HTMLImageElement} */ (preview.querySelector('.groups-reply-image-thumb-img'));
+        if (image) {
+            image.removeAttribute('src');
+        }
+        var name = preview.querySelector('.groups-reply-image-name');
+        if (name) {
+            name.textContent = '';
+        }
+        preview.classList.add('d-none');
+        preview.classList.remove('d-flex');
+    }
+
+    /**
+     * @param {HTMLFormElement} form
+     */
+    function renderReplyImagePreview(form) {
+        var input = /** @type {HTMLInputElement} */ (form.querySelector('.groups-reply-image'));
+        var preview = /** @type {HTMLElement} */ (form.querySelector('.groups-reply-image-preview'));
+        if (!input || !preview) {
+            return;
+        }
+
+        clearReplyImagePreview(form);
+
+        var file = input.files && input.files.length > 0 ? input.files[0] : null;
+        if (!file) {
+            return;
+        }
+
+        var image = /** @type {HTMLImageElement} */ (preview.querySelector('.groups-reply-image-thumb-img'));
+        if (image) {
+            var url = URL.createObjectURL(file);
+            replyImageUrls.set(preview, url);
+            image.src = url;
+        }
+        var name = preview.querySelector('.groups-reply-image-name');
+        if (name) {
+            name.textContent = file.name;
+        }
+        preview.classList.remove('d-none');
+        preview.classList.add('d-flex');
+    }
+
     document.addEventListener('change', function (event) {
-        var eventTarget = /** @type {HTMLElement} */ (event.target);
-        var input = /** @type {HTMLInputElement} */ (eventTarget.closest('.groups-reply-image'));
-        if (!input) {
+        var input = /** @type {HTMLInputElement} */ (
+            /** @type {HTMLElement} */ (event.target).closest('.groups-reply-image')
+        );
+        var form = /** @type {HTMLFormElement} */ (input ? input.closest('form') : null);
+        if (form) {
+            renderReplyImagePreview(form);
+        }
+    });
+
+    // Changing your mind before sending. Emptying the input's own .files
+    // is what actually detaches the photo — the preview is only what the
+    // member sees, and clearing one without the other would send a photo
+    // nothing on screen still showed.
+    document.addEventListener('click', function (event) {
+        var remove = /** @type {HTMLElement} */ (
+            /** @type {HTMLElement} */ (event.target).closest('.groups-reply-image-remove')
+        );
+        var form = /** @type {HTMLFormElement} */ (remove ? remove.closest('form') : null);
+        if (!form) {
             return;
         }
 
-        var label = input.closest('form')?.querySelector('.groups-reply-image-name');
-        if (!label) {
-            return;
+        var input = /** @type {HTMLInputElement} */ (form.querySelector('.groups-reply-image'));
+        if (input) {
+            input.value = '';
         }
-
-        var name = input.files && input.files.length > 0 ? input.files[0].name : '';
-        label.textContent = name;
-        label.classList.toggle('d-none', name === '');
+        clearReplyImagePreview(form);
     });
 })();

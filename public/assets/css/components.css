@@ -458,6 +458,24 @@
     border-radius: 0.75rem;
     padding: 0.5rem 0.75rem;
 }
+/* Modules\Groups\views\partials\post_card.html.twig — the photo attached
+   to a comment, shown before it is sent. Same 72px cell as the message
+   composer's own media previews, so the two composers look like one
+   feature rather than two. */
+.groups-reply-image-thumb {
+    display: inline-block;
+    width: 72px;
+    height: 72px;
+    border-radius: 0.375rem;
+    overflow: hidden;
+    background: var(--bs-tertiary-bg);
+}
+.groups-reply-image-thumb-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
 .groups-reply-image-link {
     max-width: 220px;
 }

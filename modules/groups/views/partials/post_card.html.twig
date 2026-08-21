@@ -286,7 +286,27 @@
                             <i class="bi bi-send"></i>
                         </button>
                     </div>
-                    <p class="small text-body-secondary mt-1 mb-0 d-none groups-reply-image-name"></p>
+                    {#
+                      The chosen photo, shown before the comment is sent —
+                      groups.js fills this in from the file itself (an
+                      object URL, never an upload), so "je l'ai bien
+                      attachée ?" is answered by looking rather than by
+                      sending. Empty and hidden until then; with no
+                      JavaScript it simply stays that way and the plain
+                      file input works exactly as it always has.
+                    #}
+                    <div class="d-none align-items-center gap-2 mt-2 groups-reply-image-preview">
+                        <span class="position-relative groups-reply-image-thumb">
+                            <img alt="" class="groups-reply-image-thumb-img">
+                            <button type="button"
+                                    class="btn btn-sm btn-dark position-absolute top-0 end-0 p-0 d-flex align-items-center justify-content-center groups-reply-image-remove"
+                                    style="width:22px;height:22px;border-radius:50%;opacity:.85;"
+                                    aria-label="Retirer cette photo">
+                                <i class="bi bi-x" style="font-size:.9rem;" aria-hidden="true"></i>
+                            </button>
+                        </span>
+                        <span class="small text-body-secondary groups-reply-image-name"></span>
+                    </div>
                     {# Filled in by groups.js on a refused/failed dynamic submit —
                        see #groups-post-error's own comment in show.html.twig. #}
                     <p class="small text-danger mt-1 mb-0 d-none groups-reply-error" role="alert"></p>
