@@ -427,22 +427,70 @@
     display: inline-flex;
 }
 @media (max-width: 767.98px) {
+    /* The two halves swap by UNFOLDING rather than by appearing: the
+       emoji run grows out to the right from where the button was, and the
+       button collapses into it at the same time, so the row is never
+       wider open than closed and nothing jumps.
+
+       max-width, not display: `display` cannot be transitioned, and the
+       clip an animated max-width produces is exactly the effect wanted —
+       the six buttons are uncovered left to right. `visibility` rides
+       along with a delay equal to the fold, so a folded picker is not
+       merely invisible but out of the tab order too; without it a
+       keyboard would land on six buttons nobody can see.
+
+       The width ceilings are deliberately generous: they bound the
+       animation, never the layout, and both blocks are inline-flex, so
+       neither ever actually reaches the number. */
+    .groups-js .groups-reaction-toggle,
+    .groups-js .groups-reaction-picker {
+        overflow: hidden;
+        white-space: nowrap;
+        transition:
+            max-width 0.25s ease-out,
+            opacity 0.18s ease-out,
+            visibility 0s linear 0.25s;
+    }
     .groups-js .groups-reaction-toggle {
         display: inline-flex;
         min-height: 44px;
+        max-width: 8rem;
         color: var(--bs-secondary-color);
         font-size: 0.8rem;
     }
     .groups-js .groups-reaction-picker {
-        display: none;
+        max-width: 0;
+        opacity: 0;
+        visibility: hidden;
     }
-    /* Opened: the picker takes the toggle's place rather than sitting
-       beside it, so the row is no wider open than closed. */
     .groups-js .groups-reactions-open .groups-reaction-toggle {
-        display: none;
+        max-width: 0;
+        min-width: 0;
+        padding-left: 0;
+        padding-right: 0;
+        opacity: 0;
+        visibility: hidden;
     }
     .groups-js .groups-reactions-open .groups-reaction-picker {
-        display: inline-flex;
+        max-width: 22rem;
+        opacity: 1;
+        visibility: visible;
+        /* No delay on the way IN — the picker has to be usable the
+           instant it is on screen. */
+        transition:
+            max-width 0.25s ease-out,
+            opacity 0.18s ease-out,
+            visibility 0s;
+    }
+    /* Somebody who has asked their system for less movement gets the
+       swap and none of the travel. */
+    @media (prefers-reduced-motion: reduce) {
+        .groups-js .groups-reaction-toggle,
+        .groups-js .groups-reaction-picker,
+        .groups-js .groups-reactions-open .groups-reaction-toggle,
+        .groups-js .groups-reactions-open .groups-reaction-picker {
+            transition: none;
+        }
     }
 }
 
