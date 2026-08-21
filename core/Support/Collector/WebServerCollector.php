@@ -42,6 +42,22 @@ class WebServerCollector implements SupportCollectorInterface
         '/usr/local/apache2/conf/httpd.conf',
     ];
 
+    /** @var array<int, string> */
+    private array $candidateConfigPaths;
+
+    /**
+     * @param array<int, string>|null $candidateConfigPaths Overrides
+     *     self::CANDIDATE_CONFIG_PATHS — test-only. These are real,
+     *     absolute host paths outside any project root, so a test
+     *     asserting "nothing readable" would otherwise depend on
+     *     whatever happens to exist on the machine running it (e.g.
+     *     macOS ships a readable /etc/apache2/httpd.conf out of the box).
+     */
+    public function __construct(?array $candidateConfigPaths = null)
+    {
+        $this->candidateConfigPaths = $candidateConfigPaths ?? self::CANDIDATE_CONFIG_PATHS;
+    }
+
     public function name(): string
     {
         return 'webserver';
@@ -77,7 +93,7 @@ class WebServerCollector implements SupportCollectorInterface
         $summary[] = '## Configuration serveur (meilleur effort)';
 
         $configCopied = 0;
-        foreach (self::CANDIDATE_CONFIG_PATHS as $candidate) {
+        foreach ($this->candidateConfigPaths as $candidate) {
             if ($context->addFileFromPath('webserver/config/' . basename($candidate), $candidate)) {
                 $summary[] = '- ' . $candidate . ' : copié';
                 $configCopied++;

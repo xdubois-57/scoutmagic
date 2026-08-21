@@ -83,6 +83,33 @@ const POLL_QUESTION = 'Qui vient au week-end de novembre ?';
 // post's body has.
 const POST_BODY = '[id^="post-body-"]';
 
+/**
+ * Waits for groups.js's own "I am running" signal (public/assets/js/
+ * groups.js sets `document.documentElement.classList.add('groups-js')`
+ * once its own, deferred, top-level code has finished running).
+ *
+ * Creating a group is a real, unenhanced form POST (modules/groups/views/
+ * list.html.twig never loads groups.js), so it always lands on a freshly
+ * navigated /groups/{id} — a real page, with the deferred script only
+ * just starting to load. Without this wait, an automated click on
+ * "Publier" straight after can beat that load: the composer's own submit
+ * handler (the fetch()-based, no-reload path) is not attached yet, so the
+ * browser falls back to a genuine, unenhanced form submit — not a bug,
+ * the same intended progressive-enhancement fallback every dynamic
+ * action here has (see this file's own header comment) — but it reloads
+ * the page a second time and makes everything timed after it
+ * non-deterministic: on a slow enough run the SAME race can then repeat
+ * on that reload, for instance losing the `change` event a later
+ * `setInputFiles()` fires on a reply's image input. A real member never
+ * hits this: reading the form and typing a message takes far longer than
+ * the script needs to finish loading.
+ *
+ * @param {import('@playwright/test').Page} page
+ */
+async function waitForGroupsJsReady(page) {
+    await page.waitForFunction(() => document.documentElement.classList.contains('groups-js'));
+}
+
 test('a member writes in a discussion group: a message, a link, a poll, a reply and a reaction', async ({ page }) => {
     /** @type {string[]} */
     const serverErrors = [];
@@ -101,6 +128,7 @@ test('a member writes in a discussion group: a message, a link, a poll, a reply 
     await page.goto('/groups', { waitUntil: 'domcontentloaded' });
     await page.getByLabel('Nom du groupe').fill(GROUP_NAME);
     await page.getByRole('button', { name: 'Créer' }).click();
+    await waitForGroupsJsReady(page);
 
     await expect(page.getByRole('heading', { name: GROUP_NAME })).toBeVisible();
     const groupUrl = new URL(page.url()).pathname;
@@ -326,6 +354,7 @@ test('a comment from somebody else is announced as new, and can be reported with
     await page.getByLabel('Nom du groupe').fill(SECTION_GROUP_NAME);
     await page.getByLabel('Section').selectOption({ label: SECTION_NAME });
     await page.getByRole('button', { name: 'Créer' }).click();
+    await waitForGroupsJsReady(page);
 
     await expect(page.getByRole('heading', { name: SECTION_GROUP_NAME })).toBeVisible();
     const groupUrl = new URL(page.url()).pathname;
@@ -448,6 +477,7 @@ test('on a phone the reaction picker folds away — and comes back when the scri
     await page.goto('/groups', { waitUntil: 'domcontentloaded' });
     await page.getByLabel('Nom du groupe').fill(`Téléphone ${Date.now()}`);
     await page.getByRole('button', { name: 'Créer' }).click();
+    await waitForGroupsJsReady(page);
     const groupUrl = new URL(page.url()).pathname;
 
     await page.getByLabel('Écrire un message').fill('Un message à réagir.');
@@ -529,6 +559,7 @@ test('a comment can be a photo and nothing else, and the photo is visible before
     await page.goto('/groups', { waitUntil: 'domcontentloaded' });
     await page.getByLabel('Nom du groupe').fill(`Photo ${Date.now()}`);
     await page.getByRole('button', { name: 'Créer' }).click();
+    await waitForGroupsJsReady(page);
 
     await page.getByLabel('Écrire un message').fill('Des photos du week-end ?');
     await page.locator('#groups-post-form').getByRole('button', { name: 'Publier' }).click();

@@ -74,15 +74,31 @@ class RentalSlugGenerator
     {
         $slug = trim($name);
 
+        // The degree sign has no letter to transliterate to, and iconv
+        // builds disagree on what to do with it: glibc (Linux, where this
+        // runs in CI and in production) drops it silently, but some
+        // libiconv builds (macOS/BSD, common in local development) expand
+        // it to a literal "^0" — turning "n°2" into "n-02" instead of
+        // "n-2". Replaced with a plain separator here so the result never
+        // depends on that.
+        $slug = str_replace('°', ' ', $slug);
+
         $transliterated = @iconv('UTF-8', 'ASCII//TRANSLIT', $slug);
         if ($transliterated !== false) {
             $slug = $transliterated;
         }
 
+        // Same portability problem for accented letters themselves: glibc's
+        // TRANSLIT substitutes the plain letter directly ("é" -> "e"), but
+        // libiconv builds mark it with a leading backtick/caret/quote
+        // instead ("é" -> "'e", "ê" -> "^e", "ë" -> "\"e", …) — dropped here
+        // so "Géry" reads "gery" everywhere, not "g-ery" only on the
+        // machines where this happens to be run.
+        $slug = (string) preg_replace('/[\'"`^]+(?=[a-zA-Z])/', '', $slug);
+
         $slug = strtolower($slug);
-        // iconv's TRANSLIT emits things like `'e` or `"u` for accented
-        // characters depending on locale — drop every non-alphanumeric run
-        // rather than trying to enumerate them.
+        // Whatever iconv could not transliterate at all — drop every
+        // remaining non-alphanumeric run rather than trying to enumerate it.
         $slug = (string) preg_replace('/[^a-z0-9]+/', '-', $slug);
         $slug = trim($slug, '-');
 

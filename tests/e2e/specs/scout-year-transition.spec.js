@@ -422,6 +422,17 @@ test('the whole site transitions to the next scout year through the documented w
     // ---------------------------------------------------------------
     await chooseYear(staffForm, targetYear);
     await staffForm.getByRole('button', { name: 'Activer pour le staff' }).click();
+    // A real, unenhanced form submit — same reload every other step-toggle
+    // in this scenario waits out (see toggleStep()/toggleModule() above)
+    // before touching the DOM again. Skipping it here let a later
+    // toggleStep() click reach a checkbox before the page's own inline
+    // "wire up .js-step-checkbox" <script> (core/View/templates/admin/
+    // scout_year.html.twig's own {% block scripts %}, which every step's
+    // checkbox needs) had run — the click still toggled the checkbox
+    // itself (a native, unconditional browser behaviour), but nothing
+    // then submitted its form, so the expected POST never arrived and
+    // toggleStep() timed out waiting for it.
+    await page.waitForLoadState('domcontentloaded');
 
     await expect(page.getByRole('alert').filter({ hasText: `Année ${targetYear} activée pour le staff.` }))
         .toBeVisible();

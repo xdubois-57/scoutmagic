@@ -241,7 +241,15 @@ class SystemCollectorsTest extends TestCase
 
     public function testAnInstallWithoutAnyReadableConfigurationIsUnavailableNotFatal(): void
     {
-        $result = $this->runCollector(new WebServerCollector());
+        // Real, absolute host paths (never anything under $this->projectRoot)
+        // that are guaranteed not to exist — the real candidate paths are
+        // host-dependent (e.g. macOS ships a readable /etc/apache2/httpd.conf
+        // out of the box), which would make this assertion flaky depending
+        // on the machine running the suite.
+        $result = $this->runCollector(new WebServerCollector([
+            $this->projectRoot . '/nonexistent/apache2.conf',
+            $this->projectRoot . '/nonexistent/nginx.conf',
+        ]));
 
         $this->assertSame('no_readable_webserver_configuration', $result['unavailable']);
         $this->assertArrayHasKey('webserver/summary.txt', $result['entries']);
